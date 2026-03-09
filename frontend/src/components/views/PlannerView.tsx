@@ -33,6 +33,7 @@ export const PlannerView = ({
     is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
   });
 
+  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [newRoutineText, setNewRoutineText] = useState('');
   const [newTodoText, setNewTodoText] = useState('');
   const [editRoutineText, setEditRoutineText] = useState('');
