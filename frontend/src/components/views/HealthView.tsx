@@ -21,11 +21,17 @@ export const HealthView = ({
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
   const [splitCount, setSplitCount] = useState(3);
+  // splitCountInput: 타이핑 중간 상태를 문자열로 관리.
+  // splitCount(number)를 input value로 직접 쓰면 "2" 입력 시 Number("2")=2로 즉시
+  // 강제 변환되어 커서가 튀는 문제 발생 → 문자열 버퍼로 분리.
+  const [splitCountInput, setSplitCountInput] = useState('3');
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength' });
   const [showAssembleModal, setShowAssembleModal] = useState(false);
   const [activeDayForm, setActiveDayForm] = useState('');
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
+  // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
+  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine'>('blocks');
 
   // isDirty: 사용자가 세트를 편집 중인 상태.
   // true일 때는 SWR 백그라운드 재검증이 localWorkouts를 덮어쓰지 않음.
@@ -195,22 +201,41 @@ export const HealthView = ({
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 animate-in fade-in duration-300">
-      {/* ── 좌측: 블록 / 루틴 설정 ── */}
-      <div className="flex-1 lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 min-h-[400px] shrink-0">
-        <div className={`flex-1 lg:h-[40%] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+      {/* ── 좌측: 블록 / 루틴 설정 — 모바일에서 가로 탭 전환 ── */}
+      <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0">
+        {/* 모바일 전용 탭 헤더 */}
+        <div className="flex lg:hidden gap-2">
+          <button
+            onClick={() => setMobileHealthTab('blocks')}
+            className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-colors
+              ${(mobileHealthTab) === 'blocks'
+                ? 'bg-[#1C1C1E] text-[#FACC15]'
+                : `${theme.input} ${theme.textMuted}`}`}>
+            Workout Blocks
+          </button>
+          <button
+            onClick={() => setMobileHealthTab('routine')}
+            className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-colors
+              ${mobileHealthTab === 'routine'
+                ? 'bg-[#1C1C1E] text-[#FACC15]'
+                : `${theme.input} ${theme.textMuted}`}`}>
+            Routine Setup
+          </button>
+        </div>
+        <div className={`flex-1 lg:h-[40%] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">Workout Blocks</h2>
             <button onClick={() => setShowBlockModal(true)} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
-          <div className="flex flex-wrap gap-2 overflow-y-auto pr-1 pb-2">
+          <div className="flex flex-wrap gap-2 overflow-y-auto min-h-0 pr-1 pb-2 content-start">
             {(!healthBlocks || healthBlocks.length === 0) && <EmptyState theme={theme} onClick={() => setShowBlockModal(true)} icon={Dumbbell} text="Create exercise blocks"/>}
             {(healthBlocks || []).map((b: ExerciseBlock) => (
               <div key={b.id} onClick={() => handleAddWorkoutToToday(b)}
-                className={`group relative text-sm font-semibold px-3.5 py-2 rounded-xl border border-transparent hover:border-[#FACC15] cursor-pointer flex items-center gap-2 transition-colors ${theme.input}`}>
-                <div className={`w-2.5 h-2.5 rounded-full ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                {b.name}
+                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer flex items-center gap-2 transition-colors ${theme.input}`}>
+                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
+                <span className="truncate max-w-[100px]">{b.name}</span>
                 <button onClick={e => handleDeleteBlock(b.id, e)}
-                  className="block lg:hidden lg:group-hover:block absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5">
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 active:scale-90 transition-transform">
                   <X size={12}/>
                 </button>
               </div>
@@ -218,12 +243,27 @@ export const HealthView = ({
           </div>
         </div>
 
-        <div className={`flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+        <div className={`flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">Routine Setup</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
-              <input type="number" min="1" max="7" value={splitCount}
-                onChange={e => setSplitCount(Math.min(7, Math.max(1, Number(e.target.value))))}
+              <input
+                type="number" inputMode="numeric" min="1" max="7"
+                value={splitCountInput}
+                onChange={e => setSplitCountInput(e.target.value)}
+                onBlur={() => {
+                  const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
+                  setSplitCount(n);
+                  setSplitCountInput(String(n));
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
+                    setSplitCount(n);
+                    setSplitCountInput(String(n));
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
                 className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
               <span className={`text-xs font-semibold ${theme.textMuted}`}>Split(s)</span>
             </div>
@@ -252,7 +292,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
-      <div className="flex-1 lg:flex-[6.5] flex flex-col gap-4 lg:gap-5 min-h-[600px] shrink-0">
+      <div className="flex-1 lg:flex-[6.5] flex flex-col gap-4 lg:gap-5 min-h-0 shrink-0">
         <div className={`flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden relative transition-colors ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
@@ -273,7 +313,7 @@ export const HealthView = ({
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
                 <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
-                  className="absolute top-5 right-5 text-gray-400 hover:text-red-500 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                  className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
                   <Trash2 size={18}/>
                 </button>
                 <div className="flex items-center gap-3 mb-4">
@@ -282,29 +322,29 @@ export const HealthView = ({
                 </div>
                 <div className="space-y-2">
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => (
-                    <div key={sIdx} className={`flex gap-3 px-4 py-2.5 rounded-xl items-center transition-opacity ${s.done ? 'opacity-40' : theme.input}`}>
-                      <div className={`w-8 text-sm font-bold text-center ${theme.textMuted}`}>{sIdx + 1}</div>
+                    <div key={sIdx} className={`flex gap-2 px-3 py-3 rounded-xl items-center transition-opacity ${s.done ? 'opacity-40' : theme.input}`}>
+                      <div className={`w-7 text-sm font-bold text-center shrink-0 ${theme.textMuted}`}>{sIdx + 1}</div>
                       {isStrengthSet(s) && (
-                        <input type="number" min="0" step="0.5" value={s.kg} placeholder="kg"
+                        <input type="number" inputMode="decimal" min="0" step="0.5" value={s.kg} placeholder="kg"
                           onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', e.target.value)}
-                          className={`flex-1 text-base font-semibold text-center rounded-lg py-1.5 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                          className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                       )}
                       {isCardioSet(s) ? (
                         <>
-                          <input type="text" value={s.time} placeholder="time"
+                          <input type="text" inputMode="numeric" value={s.time} placeholder="time"
                             onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                            className={`flex-1 text-base font-semibold text-center rounded-lg py-1.5 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                          <input type="text" value={s.distance} placeholder="km"
+                            className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                          <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
                             onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                            className={`flex-1 text-base font-semibold text-center rounded-lg py-1.5 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                            className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                         </>
                       ) : isStrengthSet(s) ? (
-                        <input type="number" min="0" value={s.reps} placeholder="reps"
+                        <input type="number" inputMode="numeric" min="0" value={s.reps} placeholder="reps"
                           onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                          className={`flex-1 text-base font-semibold text-center rounded-lg py-1.5 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                          className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                       ) : null}
-                      <div className="w-8 flex justify-center">
-                        <input type="checkbox" checked={s.done} onChange={e => handleUpdateSet(wIdx, sIdx, 'done', e.target.checked)} className="w-5 h-5 accent-[#FACC15] cursor-pointer"/>
+                      <div className="w-8 flex justify-center shrink-0">
+                        <input type="checkbox" checked={s.done} onChange={e => handleUpdateSet(wIdx, sIdx, 'done', e.target.checked)} className="w-6 h-6 accent-[#FACC15] cursor-pointer"/>
                       </div>
                     </div>
                   ))}
@@ -346,8 +386,8 @@ export const HealthView = ({
                 const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
                 const isTodayCell = isToday(dateStr);
                 return (
-                  <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-6 cursor-pointer">
-                    <div className={`w-6 h-6 flex items-center justify-center rounded-full transition-colors font-bold
+                  <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-9 cursor-pointer">
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold text-sm
                       ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
                         : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
                         : theme.hoverBg}`}>
@@ -374,7 +414,7 @@ export const HealthView = ({
                 <div>
                   <p className={`text-xs font-semibold ml-1 ${theme.textMuted}`}>{label}</p>
                   <div className="flex items-end gap-1">
-                    <input type="number" min="0" step="0.1" value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
+                    <input type="number" inputMode="decimal" min="0" step="0.1" value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
                       onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
                       className="w-16 bg-transparent text-xl font-bold outline-none ml-1"/>
                     <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>{unit}</span>

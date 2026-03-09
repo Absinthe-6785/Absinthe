@@ -33,7 +33,8 @@ export const PlannerView = ({
     is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
   });
 
-  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
+  const [newRoutineText, setNewRoutineText] = useState('');
+  const [newTodoText, setNewTodoText] = useState('');
   const [editRoutineText, setEditRoutineText] = useState('');
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editTodoText, setEditTodoText] = useState('');
@@ -214,7 +215,7 @@ export const PlannerView = ({
             </h2>
             <textarea
               value={memoText} onChange={e => setMemoText(e.target.value)}
-              className="flex-1 w-full resize-none text-sm lg:text-base font-semibold bg-transparent outline-none border-none leading-relaxed"
+              className="flex-1 w-full resize-none text-sm lg:text-base font-semibold bg-transparent outline-none border-none leading-relaxed min-h-[80px]"
               placeholder="Write your thoughts here..."
             />
           </div>
@@ -235,9 +236,9 @@ export const PlannerView = ({
                   <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-3 mb-3`}>
                     <p className="text-sm font-semibold truncate flex-1">{d.text}</p>
                     <div className="flex items-center gap-2">
-                      <div className="flex lg:opacity-0 lg:group-hover:opacity-100 transition-opacity gap-1.5 mr-1">
-                        <button onClick={() => openDdayModal(d)} className={`${theme.textMuted} hover:text-blue-500`}><Edit2 size={15}/></button>
-                        <button onClick={() => handleDeleteDday(d.id)} className={`${theme.textMuted} hover:text-red-500`}><Trash2 size={15}/></button>
+                      <div className="flex gap-1.5 mr-1">
+                        <button onClick={() => openDdayModal(d)} className={`p-2 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Edit2 size={15}/></button>
+                        <button onClick={() => handleDeleteDday(d.id)} className={`p-2 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Trash2 size={15}/></button>
                       </div>
                       <span className="font-heading text-sm font-bold bg-[#FACC15] text-[#1C1C1E] px-3 py-1.5 rounded-xl shrink-0">
                         {calculateDday(d.date)}
@@ -260,7 +261,7 @@ export const PlannerView = ({
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text="Build a daily routine!" /></div>}
             {routines.map((r: Routine) => (
-              <div key={r.id} className="h-[40px] flex items-center justify-between group">
+              <div key={r.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
                 {editingRoutineId === r.id ? (
                   <input autoFocus value={editRoutineText}
                     onChange={e => setEditRoutineText(e.target.value)}
@@ -277,16 +278,34 @@ export const PlannerView = ({
                     <span className={`text-base font-medium ${r.done ? 'line-through opacity-50' : ''}`}>{r.text}</span>
                   </label>
                 )}
-                <div className={`flex gap-1.5 ml-2 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity ${theme.textMuted}`}>
-                  {r.is_active && <button onClick={() => { setEditingRoutineId(r.id); setEditRoutineText(r.text); }} className="hover:text-blue-500 p-1"><Edit2 size={15}/></button>}
-                  {r.is_active && <button onClick={() => handleDeleteRoutine(r.id)} className="hover:text-red-500 p-1"><X size={15}/></button>}
+                <div className={`flex gap-1 ml-2 ${theme.textMuted}`}>
+                  {r.is_active && <button onClick={() => { setEditingRoutineId(r.id); setEditRoutineText(r.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>}
+                  {r.is_active && <button onClick={() => handleDeleteRoutine(r.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>}
                 </div>
               </div>
             ))}
-            <div className="h-[40px] flex items-center gap-3 opacity-60 focus-within:opacity-100">
-              <Plus size={18}/>
-              <input type="text" placeholder="Add new routine..." className="bg-transparent outline-none text-base font-medium w-full"
-                onKeyDown={e => { if (e.key === 'Enter') { handleAddRoutine(e.currentTarget.value); e.currentTarget.value = ''; } }} />
+            <div className="flex items-center gap-2 mt-1 pt-1">
+              <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
+              <input
+                type="text"
+                value={newRoutineText}
+                onChange={e => setNewRoutineText(e.target.value)}
+                placeholder="Add new routine..."
+                className="flex-1 bg-transparent outline-none text-sm font-medium"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newRoutineText.trim()) {
+                    handleAddRoutine(newRoutineText);
+                    setNewRoutineText('');
+                  }
+                }}
+              />
+              {newRoutineText.trim() && (
+                <button
+                  onClick={() => { handleAddRoutine(newRoutineText); setNewRoutineText(''); }}
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">
+                  Add
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -301,7 +320,7 @@ export const PlannerView = ({
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text="No tasks. Chill out!" /></div>}
             {todos.map((t: Todo) => (
-              <div key={t.id} className="h-[40px] flex items-center justify-between group">
+              <div key={t.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
                 {editingTodoId === t.id ? (
                   <input autoFocus value={editTodoText}
                     onChange={e => setEditTodoText(e.target.value)}
@@ -318,16 +337,34 @@ export const PlannerView = ({
                     <span className={`text-base font-medium ${t.done ? 'line-through opacity-50' : ''}`}>{t.text}</span>
                   </label>
                 )}
-                <div className={`flex gap-1.5 ml-2 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity ${theme.textMuted}`}>
-                  <button onClick={() => { setEditingTodoId(t.id); setEditTodoText(t.text); }} className="hover:text-blue-500 p-1"><Edit2 size={15}/></button>
-                  <button onClick={() => handleDeleteTodo(t.id)} className="hover:text-red-500 p-1"><X size={15}/></button>
+                <div className={`flex gap-1 ml-2 ${theme.textMuted}`}>
+                  <button onClick={() => { setEditingTodoId(t.id); setEditTodoText(t.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>
+                  <button onClick={() => handleDeleteTodo(t.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>
                 </div>
               </div>
             ))}
-            <div className="h-[40px] flex items-center gap-3 opacity-60 focus-within:opacity-100">
-              <Plus size={18}/>
-              <input type="text" placeholder="Add new task..." className="bg-transparent outline-none text-base font-medium w-full"
-                onKeyDown={e => { if (e.key === 'Enter') { handleAddTodo(e.currentTarget.value); e.currentTarget.value = ''; } }} />
+            <div className="flex items-center gap-2 mt-1 pt-1">
+              <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
+              <input
+                type="text"
+                value={newTodoText}
+                onChange={e => setNewTodoText(e.target.value)}
+                placeholder="Add new task..."
+                className="flex-1 bg-transparent outline-none text-sm font-medium"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newTodoText.trim()) {
+                    handleAddTodo(newTodoText);
+                    setNewTodoText('');
+                  }
+                }}
+              />
+              {newTodoText.trim() && (
+                <button
+                  onClick={() => { handleAddTodo(newTodoText); setNewTodoText(''); }}
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">
+                  Add
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -357,8 +394,8 @@ export const PlannerView = ({
               const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
               const isTodayCell = isToday(dateStr);
               return (
-                <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="relative flex justify-center items-center h-8 cursor-pointer">
-                  <div className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors font-bold
+                <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="relative flex justify-center items-center h-9 cursor-pointer">
+                  <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold
                     ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
                       : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
                       : theme.hoverBg}`}>
@@ -419,9 +456,9 @@ export const PlannerView = ({
                         <p className="text-xs lg:text-sm font-semibold truncate">{sch.text}</p>
                         {height >= 40 && <p className="text-[10px] opacity-90 tabular-nums">{sch.start_time} - {sch.end_time}</p>}
                       </div>
-                      <div className="flex lg:opacity-0 lg:group-hover:opacity-100 transition-opacity gap-1.5 mt-0.5 bg-black/20 p-1.5 rounded-full">
-                        <button onClick={() => openModal(sch)} className="p-1 hover:text-white"><Edit2 size={12}/></button>
-                        <button onClick={() => handleDeleteSchedule(sch.id)} className="p-1 hover:text-red-300"><Trash2 size={12}/></button>
+                      <div className="flex gap-1.5 mt-0.5 bg-black/20 p-1.5 rounded-full">
+                        <button onClick={() => openModal(sch)} className="p-1 hover:text-white active:scale-95"><Edit2 size={12}/></button>
+                        <button onClick={() => handleDeleteSchedule(sch.id)} className="p-1 hover:text-red-300 active:scale-95"><Trash2 size={12}/></button>
                       </div>
                     </div>
                   );
