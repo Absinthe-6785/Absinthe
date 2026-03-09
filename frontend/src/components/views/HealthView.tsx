@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, MouseEvent, ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, MouseEvent, ChangeEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
@@ -41,6 +41,17 @@ export const HealthView = ({
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
+
+  // 배너 캘린더 — 선택 날짜를 자동으로 가운데 스크롤
+  const bannerScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bannerScrollRef.current;
+    if (!el) return;
+    const idx = selectedDate.getDate() - 1;
+    const itemW = 52; // w-11(44px) + gap-2(8px)
+    const scrollTarget = idx * itemW - el.clientWidth / 2 + itemW / 2;
+    el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, [selectedDate]);
 
   // isDirty: 사용자가 세트를 편집 중인 상태.
   // true일 때는 SWR 백그라운드 재검증이 localWorkouts를 덮어쓰지 않음.
@@ -439,38 +450,75 @@ export const HealthView = ({
         </div>
 
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 shrink-0">
-          {/* 캘린더 */}
-          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
-            <div className="flex justify-between items-center mb-4">
+          {/* 캘린더 — 모바일: 가로 스크롤 주간 배너 / 데스크탑: 월간 그리드 */}
+          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+            {/* 공통 헤더 */}
+            <div className="flex justify-between items-center mb-3">
               <h2 className="font-heading text-base font-bold tabular-nums">
                 {currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
               </h2>
               <div className="flex gap-1">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1 rounded-full ${theme.hoverBg}`}><ChevronLeft size={16}/></button>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className={`p-1 rounded-full ${theme.hoverBg}`}><ChevronRight size={16}/></button>
+                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronLeft size={15}/></button>
+                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronRight size={15}/></button>
               </div>
             </div>
-            <div className={`grid grid-cols-7 gap-1 text-center text-[11px] font-semibold mb-2 ${theme.textMuted}`}>
-              {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => <div key={d}>{d}</div>)}
+
+            {/* 모바일 전용 — 가로 스크롤 배너 (해당 월 전체 날짜) */}
+            <div ref={bannerScrollRef} className="lg:hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
+              <div className="flex gap-2 w-max">
+                {(() => {
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const days = Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, i) => i + 1);
+                  const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+                  return days.map(day => {
+                    const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+                    const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
+                    const isTodayCell = isToday(dateStr);
+                    const dow = new Date(year, month, day).getDay();
+                    return (
+                      <button key={day}
+                        onClick={() => setSelectedDate(new Date(year, month, day))}
+                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition-colors shrink-0 w-11
+                          ${isSelected
+                            ? 'bg-[#FACC15] text-[#1C1C1E]'
+                            : isTodayCell
+                              ? `ring-2 ring-[#FACC15] ${theme.input}`
+                              : theme.input}`}>
+                        <span className={`text-[10px] font-bold ${isSelected ? 'text-[#1C1C1E]' : theme.textMuted}`}>
+                          {DAY_LABELS[dow]}
+                        </span>
+                        <span className="text-sm font-bold">{day}</span>
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
             </div>
-            <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-bold">
-              {calendarDays.map((day, idx) => {
-                if (!day) return <div key={`e-${idx}`}/>;
-                const pad = (n: number) => String(n).padStart(2, '0');
-                const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
-                const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
-                const isTodayCell = isToday(dateStr);
-                return (
-                  <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-9 cursor-pointer">
-                    <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold text-sm
-                      ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
-                        : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
-                        : theme.hoverBg}`}>
-                      {day}
+
+            {/* 데스크탑 전용 — 기존 월간 그리드 */}
+            <div className="hidden lg:block">
+              <div className={`grid grid-cols-7 gap-1 text-center text-[11px] font-semibold mb-2 ${theme.textMuted}`}>
+                {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => <div key={d}>{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-bold">
+                {calendarDays.map((day, idx) => {
+                  if (!day) return <div key={`e-${idx}`}/>;
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+                  const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
+                  const isTodayCell = isToday(dateStr);
+                  return (
+                    <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-9 cursor-pointer">
+                      <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold text-sm
+                        ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
+                          : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
+                          : theme.hoverBg}`}>
+                        {day}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
 
