@@ -235,7 +235,7 @@ export const HealthView = ({
                 <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
                 <span className="truncate max-w-[100px]">{b.name}</span>
                 <button onClick={e => handleDeleteBlock(b.id, e)}
-                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 active:scale-90 transition-transform">
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all">
                   <X size={12}/>
                 </button>
               </div>
