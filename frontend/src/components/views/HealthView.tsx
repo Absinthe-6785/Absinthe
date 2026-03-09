@@ -175,14 +175,14 @@ export const HealthView = ({
       if (next.length === 0) setIsDirty(false);
     } catch { showToast('Failed to remove', 'error'); }
   };
-  const handleAddSet = (wIdx: number) => {
+  const handleAddSet = (wIdx: number, asDropset = false) => {
     setIsDirty(true);
     setLocalWorkouts(prev => {
       const next = [...prev];
       const w = { ...next[wIdx] };
       // makeNextSet이 이전 세트의 타입을 보존하며 값을 복사 — as any 불필요
       const last = w.sets[w.sets.length - 1] ?? makeDefaultSet(w.exercise_blocks.type);
-      w.sets = [...w.sets, makeNextSet(last)];
+      w.sets = [...w.sets, makeNextSet(last, asDropset)];
       next[wIdx] = w;
       return next;
     });
@@ -380,7 +380,7 @@ export const HealthView = ({
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
       <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 shrink-0 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`max-h-[520px] lg:max-h-none lg:flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden relative transition-colors ${theme.card}`}>
+        <div className={`lg:flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-2xl font-bold">Today's Workout</h2>
@@ -395,7 +395,7 @@ export const HealthView = ({
             </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-5 pb-4 pr-2">
+          <div className="space-y-5 pb-2">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
@@ -407,38 +407,85 @@ export const HealthView = ({
                   <div className={`w-3 h-3 rounded-full ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
                   <h3 className="font-heading text-lg font-bold">{w.exercise_blocks?.name || 'Unknown'}</h3>
                 </div>
+                {/* 컬럼 헤더 — strength/bodyweight만 */}
+                {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
+                  <div className={`flex gap-2 px-3 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+                    <div className="w-7 shrink-0"/>
+                    <div className="flex-1 text-center">kg</div>
+                    <div className="flex-1 text-center">reps</div>
+                    <div className="w-8 text-center shrink-0">✓</div>
+                  </div>
+                )}
                 <div className="space-y-2">
-                  {(w.sets || []).map((s: WorkoutSet, sIdx: number) => (
-                    <div key={sIdx} className={`flex gap-2 px-3 py-3 rounded-xl items-center transition-opacity ${s.done ? 'opacity-40' : theme.input}`}>
-                      <div className={`w-7 text-sm font-bold text-center shrink-0 ${theme.textMuted}`}>{sIdx + 1}</div>
-                      {isStrengthSet(s) && (
-                        <input type="number" inputMode="decimal" min="0" step="0.5" value={s.kg} placeholder="kg"
-                          onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', e.target.value)}
-                          className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                      )}
-                      {isCardioSet(s) ? (
-                        <>
-                          <input type="text" inputMode="numeric" value={s.time} placeholder="time"
-                            onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                            className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                          <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
-                            onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                            className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                        </>
-                      ) : isStrengthSet(s) ? (
-                        <input type="number" inputMode="numeric" min="0" value={s.reps} placeholder="reps"
-                          onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                          className={`flex-1 text-base font-semibold text-center rounded-lg py-2 outline-none shadow-sm focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                      ) : null}
-                      <div className="w-8 flex justify-center shrink-0">
-                        <input type="checkbox" checked={s.done} onChange={e => handleUpdateSet(wIdx, sIdx, 'done', e.target.checked)} className="w-6 h-6 accent-[#FACC15] cursor-pointer"/>
+                  {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
+                    const isDS = isStrengthSet(s) && s.is_dropset;
+                    return (
+                      <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-40' : ''}`}>
+                        {/* 드랍세트 레이블 */}
+                        {isDS && (
+                          <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
+                            <div className="h-px flex-1 bg-orange-400/50"/>
+                            <span className="text-[10px] font-bold text-orange-400 shrink-0">DROP SET</span>
+                            <div className="h-px flex-1 bg-orange-400/50"/>
+                          </div>
+                        )}
+                        <div className={`flex gap-2 px-3 py-2.5 items-center
+                          ${isDS ? 'bg-orange-400/10 border border-orange-400/30 rounded-xl' : theme.input}`}>
+                          {/* 세트 번호 */}
+                          <div className={`w-7 text-sm font-bold text-center shrink-0 ${theme.textMuted}`}>{sIdx + 1}</div>
+
+                          {/* Strength / Bodyweight 입력 */}
+                          {isStrengthSet(s) && (
+                            <>
+                              <input type="number" inputMode="decimal" min="0" step="0.5"
+                                value={s.kg} placeholder="—"
+                                onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', e.target.value)}
+                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              <input type="number" inputMode="numeric" min="0"
+                                value={s.reps} placeholder="—"
+                                onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
+                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                            </>
+                          )}
+
+                          {/* Cardio 입력 */}
+                          {isCardioSet(s) && (
+                            <>
+                              <input type="text" inputMode="numeric" value={s.time} placeholder="min"
+                                onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
+                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
+                                onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
+                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                            </>
+                          )}
+
+                          {/* 체크박스 */}
+                          <div className="w-8 flex justify-center shrink-0">
+                            <input type="checkbox" checked={s.done}
+                              onChange={e => handleUpdateSet(wIdx, sIdx, 'done', e.target.checked)}
+                              className="w-6 h-6 accent-[#FACC15] cursor-pointer"/>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <button onClick={() => handleAddSet(wIdx)} className="mt-4 w-full text-sm font-bold py-2.5 rounded-xl bg-[#FACC15] text-[#1C1C1E] opacity-90 hover:opacity-100 transition-colors">
-                  + Add Set
-                </button>
+
+                {/* Add Set / Drop Set 버튼 */}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => handleAddSet(wIdx)}
+                    className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-[#FACC15] text-[#1C1C1E] active:scale-[0.98] transition-all">
+                    + Set
+                  </button>
+                  {/* 드랍세트는 strength/bodyweight에만 */}
+                  {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
+                    <button onClick={() => handleAddSet(wIdx, true)}
+                      className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-orange-400/20 text-orange-400 border border-orange-400/40 active:scale-[0.98] transition-all">
+                      ↓ Drop Set
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

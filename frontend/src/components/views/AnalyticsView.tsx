@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, ReactNode } from 'react';
+import { useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
 import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
@@ -19,6 +19,12 @@ const CATEGORY_META: Record<string, { icon: ReactNode; color: string }> = {
 // 완전히 정적인 값 — 렌더마다 재생성되지 않도록 모듈 레벨로 분리.
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 const SCHEDULE_HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+// parseTime: 렌더 루프 안에서 매번 재생성되지 않도록 모듈 레벨로 분리.
+const parseTime = (t: string): number => {
+  const [h, m] = t.split(':');
+  return parseInt(h || '0') + parseInt(m || '0') / 60;
+};
 
 export const AnalyticsView = ({
   now, mutateStatic, showToast, weeklySchedules, schedules,
@@ -67,6 +73,42 @@ export const AnalyticsView = ({
   );
 
   const analyticsSchedules: Schedule[] = rangeSchedules ?? schedules;
+
+  // ── Workout Days — 이번 주 월~일 날짜 계산 ──
+  const thisWeekDates = useMemo(() => {
+    const today = now.toJSDate();
+    const dayOfWeek = (today.getDay() + 6) % 7; // 0=Mon
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - dayOfWeek + i);
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    });
+  }, [now]);
+
+  const workoutDaysUrl = thisWeekDates.length === 7
+    ? `${API_URL}/api/workouts/range?start_date=${thisWeekDates[0]}&end_date=${thisWeekDates[6]}`
+    : null;
+
+  const { data: weekWorkouts } = useSWR(workoutDaysUrl, fetcher, { refreshInterval: 60000 });
+
+  // 이번 주에 운동 기록이 있는 날짜 Set
+  const workoutDoneSet = useMemo(() => {
+    const s = new Set<string>();
+    if (Array.isArray(weekWorkouts)) {
+      weekWorkouts.forEach((w: { date: string }) => { if (w.date) s.add(w.date); });
+    }
+    return s;
+  }, [weekWorkouts]);
+
+  // 토글 오버라이드 — 이번 세션 중 사용자가 직접 누른 날짜
+  const [workoutToggle, setWorkoutToggle] = useState<Record<string, boolean>>({});
+  const toggleWorkoutDay = (dateStr: string) => {
+    const current = workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
+    setWorkoutToggle(prev => ({ ...prev, [dateStr]: !current }));
+  };
+  const isWorkoutDone = (dateStr: string) =>
+    workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
 
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [editingWeeklyId, setEditingWeeklyId] = useState<string | null>(null);
@@ -132,7 +174,7 @@ export const AnalyticsView = ({
       {/* ── 헤더 + 기간 선택 ── */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-6 px-2 lg:pl-2 lg:pr-6 shrink-0 gap-4 lg:gap-0">
         <div>
-          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-gray-100' : 'text-gray-900'}`}>Your Analytics</h1>
+          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-white' : 'text-gray-900'}`}>Your Analytics</h1>
           <p className={`text-sm lg:text-base font-medium mt-1 ${theme.textMuted}`}>{analyticsStart} ~ {analyticsEnd}</p>
         </div>
         <div className="flex flex-col items-start lg:items-end gap-3 w-full lg:w-auto">
@@ -195,21 +237,46 @@ export const AnalyticsView = ({
           </div>
 
           {/* 운동 요일 */}
-          <div className={`h-[25%] rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col relative transition-colors ${theme.card}`}>
-            <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2"><Activity size={18} className="text-green-500"/> Workout Days</h2>
-            <div className="flex-1 flex items-center justify-between px-2">
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col relative transition-colors ${theme.card}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-heading text-base font-bold flex items-center gap-2">
+                <Activity size={18} className="text-green-500"/> Workout Days
+              </h2>
+              <span className={`text-xs font-semibold ${theme.textMuted}`}>
+                {thisWeekDates[0]?.slice(5)} ~ {thisWeekDates[6]?.slice(5)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1">
               {['Mo','Tu','We','Th','Fr','Sa','Su'].map((day, idx) => {
-                const isDone = (weeklySchedules || []).some((ws: WeeklySchedule) => ws.day === idx);
+                const dateStr = thisWeekDates[idx] ?? '';
+                const done = isWorkoutDone(dateStr);
+                const isToday = dateStr === formatDate(now.toJSDate());
                 return (
-                  <div key={idx} className="flex flex-col items-center gap-2.5">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isDone ? 'bg-green-500 text-white shadow-sm' : appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                      {isDone && <CheckCircle size={16} strokeWidth={3}/>}
+                  <button key={idx}
+                    onClick={() => toggleWorkoutDay(dateStr)}
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-2 rounded-2xl transition-all active:scale-95
+                      ${done
+                        ? 'bg-green-500/20 border border-green-500/40'
+                        : isToday
+                          ? `border-2 border-[#FACC15]/60 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-50'}`
+                          : `border border-transparent ${appSettings.darkMode ? 'bg-[#2C2C2E]/60' : 'bg-gray-50'}`}`}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors
+                      ${done ? 'bg-green-500 text-white shadow-sm' : appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                      {done
+                        ? <CheckCircle size={14} strokeWidth={3}/>
+                        : <span className={`text-[10px] font-bold ${theme.textMuted}`}>{idx + 1}</span>}
                     </div>
-                    <span className={`text-[11px] font-bold ${isDone ? '' : theme.textMuted}`}>{day}</span>
-                  </div>
+                    <span className={`text-[10px] font-bold leading-none
+                      ${done ? 'text-green-400' : isToday ? 'text-[#FACC15]' : theme.textMuted}`}>
+                      {day}
+                    </span>
+                  </button>
                 );
               })}
             </div>
+            <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
+              탭해서 운동 완료 표시 · 운동 저장 시 자동 반영
+            </p>
           </div>
 
           {/* 루틴 달성률 */}
@@ -231,7 +298,7 @@ export const AnalyticsView = ({
         </div>
 
         {/* ── 우측: 주간 타임테이블 ── */}
-        <div className={`w-full lg:flex-[6.5] min-h-[600px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card}`}>
+        <div className={`w-full lg:flex-[6.5] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card}`}>
           <div className="flex justify-between items-center mb-6">
             <h2 className="font-heading text-lg lg:text-xl font-bold flex items-center gap-2">
               <CalendarDays size={22} className="text-[#FACC15]"/> Weekly Timetable (24H)
@@ -268,7 +335,6 @@ export const AnalyticsView = ({
                   {DAYS_OF_WEEK.map((_, i) => <div key={i} className={`flex-1 border-r border-dashed ${theme.border} last:border-r-0`}/>)}
                 </div>
                 {(weeklySchedules || []).map((block: WeeklySchedule) => {
-                  const parseTime = (t: string) => { const [h, m] = t.split(':'); return parseInt(h||'0') + parseInt(m||'0')/60; };
                   const start = parseTime(block.start_time);
                   let dur = parseTime(block.end_time) - start;
                   if (dur < 0) dur += 24;

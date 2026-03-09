@@ -21,6 +21,7 @@ export interface StrengthSet {
   kg: number | string;
   reps: number | string;
   done: boolean;
+  is_dropset?: boolean;  // 드랍세트 여부 — 이전 세트와 무게만 변경
 }
 export interface CardioSet {
   type: 'cardio';
@@ -44,10 +45,10 @@ export const makeDefaultSet = (blockType: string, setNumber = 1): WorkoutSet =>
     : { type: blockType as 'strength' | 'bodyweight', set: setNumber, kg: '', reps: '', done: false };
 
 /** 이전 세트에서 입력값을 복사해 다음 세트를 만드는 팩토리 */
-export const makeNextSet = (prev: WorkoutSet): WorkoutSet =>
+export const makeNextSet = (prev: WorkoutSet, asDropset = false): WorkoutSet =>
   isCardioSet(prev)
     ? { type: 'cardio', set: prev.set + 1, time: prev.time, distance: prev.distance, pace: prev.pace, done: false }
-    : { type: prev.type, set: prev.set + 1, kg: prev.kg, reps: prev.reps, done: false };
+    : { type: prev.type, set: prev.set + 1, kg: prev.kg, reps: prev.reps, done: false, is_dropset: asDropset };
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface Workout {

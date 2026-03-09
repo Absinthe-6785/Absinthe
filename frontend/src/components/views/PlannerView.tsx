@@ -32,6 +32,8 @@ export const PlannerView = ({
     text: '', start_time: '10:00', end_time: '11:00',
     is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
   });
+  // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
+  const [endNextDay, setEndNextDay] = useState(false);
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [newRoutineText, setNewRoutineText] = useState('');
@@ -160,14 +162,16 @@ export const PlannerView = ({
   const openModal = (sch?: Schedule) => {
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory });
     setEditingId(sch?.id ?? null);
+    setEndNextDay(false);
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
     if (!newSch.text) return showToast('Enter text!', 'error');
-    if (newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
-      return showToast('End time must be after start time!', 'error');
+    if (!endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
+      return showToast('End time must be after start time! (Check "Next day" for overnight schedules)', 'error');
 
-    const isOverlap = schedules.some(s =>
+    // 익일인 경우 overlap 체크 생략 (자정 넘는 일정은 단순 문자열 비교 불가)
+    const isOverlap = !endNextDay && schedules.some(s =>
       s.id !== editingId && newSch.start_time! < s.end_time && newSch.end_time! > s.start_time
     );
     const doSave = async () => {
@@ -504,10 +508,20 @@ export const PlannerView = ({
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
                 </div>
                 <div className="flex-1">
-                  <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>End</label>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className={`text-sm font-semibold ${theme.textMuted}`}>End</label>
+                    <button type="button"
+                      onClick={() => setEndNextDay(v => !v)}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-lg transition-colors
+                        ${endNextDay ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                      +1 day
+                    </button>
+                  </div>
                   <input type="time" value={newSch.end_time} step="1800"
                     onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
-                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
+                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
+                      ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
+                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">익일 종료</p>}
                 </div>
               </div>
               <div>
