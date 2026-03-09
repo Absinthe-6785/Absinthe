@@ -29,12 +29,18 @@ export const HealthView = ({
     return saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3';
   });
   const [showBlockModal, setShowBlockModal] = useState(false);
-  const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength' });
+  const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength', tags: [] });
+  // editingBlock: 수정 대상 블록 (null이면 신규 생성 모드)
+  const [editingBlock, setEditingBlock] = useState<ExerciseBlock | null>(null);
+  // tagInput: 태그 입력 중간값 (Enter/쉼표로 확정)
+  const [tagInput, setTagInput] = useState('');
+  // activeTagFilter: 현재 선택된 태그 필터 (null이면 전체)
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [showAssembleModal, setShowAssembleModal] = useState(false);
   const [activeDayForm, setActiveDayForm] = useState('');
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
-  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine'>('blocks');
+  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
 
   // isDirty: 사용자가 세트를 편집 중인 상태.
   // true일 때는 SWR 백그라운드 재검증이 localWorkouts를 덮어쓰지 않음.
@@ -65,11 +71,38 @@ export const HealthView = ({
   useEscapeKey(() => { setShowBlockModal(false); setShowAssembleModal(false); clearConfirm(); });
 
   // ── 운동 블록 ──────────────────────────────────────────────────────
-  const handleCreateBlock = async () => {
-    if (!newBlock.name) return showToast('Enter name!', 'error');
-    const ok = await api('POST', '/api/blocks', { name: newBlock.name, type: newBlock.type }, { revalidate: 'static', successMsg: 'Block created' });
-    if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength' }); }
+  const openBlockModal = (block?: ExerciseBlock) => {
+    if (block) {
+      setEditingBlock(block);
+      setNewBlock({ name: block.name, type: block.type, tags: block.tags ?? [] });
+    } else {
+      setEditingBlock(null);
+      setNewBlock({ name: '', type: 'strength', tags: [] });
+    }
+    setTagInput('');
+    setShowBlockModal(true);
   };
+
+  const commitTag = () => {
+    const t = tagInput.trim();
+    if (!t) return;
+    const already = (newBlock.tags ?? []).includes(t);
+    if (!already) setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
+    setTagInput('');
+  };
+
+  const removeTag = (tag: string) =>
+    setNewBlock(b => ({ ...b, tags: (b.tags ?? []).filter(t => t !== tag) }));
+
+  const handleSaveBlock = async () => {
+    if (!newBlock.name) return showToast('Enter name!', 'error');
+    const payload = { name: newBlock.name, type: newBlock.type, tags: newBlock.tags ?? [] };
+    const ok = editingBlock
+      ? await api('PUT', `/api/blocks/${editingBlock.id}`, payload, { revalidate: 'static', successMsg: 'Block updated' })
+      : await api('POST', '/api/blocks', payload, { revalidate: 'static', successMsg: 'Block created' });
+    if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength', tags: [] }); setEditingBlock(null); }
+  };
+
   const handleDeleteBlock = (id: string, e: MouseEvent) => {
     e.stopPropagation();
     showConfirm('Delete this block?', () =>
@@ -208,45 +241,83 @@ export const HealthView = ({
       <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
-          <button
-            onClick={() => setMobileHealthTab('blocks')}
-            className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-colors
-              ${(mobileHealthTab) === 'blocks'
-                ? 'bg-[#1C1C1E] text-[#FACC15]'
-                : `${theme.input} ${theme.textMuted}`}`}>
-            Workout Blocks
-          </button>
-          <button
-            onClick={() => setMobileHealthTab('routine')}
-            className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-colors
-              ${mobileHealthTab === 'routine'
-                ? 'bg-[#1C1C1E] text-[#FACC15]'
-                : `${theme.input} ${theme.textMuted}`}`}>
-            Routine Setup
-          </button>
+          {(['blocks', 'routine', 'workout'] as const).map(tab => (
+            <button key={tab}
+              onClick={() => setMobileHealthTab(tab)}
+              className={`flex-1 py-2.5 rounded-2xl text-xs font-bold transition-colors
+                ${mobileHealthTab === tab
+                  ? 'bg-[#1C1C1E] text-[#FACC15]'
+                  : `${theme.input} ${theme.textMuted}`}`}>
+              {tab === 'blocks' ? 'Blocks' : tab === 'routine' ? 'Routine' : 'Workout'}
+            </button>
+          ))}
         </div>
         <div className={`lg:h-[40%] min-h-0 max-h-[280px] lg:max-h-none rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">Workout Blocks</h2>
-            <button onClick={() => setShowBlockModal(true)} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
+            <button onClick={() => openBlockModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
-          <div className="flex flex-wrap gap-2 overflow-y-auto min-h-0 pr-1 pb-2 content-start">
-            {(!healthBlocks || healthBlocks.length === 0) && <EmptyState theme={theme} onClick={() => setShowBlockModal(true)} icon={Dumbbell} text="Create exercise blocks"/>}
-            {(healthBlocks || []).map((b: ExerciseBlock) => (
-              <div key={b.id} onClick={() => handleAddWorkoutToToday(b)}
-                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer flex items-center gap-2 transition-colors ${theme.input}`}>
-                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                <span className="truncate max-w-[100px]">{b.name}</span>
-                <button onClick={e => handleDeleteBlock(b.id, e)}
-                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all">
-                  <X size={12}/>
-                </button>
-              </div>
-            ))}
-          </div>
+          {/* 태그 필터 바 */}
+          {(() => {
+            const allTags = Array.from(new Set((healthBlocks ?? []).flatMap((b: ExerciseBlock) => b.tags ?? [])));
+            const filtered = activeTagFilter
+              ? (healthBlocks ?? []).filter((b: ExerciseBlock) => (b.tags ?? []).includes(activeTagFilter))
+              : (healthBlocks ?? []);
+            return (
+              <>
+                {allTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3 shrink-0">
+                    <button
+                      onClick={() => setActiveTagFilter(null)}
+                      className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
+                        ${activeTagFilter === null ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                      All
+                    </button>
+                    {allTags.map(tag => (
+                      <button key={tag}
+                        onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
+                          ${activeTagFilter === tag ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2 overflow-y-auto min-h-0 pr-1 pb-2 content-start">
+                  {filtered.length === 0 && <EmptyState theme={theme} onClick={() => openBlockModal()} icon={Dumbbell} text="Create exercise blocks"/>}
+                  {filtered.map((b: ExerciseBlock) => (
+                    <div key={b.id} onClick={() => handleAddWorkoutToToday(b)}
+                      className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer flex flex-col gap-0.5 transition-colors ${theme.input}`}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
+                        <span className="truncate max-w-[100px]">{b.name}</span>
+                      </div>
+                      {(b.tags ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 pl-4">
+                          {(b.tags ?? []).map(tag => (
+                            <span key={tag} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${theme.card} opacity-70`}>#{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                      {/* 수정 버튼 */}
+                      <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
+                        className={`absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all`}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      {/* 삭제 버튼 */}
+                      <button onClick={e => handleDeleteBlock(b.id, e)}
+                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all">
+                        <X size={10}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
-        <div className={`flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+        <div className={`max-h-[420px] lg:max-h-none lg:flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">Routine Setup</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -297,7 +368,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
-      <div className="flex-1 lg:flex-[6.5] flex flex-col gap-4 lg:gap-5 min-h-0 shrink-0">
+      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 shrink-0 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
         <div className={`flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden relative transition-colors ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
@@ -432,25 +503,69 @@ export const HealthView = ({
         </div>
       </div>
 
-      {/* ── 블록 생성 모달 ── */}
+      {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowBlockModal(false)}>
-          <div className={`p-6 lg:p-8 rounded-[32px] w-full max-w-[350px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+          <div className={`p-6 lg:p-8 rounded-[32px] w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
             <h3 className="font-heading text-xl font-bold mb-6 flex justify-between items-center">
-              New Block
+              {editingBlock ? 'Edit Block' : 'New Block'}
               <button onClick={() => setShowBlockModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
             </h3>
-            <input autoFocus type="text" value={newBlock.name} placeholder="Exercise Name"
+
+            {/* 이름 */}
+            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder="Exercise Name"
               onChange={e => setNewBlock({ ...newBlock, name: e.target.value })}
-              onKeyDown={e => e.key === 'Enter' && handleCreateBlock()}
+              onKeyDown={e => e.key === 'Enter' && handleSaveBlock()}
               className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-[#FACC15] font-semibold text-base ${theme.input}`}/>
-            <select value={newBlock.type} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
+
+            {/* 타입 */}
+            <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
               className={`w-full p-4 rounded-2xl mb-4 outline-none font-semibold text-base ${theme.input}`}>
               <option value="strength">Strength</option>
               <option value="bodyweight">Bodyweight</option>
               <option value="cardio">Cardio</option>
             </select>
-            <button onClick={handleCreateBlock} className="w-full bg-[#1C1C1E] text-[#FACC15] p-4 rounded-2xl font-bold text-lg hover:bg-gray-800 transition-colors">Create</button>
+
+            {/* 태그 입력 */}
+            <div className={`rounded-2xl p-3 mb-2 ${theme.input}`}>
+              <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>Tags (Enter or comma to add)</p>
+              {/* 등록된 태그 */}
+              {(newBlock.tags ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {(newBlock.tags ?? []).map(tag => (
+                    <span key={tag} className="flex items-center gap-1 text-xs font-bold bg-[#FACC15] text-[#1C1C1E] px-2.5 py-1 rounded-lg">
+                      #{tag}
+                      <button onClick={() => removeTag(tag)} className="ml-0.5 hover:opacity-70"><X size={10}/></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* 태그 입력란 */}
+              <input
+                type="text"
+                value={tagInput}
+                placeholder="e.g. chest, push, upper"
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val.endsWith(',')) {
+                    const t = val.slice(0, -1).trim();
+                    if (t && !(newBlock.tags ?? []).includes(t))
+                      setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
+                    setTagInput('');
+                  } else {
+                    setTagInput(val);
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitTag(); } }}
+                onBlur={commitTag}
+                className="w-full bg-transparent outline-none text-sm font-semibold placeholder-gray-400"
+              />
+            </div>
+            <p className={`text-[11px] mb-4 ${theme.textMuted}`}>Tap a block to add to today's workout. Use tags to filter blocks.</p>
+
+            <button onClick={handleSaveBlock} className="w-full bg-[#1C1C1E] text-[#FACC15] p-4 rounded-2xl font-bold text-lg hover:bg-gray-800 transition-colors">
+              {editingBlock ? 'Save Changes' : 'Create'}
+            </button>
           </div>
         </div>
       )}

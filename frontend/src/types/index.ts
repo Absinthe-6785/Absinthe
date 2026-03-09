@@ -10,7 +10,7 @@ export interface Schedule {
 export interface DDay { id: string; text: string; date: string; }
 export interface Todo { id: string; text: string; done: boolean; }
 export interface Routine { id: string; text: string; done: boolean; is_active: boolean; }
-export interface ExerciseBlock { id: string; name: string; type: string; }
+export interface ExerciseBlock { id: string; name: string; type: string; tags?: string[]; }
 
 // ─── WorkoutSet — Discriminated Union ───────────────────────────────────────
 // 기존: 모든 필드가 optional인 단일 인터페이스 → `(s as any).kg` 같은 캐스팅 불가피

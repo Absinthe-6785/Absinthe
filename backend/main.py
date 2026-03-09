@@ -65,7 +65,7 @@ class TodoCreate(BaseModel): date: str; text: str
 class RoutineCreate(BaseModel): text: str
 class StatusUpdate(BaseModel): done: bool
 class RoutineLogUpdate(BaseModel): routine_id: str; date: str; done: bool
-class ExerciseBlockCreate(BaseModel): name: str; type: str
+class ExerciseBlockCreate(BaseModel): name: str; type: str; tags: list = []
 class HealthRoutineCreate(BaseModel): day_name: str; blocks: list
 class WorkoutLogCreate(BaseModel): date: str; block_id: str; sets: list
 class InbodyLogCreate(BaseModel): date: str; weight: float; smm: float; pbf: float
@@ -223,6 +223,12 @@ async def get_blocks(user_id: str = Depends(get_current_user)):
 @app.post("/api/blocks")
 async def create_block(block: ExerciseBlockCreate, user_id: str = Depends(get_current_user)):
     return supabase.table("exercise_blocks").insert({"user_id": user_id, **block.model_dump()}).execute().data
+
+@app.put("/api/blocks/{block_id}")
+async def update_block(block_id: str, block: ExerciseBlockCreate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).single().execute().data
+    if not row or row["user_id"] != user_id: raise HTTPException(403)
+    return supabase.table("exercise_blocks").update({"name": block.name, "type": block.type, "tags": block.tags}).eq("id", block_id).execute().data
 
 @app.delete("/api/blocks/{block_id}")
 async def delete_block(block_id: str, user_id: str = Depends(get_current_user)):
