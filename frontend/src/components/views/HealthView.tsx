@@ -20,11 +20,14 @@ export const HealthView = ({
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
-  const [splitCount, setSplitCount] = useState(3);
-  // splitCountInput: 타이핑 중간 상태를 문자열로 관리.
-  // splitCount(number)를 input value로 직접 쓰면 "2" 입력 시 Number("2")=2로 즉시
-  // 강제 변환되어 커서가 튀는 문제 발생 → 문자열 버퍼로 분리.
-  const [splitCountInput, setSplitCountInput] = useState('3');
+  const [splitCount, setSplitCount] = useState<number>(() => {
+    const saved = localStorage.getItem('healthSplitCount');
+    return saved ? Math.min(7, Math.max(1, Number(saved))) : 3;
+  });
+  const [splitCountInput, setSplitCountInput] = useState<string>(() => {
+    const saved = localStorage.getItem('healthSplitCount');
+    return saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3';
+  });
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength' });
   const [showAssembleModal, setShowAssembleModal] = useState(false);
@@ -222,7 +225,7 @@ export const HealthView = ({
             Routine Setup
           </button>
         </div>
-        <div className={`flex-1 lg:h-[40%] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
+        <div className={`lg:h-[40%] min-h-0 max-h-[280px] lg:max-h-none rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">Workout Blocks</h2>
             <button onClick={() => setShowBlockModal(true)} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
@@ -255,12 +258,14 @@ export const HealthView = ({
                   const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
                   setSplitCount(n);
                   setSplitCountInput(String(n));
+                  localStorage.setItem('healthSplitCount', String(n));
                 }}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
                     setSplitCount(n);
                     setSplitCountInput(String(n));
+                    localStorage.setItem('healthSplitCount', String(n));
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
