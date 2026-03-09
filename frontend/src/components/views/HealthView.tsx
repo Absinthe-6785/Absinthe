@@ -369,7 +369,7 @@ export const HealthView = ({
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
       <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 shrink-0 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden relative transition-colors ${theme.card}`}>
+        <div className={`max-h-[520px] lg:max-h-none lg:flex-[1.8] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden relative transition-colors ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-2xl font-bold">Today's Workout</h2>
@@ -384,7 +384,7 @@ export const HealthView = ({
             </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-5 pb-24 pr-2">
+          <div className="flex-1 overflow-y-auto space-y-5 pb-4 pr-2">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
@@ -431,9 +431,8 @@ export const HealthView = ({
               </div>
             ))}
           </div>
-          <div className="absolute bottom-0 left-0 right-0 p-5 lg:p-6 pt-10"
-            style={{ backgroundImage: `linear-gradient(to top, ${appSettings.darkMode ? '#2C2C2E' : '#ffffff'} 60%, transparent)` }}>
-            <button onClick={handleSaveWorkouts} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 transition-colors">
+          <div className="shrink-0 pt-4">
+            <button onClick={handleSaveWorkouts} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all">
               <Save size={20}/> Complete Workout
             </button>
           </div>
