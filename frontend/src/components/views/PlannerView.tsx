@@ -38,6 +38,7 @@ export const PlannerView = ({
   });
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'notes' | 'calendar'>('todo');
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [newRoutineText, setNewRoutineText] = useState('');
@@ -232,8 +233,20 @@ export const PlannerView = ({
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
+
+      {/* ── 모바일 탭 바 ── */}
+      <div className={`lg:hidden flex gap-2 shrink-0 p-1 rounded-2xl ${theme.card}`}>
+        {(['todo', 'notes', 'calendar'] as const).map(tab => (
+          <button key={tab} onClick={() => setMobilePlannerTab(tab)}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors
+              ${mobilePlannerTab === tab ? 'bg-[#1C1C1E] text-[#FACC15]' : `${theme.input} ${theme.textMuted}`}`}>
+            {tab === 'todo' ? 'Planner' : tab === 'notes' ? 'Notes' : 'Calendar'}
+          </button>
+        ))}
+      </div>
+
       {/* ══ Col-1: 루틴 + 투두 ══ */}
-      <div className="flex-1 lg:flex-[2] flex flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2">
+      <div className={`flex-1 lg:flex-[2] flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2 ${mobilePlannerTab === "todo" ? "flex" : "hidden lg:flex"}`}>
 
         {/* 루틴 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
@@ -329,7 +342,7 @@ export const PlannerView = ({
       </div>
 
       {/* ══ Col-2: D-Day 위 + Notes 아래 ══ */}
-      <div className="flex-1 lg:flex-[2.2] flex flex-col gap-4 lg:gap-5">
+      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "notes" ? "flex" : "hidden lg:flex"}`}>
 
         {/* D-Day */}
         <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
@@ -363,10 +376,10 @@ export const PlannerView = ({
         </div>
 
         {/* Notes — Apple Notes 스타일 다중 메모 */}
-        <div className={`flex-1 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
+        <div className={`flex-1 min-h-[400px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
 
           {/* 왼쪽: 노트 목록 사이드바 */}
-          <div className={`w-[140px] lg:w-[160px] shrink-0 flex flex-col border-r ${theme.border}`}>
+          <div className={`w-[120px] lg:w-[160px] shrink-0 flex flex-col border-r ${theme.border}`}>
             <div className="flex items-center justify-between px-3 py-3 shrink-0">
               <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1.5">
                 <FileText size={13} className="text-yellow-400"/> Notes
@@ -425,7 +438,7 @@ export const PlannerView = ({
                 <textarea
                   value={activeNote.body}
                   onChange={e => updateNote(activeNote.id, { body: e.target.value })}
-                  className="relative z-10 w-full h-full resize-none text-sm lg:text-[14px] bg-transparent outline-none border-none font-medium"
+                  className="relative z-10 w-full h-full resize-none text-[15px] lg:text-[14px] bg-transparent outline-none border-none font-medium"
                   placeholder="Start writing..."
                   style={{ lineHeight: '24px', paddingTop: '4px' }}
                 />
@@ -440,22 +453,22 @@ export const PlannerView = ({
       </div>
 
       {/* ── 우측 컬럼: 캘린더 / 타임라인 ── */}
-      <div className="flex-1 lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 min-h-[600px] lg:min-h-0 shrink-0">
+      <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 min-h-[600px] lg:min-h-0 shrink-0 ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
         {/* 캘린더 */}
-        <div className={`h-[auto] lg:h-[35%] rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col transition-colors shrink-0 ${theme.card}`}>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="font-heading text-lg lg:text-xl font-bold tabular-nums">
+        <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex flex-col transition-colors shrink-0 ${theme.card}`}>
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="font-heading text-sm lg:text-base font-bold tabular-nums">
               {currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
             </h2>
-            <div className="flex gap-2">
-              <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronLeft size={20}/></button>
-              <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronRight size={20}/></button>
+            <div className="flex gap-1">
+              <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1 rounded-full ${theme.hoverBg}`}><ChevronLeft size={15}/></button>
+              <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className={`p-1 rounded-full ${theme.hoverBg}`}><ChevronRight size={15}/></button>
             </div>
           </div>
-          <div className={`grid grid-cols-7 gap-1 text-center text-xs lg:text-sm mb-3 font-semibold ${theme.textMuted}`}>
+          <div className={`grid grid-cols-7 gap-1 text-center text-[11px] mb-1.5 font-semibold ${theme.textMuted}`}>
             {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => <div key={d}>{d}</div>)}
           </div>
-          <div className="grid grid-cols-7 gap-y-2 text-center text-sm lg:text-base font-bold">
+          <div className="grid grid-cols-7 gap-y-0 text-center text-xs lg:text-sm font-bold">
             {calendarDays.map((day, idx) => {
               if (!day) return <div key={`e-${idx}`}/>;
               const pad = (n: number) => String(n).padStart(2, '0');
@@ -463,8 +476,8 @@ export const PlannerView = ({
               const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
               const isTodayCell = isToday(dateStr);
               return (
-                <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="relative flex justify-center items-center h-9 cursor-pointer">
-                  <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold
+                <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="relative flex justify-center items-center h-7 cursor-pointer">
+                  <div className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors font-bold
                     ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
                       : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
                       : theme.hoverBg}`}>

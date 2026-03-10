@@ -3,6 +3,7 @@ import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, Chevron
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useAppStore } from '../../store/useAppStore';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -18,6 +19,7 @@ export const HealthView = ({
   THEME_COLORS,
 }: HealthProps) => {
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
+  const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
   const [splitCount, setSplitCount] = useState<number>(() => {
@@ -61,24 +63,8 @@ export const HealthView = ({
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
 
-  // weightUnits: 운동 카드(block_id)별 독립 kg/lbs 토글
-  // DB에는 항상 kg로 저장. lbs 모드 시 입력→×0.4536→저장, 출력→÷0.4536→표시.
-  // localStorage persist — 재방문/날짜 이동 시에도 단위 선택 유지
-  const WEIGHT_UNITS_KEY = 'health-weight-units';
-  const [weightUnits, setWeightUnits] = useState<Record<string, 'kg' | 'lbs'>>(() => {
-    try {
-      const saved = localStorage.getItem('health-weight-units');
-      return saved ? (JSON.parse(saved) as Record<string, 'kg' | 'lbs'>) : {};
-    } catch { return {}; }
-  });
+  // weightUnits: zustand store persist — 모든 환경(모바일/데스크톱/PWA)에서 안정적으로 유지
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
-  const toggleUnit = (blockId: string) => {
-    setWeightUnits(prev => {
-      const next = { ...prev, [blockId]: (prev[blockId] === 'lbs' ? 'kg' : 'lbs') } as Record<string, 'kg' | 'lbs'>;
-      try { localStorage.setItem('health-weight-units', JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  };
 
   const KG_PER_LBS = 0.45359237;
   // 표시용: DB(kg) → 해당 카드 단위로 변환
@@ -511,7 +497,7 @@ export const HealthView = ({
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
-                          onClick={() => toggleUnit(w.block_id)}
+                          onClick={() => toggleWeightUnit(w.block_id)}
                           className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
                             ${appSettings.darkMode ? 'bg-[#3A3A3C] hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
                           <span className={getUnit(w.block_id) === 'kg' ? 'text-[#FACC15]' : theme.textMuted}>kg</span>
@@ -648,9 +634,9 @@ export const HealthView = ({
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 shrink-0">
+        <div className={`flex-col lg:flex-row gap-4 lg:gap-5 shrink-0 ${mobileHealthTab === "workout" ? "flex" : "hidden lg:flex"}`}>
           {/* 캘린더 — 모바일: 가로 스크롤 주간 배너 / 데스크탑: 월간 그리드 */}
-          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-3 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
             {/* 공통 헤더 */}
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-heading text-base font-bold tabular-nums">

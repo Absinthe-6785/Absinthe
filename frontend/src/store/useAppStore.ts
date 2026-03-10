@@ -25,6 +25,10 @@ interface StoreState {
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body'>>) => void;
   deleteNote: (id: string) => void;
   setActiveNoteId: (id: string | null) => void;
+  /** 운동 카드별 kg/lbs 단위 — block_id 키 */
+  weightUnits: Record<string, 'kg' | 'lbs'>;
+  setWeightUnit: (blockId: string, unit: 'kg' | 'lbs') => void;
+  toggleWeightUnit: (blockId: string) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -120,13 +124,24 @@ export const useAppStore = create<StoreState>()(
           set({ activeNoteId: id });
           try { localStorage.setItem(ACTIVE_NOTE_KEY, id ?? ''); } catch { /* ignore */ }
         },
+
+        weightUnits: {},
+        setWeightUnit: (blockId, unit) =>
+          set(state => ({ weightUnits: { ...state.weightUnits, [blockId]: unit } })),
+        toggleWeightUnit: (blockId) =>
+          set(state => ({
+            weightUnits: {
+              ...state.weightUnits,
+              [blockId]: state.weightUnits[blockId] === 'lbs' ? 'kg' : 'lbs',
+            },
+          })),
       };
     },
     {
       name: 'planner-storage',
       storage: createJSONStorage(() => localStorage),
       version: 2,
-      partialize: (state) => ({ appSettings: state.appSettings }),
+      partialize: (state) => ({ appSettings: state.appSettings, weightUnits: state.weightUnits }),
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<StoreState>;
         if (version < 2) {
