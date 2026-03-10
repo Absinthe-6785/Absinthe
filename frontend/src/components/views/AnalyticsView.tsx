@@ -41,6 +41,10 @@ export const AnalyticsView = ({
 
   const { analyticsStart, analyticsEnd } = useMemo(() => {
     const today = now.toJSDate();
+    if (timeRange === 'daily') {
+      const todayStr = formatDate(today);
+      return { analyticsStart: todayStr, analyticsEnd: todayStr };
+    }
     if (timeRange === 'weekly') {
       const dayOfWeek = (today.getDay() + 6) % 7;
       const mon = new Date(today); mon.setDate(today.getDate() - dayOfWeek);
@@ -171,6 +175,23 @@ export const AnalyticsView = ({
       }));
   }, [analyticsSchedules]);
 
+  // ── 일간 상세 통계 — 오늘 스케줄 기준 ──────────────────────────────
+  const dailyStats = useMemo(() => {
+    if (!analyticsSchedules?.length) return { items: [], totalHrs: 0 };
+    const items: { cat: string; text: string; start: string; end: string; hrs: number }[] = [];
+    let totalMins = 0;
+    for (const sch of analyticsSchedules) {
+      if (!sch.start_time || !sch.end_time) continue;
+      const [sh, sm] = sch.start_time.split(':').map(Number);
+      let [eh, em] = sch.end_time.split(':').map(Number);
+      if (sch.end_next_day) eh += 24;
+      const mins = Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+      totalMins += mins;
+      items.push({ cat: sch.category || 'Personal', text: sch.text, start: sch.start_time, end: sch.end_time, hrs: Math.round(mins / 6) / 10 });
+    }
+    return { items: items.sort((a, b) => a.start.localeCompare(b.start)), totalHrs: Math.round(totalMins / 6) / 10 };
+  }, [analyticsSchedules]);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
       {/* ── 헤더 + 기간 선택 ── */}
@@ -181,7 +202,7 @@ export const AnalyticsView = ({
         </div>
         <div className="flex flex-col items-start lg:items-end gap-3 w-full lg:w-auto">
           <div className={`flex p-1.5 rounded-2xl shadow-inner w-full lg:w-auto overflow-x-auto ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-[#E5E7EB]'}`}>
-            {[['weekly','Weekly'],['monthly','Monthly']].map(([val, label]) => (
+            {[['daily','Today'],['weekly','Weekly'],['monthly','Monthly']].map(([val, label]) => (
               <button key={val} onClick={() => setTimeRange(val)}
                 className={`px-4 lg:px-5 py-2 rounded-xl text-xs lg:text-sm font-bold transition-all whitespace-nowrap
                   ${timeRange === val ? 'bg-[#1C1C1E] text-white shadow-sm' : `${theme.textMuted} hover:text-current`}`}>
@@ -297,6 +318,40 @@ export const AnalyticsView = ({
               </div>
             </div>
           </div>
+          {/* 일간 상세 — Today 탭일 때만 표시 */}
+          {timeRange === 'daily' && (
+            <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col transition-colors ${theme.card}`}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-heading text-base font-bold flex items-center gap-2">
+                  <Clock size={18} className="text-[#FACC15]"/> Today's Detail
+                </h2>
+                <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-[#FACC15]/10 text-[#FACC15]' : 'bg-yellow-50 text-yellow-700'}`}>
+                  {dailyStats.totalHrs}h total
+                </span>
+              </div>
+              {dailyStats.items.length === 0 ? (
+                <p className={`text-sm text-center py-4 ${theme.textMuted}`}>No schedules today.</p>
+              ) : (
+                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                  {dailyStats.items.map((item, i) => {
+                    const meta = CATEGORY_META[item.cat];
+                    return (
+                      <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-50'}`}>
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white ${meta?.color ?? 'bg-gray-500'}`}>
+                          {meta?.icon ?? <Activity size={14}/>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold truncate">{item.text}</p>
+                          <p className={`text-[11px] font-medium tabular-nums ${theme.textMuted}`}>{item.start} — {item.end}</p>
+                        </div>
+                        <span className={`text-xs font-bold shrink-0 ${meta?.tw ?? theme.textMuted}`}>{item.hrs}h</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── 우측: 주간 타임테이블 ── */}

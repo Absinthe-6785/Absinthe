@@ -458,8 +458,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
-      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 lg:overflow-hidden lg:pr-1 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors min-h-0 lg:flex-1 ${theme.card}`}>
+      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors lg:min-h-0 lg:flex-1 ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-2xl font-bold">Today's Workout</h2>
@@ -476,7 +476,7 @@ export const HealthView = ({
             )}
           </div>
 
-          <div className="space-y-5 pb-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
+          <div className="space-y-5 pb-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
