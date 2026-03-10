@@ -63,10 +63,22 @@ export const HealthView = ({
 
   // weightUnits: 운동 카드(block_id)별 독립 kg/lbs 토글
   // DB에는 항상 kg로 저장. lbs 모드 시 입력→×0.4536→저장, 출력→÷0.4536→표시.
-  const [weightUnits, setWeightUnits] = useState<Record<string, 'kg' | 'lbs'>>({});
+  // localStorage persist — 재방문/날짜 이동 시에도 단위 선택 유지
+  const WEIGHT_UNITS_KEY = 'health-weight-units';
+  const [weightUnits, setWeightUnits] = useState<Record<string, 'kg' | 'lbs'>>(() => {
+    try {
+      const saved = localStorage.getItem('health-weight-units');
+      return saved ? (JSON.parse(saved) as Record<string, 'kg' | 'lbs'>) : {};
+    } catch { return {}; }
+  });
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
-  const toggleUnit = (blockId: string) =>
-    setWeightUnits(prev => ({ ...prev, [blockId]: prev[blockId] === 'lbs' ? 'kg' : 'lbs' }));
+  const toggleUnit = (blockId: string) => {
+    setWeightUnits(prev => {
+      const next = { ...prev, [blockId]: (prev[blockId] === 'lbs' ? 'kg' : 'lbs') } as Record<string, 'kg' | 'lbs'>;
+      try { localStorage.setItem('health-weight-units', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const KG_PER_LBS = 0.45359237;
   // 표시용: DB(kg) → 해당 카드 단위로 변환
