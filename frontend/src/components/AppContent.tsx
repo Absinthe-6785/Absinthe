@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
@@ -36,9 +36,12 @@ export function AppContent({ authUser }: { authUser: User }) {
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
 
-  // 앱 시작 시 DB에서 최신 노트 로드 (localStorage 위에 덮어쓰기)
+  // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
+  useEffect(() => {
+    fetchNotes();
+  // fetchNotes는 store 레퍼런스라 변하지 않음
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useState(() => { fetchNotes(); });
+  }, []);
 
   // ── 2. 날짜 상태 ──────────────────────────────────────────────────
   const [currentDate, setCurrentDate] = useState(now.toJSDate());

@@ -68,6 +68,13 @@ const saveNotesDebounced = (notes: Note[]) => {
   }, MEMO_DEBOUNCE_MS);
 };
 
+// syncNote 디바운스 — 타이핑 중 과도한 API 호출 방지 (1.5초)
+const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+const syncNoteDebounced = (note: Note, syncFn: (n: Note) => void) => {
+  if (syncTimers[note.id]) clearTimeout(syncTimers[note.id]);
+  syncTimers[note.id] = setTimeout(() => { syncFn(note); }, 1500);
+};
+
 // 초기 노트 로드 — 기존 단일 메모를 첫 노트로 마이그레이션
 const loadNotesInitial = (): Note[] => {
   try {
@@ -127,7 +134,7 @@ export const useAppStore = create<StoreState>()(
           set({ notes });
           saveNotesDebounced(notes);
           const updated = notes.find(n => n.id === id);
-          if (updated) get().syncNote(updated);
+          if (updated) syncNoteDebounced(updated, (n) => get().syncNote(n));
         },
 
         deleteNote: (id) => {
