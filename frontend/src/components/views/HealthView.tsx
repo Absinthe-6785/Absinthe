@@ -263,33 +263,29 @@ export const HealthView = ({
     });
   };
   const handleSaveWorkouts = async () => {
-    // 빈 배열 guard: localWorkouts가 없으면 allSettled([])가 즉시 fulfilled=[]를 반환해
-    // failed === 0 → "Workout Saved!" 오표시. 저장할 항목이 없으면 early return.
     if (localWorkouts.length === 0) return showToast('No workouts to save', 'error');
 
-    // Promise.allSettled → 개별 성공/실패를 확인해 정확한 피드백 제공.
-    // 개선 전: authFetch는 4xx/5xx에서도 Response를 반환(throw 안 함) →
-    //          allSettled가 항상 fulfilled로 분류 → failed === 0 → "Workout Saved!" 오표시.
-    // 개선 후: .then(res => { if (!res.ok) throw }) 로 HTTP 오류를 reject로 변환.
-    const results = await Promise.allSettled(
-      localWorkouts.map((w, idx) =>
-        authFetch(`${API_URL}/api/workouts`, {
+    // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
+    // 병렬 저장 시 네트워크 응답 순서가 뒤바뀌어 sort_order가 섞이는 문제 방지
+    let failed = 0;
+    for (let idx = 0; idx < localWorkouts.length; idx++) {
+      const w = localWorkouts[idx];
+      try {
+        const res = await authFetch(`${API_URL}/api/workouts`, {
           method: 'POST',
           body: JSON.stringify({ date: formatDate(selectedDate), block_id: w.block_id, sets: w.sets, sort_order: idx }),
-        }).then(res => {
-          if (!res.ok) throw new Error(`[${res.status}]`);
-          return res;
-        })
-      )
-    );
-    const failed = results.filter(r => r.status === 'rejected').length;
+        });
+        if (!res.ok) failed++;
+      } catch { failed++; }
+    }
+    const total = localWorkouts.length;
     if (failed === 0) {
       showToast('Workout Saved! 💪');
       setIsDirty(false);
-      setIsWorkoutLocked(true); // 저장 완료 → 잠금
+      setIsWorkoutLocked(true);
       mutateDaily();
-    } else if (failed < results.length) {
-      showToast(`${results.length - failed}/${results.length} saved. Some failed.`, 'error');
+    } else if (failed < total) {
+      showToast(`${total - failed}/${total} saved. Some failed.`, 'error');
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
@@ -476,8 +472,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
-      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 lg:overflow-y-auto lg:pr-1 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 lg:overflow-hidden lg:pr-1 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors min-h-0 lg:flex-1 ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-2xl font-bold">Today's Workout</h2>
@@ -494,7 +490,7 @@ export const HealthView = ({
             )}
           </div>
 
-          <div className="space-y-5 pb-2">
+          <div className="space-y-5 pb-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
