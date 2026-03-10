@@ -232,16 +232,16 @@ export const AnalyticsView = ({
         {/* ── 좌측: 통계 카드 3개 ── */}
         <div className="w-full lg:flex-[3.5] flex flex-col gap-5 shrink-0">
           {/* 시간 분포 */}
-          <div className={`flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative transition-colors ${theme.card}`}>
             <h2 className={`font-heading text-lg font-bold mb-6 flex items-center gap-2 ${appSettings.darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
               <Clock size={20} className="text-blue-500"/> Time Distribution
             </h2>
-            <div className="flex-1 flex flex-col justify-center space-y-6">
+            <div className="flex flex-col space-y-4 max-h-[320px] lg:max-h-[400px] overflow-y-auto pr-1">
               {isRangeLoading && <p className={`text-sm ${theme.textMuted} text-center`}>Loading…</p>}
               {!isRangeLoading && computedStats.length === 0 && <p className={`text-sm ${theme.textMuted} text-center`}>No schedules in this period.</p>}
               {computedStats.map((stat) => (
                 <div key={stat.cat}>
-                  <div className="flex justify-between items-end mb-2.5">
+                  <div className="flex justify-between items-end mb-1.5">
                     <div className="flex items-center gap-2 font-bold text-sm">
                       <div className={`p-1.5 rounded-lg text-white ${stat.color}`}>{stat.icon}</div>
                       {stat.cat}

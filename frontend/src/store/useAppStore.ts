@@ -2,17 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppSettings } from '../types';
 import { API_URL } from '../lib/config';
-
-// authFetch — Supabase 세션 토큰 포함 요청
-const authFetch = async (url: string, options: RequestInit = {}) => {
-  const { supabase } = await import('../lib/supabase');
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token ?? '';
-  return fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers ?? {}) },
-  });
-};
+import { authFetch } from '../lib/supabase';
 
 // ─── 다중 메모 타입 ───────────────────────────────────────────────────────────
 export interface Note {
@@ -161,10 +151,20 @@ export const useAppStore = create<StoreState>()(
               id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
             }));
             if (dbNotes.length > 0) {
+              // DB 노트가 있으면 DB 기준으로 덮어쓰기 (최신 기기 우선)
               set({ notes: dbNotes, activeNoteId: dbNotes[0].id });
               saveNotesDebounced(dbNotes);
+            } else {
+              // DB 노트가 없으면 localStorage 노트를 DB에 업로드 (초기 마이그레이션)
+              const localNotes = get().notes;
+              for (const note of localNotes) {
+                await authFetch(`${API_URL}/api/notes`, {
+                  method: 'POST',
+                  body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt }),
+                });
+              }
             }
-          } catch { /* offline */ }
+          } catch { /* offline — localStorage로 동작 */ }
         },
 
         syncNote: async (note: Note) => {

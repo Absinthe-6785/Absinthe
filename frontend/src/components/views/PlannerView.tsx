@@ -38,7 +38,7 @@ export const PlannerView = ({
   });
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'notes' | 'calendar'>('todo');
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'notes' | 'calendar' | 'timeline'>('todo');
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [newRoutineText, setNewRoutineText] = useState('');
@@ -235,12 +235,12 @@ export const PlannerView = ({
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
 
       {/* ── 모바일 탭 바 ── */}
-      <div className={`lg:hidden flex gap-2 shrink-0 p-1 rounded-2xl ${theme.card}`}>
-        {(['todo', 'notes', 'calendar'] as const).map(tab => (
+      <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}>
+        {(['todo', 'notes', 'calendar', 'timeline'] as const).map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors
+            className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-[#1C1C1E] text-[#FACC15]' : `${theme.input} ${theme.textMuted}`}`}>
-            {tab === 'todo' ? 'Planner' : tab === 'notes' ? 'Notes' : 'Calendar'}
+            {tab === 'todo' ? 'Planner' : tab === 'notes' ? 'Notes' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
           </button>
         ))}
       </div>
@@ -453,9 +453,9 @@ export const PlannerView = ({
       </div>
 
       {/* ── 우측 컬럼: 캘린더 / 타임라인 ── */}
-      <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 min-h-[600px] lg:min-h-0 shrink-0 ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
+      <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 lg:min-h-0 shrink-0 ${mobilePlannerTab === "calendar" || mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
         {/* 캘린더 */}
-        <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex flex-col transition-colors shrink-0 ${theme.card}`}>
+        <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
           <div className="flex justify-between items-center mb-2">
             <h2 className="font-heading text-sm lg:text-base font-bold tabular-nums">
               {currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
@@ -493,7 +493,7 @@ export const PlannerView = ({
         </div>
 
         {/* 타임라인 */}
-        <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
+        <div className={`relative lg:flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex-col transition-colors min-h-[520px] lg:min-h-0 ${theme.card} ${mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
           <div className="flex justify-between items-center mb-5">
             <div>
               <h2 className="font-heading text-xl lg:text-2xl font-bold flex items-center gap-2.5">
