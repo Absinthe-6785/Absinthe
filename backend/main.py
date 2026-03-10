@@ -316,3 +316,22 @@ async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_cu
     row = supabase.table("weekly_schedules").select("user_id").eq("id", schedule_id).single().execute().data
     verify_owner(row["user_id"], user_id)
     return supabase.table("weekly_schedules").delete().eq("id", schedule_id).execute().data
+
+# ==========================================
+# Notes
+# ==========================================
+class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int
+
+@app.get("/api/notes")
+async def get_notes(user_id: str = Depends(get_current_user)):
+    return supabase.table("notes").select("*").eq("user_id", user_id).order("updated_at", desc=True).execute().data or []
+
+@app.post("/api/notes")
+async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("notes").upsert({"user_id": user_id, **note.model_dump()}, on_conflict="id").execute().data
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("notes").select("user_id").eq("id", note_id).single().execute().data
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("notes").delete().eq("id", note_id).execute().data

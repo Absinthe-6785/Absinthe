@@ -1,6 +1,18 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppSettings } from '../types';
+import { API_URL } from '../lib/config';
+
+// authFetch — Supabase 세션 토큰 포함 요청
+const authFetch = async (url: string, options: RequestInit = {}) => {
+  const { supabase } = await import('../lib/supabase');
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token ?? '';
+  return fetch(url, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers ?? {}) },
+  });
+};
 
 // ─── 다중 메모 타입 ───────────────────────────────────────────────────────────
 export interface Note {
@@ -25,6 +37,12 @@ interface StoreState {
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body'>>) => void;
   deleteNote: (id: string) => void;
   setActiveNoteId: (id: string | null) => void;
+  /** DB에서 노트 로드 */
+  fetchNotes: () => Promise<void>;
+  /** DB에 노트 upsert */
+  syncNote: (note: Note) => Promise<void>;
+  /** DB에서 노트 삭제 */
+  removeNoteFromDB: (id: string) => Promise<void>;
   /** 운동 카드별 kg/lbs 단위 — block_id 키 */
   weightUnits: Record<string, 'kg' | 'lbs'>;
   setWeightUnit: (blockId: string, unit: 'kg' | 'lbs') => void;
@@ -97,6 +115,7 @@ export const useAppStore = create<StoreState>()(
           set({ notes, activeNoteId: id });
           saveNotesDebounced(notes);
           try { localStorage.setItem(ACTIVE_NOTE_KEY, id); } catch { /* ignore */ }
+          get().syncNote(newNote);
           return id;
         },
 
@@ -104,10 +123,11 @@ export const useAppStore = create<StoreState>()(
           const notes = get().notes.map(n =>
             n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
           );
-          // 최근 수정 노트를 맨 앞으로 정렬
           notes.sort((a, b) => b.updatedAt - a.updatedAt);
           set({ notes });
           saveNotesDebounced(notes);
+          const updated = notes.find(n => n.id === id);
+          if (updated) get().syncNote(updated);
         },
 
         deleteNote: (id) => {
@@ -118,11 +138,41 @@ export const useAppStore = create<StoreState>()(
           set({ notes, activeNoteId });
           saveNotesDebounced(notes);
           try { localStorage.setItem(ACTIVE_NOTE_KEY, activeNoteId ?? ''); } catch { /* ignore */ }
+          get().removeNoteFromDB(id);
         },
 
         setActiveNoteId: (id) => {
           set({ activeNoteId: id });
           try { localStorage.setItem(ACTIVE_NOTE_KEY, id ?? ''); } catch { /* ignore */ }
+        },
+
+        fetchNotes: async () => {
+          try {
+            const res = await authFetch(`${API_URL}/api/notes`);
+            if (!res.ok) return;
+            const dbNotes: Note[] = (await res.json()).map((n: { id: string; title: string; body: string; updated_at: number }) => ({
+              id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
+            }));
+            if (dbNotes.length > 0) {
+              set({ notes: dbNotes, activeNoteId: dbNotes[0].id });
+              saveNotesDebounced(dbNotes);
+            }
+          } catch { /* offline */ }
+        },
+
+        syncNote: async (note: Note) => {
+          try {
+            await authFetch(`${API_URL}/api/notes`, {
+              method: 'POST',
+              body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt }),
+            });
+          } catch { /* offline — localStorage에 있으니 OK */ }
+        },
+
+        removeNoteFromDB: async (id: string) => {
+          try {
+            await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' });
+          } catch { /* ignore */ }
         },
 
         weightUnits: (() => {

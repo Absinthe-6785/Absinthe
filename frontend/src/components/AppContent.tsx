@@ -30,11 +30,15 @@ const THEME_COLORS: ThemeColor[] = [
 export type TabId = 'planner' | 'health' | 'analytics' | 'settings';
 
 export function AppContent({ authUser }: { authUser: User }) {
-  const { appSettings, updateSetting } = useAppStore();
+  const { appSettings, updateSetting, fetchNotes } = useAppStore();
   const [activeTab, setActiveTab] = useState<TabId>('planner');
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
+
+  // 앱 시작 시 DB에서 최신 노트 로드 (localStorage 위에 덮어쓰기)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useState(() => { fetchNotes(); });
 
   // ── 2. 날짜 상태 ──────────────────────────────────────────────────
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
@@ -112,9 +116,10 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   return (
     <div
-      className={`flex flex-col lg:flex-row h-screen font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden ${
+      className={`flex flex-col lg:flex-row h-[100dvh] font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden ${
         appSettings.darkMode ? 'bg-[#18181A]' : 'bg-[#F1F3F5]'
       }`}
+      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <Sidebar
         activeTab={activeTab}
