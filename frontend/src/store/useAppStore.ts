@@ -140,14 +140,16 @@ export const useAppStore = create<StoreState>()(
     {
       name: 'planner-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 2,
+      version: 3,
       partialize: (state) => ({ appSettings: state.appSettings, weightUnits: state.weightUnits }),
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<StoreState>;
-        if (version < 2) {
-          return { ...state, appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) } };
-        }
-        return state as StoreState;
+        // version 3: weightUnits 필드 추가 — 없으면 빈 객체로 초기화
+        return {
+          ...state,
+          appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) },
+          weightUnits: (state.weightUnits ?? {}),
+        } as StoreState;
       },
     }
   )
