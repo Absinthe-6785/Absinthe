@@ -61,29 +61,30 @@ export const HealthView = ({
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
 
-  // weightUnit: 운동카드별 kg/lbs 토글. 기본값 localStorage에서 복원.
-  // DB에는 항상 kg로 저장. lbs 모드 시 입력→/2.2046→저장, 출력→×2.2046→표시.
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>(() => {
-    try { return (localStorage.getItem('weightUnit') as 'kg' | 'lbs') || 'kg'; } catch { return 'kg'; }
-  });
-  const toggleWeightUnit = () => setWeightUnit(u => {
-    const next = u === 'kg' ? 'lbs' : 'kg';
-    try { localStorage.setItem('weightUnit', next); } catch { /* ignore */ }
-    return next;
-  });
+  // weightUnits: 운동 카드(block_id)별 독립 kg/lbs 토글
+  // DB에는 항상 kg로 저장. lbs 모드 시 입력→×0.4536→저장, 출력→÷0.4536→표시.
+  const [weightUnits, setWeightUnits] = useState<Record<string, 'kg' | 'lbs'>>({});
+  const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
+  const toggleUnit = (blockId: string) =>
+    setWeightUnits(prev => ({ ...prev, [blockId]: prev[blockId] === 'lbs' ? 'kg' : 'lbs' }));
+
   const KG_PER_LBS = 0.45359237;
-  // 표시용: DB(kg) → 현재 단위로 변환
-  const displayKg = (kg: number | string): string => {
+  // 표시용: DB(kg) → 해당 카드 단위로 변환
+  const displayKg = (kg: number | string, blockId: string): string => {
     const n = parseFloat(String(kg));
     if (isNaN(n) || kg === '' || kg === null) return '';
-    return weightUnit === 'lbs' ? String(Math.round(n / KG_PER_LBS * 10) / 10) : String(n);
+    return getUnit(blockId) === 'lbs'
+      ? String(Math.round(n / KG_PER_LBS * 10) / 10)
+      : String(n);
   };
-  // 저장용: 입력값 → kg으로 변환
-  const inputToKg = (val: string): string => {
+  // 저장용: 해당 카드 단위 입력값 → kg으로 변환
+  const inputToKg = (val: string, blockId: string): string => {
     if (val === '' || val === null) return '';
     const n = parseFloat(val);
     if (isNaN(n)) return '';
-    return weightUnit === 'lbs' ? String(Math.round(n * KG_PER_LBS * 100) / 100) : val;
+    return getUnit(blockId) === 'lbs'
+      ? String(Math.round(n * KG_PER_LBS * 100) / 100)
+      : val;
   };
 
   // localWorkouts와 동일 패턴: InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
@@ -502,12 +503,12 @@ export const HealthView = ({
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
-                          onClick={toggleWeightUnit}
+                          onClick={() => toggleUnit(w.block_id)}
                           className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
                             ${appSettings.darkMode ? 'bg-[#3A3A3C] hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                          <span className={weightUnit === 'kg' ? 'text-[#FACC15]' : theme.textMuted}>kg</span>
+                          <span className={getUnit(w.block_id) === 'kg' ? 'text-[#FACC15]' : theme.textMuted}>kg</span>
                           <span className={`mx-0.5 ${theme.textMuted}`}>/</span>
-                          <span className={weightUnit === 'lbs' ? 'text-[#FACC15]' : theme.textMuted}>lbs</span>
+                          <span className={getUnit(w.block_id) === 'lbs' ? 'text-[#FACC15]' : theme.textMuted}>lbs</span>
                         </button>
                       </div>
                     )}
@@ -544,13 +545,13 @@ export const HealthView = ({
                             {sIdx + 1}
                           </button>
 
-                          {/* Strength 입력 (kg/lbs 단위 변환) */}
+                          {/* Strength 입력 (카드별 kg/lbs 단위 변환) */}
                           {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
                             <input type="number" inputMode="decimal" min="0"
-                              step={weightUnit === 'lbs' ? '10' : '5'}
-                              value={displayKg(s.kg)}
+                              step={getUnit(w.block_id) === 'lbs' ? '10' : '5'}
+                              value={displayKg(s.kg, w.block_id)}
                               placeholder="—"
-                              onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value))}
+                              onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value, w.block_id))}
                               className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
                           {/* Bodyweight / Strength reps */}

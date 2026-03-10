@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import useSWR from 'swr';
+import { fetcher } from '../../lib/fetcher';
+import { API_URL } from '../../lib/config';
 import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useAppStore } from '../../store/useAppStore';
@@ -48,6 +51,23 @@ export const PlannerView = ({
   const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
 
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+
+  // 전날 스케줄 fetch — end_next_day 블록을 익일 타임라인에 표시하기 위해
+  const prevDate = useMemo(() => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    return d;
+  }, [selectedDate]);
+  const prevDateStr = useMemo(() => formatDate(prevDate), [prevDate, formatDate]);
+  const { data: prevSchedules = [] } = useSWR<Schedule[]>(
+    `${API_URL}/api/schedules?date=${prevDateStr}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+  // 전날 일정 중 end_next_day=true인 것 → 당일 00:00 ~ end_time 구간으로 표시
+  const carryOverSchedules: Schedule[] = useMemo(() =>
+    (prevSchedules as Schedule[]).filter(s => s.end_next_day),
+  [prevSchedules]);
 
   useEscapeKey(() => {
     setShowForm(false); setShowDdayForm(false);
@@ -209,6 +229,7 @@ export const PlannerView = ({
     return (parseInt(h || '0') * 60 + parseInt(m || '0')) * (40 / 30);
   }, []);
 
+
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
       {/* ══ Col-1: 루틴 + 투두 ══ */}
@@ -220,11 +241,11 @@ export const PlannerView = ({
             <Activity size={18} className="text-green-500"/> Routines
           </h2>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
-            style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
+            style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text="Build a daily routine!" /></div>}
             {routines.map((r: Routine) => (
-              <div key={r.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
+              <div key={r.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingRoutineId === r.id ? (
                   <input autoFocus value={editRoutineText}
                     onChange={e => setEditRoutineText(e.target.value)}
@@ -247,7 +268,7 @@ export const PlannerView = ({
                 </div>
               </div>
             ))}
-            <div className="flex items-center gap-2 mt-1 pt-1">
+            <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
               <input type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
                 placeholder="Add new routine..." className="flex-1 bg-transparent outline-none text-sm font-medium"
@@ -266,11 +287,11 @@ export const PlannerView = ({
             <CheckCircle size={18} className="text-[#FACC15]"/> To-do list
           </h2>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
-            style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
+            style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text="No tasks. Chill out!" /></div>}
             {todos.map((t: Todo) => (
-              <div key={t.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
+              <div key={t.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingTodoId === t.id ? (
                   <input autoFocus value={editTodoText}
                     onChange={e => setEditTodoText(e.target.value)}
@@ -293,7 +314,7 @@ export const PlannerView = ({
                 </div>
               </div>
             ))}
-            <div className="flex items-center gap-2 mt-1 pt-1">
+            <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
               <input type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
                 placeholder="Add new task..." className="flex-1 bg-transparent outline-none text-sm font-medium"
@@ -492,22 +513,62 @@ export const PlannerView = ({
                     <p className={`text-sm font-semibold ${theme.textMuted}`}>No schedules yet</p>
                   </div>
                 )}
+                {/* ── 당일 스케줄 ── */}
                 {sortedSchedules.map((sch: Schedule) => {
                   const top = timeToPos(sch.start_time);
-                  const height = timeToPos(sch.end_time) - top;
+                  // end_next_day: 자정(1920px) 끝까지 채우고 익일 배지 표시
+                  const TIMELINE_END = 1920; // 48 슬롯 × 40px
+                  const rawEnd = timeToPos(sch.end_time);
+                  const height = sch.end_next_day
+                    ? TIMELINE_END - top          // 당일 자정까지
+                    : Math.max(rawEnd - top, 20);
                   const color = THEME_COLORS.find(c => c.id === sch.color) || THEME_COLORS[0];
                   return (
                     <div key={sch.id}
                       className={`group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm ${color.bg} ${color.text}`}
-                      style={{ top: `${top}px`, height: `${Math.max(height, 20)}px` }}>
-                      <div className="flex flex-col gap-0.5 ml-1 overflow-hidden">
+                      style={{ top: `${top}px`, height: `${height}px` }}>
+                      <div className="flex flex-col gap-0.5 ml-1 overflow-hidden flex-1">
                         <p className="text-xs lg:text-sm font-semibold truncate">{sch.text}</p>
-                        {height >= 40 && <p className="text-[10px] opacity-90 tabular-nums">{sch.start_time} - {sch.end_time}</p>}
+                        {height >= 40 && (
+                          <p className="text-[10px] opacity-90 tabular-nums">
+                            {sch.start_time} — {sch.end_next_day ? `${sch.end_time} +1` : sch.end_time}
+                          </p>
+                        )}
+                        {/* 익일 연속 배지 */}
+                        {sch.end_next_day && (
+                          <span className="mt-auto mb-1 self-start text-[10px] font-bold bg-black/25 px-2 py-0.5 rounded-full">
+                            → continues {sch.end_time} tomorrow
+                          </span>
+                        )}
                       </div>
-                      <div className="flex gap-1.5 mt-0.5 bg-black/20 p-1.5 rounded-full">
+                      <div className="flex gap-1.5 mt-0.5 bg-black/20 p-1.5 rounded-full shrink-0">
                         <button onClick={() => openModal(sch)} className="p-1 hover:text-white active:scale-95"><Edit2 size={12}/></button>
                         <button onClick={() => handleDeleteSchedule(sch.id)} className="p-1 hover:text-red-300 active:scale-95"><Trash2 size={12}/></button>
                       </div>
+                    </div>
+                  );
+                })}
+
+                {/* ── 전날 end_next_day 블록 → 당일 00:00 ~ end_time ── */}
+                {carryOverSchedules.map((sch: Schedule) => {
+                  const top = 0; // 00:00부터
+                  const height = Math.max(timeToPos(sch.end_time), 20);
+                  const color = THEME_COLORS.find(c => c.id === sch.color) || THEME_COLORS[0];
+                  return (
+                    <div key={`carry-${sch.id}`}
+                      className={`group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm opacity-90 ${color.bg} ${color.text}`}
+                      style={{ top: `${top}px`, height: `${height}px` }}>
+                      <div className="flex flex-col gap-0.5 ml-1 overflow-hidden flex-1">
+                        {/* 전일 연속 배지 */}
+                        <span className="text-[10px] font-bold bg-black/25 px-2 py-0.5 rounded-full self-start mb-0.5">
+                          ← from yesterday
+                        </span>
+                        <p className="text-xs lg:text-sm font-semibold truncate">{sch.text}</p>
+                        {height >= 40 && (
+                          <p className="text-[10px] opacity-90 tabular-nums">00:00 — {sch.end_time}</p>
+                        )}
+                      </div>
+                      {/* 전일 블록은 편집/삭제 버튼 없음 (전날 날짜에서만 수정) */}
                     </div>
                   );
                 })}
