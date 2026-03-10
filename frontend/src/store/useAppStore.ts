@@ -2,12 +2,29 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppSettings } from '../types';
 
+// ─── 다중 메모 타입 ───────────────────────────────────────────────────────────
+export interface Note {
+  id: string;
+  title: string;   // 첫 줄
+  body: string;    // 나머지 본문
+  updatedAt: number; // Date.now()
+}
+
 interface StoreState {
   appSettings: AppSettings;
-  /** memoText는 persist 범위에서 제외 — 별도 debounce 저장으로 localStorage 부하 방지 */
+  /** 하위호환용 단일 메모 — 마이그레이션 후 미사용 */
   memoText: string;
+  /** 다중 노트 목록 */
+  notes: Note[];
+  /** 현재 열려있는 노트 ID */
+  activeNoteId: string | null;
   updateSetting: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
   setMemoText: (text: string) => void;
+  // Notes CRUD
+  createNote: () => string;           // 새 노트 생성 후 id 반환
+  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body'>>) => void;
+  deleteNote: (id: string) => void;
+  setActiveNoteId: (id: string | null) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -16,63 +33,104 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultColor: 'gold',
 };
 
-const MEMO_STORAGE_KEY = 'planner-memo';
-const MEMO_DEBOUNCE_MS = 500;
+const NOTES_STORAGE_KEY = 'planner-notes';
+const ACTIVE_NOTE_KEY   = 'planner-active-note';
+const MEMO_DEBOUNCE_MS  = 500;
 
-/**
- * useAppStore — 앱 전역 설정 + 메모 텍스트 상태 관리.
- *
- * appSettings: persist로 저장. 설정 변경은 버튼 클릭 단위라 빈도가 낮음.
- *
- * memoText: persist 범위에서 제외(partialize).
- *   개선 전: memoText가 persist 안에 있어 매 keystroke마다 store 전체를
- *            JSON 직렬화 → localStorage 쓰기 발생. Zustand v4 persist에는
- *            throttle 옵션이 없어 직접 해결 필요.
- *   개선 후: partialize로 persist 범위에서 제외하고, setMemoText 내부에서
- *            debounce 타이머로 500ms 후에만 localStorage에 씀.
- *            초기값은 localStorage에서 직접 읽어 hydration 보장.
- */
-
-// debounce 타이머 — 모듈 레벨에서 관리 (store 외부)
-let memoDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-const saveMemoDebounced = (text: string) => {
-  if (memoDebounceTimer) clearTimeout(memoDebounceTimer);
-  memoDebounceTimer = setTimeout(() => {
-    try { localStorage.setItem(MEMO_STORAGE_KEY, text); } catch { /* storage full 등 무시 */ }
+// debounce 타이머
+let notesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const saveNotesDebounced = (notes: Note[]) => {
+  if (notesDebounceTimer) clearTimeout(notesDebounceTimer);
+  notesDebounceTimer = setTimeout(() => {
+    try { localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes)); } catch { /* ignore */ }
   }, MEMO_DEBOUNCE_MS);
 };
 
-const loadMemoInitial = (): string => {
-  try { return localStorage.getItem(MEMO_STORAGE_KEY) ?? "Today's key goal!\n- Drink 2L water"; }
-  catch { return "Today's key goal!\n- Drink 2L water"; }
+// 초기 노트 로드 — 기존 단일 메모를 첫 노트로 마이그레이션
+const loadNotesInitial = (): Note[] => {
+  try {
+    const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Note[];
+    // 기존 단일 메모 마이그레이션
+    const legacy = localStorage.getItem('planner-memo');
+    const lines = (legacy ?? "Today's key goal!\n- Drink 2L water").split('\n');
+    return [{
+      id: `note-${Date.now()}`,
+      title: lines[0] || 'My first note',
+      body: lines.slice(1).join('\n'),
+      updatedAt: Date.now(),
+    }];
+  } catch {
+    return [{ id: `note-${Date.now()}`, title: 'My first note', body: '', updatedAt: Date.now() }];
+  }
+};
+
+const loadActiveNoteId = (notes: Note[]): string | null => {
+  try {
+    const saved = localStorage.getItem(ACTIVE_NOTE_KEY);
+    return (saved && notes.find(n => n.id === saved)) ? saved : (notes[0]?.id ?? null);
+  } catch { return notes[0]?.id ?? null; }
 };
 
 export const useAppStore = create<StoreState>()(
   persist(
-    (set) => ({
-      appSettings: DEFAULT_SETTINGS,
-      memoText: loadMemoInitial(),
-      updateSetting: (key, value) =>
-        set((state) => ({ appSettings: { ...state.appSettings, [key]: value } })),
-      setMemoText: (text) => {
-        set({ memoText: text });
-        saveMemoDebounced(text);
-      },
-    }),
+    (set, get) => {
+      const initialNotes = loadNotesInitial();
+      const initialActiveId = loadActiveNoteId(initialNotes);
+      return {
+        appSettings: DEFAULT_SETTINGS,
+        memoText: '',
+        notes: initialNotes,
+        activeNoteId: initialActiveId,
+        updateSetting: (key, value) =>
+          set((state) => ({ appSettings: { ...state.appSettings, [key]: value } })),
+        setMemoText: (text) => set({ memoText: text }),
+
+        createNote: () => {
+          const id = `note-${Date.now()}`;
+          const newNote: Note = { id, title: 'New Note', body: '', updatedAt: Date.now() };
+          const notes = [newNote, ...get().notes];
+          set({ notes, activeNoteId: id });
+          saveNotesDebounced(notes);
+          try { localStorage.setItem(ACTIVE_NOTE_KEY, id); } catch { /* ignore */ }
+          return id;
+        },
+
+        updateNote: (id, patch) => {
+          const notes = get().notes.map(n =>
+            n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
+          );
+          // 최근 수정 노트를 맨 앞으로 정렬
+          notes.sort((a, b) => b.updatedAt - a.updatedAt);
+          set({ notes });
+          saveNotesDebounced(notes);
+        },
+
+        deleteNote: (id) => {
+          const notes = get().notes.filter(n => n.id !== id);
+          const activeNoteId = get().activeNoteId === id
+            ? (notes[0]?.id ?? null)
+            : get().activeNoteId;
+          set({ notes, activeNoteId });
+          saveNotesDebounced(notes);
+          try { localStorage.setItem(ACTIVE_NOTE_KEY, activeNoteId ?? ''); } catch { /* ignore */ }
+        },
+
+        setActiveNoteId: (id) => {
+          set({ activeNoteId: id });
+          try { localStorage.setItem(ACTIVE_NOTE_KEY, id ?? ''); } catch { /* ignore */ }
+        },
+      };
+    },
     {
       name: 'planner-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 1,
-      // memoText는 별도 키로 debounce 저장하므로 persist 범위에서 제외
+      version: 2,
       partialize: (state) => ({ appSettings: state.appSettings }),
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<StoreState>;
-        if (version < 1) {
-          return {
-            ...state,
-            appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) },
-          };
+        if (version < 2) {
+          return { ...state, appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) } };
         }
         return state as StoreState;
       },

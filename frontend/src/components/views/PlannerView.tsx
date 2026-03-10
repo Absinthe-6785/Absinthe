@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useAppStore } from '../../store/useAppStore';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -22,7 +22,8 @@ export const PlannerView = ({
   mutateTodos, mutateRoutines,
   appSettings, schedules, todos, routines, ddays, markedDates, theme, THEME_COLORS,
 }: PlannerProps) => {
-  const { memoText, setMemoText } = useAppStore();
+  const { notes, activeNoteId, createNote, updateNote, deleteNote, setActiveNoteId } = useAppStore();
+  const activeNote = notes.find(n => n.id === activeNoteId) ?? notes[0] ?? null;
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -210,170 +211,210 @@ export const PlannerView = ({
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
-      {/* ── 좌측 컬럼: 메모(넓게) + 루틴/투두/D-Day(좁게) ── */}
-      <div className="flex-1 lg:flex-[6.5] flex flex-col lg:flex-row gap-4 lg:gap-5">
+      {/* ══ Col-1: 루틴 + 투두 ══ */}
+      <div className="flex-1 lg:flex-[2] flex flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2">
 
-        {/* ── 메모 패널 (Apple Notes 스타일) ── */}
-        <div className={`flex-1 lg:flex-[1.6] rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col transition-colors min-h-[300px] lg:min-h-0 ${theme.card}`}>
-          {/* 헤더 */}
-          <div className="flex justify-between items-center mb-3 shrink-0">
-            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-              <BookOpen size={18} className="text-yellow-400"/> Notes
-            </h2>
-            <span className={`text-[11px] font-semibold ${theme.textMuted}`}>
-              {selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
-          </div>
-          {/* 타이틀 줄 */}
-          <input
-            value={memoText.split('\n')[0] || ''}
-            onChange={e => {
-              const lines = memoText.split('\n');
-              lines[0] = e.target.value;
-              setMemoText(lines.join('\n'));
-            }}
-            placeholder="Title"
-            className="font-heading text-lg lg:text-xl font-bold bg-transparent outline-none border-none w-full mb-2 shrink-0"
-          />
-          <div className={`w-full h-px mb-3 shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
-          {/* 본문 — 줄 배경 */}
-          <div className="flex-1 relative overflow-hidden">
-            <div className="absolute inset-0 pointer-events-none"
-              style={{ backgroundImage: `linear-gradient(transparent 23px, ${appSettings.darkMode ? '#3A3A3C' : '#E8E8E8'} 24px)`, backgroundSize: '100% 24px', backgroundPositionY: '4px' }} />
-            <textarea
-              value={memoText.split('\n').slice(1).join('\n')}
-              onChange={e => setMemoText(memoText.split('\n')[0] + '\n' + e.target.value)}
-              className="relative z-10 w-full h-full resize-none text-sm lg:text-[15px] bg-transparent outline-none border-none leading-6 font-medium"
-              placeholder="Start writing..."
-              style={{ lineHeight: '24px', paddingTop: '4px' }}
-            />
+        {/* 루틴 */}
+        <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
+          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+            <Activity size={18} className="text-green-500"/> Routines
+          </h2>
+          <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
+            style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
+          <div className="flex-1 overflow-y-auto relative z-10 pr-2">
+            {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text="Build a daily routine!" /></div>}
+            {routines.map((r: Routine) => (
+              <div key={r.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
+                {editingRoutineId === r.id ? (
+                  <input autoFocus value={editRoutineText}
+                    onChange={e => setEditRoutineText(e.target.value)}
+                    onBlur={() => setEditingRoutineId(null)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleUpdateRoutineText(r.id, editRoutineText);
+                      else if (e.key === 'Escape') setEditingRoutineId(null);
+                    }}
+                    className="flex-1 bg-transparent outline-none border-b-2 border-[#FACC15] text-base font-semibold"
+                  />
+                ) : (
+                  <label className="flex items-center gap-3 cursor-pointer flex-1 h-full">
+                    <input type="checkbox" checked={r.done} onChange={() => handleToggleRoutine(r.id, r.done)} className="w-5 h-5 accent-[#FACC15] cursor-pointer" />
+                    <span className={`text-base font-medium ${r.done ? 'line-through opacity-50' : ''}`}>{r.text}</span>
+                  </label>
+                )}
+                <div className={`flex gap-1 ml-2 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
+                  {r.is_active && <button onClick={() => { setEditingRoutineId(r.id); setEditRoutineText(r.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>}
+                  {r.is_active && <button onClick={() => handleDeleteRoutine(r.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>}
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 mt-1 pt-1">
+              <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
+              <input type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
+                placeholder="Add new routine..." className="flex-1 bg-transparent outline-none text-sm font-medium"
+                onKeyDown={e => { if (e.key === 'Enter' && newRoutineText.trim()) { handleAddRoutine(newRoutineText); setNewRoutineText(''); } }}/>
+              {newRoutineText.trim() && (
+                <button onClick={() => { handleAddRoutine(newRoutineText); setNewRoutineText(''); }}
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">Add</button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* ── 루틴 + 투두 + D-Day 세로 스택 (좁게) ── */}
-        <div className="flex-1 lg:flex-[1] flex flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2">
+        {/* 할일 */}
+        <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
+          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+            <CheckCircle size={18} className="text-[#FACC15]"/> To-do list
+          </h2>
+          <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
+            style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
+          <div className="flex-1 overflow-y-auto relative z-10 pr-2">
+            {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text="No tasks. Chill out!" /></div>}
+            {todos.map((t: Todo) => (
+              <div key={t.id} className="min-h-[44px] flex items-center justify-between group py-0.5">
+                {editingTodoId === t.id ? (
+                  <input autoFocus value={editTodoText}
+                    onChange={e => setEditTodoText(e.target.value)}
+                    onBlur={() => setEditingTodoId(null)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleUpdateTodoText(t.id, editTodoText);
+                      else if (e.key === 'Escape') setEditingTodoId(null);
+                    }}
+                    className="flex-1 bg-transparent outline-none border-b-2 border-[#FACC15] text-base font-semibold"
+                  />
+                ) : (
+                  <label className="flex items-center gap-3 cursor-pointer flex-1 h-full">
+                    <input type="checkbox" checked={t.done} onChange={() => handleToggleTodo(t.id, t.done)} className="w-5 h-5 accent-[#FACC15] cursor-pointer" />
+                    <span className={`text-base font-medium ${t.done ? 'line-through opacity-50' : ''}`}>{t.text}</span>
+                  </label>
+                )}
+                <div className={`flex gap-1 ml-2 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
+                  <button onClick={() => { setEditingTodoId(t.id); setEditTodoText(t.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>
+                  <button onClick={() => handleDeleteTodo(t.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 mt-1 pt-1">
+              <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
+              <input type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
+                placeholder="Add new task..." className="flex-1 bg-transparent outline-none text-sm font-medium"
+                onKeyDown={e => { if (e.key === 'Enter' && newTodoText.trim()) { handleAddTodo(newTodoText); setNewTodoText(''); } }}/>
+              {newTodoText.trim() && (
+                <button onClick={() => { handleAddTodo(newTodoText); setNewTodoText(''); }}
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">Add</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {/* D-Day */}
-          <div className={`rounded-[24px] lg:rounded-[32px] p-5 flex flex-col shrink-0 transition-colors ${theme.card}`}>
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="font-heading text-sm font-bold flex items-center gap-2">
-                <Target size={16} className="text-red-500"/> D-Day
-              </h2>
-              <button onClick={() => openDdayModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2 py-1 rounded-lg text-[11px] font-bold">
-                <Plus size={12} className="inline mr-0.5"/>Add
+      {/* ══ Col-2: D-Day 위 + Notes 아래 ══ */}
+      <div className="flex-1 lg:flex-[2.2] flex flex-col gap-4 lg:gap-5">
+
+        {/* D-Day */}
+        <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
+              <Target size={18} className="text-red-500"/> D-Day
+            </h2>
+            <button onClick={() => openDdayModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-1.5 rounded-xl text-xs font-bold">
+              <Plus size={14} className="inline mr-1"/>Add
+            </button>
+          </div>
+          <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
+            {ddays.length === 0
+              ? <EmptyState theme={theme} icon={Target} text="No D-Days yet" onClick={() => openDdayModal()} />
+              : ddays.map((d: DDay) => (
+                <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}>
+                  <p className="text-sm font-semibold truncate flex-1 mr-2">{d.text}</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openDdayModal(d)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Edit2 size={13}/></button>
+                      <button onClick={() => handleDeleteDday(d.id)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Trash2 size={13}/></button>
+                    </div>
+                    <span className="font-heading text-xs font-bold bg-[#FACC15] text-[#1C1C1E] px-2.5 py-1 rounded-xl shrink-0">
+                      {calculateDday(d.date)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+
+        {/* Notes — Apple Notes 스타일 다중 메모 */}
+        <div className={`flex-1 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
+
+          {/* 왼쪽: 노트 목록 사이드바 */}
+          <div className={`w-[140px] lg:w-[160px] shrink-0 flex flex-col border-r ${theme.border}`}>
+            <div className="flex items-center justify-between px-3 py-3 shrink-0">
+              <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1.5">
+                <FileText size={13} className="text-yellow-400"/> Notes
+              </span>
+              <button onClick={() => createNote()}
+                className="w-6 h-6 rounded-lg bg-[#FACC15] text-[#1C1C1E] flex items-center justify-center active:scale-90 transition-all">
+                <Plus size={12} strokeWidth={3}/>
               </button>
             </div>
-            <div className="max-h-[120px] overflow-y-auto pr-1 space-y-2">
-              {ddays.length === 0
-                ? <p className={`text-xs ${theme.textMuted}`}>No D-Days yet</p>
-                : ddays.map((d: DDay) => (
-                  <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2`}>
-                    <p className="text-xs font-semibold truncate flex-1 mr-2">{d.text}</p>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => openDdayModal(d)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} opacity-0 group-hover:opacity-100 active:scale-95`}><Edit2 size={12}/></button>
-                      <button onClick={() => handleDeleteDday(d.id)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} opacity-0 group-hover:opacity-100 active:scale-95`}><Trash2 size={12}/></button>
-                      <span className="font-heading text-[11px] font-bold bg-[#FACC15] text-[#1C1C1E] px-2 py-1 rounded-lg">
-                        {calculateDday(d.date)}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              }
+            <div className={`h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+            <div className="flex-1 overflow-y-auto py-1">
+              {notes.map(n => (
+                <button key={n.id}
+                  onClick={() => setActiveNoteId(n.id)}
+                  className={`w-full text-left px-3 py-2.5 transition-colors group relative
+                    ${n.id === activeNoteId
+                      ? appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]'
+                      : theme.hoverBg}`}>
+                  <p className={`text-xs font-bold truncate ${n.id === activeNoteId ? 'text-[#FACC15]' : ''}`}>
+                    {n.title || 'Untitled'}
+                  </p>
+                  <p className={`text-[10px] truncate mt-0.5 ${theme.textMuted}`}>
+                    {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </p>
+                  {notes.length > 1 && (
+                    <button onClick={e => { e.stopPropagation(); deleteNote(n.id); }}
+                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ${theme.hoverBg}`}>
+                      <X size={10}/>
+                    </button>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* 루틴 */}
-          <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
-            <h2 className={`font-heading text-sm font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-              <Activity size={16} className="text-green-500"/> Routines
-            </h2>
-            <div className="absolute left-0 right-0 top-[44px] bottom-0 pointer-events-none z-0"
-              style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
-            <div className="flex-1 overflow-y-auto relative z-10 pr-1">
-              {routines.length === 0 && <div className="h-[60px]"><EmptyState theme={theme} icon={Activity} text="Build a routine!" /></div>}
-              {routines.map((r: Routine) => (
-                <div key={r.id} className="min-h-[40px] flex items-center justify-between group py-0.5">
-                  {editingRoutineId === r.id ? (
-                    <input autoFocus value={editRoutineText}
-                      onChange={e => setEditRoutineText(e.target.value)}
-                      onBlur={() => setEditingRoutineId(null)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleUpdateRoutineText(r.id, editRoutineText);
-                        else if (e.key === 'Escape') setEditingRoutineId(null);
-                      }}
-                      className="flex-1 bg-transparent outline-none border-b-2 border-[#FACC15] text-sm font-semibold"
-                    />
-                  ) : (
-                    <label className="flex items-center gap-2 cursor-pointer flex-1 h-full">
-                      <input type="checkbox" checked={r.done} onChange={() => handleToggleRoutine(r.id, r.done)} className="w-4 h-4 accent-[#FACC15] cursor-pointer shrink-0" />
-                      <span className={`text-sm font-medium truncate ${r.done ? 'line-through opacity-50' : ''}`}>{r.text}</span>
-                    </label>
-                  )}
-                  <div className={`flex gap-0.5 ml-1 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                    {r.is_active && <button onClick={() => { setEditingRoutineId(r.id); setEditRoutineText(r.text); }} className="p-1.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={13}/></button>}
-                    {r.is_active && <button onClick={() => handleDeleteRoutine(r.id)} className="p-1.5 rounded-lg active:scale-95 hover:text-red-500"><X size={13}/></button>}
-                  </div>
-                </div>
-              ))}
-              <div className="flex items-center gap-2 mt-1 pt-1">
-                <Plus size={14} className={`shrink-0 ${theme.textMuted}`}/>
-                <input type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
-                  placeholder="Add routine..." className="flex-1 bg-transparent outline-none text-xs font-medium"
-                  onKeyDown={e => { if (e.key === 'Enter' && newRoutineText.trim()) { handleAddRoutine(newRoutineText); setNewRoutineText(''); } }}/>
-                {newRoutineText.trim() && (
-                  <button onClick={() => { handleAddRoutine(newRoutineText); setNewRoutineText(''); }}
-                    className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-2.5 py-1 rounded-lg text-[11px] font-bold active:scale-95">Add</button>
-                )}
+          {/* 오른쪽: 노트 편집기 */}
+          {activeNote ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* 타이틀 */}
+              <div className="px-4 pt-4 pb-2 shrink-0">
+                <input
+                  value={activeNote.title}
+                  onChange={e => updateNote(activeNote.id, { title: e.target.value })}
+                  placeholder="Title"
+                  className="font-heading text-lg lg:text-xl font-bold bg-transparent outline-none border-none w-full"
+                />
+                <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
+                  {new Date(activeNote.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+              <div className={`mx-4 h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+              {/* 본문 — 줄 배경 */}
+              <div className="flex-1 relative overflow-hidden px-4 py-1">
+                <div className="absolute inset-x-4 inset-y-1 pointer-events-none"
+                  style={{ backgroundImage: `linear-gradient(transparent 23px, ${appSettings.darkMode ? '#3A3A3C' : '#E8E8E8'} 24px)`, backgroundSize: '100% 24px', backgroundPositionY: '4px' }} />
+                <textarea
+                  value={activeNote.body}
+                  onChange={e => updateNote(activeNote.id, { body: e.target.value })}
+                  className="relative z-10 w-full h-full resize-none text-sm lg:text-[14px] bg-transparent outline-none border-none font-medium"
+                  placeholder="Start writing..."
+                  style={{ lineHeight: '24px', paddingTop: '4px' }}
+                />
               </div>
             </div>
-          </div>
-
-          {/* 할일 */}
-          <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
-            <h2 className={`font-heading text-sm font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-              <CheckCircle size={16} className="text-[#FACC15]"/> To-do
-            </h2>
-            <div className="absolute left-0 right-0 top-[44px] bottom-0 pointer-events-none z-0"
-              style={{ backgroundImage: `linear-gradient(transparent 39px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 40px)`, backgroundSize: '100% 40px' }} />
-            <div className="flex-1 overflow-y-auto relative z-10 pr-1">
-              {todos.length === 0 && <div className="h-[60px]"><EmptyState theme={theme} icon={Inbox} text="No tasks. Chill out!" /></div>}
-              {todos.map((t: Todo) => (
-                <div key={t.id} className="min-h-[40px] flex items-center justify-between group py-0.5">
-                  {editingTodoId === t.id ? (
-                    <input autoFocus value={editTodoText}
-                      onChange={e => setEditTodoText(e.target.value)}
-                      onBlur={() => setEditingTodoId(null)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleUpdateTodoText(t.id, editTodoText);
-                        else if (e.key === 'Escape') setEditingTodoId(null);
-                      }}
-                      className="flex-1 bg-transparent outline-none border-b-2 border-[#FACC15] text-sm font-semibold"
-                    />
-                  ) : (
-                    <label className="flex items-center gap-2 cursor-pointer flex-1 h-full">
-                      <input type="checkbox" checked={t.done} onChange={() => handleToggleTodo(t.id, t.done)} className="w-4 h-4 accent-[#FACC15] cursor-pointer shrink-0" />
-                      <span className={`text-sm font-medium truncate ${t.done ? 'line-through opacity-50' : ''}`}>{t.text}</span>
-                    </label>
-                  )}
-                  <div className={`flex gap-0.5 ml-1 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                    <button onClick={() => { setEditingTodoId(t.id); setEditTodoText(t.text); }} className="p-1.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={13}/></button>
-                    <button onClick={() => handleDeleteTodo(t.id)} className="p-1.5 rounded-lg active:scale-95 hover:text-red-500"><X size={13}/></button>
-                  </div>
-                </div>
-              ))}
-              <div className="flex items-center gap-2 mt-1 pt-1">
-                <Plus size={14} className={`shrink-0 ${theme.textMuted}`}/>
-                <input type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
-                  placeholder="Add task..." className="flex-1 bg-transparent outline-none text-xs font-medium"
-                  onKeyDown={e => { if (e.key === 'Enter' && newTodoText.trim()) { handleAddTodo(newTodoText); setNewTodoText(''); } }}/>
-                {newTodoText.trim() && (
-                  <button onClick={() => { handleAddTodo(newTodoText); setNewTodoText(''); }}
-                    className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-2.5 py-1 rounded-lg text-[11px] font-bold active:scale-95">Add</button>
-                )}
-              </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <button onClick={() => createNote()} className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
             </div>
-          </div>
-
+          )}
         </div>
       </div>
 
@@ -493,11 +534,29 @@ export const PlannerView = ({
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Category</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['Study', 'Work', 'Exercise', 'Personal'].map(cat => (
-                    <button key={cat} onClick={() => setNewSch({ ...newSch, category: cat })}
-                      className={`py-3 rounded-xl text-sm font-semibold transition-colors ${newSch.category === cat ? 'bg-[#1C1C1E] text-[#FACC15]' : theme.input}`}>
-                      {cat}
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'Study',    label: 'Study',   icon: '📚' },
+                    { id: 'Work',     label: 'Work',    icon: '💼' },
+                    { id: 'Exercise', label: 'Exercise',icon: '🏋️' },
+                    { id: 'Personal', label: 'Personal',icon: '🌸' },
+                    { id: 'Sleep',    label: 'Sleep',   icon: '🌙' },
+                    { id: 'Social',   label: 'Social',  icon: '🤝' },
+                  ] as const).map(cat => (
+                    <button key={cat.id} onClick={() => (() => {
+                          if (cat.id === 'Sleep') {
+                            setNewSch(prev => ({ ...prev, category: 'Sleep',
+                              start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
+                              end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time }));
+                            setEndNextDay(true);
+                          } else {
+                            setNewSch(prev => ({ ...prev, category: cat.id }));
+                          }
+                        })()}
+                      className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1
+                        ${newSch.category === cat.id ? 'bg-[#1C1C1E] text-[#FACC15]' : theme.input}`}>
+                      <span className="text-base leading-none">{cat.icon}</span>
+                      {cat.label}
                     </button>
                   ))}
                 </div>

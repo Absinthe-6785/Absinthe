@@ -72,7 +72,7 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                   <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>Pre-selected category.</p>
                 </div>
                 <div className={`flex flex-wrap gap-2 p-2 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  {['Study', 'Work', 'Exercise', 'Personal'].map(cat => (
+                  {['Study', 'Work', 'Exercise', 'Personal', 'Sleep', 'Social'].map(cat => (
                     <button key={cat} onClick={() => updateSetting('defaultCategory', cat)}
                       className={`px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl text-sm font-bold transition-all
                         ${appSettings.defaultCategory === cat ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md' : 'text-gray-500 hover:text-current'}`}>

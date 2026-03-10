@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
-import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X } from 'lucide-react';
+import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X, Moon, Users } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
@@ -9,11 +9,13 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { AnalyticsProps, Schedule, Routine, WeeklySchedule } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 
-const CATEGORY_META: Record<string, { icon: ReactNode; color: string }> = {
-  Study:    { icon: <BookOpen size={16}/>,  color: 'bg-blue-500'   },
-  Work:     { icon: <Briefcase size={16}/>, color: 'bg-purple-500' },
-  Exercise: { icon: <Dumbbell size={16}/>,  color: 'bg-green-500'  },
-  Personal: { icon: <Activity size={16}/>,  color: 'bg-pink-500'   },
+const CATEGORY_META: Record<string, { icon: ReactNode; color: string; tw: string }> = {
+  Study:    { icon: <BookOpen size={16}/>,  color: 'bg-blue-500',    tw: 'text-blue-500'    },
+  Work:     { icon: <Briefcase size={16}/>, color: 'bg-purple-500',  tw: 'text-purple-500'  },
+  Exercise: { icon: <Dumbbell size={16}/>,  color: 'bg-green-500',   tw: 'text-green-500'   },
+  Personal: { icon: <Activity size={16}/>,  color: 'bg-pink-500',    tw: 'text-pink-500'    },
+  Sleep:    { icon: <Moon size={16}/>,      color: 'bg-indigo-400',  tw: 'text-indigo-400'  },
+  Social:   { icon: <Users size={16}/>,     color: 'bg-orange-400',  tw: 'text-orange-400'  },
 };
 
 // 완전히 정적인 값 — 렌더마다 재생성되지 않도록 모듈 레벨로 분리.
@@ -275,7 +277,7 @@ export const AnalyticsView = ({
               })}
             </div>
             <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
-              탭해서 운동 완료 표시 · 운동 저장 시 자동 반영
+              Tap to mark · Auto-updated when workout is saved
             </p>
           </div>
 
