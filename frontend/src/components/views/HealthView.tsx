@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, MouseEvent, ChangeEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -57,6 +57,8 @@ export const HealthView = ({
   // true일 때는 SWR 백그라운드 재검증이 localWorkouts를 덮어쓰지 않음.
   // handleSaveWorkouts 성공 후 false로 리셋.
   const [isDirty, setIsDirty] = useState(false);
+  // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
+  const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
 
   // localWorkouts와 동일 패턴: InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
@@ -70,7 +72,7 @@ export const HealthView = ({
   useEffect(() => { setIsDirty(false); setIsInbodyDirty(false); }, [selectedDate]);
 
   useEffect(() => {
-    if (!isDirty) setLocalWorkouts(workouts || []);
+    if (!isDirty) { setLocalWorkouts(workouts || []); setIsWorkoutLocked(false); }
   }, [workouts, isDirty]);
 
   const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
@@ -143,16 +145,20 @@ export const HealthView = ({
     const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     if (!routine?.blocks?.length) { showToast('No blocks assembled.', 'error'); e.target.value = 'Load Routine'; return; }
     const existingIds = localWorkouts.map(w => w.block_id);
-    const next = [...localWorkouts];
+    // routine.blocks 순서를 유지하면서 이미 추가된 블록은 제자리에 둠
+    const newEntries: Workout[] = [];
     routine.blocks.forEach((id: string) => {
       if (!existingIds.includes(id)) {
         const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
-        if (b) next.push({ id: `temp-${Date.now()}-${b.id}`, block_id: b.id, exercise_blocks: b, sets: [makeDefaultSet(b.type)] });
+        if (b) newEntries.push({ id: `temp-${Date.now()}-${b.id}`, block_id: b.id, exercise_blocks: b, sets: [makeDefaultSet(b.type)] });
       }
     });
-    setLocalWorkouts(next);
-    // 루틴 로드도 localWorkouts를 수정하므로 dirty 플래그 설정
-    // 개선 전: 미설정 → SWR 재검증 시 로드한 내용이 덮어씌워짐
+    // 루틴 순서: 기존에 있던 블록은 routine.blocks 순서로 재정렬, 없던 블록은 뒤에 추가
+    const orderedExisting = routine.blocks
+      .map((id: string) => localWorkouts.find(w => w.block_id === id))
+      .filter((w): w is Workout => !!w);
+    const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
+    setLocalWorkouts([...orderedExisting, ...unrelated, ...newEntries]);
     setIsDirty(true);
     e.target.value = 'Load Routine';
     showToast('Loaded!');
@@ -176,6 +182,7 @@ export const HealthView = ({
     } catch { showToast('Failed to remove', 'error'); }
   };
   const handleAddSet = (wIdx: number, asDropset = false) => {
+    if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
       const next = [...prev];
@@ -187,7 +194,19 @@ export const HealthView = ({
       return next;
     });
   };
+  const handleRemoveSet = (wIdx: number, sIdx: number) => {
+    if (isWorkoutLocked) return;
+    setIsDirty(true);
+    setLocalWorkouts(prev => {
+      const next = [...prev];
+      const w = { ...next[wIdx] };
+      w.sets = w.sets.filter((_, i) => i !== sIdx).map((s, i) => ({ ...s, set: i + 1 }));
+      next[wIdx] = w;
+      return next;
+    });
+  };
   const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
+    if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
       const next = [...prev];
@@ -218,11 +237,13 @@ export const HealthView = ({
     const failed = results.filter(r => r.status === 'rejected').length;
     if (failed === 0) {
       showToast('Workout Saved! 💪');
-      setIsDirty(false); // 저장 완료 → SWR 재검증 허용
+      setIsDirty(false);
+      setIsWorkoutLocked(true); // 저장 완료 → 잠금
       mutateDaily();
     } else if (failed < results.length) {
       showToast(`${results.length - failed}/${results.length} saved. Some failed.`, 'error');
-      setIsDirty(false); // 부분 성공도 저장 완료 → 재시도 시 중복 전송 방지
+      setIsDirty(false);
+      setIsWorkoutLocked(true);
       mutateDaily();
     } else {
       showToast('Failed to save workout', 'error');
@@ -268,25 +289,49 @@ export const HealthView = ({
             <h2 className="font-heading text-lg font-bold">Workout Blocks</h2>
             <button onClick={() => openBlockModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
-          {/* 태그 필터 바 */}
+          {/* 태그별 그룹 + 필터 */}
           {(() => {
-            const allTags = Array.from(new Set((healthBlocks ?? []).flatMap((b: ExerciseBlock) => b.tags ?? [])));
-            const filtered = activeTagFilter
-              ? (healthBlocks ?? []).filter((b: ExerciseBlock) => (b.tags ?? []).includes(activeTagFilter))
-              : (healthBlocks ?? []);
+            const blocks = healthBlocks ?? [];
+            const allTags = Array.from(new Set(blocks.flatMap((b: ExerciseBlock) => b.tags ?? [])));
+
+            // 태그별 그룹 생성: 필터 선택 시 해당 태그만, 전체일 때는 태그별 섹션
+            const tagged = allTags.map(tag => ({
+              tag,
+              items: blocks.filter((b: ExerciseBlock) => (b.tags ?? []).includes(tag)),
+            })).filter(g => !activeTagFilter || g.tag === activeTagFilter);
+            const untagged = blocks.filter((b: ExerciseBlock) => (b.tags ?? []).length === 0);
+            const showUntagged = !activeTagFilter;
+
+            const BlockCard = ({ b }: { b: ExerciseBlock }) => (
+              <div onClick={() => handleAddWorkoutToToday(b)}
+                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer transition-colors ${theme.input}`}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
+                  <span className="truncate max-w-[110px]">{b.name}</span>
+                </div>
+                <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
+                  className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 active:scale-90 transition-all">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button onClick={e => handleDeleteBlock(b.id, e)}
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 active:scale-90 transition-all">
+                  <X size={10}/>
+                </button>
+              </div>
+            );
+
             return (
               <>
+                {/* 태그 필터 바 */}
                 {allTags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3 shrink-0">
-                    <button
-                      onClick={() => setActiveTagFilter(null)}
+                    <button onClick={() => setActiveTagFilter(null)}
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
                         ${activeTagFilter === null ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
                       All
                     </button>
                     {allTags.map(tag => (
-                      <button key={tag}
-                        onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
+                      <button key={tag} onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
                         className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
                           ${activeTagFilter === tag ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
                         #{tag}
@@ -294,34 +339,38 @@ export const HealthView = ({
                     ))}
                   </div>
                 )}
-                <div className="flex flex-wrap gap-2 overflow-y-auto min-h-0 pr-1 pb-2 content-start">
-                  {filtered.length === 0 && <EmptyState theme={theme} onClick={() => openBlockModal()} icon={Dumbbell} text="Create exercise blocks"/>}
-                  {filtered.map((b: ExerciseBlock) => (
-                    <div key={b.id} onClick={() => handleAddWorkoutToToday(b)}
-                      className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer flex flex-col gap-0.5 transition-colors ${theme.input}`}>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                        <span className="truncate max-w-[100px]">{b.name}</span>
+
+                {/* 블록 없을 때 */}
+                {blocks.length === 0 && <EmptyState theme={theme} onClick={() => openBlockModal()} icon={Dumbbell} text="Create exercise blocks"/>}
+
+                {/* 태그별 그룹 섹션 */}
+                <div className="overflow-y-auto min-h-0 pr-1 pb-2 space-y-3">
+                  {tagged.map(({ tag, items }) => (
+                    <div key={tag}>
+                      <div className={`flex items-center gap-2 mb-1.5`}>
+                        <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>#{tag.toUpperCase()}</span>
+                        <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
                       </div>
-                      {(b.tags ?? []).length > 0 && (
-                        <div className="flex flex-wrap gap-1 pl-4">
-                          {(b.tags ?? []).map(tag => (
-                            <span key={tag} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${theme.card} opacity-70`}>#{tag}</span>
-                          ))}
-                        </div>
-                      )}
-                      {/* 수정 버튼 */}
-                      <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
-                        className={`absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all`}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      {/* 삭제 버튼 */}
-                      <button onClick={e => handleDeleteBlock(b.id, e)}
-                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 active:scale-90 transition-all">
-                        <X size={10}/>
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        {items.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
+                      </div>
                     </div>
                   ))}
+
+                  {/* 태그 없는 블록 */}
+                  {showUntagged && untagged.length > 0 && (
+                    <div>
+                      {allTags.length > 0 && (
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>OTHER</span>
+                          <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {untagged.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             );
@@ -395,7 +444,7 @@ export const HealthView = ({
             </select>
           </div>
 
-          <div className="space-y-5 pb-2">
+          <div className={`space-y-5 pb-2 ${isWorkoutLocked ? "pointer-events-none select-none" : ""}`}>
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
@@ -409,11 +458,11 @@ export const HealthView = ({
                 </div>
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
-                  <div className={`flex gap-2 px-3 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                    <div className="w-7 shrink-0"/>
-                    <div className="flex-1 text-center">kg</div>
+                  <div className={`flex gap-2 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+                    <div className="w-8 text-center shrink-0 opacity-50">tap=del</div>
+                    {w.exercise_blocks?.type !== 'bodyweight' && <div className="flex-1 text-center">kg</div>}
                     <div className="flex-1 text-center">reps</div>
-                    <div className="w-8 text-center shrink-0">✓</div>
+                    <div className="w-10 text-center shrink-0">✓</div>
                   </div>
                 )}
                 <div className="space-y-2">
@@ -421,7 +470,7 @@ export const HealthView = ({
                     const isDS = isStrengthSet(s) && s.is_dropset;
                     return (
                       <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-40' : ''}`}>
-                        {/* 드랍세트 레이블 */}
+                        {/* 드랍세트 구분선 */}
                         {isDS && (
                           <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
                             <div className="h-px flex-1 bg-orange-400/50"/>
@@ -429,23 +478,33 @@ export const HealthView = ({
                             <div className="h-px flex-1 bg-orange-400/50"/>
                           </div>
                         )}
-                        <div className={`flex gap-2 px-3 py-2.5 items-center
+                        <div className={`flex gap-2 px-2 py-3 items-center
                           ${isDS ? 'bg-orange-400/10 border border-orange-400/30 rounded-xl' : theme.input}`}>
-                          {/* 세트 번호 */}
-                          <div className={`w-7 text-sm font-bold text-center shrink-0 ${theme.textMuted}`}>{sIdx + 1}</div>
 
-                          {/* Strength / Bodyweight 입력 */}
+                          {/* 세트 번호 — 탭하면 해당 세트 삭제 */}
+                          <button
+                            onClick={() => w.sets.length > 1 && handleRemoveSet(wIdx, sIdx)}
+                            title="Hold to delete"
+                            className={`w-8 h-8 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
+                              ${w.sets.length > 1
+                                ? `active:bg-red-500 active:text-white ${theme.card}`
+                                : theme.textMuted}`}>
+                            {sIdx + 1}
+                          </button>
+
+                          {/* Strength 입력 (kg + reps) */}
+                          {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
+                            <input type="number" inputMode="decimal" min="0" step="0.5"
+                              value={s.kg} placeholder="—"
+                              onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', e.target.value)}
+                              className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                          )}
+                          {/* Bodyweight / Strength reps */}
                           {isStrengthSet(s) && (
-                            <>
-                              <input type="number" inputMode="decimal" min="0" step="0.5"
-                                value={s.kg} placeholder="—"
-                                onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', e.target.value)}
-                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                              <input type="number" inputMode="numeric" min="0"
-                                value={s.reps} placeholder="—"
-                                onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
-                            </>
+                            <input type="number" inputMode="numeric" min="0"
+                              value={s.reps} placeholder="—"
+                              onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
+                              className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
 
                           {/* Cardio 입력 */}
@@ -453,19 +512,22 @@ export const HealthView = ({
                             <>
                               <input type="text" inputMode="numeric" value={s.time} placeholder="min"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                               <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                className={`flex-1 text-base font-bold text-center rounded-lg py-2 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                             </>
                           )}
 
-                          {/* 체크박스 */}
-                          <div className="w-8 flex justify-center shrink-0">
-                            <input type="checkbox" checked={s.done}
-                              onChange={e => handleUpdateSet(wIdx, sIdx, 'done', e.target.checked)}
-                              className="w-6 h-6 accent-[#FACC15] cursor-pointer"/>
-                          </div>
+                          {/* 완료 체크 — 큰 탭 버튼 */}
+                          <button
+                            onClick={() => handleUpdateSet(wIdx, sIdx, 'done', !s.done)}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
+                              ${s.done ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.card} ${theme.textMuted}`}`}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     );
@@ -490,9 +552,23 @@ export const HealthView = ({
             ))}
           </div>
           <div className="shrink-0 pt-4">
-            <button onClick={handleSaveWorkouts} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all">
-              <Save size={20}/> Complete Workout
-            </button>
+            {isWorkoutLocked ? (
+              <div className="flex gap-3">
+                <div className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm ${appSettings.darkMode ? 'bg-green-900/40 text-green-400' : 'bg-green-50 text-green-600'} border ${appSettings.darkMode ? 'border-green-700/50' : 'border-green-200'}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Workout Saved
+                </div>
+                <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
+                  className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-[#1C1C1E] text-[#FACC15] font-bold text-sm shadow-xl hover:bg-gray-800 active:scale-[0.98] transition-all">
+                  <Pencil size={16}/> Edit
+                </button>
+              </div>
+            ) : (
+              <button onClick={handleSaveWorkouts}
+                className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all">
+                <Save size={20}/> Complete Workout
+              </button>
+            )}
           </div>
         </div>
 
