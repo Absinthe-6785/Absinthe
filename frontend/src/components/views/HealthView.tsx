@@ -492,8 +492,8 @@ export const HealthView = ({
                 </div>
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
-                  <div className={`flex gap-2 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                    <div className="w-8 text-center shrink-0 opacity-50">tap=del</div>
+                  <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+                    <div className="w-7 text-center shrink-0 opacity-50">tap=del</div>
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
@@ -507,7 +507,7 @@ export const HealthView = ({
                       </div>
                     )}
                     <div className="flex-1 text-center">reps</div>
-                    <div className="w-10 text-center shrink-0">✓</div>
+                    <div className="w-9 text-center shrink-0">✓</div>
                   </div>
                 )}
                 <div className="space-y-2">
@@ -523,14 +523,14 @@ export const HealthView = ({
                             <div className="h-px flex-1 bg-orange-400/50"/>
                           </div>
                         )}
-                        <div className={`flex gap-2 px-2 py-3 items-center
+                        <div className={`flex gap-1.5 px-2 py-2.5 items-center
                           ${isDS ? 'bg-orange-400/10 border border-orange-400/30 rounded-xl' : theme.input}`}>
 
                           {/* 세트 번호 — 탭하면 해당 세트 삭제 */}
                           <button
                             onClick={() => !isWorkoutLocked && w.sets.length > 1 && handleRemoveSet(wIdx, sIdx)}
                             title={isWorkoutLocked ? '' : 'Tap to delete'}
-                            className={`w-8 h-8 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
+                            className={`w-7 h-7 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
                               ${isWorkoutLocked
                                 ? theme.textMuted
                                 : w.sets.length > 1
@@ -546,14 +546,14 @@ export const HealthView = ({
                               value={displayKg(s.kg, w.block_id)}
                               placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value, w.block_id))}
-                              className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
                           {/* Bodyweight / Strength reps */}
                           {isStrengthSet(s) && (
                             <input type="number" inputMode="numeric" min="0"
                               value={s.reps} placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                              className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
 
                           {/* Cardio 입력 */}
@@ -561,17 +561,17 @@ export const HealthView = ({
                             <>
                               <input type="text" inputMode="numeric" value={s.time} placeholder="min"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                                className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                               <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                className={`flex-1 text-[15px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                             </>
                           )}
 
                           {/* 완료 체크 — 큰 탭 버튼 */}
                           <button
                             onClick={() => handleUpdateSet(wIdx, sIdx, 'done', !s.done)}
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
                               ${s.done ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.card} ${theme.textMuted}`}`}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12"/>

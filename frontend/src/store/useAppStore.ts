@@ -125,7 +125,16 @@ export const useAppStore = create<StoreState>()(
           try { localStorage.setItem(ACTIVE_NOTE_KEY, id ?? ''); } catch { /* ignore */ }
         },
 
-        weightUnits: {},
+        weightUnits: (() => {
+          try {
+            const raw = localStorage.getItem('planner-storage');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              return parsed?.state?.weightUnits ?? {};
+            }
+          } catch { /* ignore */ }
+          return {};
+        })(),
         setWeightUnit: (blockId, unit) =>
           set(state => ({ weightUnits: { ...state.weightUnits, [blockId]: unit } })),
         toggleWeightUnit: (blockId) =>
@@ -142,14 +151,19 @@ export const useAppStore = create<StoreState>()(
       storage: createJSONStorage(() => localStorage),
       version: 3,
       partialize: (state) => ({ appSettings: state.appSettings, weightUnits: state.weightUnits }),
-      migrate: (persistedState: unknown, version: number) => {
+      migrate: (persistedState: unknown, _version: number) => {
         const state = persistedState as Partial<StoreState>;
-        // version 3: weightUnits 필드 추가 — 없으면 빈 객체로 초기화
         return {
           ...state,
           appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) },
           weightUnits: (state.weightUnits ?? {}),
         } as StoreState;
+      },
+      onRehydrateStorage: () => (state) => {
+        // 복원 후 weightUnits가 없으면 빈 객체로 보장
+        if (state && !state.weightUnits) {
+          state.weightUnits = {};
+        }
       },
     }
   )
