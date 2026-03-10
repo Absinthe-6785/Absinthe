@@ -539,15 +539,20 @@ export const PlannerView = ({
                     { id: 'Study',    label: 'Study',   icon: '📚' },
                     { id: 'Work',     label: 'Work',    icon: '💼' },
                     { id: 'Exercise', label: 'Exercise',icon: '🏋️' },
-                    { id: 'Personal', label: 'Personal',icon: '🌸' },
+                    { id: 'Personal', label: 'Personal',icon: '👤' },
                     { id: 'Sleep',    label: 'Sleep',   icon: '🌙' },
                     { id: 'Social',   label: 'Social',  icon: '🤝' },
                   ] as const).map(cat => (
                     <button key={cat.id} onClick={() => (() => {
                           if (cat.id === 'Sleep') {
-                            setNewSch(prev => ({ ...prev, category: 'Sleep',
+                            setNewSch(prev => ({
+                              ...prev,
+                              category:   'Sleep',
+                              color:      'gray',
+                              text:       prev.text || 'Sleep',
                               start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
-                              end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time }));
+                              end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time,
+                            }));
                             setEndNextDay(true);
                           } else {
                             setNewSch(prev => ({ ...prev, category: cat.id }));
