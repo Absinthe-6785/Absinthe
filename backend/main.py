@@ -76,6 +76,10 @@ class TodoTextUpdate(BaseModel): text: str
 # ==========================================
 # Reset
 # ==========================================
+@app.get("/")
+async def health_check():
+    return {"status": "ok"}
+
 @app.delete("/api/reset")
 async def reset_all_data(user_id: str = Depends(get_current_user)):
     supabase.table("schedules").delete().eq("user_id", user_id).execute()
