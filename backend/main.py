@@ -62,7 +62,7 @@ def verify_owner(resource_user_id: str, current_user_id: str):
 class ScheduleCreate(BaseModel): date: str; text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
 class ScheduleUpdate(BaseModel): text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"
 class TodoCreate(BaseModel): date: str; text: str
-class RoutineCreate(BaseModel): text: str
+class RoutineCreate(BaseModel): text: str; created_date: str = ''
 class StatusUpdate(BaseModel): done: bool
 class RoutineLogUpdate(BaseModel): routine_id: str; date: str; done: bool
 class ExerciseBlockCreate(BaseModel): name: str; type: str; tags: list = []
@@ -77,8 +77,12 @@ class TodoTextUpdate(BaseModel): text: str
 # Reset
 # ==========================================
 @app.get("/")
-async def health_check():
+async def root():
     return {"status": "ok"}
+
+@app.get("/ping")
+async def ping():
+    return {"pong": True}
 
 @app.delete("/api/reset")
 async def reset_all_data(user_id: str = Depends(get_current_user)):
@@ -168,6 +172,8 @@ async def delete_todo(todo_id: str, user_id: str = Depends(get_current_user)):
 @app.get("/api/routines_with_logs")
 async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_user)):
     routines = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
+    # created_date가 없거나(기존 데이터) 요청 날짜 이하인 루틴만 표시
+    routines = [r for r in routines if not r.get("created_date") or r["created_date"] <= date]
     logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).eq("date", date).execute().data or []
     log_dict = {str(log["routine_id"]): log.get("done", False) for log in logs}
     return [{"id": str(r["id"]), "text": r.get("text", ""), "done": log_dict.get(str(r["id"]), False), "is_active": r.get("is_active", True)} for r in routines]
@@ -194,7 +200,11 @@ async def get_routines_range(start_date: str, end_date: str, user_id: str = Depe
 
 @app.post("/api/routines")
 async def create_routine(routine: RoutineCreate, user_id: str = Depends(get_current_user)):
-    return supabase.table("routines").insert({"user_id": user_id, **routine.model_dump()}).execute().data
+    from datetime import date as dt_date
+    data = routine.model_dump()
+    if not data.get("created_date"):
+        data["created_date"] = str(dt_date.today())
+    return supabase.table("routines").insert({"user_id": user_id, **data}).execute().data
 
 @app.post("/api/routine_logs")
 async def toggle_routine_log(log: RoutineLogUpdate, user_id: str = Depends(get_current_user)):
@@ -215,6 +225,7 @@ async def update_routine_text(routine_id: str, routine: RoutineUpdate, user_id: 
 async def delete_routine(routine_id: str, user_id: str = Depends(get_current_user)):
     row = supabase.table("routines").select("user_id").eq("id", routine_id).single().execute().data
     verify_owner(row["user_id"], user_id)
+    supabase.table("routine_logs").delete().eq("routine_id", routine_id).execute()
     return supabase.table("routines").delete().eq("id", routine_id).execute().data
 
 # ==========================================

@@ -126,7 +126,7 @@ export const PlannerView = ({
 
   // ── Routine ────────────────────────────────────────────────────────
   const handleAddRoutine = (text: string) => {
-    if (text.trim()) api('POST', '/api/routines', { text }, { revalidate: 'daily' });
+    if (text.trim()) api('POST', '/api/routines', { text, created_date: formatDate(new Date()) }, { revalidate: 'daily' });
   };
   const handleToggleRoutine = (id: string, current: boolean) => {
     // UI 즉시 반영 — 서버 응답 기다리지 않음
