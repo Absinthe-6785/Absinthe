@@ -14,10 +14,6 @@ app = FastAPI()
 _raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
-@app.get("/")
-def health_check():
-    return {"status": "I'm fine"}
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -63,7 +59,7 @@ def verify_owner(resource_user_id: str, current_user_id: str):
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
 # ==========================================
-class ScheduleCreate(BaseModel): date: str; text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"
+class ScheduleCreate(BaseModel): date: str; text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
 class ScheduleUpdate(BaseModel): text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"
 class TodoCreate(BaseModel): date: str; text: str
 class RoutineCreate(BaseModel): text: str
@@ -71,7 +67,7 @@ class StatusUpdate(BaseModel): done: bool
 class RoutineLogUpdate(BaseModel): routine_id: str; date: str; done: bool
 class ExerciseBlockCreate(BaseModel): name: str; type: str; tags: list = []
 class HealthRoutineCreate(BaseModel): day_name: str; blocks: list
-class WorkoutLogCreate(BaseModel): date: str; block_id: str; sets: list
+class WorkoutLogCreate(BaseModel): date: str; block_id: str; sets: list; sort_order: int = 0
 class InbodyLogCreate(BaseModel): date: str; weight: float; smm: float; pbf: float
 class WeeklyScheduleCreate(BaseModel): day: int; title: str; start_time: str; end_time: str; color: str
 class RoutineUpdate(BaseModel): text: str
@@ -260,7 +256,7 @@ async def save_health_routine(routine: HealthRoutineCreate, user_id: str = Depen
 # ==========================================
 @app.get("/api/workouts")
 async def get_workouts(date: str, user_id: str = Depends(get_current_user)):
-    return supabase.table("workout_logs").select("*, exercise_blocks(name, type)").eq("user_id", user_id).eq("date", date).execute().data or []
+    return supabase.table("workout_logs").select("*, exercise_blocks(name, type)").eq("user_id", user_id).eq("date", date).order("sort_order").execute().data or []
 
 @app.get("/api/workouts/range")
 async def get_workouts_range(start_date: str, end_date: str, user_id: str = Depends(get_current_user)):
@@ -269,11 +265,12 @@ async def get_workouts_range(start_date: str, end_date: str, user_id: str = Depe
 
 @app.post("/api/workouts")
 async def save_workout(log: WorkoutLogCreate, user_id: str = Depends(get_current_user)):
-    existing = supabase.table("workout_logs").select("*").eq("user_id", user_id).eq("date", log.date).eq("block_id", log.block_id).execute().data
+    existing = supabase.table("workout_logs").select("id").eq("user_id", user_id).eq("date", log.date).eq("block_id", log.block_id).execute().data
     if existing:
-        return supabase.table("workout_logs").update({"sets": log.sets}).eq("id", existing[0]["id"]).execute().data
-    else:
-        return supabase.table("workout_logs").insert({"user_id": user_id, **log.model_dump()}).execute().data
+        # 중복 행이 여러 개일 수 있으므로 모두 삭제 후 재insert — sort_order 확실히 반영
+        for row in existing:
+            supabase.table("workout_logs").delete().eq("id", row["id"]).execute()
+    return supabase.table("workout_logs").insert({"user_id": user_id, **log.model_dump()}).execute().data
 
 @app.delete("/api/workouts/{log_id}")
 async def delete_workout(log_id: str, user_id: str = Depends(get_current_user)):
