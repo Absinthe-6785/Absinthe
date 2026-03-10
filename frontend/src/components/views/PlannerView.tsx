@@ -183,7 +183,7 @@ export const PlannerView = ({
   const openModal = (sch?: Schedule) => {
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory });
     setEditingId(sch?.id ?? null);
-    setEndNextDay(false);
+    setEndNextDay(sch?.end_next_day ?? false);  // 편집 시 기존 end_next_day 복원
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
@@ -199,7 +199,7 @@ export const PlannerView = ({
       const ok = await api(
         editingId ? 'PUT' : 'POST',
         editingId ? `/api/schedules/${editingId}` : '/api/schedules',
-        { ...newSch, date: formatDate(selectedDate) },
+        { ...newSch, date: formatDate(selectedDate), end_next_day: endNextDay },
         { revalidate: 'both', successMsg: 'Schedule saved' },
       );
       if (ok) setShowForm(false);
