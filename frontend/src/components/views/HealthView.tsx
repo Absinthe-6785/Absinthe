@@ -68,9 +68,7 @@ export const HealthView = ({
   const [weightUnits, setWeightUnits] = useState<Record<string, 'kg' | 'lbs'>>(() => {
     try {
       const saved = localStorage.getItem('health-weight-units');
-      const parsed = saved ? (JSON.parse(saved) as Record<string, 'kg' | 'lbs'>) : {};
-      console.log('[weightUnits init]', parsed);
-      return parsed;
+      return saved ? (JSON.parse(saved) as Record<string, 'kg' | 'lbs'>) : {};
     } catch { return {}; }
   });
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
