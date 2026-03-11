@@ -1,38 +1,26 @@
-import { useState, useCallback } from 'react';
-import { Settings, Save, Download, LogOut, Loader2, Upload, ArchiveRestore, FileJson, FileText, AlertTriangle } from 'lucide-react';
-import { useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { Settings, Save, Download, LogOut, Loader2, ArchiveRestore, FileJson, FileText, AlertTriangle } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { authFetch } from '../../lib/supabase';
-import { useApiMutation } from '../../hooks/useApiMutation';
 import { SettingsProps } from '../../types';
 import { exportAllToCsv } from '../../lib/csvExport';
 
-export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THEME_COLORS, mutateDaily, mutateStatic, onSignOut }: SettingsProps) => {
-  const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
-  // ── Export 상태 ────────────────────────────────────────────────────────────
+export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THEME_COLORS, onSignOut }: SettingsProps) => {
+  // ── CSV Export ────────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
   const firstOfMonth = today.slice(0, 8) + '01';
   const [exportStart, setExportStart] = useState(firstOfMonth);
   const [exportEnd,   setExportEnd]   = useState(today);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
-  const [isBackingUp, setIsBackingUp]     = useState(false);
-  const [isRestoring, setIsRestoring]     = useState(false);
-  const [restoreMsg, setRestoreMsg]       = useState<{ type: 'success'|'error'; text: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = useCallback(async () => {
     if (!exportStart || !exportEnd) return showToast('Start and end date required', 'error');
     if (exportStart > exportEnd)    return showToast('End date must be after start date', 'error');
-
     setIsExporting(true);
     setExportProgress('Starting export...');
     try {
-      await exportAllToCsv({
-        startDate: exportStart,
-        endDate:   exportEnd,
-        onProgress: setExportProgress,
-      });
+      await exportAllToCsv({ startDate: exportStart, endDate: exportEnd, onProgress: setExportProgress });
       showToast('CSV downloaded! 📥');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -42,6 +30,83 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
       setExportProgress('');
     }
   }, [exportStart, exportEnd, showToast]);
+
+  // ── Backup & Restore ──────────────────────────────────────────────────────
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreMsg, setRestoreMsg]   = useState<{ type: 'success'|'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBackupJSON = async () => {
+    setIsBackingUp(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/backup`);
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `fOr_Absinthe_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('JSON backup downloaded! 💾');
+    } catch { showToast('Backup failed', 'error'); }
+    finally { setIsBackingUp(false); }
+  };
+
+  const handleBackupMarkdown = async () => {
+    setIsBackingUp(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/backup`);
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      const folderMap: Record<string, string> = {};
+      (data.note_folders || []).forEach((f: { id: string; name: string }) => { folderMap[f.id] = f.name; });
+      const md = (data.notes || [])
+        .filter((n: { deleted_at: number | null }) => !n.deleted_at)
+        .map((n: { title: string; body: string; folder_id: string | null; updated_at: number }) =>
+          `# ${n.title}\n> Folder: ${n.folder_id ? (folderMap[n.folder_id] ?? 'Unknown') : 'No Folder'}\n> Updated: ${new Date(n.updated_at).toLocaleString('ko-KR')}\n\n${n.body}\n\n---\n`
+        ).join('\n');
+      const blob = new Blob([md], { type: 'text/markdown' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `fOr_Absinthe_notes_${new Date().toISOString().slice(0,10)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Markdown downloaded! 📝');
+    } catch { showToast('Markdown export failed', 'error'); }
+    finally { setIsBackingUp(false); }
+  };
+
+  const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith('.json')) {
+      setRestoreMsg({ type: 'error', text: 'JSON 파일만 불러올 수 있습니다.' });
+      return;
+    }
+    setIsRestoring(true);
+    setRestoreMsg(null);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.version) throw new Error('Invalid backup file');
+      const res = await authFetch(`${API_URL}/api/restore`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Restore failed');
+      setRestoreMsg({ type: 'success', text: '복원 완료! 페이지를 새로고침하면 반영됩니다.' });
+      showToast('Restore complete! 🎉');
+    } catch {
+      setRestoreMsg({ type: 'error', text: '복원 실패: 올바른 백업 파일인지 확인해주세요.' });
+    } finally {
+      setIsRestoring(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
@@ -95,81 +160,59 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
           </div>
 
           {/* ── Data Management ── */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden  transition-colors ${theme.card}`}>
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
             <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
-              <Save size={20}/> Data Management
+              <Save size={20} className="text-[#FACC15]"/> Data Management
             </h2>
             <div className="space-y-6">
 
-              {/* Export Data */}
+              {/* CSV Export */}
               <div className="flex flex-col gap-4">
                 <div>
                   <p className="text-base font-bold">Export Data (CSV)</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>
-                    Download schedules, todos, routines, workouts and InBody records.
-                  </p>
+                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>Download schedules, todos, routines, workouts and InBody records.</p>
                 </div>
-
-                {/* 날짜 범위 선택 + 버튼 */}
                 <div className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                   <div className="flex items-center gap-2 flex-1">
                     <span className={`text-xs font-bold shrink-0 ${theme.textMuted}`}>From</span>
-                    <input
-                      type="date"
-                      value={exportStart}
-                      max={exportEnd}
+                    <input type="date" value={exportStart} max={exportEnd}
                       onChange={e => setExportStart(e.target.value)}
-                      className="flex-1 bg-transparent text-sm font-semibold outline-none tabular-nums"
-                    />
+                      className="flex-1 bg-transparent text-sm font-semibold outline-none tabular-nums"/>
                   </div>
                   <span className={`font-bold text-center ${theme.textMuted}`}>—</span>
                   <div className="flex items-center gap-2 flex-1">
                     <span className={`text-xs font-bold shrink-0 ${theme.textMuted}`}>To</span>
-                    <input
-                      type="date"
-                      value={exportEnd}
-                      min={exportStart}
+                    <input type="date" value={exportEnd} min={exportStart}
                       onChange={e => setExportEnd(e.target.value)}
-                      className="flex-1 bg-transparent text-sm font-semibold outline-none tabular-nums"
-                    />
+                      className="flex-1 bg-transparent text-sm font-semibold outline-none tabular-nums"/>
                   </div>
-                  <button
-                    onClick={handleExport}
-                    disabled={isExporting}
+                  <button onClick={handleExport} disabled={isExporting}
                     className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-colors shrink-0
-                      ${isExporting
-                        ? 'opacity-60 cursor-not-allowed bg-[#1C1C1E] text-[#FACC15]'
-                        : 'bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800'}`}
-                  >
-                    {isExporting
-                      ? <><Loader2 size={16} className="animate-spin"/> Exporting...</>
-                      : <><Download size={16}/> Export</>
-                    }
+                      ${isExporting ? 'opacity-60 cursor-not-allowed bg-[#1C1C1E] text-[#FACC15]' : 'bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800'}`}>
+                    {isExporting ? <><Loader2 size={16} className="animate-spin"/> Exporting...</> : <><Download size={16}/> Export</>}
                   </button>
                 </div>
-
-                {/* 진행 상태 메시지 */}
                 {isExporting && exportProgress && (
-                  <p className={`text-xs font-semibold animate-pulse ${theme.textMuted}`}>
-                    {exportProgress}
-                  </p>
+                  <p className={`text-xs font-semibold animate-pulse ${theme.textMuted}`}>{exportProgress}</p>
                 )}
               </div>
 
               {/* Backup & Restore */}
               <div className={`flex flex-col gap-5 pt-6 border-t ${theme.border}`}>
                 <div>
-                  <p className="text-base font-bold flex items-center gap-1.5"><Save size={18} className="text-[#FACC15]"/> Backup & Restore</p>
+                  <p className="text-base font-bold flex items-center gap-1.5">
+                    <ArchiveRestore size={18} className="text-[#FACC15]"/> Backup & Restore
+                  </p>
                   <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>전체 데이터를 파일로 저장하거나 불러옵니다. Google Drive에 수동으로 업로드해두면 안전합니다.</p>
                 </div>
 
-                {/* 백업 버튼 */}
+                {/* 백업 다운로드 */}
                 <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                   <div className="flex-1">
                     <p className="text-sm font-bold mb-0.5">백업 다운로드</p>
-                    <p className={`text-xs ${theme.textMuted}`}>JSON(완전 복원용) + Markdown(노트 읽기용)</p>
+                    <p className={`text-xs ${theme.textMuted}`}>JSON(완전 복원용) · Markdown(노트 읽기용)</p>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0 items-center">
                     <button onClick={handleBackupJSON} disabled={isBackingUp}
                       className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800 transition-colors disabled:opacity-50">
                       {isBackingUp ? <Loader2 size={14} className="animate-spin"/> : <FileJson size={14}/>} JSON
@@ -191,7 +234,9 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                     <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore}/>
                     <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring}
                       className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800 transition-colors disabled:opacity-50">
-                      {isRestoring ? <><Loader2 size={14} className="animate-spin"/> 복원 중...</> : <><ArchiveRestore size={14}/> 파일 선택</>}
+                      {isRestoring
+                        ? <><Loader2 size={14} className="animate-spin"/> 복원 중...</>
+                        : <><ArchiveRestore size={14}/> 파일 선택</>}
                     </button>
                     {restoreMsg && (
                       <p className={`text-xs font-semibold flex items-center gap-1 ${restoreMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
@@ -217,7 +262,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
           </div>
         </div>
       </div>
-
     </div>
   );
 };

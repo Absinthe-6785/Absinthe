@@ -224,26 +224,57 @@ export const useAppStore = create<StoreState>()(
             const res = await authFetch(`${API_URL}/api/notes`);
             if (!res.ok) return;
             const raw = await res.json();
-            const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id: string | null; deleted_at: number | null }) => ({
-              id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
-              folderId: n.folder_id ?? null, deletedAt: n.deleted_at ?? null,
-            }));
-            // 30일 지난 휴지통 노트 자동 제거
+            const localNotes = get().notes;
+
+            // DB 노트 변환 — folder_id/deleted_at 없는 구버전 DB는 localStorage 값 우선
+            const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null }) => {
+              const local = localNotes.find(l => l.id === n.id);
+              return {
+                id: n.id,
+                title: n.title,
+                body: n.body,
+                updatedAt: n.updated_at,
+                // DB에 folder_id 컬럼이 있고 값이 있으면 DB 우선, 없으면 localStorage 보존
+                folderId: (n.folder_id != null) ? n.folder_id : (local?.folderId ?? null),
+                // DB에 deleted_at 컬럼이 있으면 DB 우선, 없으면 localStorage 보존
+                deletedAt: (n.deleted_at !== undefined) ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
+              };
+            });
+
+            // 30일 지난 휴지통 노트 자동 제거 (백그라운드)
             const MONTH = 30 * 24 * 60 * 60 * 1000;
             const valid = dbNotes.filter(n => !n.deletedAt || (Date.now() - n.deletedAt < MONTH));
             const expired = dbNotes.filter(n => n.deletedAt && Date.now() - n.deletedAt >= MONTH);
-            for (const n of expired) get().removeNoteFromDB(n.id);
+            expired.forEach(n => get().removeNoteFromDB(n.id));
+
             if (valid.length > 0) {
-              set({ notes: valid, activeNoteId: valid.find(n => !n.deletedAt)?.id ?? null });
+              // activeNoteId는 현재 값 유지 (덮어쓰지 않음)
+              const currentActiveId = get().activeNoteId;
+              const activeStillValid = valid.some(n => n.id === currentActiveId && !n.deletedAt);
+              set({
+                notes: valid,
+                activeNoteId: activeStillValid ? currentActiveId : (valid.find(n => !n.deletedAt)?.id ?? null),
+              });
               saveNotes(valid);
+
+              // localStorage에만 있던 folderId를 DB에 일괄 반영 (최초 1회)
+              const needsSync = valid.filter(n => {
+                const dbRaw = raw.find((r: { id: string }) => r.id === n.id);
+                return n.folderId != null && dbRaw?.folder_id == null;
+              });
+              if (needsSync.length > 0) {
+                // 병렬 sync (경쟁 조건 없음 — upsert)
+                await Promise.all(needsSync.map(n => get().syncNote(n)));
+              }
             } else {
+              // DB에 노트 없음 → localStorage 노트를 DB에 업로드
               const local = get().notes;
-              for (const note of local) {
-                await authFetch(`${API_URL}/api/notes`, {
+              await Promise.all(local.map(note =>
+                authFetch(`${API_URL}/api/notes`, {
                   method: 'POST',
                   body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt, folder_id: note.folderId, deleted_at: note.deletedAt }),
-                });
-              }
+                })
+              ));
             }
           } catch { /**/ }
         },
