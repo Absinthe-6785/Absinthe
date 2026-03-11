@@ -60,9 +60,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultColor: 'gold',
 };
 
-const NOTES_KEY  = 'planner-notes-v2';
-const ACTIVE_KEY = 'planner-active-note';
-const MEMO_MS    = 500;
+const NOTES_KEY   = 'planner-notes-v2';
+const FOLDERS_KEY = 'planner-note-folders';
+const ACTIVE_KEY  = 'planner-active-note';
+const MEMO_MS     = 500;
 
 let notesTimer: ReturnType<typeof setTimeout> | null = null;
 const saveNotes = (notes: Note[]) => {
@@ -70,6 +71,10 @@ const saveNotes = (notes: Note[]) => {
   notesTimer = setTimeout(() => {
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
   }, MEMO_MS);
+};
+
+const saveFolders = (folders: NoteFolder[]) => {
+  try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
 };
 
 const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -99,15 +104,24 @@ const loadActive = (notes: Note[]): string | null => {
   } catch { return notes.find(n => !n.deletedAt)?.id ?? null; }
 };
 
+const loadFolders = (): NoteFolder[] => {
+  try {
+    const raw = localStorage.getItem(FOLDERS_KEY);
+    if (raw) return JSON.parse(raw) as NoteFolder[];
+  } catch { /**/ }
+  return [];
+};
+
 export const useAppStore = create<StoreState>()(
   persist(
     (set, get) => {
       const initialNotes = loadNotes();
+      const initialFolders = loadFolders();
       return {
         appSettings: DEFAULT_SETTINGS,
         memoText: '',
         notes: initialNotes,
-        folders: [],
+        folders: initialFolders,
         activeNoteId: loadActive(initialNotes),
         activeFolderId: null,
 
@@ -121,12 +135,14 @@ export const useAppStore = create<StoreState>()(
           const folder: NoteFolder = { id, name, createdAt: Date.now() };
           const folders = [...get().folders, folder];
           set({ folders, activeFolderId: id });
+          saveFolders(folders);
           get().syncFolder(folder);
           return id;
         },
         renameFolder: (id, name) => {
           const folders = get().folders.map(f => f.id === id ? { ...f, name } : f);
           set({ folders });
+          saveFolders(folders);
           const folder = folders.find(f => f.id === id);
           if (folder) get().syncFolder(folder);
         },
@@ -137,6 +153,7 @@ export const useAppStore = create<StoreState>()(
           const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
           set({ folders, notes, activeFolderId });
           saveNotes(notes);
+          saveFolders(folders);
           get().removeFolderFromDB(id);
           // 이동된 노트들 DB sync
           notes.filter(n => n.folderId === null).forEach(n => get().syncNote(n));
@@ -239,6 +256,7 @@ export const useAppStore = create<StoreState>()(
               id: f.id, name: f.name, createdAt: f.created_at,
             }));
             set({ folders });
+            saveFolders(folders);
           } catch { /**/ }
         },
         syncNote: async (note) => {
