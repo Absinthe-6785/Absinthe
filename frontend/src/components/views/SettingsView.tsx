@@ -1,15 +1,14 @@
 import { useState, useCallback } from 'react';
-import { Settings, Save, Download, AlertTriangle, LogOut, Loader2 } from 'lucide-react';
-import { useConfirm } from '../../hooks/useConfirm';
+import { Settings, Save, Download, LogOut, Loader2, Upload, ArchiveRestore, FileJson, FileText, AlertTriangle } from 'lucide-react';
+import { useRef } from 'react';
+import { API_URL } from '../../lib/config';
+import { authFetch } from '../../lib/supabase';
 import { useApiMutation } from '../../hooks/useApiMutation';
-import { ConfirmModal } from '../common/ConfirmModal';
 import { SettingsProps } from '../../types';
 import { exportAllToCsv } from '../../lib/csvExport';
 
 export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THEME_COLORS, mutateDaily, mutateStatic, onSignOut }: SettingsProps) => {
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
-  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
-
   // ── Export 상태 ────────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
   const firstOfMonth = today.slice(0, 8) + '01';
@@ -17,6 +16,10 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
   const [exportEnd,   setExportEnd]   = useState(today);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
+  const [isBackingUp, setIsBackingUp]     = useState(false);
+  const [isRestoring, setIsRestoring]     = useState(false);
+  const [restoreMsg, setRestoreMsg]       = useState<{ type: 'success'|'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = useCallback(async () => {
     if (!exportStart || !exportEnd) return showToast('Start and end date required', 'error');
@@ -39,14 +42,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
       setExportProgress('');
     }
   }, [exportStart, exportEnd, showToast]);
-
-  // ── Reset ──────────────────────────────────────────────────────────────────
-  const doResetData = () =>
-    api('DELETE', '/api/reset', undefined, {
-      revalidate: 'both',
-      successMsg: 'All data has been permanently deleted.',
-      errorMsg: 'Failed to reset data.',
-    });
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
@@ -100,8 +95,8 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
           </div>
 
           {/* ── Data Management ── */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`}>
-            <h2 className="font-heading text-lg font-bold text-red-500 mb-6 flex items-center gap-2">
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden  transition-colors ${theme.card}`}>
+            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
               <Save size={20}/> Data Management
             </h2>
             <div className="space-y-6">
@@ -161,18 +156,50 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                 )}
               </div>
 
-              {/* Reset All Data */}
-              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0 pt-6 border-t ${theme.border}`}>
+              {/* Backup & Restore */}
+              <div className={`flex flex-col gap-5 pt-6 border-t ${theme.border}`}>
                 <div>
-                  <p className="text-base font-bold text-red-500 flex items-center gap-1.5"><AlertTriangle size={18}/> Reset All Data</p>
-                  <p className="text-sm font-medium mt-1 text-red-500/70">This action cannot be undone.</p>
+                  <p className="text-base font-bold flex items-center gap-1.5"><Save size={18} className="text-[#FACC15]"/> Backup & Restore</p>
+                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>전체 데이터를 파일로 저장하거나 불러옵니다. Google Drive에 수동으로 업로드해두면 안전합니다.</p>
                 </div>
-                <button
-                  onClick={() => showConfirm('Are you sure? This will permanently delete ALL your data.', doResetData, { confirmLabel: 'Reset', variant: 'destructive' })}
-                  className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition-colors"
-                >
-                  Reset Data
-                </button>
+
+                {/* 백업 버튼 */}
+                <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold mb-0.5">백업 다운로드</p>
+                    <p className={`text-xs ${theme.textMuted}`}>JSON(완전 복원용) + Markdown(노트 읽기용)</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={handleBackupJSON} disabled={isBackingUp}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800 transition-colors disabled:opacity-50">
+                      {isBackingUp ? <Loader2 size={14} className="animate-spin"/> : <FileJson size={14}/>} JSON
+                    </button>
+                    <button onClick={handleBackupMarkdown} disabled={isBackingUp}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm border transition-colors disabled:opacity-50 ${theme.border} ${theme.hoverBg}`}>
+                      {isBackingUp ? <Loader2 size={14} className="animate-spin"/> : <FileText size={14}/>} MD
+                    </button>
+                  </div>
+                </div>
+
+                {/* 복원 */}
+                <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold mb-0.5">백업에서 복원</p>
+                    <p className={`text-xs ${theme.textMuted}`}>JSON 백업 파일을 선택하면 기존 데이터에 병합됩니다.</p>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0 items-start sm:items-end">
+                    <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore}/>
+                    <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800 transition-colors disabled:opacity-50">
+                      {isRestoring ? <><Loader2 size={14} className="animate-spin"/> 복원 중...</> : <><ArchiveRestore size={14}/> 파일 선택</>}
+                    </button>
+                    {restoreMsg && (
+                      <p className={`text-xs font-semibold flex items-center gap-1 ${restoreMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                        <AlertTriangle size={11}/> {restoreMsg.text}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Sign Out */}
@@ -191,7 +218,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
         </div>
       </div>
 
-      {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
   );
 };

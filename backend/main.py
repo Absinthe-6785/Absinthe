@@ -310,6 +310,27 @@ async def save_inbody(log: InbodyLogCreate, user_id: str = Depends(get_current_u
     return supabase.table("inbody_logs").upsert({"user_id": user_id, **log.model_dump()}, on_conflict="user_id,date").execute().data
 
 # ==========================================
+# Note Folders
+# ==========================================
+class NoteFolderCreate(BaseModel): id: str; name: str; created_at: int
+
+@app.get("/api/note_folders")
+async def get_note_folders(user_id: str = Depends(get_current_user)):
+    return supabase.table("note_folders").select("*").eq("user_id", user_id).order("created_at").execute().data or []
+
+@app.post("/api/note_folders")
+async def upsert_note_folder(folder: NoteFolderCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("note_folders").upsert({"user_id": user_id, **folder.model_dump()}, on_conflict="id").execute().data
+
+@app.delete("/api/note_folders/{folder_id}")
+async def delete_note_folder(folder_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("note_folders").select("user_id").eq("id", folder_id).single().execute().data
+    verify_owner(row["user_id"], user_id)
+    # 소속 노트 folder_id를 null로 초기화
+    supabase.table("notes").update({"folder_id": None}).eq("folder_id", folder_id).execute()
+    return supabase.table("note_folders").delete().eq("id", folder_id).execute().data
+
+# ==========================================
 # Weekly Schedules
 # ==========================================
 @app.get("/api/weekly_schedules")
@@ -335,7 +356,7 @@ async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_cu
 # ==========================================
 # Notes
 # ==========================================
-class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int
+class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None
 
 @app.get("/api/notes")
 async def get_notes(user_id: str = Depends(get_current_user)):
@@ -343,10 +364,74 @@ async def get_notes(user_id: str = Depends(get_current_user)):
 
 @app.post("/api/notes")
 async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)):
-    return supabase.table("notes").upsert({"user_id": user_id, **note.model_dump()}, on_conflict="id").execute().data
+    data = {"user_id": user_id, **note.model_dump()}
+    return supabase.table("notes").upsert(data, on_conflict="id").execute().data
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
     row = supabase.table("notes").select("user_id").eq("id", note_id).single().execute().data
     verify_owner(row["user_id"], user_id)
     return supabase.table("notes").delete().eq("id", note_id).execute().data
+
+# ==========================================
+# Backup & Restore
+# ==========================================
+@app.get("/api/backup")
+async def export_backup(user_id: str = Depends(get_current_user)):
+    """전체 데이터 백업 — 노트/폴더/스케줄/루틴/운동기록 한 번에 반환"""
+    notes      = supabase.table("notes").select("*").eq("user_id", user_id).execute().data or []
+    folders    = supabase.table("note_folders").select("*").eq("user_id", user_id).execute().data or []
+    schedules  = supabase.table("schedules").select("*").eq("user_id", user_id).execute().data or []
+    todos      = supabase.table("todos").select("*").eq("user_id", user_id).execute().data or []
+    routines   = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
+    routine_logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).execute().data or []
+    blocks     = supabase.table("exercise_blocks").select("*").eq("user_id", user_id).execute().data or []
+    workout_logs = supabase.table("workout_logs").select("*").eq("user_id", user_id).execute().data or []
+    inbody_logs  = supabase.table("inbody_logs").select("*").eq("user_id", user_id).execute().data or []
+    ddays      = supabase.table("ddays").select("*").eq("user_id", user_id).execute().data or []
+    return {
+        "version": 1,
+        "exported_at": __import__('datetime').datetime.utcnow().isoformat() + "Z",
+        "notes": notes,
+        "note_folders": folders,
+        "schedules": schedules,
+        "todos": todos,
+        "routines": routines,
+        "routine_logs": routine_logs,
+        "exercise_blocks": blocks,
+        "workout_logs": workout_logs,
+        "inbody_logs": inbody_logs,
+        "ddays": ddays,
+    }
+
+class RestorePayload(BaseModel):
+    notes: list = []
+    note_folders: list = []
+    schedules: list = []
+    todos: list = []
+    routines: list = []
+    routine_logs: list = []
+    exercise_blocks: list = []
+    workout_logs: list = []
+    inbody_logs: list = []
+    ddays: list = []
+
+@app.post("/api/restore")
+async def import_backup(payload: RestorePayload, user_id: str = Depends(get_current_user)):
+    """백업 JSON을 받아 각 테이블에 upsert (기존 데이터 유지, 충돌 시 덮어쓰기)"""
+    def upsert(table: str, rows: list, conflict: str = "id"):
+        if not rows: return
+        data = [{**{k: v for k, v in r.items() if k != "user_id"}, "user_id": user_id} for r in rows]
+        supabase.table(table).upsert(data, on_conflict=conflict).execute()
+
+    upsert("note_folders",    payload.note_folders)
+    upsert("notes",           payload.notes)
+    upsert("schedules",       payload.schedules)
+    upsert("todos",           payload.todos)
+    upsert("routines",        payload.routines)
+    upsert("routine_logs",    payload.routine_logs)
+    upsert("exercise_blocks", payload.exercise_blocks)
+    upsert("workout_logs",    payload.workout_logs)
+    upsert("inbody_logs",     payload.inbody_logs)
+    upsert("ddays",           payload.ddays)
+    return {"status": "ok", "restored_at": __import__('datetime').datetime.utcnow().isoformat() + "Z"}
