@@ -84,7 +84,7 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.name.endsWith('.json')) {
-      setRestoreMsg({ type: 'error', text: 'JSON 파일만 불러올 수 있습니다.' });
+      setRestoreMsg({ type: 'error', text: 'Only JSON backup files are supported.' });
       return;
     }
     setIsRestoring(true);
@@ -98,10 +98,10 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error('Restore failed');
-      setRestoreMsg({ type: 'success', text: '복원 완료! 페이지를 새로고침하면 반영됩니다.' });
+      setRestoreMsg({ type: 'success', text: 'Restore complete! Refresh the page to apply changes.' });
       showToast('Restore complete! 🎉');
     } catch {
-      setRestoreMsg({ type: 'error', text: '복원 실패: 올바른 백업 파일인지 확인해주세요.' });
+      setRestoreMsg({ type: 'error', text: 'Restore failed: please check that the file is a valid backup.' });
     } finally {
       setIsRestoring(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -203,14 +203,14 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                   <p className="text-base font-bold flex items-center gap-1.5">
                     <ArchiveRestore size={18} className="text-[#FACC15]"/> Backup & Restore
                   </p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>전체 데이터를 파일로 저장하거나 불러옵니다. Google Drive에 수동으로 업로드해두면 안전합니다.</p>
+                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>Save or restore all your data as a file. Upload to Google Drive manually for safekeeping.</p>
                 </div>
 
-                {/* 백업 다운로드 */}
+                {/* Download Backup */}
                 <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                   <div className="flex-1">
-                    <p className="text-sm font-bold mb-0.5">백업 다운로드</p>
-                    <p className={`text-xs ${theme.textMuted}`}>JSON(완전 복원용) · Markdown(노트 읽기용)</p>
+                    <p className="text-sm font-bold mb-0.5">Download Backup</p>
+                    <p className={`text-xs ${theme.textMuted}`}>JSON (full restore) · Markdown (notes read-only)</p>
                   </div>
                   <div className="flex gap-2 shrink-0 items-center">
                     <button onClick={handleBackupJSON} disabled={isBackingUp}
@@ -227,16 +227,16 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                 {/* 복원 */}
                 <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                   <div className="flex-1">
-                    <p className="text-sm font-bold mb-0.5">백업에서 복원</p>
-                    <p className={`text-xs ${theme.textMuted}`}>JSON 백업 파일을 선택하면 기존 데이터에 병합됩니다.</p>
+                    <p className="text-sm font-bold mb-0.5">Restore from Backup</p>
+                    <p className={`text-xs ${theme.textMuted}`}>Select a JSON backup file to merge it with your existing data.</p>
                   </div>
                   <div className="flex flex-col gap-2 shrink-0 items-start sm:items-end">
                     <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore}/>
                     <button onClick={() => fileInputRef.current?.click()} disabled={isRestoring}
                       className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm bg-[#1C1C1E] text-[#FACC15] hover:bg-gray-800 transition-colors disabled:opacity-50">
                       {isRestoring
-                        ? <><Loader2 size={14} className="animate-spin"/> 복원 중...</>
-                        : <><ArchiveRestore size={14}/> 파일 선택</>}
+                        ? <><Loader2 size={14} className="animate-spin"/> Restoring...</>
+                        : <><ArchiveRestore size={14}/> Select File</>}
                     </button>
                     {restoreMsg && (
                       <p className={`text-xs font-semibold flex items-center gap-1 ${restoreMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
