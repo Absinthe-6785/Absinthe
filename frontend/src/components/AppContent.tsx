@@ -15,6 +15,7 @@ import { PlannerView } from './views/PlannerView';
 import { HealthView } from './views/HealthView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
+import { WikiView } from './views/WikiView';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -27,7 +28,7 @@ const THEME_COLORS: ThemeColor[] = [
 ];
 
 // Fix 3: 탭을 리터럴 유니온 타입으로 좁힘 — 오타가 나면 컴파일 에러 발생
-export type TabId = 'planner' | 'health' | 'analytics' | 'settings';
+export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'wiki';
 
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting, fetchNotes, fetchFolders } = useAppStore();
@@ -138,6 +139,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         {activeTab === 'health'    && <HealthView    {...globalProps} />}
         {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
         {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
+        {activeTab === 'wiki'      && <WikiView />}
       </div>
 
       {toast && (
