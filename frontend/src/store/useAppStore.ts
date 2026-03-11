@@ -4,36 +4,51 @@ import { AppSettings } from '../types';
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
 
-// ─── 다중 메모 타입 ───────────────────────────────────────────────────────────
+// ─── 타입 정의 ────────────────────────────────────────────────────────
+export interface NoteFolder {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 export interface Note {
   id: string;
-  title: string;   // 첫 줄
-  body: string;    // 나머지 본문
-  updatedAt: number; // Date.now()
+  title: string;
+  body: string;
+  updatedAt: number;
+  folderId: string | null;   // null = 전체 (미분류)
+  deletedAt: number | null;  // null = 정상, timestamp = 휴지통
 }
 
 interface StoreState {
   appSettings: AppSettings;
-  /** 하위호환용 단일 메모 — 마이그레이션 후 미사용 */
   memoText: string;
-  /** 다중 노트 목록 */
   notes: Note[];
-  /** 현재 열려있는 노트 ID */
+  folders: NoteFolder[];
   activeNoteId: string | null;
+  activeFolderId: string | null | 'trash'; // null=전체, 'trash'=휴지통
   updateSetting: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
   setMemoText: (text: string) => void;
-  // Notes CRUD
-  createNote: () => string;           // 새 노트 생성 후 id 반환
-  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body'>>) => void;
-  deleteNote: (id: string) => void;
+  // Folder CRUD
+  createFolder: (name: string) => string;
+  renameFolder: (id: string, name: string) => void;
+  deleteFolder: (id: string) => void;
+  setActiveFolderId: (id: string | null | 'trash') => void;
+  // Note CRUD
+  createNote: () => string;
+  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => void;
+  moveNoteToTrash: (id: string) => void;
+  restoreNote: (id: string) => void;
+  permanentDeleteNote: (id: string) => void;
   setActiveNoteId: (id: string | null) => void;
-  /** DB에서 노트 로드 */
+  // DB sync
   fetchNotes: () => Promise<void>;
-  /** DB에 노트 upsert */
+  fetchFolders: () => Promise<void>;
   syncNote: (note: Note) => Promise<void>;
-  /** DB에서 노트 삭제 */
   removeNoteFromDB: (id: string) => Promise<void>;
-  /** 운동 카드별 kg/lbs 단위 — block_id 키 */
+  syncFolder: (folder: NoteFolder) => Promise<void>;
+  removeFolderFromDB: (id: string) => Promise<void>;
+  // kg/lbs
   weightUnits: Record<string, 'kg' | 'lbs'>;
   setWeightUnit: (blockId: string, unit: 'kg' | 'lbs') => void;
   toggleWeightUnit: (blockId: string) => void;
@@ -45,182 +60,235 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultColor: 'gold',
 };
 
-const NOTES_STORAGE_KEY = 'planner-notes';
-const ACTIVE_NOTE_KEY   = 'planner-active-note';
-const MEMO_DEBOUNCE_MS  = 500;
+const NOTES_KEY  = 'planner-notes-v2';
+const ACTIVE_KEY = 'planner-active-note';
+const MEMO_MS    = 500;
 
-// debounce 타이머
-let notesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const saveNotesDebounced = (notes: Note[]) => {
-  if (notesDebounceTimer) clearTimeout(notesDebounceTimer);
-  notesDebounceTimer = setTimeout(() => {
-    try { localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes)); } catch { /* ignore */ }
-  }, MEMO_DEBOUNCE_MS);
+let notesTimer: ReturnType<typeof setTimeout> | null = null;
+const saveNotes = (notes: Note[]) => {
+  if (notesTimer) clearTimeout(notesTimer);
+  notesTimer = setTimeout(() => {
+    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
+  }, MEMO_MS);
 };
 
-// syncNote 디바운스 — 타이핑 중 과도한 API 호출 방지 (1.5초)
 const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-const syncNoteDebounced = (note: Note, syncFn: (n: Note) => void) => {
+const syncDebounced = (note: Note, fn: (n: Note) => void) => {
   if (syncTimers[note.id]) clearTimeout(syncTimers[note.id]);
-  syncTimers[note.id] = setTimeout(() => { syncFn(note); }, 1500);
+  syncTimers[note.id] = setTimeout(() => fn(note), 1500);
 };
 
-// 초기 노트 로드 — 기존 단일 메모를 첫 노트로 마이그레이션
-const loadNotesInitial = (): Note[] => {
+const loadNotes = (): Note[] => {
   try {
-    const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+    const raw = localStorage.getItem(NOTES_KEY);
     if (raw) return JSON.parse(raw) as Note[];
-    // 기존 단일 메모 마이그레이션
-    const legacy = localStorage.getItem('planner-memo');
-    const lines = (legacy ?? "Today's key goal!\n- Drink 2L water").split('\n');
-    return [{
-      id: `note-${Date.now()}`,
-      title: lines[0] || 'My first note',
-      body: lines.slice(1).join('\n'),
-      updatedAt: Date.now(),
-    }];
-  } catch {
-    return [{ id: `note-${Date.now()}`, title: 'My first note', body: '', updatedAt: Date.now() }];
-  }
+    // 구버전 마이그레이션
+    const old = localStorage.getItem('planner-notes');
+    if (old) {
+      const parsed = JSON.parse(old) as Note[];
+      return parsed.map(n => ({ ...n, folderId: null, deletedAt: null }));
+    }
+  } catch { /**/ }
+  return [{ id: `note-${Date.now()}`, title: "Today's key goal!", body: '- Drink 2L water', updatedAt: Date.now(), folderId: null, deletedAt: null }];
 };
 
-const loadActiveNoteId = (notes: Note[]): string | null => {
+const loadActive = (notes: Note[]): string | null => {
   try {
-    const saved = localStorage.getItem(ACTIVE_NOTE_KEY);
-    return (saved && notes.find(n => n.id === saved)) ? saved : (notes[0]?.id ?? null);
-  } catch { return notes[0]?.id ?? null; }
+    const s = localStorage.getItem(ACTIVE_KEY);
+    return (s && notes.find(n => n.id === s)) ? s : (notes.find(n => !n.deletedAt)?.id ?? null);
+  } catch { return notes.find(n => !n.deletedAt)?.id ?? null; }
 };
 
 export const useAppStore = create<StoreState>()(
   persist(
     (set, get) => {
-      const initialNotes = loadNotesInitial();
-      const initialActiveId = loadActiveNoteId(initialNotes);
+      const initialNotes = loadNotes();
       return {
         appSettings: DEFAULT_SETTINGS,
         memoText: '',
         notes: initialNotes,
-        activeNoteId: initialActiveId,
-        updateSetting: (key, value) =>
-          set((state) => ({ appSettings: { ...state.appSettings, [key]: value } })),
-        setMemoText: (text) => set({ memoText: text }),
+        folders: [],
+        activeNoteId: loadActive(initialNotes),
+        activeFolderId: null,
 
-        createNote: () => {
-          const id = `note-${Date.now()}`;
-          const newNote: Note = { id, title: 'New Note', body: '', updatedAt: Date.now() };
-          const notes = [newNote, ...get().notes];
-          set({ notes, activeNoteId: id });
-          saveNotesDebounced(notes);
-          try { localStorage.setItem(ACTIVE_NOTE_KEY, id); } catch { /* ignore */ }
-          get().syncNote(newNote);
+        updateSetting: (key, value) =>
+          set(s => ({ appSettings: { ...s.appSettings, [key]: value } })),
+        setMemoText: text => set({ memoText: text }),
+
+        // ── Folder ──────────────────────────────────────────────────
+        createFolder: (name) => {
+          const id = `folder-${Date.now()}`;
+          const folder: NoteFolder = { id, name, createdAt: Date.now() };
+          const folders = [...get().folders, folder];
+          set({ folders, activeFolderId: id });
+          get().syncFolder(folder);
           return id;
         },
-
-        updateNote: (id, patch) => {
-          const notes = get().notes.map(n =>
-            n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
-          );
-          notes.sort((a, b) => b.updatedAt - a.updatedAt);
-          set({ notes });
-          saveNotesDebounced(notes);
-          const updated = notes.find(n => n.id === id);
-          if (updated) syncNoteDebounced(updated, (n) => get().syncNote(n));
+        renameFolder: (id, name) => {
+          const folders = get().folders.map(f => f.id === id ? { ...f, name } : f);
+          set({ folders });
+          const folder = folders.find(f => f.id === id);
+          if (folder) get().syncFolder(folder);
         },
+        deleteFolder: (id) => {
+          // 폴더 삭제 시 소속 노트는 미분류(folderId=null)로 이동
+          const notes = get().notes.map(n => n.folderId === id ? { ...n, folderId: null } : n);
+          const folders = get().folders.filter(f => f.id !== id);
+          const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
+          set({ folders, notes, activeFolderId });
+          saveNotes(notes);
+          get().removeFolderFromDB(id);
+          // 이동된 노트들 DB sync
+          notes.filter(n => n.folderId === null).forEach(n => get().syncNote(n));
+        },
+        setActiveFolderId: id => set({ activeFolderId: id }),
 
-        deleteNote: (id) => {
+        // ── Note ────────────────────────────────────────────────────
+        createNote: () => {
+          const id = `note-${Date.now()}`;
+          const folderId = (() => {
+            const af = get().activeFolderId;
+            return (af === null || af === 'trash') ? null : af;
+          })();
+          const note: Note = { id, title: 'New Note', body: '', updatedAt: Date.now(), folderId, deletedAt: null };
+          const notes = [note, ...get().notes];
+          set({ notes, activeNoteId: id });
+          saveNotes(notes);
+          try { localStorage.setItem(ACTIVE_KEY, id); } catch { /**/ }
+          get().syncNote(note);
+          return id;
+        },
+        updateNote: (id, patch) => {
+          const notes = get().notes.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
+          notes.sort((a, b) => {
+            if (!!a.deletedAt !== !!b.deletedAt) return a.deletedAt ? 1 : -1;
+            return b.updatedAt - a.updatedAt;
+          });
+          set({ notes });
+          saveNotes(notes);
+          const updated = notes.find(n => n.id === id);
+          if (updated) syncDebounced(updated, n => get().syncNote(n));
+        },
+        moveNoteToTrash: (id) => {
+          const notes = get().notes.map(n =>
+            n.id === id ? { ...n, deletedAt: Date.now() } : n
+          );
+          // 휴지통 이동 후 다음 활성 노트로 이동
+          const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
+          set({ notes, activeNoteId: nextActive });
+          saveNotes(notes);
+          const updated = notes.find(n => n.id === id);
+          if (updated) get().syncNote(updated);
+        },
+        restoreNote: (id) => {
+          const notes = get().notes.map(n =>
+            n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n
+          );
+          set({ notes, activeNoteId: id, activeFolderId: notes.find(n => n.id === id)?.folderId ?? null });
+          saveNotes(notes);
+          const updated = notes.find(n => n.id === id);
+          if (updated) get().syncNote(updated);
+        },
+        permanentDeleteNote: (id) => {
           const notes = get().notes.filter(n => n.id !== id);
-          const activeNoteId = get().activeNoteId === id
-            ? (notes[0]?.id ?? null)
-            : get().activeNoteId;
-          set({ notes, activeNoteId });
-          saveNotesDebounced(notes);
-          try { localStorage.setItem(ACTIVE_NOTE_KEY, activeNoteId ?? ''); } catch { /* ignore */ }
+          const nextActive = get().activeNoteId === id ? (notes.find(n => !n.deletedAt)?.id ?? null) : get().activeNoteId;
+          set({ notes, activeNoteId: nextActive });
+          saveNotes(notes);
           get().removeNoteFromDB(id);
         },
-
-        setActiveNoteId: (id) => {
+        setActiveNoteId: id => {
           set({ activeNoteId: id });
-          try { localStorage.setItem(ACTIVE_NOTE_KEY, id ?? ''); } catch { /* ignore */ }
+          try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
         },
 
+        // ── DB sync ─────────────────────────────────────────────────
         fetchNotes: async () => {
           try {
             const res = await authFetch(`${API_URL}/api/notes`);
             if (!res.ok) return;
-            const dbNotes: Note[] = (await res.json()).map((n: { id: string; title: string; body: string; updated_at: number }) => ({
+            const raw = await res.json();
+            const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id: string | null; deleted_at: number | null }) => ({
               id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
+              folderId: n.folder_id ?? null, deletedAt: n.deleted_at ?? null,
             }));
-            if (dbNotes.length > 0) {
-              // DB 노트가 있으면 DB 기준으로 덮어쓰기 (최신 기기 우선)
-              set({ notes: dbNotes, activeNoteId: dbNotes[0].id });
-              saveNotesDebounced(dbNotes);
+            // 30일 지난 휴지통 노트 자동 제거
+            const MONTH = 30 * 24 * 60 * 60 * 1000;
+            const valid = dbNotes.filter(n => !n.deletedAt || (Date.now() - n.deletedAt < MONTH));
+            const expired = dbNotes.filter(n => n.deletedAt && Date.now() - n.deletedAt >= MONTH);
+            for (const n of expired) get().removeNoteFromDB(n.id);
+            if (valid.length > 0) {
+              set({ notes: valid, activeNoteId: valid.find(n => !n.deletedAt)?.id ?? null });
+              saveNotes(valid);
             } else {
-              // DB 노트가 없으면 localStorage 노트를 DB에 업로드 (초기 마이그레이션)
-              const localNotes = get().notes;
-              for (const note of localNotes) {
+              const local = get().notes;
+              for (const note of local) {
                 await authFetch(`${API_URL}/api/notes`, {
                   method: 'POST',
-                  body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt }),
+                  body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt, folder_id: note.folderId, deleted_at: note.deletedAt }),
                 });
               }
             }
-          } catch { /* offline — localStorage로 동작 */ }
+          } catch { /**/ }
         },
-
-        syncNote: async (note: Note) => {
+        fetchFolders: async () => {
+          try {
+            const res = await authFetch(`${API_URL}/api/note_folders`);
+            if (!res.ok) return;
+            const raw = await res.json();
+            const folders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
+              id: f.id, name: f.name, createdAt: f.created_at,
+            }));
+            set({ folders });
+          } catch { /**/ }
+        },
+        syncNote: async (note) => {
           try {
             await authFetch(`${API_URL}/api/notes`, {
               method: 'POST',
-              body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt }),
+              body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt, folder_id: note.folderId, deleted_at: note.deletedAt }),
             });
-          } catch { /* offline — localStorage에 있으니 OK */ }
+          } catch { /**/ }
         },
-
-        removeNoteFromDB: async (id: string) => {
+        removeNoteFromDB: async (id) => {
+          try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
+        },
+        syncFolder: async (folder) => {
           try {
-            await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' });
-          } catch { /* ignore */ }
+            await authFetch(`${API_URL}/api/note_folders`, {
+              method: 'POST',
+              body: JSON.stringify({ id: folder.id, name: folder.name, created_at: folder.createdAt }),
+            });
+          } catch { /**/ }
+        },
+        removeFolderFromDB: async (id) => {
+          try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
         },
 
+        // ── weightUnits ─────────────────────────────────────────────
         weightUnits: (() => {
           try {
             const raw = localStorage.getItem('planner-storage');
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              return parsed?.state?.weightUnits ?? {};
-            }
-          } catch { /* ignore */ }
+            if (raw) return JSON.parse(raw)?.state?.weightUnits ?? {};
+          } catch { /**/ }
           return {};
         })(),
         setWeightUnit: (blockId, unit) =>
-          set(state => ({ weightUnits: { ...state.weightUnits, [blockId]: unit } })),
+          set(s => ({ weightUnits: { ...s.weightUnits, [blockId]: unit } })),
         toggleWeightUnit: (blockId) =>
-          set(state => ({
-            weightUnits: {
-              ...state.weightUnits,
-              [blockId]: state.weightUnits[blockId] === 'lbs' ? 'kg' : 'lbs',
-            },
-          })),
+          set(s => ({ weightUnits: { ...s.weightUnits, [blockId]: s.weightUnits[blockId] === 'lbs' ? 'kg' : 'lbs' } })),
       };
     },
     {
       name: 'planner-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 3,
-      partialize: (state) => ({ appSettings: state.appSettings, weightUnits: state.weightUnits }),
-      migrate: (persistedState: unknown, _version: number) => {
-        const state = persistedState as Partial<StoreState>;
-        return {
-          ...state,
-          appSettings: { ...DEFAULT_SETTINGS, ...(state.appSettings ?? {}) },
-          weightUnits: (state.weightUnits ?? {}),
-        } as StoreState;
+      version: 4,
+      partialize: s => ({ appSettings: s.appSettings, weightUnits: s.weightUnits }),
+      migrate: (persisted: unknown, _v: number) => {
+        const s = persisted as Partial<StoreState>;
+        return { ...s, appSettings: { ...DEFAULT_SETTINGS, ...(s.appSettings ?? {}) }, weightUnits: s.weightUnits ?? {} } as StoreState;
       },
-      onRehydrateStorage: () => (state) => {
-        // 복원 후 weightUnits가 없으면 빈 객체로 보장
-        if (state && !state.weightUnits) {
-          state.weightUnits = {};
-        }
+      onRehydrateStorage: () => s => {
+        if (s && !s.weightUnits) s.weightUnits = {};
       },
     }
   )

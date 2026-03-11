@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, FileText, ChevronLeft, ChevronRight, FolderPlus, Folder, FolderOpen, RotateCcw, AlertTriangle } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useAppStore } from '../../store/useAppStore';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -25,8 +25,29 @@ export const PlannerView = ({
   mutateTodos, mutateRoutines,
   appSettings, schedules, todos, routines, ddays, markedDates, theme, THEME_COLORS,
 }: PlannerProps) => {
-  const { notes, activeNoteId, createNote, updateNote, deleteNote, setActiveNoteId } = useAppStore();
-  const activeNote = notes.find(n => n.id === activeNoteId) ?? notes[0] ?? null;
+  const {
+    notes, folders, activeNoteId, activeFolderId,
+    createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
+    setActiveNoteId, createFolder, renameFolder, deleteFolder, setActiveFolderId,
+    fetchFolders,
+  } = useAppStore();
+
+  // 폴더 로드
+  useEffect(() => { fetchFolders(); }, []);
+
+  // 현재 폴더/휴지통 기준 필터링
+  const visibleNotes = useMemo(() => {
+    if (activeFolderId === 'trash') return notes.filter(n => n.deletedAt !== null);
+    const active = notes.filter(n => n.deletedAt === null);
+    if (activeFolderId === null) return active;
+    return active.filter(n => n.folderId === activeFolderId);
+  }, [notes, activeFolderId]);
+
+  const activeNote = visibleNotes.find(n => n.id === activeNoteId) ?? visibleNotes[0] ?? null;
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [folderInputVal, setFolderInputVal] = useState('');
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState('');
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -375,25 +396,110 @@ export const PlannerView = ({
           </div>
         </div>
 
-        {/* Notes — Apple Notes 스타일 다중 메모 */}
+        {/* Notes — 폴더 + 휴지통 */}
         <div className={`flex-1 min-h-[400px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
 
-          {/* 왼쪽: 노트 목록 사이드바 */}
-          <div className={`w-[120px] lg:w-[160px] shrink-0 flex flex-col border-r ${theme.border}`}>
-            <div className="flex items-center justify-between px-3 py-3 shrink-0">
-              <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1.5">
-                <FileText size={13} className="text-yellow-400"/> Notes
+          {/* 왼쪽: 폴더 + 노트 목록 */}
+          <div className={`w-[140px] lg:w-[170px] shrink-0 flex flex-col border-r ${theme.border}`}>
+
+            {/* 상단: 새 노트 버튼 */}
+            <div className="flex items-center justify-between px-3 py-2.5 shrink-0">
+              <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1">
+                <FileText size={12} className="text-yellow-400"/> Notes
               </span>
-              <button onClick={() => createNote()}
-                className="w-6 h-6 rounded-lg bg-[#FACC15] text-[#1C1C1E] flex items-center justify-center active:scale-90 transition-all">
-                <Plus size={12} strokeWidth={3}/>
+              <div className="flex gap-1">
+                <button onClick={() => setShowFolderInput(v => !v)} title="New Folder"
+                  className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${theme.hoverBg} ${theme.textMuted}`}>
+                  <FolderPlus size={11}/>
+                </button>
+                {activeFolderId !== 'trash' && (
+                  <button onClick={() => createNote()} title="New Note"
+                    className="w-5 h-5 rounded-md bg-[#FACC15] text-[#1C1C1E] flex items-center justify-center active:scale-90 transition-all">
+                    <Plus size={11} strokeWidth={3}/>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 폴더 이름 입력 */}
+            {showFolderInput && (
+              <div className="px-2 pb-2 shrink-0">
+                <input autoFocus value={folderInputVal} onChange={e => setFolderInputVal(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && folderInputVal.trim()) {
+                      createFolder(folderInputVal.trim());
+                      setFolderInputVal(''); setShowFolderInput(false);
+                    }
+                    if (e.key === 'Escape') { setShowFolderInput(false); setFolderInputVal(''); }
+                  }}
+                  placeholder="Folder name"
+                  className={`w-full text-xs font-semibold px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-[#FACC15] ${theme.input}`}/>
+              </div>
+            )}
+
+            <div className={`h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+
+            {/* 폴더 목록 */}
+            <div className="shrink-0">
+              {/* 전체 */}
+              <button onClick={() => setActiveFolderId(null)}
+                className={`w-full flex items-center gap-1.5 px-3 py-2 text-left transition-colors
+                  ${activeFolderId === null ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
+                <Inbox size={11} className={activeFolderId === null ? 'text-[#FACC15]' : theme.textMuted}/>
+                <span className={`text-[11px] font-bold truncate ${activeFolderId === null ? 'text-[#FACC15]' : ''}`}>All Notes</span>
+                <span className={`ml-auto text-[10px] font-bold ${theme.textMuted}`}>{notes.filter(n => !n.deletedAt).length}</span>
+              </button>
+
+              {/* 사용자 폴더 */}
+              {folders.map(f => (
+                <div key={f.id} className={`group relative flex items-center transition-colors
+                  ${activeFolderId === f.id ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
+                  {renamingFolderId === f.id ? (
+                    <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && renameVal.trim()) { renameFolder(f.id, renameVal.trim()); setRenamingFolderId(null); }
+                        if (e.key === 'Escape') setRenamingFolderId(null);
+                      }}
+                      className={`flex-1 text-[11px] font-bold px-3 py-2 bg-transparent outline-none ${theme.textMuted}`}/>
+                  ) : (
+                    <button onClick={() => setActiveFolderId(f.id)}
+                      onDoubleClick={() => { setRenamingFolderId(f.id); setRenameVal(f.name); }}
+                      className="flex-1 flex items-center gap-1.5 px-3 py-2 text-left">
+                      {activeFolderId === f.id
+                        ? <FolderOpen size={11} className="text-[#FACC15] shrink-0"/>
+                        : <Folder size={11} className={`${theme.textMuted} shrink-0`}/>}
+                      <span className={`text-[11px] font-bold truncate ${activeFolderId === f.id ? 'text-[#FACC15]' : ''}`}>{f.name}</span>
+                      <span className={`ml-auto text-[10px] font-bold shrink-0 ${theme.textMuted}`}>{notes.filter(n => !n.deletedAt && n.folderId === f.id).length}</span>
+                    </button>
+                  )}
+                  <button onClick={() => showConfirm(`Delete folder "${f.name}"?`, () => deleteFolder(f.id), { confirmLabel: 'Delete' })}
+                    className={`absolute right-1 p-0.5 rounded opacity-0 group-hover:opacity-100 text-red-400 transition-opacity`}>
+                    <X size={9}/>
+                  </button>
+                </div>
+              ))}
+
+              {/* 휴지통 */}
+              <button onClick={() => setActiveFolderId('trash')}
+                className={`w-full flex items-center gap-1.5 px-3 py-2 text-left transition-colors
+                  ${activeFolderId === 'trash' ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
+                <Trash2 size={11} className={activeFolderId === 'trash' ? 'text-red-400' : theme.textMuted}/>
+                <span className={`text-[11px] font-bold truncate ${activeFolderId === 'trash' ? 'text-red-400' : ''}`}>Trash</span>
+                <span className={`ml-auto text-[10px] font-bold ${theme.textMuted}`}>{notes.filter(n => n.deletedAt !== null).length || ''}</span>
               </button>
             </div>
+
             <div className={`h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+
+            {/* 노트 목록 */}
             <div className="flex-1 overflow-y-auto py-1">
-              {notes.map(n => (
-                <button key={n.id}
-                  onClick={() => setActiveNoteId(n.id)}
+              {visibleNotes.length === 0 && (
+                <p className={`text-[10px] text-center py-4 px-2 ${theme.textMuted}`}>
+                  {activeFolderId === 'trash' ? 'Trash is empty' : 'No notes'}
+                </p>
+              )}
+              {visibleNotes.map(n => (
+                <button key={n.id} onClick={() => setActiveNoteId(n.id)}
                   className={`w-full text-left px-3 py-2.5 transition-colors group relative
                     ${n.id === activeNoteId
                       ? appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]'
@@ -404,12 +510,11 @@ export const PlannerView = ({
                   <p className={`text-[10px] truncate mt-0.5 ${theme.textMuted}`}>
                     {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
-                  {notes.length > 1 && (
-                    <button onClick={e => { e.stopPropagation(); deleteNote(n.id); }}
-                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ${theme.hoverBg}`}>
-                      <X size={10}/>
-                    </button>
-                  )}
+                  <button
+                    onClick={e => { e.stopPropagation(); activeFolderId === 'trash' ? permanentDeleteNote(n.id) : moveNoteToTrash(n.id); }}
+                    className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${theme.hoverBg} ${activeFolderId === 'trash' ? 'text-red-500' : 'text-red-400'}`}>
+                    <X size={10}/>
+                  </button>
                 </button>
               ))}
             </div>
@@ -418,35 +523,52 @@ export const PlannerView = ({
           {/* 오른쪽: 노트 편집기 */}
           {activeNote ? (
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* 타이틀 */}
-              <div className="px-4 pt-4 pb-2 shrink-0">
-                <input
-                  value={activeNote.title}
-                  onChange={e => updateNote(activeNote.id, { title: e.target.value })}
+              {/* 타이틀 + 폴더 이동 */}
+              <div className="px-4 pt-3 pb-2 shrink-0">
+                {activeFolderId === 'trash' ? (
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle size={13} className="text-red-400 shrink-0"/>
+                    <span className={`text-[11px] font-semibold text-red-400`}>In Trash · deleted {new Date(activeNote.deletedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    <button onClick={() => restoreNote(activeNote.id)}
+                      className="ml-auto flex items-center gap-1 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors shrink-0">
+                      <RotateCcw size={11}/> Restore
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <select value={activeNote.folderId ?? ''}
+                      onChange={e => updateNote(activeNote.id, { folderId: e.target.value || null })}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg outline-none ${theme.input} ${theme.textMuted}`}>
+                      <option value="">No Folder</option>
+                      {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                    <p className={`text-[10px] ml-auto ${theme.textMuted}`}>
+                      {new Date(activeNote.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                )}
+                <input value={activeNote.title}
+                  onChange={e => activeFolderId !== 'trash' && updateNote(activeNote.id, { title: e.target.value })}
+                  readOnly={activeFolderId === 'trash'}
                   placeholder="Title"
-                  className="font-heading text-lg lg:text-xl font-bold bg-transparent outline-none border-none w-full"
-                />
-                <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
-                  {new Date(activeNote.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </p>
+                  className="font-heading text-lg lg:text-xl font-bold bg-transparent outline-none border-none w-full"/>
               </div>
               <div className={`mx-4 h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
-              {/* 본문 — 줄 배경 */}
               <div className="flex-1 relative overflow-hidden px-4 py-1">
                 <div className="absolute inset-x-4 inset-y-1 pointer-events-none"
-                  style={{ backgroundImage: `linear-gradient(transparent 23px, ${appSettings.darkMode ? '#3A3A3C' : '#E8E8E8'} 24px)`, backgroundSize: '100% 24px', backgroundPositionY: '4px' }} />
-                <textarea
-                  value={activeNote.body}
-                  onChange={e => updateNote(activeNote.id, { body: e.target.value })}
+                  style={{ backgroundImage: `linear-gradient(transparent 23px, ${appSettings.darkMode ? '#3A3A3C' : '#E8E8E8'} 24px)`, backgroundSize: '100% 24px', backgroundPositionY: '4px' }}/>
+                <textarea value={activeNote.body}
+                  onChange={e => activeFolderId !== 'trash' && updateNote(activeNote.id, { body: e.target.value })}
+                  readOnly={activeFolderId === 'trash'}
                   className="relative z-10 w-full h-full resize-none text-[15px] lg:text-[14px] bg-transparent outline-none border-none font-medium"
                   placeholder="Start writing..."
-                  style={{ lineHeight: '24px', paddingTop: '4px' }}
-                />
+                  style={{ lineHeight: '24px', paddingTop: '4px' }}/>
               </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <button onClick={() => createNote()} className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
+              <button onClick={() => activeFolderId !== 'trash' && createNote()}
+                className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
             </div>
           )}
         </div>

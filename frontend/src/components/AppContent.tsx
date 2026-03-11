@@ -30,7 +30,7 @@ const THEME_COLORS: ThemeColor[] = [
 export type TabId = 'planner' | 'health' | 'analytics' | 'settings';
 
 export function AppContent({ authUser }: { authUser: User }) {
-  const { appSettings, updateSetting, fetchNotes } = useAppStore();
+  const { appSettings, updateSetting, fetchNotes, fetchFolders } = useAppStore();
   const [activeTab, setActiveTab] = useState<TabId>('planner');
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
@@ -39,7 +39,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
   useEffect(() => {
     fetchNotes();
-  // fetchNotes는 store 레퍼런스라 변하지 않음
+    fetchFolders();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
