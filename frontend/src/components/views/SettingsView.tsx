@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Settings, Save, Download, LogOut, Loader2, ArchiveRestore, FileJson, FileText, AlertTriangle } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { authFetch } from '../../lib/supabase';
