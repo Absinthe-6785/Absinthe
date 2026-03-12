@@ -37,16 +37,16 @@ export function AppContent({ authUser }: { authUser: User }) {
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
 
+  // ── 2. 날짜 상태 ──────────────────────────────────────────────────
+  const [currentDate, setCurrentDate] = useState(now.toJSDate());
+  const [selectedDate, setSelectedDate] = useState(now.toJSDate());
+
   // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
   useEffect(() => {
     fetchNotes();
     fetchFolders();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ── 2. 날짜 상태 ──────────────────────────────────────────────────
-  const [currentDate, setCurrentDate] = useState(now.toJSDate());
-  const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
   // ── 3. Toast — useToast 훅으로 분리 ──────────────────────────────
   // 개선 전: toast state + useRef 타이머가 AppContent에 인라인
