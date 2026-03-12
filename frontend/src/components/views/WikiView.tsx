@@ -4,7 +4,7 @@ import {
   Heading1, Heading2, Heading3, Table, CheckSquare, Eye, Edit3,
   RotateCcw, Hash, Quote, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
-  ChevronDown, ChevronRight, GitFork,
+  ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 
@@ -435,18 +435,36 @@ export const WikiView = () => {
     if (activeFolderId === id) setActiveFolderId(null);
   }, [activeFolderId]);
 
+  const duplicateNote = useCallback((note: Note) => {
+    const id = `bn-${Date.now()}`;
+    const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
+    setNotes(prev => { const next = [copy, ...prev]; saveLS(LS_NOTES, next); return next; });
+    setActiveNoteId(id);
+  }, []);
+
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
   const [viewMode,       setViewMode]       = useState<'edit' | 'split' | 'preview' | 'graph'>('split');
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'stats'>('toc');
   const [savedAt,        setSavedAt]        = useState<Date | null>(null);
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
+  const [focusMode,      setFocusMode]      = useState(false);
+  const [showShortcuts,  setShowShortcuts]  = useState(false);
+  const [sortOrder,      setSortOrder]      = useState<'updated' | 'title' | 'created'>('updated');
+  const [showSortMenu,   setShowSortMenu]   = useState(false);
+  const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
+  // [[ 자동완성
+  const [acQuery,  setAcQuery]  = useState('');
+  const [acIndex,  setAcIndex]  = useState(0);
+  const [acVisible,setAcVisible]= useState(false);
+  const [acPos,    setAcPos]    = useState({ top: 0, left: 0 });
 
   const textareaRef   = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef= useRef<HTMLInputElement>(null);
   const saveTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
@@ -467,8 +485,14 @@ export const WikiView = () => {
       const q = searchQuery.toLowerCase();
       list = list.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
     }
+    // 정렬
+    list = [...list].sort((a, b) => {
+      if (sortOrder === 'title')   return (a.title || '').localeCompare(b.title || '');
+      if (sortOrder === 'created') return Number(a.id.split('-')[1] || 0) - Number(b.id.split('-')[1] || 0);
+      return b.updatedAt - a.updatedAt;
+    });
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder]);
 
   const activeNote = notes.find(n => n.id === activeNoteId) ?? null;
 
@@ -534,6 +558,102 @@ export const WikiView = () => {
     e.target.value = '';
   };
 
+  // ── .md 파일 Import ─────────────────────────────────────────────
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const body = ev.target?.result as string;
+        const title = file.name.replace(/\.md$/i, '');
+        const id = `bn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const fid = (activeFolderId && activeFolderId !== 'trash') ? activeFolderId : null;
+        const note: Note = { id, folderId: fid, title, body, updatedAt: Date.now(), deletedAt: null, starred: false };
+        setNotes(prev => { const next = [note, ...prev]; saveLS(LS_NOTES, next); return next; });
+        setActiveNoteId(id);
+      };
+      reader.readAsText(file);
+    });
+    e.target.value = '';
+  };
+
+  // ── [[ 자동완성 ─────────────────────────────────────────────────
+  const acCandidates = useMemo(() => {
+    if (!acQuery) return [];
+    const q = acQuery.toLowerCase();
+    return notes.filter(n => !n.deletedAt && n.title.toLowerCase().includes(q)).slice(0, 8);
+  }, [notes, acQuery]);
+
+  const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (!activeNote) return;
+    const val = e.target.value;
+    noteUpdate(activeNote.id, { body: val });
+    // [[ 감지
+    const pos = e.target.selectionStart;
+    const before = val.slice(0, pos);
+    const match = before.match(/\[\[([^\]\n]*)$/);
+    if (match) {
+      setAcQuery(match[1]);
+      setAcIndex(0);
+      setAcVisible(true);
+      // 커서 위치 계산
+      const ta = e.target;
+      const linesBefore = before.split('\n');
+      const lineNum = linesBefore.length - 1;
+      const lineH = 24;
+      setAcPos({ top: (lineNum + 1) * lineH + 4, left: 180 });
+    } else {
+      setAcVisible(false);
+    }
+  };
+
+  const applyAutoComplete = (title: string) => {
+    const ta = textareaRef.current; if (!ta || !activeNote) return;
+    const pos = ta.selectionStart;
+    const body = activeNote.body;
+    const before = body.slice(0, pos);
+    const match = before.match(/\[\[([^\]\n]*)$/);
+    if (!match) return;
+    const start = pos - match[0].length;
+    const newBody = body.slice(0, start) + `[[${title}]]` + body.slice(pos);
+    noteUpdate(activeNote.id, { body: newBody });
+    setAcVisible(false);
+    setTimeout(() => {
+      const newPos = start + title.length + 4;
+      ta.focus(); ta.setSelectionRange(newPos, newPos);
+    }, 0);
+  };
+
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (acVisible) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setAcIndex(i => Math.min(i + 1, acCandidates.length - 1)); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setAcIndex(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (acCandidates[acIndex]) { e.preventDefault(); applyAutoComplete(acCandidates[acIndex].title); return; }
+      }
+      if (e.key === 'Escape') { setAcVisible(false); return; }
+    }
+  };
+
+  // ── 전역 단축키 ─────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (showSortMenu && e.key === 'Escape') { setShowSortMenu(false); return; }
+      if (!mod) return;
+      switch (e.key) {
+        case 'n': e.preventDefault(); createNote(); break;
+        case 'd': e.preventDefault(); { const n = notes.find(x => x.id === activeNoteId); if (n) duplicateNote(n); } break;
+        case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'split' : 'preview'); break;
+        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'split' : 'graph'); break;
+        case 'f': e.preventDefault(); setFocusMode(v => !v); break;
+        case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu]);
+
   const TOOLBAR: (ToolbarItem | null)[] = [
     { icon: <Heading1 size={13}/>, label: 'H1', fn: () => insert('# ') },
     { icon: <Heading2 size={13}/>, label: 'H2', fn: () => insert('## ') },
@@ -557,6 +677,7 @@ export const WikiView = () => {
     { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∫</span>, label: 'Block Math',  fn: () => insert('$$\n', '\n$$') },
     null,
     { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
+    { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
   ];
 
   const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -611,10 +732,11 @@ export const WikiView = () => {
     { key: 'preview', icon: <Eye size={11}/>,     label: 'Preview' },
     { key: 'graph',   icon: <GitFork size={11}/>, label: 'Graph' },
   ];
-  const RIGHT_PANELS: { key: 'toc' | 'links' | 'tags'; label: string; icon: ReactNode }[] = [
+  const RIGHT_PANELS: { key: 'toc' | 'links' | 'tags' | 'stats'; label: string; icon: ReactNode }[] = [
     { key: 'toc',   label: 'Outline', icon: <AlignLeft size={11}/> },
     { key: 'links', label: 'Links',   icon: <Link size={11}/> },
     { key: 'tags',  label: 'Tags',    icon: <Tag size={11}/> },
+    { key: 'stats', label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ];
 
   // ── CSS (클래스 접두 b = board) ──────────────────────────────────
@@ -671,19 +793,72 @@ export const WikiView = () => {
     .bbl:hover{background:${c.cardHov}}
     .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:14px;line-height:1.85;padding:20px 24px;font-family:inherit}
     .bshl{background:${dark ? '#FACC1550' : '#FEF08A'};color:${dark ? '#FACC15' : '#854D0E'};border-radius:2px;padding:0 1px}
+    .bac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-radius:5px;transition:background .1s;color:${c.text}}
+    .bac-item:hover,.bac-item.active{background:${c.accentBg};color:${c.accent}}
+    .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
+    .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
+    .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#fff'};opacity:.92;z-index:98;pointer-events:none}
+    .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000020;z-index:100;overflow:hidden;min-width:120px}
+    .bsort-item{padding:7px 12px;font-size:12px;cursor:pointer;color:${c.text};display:flex;align-items:center;gap:6px}
+    .bsort-item:hover{background:${c.cardHov}}
+    .bsort-item.active{color:${c.accent};font-weight:600}
+    .bstat-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr}40;font-size:12px}
+    .bstat-val{font-weight:700;color:${c.accent}}
+    .btag-cloud span{display:inline-block;border-radius:999px;cursor:pointer;transition:all .1s}
+    .btag-cloud span:hover{opacity:.8}
+    .bdrag-over{background:${c.accentBg} !important;border:1px dashed ${c.accent} !important}
+    .bnote-drag{opacity:.4}
   `;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
       <style>{CSS}</style>
-      <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInsert}/>
+      <input ref={imageInputRef}  type="file" accept="image/*"  style={{ display: 'none' }} onChange={handleImageInsert}/>
+      <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
+
+      {/* ── 포커스 모드 오버레이 ── */}
+      {focusMode && <div className="focus-overlay" onClick={() => setFocusMode(false)}/>}
+
+      {/* ── 단축키 모달 ── */}
+      {showShortcuts && (
+        <div style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowShortcuts(false)}>
+          <div style={{ background: c.card, borderRadius: 12, padding: '20px 24px', width: 340, boxShadow: '0 8px 32px #00000030' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>Keyboard Shortcuts</div>
+            {[
+              ['Ctrl + N',   'New Note'],
+              ['Ctrl + D',   'Duplicate Note'],
+              ['Ctrl + E',   'Toggle Preview'],
+              ['Ctrl + G',   'Toggle Graph View'],
+              ['Ctrl + F',   'Focus Mode'],
+              ['Ctrl + /',   'Show Shortcuts'],
+              ['[[...]]',    'Wiki link autocomplete'],
+              ['↑ ↓ Enter',  'Navigate autocomplete'],
+              ['Esc',        'Close autocomplete / modal'],
+            ].map(([key, desc]) => (
+              <div key={key} className="bsc-row">
+                <span style={{ color: c.textMuted }}>{desc}</span>
+                <span className="bsc-key">{key}</span>
+              </div>
+            ))}
+            <button onClick={() => setShowShortcuts(false)}
+              style={{ marginTop: 14, width: '100%', background: c.accentBg, border: 'none', borderRadius: 7, padding: '8px', color: c.accent, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Left Sidebar ── */}
-      <div style={{ width: 200, minWidth: 200, background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         {/* Header */}
         <div style={{ padding: '12px 12px 10px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ fontWeight: 800, fontSize: 14, color: c.accent, letterSpacing: -.3 }}>Board</span>
-          <span style={{ marginLeft: 'auto', fontSize: 9, color: c.textFaint, fontFamily: 'monospace', background: c.accentBg, padding: '1px 5px', borderRadius: 4, color: c.accent }}>β</span>
+          <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 5px', borderRadius: 4 }}>β</span>
+          <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ marginLeft: 'auto', padding: '2px 4px' }} title="Keyboard Shortcuts (Ctrl+/)">
+            <Keyboard size={12}/>
+          </button>
         </div>
         {/* Search */}
         <div style={{ padding: '7px 9px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
@@ -714,6 +889,12 @@ export const WikiView = () => {
           {folders.map(f => (
             <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
               onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}
+              onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
+              onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
+              onDrop={e => {
+                e.currentTarget.classList.remove('bdrag-over');
+                if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); }
+              }}
               style={{ gap: 5 }}>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
               <span style={{ fontSize: 10, color: c.textMuted }}>
@@ -774,14 +955,34 @@ export const WikiView = () => {
       </div>
 
       {/* ── Note List ── */}
-      <div style={{ width: 200, minWidth: 200, background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
-          <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>
+          <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
             {activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>({visibleNotes.length})</span>
           </span>
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {activeTag && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
+            {/* 정렬 */}
+            <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
+              title="Sort">
+              {sortOrder === 'updated' ? '⏱' : sortOrder === 'title' ? 'Az' : '📅'}
+            </button>
+            {showSortMenu && (
+              <div className="bsort-menu" onClick={e => e.stopPropagation()}>
+                {(['updated', 'title', 'created'] as const).map(s => (
+                  <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
+                    onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
+                    {s === 'updated' ? '⏱ Last Modified' : s === 'title' ? 'Az Title' : '📅 Created'}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!isTrash && (
+              <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files">
+                <Upload size={11}/>
+              </button>
+            )}
             {!isTrash && (
               <button onClick={() => createNote()} style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
                 <Plus size={12}/>
@@ -801,7 +1002,15 @@ export const WikiView = () => {
             const hlTitle   = searchQuery.trim() ? highlightText(n.title || 'Untitled', searchQuery) : (n.title || 'Untitled');
             const hlPreview = searchQuery.trim() ? highlightText(rawPreview, searchQuery) : rawPreview;
             return (
-              <div key={n.id} className={`bni ${n.id === activeNoteId ? 'active' : ''}`} onClick={() => setActiveNoteId(n.id)}>
+              <div key={n.id}
+                className={`bni ${n.id === activeNoteId ? 'active' : ''} ${dragNoteId === n.id ? 'bnote-drag' : ''}`}
+                onClick={() => setActiveNoteId(n.id)}
+                draggable={!isTrash}
+                onDragStart={() => setDragNoteId(n.id)}
+                onDragEnd={() => setDragNoteId(null)}
+                title="Drag to folder · Ctrl+D to duplicate"
+                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNote(n); } }}
+                tabIndex={0}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
                   {n.starred && <Star size={9} color={dark ? '#FACC15' : '#F59E0B'} fill={dark ? '#FACC15' : '#F59E0B'} style={{ flexShrink: 0 }}/>}
                   <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
@@ -854,6 +1063,12 @@ export const WikiView = () => {
                   <Star size={13} color={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : c.textMuted} fill={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : 'none'}/>
                 </button>
               )}
+              {/* Duplicate */}
+              {!isTrash && (
+                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title="Duplicate (Ctrl+D)">
+                  <span style={{ fontSize: 11 }}>⎘</span>
+                </button>
+              )}
               {/* Export */}
               <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
                 <Save size={12}/>
@@ -899,10 +1114,32 @@ export const WikiView = () => {
                           <div style={{ color: c.textMuted, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                         </div>
                       ) : (
-                        <textarea ref={textareaRef} className="wiki-textarea"
-                          value={activeNote.body}
-                          onChange={e => noteUpdate(activeNote.id, { body: e.target.value })}
-                          placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\nMath: $a^2+b^2=c^2$\nBlock: $$\\sum_{k=1}^{n}k$$\n\nWiki link: [[Note Title]]'}/>
+                        <div style={{ position: 'relative', height: '100%' }}>
+                          <textarea ref={textareaRef} className="wiki-textarea"
+                            value={activeNote.body}
+                            onChange={handleEditorChange}
+                            onKeyDown={handleEditorKeyDown}
+                            placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\nMath: $a^2+b^2=c^2$\nBlock: $$\\sum_{k=1}^{n}k$$\n\nWiki link: [[Note Title]]'}/>
+                          {/* [[ 자동완성 드롭다운 */}
+                          {acVisible && acCandidates.length > 0 && (
+                            <div style={{
+                              position: 'absolute', top: acPos.top, left: Math.min(acPos.left, 300),
+                              background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
+                              boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
+                            }}>
+                              <div style={{ padding: '4px 10px 3px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}`, fontWeight: 700, letterSpacing: 1 }}>
+                                LINK TO NOTE
+                              </div>
+                              {acCandidates.map((n, i) => (
+                                <div key={n.id} className={`bac-item ${i === acIndex ? 'active' : ''}`}
+                                  onMouseDown={e => { e.preventDefault(); applyAutoComplete(n.title); }}>
+                                  <span style={{ fontSize: 10, color: c.textFaint, marginRight: 6 }}>📄</span>
+                                  {n.title}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -1041,7 +1278,64 @@ export const WikiView = () => {
             </div>
           )}
 
-          {/* Permanent delete for trash */}
+          {/* Stats */}
+          {rightPanel === 'stats' && (() => {
+            const body = activeNote.body;
+            const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+            const chars = body.length;
+            const lines = body.split('\n').length;
+            const readMin = Math.max(1, Math.ceil(words / 200));
+            const linkCount = extractLinks(body).length;
+            const tagCount  = extractTags(body).length;
+            const headings  = (body.match(/^#{1,3} /gm) || []).length;
+            const codeBlocks = (body.match(/```/g) || []).length / 2;
+            const created = Number(activeNote.id.split('-')[1] || 0);
+            return (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Note Stats</div>
+                {[
+                  ['Words', words],
+                  ['Characters', chars],
+                  ['Lines', lines],
+                  ['Read time', `~${readMin} min`],
+                  ['Headings', headings],
+                  ['Wiki links', linkCount],
+                  ['Tags', tagCount],
+                  ['Code blocks', Math.floor(codeBlocks)],
+                ].map(([label, val]) => (
+                  <div key={label as string} className="bstat-row">
+                    <span style={{ color: c.textMuted }}>{label}</span>
+                    <span className="bstat-val">{val}</span>
+                  </div>
+                ))}
+                {created > 0 && (
+                  <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
+                    Created {new Date(created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                )}
+                {/* 태그 클라우드 */}
+                {allTags.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Tag Cloud</div>
+                    <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {allTags.slice(0, 20).map(([tag, count]) => {
+                        const maxCount = allTags[0][1];
+                        const size = 9 + Math.round((count / maxCount) * 8);
+                        const opacity = 0.5 + (count / maxCount) * 0.5;
+                        return (
+                          <span key={tag}
+                            style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag === tag ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
+                            onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                            #{tag}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {isTrash && (
             <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
               <button onClick={() => permanentDeleteNote(activeNote.id)}
