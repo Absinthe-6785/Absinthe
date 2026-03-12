@@ -43,31 +43,19 @@ export const HealthView = ({
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
-
-  // 배너 캘린더 — 선택 날짜를 자동으로 가운데 스크롤
-  const bannerScrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = bannerScrollRef.current;
-    if (!el) return;
-    const idx = selectedDate.getDate() - 1;
-    const itemW = 52; // w-11(44px) + gap-2(8px)
-    const scrollTarget = idx * itemW - el.clientWidth / 2 + itemW / 2;
-    el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
-  }, [selectedDate]);
-
   // isDirty: 사용자가 세트를 편집 중인 상태.
-  // true일 때는 SWR 백그라운드 재검증이 localWorkouts를 덮어쓰지 않음.
-  // handleSaveWorkouts 성공 후 false로 리셋.
   const [isDirty, setIsDirty] = useState(false);
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
+  // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
+  const [isInbodyDirty, setIsInbodyDirty] = useState(false);
+  const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
 
-  // weightUnits: zustand store persist — 모든 환경(모바일/데스크톱/PWA)에서 안정적으로 유지
+  // weightUnits: zustand store persist
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
 
   const KG_PER_LBS = 0.45359237;
-  // 표시용: DB(kg) → 해당 카드 단위로 변환
   const displayKg = (kg: number | string, blockId: string): string => {
     const n = parseFloat(String(kg));
     if (isNaN(n) || kg === '' || kg === null) return '';
@@ -75,7 +63,6 @@ export const HealthView = ({
       ? String(Math.round(n / KG_PER_LBS * 10) / 10)
       : String(n);
   };
-  // 저장용: 해당 카드 단위 입력값 → kg으로 변환
   const inputToKg = (val: string, blockId: string): string => {
     if (val === '' || val === null) return '';
     const n = parseFloat(val);
@@ -85,14 +72,18 @@ export const HealthView = ({
       : val;
   };
 
-  // localWorkouts와 동일 패턴: InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
-  // revalidateOnFocus(기본 true)가 발생하면 입력 중인 수치가 날아가는 버그 방지.
-  const [isInbodyDirty, setIsInbodyDirty] = useState(false);
+  // 배너 캘린더 — 선택 날짜를 자동으로 가운데 스크롤
+  const bannerScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bannerScrollRef.current;
+    if (!el) return;
+    const idx = selectedDate.getDate() - 1;
+    const itemW = 52;
+    const scrollTarget = idx * itemW - el.clientWidth / 2 + itemW / 2;
+    el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, [selectedDate]);
 
-  // selectedDate가 바뀌면 다른 날짜 데이터를 봐야 하므로 편집 중 상태를 초기화.
-  // 개선 전: isDirty=true인 채로 날짜 이동 → 새 날짜 workouts가 fetch돼도
-  //          isDirty 가드 때문에 localWorkouts가 갱신되지 않아 이전 날짜 데이터 표시.
-  // 개선 후: selectedDate 변경 시 isDirty 즉시 리셋 → workouts useEffect가 정상 동기화.
+  // selectedDate 변경 시 isDirty 즉시 리셋
   useEffect(() => { setIsDirty(false); setIsInbodyDirty(false); }, [selectedDate]);
 
   useEffect(() => {
@@ -103,12 +94,10 @@ export const HealthView = ({
         return ao - bo;
       });
       setLocalWorkouts(sorted);
-      // 저장된 기록이 있으면 자동 잠금 — 의도치 않은 수정 방지
       setIsWorkoutLocked(sorted.length > 0);
     }
   }, [workouts, isDirty]);
 
-  const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
   useEffect(() => {
     if (!isInbodyDirty)
       setLocalInbody({ weight: Number(inbody?.weight || 0), smm: Number(inbody?.smm || 0), pbf: Number(inbody?.pbf || 0) });
