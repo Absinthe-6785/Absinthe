@@ -33,6 +33,31 @@ export const PlannerView = ({
     fetchFolders,
   } = useAppStore();
 
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [folderInputVal, setFolderInputVal] = useState('');
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newSch, setNewSch] = useState<Partial<Schedule>>({
+    text: '', start_time: '10:00', end_time: '11:00',
+    is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
+  });
+  const [endNextDay, setEndNextDay] = useState(false);
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('todo');
+  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
+  const [newRoutineText, setNewRoutineText] = useState('');
+  const [newTodoText, setNewTodoText] = useState('');
+  const [editRoutineText, setEditRoutineText] = useState('');
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editTodoText, setEditTodoText] = useState('');
+  const [showDdayForm, setShowDdayForm] = useState(false);
+  const [editingDdayId, setEditingDdayId] = useState<string | null>(null);
+  const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
+
+  const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
+  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+
   // 폴더 로드
   useEffect(() => { fetchFolders(); }, []);
 
@@ -45,33 +70,6 @@ export const PlannerView = ({
   }, [notes, activeFolderId]);
 
   const activeNote = visibleNotes.find(n => n.id === activeNoteId) ?? visibleNotes[0] ?? null;
-  const [showFolderInput, setShowFolderInput] = useState(false);
-  const [folderInputVal, setFolderInputVal] = useState('');
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renameVal, setRenameVal] = useState('');
-  const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
-  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
-
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [newSch, setNewSch] = useState<Partial<Schedule>>({
-    text: '', start_time: '10:00', end_time: '11:00',
-    is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
-  });
-  // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
-  const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('todo');
-
-  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
-  const [newRoutineText, setNewRoutineText] = useState('');
-  const [newTodoText, setNewTodoText] = useState('');
-  const [editRoutineText, setEditRoutineText] = useState('');
-  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-  const [editTodoText, setEditTodoText] = useState('');
-
-  const [showDdayForm, setShowDdayForm] = useState(false);
-  const [editingDdayId, setEditingDdayId] = useState<string | null>(null);
-  const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
 
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
