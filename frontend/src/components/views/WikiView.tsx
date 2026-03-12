@@ -1,9 +1,10 @@
+import React from "react";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Search, Plus, Trash2, FolderPlus, Bold, Italic, Code, List, ListOrdered,
   Heading1, Heading2, Heading3, Table, CheckSquare, Eye, Edit3,
   RotateCcw, BookOpen, Hash, Quote, AlertTriangle, Star,
-  ChevronRight, Tag, Link, AlignLeft, SidebarOpen, Image as ImageIcon,
+  ChevronRight, Tag, Link, AlignLeft, Image as ImageIcon,
   Save,
 } from "lucide-react";
 
@@ -11,7 +12,7 @@ import {
 function useKaTeX() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    if (window.katex) { setReady(true); return; }
+    if ((window as any).katex) { setReady(true); return; }
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css";
@@ -25,25 +26,25 @@ function useKaTeX() {
 }
 
 // ── KaTeX 렌더링 ──────────────────────────────────────────────────────
-function renderKaTeX(html) {
-  if (!window.katex) return html;
+function renderKaTeX(html: string): string {
+  if (!(window as any).katex) return html;
   // $$...$$  블록 수식
   html = html.replace(/\$\$([^$]+)\$\$/g, (_, expr) => {
     try {
-      return `<span class="math-block">${window.katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })}</span>`;
+      return `<span class="math-block">${(window as any).katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })}</span>`;
     } catch { return `<span class="math-err">$$${expr}$$</span>`; }
   });
   // $...$  인라인 수식
   html = html.replace(/\$([^$\n]+)\$/g, (_, expr) => {
     try {
-      return `<span class="math-inline">${window.katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false })}</span>`;
+      return `<span class="math-inline">${(window as any).katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false })}</span>`;
     } catch { return `<span class="math-err">$${expr}$</span>`; }
   });
   return html;
 }
 
 // ── 마크다운 파서 (KaTeX 지원) ────────────────────────────────────────
-function parseMarkdown(md, allNotes = [], onLinkClick = null) {
+function parseMarkdown(md: string, allNotes: any[] = [], onLinkClick: any = null) {
   if (!md) return "";
   // 수식 블록은 먼저 플레이스홀더로 치환 (HTML 이스케이프 방지)
   const mathBlocks = [];
@@ -89,13 +90,13 @@ function parseMarkdown(md, allNotes = [], onLinkClick = null) {
   // 플레이스홀더를 KaTeX 렌더링된 수식으로 복원
   html = html.replace(/%%MATH(\d+)%%/g, (_, i) => {
     const m = mathBlocks[+i];
-    if (!window.katex) return `<code>${m}</code>`;
+    if (!(window as any).katex) return `<code>${m}</code>`;
     const isBlock = m.startsWith("$$");
     const expr = m.replace(/^\$\$?/, "").replace(/\$\$?$/, "").trim();
     try {
       return isBlock
-        ? `<span class="math-block">${window.katex.renderToString(expr, { displayMode: true, throwOnError: false })}</span>`
-        : `<span class="math-inline">${window.katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
+        ? `<span class="math-block">${(window as any).katex.renderToString(expr, { displayMode: true, throwOnError: false })}</span>`
+        : `<span class="math-inline">${(window as any).katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
     } catch { return `<code class="math-err">${m}</code>`; }
   });
 
@@ -103,14 +104,14 @@ function parseMarkdown(md, allNotes = [], onLinkClick = null) {
 }
 
 // ── 목차 추출 ─────────────────────────────────────────────────────────
-function extractTOC(body) {
+function extractTOC(body: string) {
   return body.split('\n')
     .map((line, i) => { const m = line.match(/^(#{1,3}) (.+)$/); return m ? { level: m[1].length, text: m[2], line: i } : null; })
     .filter(Boolean);
 }
 
 // ── 태그 추출 ─────────────────────────────────────────────────────────
-function extractTags(body) {
+function extractTags(body: string) {
   return [...new Set((body.match(/(^|\s)#([\w가-힣]+)/g) || []).map(m => m.trim().replace('#', '')))];
 }
 
@@ -118,11 +119,11 @@ function extractTags(body) {
 const LS_NOTES   = "eju-wiki-notes-v1";
 const LS_FOLDERS = "eju-wiki-folders-v1";
 
-function loadLS(key, fallback) {
+function loadLS(key: string, fallback: any): any {
   try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback; }
   catch { return fallback; }
 }
-function saveLS(key, val) {
+function saveLS(key: string, val: any): void {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch { /**/ }
 }
 
@@ -387,7 +388,7 @@ export const WikiView = () {
     e.target.value = "";
   };
 
-  const TOOLBAR = [
+  const TOOLBAR: ({ icon: React.ReactNode; label: string; fn: () => void } | null)[] = [
     { icon: <Heading1 size={13}/>, label:"H1", fn:()=>insert("# ") },
     { icon: <Heading2 size={13}/>, label:"H2", fn:()=>insert("## ") },
     { icon: <Heading3 size={13}/>, label:"H3", fn:()=>insert("### ") },
@@ -575,7 +576,7 @@ export const WikiView = () {
                 </select>
               )}
               <div style={{display:"flex",background:"#161616",borderRadius:7,padding:2,gap:1}}>
-                {[["edit",<Edit3 size={11}/>],["split",<AlignLeft size={11}/>],["preview",<Eye size={11}/>]].map(([m,icon])=>(
+                {([["edit", <Edit3 size={11}/>],["split", <AlignLeft size={11}/>],["preview", <Eye size={11}/>]] as const).map(([m,icon])=>(
                   <button key={m} onClick={()=>setViewMode(m)} className="tbtn"
                     style={{padding:"3px 7px",borderRadius:5,background:viewMode===m?"#2A2A2A":"none",color:viewMode===m?"#FACC15":"#444"}}>
                     {icon}
@@ -593,7 +594,7 @@ export const WikiView = () {
               <div style={{padding:"2px 10px",borderBottom:"1px solid #161616",display:"flex",alignItems:"center",gap:1,flexShrink:0,background:"#0F0F11",flexWrap:"wrap"}}>
                 {TOOLBAR.map((btn,i) => btn===null
                   ? <div key={i} style={{width:1,height:13,background:"#222",margin:"0 2px"}}/>
-                  : <button key={i} className="tbtn" onClick={btn.fn} title={btn.label}>{btn.icon}</button>
+                  : <button key={i} className="tbtn" onClick={btn!.fn} title={btn!.label}>{btn!.icon}</button>
                 )}
                 {/* 저장 표시기 */}
                 {savedAt && (
@@ -642,7 +643,7 @@ export const WikiView = () {
       {activeNote && (
         <div style={{width:180,minWidth:180,background:"#0D0D0F",borderLeft:"1px solid #1C1C1E",display:"flex",flexDirection:"column"}}>
           <div style={{display:"flex",borderBottom:"1px solid #1C1C1E",flexShrink:0}}>
-            {[["toc","목차",<AlignLeft size={11}/>],["backlinks","링크",<Link size={11}/>],["tags","태그",<Tag size={11}/>]].map(([p,label,icon])=>(
+            {([["toc","목차",<AlignLeft size={11}/>],["backlinks","링크",<Link size={11}/>],["tags","태그",<Tag size={11}/>]] as [string,string,React.ReactNode][]).map(([p,label,icon])=>(
               <button key={p} onClick={()=>setRightPanel(p)}
                 style={{flex:1,background:"none",border:"none",borderBottom:rightPanel===p?"2px solid #FACC15":"2px solid transparent",padding:"8px 4px",cursor:"pointer",color:rightPanel===p?"#FACC15":"#444",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",gap:3,transition:"all .15s"}}>
                 {icon}{label}
