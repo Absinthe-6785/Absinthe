@@ -75,11 +75,11 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   // ── 5. Theme ──────────────────────────────────────────────────────
   const theme: Theme = useMemo(() => ({
-    card:      appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-100 shadow-lg' : 'bg-white text-gray-800 shadow-sm',
-    input:     appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100 placeholder-gray-500' : 'bg-gray-50 text-gray-800 placeholder-gray-400',
-    border:    appSettings.darkMode ? 'border-gray-700' : 'border-gray-100',
-    textMuted: appSettings.darkMode ? 'text-gray-400'  : 'text-gray-500',
-    hoverBg:   appSettings.darkMode ? 'hover:bg-[#3A3A3C]' : 'hover:bg-gray-100',
+    card:      appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-100 shadow-lg' : 'bg-[#FAFAF8] text-[#1C1C1E] shadow-sm',
+    input:     appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100 placeholder-gray-500' : 'bg-[#F2F0EA] text-[#1C1C1E] placeholder-[#9C9888]',
+    border:    appSettings.darkMode ? 'border-gray-700' : 'border-[#E8E5DE]',
+    textMuted: appSettings.darkMode ? 'text-gray-400'  : 'text-[#6B6860]',
+    hoverBg:   appSettings.darkMode ? 'hover:bg-[#3A3A3C]' : 'hover:bg-[#F0EDE5]',
   }), [appSettings.darkMode]);
 
   // ── 6. user — useMemo로 안정화 ────────────────────────────────────
@@ -121,7 +121,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   return (
     <div
       className={`flex flex-col lg:flex-row h-[100dvh] font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden ${
-        appSettings.darkMode ? 'bg-[#18181A]' : 'bg-[#F1F3F5]'
+        appSettings.darkMode ? 'bg-[#18181A]' : 'bg-[#F5F4F0]'
       }`}
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >

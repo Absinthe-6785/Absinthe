@@ -20,33 +20,39 @@ export const Sidebar = ({
   userName,
 }: SidebarProps) => (
   <div
-    className={`w-full lg:w-20 rounded-none lg:rounded-[36px] flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-3 py-2 lg:py-6 ${
+    className={`w-full lg:w-[72px] rounded-none lg:rounded-[32px] flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 ${
       appSettings.darkMode ? 'bg-zinc-900' : 'bg-[#1C1C1E]'
     }`}
   >
-    <div className="flex flex-row lg:flex-col gap-3 lg:gap-4">
+    {/* ── 주요 탭 ── */}
+    <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
       {(['planner', 'health', 'analytics', 'wiki'] as const).map((tab) => {
         const Icon =
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
           tab === 'analytics' ? BarChart2 : BookOpen;
         const label = tab === 'wiki' ? 'Board' : tab.charAt(0).toUpperCase() + tab.slice(1);
+        const isActive = activeTab === tab;
         const isWiki = tab === 'wiki';
         return (
           <button
             key={tab}
             aria-label={label}
             onClick={() => setActiveTab(tab)}
-            className={`relative p-3.5 rounded-full shadow-md transition-all ${
-              activeTab === tab
+            className={`relative flex flex-col items-center justify-center gap-0.5 rounded-2xl transition-all
+              px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full
+              ${isActive
                 ? 'bg-[#FACC15] text-[#1C1C1E]'
-                : 'bg-[#333333] text-gray-400 hover:text-white'
-            }`}
+                : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-gray-200'
+              }`}
           >
-            <Icon size={22} strokeWidth={2.5} />
+            <Icon size={20} strokeWidth={2.5} />
+            <span className={`text-[9px] font-bold leading-none mt-0.5 ${isActive ? 'text-[#1C1C1E]' : 'text-gray-500'}`}>
+              {label}
+            </span>
             {isWiki && (
-              <span className={`absolute -top-1 -right-1 text-[8px] font-bold px-1 py-0.5 rounded-full leading-none ${
-                activeTab === 'wiki' ? 'bg-[#1C1C1E] text-[#FACC15]' : 'bg-[#FACC15] text-[#1C1C1E]'
+              <span className={`absolute -top-1 -right-1 text-[7px] font-bold px-1 py-0.5 rounded-full leading-none ${
+                isActive ? 'bg-[#1C1C1E] text-[#FACC15]' : 'bg-[#FACC15] text-[#1C1C1E]'
               }`}>β</span>
             )}
           </button>
@@ -54,38 +60,46 @@ export const Sidebar = ({
       })}
     </div>
 
-    <div className="flex flex-row lg:flex-col gap-3 lg:gap-4">
+    {/* ── 하단 유틸 ── */}
+    <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
       <button
         aria-label="Toggle Dark Mode"
         onClick={() => updateSetting('darkMode', !appSettings.darkMode)}
-        className="bg-[#333333] text-gray-300 p-3.5 rounded-full shadow-sm hover:text-white transition-colors"
+        className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-gray-200 transition-colors"
       >
         {appSettings.darkMode ? (
-          <Sun size={22} strokeWidth={2.5} className="text-[#FACC15]" />
+          <Sun size={20} strokeWidth={2.5} className="text-[#FACC15]" />
         ) : (
-          <Moon size={22} strokeWidth={2.5} />
+          <Moon size={20} strokeWidth={2.5} />
         )}
+        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">
+          {appSettings.darkMode ? 'Light' : 'Dark'}
+        </span>
       </button>
 
       <button
         aria-label="Settings"
         onClick={() => setActiveTab('settings')}
-        className={`p-3.5 rounded-full shadow-md transition-all ${
+        className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl transition-all ${
           activeTab === 'settings'
             ? 'bg-[#FACC15] text-[#1C1C1E]'
-            : 'bg-[#333333] text-gray-400 hover:text-white'
+            : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-gray-200'
         }`}
       >
-        <Settings size={22} strokeWidth={2.5} />
+        <Settings size={20} strokeWidth={2.5} />
+        <span className={`text-[9px] font-bold leading-none mt-0.5 ${activeTab === 'settings' ? 'text-[#1C1C1E]' : 'text-gray-500'}`}>
+          Settings
+        </span>
       </button>
 
       <button
         aria-label="Sign Out"
         onClick={handleSignOut}
         title={`Sign out (${userName})`}
-        className="bg-[#333333] text-gray-400 p-3.5 rounded-full shadow-sm hover:text-red-400 transition-colors"
+        className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-red-400 transition-colors"
       >
-        <LogOut size={22} strokeWidth={2.5} />
+        <LogOut size={20} strokeWidth={2.5} />
+        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">Out</span>
       </button>
     </div>
   </div>

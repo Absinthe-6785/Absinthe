@@ -465,12 +465,17 @@ export const WikiView = () => {
   };
 
   // ── Board CRUD ──────────────────────────────────────────────────
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
   const createNote = useCallback(() => {
     const id = `bn-${Date.now()}`;
     const fid = (activeFolderId && activeFolderId !== 'trash') ? activeFolderId : null;
-    const note: Note = { id, folderId: fid, title: 'New Note', body: '', updatedAt: Date.now(), deletedAt: null, starred: false };
+    const note: Note = { id, folderId: fid, title: '', body: '', updatedAt: Date.now(), deletedAt: null, starred: false };
     setNotes(prev => { const next = [note, ...prev]; saveLS(LS_NOTES, next); return next; });
     setActiveNoteId(id);
+    setViewMode('edit');
+    // 다음 렌더 후 제목 input에 포커스
+    setTimeout(() => titleInputRef.current?.focus(), 50);
   }, [activeFolderId]);
 
   const toggleStar = useCallback((id: string) => {
@@ -603,6 +608,13 @@ export const WikiView = () => {
     });
     return result;
   }, [toc, tocCollapsed]);
+
+  const parsedBody = useMemo(
+    () => activeNote ? parseMarkdown(activeNote.body, notes) : '',
+    // katexReady가 바뀌면(KaTeX 로드 완료) 수식 재렌더 필요
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeNote?.body, notes, katexReady]
+  );
 
   const backlinks = useMemo(() =>
     activeNote ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && n.body.includes(`[[${activeNote.title}]]`)) : [],
@@ -1138,7 +1150,7 @@ export const WikiView = () => {
           <>
             {/* Note Header */}
             <div style={{ padding: '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0 }}>
-              <input value={activeNote.title} readOnly={isTrash}
+              <input ref={titleInputRef} value={activeNote.title} readOnly={isTrash}
                 onChange={e => noteUpdate(activeNote.id, { title: e.target.value })}
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: 15, fontWeight: 700 }}
                 placeholder="Title"/>
@@ -1248,9 +1260,9 @@ export const WikiView = () => {
                     )
                   )}
                   {viewMode === 'preview' && (
-                    <div key={katexReady ? 'ready' : 'loading'}
+                    <div
                       onClick={handlePreviewClick}
-                      dangerouslySetInnerHTML={{ __html: parseMarkdown(activeNote.body, notes) }}/>
+                      dangerouslySetInnerHTML={{ __html: parsedBody }}/>
                   )}
                 </div>
               </>

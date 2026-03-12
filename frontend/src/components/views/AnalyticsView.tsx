@@ -276,8 +276,7 @@ export const AnalyticsView = ({
                 const isToday = dateStr === formatDate(now.toJSDate());
                 return (
                   <button key={idx}
-                    onClick={() => toggleWorkoutDay(dateStr)}
-                    className={`flex-1 flex flex-col items-center gap-1.5 py-2 rounded-2xl transition-all active:scale-95
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-2 rounded-2xl cursor-default
                       ${done
                         ? 'bg-green-500/20 border border-green-500/40'
                         : isToday
@@ -298,7 +297,7 @@ export const AnalyticsView = ({
               })}
             </div>
             <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
-              Tap to mark · Auto-updated when workout is saved
+              Auto-synced from Health tab · View only
             </p>
           </div>
 
