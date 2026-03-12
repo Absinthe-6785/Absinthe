@@ -35,6 +35,7 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg]   = useState<{ type: 'success'|'error'; text: string } | null>(null);
+  const [reloadCountdown, setReloadCountdown] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBackupJSON = async () => {
@@ -80,7 +81,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
     finally { setIsBackingUp(false); }
   };
 
-  const [reloadCountdown, setReloadCountdown] = useState<number | null>(null);
 
   const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
