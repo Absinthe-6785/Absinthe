@@ -16,6 +16,7 @@ interface Note {
   body: string;
   updatedAt: number;
   deletedAt: number | null;
+  starred: boolean;
 }
 interface NoteFolder {
   id: string;
@@ -64,6 +65,13 @@ function useKaTeX(): boolean {
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface TocItem { level: number; text: string; line: number; collapsed: boolean; }
 interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
+
+// ── 검색어 하이라이트 ─────────────────────────────────────────────────
+function highlightText(text: string, query: string): string {
+  if (!query.trim()) return text;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bshl">$1</mark>');
+}
 
 // ── 마크다운 파서 ──────────────────────────────────────────────────────
 function parseMarkdown(md: string, allNotes: Note[]): string {
@@ -142,8 +150,8 @@ function extractLinks(body: string): string[] {
   return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
 }
 
-// ── 그래프 뷰 컴포넌트 ───────────────────────────────────────────────
-interface GraphNode { id: string; title: string; x: number; y: number; links: number; }
+// ── 그래프 뷰 (Force-Directed) ───────────────────────────────────────
+interface GraphNode { id: string; title: string; x: number; y: number; vx: number; vy: number; links: number; }
 interface GraphEdge { from: string; to: string; }
 
 function GraphView({
@@ -151,12 +159,17 @@ function GraphView({
 }: {
   notes: Note[]; activeNoteId: string | null; onSelect: (id: string) => void; dark: boolean;
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef    = useRef<SVGSVGElement>(null);
+  const frameRef  = useRef<number>(0);
   const [size, setSize] = useState({ w: 600, h: 400 });
-  const [hovered, setHovered] = useState<string | null>(null);
+  const [hovered,  setHovered]  = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
-  const [nodePos, setNodePos] = useState<Record<string, { x: number; y: number }>>({});
   const dragOffset = useRef({ dx: 0, dy: 0 });
+
+  // nodes/edges는 ref로 관리 (애니메이션 루프에서 직접 변경)
+  const nodesRef = useRef<GraphNode[]>([]);
+  const edgesRef = useRef<GraphEdge[]>([]);
+  const [tick, setTick] = useState(0); // 렌더 트리거
 
   useEffect(() => {
     const el = svgRef.current?.parentElement;
@@ -169,61 +182,115 @@ function GraphView({
     return () => ro.disconnect();
   }, []);
 
-  const visible = notes.filter(n => !n.deletedAt);
+  const visible = useMemo(() => notes.filter(n => !n.deletedAt), [notes]);
 
-  // 링크 맵 구축
-  const { nodes, edges } = useMemo<{ nodes: GraphNode[]; edges: GraphEdge[] }>(() => {
+  // 노트가 바뀌면 그래프 재초기화
+  useEffect(() => {
     const titleToId: Record<string, string> = {};
     visible.forEach(n => { titleToId[n.title] = n.id; });
 
     const linkCount: Record<string, number> = {};
     const edgeSet = new Set<string>();
     const edgeList: GraphEdge[] = [];
-
     visible.forEach(n => {
       extractLinks(n.body).forEach(title => {
         const toId = titleToId[title];
         if (!toId) return;
-        const key = [n.id, toId].sort().join('→');
+        const key = [n.id, toId].sort().join('|');
         if (!edgeSet.has(key)) { edgeSet.add(key); edgeList.push({ from: n.id, to: toId }); }
-        linkCount[n.id]  = (linkCount[n.id]  || 0) + 1;
-        linkCount[toId]  = (linkCount[toId]   || 0) + 1;
+        linkCount[n.id] = (linkCount[n.id] || 0) + 1;
+        linkCount[toId] = (linkCount[toId] || 0) + 1;
       });
     });
+    edgesRef.current = edgeList;
 
-    // Force-layout 초기 위치 (원형 배치)
+    // 기존 위치 보존하면서 새 노트만 랜덤 배치
+    const existing = Object.fromEntries(nodesRef.current.map(n => [n.id, n]));
     const cx = size.w / 2, cy = size.h / 2;
-    const r  = Math.min(size.w, size.h) * 0.35;
-    const ns: GraphNode[] = visible.map((n, i) => {
-      const angle = (2 * Math.PI * i) / visible.length - Math.PI / 2;
-      return {
-        id: n.id, title: n.title,
-        x: cx + r * Math.cos(angle),
-        y: cy + r * Math.sin(angle),
-        links: linkCount[n.id] || 0,
-      };
+    nodesRef.current = visible.map(n => existing[n.id] ?? {
+      id: n.id, title: n.title,
+      x: cx + (Math.random() - 0.5) * 300,
+      y: cy + (Math.random() - 0.5) * 300,
+      vx: 0, vy: 0, links: linkCount[n.id] || 0,
     });
-    return { nodes: ns, edges: edgeList };
-  }, [visible.length, visible.map(n => n.id + n.title).join(), size.w, size.h]);
+    // links 카운트 갱신
+    nodesRef.current.forEach(nd => { nd.links = linkCount[nd.id] || 0; nd.title = visible.find(n => n.id === nd.id)?.title ?? nd.title; });
+  }, [visible.map(n => n.id).join(), size.w, size.h]);
 
-  // 실제 위치 = nodePos override 또는 초기 계산값
-  const getPos = (id: string, node: GraphNode) =>
-    nodePos[id] ? nodePos[id] : { x: node.x, y: node.y };
+  // Force-directed 애니메이션 루프
+  useEffect(() => {
+    let alpha = 1.0;
+    const REPEL = 3000, ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
+
+    const step = () => {
+      const ns = nodesRef.current;
+      const es = edgesRef.current;
+      if (ns.length === 0 || alpha < 0.005) { setTick(t => t + 1); return; }
+
+      alpha *= 0.97;
+
+      // repulsion between all nodes
+      for (let i = 0; i < ns.length; i++) {
+        for (let j = i + 1; j < ns.length; j++) {
+          const dx = ns[j].x - ns[i].x, dy = ns[j].y - ns[i].y;
+          const dist2 = dx * dx + dy * dy + 1;
+          const force = REPEL / dist2;
+          const fx = force * dx / Math.sqrt(dist2), fy = force * dy / Math.sqrt(dist2);
+          ns[i].vx -= fx; ns[i].vy -= fy;
+          ns[j].vx += fx; ns[j].vy += fy;
+        }
+      }
+      // attraction along edges
+      es.forEach(e => {
+        const a = ns.find(n => n.id === e.from), b = ns.find(n => n.id === e.to);
+        if (!a || !b) return;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (dist - LINK_DIST) * ATTRACT;
+        const fx = force * dx / dist, fy = force * dy / dist;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      });
+      // center gravity
+      const cx = size.w / 2, cy = size.h / 2;
+      ns.forEach(n => {
+        n.vx += (cx - n.x) * CENTER;
+        n.vy += (cy - n.y) * CENTER;
+      });
+      // integrate (skip dragged node)
+      ns.forEach(n => {
+        if (n.id === dragging) return;
+        n.vx *= DAMPING; n.vy *= DAMPING;
+        n.x  += n.vx * alpha;
+        n.y  += n.vy * alpha;
+        // boundary
+        n.x = Math.max(30, Math.min(size.w - 30, n.x));
+        n.y = Math.max(30, Math.min(size.h - 30, n.y));
+      });
+      setTick(t => t + 1);
+      frameRef.current = requestAnimationFrame(step);
+    };
+    frameRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [visible.map(n => n.id).join(), size.w, size.h, dragging]);
 
   // 드래그
   const onMouseDown = (e: React.MouseEvent, id: string) => {
-    const pos = getPos(id, nodes.find(n => n.id === id)!);
-    dragOffset.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    const nd = nodesRef.current.find(n => n.id === id);
+    if (!nd) return;
+    dragOffset.current = { dx: e.clientX - nd.x, dy: e.clientY - nd.y };
     setDragging(id);
     e.preventDefault();
   };
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
-      setNodePos(prev => ({
-        ...prev,
-        [dragging]: { x: e.clientX - dragOffset.current.dx, y: e.clientY - dragOffset.current.dy },
-      }));
+      const nd = nodesRef.current.find(n => n.id === dragging);
+      if (!nd) return;
+      nd.x = e.clientX - dragOffset.current.dx;
+      nd.y = e.clientY - dragOffset.current.dy;
+      nd.vx = 0; nd.vy = 0;
+      setTick(t => t + 1);
     };
     const onUp = () => setDragging(null);
     window.addEventListener('mousemove', onMove);
@@ -232,53 +299,49 @@ function GraphView({
   }, [dragging]);
 
   const bg    = dark ? '#18181A' : '#F8F9FA';
-  const edge  = dark ? '#D1D5DB30' : '#CBD5E130';
-  const edgeA = dark ? '#6B7280'   : '#9CA3AF';
-  const nodeC = dark ? '#2C2C2E'   : '#FFFFFF';
-  const nodeB = dark ? '#4B5563'   : '#E5E7EB';
-  const txtC  = dark ? '#E5E7EB'   : '#1F2937';
-  const actC  = dark ? '#FACC15'   : '#2563EB';
-  const hovC  = dark ? '#FDE04740' : '#DBEAFE';
+  const edgeC = dark ? '#6B7280' : '#9CA3AF';
+  const nodeC = dark ? '#2C2C2E' : '#FFFFFF';
+  const nodeB = dark ? '#4B5563' : '#E5E7EB';
+  const txtC  = dark ? '#E5E7EB' : '#374151';
+  const actC  = dark ? '#FACC15' : '#2563EB';
+  const hovBg = dark ? '#FACC1425' : '#DBEAFE';
+
+  const ns = nodesRef.current;
+  const es = edgesRef.current;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: bg }}>
       <svg ref={svgRef} width="100%" height="100%" style={{ display: 'block' }}>
         <defs>
-          <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-            <path d="M0,0 L6,3 L0,6 Z" fill={edgeA}/>
+          <marker id="garr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill={edgeC}/>
           </marker>
         </defs>
-        {/* edges */}
-        {edges.map((e, i) => {
-          const fn = nodes.find(n => n.id === e.from); const tn = nodes.find(n => n.id === e.to);
-          if (!fn || !tn) return null;
-          const fp = getPos(fn.id, fn), tp = getPos(tn.id, tn);
-          const isActive = e.from === activeNoteId || e.to === activeNoteId;
-          return (
-            <line key={i} x1={fp.x} y1={fp.y} x2={tp.x} y2={tp.y}
-              stroke={isActive ? actC : edgeA} strokeWidth={isActive ? 1.5 : 1}
-              strokeOpacity={isActive ? 0.8 : 0.4} markerEnd="url(#arr)"/>
-          );
+        {es.map((e, i) => {
+          const a = ns.find(n => n.id === e.from), b = ns.find(n => n.id === e.to);
+          if (!a || !b) return null;
+          const isAct = e.from === activeNoteId || e.to === activeNoteId;
+          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+            stroke={isAct ? actC : edgeC} strokeWidth={isAct ? 1.5 : 1}
+            strokeOpacity={isAct ? 0.9 : 0.45} markerEnd="url(#garr)"/>;
         })}
-        {/* nodes */}
-        {nodes.map(node => {
-          const pos   = getPos(node.id, node);
-          const r     = 6 + Math.min(node.links * 2, 10);
+        {ns.map(node => {
+          const r     = 7 + Math.min(node.links * 2, 10);
           const isAct = node.id === activeNoteId;
           const isHov = node.id === hovered;
-          const label = node.title.length > 14 ? node.title.slice(0, 13) + '…' : node.title;
+          const label = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
           return (
             <g key={node.id} style={{ cursor: 'pointer' }}
               onClick={() => onSelect(node.id)}
               onMouseDown={e => onMouseDown(e, node.id)}
               onMouseEnter={() => setHovered(node.id)}
               onMouseLeave={() => setHovered(null)}>
-              {isHov && <circle cx={pos.x} cy={pos.y} r={r + 5} fill={hovC}/>}
-              <circle cx={pos.x} cy={pos.y} r={r}
+              {isHov && <circle cx={node.x} cy={node.y} r={r + 6} fill={hovBg}/>}
+              <circle cx={node.x} cy={node.y} r={r}
                 fill={isAct ? actC : nodeC}
-                stroke={isAct ? actC : (isHov ? actC : nodeB)}
-                strokeWidth={isAct ? 0 : 1.5}/>
-              <text x={pos.x} y={pos.y + r + 13} textAnchor="middle"
+                stroke={isAct || isHov ? actC : nodeB} strokeWidth={1.5}/>
+              {node.starred && <text x={node.x + r - 2} y={node.y - r + 4} fontSize="9" textAnchor="middle" style={{ pointerEvents: 'none' }}>★</text>}
+              <text x={node.x} y={node.y + r + 14} textAnchor="middle"
                 fontSize="10" fill={isAct ? actC : txtC} fontWeight={isAct ? '700' : '400'}
                 style={{ userSelect: 'none', pointerEvents: 'none' }}>
                 {label}
@@ -287,10 +350,14 @@ function GraphView({
           );
         })}
       </svg>
-      <div style={{ position: 'absolute', bottom: 8, right: 10, fontSize: 10,
-        color: dark ? '#555' : '#9CA3AF' }}>
-        {visible.length} notes · {edges.length} links · drag to reposition
+      <div style={{ position: 'absolute', bottom: 10, right: 12, fontSize: 10, color: dark ? '#444' : '#9CA3AF' }}>
+        {ns.length} notes · {es.length} links · drag nodes to reposition
       </div>
+      {activeNoteId && (
+        <div style={{ position: 'absolute', bottom: 10, left: 12, fontSize: 10, color: actC, fontWeight: 600 }}>
+          {ns.find(n => n.id === activeNoteId)?.title}
+        </div>
+      )}
     </div>
   );
 }
@@ -318,10 +385,28 @@ export const WikiView = () => {
   const createNote = useCallback(() => {
     const id = `bn-${Date.now()}`;
     const fid = (activeFolderId && activeFolderId !== 'trash') ? activeFolderId : null;
-    const note: Note = { id, folderId: fid, title: 'New Note', body: '', updatedAt: Date.now(), deletedAt: null };
+    const note: Note = { id, folderId: fid, title: 'New Note', body: '', updatedAt: Date.now(), deletedAt: null, starred: false };
     setNotes(prev => { const next = [note, ...prev]; saveLS(LS_NOTES, next); return next; });
     setActiveNoteId(id);
   }, [activeFolderId]);
+
+  const toggleStar = useCallback((id: string) => {
+    setNotes(prev => {
+      const next = prev.map(n => n.id === id ? { ...n, starred: !n.starred } : n);
+      saveLS(LS_NOTES, next);
+      return next;
+    });
+  }, []);
+
+  const exportNote = useCallback((note: Note) => {
+    const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${note.title.replace(/[/\\?%*:|"<>]/g, '-') || 'untitled'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const moveNoteToTrash = useCallback((id: string) => {
     setNotes(prev => { const next = prev.map(n => n.id === id ? { ...n, deletedAt: Date.now() } : n); saveLS(LS_NOTES, next); return next; });
@@ -364,7 +449,7 @@ export const WikiView = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const saveTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
+  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     setNotes(prev => { const next = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n); saveLS(LS_NOTES, next); return next; });
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
@@ -374,7 +459,7 @@ export const WikiView = () => {
   const visibleNotes = useMemo(() => {
     let list: Note[] =
       activeFolderId === 'trash'   ? notes.filter(n => n.deletedAt) :
-      activeFolderId === 'starred' ? notes.filter(n => !n.deletedAt) : // starred 없으면 전체
+      activeFolderId === 'starred' ? notes.filter(n => n.starred && !n.deletedAt) :
       activeFolderId               ? notes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
                                      notes.filter(n => !n.deletedAt);
     if (activeTag)          list = list.filter(n => extractTags(n.body).includes(activeTag));
@@ -512,6 +597,7 @@ export const WikiView = () => {
   };
 
   const trashCount   = notes.filter(n => n.deletedAt).length;
+  const starredCount = notes.filter(n => n.starred && !n.deletedAt).length;
   const isTrash      = activeFolderId === 'trash';
 
   const folderLabel =
@@ -584,6 +670,7 @@ export const WikiView = () => {
     .bbl{padding:6px 10px;font-size:12px;color:${dark ? '#60A5FA' : '#2563EB'};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
     .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:14px;line-height:1.85;padding:20px 24px;font-family:inherit}
+    .bshl{background:${dark ? '#FACC1550' : '#FEF08A'};color:${dark ? '#FACC15' : '#854D0E'};border-radius:2px;padding:0 1px}
   `;
 
   return (
@@ -612,6 +699,14 @@ export const WikiView = () => {
             <span style={{ fontSize: 10, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 6px', fontWeight: 700 }}>
               {notes.filter(n => !n.deletedAt).length}
             </span>
+          </div>
+
+          {/* Starred */}
+          <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
+            onClick={() => { setActiveFolderId('starred'); setActiveTag(null); }}>
+            <Star size={11} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
+            <span style={{ flex: 1 }}>Starred</span>
+            {starredCount > 0 && <span style={{ fontSize: 10, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 6px', fontWeight: 700 }}>{starredCount}</span>}
           </div>
 
           {/* Folders */}
@@ -702,15 +797,18 @@ export const WikiView = () => {
           ) : visibleNotes.map(n => {
             const folder  = folders.find(f => f.id === n.folderId);
             const tags    = extractTags(n.body).slice(0, 2);
-            const preview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
+            const rawPreview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
+            const hlTitle   = searchQuery.trim() ? highlightText(n.title || 'Untitled', searchQuery) : (n.title || 'Untitled');
+            const hlPreview = searchQuery.trim() ? highlightText(rawPreview, searchQuery) : rawPreview;
             return (
               <div key={n.id} className={`bni ${n.id === activeNoteId ? 'active' : ''}`} onClick={() => setActiveNoteId(n.id)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {n.title || 'Untitled'}
-                  </span>
+                  {n.starred && <Star size={9} color={dark ? '#FACC15' : '#F59E0B'} fill={dark ? '#FACC15' : '#F59E0B'} style={{ flexShrink: 0 }}/>}
+                  <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    dangerouslySetInnerHTML={{ __html: hlTitle }}/>
                 </div>
-                <div style={{ fontSize: 10, color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 3 }}>{preview}</div>
+                <div style={{ fontSize: 10, color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 3 }}
+                  dangerouslySetInnerHTML={{ __html: hlPreview }}/>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
                   {folder && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 3, padding: '1px 4px' }}>{folder.name}</span>}
                   {tags.map(t => <span key={t} style={{ fontSize: 9, color: c.tagTxt, background: c.tag, borderRadius: 3, padding: '1px 4px' }}>#{t}</span>)}
@@ -750,6 +848,16 @@ export const WikiView = () => {
                   </button>
                 ))}
               </div>
+              {/* Star */}
+              {!isTrash && (
+                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
+                  <Star size={13} color={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : c.textMuted} fill={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : 'none'}/>
+                </button>
+              )}
+              {/* Export */}
+              <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
+                <Save size={12}/>
+              </button>
               {isTrash
                 ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={12}/></button>
                 : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
