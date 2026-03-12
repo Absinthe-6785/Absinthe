@@ -76,12 +76,108 @@ function highlightText(text: string, query: string): string {
 // ── 마크다운 파서 ──────────────────────────────────────────────────────
 function parseMarkdown(md: string, allNotes: Note[]): string {
   if (!md) return '';
+
+  // 1. 수식 보호
   const mathBlocks: string[] = [];
   let text = md
     .replace(/\$\$[\s\S]+?\$\$/g, m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; })
     .replace(/\$[^$\n]+\$/g,      m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; });
 
-  let html = text
+  // 2. 코드블록 보호
+  const codeBlocks: string[] = [];
+  text = text.replace(/```([\w]*)\n([\s\S]*?)```/gm, (_, lang, code) => {
+    codeBlocks.push(`<pre class="bpre"><code class="blang-${lang}">${code.trimEnd()}</code></pre>`);
+    return `%%C${codeBlocks.length - 1}%%`;
+  });
+
+  // 3. 줄 단위 처리
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let i = 0;
+
+  // 토글 블록: > 로 시작하는 연속 줄을 하나의 토글로
+  const flushToggle = (summary: string, bodyLines: string[]): string => {
+    const inner = bodyLines.join('\n');
+    const uid = Math.random().toString(36).slice(2);
+    return `<details class="btoggle" id="btg-${uid}"><summary class="btsummary">${summary}</summary><div class="btbody">${inner}</div></details>`;
+  };
+
+  // 들여쓰기 레벨 감지
+  const getIndent = (line: string) => {
+    const m = line.match(/^(\s+)/);
+    return m ? Math.floor(m[1].length / 2) : 0;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // 토글 블록 (> 로 시작)
+    if (/^> /.test(line)) {
+      const summary = line.replace(/^> /, '');
+      const bodyLines: string[] = [];
+      i++;
+      while (i < lines.length && (lines[i].startsWith('  ') || lines[i] === '')) {
+        bodyLines.push(lines[i]);
+        i++;
+      }
+      out.push(flushToggle(processInline(summary, allNotes), bodyLines.map(l => processLine(l.replace(/^  /, ''), allNotes)).join('\n')));
+      continue;
+    }
+
+    // 번호 목록 그룹핑
+    if (/^\d+\. /.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+\. /.test(lines[i])) {
+        const indent = getIndent(lines[i]);
+        const content = lines[i].replace(/^\s*\d+\. /, '');
+        items.push(`<li class="bol" style="margin-left:${indent * 16}px">${processInline(content, allNotes)}</li>`);
+        i++;
+      }
+      out.push(`<ol class="bol-group">${items.join('')}</ol>`);
+      continue;
+    }
+
+    // 불릿 목록 그룹핑
+    if (/^(\s*)[-*] /.test(line) && !/^(\s*)[-*] \[[ x]\]/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^(\s*)[-*] /.test(lines[i]) && !/^(\s*)[-*] \[[ x]\]/.test(lines[i])) {
+        const indent = getIndent(lines[i]);
+        const content = lines[i].replace(/^\s*[-*] /, '');
+        items.push(`<li class="bul" style="margin-left:${indent * 16}px">${processInline(content, allNotes)}</li>`);
+        i++;
+      }
+      out.push(`<ul class="bul-group">${items.join('')}</ul>`);
+      continue;
+    }
+
+    out.push(processLine(line, allNotes));
+    i++;
+  }
+
+  let html = out.join('\n');
+
+  // 4. 코드블록 복원
+  html = html.replace(/%%C(\d+)%%/g, (_, idx) => codeBlocks[Number(idx)]);
+
+  // 5. 수식 복원
+  html = html.replace(/%%M(\d+)%%/g, (_, idx: string) => {
+    const m = mathBlocks[Number(idx)];
+    if (!window.katex) return `<code>${m}</code>`;
+    const isBlock = m.startsWith('$$');
+    const expr = m.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
+    try {
+      return isBlock
+        ? `<div class="bmathb">${window.katex.renderToString(expr, { displayMode: true, throwOnError: false })}</div>`
+        : `<span class="bmathi">${window.katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
+    } catch { return `<code class="bmerr">${m}</code>`; }
+  });
+
+  return `<div class="broot">${html}</div>`;
+}
+
+// 인라인 마크다운 처리
+function processInline(text: string, allNotes: Note[]): string {
+  return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\[\[(.+?)\]\]/g, (_, t: string) => {
       const f = allNotes.find(n => n.title === t && !n.deletedAt);
@@ -94,38 +190,25 @@ function parseMarkdown(md: string, allNotes: Note[]): string {
       `<img class="bimg" src="${src}" alt="${alt}"/>`)
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_: string, alt: string, src: string) =>
       `<img class="bimg" src="${src}" alt="${alt}"/>`)
-    .replace(/^### (.+)$/gm, '<h3 class="bh3">$1</h3>')
-    .replace(/^## (.+)$/gm,  '<h2 class="bh2">$1</h2>')
-    .replace(/^# (.+)$/gm,   '<h1 class="bh1">$1</h1>')
-    .replace(/```[\w]*\n([\s\S]*?)```/gm, (_: string, code: string) =>
-      `<pre class="bpre"><code>${code.trim()}</code></pre>`)
     .replace(/`([^`]+)`/g,        '<code class="bcode">$1</code>')
     .replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g,    '<strong class="bbold">$1</strong>')
     .replace(/\*(.+?)\*/g,        '<em class="bital">$1</em>')
     .replace(/~~(.+?)~~/g,        '<del>$1</del>')
-    .replace(/==(.+?)==/g,        '<mark class="bhl">$1</mark>')
-    .replace(/^- \[x\] (.+)$/gm,  '<div class="bchk done">✓ $1</div>')
-    .replace(/^- \[ \] (.+)$/gm,  '<div class="bchk">☐ $1</div>')
-    .replace(/^(\d+)\. (.+)$/gm,  '<li class="bol">$2</li>')
-    .replace(/^[-*] (.+)$/gm,     '<li class="bul">$1</li>')
-    .replace(/^&gt; (.+)$/gm,     '<blockquote class="bquote">$1</blockquote>')
-    .replace(/^---$/gm,           '<hr class="bhr"/>')
-    .replace(/\n\n/g, '</p><p class="bpara">')
-    .replace(/\n/g,   '<br/>');
+    .replace(/==(.+?)==/g,        '<mark class="bhl">$1</mark>');
+}
 
-  html = html.replace(/%%M(\d+)%%/g, (_, idx: string) => {
-    const m = mathBlocks[Number(idx)];
-    if (!window.katex) return `<code>${m}</code>`;
-    const isBlock = m.startsWith('$$');
-    const expr = m.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
-    try {
-      return isBlock
-        ? `<span class="bmathb">${window.katex.renderToString(expr, { displayMode: true,  throwOnError: false })}</span>`
-        : `<span class="bmathi">${window.katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
-    } catch { return `<code class="bmerr">${m}</code>`; }
-  });
-  return `<div class="broot"><p class="bpara">${html}</p></div>`;
+// 줄 단위 블록 처리
+function processLine(line: string, allNotes: Note[]): string {
+  if (!line.trim()) return '<div class="bempty"></div>';
+  const inl = processInline(line, allNotes);
+  if (/^### /.test(line)) return `<h3 class="bh3">${processInline(line.replace(/^### /, ''), allNotes)}</h3>`;
+  if (/^## /.test(line))  return `<h2 class="bh2">${processInline(line.replace(/^## /, ''), allNotes)}</h2>`;
+  if (/^# /.test(line))   return `<h1 class="bh1">${processInline(line.replace(/^# /, ''), allNotes)}</h1>`;
+  if (/^---$/.test(line)) return '<hr class="bhr"/>';
+  if (/^- \[x\] /.test(line)) return `<div class="bchk done">✓ ${processInline(line.replace(/^- \[x\] /, ''), allNotes)}</div>`;
+  if (/^- \[ \] /.test(line)) return `<div class="bchk">☐ ${processInline(line.replace(/^- \[ \] /, ''), allNotes)}</div>`;
+  return `<p class="bpara">${inl}</p>`;
 }
 
 // ── 목차 추출 ─────────────────────────────────────────────────────────
@@ -444,7 +527,7 @@ export const WikiView = () => {
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
-  const [viewMode,       setViewMode]       = useState<'edit' | 'split' | 'preview' | 'graph'>('split');
+  const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
@@ -644,8 +727,8 @@ export const WikiView = () => {
       switch (e.key) {
         case 'n': e.preventDefault(); createNote(); break;
         case 'd': e.preventDefault(); { const n = notes.find(x => x.id === activeNoteId); if (n) duplicateNote(n); } break;
-        case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'split' : 'preview'); break;
-        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'split' : 'graph'); break;
+        case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'edit' : 'preview'); break;
+        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
       }
@@ -685,36 +768,40 @@ export const WikiView = () => {
     const wl = target.closest('.bwl') as HTMLElement | null;
     if (wl?.dataset.id) { setActiveNoteId(wl.dataset.id); return; }
     const wt = target.closest('.bwtag') as HTMLElement | null;
-    if (wt?.dataset.tag) setActiveTag(prev => prev === wt.dataset.tag ? null : (wt.dataset.tag ?? null));
+    if (wt?.dataset.tag) { setActiveTag(prev => prev === wt.dataset.tag ? null : (wt.dataset.tag ?? null)); return; }
+    const tg = target.closest('.btoggle, .btsummary');
+    if (tg) return; // 토글 클릭은 기본 동작 유지
+    // 본문 더블클릭 → 에디터 전환
+    if (e.detail === 2) setViewMode('edit');
   };
 
   // ── 색상 테마 ─────────────────────────────────────────────────────
   const c = {
-    wrap:      dark ? '#18181A' : '#F1F3F5',
-    sidebar:   dark ? '#1C1C1E' : '#FFFFFF',
-    sideBdr:   dark ? '#2A2A2C' : '#E5E7EB',
-    notelist:  dark ? '#141416' : '#F9FAFB',
-    editor:    dark ? '#18181A' : '#FFFFFF',
-    toolbar:   dark ? '#1C1C1E' : '#F3F4F6',
-    toolBdr:   dark ? '#222'    : '#E5E7EB',
+    wrap:      dark ? '#18181A' : '#F5F4F0',
+    sidebar:   dark ? '#1C1C1E' : '#FAFAF8',
+    sideBdr:   dark ? '#2A2A2C' : '#E8E5DE',
+    notelist:  dark ? '#141416' : '#F2F0EA',
+    editor:    dark ? '#18181A' : '#FAFAF8',
+    toolbar:   dark ? '#1C1C1E' : '#F0EDE5',
+    toolBdr:   dark ? '#222'    : '#E2DDD5',
     card:      dark ? '#2C2C2E' : '#FFFFFF',
-    cardHov:   dark ? '#323234' : '#F3F4F6',
-    cardAct:   dark ? '#3A3A3C' : '#EFF6FF',
-    cardActBdr:dark ? '#FACC15' : '#2563EB',
-    text:      dark ? '#E8E6E0' : '#1F2937',
-    textMuted: dark ? '#6B7280' : '#6B7280',
-    textFaint: dark ? '#3A3A3C' : '#D1D5DB',
-    accent:    dark ? '#FACC15' : '#2563EB',
-    accentBg:  dark ? '#FACC1520' : '#EFF6FF',
-    input:     dark ? '#2C2C2E' : '#F9FAFB',
-    inputBdr:  dark ? '#3A3A3C' : '#E5E7EB',
-    badge:     dark ? '#FACC1520' : '#DBEAFE',
-    badgeTxt:  dark ? '#FACC15'  : '#1D4ED8',
-    tag:       dark ? '#8B5CF620' : '#F3E8FF',
-    tagTxt:    dark ? '#A78BFA'   : '#7C3AED',
-    danger:    dark ? '#F87171'   : '#EF4444',
-    green:     dark ? '#4ADE80'   : '#16A34A',
-    textarea:  dark ? '#18181A'   : '#FFFFFF',
+    cardHov:   dark ? '#323234' : '#F0EDE5',
+    cardAct:   dark ? '#3A3A3C' : '#FFF8E1',
+    cardActBdr:dark ? '#FACC15' : '#D4A000',
+    text:      dark ? '#E8E6E0' : '#1C1C1E',
+    textMuted: dark ? '#6B7280' : '#6B6860',
+    textFaint: dark ? '#3A3A3C' : '#C8C4B8',
+    accent:    dark ? '#FACC15' : '#B8860B',
+    accentBg:  dark ? '#FACC1520' : '#FFF8DC',
+    input:     dark ? '#2C2C2E' : '#F5F3EC',
+    inputBdr:  dark ? '#3A3A3C' : '#DDD9CF',
+    badge:     dark ? '#FACC1520' : '#FFF3CD',
+    badgeTxt:  dark ? '#FACC15'   : '#92660A',
+    tag:       dark ? '#8B5CF620' : '#F5F0E8',
+    tagTxt:    dark ? '#A78BFA'   : '#7A6544',
+    danger:    dark ? '#F87171'   : '#DC2626',
+    green:     dark ? '#4ADE80'   : '#15803D',
+    textarea:  dark ? '#18181A'   : '#FAFAF8',
   };
 
   const trashCount   = notes.filter(n => n.deletedAt).length;
@@ -726,10 +813,11 @@ export const WikiView = () => {
     activeFolderId === 'trash'   ? '🗑 Trash' :
     (() => { const f = folders.find(f => f.id === activeFolderId); return f ? f.name : ''; })();
 
-  const VIEW_MODES: { key: 'edit' | 'split' | 'preview' | 'graph'; icon: ReactNode; label: string }[] = [
+  const [showRightPanel, setShowRightPanel] = useState(true);
+
+  const VIEW_MODES: { key: 'edit' | 'preview' | 'graph'; icon: ReactNode; label: string }[] = [
     { key: 'edit',    icon: <Edit3 size={11}/>,   label: 'Edit' },
-    { key: 'split',   icon: <AlignLeft size={11}/>, label: 'Split' },
-    { key: 'preview', icon: <Eye size={11}/>,     label: 'Preview' },
+    { key: 'preview', icon: <Eye size={11}/>,     label: 'Read' },
     { key: 'graph',   icon: <GitFork size={11}/>, label: 'Graph' },
   ];
   const RIGHT_PANELS: { key: 'toc' | 'links' | 'tags' | 'stats'; label: string; icon: ReactNode }[] = [
@@ -739,44 +827,57 @@ export const WikiView = () => {
     { key: 'stats', label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ];
 
-  // ── CSS (클래스 접두 b = board) ──────────────────────────────────
+  // ── CSS ──────────────────────────────────────────────────────────
   const CSS = `
-    .broot{font-size:14px;line-height:1.85;padding:20px 24px}
-    .bh1{font-size:20px;font-weight:700;margin:18px 0 8px;border-bottom:1px solid ${c.textFaint};padding-bottom:5px;color:${c.accent}}
-    .bh2{font-size:16px;font-weight:700;margin:14px 0 6px;color:${c.text}}
-    .bh3{font-size:13px;font-weight:600;margin:10px 0 4px;color:${c.textMuted}}
-    .bpara{margin:3px 0}
-    .bbold{font-weight:700;color:${c.text}}
+    /* ── 프리뷰 렌더 ── */
+    .broot{font-size:15px;line-height:1.9;padding:40px 60px;max-width:860px;margin:0 auto;color:${c.text}}
+    .bh1{font-size:26px;font-weight:800;margin:32px 0 10px;color:${c.text};letter-spacing:-.5px}
+    .bh2{font-size:20px;font-weight:700;margin:24px 0 8px;color:${c.text}}
+    .bh3{font-size:16px;font-weight:600;margin:16px 0 6px;color:${c.textMuted}}
+    .bpara{margin:4px 0;min-height:1.4em}
+    .bempty{height:10px}
+    .bbold{font-weight:700}
     .bital{font-style:italic;color:${c.textMuted}}
-    .bhl{background:${dark ? '#FACC1530' : '#FEF08A80'};color:${dark ? '#FACC15' : '#854D0E'};padding:1px 4px;border-radius:3px}
-    .bcode{font-family:'JetBrains Mono',monospace;font-size:12px;background:${dark ? '#2C2C2E' : '#F3F4F6'};color:${dark ? '#A8FF78' : '#0F172A'};padding:1px 5px;border-radius:4px}
-    .bpre{background:${dark ? '#1C1C1E' : '#F8FAFC'};border:1px solid ${c.sideBdr};border-radius:8px;padding:14px;margin:8px 0;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:${dark ? '#A8FF78' : '#0F172A'};white-space:pre}
-    .bul,.bol{margin:2px 0 2px 18px}
-    .bchk{padding:2px 0;color:${c.textMuted};font-size:13px}
-    .bchk.done{color:${c.green};text-decoration:line-through}
-    .bquote{border-left:3px solid ${c.accent};padding:6px 14px;margin:10px 0;color:${c.textMuted};font-style:italic;background:${c.accentBg};border-radius:0 6px 6px 0}
-    .bhr{border:none;border-top:1px solid ${c.textFaint};margin:14px 0}
-    .bimg{max-width:100%;border-radius:8px;margin:8px 0;border:1px solid ${c.sideBdr}}
-    table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
-    th{background:${c.accentBg};color:${c.accent};padding:7px 10px;text-align:left;border:1px solid ${c.sideBdr};font-weight:600}
-    td{padding:7px 10px;border:1px solid ${c.sideBdr};color:${c.text}}
+    .bhl{background:${dark ? '#FACC1530' : '#FFF3A3'};color:${dark ? '#FACC15' : '#7A5500'};padding:1px 4px;border-radius:3px}
+    .bcode{font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;background:${dark ? '#2C2C2E' : '#F0EDE5'};color:${dark ? '#A8FF78' : '#5C3A1E'};padding:2px 6px;border-radius:4px}
+    .bpre{background:${dark ? '#1C1C1E' : '#F5F2EA'};border:1px solid ${c.sideBdr};border-radius:10px;padding:18px 20px;margin:12px 0;overflow-x:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;color:${dark ? '#A8FF78' : '#3D2B1A'};white-space:pre;line-height:1.6}
+    .bul-group,.bol-group{margin:6px 0 6px 4px;padding:0;list-style:none}
+    .bul{position:relative;padding:2px 0 2px 18px;color:${c.text}}
+    .bul::before{content:'•';position:absolute;left:4px;color:${c.textMuted}}
+    .bol{position:relative;padding:2px 0 2px 18px;color:${c.text};counter-increment:listctr}
+    .bchk{padding:3px 0;color:${c.textMuted};font-size:14px;display:flex;align-items:baseline;gap:6px}
+    .bchk.done{color:${c.green};text-decoration:line-through;opacity:.75}
+    .bhr{border:none;border-top:1px solid ${c.sideBdr};margin:20px 0}
+    .bimg{max-width:100%;border-radius:10px;margin:10px 0;border:1px solid ${c.sideBdr}}
+    table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;border-radius:8px;overflow:hidden}
+    th{background:${dark ? '#2C2C2E' : '#F0EDE5'};color:${c.text};padding:9px 14px;text-align:left;border:1px solid ${c.sideBdr};font-weight:600;font-size:13px}
+    td{padding:9px 14px;border:1px solid ${c.sideBdr};color:${c.text};font-size:13px}
+    tr:nth-child(even) td{background:${dark ? '#1E1E20' : '#FAF8F3'}}
     tr:hover td{background:${c.cardHov}}
-    .bwl{color:${dark ? '#60A5FA' : '#2563EB'};cursor:pointer;border-bottom:1px solid ${dark ? '#60A5FA40' : '#93C5FD'};padding-bottom:1px}
-    .bwl:hover{opacity:.8}
-    .bwlm{color:${c.danger};border-bottom:1px dashed ${c.danger}40;padding-bottom:1px}
-    .bwtag{color:${c.tagTxt};background:${c.tag};border-radius:4px;padding:1px 6px;font-size:12px;cursor:pointer}
+    .bwl{color:${dark ? '#FACC15' : '#92660A'};cursor:pointer;border-bottom:1px solid ${dark ? '#FACC1560' : '#D4A00060'};padding-bottom:1px;font-weight:500}
+    .bwl:hover{opacity:.75}
+    .bwlm{color:${c.danger};border-bottom:1px dashed ${c.danger}50;padding-bottom:1px}
+    .bwtag{color:${c.tagTxt};background:${c.tag};border-radius:4px;padding:1px 7px;font-size:12px;cursor:pointer;font-weight:500}
     .bwtag:hover{opacity:.8}
-    .bmathb{display:block;overflow-x:auto;padding:10px 0;text-align:center}
+    .bmathb{overflow-x:auto;padding:12px 0;text-align:center;display:block}
     .bmathi{display:inline}
     .bmerr{color:${c.danger};font-size:12px}
+    /* ── Notion 스타일 토글 ── */
+    .btoggle{margin:4px 0;border-radius:6px}
+    .btsummary{cursor:pointer;padding:4px 6px;border-radius:6px;font-weight:500;list-style:none;display:flex;align-items:center;gap:6px;color:${c.text};user-select:none}
+    .btsummary::before{content:'▶';font-size:9px;color:${c.textMuted};transition:transform .15s;flex-shrink:0}
+    details[open] > .btsummary::before{transform:rotate(90deg)}
+    .btsummary:hover{background:${c.cardHov}}
+    .btbody{padding:4px 0 4px 22px;border-left:2px solid ${c.textFaint};margin-left:10px}
+    /* ── 에디터/UI ── */
     .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:4px 6px;border-radius:5px;transition:all .12s;display:flex;align-items:center}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
     .bfi{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;transition:background .12s;font-size:12px;color:${c.text}}
     .bfi:hover{background:${c.cardHov}}
-    .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent}}
+    .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
     .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s}
     .bni:hover{background:${c.cardHov}}
-    .bni.active{background:${c.cardAct};border-left:2px solid ${c.cardActBdr}}
+    .bni.active{background:${c.cardAct};border-left:3px solid ${c.cardActBdr}}
     .bwi{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:7px;padding:6px 10px;font-size:12px;outline:none}
     .bwi:focus{border-color:${c.accent}}
     .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
@@ -788,26 +889,26 @@ export const WikiView = () => {
     .btoc:hover{color:${c.accent};background:${c.cardHov}}
     .btpill{background:${c.tag};color:${c.tagTxt};border-radius:999px;font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid transparent}
     .btpill:hover{border-color:${c.tagTxt}60}
-    .btpill.active{border-color:${c.tagTxt}}
-    .bbl{padding:6px 10px;font-size:12px;color:${dark ? '#60A5FA' : '#2563EB'};cursor:pointer;border-radius:5px}
+    .btpill.active{border-color:${c.tagTxt};font-weight:600}
+    .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:14px;line-height:1.85;padding:20px 24px;font-family:inherit}
-    .bshl{background:${dark ? '#FACC1550' : '#FEF08A'};color:${dark ? '#FACC15' : '#854D0E'};border-radius:2px;padding:0 1px}
+    .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:15px;line-height:1.9;padding:40px 60px;font-family:inherit}
+    .bshl{background:${dark ? '#FACC1550' : '#FFE88A'};color:${dark ? '#FACC15' : '#7A5500'};border-radius:2px;padding:0 2px}
     .bac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-radius:5px;transition:background .1s;color:${c.text}}
     .bac-item:hover,.bac-item.active{background:${c.accentBg};color:${c.accent}}
-    .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
+    .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
-    .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#fff'};opacity:.92;z-index:98;pointer-events:none}
-    .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000020;z-index:100;overflow:hidden;min-width:120px}
+    .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
+    .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000015;z-index:100;overflow:hidden;min-width:130px}
     .bsort-item{padding:7px 12px;font-size:12px;cursor:pointer;color:${c.text};display:flex;align-items:center;gap:6px}
     .bsort-item:hover{background:${c.cardHov}}
     .bsort-item.active{color:${c.accent};font-weight:600}
     .bstat-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr}40;font-size:12px}
     .bstat-val{font-weight:700;color:${c.accent}}
     .btag-cloud span{display:inline-block;border-radius:999px;cursor:pointer;transition:all .1s}
-    .btag-cloud span:hover{opacity:.8}
-    .bdrag-over{background:${c.accentBg} !important;border:1px dashed ${c.accent} !important}
-    .bnote-drag{opacity:.4}
+    .btag-cloud span:hover{opacity:.75}
+    .bdrag-over{background:${c.accentBg} !important;border:1px dashed ${c.accent} !important;border-radius:6px}
+    .bnote-drag{opacity:.35}
   `;
 
   return (
@@ -1060,7 +1161,7 @@ export const WikiView = () => {
               {/* Star */}
               {!isTrash && (
                 <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
-                  <Star size={13} color={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : c.textMuted} fill={activeNote.starred ? (dark ? '#FACC15' : '#F59E0B') : 'none'}/>
+                  <Star size={13} color={activeNote.starred ? (dark ? '#FACC15' : '#B8860B') : c.textMuted} fill={activeNote.starred ? (dark ? '#FACC15' : '#B8860B') : 'none'}/>
                 </button>
               )}
               {/* Duplicate */}
@@ -1069,6 +1170,11 @@ export const WikiView = () => {
                   <span style={{ fontSize: 11 }}>⎘</span>
                 </button>
               )}
+              {/* Right panel toggle */}
+              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
+                style={{ color: showRightPanel ? c.accent : c.textMuted }}>
+                <AlignLeft size={12}/>
+              </button>
               {/* Export */}
               <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
                 <Save size={12}/>
@@ -1082,12 +1188,12 @@ export const WikiView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <GraphView notes={notes} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('split'); }} dark={dark}/>
+                <GraphView notes={notes} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
               </div>
             ) : (
               <>
-                {/* Toolbar */}
-                {!isTrash && (viewMode === 'edit' || viewMode === 'split') && (
+                {/* Toolbar - edit 모드에서만 */}
+                {!isTrash && viewMode === 'edit' && (
                   <div style={{ padding: '2px 10px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
                     {TOOLBAR.map((btn, i) =>
                       btn === null
@@ -1102,50 +1208,47 @@ export const WikiView = () => {
                   </div>
                 )}
 
-                {/* Body */}
-                <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-                  {(viewMode === 'edit' || viewMode === 'split') && (
-                    <div style={{ flex: 1, overflow: 'auto', borderRight: viewMode === 'split' ? `1px solid ${c.sideBdr}` : 'none' }}>
-                      {isTrash ? (
-                        <div style={{ padding: 20 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, color: c.danger, fontSize: 12 }}>
-                            <AlertTriangle size={13}/> In Trash — restore to edit
-                          </div>
-                          <div style={{ color: c.textMuted, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
+                {/* Body — 단일 컬럼 전체 너비 */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  {viewMode === 'edit' && (
+                    isTrash ? (
+                      <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
+                          <AlertTriangle size={14}/> In Trash — restore to edit
                         </div>
-                      ) : (
-                        <div style={{ position: 'relative', height: '100%' }}>
-                          <textarea ref={textareaRef} className="wiki-textarea"
-                            value={activeNote.body}
-                            onChange={handleEditorChange}
-                            onKeyDown={handleEditorKeyDown}
-                            placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\nMath: $a^2+b^2=c^2$\nBlock: $$\\sum_{k=1}^{n}k$$\n\nWiki link: [[Note Title]]'}/>
-                          {/* [[ 자동완성 드롭다운 */}
-                          {acVisible && acCandidates.length > 0 && (
-                            <div style={{
-                              position: 'absolute', top: acPos.top, left: Math.min(acPos.left, 300),
-                              background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
-                              boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
-                            }}>
-                              <div style={{ padding: '4px 10px 3px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}`, fontWeight: 700, letterSpacing: 1 }}>
-                                LINK TO NOTE
-                              </div>
-                              {acCandidates.map((n, i) => (
-                                <div key={n.id} className={`bac-item ${i === acIndex ? 'active' : ''}`}
-                                  onMouseDown={e => { e.preventDefault(); applyAutoComplete(n.title); }}>
-                                  <span style={{ fontSize: 10, color: c.textFaint, marginRight: 6 }}>📄</span>
-                                  {n.title}
-                                </div>
-                              ))}
+                        <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative', height: '100%' }}>
+                        <textarea ref={textareaRef} className="wiki-textarea"
+                          value={activeNote.body}
+                          onChange={handleEditorChange}
+                          onKeyDown={handleEditorKeyDown}
+                          placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\n> Toggle heading\n  Content inside toggle\n\nMath: $a^2+b^2=c^2$\n\nWiki link: [[Note Title]]'}/>
+                        {/* [[ 자동완성 드롭다운 */}
+                        {acVisible && acCandidates.length > 0 && (
+                          <div style={{
+                            position: 'absolute', top: acPos.top, left: Math.min(acPos.left, 300),
+                            background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
+                            boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
+                          }}>
+                            <div style={{ padding: '4px 10px 3px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}`, fontWeight: 700, letterSpacing: 1 }}>
+                              LINK TO NOTE
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                            {acCandidates.map((n, i) => (
+                              <div key={n.id} className={`bac-item ${i === acIndex ? 'active' : ''}`}
+                                onMouseDown={e => { e.preventDefault(); applyAutoComplete(n.title); }}>
+                                <span style={{ fontSize: 10, color: c.textFaint, marginRight: 6 }}>📄</span>
+                                {n.title}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
                   )}
-                  {(viewMode === 'preview' || viewMode === 'split') && (
-                    <div style={{ flex: 1, overflow: 'auto', color: c.text }}
-                      key={katexReady ? 'ready' : 'loading'}
+                  {viewMode === 'preview' && (
+                    <div key={katexReady ? 'ready' : 'loading'}
                       onClick={handlePreviewClick}
                       dangerouslySetInnerHTML={{ __html: parseMarkdown(activeNote.body, notes) }}/>
                   )}
@@ -1157,7 +1260,7 @@ export const WikiView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <GraphView notes={notes} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('split'); }} dark={dark}/>
+              <GraphView notes={notes} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -1174,8 +1277,8 @@ export const WikiView = () => {
       </div>
 
       {/* ── Right Panel ── */}
-      {activeNote && viewMode !== 'graph' && (
-        <div style={{ width: 190, minWidth: 190, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      {activeNote && viewMode !== 'graph' && showRightPanel && (
+        <div style={{ width: 210, minWidth: 210, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
             {RIGHT_PANELS.map(({ key, label, icon }) => (
               <button key={key} onClick={() => setRightPanel(key)}
