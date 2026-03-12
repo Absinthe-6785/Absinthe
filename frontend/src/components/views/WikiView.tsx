@@ -549,6 +549,7 @@ export const WikiView = () => {
   const [acIndex,  setAcIndex]  = useState(0);
   const [acVisible,setAcVisible]= useState(false);
   const [acPos,    setAcPos]    = useState({ top: 0, left: 0 });
+  const [showRightPanel, setShowRightPanel] = useState(true);
 
   const textareaRef   = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -824,8 +825,6 @@ export const WikiView = () => {
     activeFolderId === null      ? 'All Notes' :
     activeFolderId === 'trash'   ? '🗑 Trash' :
     (() => { const f = folders.find(f => f.id === activeFolderId); return f ? f.name : ''; })();
-
-  const [showRightPanel, setShowRightPanel] = useState(true);
 
   const VIEW_MODES: { key: 'edit' | 'preview' | 'graph'; icon: ReactNode; label: string }[] = [
     { key: 'edit',    icon: <Edit3 size={11}/>,   label: 'Edit' },
