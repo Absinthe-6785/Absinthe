@@ -30,7 +30,7 @@ export const Sidebar = ({
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
           tab === 'analytics' ? BarChart2 : BookOpen;
-        const label = tab === 'wiki' ? 'Wiki' : tab.charAt(0).toUpperCase() + tab.slice(1);
+        const label = tab === 'wiki' ? 'Board' : tab.charAt(0).toUpperCase() + tab.slice(1);
         const isWiki = tab === 'wiki';
         return (
           <button
