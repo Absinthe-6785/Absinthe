@@ -5,7 +5,22 @@
  * 테스트 작성 및 재사용이 용이하도록 독립 모듈로 관리.
  */
 
-import type { Note, NoteFolder } from '../../store/useAppStore';
+// 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
+// useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
+export interface NoteBase {
+  id: string;
+  title: string;
+  body: string;
+  updatedAt: number;
+  folderId: string | null;
+  deletedAt: number | null;
+  starred?: boolean;
+}
+export interface NoteFolderBase {
+  id: string;
+  name: string;
+  createdAt: number;
+}
 
 // ── localStorage 키 ──────────────────────────────────────────────────
 export const NV_NOTES_KEY   = 'noteview-notes-v1';
@@ -13,10 +28,10 @@ export const NV_FOLDERS_KEY = 'noteview-folders-v1';
 export const NV_ACTIVE_KEY  = 'noteview-active-v1';
 
 // ── localStorage helpers ─────────────────────────────────────────────
-export function nvLoadNotes(): Note[] {
+export function nvLoadNotes(): NoteBase[] {
   try {
     const raw = localStorage.getItem(NV_NOTES_KEY);
-    if (raw) return JSON.parse(raw) as Note[];
+    if (raw) return JSON.parse(raw) as NoteBase[];
   } catch { /**/ }
   return [{
     id: `note-${Date.now()}`,
@@ -29,19 +44,19 @@ export function nvLoadNotes(): Note[] {
   }];
 }
 
-export function nvLoadFolders(): NoteFolder[] {
+export function nvLoadFolders(): NoteFolderBase[] {
   try {
     const raw = localStorage.getItem(NV_FOLDERS_KEY);
-    if (raw) return JSON.parse(raw) as NoteFolder[];
+    if (raw) return JSON.parse(raw) as NoteFolderBase[];
   } catch { /**/ }
   return [];
 }
 
-export function nvSaveNotes(notes: Note[]): void {
+export function nvSaveNotes(notes: NoteBase[]): void {
   try { localStorage.setItem(NV_NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
 }
 
-export function nvSaveFolders(folders: NoteFolder[]): void {
+export function nvSaveFolders(folders: NoteFolderBase[]): void {
   try { localStorage.setItem(NV_FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
 }
 
@@ -62,7 +77,7 @@ export function highlightText(text: string, query: string): string {
 }
 
 // ── 마크다운 파서 ────────────────────────────────────────────────────
-export function parseMarkdown(md: string, allNotes: Note[]): string {
+export function parseMarkdown(md: string, allNotes: NoteBase[]): string {
   if (!md) return '';
 
   // 1. 수식 보호
@@ -161,7 +176,7 @@ export function parseMarkdown(md: string, allNotes: Note[]): string {
   return `<div class="broot">${html}</div>`;
 }
 
-export function processInline(text: string, allNotes: Note[]): string {
+export function processInline(text: string, allNotes: NoteBase[]): string {
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\[\[(.+?)\]\]/g, (_, t: string) => {
@@ -183,7 +198,7 @@ export function processInline(text: string, allNotes: Note[]): string {
     .replace(/==(.+?)==/g,        '<mark class="bhl">$1</mark>');
 }
 
-export function processLine(line: string, allNotes: Note[]): string {
+export function processLine(line: string, allNotes: NoteBase[]): string {
   if (!line.trim()) return '<div class="bempty"></div>';
   const inl = processInline(line, allNotes);
   if (/^### /.test(line)) return `<h3 class="bh3">${processInline(line.replace(/^### /, ''), allNotes)}</h3>`;

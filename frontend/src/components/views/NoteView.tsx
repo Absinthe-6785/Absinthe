@@ -15,11 +15,9 @@ import {
   highlightText,
   parseMarkdown, extractTOC, extractTags, extractLinks,
 } from './noteUtils';
+import type { NoteBase as Note, NoteFolderBase as NoteFolder } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
 
-// Note와 NoteFolder 타입은 useAppStore에서 import — re-export for consumers
-import type { Note, NoteFolder } from '../../store/useAppStore';
-export type { Note, NoteFolder };
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
 declare global {

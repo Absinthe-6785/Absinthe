@@ -8,8 +8,8 @@
  */
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import type { Note } from '../../store/useAppStore';
 import { extractLinks } from './noteUtils';
+import type { NoteBase as Note } from './noteUtils';
 
 interface GraphNode {
   id: string;
