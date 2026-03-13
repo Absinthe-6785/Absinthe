@@ -15,7 +15,7 @@ import {
   highlightText,
   parseMarkdown, extractTOC, extractTags, extractLinks,
 } from './noteUtils';
-import type { NoteBase as Note, NoteFolderBase as NoteFolder } from './noteUtils';
+import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
 
 
