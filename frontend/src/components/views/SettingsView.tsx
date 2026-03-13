@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Settings, Save, Download, LogOut, Loader2, ArchiveRestore, FileJson, FileText, AlertTriangle } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { authFetch } from '../../lib/supabase';
@@ -35,7 +35,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg]   = useState<{ type: 'success'|'error'; text: string } | null>(null);
-  const [reloadCountdown, setReloadCountdown] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBackupJSON = async () => {
@@ -81,7 +80,6 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
     finally { setIsBackingUp(false); }
   };
 
-
   const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -100,16 +98,8 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error('Restore failed');
-      setRestoreMsg({ type: 'success', text: 'Restore complete! Reloading in 3 seconds...' });
+      setRestoreMsg({ type: 'success', text: 'Restore complete! Refresh the page to apply changes.' });
       showToast('Restore complete! 🎉');
-      // 3초 카운트다운 후 자동 reload
-      setReloadCountdown(3);
-      const tick = setInterval(() => {
-        setReloadCountdown(prev => {
-          if (prev === null || prev <= 1) { clearInterval(tick); window.location.reload(); return null; }
-          return prev - 1;
-        });
-      }, 1000);
     } catch {
       setRestoreMsg({ type: 'error', text: 'Restore failed: please check that the file is a valid backup.' });
     } finally {
@@ -249,18 +239,9 @@ export const SettingsView = ({ appSettings, updateSetting, showToast, theme, THE
                         : <><ArchiveRestore size={14}/> Select File</>}
                     </button>
                     {restoreMsg && (
-                      <div className={`flex flex-col gap-1.5 ${restoreMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                        <p className="text-xs font-semibold flex items-center gap-1">
-                          <AlertTriangle size={11}/> {restoreMsg.text}
-                        </p>
-                        {restoreMsg.type === 'success' && (
-                          <button
-                            onClick={() => window.location.reload()}
-                            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 transition-colors self-start flex items-center gap-1.5">
-                            ↺ Reload now {reloadCountdown !== null ? `(${reloadCountdown})` : ''}
-                          </button>
-                        )}
-                      </div>
+                      <p className={`text-xs font-semibold flex items-center gap-1 ${restoreMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                        <AlertTriangle size={11}/> {restoreMsg.text}
+                      </p>
                     )}
                   </div>
                 </div>

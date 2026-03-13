@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
@@ -9,7 +9,6 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { Modal } from '../common/Modal';
 import { EmptyState } from '../common/EmptyState';
 import { PlannerProps, Schedule, Todo, Routine, DDay } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
@@ -33,31 +32,6 @@ export const PlannerView = ({
     fetchFolders,
   } = useAppStore();
 
-  const [showFolderInput, setShowFolderInput] = useState(false);
-  const [folderInputVal, setFolderInputVal] = useState('');
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renameVal, setRenameVal] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [newSch, setNewSch] = useState<Partial<Schedule>>({
-    text: '', start_time: '10:00', end_time: '11:00',
-    is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
-  });
-  const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('todo');
-  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
-  const [newRoutineText, setNewRoutineText] = useState('');
-  const [newTodoText, setNewTodoText] = useState('');
-  const [editRoutineText, setEditRoutineText] = useState('');
-  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-  const [editTodoText, setEditTodoText] = useState('');
-  const [showDdayForm, setShowDdayForm] = useState(false);
-  const [editingDdayId, setEditingDdayId] = useState<string | null>(null);
-  const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
-
-  const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
-  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
-
   // 폴더 로드
   useEffect(() => { fetchFolders(); }, []);
 
@@ -70,6 +44,33 @@ export const PlannerView = ({
   }, [notes, activeFolderId]);
 
   const activeNote = visibleNotes.find(n => n.id === activeNoteId) ?? visibleNotes[0] ?? null;
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [folderInputVal, setFolderInputVal] = useState('');
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState('');
+  const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
+  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newSch, setNewSch] = useState<Partial<Schedule>>({
+    text: '', start_time: '10:00', end_time: '11:00',
+    is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory,
+  });
+  // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
+  const [endNextDay, setEndNextDay] = useState(false);
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'notes' | 'calendar' | 'timeline'>('todo');
+
+  const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
+  const [newRoutineText, setNewRoutineText] = useState('');
+  const [newTodoText, setNewTodoText] = useState('');
+  const [editRoutineText, setEditRoutineText] = useState('');
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editTodoText, setEditTodoText] = useState('');
+
+  const [showDdayForm, setShowDdayForm] = useState(false);
+  const [editingDdayId, setEditingDdayId] = useState<string | null>(null);
+  const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
 
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
@@ -228,21 +229,7 @@ export const PlannerView = ({
     if (isOverlap) { showConfirm('This schedule overlaps. Save anyway?', doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
     doSave();
   };
-  const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    // 일정 블록이나 버튼 위 클릭은 무시
-    if ((e.target as HTMLElement).closest('.sch-block')) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top + e.currentTarget.scrollTop;
-    // 40px = 30분, y → 분 계산
-    const totalMins = Math.floor(y / 40) * 30;
-    const h = String(Math.floor(totalMins / 60) % 24).padStart(2, '0');
-    const m = totalMins % 60 === 0 ? '00' : '30';
-    const endH = String((Math.floor(totalMins / 60) + 1) % 24).padStart(2, '0');
-    setNewSch({ text: '', start_time: `${h}:${m}`, end_time: `${endH}:${m}`, is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory });
-    setEditingId(null);
-    setEndNextDay(false);
-    setShowForm(true);
-  }, [appSettings.defaultColor, appSettings.defaultCategory]);
+  const handleDeleteSchedule = (id: string) =>
     showConfirm('Delete this schedule?', () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: 'Deleted' }),
       { confirmLabel: 'Delete' },
@@ -270,11 +257,11 @@ export const PlannerView = ({
 
       {/* ── 모바일 탭 바 ── */}
       <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}>
-        {(['todo', 'memo', 'calendar', 'timeline'] as const).map(tab => (
+        {(['todo', 'notes', 'calendar', 'timeline'] as const).map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
             className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-[#1C1C1E] text-[#FACC15]' : `${theme.input} ${theme.textMuted}`}`}>
-            {tab === 'todo' ? 'Planner' : tab === 'memo' ? 'Memo' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
+            {tab === 'todo' ? 'Planner' : tab === 'notes' ? 'Notes' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
           </button>
         ))}
       </div>
@@ -284,7 +271,7 @@ export const PlannerView = ({
 
         {/* 루틴 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
-          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-[#FAFAF8]'}`}>
+          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
             <Activity size={18} className="text-green-500"/> Routines
           </h2>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
@@ -330,7 +317,7 @@ export const PlannerView = ({
 
         {/* 할일 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
-          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-[#FAFAF8]'}`}>
+          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
             <CheckCircle size={18} className="text-[#FACC15]"/> To-do list
           </h2>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
@@ -375,8 +362,8 @@ export const PlannerView = ({
         </div>
       </div>
 
-      {/* ══ Col-2: D-Day 위 + Memo 아래 ══ */}
-      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "memo" ? "flex" : "hidden lg:flex"}`}>
+      {/* ══ Col-2: D-Day 위 + Notes 아래 ══ */}
+      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "notes" ? "flex" : "hidden lg:flex"}`}>
 
         {/* D-Day */}
         <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
@@ -409,7 +396,7 @@ export const PlannerView = ({
           </div>
         </div>
 
-        {/* Memo — 폴더 + 휴지통 */}
+        {/* Notes — 폴더 + 휴지통 */}
         <div className={`flex-1 min-h-[400px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
 
           {/* 왼쪽: 폴더 + 노트 목록 */}
@@ -418,7 +405,7 @@ export const PlannerView = ({
             {/* 상단: 새 노트 버튼 */}
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0">
               <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1">
-                <FileText size={12} className="text-yellow-400"/> Memo
+                <FileText size={12} className="text-yellow-400"/> Notes
               </span>
               <div className="flex gap-1">
                 <button onClick={() => setShowFolderInput(v => !v)} title="New Folder"
@@ -459,7 +446,7 @@ export const PlannerView = ({
                 className={`w-full flex items-center gap-1.5 px-3 py-2 text-left transition-colors
                   ${activeFolderId === null ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
                 <Inbox size={11} className={activeFolderId === null ? 'text-[#FACC15]' : theme.textMuted}/>
-                <span className={`text-[11px] font-bold truncate ${activeFolderId === null ? 'text-[#FACC15]' : ''}`}>All Memos</span>
+                <span className={`text-[11px] font-bold truncate ${activeFolderId === null ? 'text-[#FACC15]' : ''}`}>All Notes</span>
                 <span className={`ml-auto text-[10px] font-bold ${theme.textMuted}`}>{notes.filter(n => !n.deletedAt).length}</span>
               </button>
 
@@ -508,7 +495,7 @@ export const PlannerView = ({
             <div className="flex-1 overflow-y-auto py-1">
               {visibleNotes.length === 0 && (
                 <p className={`text-[10px] text-center py-4 px-2 ${theme.textMuted}`}>
-                  {activeFolderId === 'trash' ? 'Trash is empty' : 'No memos'}
+                  {activeFolderId === 'trash' ? 'Trash is empty' : 'No notes'}
                 </p>
               )}
               {visibleNotes.map(n => (
@@ -581,7 +568,7 @@ export const PlannerView = ({
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <button onClick={() => activeFolderId !== 'trash' && createNote()}
-                className={`text-sm font-semibold ${theme.textMuted}`}>+ New Memo</button>
+                className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
             </div>
           )}
         </div>
@@ -651,7 +638,7 @@ export const PlannerView = ({
                   </div>
                 ))}
               </div>
-              <div className="flex-1 relative pr-2" onClick={handleTimelineClick} style={{ cursor: 'crosshair' }}>
+              <div className="flex-1 relative pr-2">
                 {Array.from({ length: 48 }).map((_, i) => (
                   <div key={i} className={`absolute w-full h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`} style={{ top: `${i * 40}px` }}/>
                 ))}
@@ -664,15 +651,16 @@ export const PlannerView = ({
                 {/* ── 당일 스케줄 ── */}
                 {sortedSchedules.map((sch: Schedule) => {
                   const top = timeToPos(sch.start_time);
-                  const TIMELINE_END = 1920;
+                  // end_next_day: 자정(1920px) 끝까지 채우고 익일 배지 표시
+                  const TIMELINE_END = 1920; // 48 슬롯 × 40px
                   const rawEnd = timeToPos(sch.end_time);
                   const height = sch.end_next_day
-                    ? TIMELINE_END - top
+                    ? TIMELINE_END - top          // 당일 자정까지
                     : Math.max(rawEnd - top, 20);
                   const color = THEME_COLORS.find(c => c.id === sch.color) || THEME_COLORS[0];
                   return (
                     <div key={sch.id}
-                      className={`sch-block group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm ${color.bg} ${color.text}`}
+                      className={`group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm ${color.bg} ${color.text}`}
                       style={{ top: `${top}px`, height: `${height}px` }}>
                       <div className="flex flex-col gap-0.5 ml-1 overflow-hidden flex-1">
                         <p className="text-xs lg:text-sm font-semibold truncate">{sch.text}</p>
@@ -703,7 +691,7 @@ export const PlannerView = ({
                   const color = THEME_COLORS.find(c => c.id === sch.color) || THEME_COLORS[0];
                   return (
                     <div key={`carry-${sch.id}`}
-                      className={`sch-block group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm opacity-90 ${color.bg} ${color.text}`}
+                      className={`group absolute left-2 right-2 flex items-start justify-between rounded-xl p-2 shadow-sm opacity-90 ${color.bg} ${color.text}`}
                       style={{ top: `${top}px`, height: `${height}px` }}>
                       <div className="flex flex-col gap-0.5 ml-1 overflow-hidden flex-1">
                         {/* 전일 연속 배지 */}
@@ -727,113 +715,125 @@ export const PlannerView = ({
 
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
-        <Modal title={editingId ? 'Edit Schedule' : 'New Schedule'} onClose={() => setShowForm(false)} darkMode={appSettings.darkMode}>
-          <div className="space-y-5">
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Text</label>
-              <input autoFocus type="text" value={newSch.text} onChange={e => setNewSch({ ...newSch, text: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && handleSaveSchedule()}
-                className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}`} placeholder="e.g. Meeting"/>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
+          <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingId ? 'Edit Schedule' : 'New Schedule'}</h3>
+              <button onClick={() => setShowForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Category</label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { id: 'Study',    label: 'Study',   icon: '📚' },
-                  { id: 'Work',     label: 'Work',    icon: '💼' },
-                  { id: 'Exercise', label: 'Exercise',icon: '🏋️' },
-                  { id: 'Personal', label: 'Personal',icon: '👤' },
-                  { id: 'Sleep',    label: 'Sleep',   icon: '🌙' },
-                  { id: 'Social',   label: 'Social',  icon: '🤝' },
-                ] as const).map(cat => (
-                  <button key={cat.id} onClick={() => (() => {
-                        if (cat.id === 'Sleep') {
-                          setNewSch(prev => ({
-                            ...prev,
-                            category:   'Sleep',
-                            color:      'gray',
-                            text:       prev.text || 'Sleep',
-                            start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
-                            end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time,
-                          }));
-                          setEndNextDay(true);
-                        } else {
-                          setNewSch(prev => ({ ...prev, category: cat.id }));
-                        }
-                      })()}
-                    className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1
-                      ${newSch.category === cat.id ? 'bg-[#1C1C1E] text-[#FACC15]' : appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}`}>
-                    <span className="text-base leading-none">{cat.icon}</span>
-                    {cat.label}
-                  </button>
-                ))}
+            <div className="space-y-5">
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Text</label>
+                <input autoFocus type="text" value={newSch.text} onChange={e => setNewSch({ ...newSch, text: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveSchedule()}
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`} placeholder="e.g. Meeting"/>
               </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Start</label>
-                <input type="time" value={newSch.start_time} step="1800"
-                  onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
-                  className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}`}/>
-              </div>
-              <div className="flex-1">
-                <div className="flex justify-between items-center mb-2">
-                  <label className={`text-sm font-semibold ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>End</label>
-                  <button type="button"
-                    onClick={() => setEndNextDay(v => !v)}
-                    className={`text-[11px] font-bold px-2 py-0.5 rounded-lg transition-colors
-                      ${endNextDay ? 'bg-[#FACC15] text-[#1C1C1E]' : appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-400' : 'bg-[#F2F0EA] text-[#6B6860]'}`}>
-                    +1 day
-                  </button>
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Category</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'Study',    label: 'Study',   icon: '📚' },
+                    { id: 'Work',     label: 'Work',    icon: '💼' },
+                    { id: 'Exercise', label: 'Exercise',icon: '🏋️' },
+                    { id: 'Personal', label: 'Personal',icon: '👤' },
+                    { id: 'Sleep',    label: 'Sleep',   icon: '🌙' },
+                    { id: 'Social',   label: 'Social',  icon: '🤝' },
+                  ] as const).map(cat => (
+                    <button key={cat.id} onClick={() => (() => {
+                          if (cat.id === 'Sleep') {
+                            setNewSch(prev => ({
+                              ...prev,
+                              category:   'Sleep',
+                              color:      'gray',
+                              text:       prev.text || 'Sleep',
+                              start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
+                              end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time,
+                            }));
+                            setEndNextDay(true);
+                          } else {
+                            setNewSch(prev => ({ ...prev, category: cat.id }));
+                          }
+                        })()}
+                      className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1
+                        ${newSch.category === cat.id ? 'bg-[#1C1C1E] text-[#FACC15]' : theme.input}`}>
+                      <span className="text-base leading-none">{cat.icon}</span>
+                      {cat.label}
+                    </button>
+                  ))}
                 </div>
-                <input type="time" value={newSch.end_time} step="1800"
-                  onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
-                  className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}
-                    ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
-                {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">익일 종료</p>}
               </div>
-            </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Color</label>
-              <div className="flex gap-3">
-                {THEME_COLORS.map(c => (
-                  <div key={c.id} onClick={() => setNewSch({ ...newSch, color: c.id })}
-                    className={`w-10 h-10 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-110 ${c.bg}
-                      ${newSch.color === c.id ? `ring-4 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-300 ring-offset-[#2C2C2E]' : 'ring-gray-800 ring-offset-[#FAFAF8]'}` : ''}`}/>
-                ))}
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Start</label>
+                  <input type="time" value={newSch.start_time} step="1800"
+                    onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
+                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className={`text-sm font-semibold ${theme.textMuted}`}>End</label>
+                    <button type="button"
+                      onClick={() => setEndNextDay(v => !v)}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-lg transition-colors
+                        ${endNextDay ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                      +1 day
+                    </button>
+                  </div>
+                  <input type="time" value={newSch.end_time} step="1800"
+                    onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
+                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
+                      ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
+                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">익일 종료</p>}
+                </div>
               </div>
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Color</label>
+                <div className="flex gap-3">
+                  {THEME_COLORS.map(c => (
+                    <div key={c.id} onClick={() => setNewSch({ ...newSch, color: c.id })}
+                      className={`w-10 h-10 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-110 ${c.bg}
+                        ${newSch.color === c.id ? `ring-4 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-300 ring-offset-[#2C2C2E]' : 'ring-gray-800'}` : ''}`}/>
+                  ))}
+                </div>
+              </div>
+              <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-2xl ${theme.input}`}>
+                <input type="checkbox" checked={newSch.is_dday} onChange={e => setNewSch({ ...newSch, is_dday: e.target.checked })} className="w-5 h-5 accent-[#FACC15]"/>
+                <span className="text-base font-semibold">Set as D-Day</span>
+              </label>
+              <button onClick={handleSaveSchedule} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 mt-2 hover:bg-gray-800 transition-colors shadow-lg">
+                Save Schedule
+              </button>
             </div>
-            <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-2xl ${appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F2F0EA]'}`}>
-              <input type="checkbox" checked={newSch.is_dday} onChange={e => setNewSch({ ...newSch, is_dday: e.target.checked })} className="w-5 h-5 accent-[#FACC15]"/>
-              <span className="text-base font-semibold">Set as D-Day</span>
-            </label>
-            <button onClick={handleSaveSchedule} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 mt-2 hover:bg-gray-800 transition-colors shadow-lg">
-              Save Schedule
-            </button>
           </div>
-        </Modal>
+        </div>
       )}
 
       {/* ── D-Day 모달 ── */}
       {showDdayForm && (
-        <Modal title={editingDdayId ? 'Edit D-Day' : 'New D-Day'} onClose={() => setShowDdayForm(false)} darkMode={appSettings.darkMode} maxWidth="max-w-[380px]">
-          <div className="space-y-4">
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Title</label>
-              <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
-                className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}`} placeholder="e.g. Exam Day"/>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowDdayForm(false)}>
+          <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-heading text-xl font-bold">{editingDdayId ? 'Edit D-Day' : 'New D-Day'}</h3>
+              <button onClick={() => setShowDdayForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${appSettings.darkMode ? 'text-gray-400' : 'text-[#6B6860]'}`}>Date</label>
-              <input type="date" value={ddayForm.date} onChange={e => setDdayForm({ ...ddayForm, date: e.target.value })}
-                className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100' : 'bg-[#F2F0EA] text-[#1C1C1E]'}`}/>
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Title</label>
+                <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`} placeholder="e.g. Exam Day"/>
+              </div>
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Date</label>
+                <input type="date" value={ddayForm.date} onChange={e => setDdayForm({ ...ddayForm, date: e.target.value })}
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`}/>
+              </div>
+              <button onClick={handleSaveDday} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors shadow-lg">
+                Save D-Day
+              </button>
             </div>
-            <button onClick={handleSaveDday} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors shadow-lg">
-              Save D-Day
-            </button>
           </div>
-        </Modal>
+        </div>
       )}
 
       {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
