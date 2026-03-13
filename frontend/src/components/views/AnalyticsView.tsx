@@ -107,7 +107,14 @@ export const AnalyticsView = ({
     return s;
   }, [weekWorkouts]);
 
-  const isWorkoutDone = (dateStr: string) => workoutDoneSet.has(dateStr);
+  // 토글 오버라이드 — 이번 세션 중 사용자가 직접 누른 날짜
+  const [workoutToggle, setWorkoutToggle] = useState<Record<string, boolean>>({});
+  const toggleWorkoutDay = (dateStr: string) => {
+    const current = workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
+    setWorkoutToggle(prev => ({ ...prev, [dateStr]: !current }));
+  };
+  const isWorkoutDone = (dateStr: string) =>
+    workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
 
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [editingWeeklyId, setEditingWeeklyId] = useState<string | null>(null);
@@ -269,7 +276,8 @@ export const AnalyticsView = ({
                 const isToday = dateStr === formatDate(now.toJSDate());
                 return (
                   <button key={idx}
-                    className={`flex-1 flex flex-col items-center gap-1.5 py-2 rounded-2xl cursor-default
+                    onClick={() => toggleWorkoutDay(dateStr)}
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-2 rounded-2xl transition-all active:scale-95
                       ${done
                         ? 'bg-green-500/20 border border-green-500/40'
                         : isToday
@@ -290,7 +298,7 @@ export const AnalyticsView = ({
               })}
             </div>
             <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
-              Auto-synced from Health tab · View only
+              Tap to mark · Auto-updated when workout is saved
             </p>
           </div>
 
