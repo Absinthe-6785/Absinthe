@@ -7,6 +7,8 @@ import {
   ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { authFetch } from '../../lib/supabase';
+import { API_URL } from '../../lib/config';
 
 // ── NoteView 전용 독립 스토리지 키 (PlannerView Memo와 완전 분리) ──
 const NV_NOTES_KEY   = 'noteview-notes-v1';
@@ -463,6 +465,37 @@ export const NoteView = () => {
   const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
 
+  // ── DB sync 헬퍼 (fire-and-forget, 실패해도 localStorage 유지) ───
+  const syncNoteToDB = useCallback(async (note: Note) => {
+    try {
+      await authFetch(`${API_URL}/api/notes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: note.id, title: note.title, body: note.body,
+          updated_at: note.updatedAt, folder_id: note.folderId,
+          deleted_at: note.deletedAt,
+        }),
+      });
+    } catch { /**/ }
+  }, []);
+
+  const removeNoteFromDB = useCallback(async (id: string) => {
+    try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
+  }, []);
+
+  const syncFolderToDB = useCallback(async (folder: NoteFolder) => {
+    try {
+      await authFetch(`${API_URL}/api/note_folders`, {
+        method: 'POST',
+        body: JSON.stringify({ id: folder.id, name: folder.name, created_at: folder.createdAt }),
+      });
+    } catch { /**/ }
+  }, []);
+
+  const removeFolderFromDB = useCallback(async (id: string) => {
+    try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
+  }, []);
+
   // ── NoteView 전용 독립 상태 (PlannerView Memo와 완전 분리) ───────
   const [notes,   setNotes]   = useState<Note[]>(nvLoadNotes);
   const [folders, setFolders] = useState<NoteFolder[]>(nvLoadFolders);
@@ -470,10 +503,69 @@ export const NoteView = () => {
     try { return localStorage.getItem(NV_ACTIVE_KEY) || nvLoadNotes()[0]?.id || null; } catch { return null; }
   });
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash'>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const setActiveNoteId = useCallback((id: string | null) => {
     setActiveNoteIdRaw(id);
     try { localStorage.setItem(NV_ACTIVE_KEY, id ?? ''); } catch { /**/ }
+  }, []);
+
+  // ── 최초 마운트 시 DB에서 노트/폴더 로드 ────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      setIsSyncing(true);
+      try {
+        // 폴더 먼저
+        const fRes = await authFetch(`${API_URL}/api/note_folders`);
+        if (fRes.ok) {
+          const raw = await fRes.json();
+          const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
+            id: f.id, name: f.name, createdAt: f.created_at,
+          }));
+          if (dbFolders.length > 0) {
+            setFolders(dbFolders);
+            nvSaveFolders(dbFolders);
+          }
+        }
+        // 노트
+        const nRes = await authFetch(`${API_URL}/api/notes`);
+        if (nRes.ok) {
+          const raw = await nRes.json();
+          const localNotes = nvLoadNotes();
+          const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null }) => {
+            const local = localNotes.find(l => l.id === n.id);
+            return {
+              id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
+              folderId:  n.folder_id  != null ? n.folder_id  : (local?.folderId  ?? null),
+              deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
+              starred: local?.starred ?? false,
+            };
+          });
+          // 30일 지난 휴지통 자동 제거
+          const MONTH = 30 * 24 * 60 * 60 * 1000;
+          const valid = dbNotes.filter(n => !n.deletedAt || Date.now() - n.deletedAt < MONTH);
+          if (valid.length > 0) {
+            setNotes(valid);
+            nvSaveNotes(valid);
+            // activeNoteId가 유효한지 확인
+            setActiveNoteIdRaw(prev => {
+              const stillValid = valid.some(n => n.id === prev && !n.deletedAt);
+              const next = stillValid ? prev : (valid.find(n => !n.deletedAt)?.id ?? null);
+              try { localStorage.setItem(NV_ACTIVE_KEY, next ?? ''); } catch { /**/ }
+              return next;
+            });
+          } else {
+            // DB 비어있으면 localStorage 노트를 DB에 업로드
+            const local = nvLoadNotes();
+            await Promise.all(local.map(note => syncNoteToDB(note)));
+          }
+        }
+      } catch { /**/ } finally {
+        setIsSyncing(false);
+      }
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
@@ -487,25 +579,41 @@ export const NoteView = () => {
     setActiveNoteId(id);
     setViewMode('edit');
     setTimeout(() => titleInputRef.current?.focus(), 50);
+    syncNoteToDB(note);
     return id;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFolderId, setActiveNoteId]);
+  }, [activeFolderId, setActiveNoteId, syncNoteToDB]);
+
+  // debounce ref — body 타이핑 중 과도한 DB 요청 방지
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     setNotes(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
       nvSaveNotes(updated);
+      // body 변경은 600ms debounce, 나머지(title, folderId, starred)는 즉시 sync
+      const updatedNote = updated.find(n => n.id === id);
+      if (updatedNote) {
+        if ('body' in patch) {
+          if (syncTimer.current) clearTimeout(syncTimer.current);
+          syncTimer.current = setTimeout(() => syncNoteToDB(updatedNote), 600);
+        } else {
+          syncNoteToDB(updatedNote);
+        }
+      }
       return updated;
     });
-  }, []);
+  }, [syncNoteToDB]);
 
   const toggleStar = useCallback((id: string) => {
     setNotes(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, starred: !n.starred } : n);
       nvSaveNotes(updated);
+      const note = updated.find(n => n.id === id);
+      if (note) syncNoteToDB(note);
       return updated;
     });
-  }, []);
+  }, [syncNoteToDB]);
 
   const exportNote = useCallback((note: Note) => {
     const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
@@ -521,15 +629,17 @@ export const NoteView = () => {
     const folder: NoteFolder = { id: `folder-${Date.now()}`, name, createdAt: Date.now() };
     setFolders(prev => { const u = [...prev, folder]; nvSaveFolders(u); return u; });
     setActiveFolderId(folder.id);
-  }, []);
+    syncFolderToDB(folder);
+  }, [syncFolderToDB]);
 
   const duplicateNote = useCallback((note: Note) => {
     const id = `note-${Date.now()}`;
     const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
     setNotes(prev => { const u = [copy, ...prev]; nvSaveNotes(u); return u; });
     setActiveNoteId(id);
+    syncNoteToDB(copy);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setActiveNoteId]);
+  }, [setActiveNoteId, syncNoteToDB]);
 
   const moveNoteToTrash = useCallback((id: string) => {
     setNotes(prev => {
@@ -537,19 +647,23 @@ export const NoteView = () => {
       nvSaveNotes(updated);
       const nextActive = updated.find(n => !n.deletedAt)?.id ?? null;
       setActiveNoteId(nextActive);
+      const trashed = updated.find(n => n.id === id);
+      if (trashed) syncNoteToDB(trashed);
       return updated;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setActiveNoteId]);
+  }, [setActiveNoteId, syncNoteToDB]);
 
   const restoreNote = useCallback((id: string) => {
     setNotes(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n);
       nvSaveNotes(updated);
+      const restored = updated.find(n => n.id === id);
+      if (restored) syncNoteToDB(restored);
       return updated;
     });
     setActiveNoteId(id);
-  }, [setActiveNoteId]);
+  }, [setActiveNoteId, syncNoteToDB]);
 
   const permanentDeleteNote = useCallback((id: string) => {
     setNotes(prev => {
@@ -558,13 +672,16 @@ export const NoteView = () => {
       return updated;
     });
     setActiveNoteId(notes.find(n => !n.deletedAt && n.id !== id)?.id ?? null);
+    removeNoteFromDB(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, setActiveNoteId]);
+  }, [notes, setActiveNoteId, removeNoteFromDB]);
 
   const deleteFolder = useCallback((id: string) => {
     setNotes(prev => {
       const updated = prev.map(n => n.folderId === id ? { ...n, folderId: null } : n);
       nvSaveNotes(updated);
+      // folderId가 null로 변경된 노트들 DB 반영
+      updated.filter(n => n.folderId === null).forEach(n => syncNoteToDB(n));
       return updated;
     });
     setFolders(prev => {
@@ -573,7 +690,8 @@ export const NoteView = () => {
       return updated;
     });
     setActiveFolderId(prev => prev === id ? null : prev);
-  }, []);
+    removeFolderFromDB(id);
+  }, [syncNoteToDB, removeFolderFromDB]);
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
@@ -1354,8 +1472,13 @@ export const NoteView = () => {
                         ? <div key={i} style={{ width: 1, height: 13, background: c.sideBdr, margin: '0 2px' }}/>
                         : <button key={i} className="btbtn" onClick={btn.fn} title={btn.label}>{btn.icon}</button>
                     )}
-                    {savedAt && (
-                      <span style={{ marginLeft: 'auto', fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    {isSyncing && (
+                      <span style={{ marginLeft: 'auto', fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/> syncing...
+                      </span>
+                    )}
+                    {!isSyncing && savedAt && (
+                      <span style={{ marginLeft: isSyncing ? 4 : 'auto', fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
                         <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} saved
                       </span>
                     )}

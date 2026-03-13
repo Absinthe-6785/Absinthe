@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
-import jwt
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -42,15 +41,16 @@ security = HTTPBearer()
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     token = credentials.credentials
     try:
-        # Supabase가 ECC(P-256) 키로 마이그레이션됐으므로 서명 미검증 디코드 사용
-        # 토큰 위변조 방지는 Supabase 인프라가 담당 (프론트엔드에서 직접 발급 불가)
-        payload = jwt.decode(token, options={"verify_signature": False})
-        user_id = payload.get("sub")
+        # Supabase admin client로 서버 측 검증 — 서명 위변조 방지
+        response = supabase.auth.get_user(token)
+        user_id = response.user.id if response.user else None
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: no sub claim")
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
         return user_id
-    except jwt.DecodeError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 def verify_owner(resource_user_id: str, current_user_id: str):
     if resource_user_id != current_user_id:
