@@ -602,17 +602,22 @@ export const NoteView = () => {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Undo / Redo 히스토리 (노트별 독립 스택) ─────────────────────
-  // { body, cursor } 스냅샷을 최대 200개 유지
   type Snapshot = { body: string; cursor: number };
-  const historyRef  = useRef<Record<string, Snapshot[]>>({});
+  const historyRef    = useRef<Record<string, Snapshot[]>>({});
   const historyIdxRef = useRef<Record<string, number>>({});
-  const skipHistoryRef = useRef(false); // undo/redo 중 기록 억제
+  const skipHistoryRef = useRef(false);
+
+  // noteUpdate를 먼저 선언 (applySnapshot이 참조하므로)
+  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
+    updateNote(id, patch);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
+  }, [updateNote]);
 
   const pushHistory = useCallback((noteId: string, body: string, cursor: number) => {
     if (skipHistoryRef.current) return;
     const stack = historyRef.current[noteId] ?? [];
     const idx   = historyIdxRef.current[noteId] ?? -1;
-    // 현재 위치 이후 스냅샷 제거 (분기 발생 시 이전 미래 삭제)
     const trimmed = stack.slice(0, idx + 1);
     trimmed.push({ body, cursor });
     if (trimmed.length > 200) trimmed.shift();
@@ -624,18 +629,11 @@ export const NoteView = () => {
     skipHistoryRef.current = true;
     noteUpdate(noteId, { body: snap.body });
     skipHistoryRef.current = false;
-    // 커서 복원
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (ta) { ta.focus(); ta.setSelectionRange(snap.cursor, snap.cursor); }
     });
-  }, [noteUpdate]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
-    updateNote(id, patch);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
-  }, [updateNote]);
+  }, [noteUpdate]);
 
   // ── 필터링 ──────────────────────────────────────────────────────
   const visibleNotes = useMemo(() => {
