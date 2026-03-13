@@ -18,6 +18,7 @@ export interface Note {
   updatedAt: number;
   folderId: string | null;   // null = 전체 (미분류)
   deletedAt: number | null;  // null = 정상, timestamp = 휴지통
+  starred?: boolean;         // NoteView 즐겨찾기 (optional — 구버전 호환)
 }
 
 interface StoreState {

@@ -15,20 +15,9 @@ const NV_NOTES_KEY   = 'noteview-notes-v1';
 const NV_FOLDERS_KEY = 'noteview-folders-v1';
 const NV_ACTIVE_KEY  = 'noteview-active-v1';
 
-export interface Note {
-  id: string;
-  title: string;
-  body: string;
-  updatedAt: number;
-  folderId: string | null;
-  deletedAt: number | null;
-  starred?: boolean;
-}
-export interface NoteFolder {
-  id: string;
-  name: string;
-  createdAt: number;
-}
+// Note와 NoteFolder 타입은 useAppStore에서 import
+// (starred 필드는 useAppStore의 Note에도 추가됨 — 타입 일치)
+export type { Note, NoteFolder } from '../../store/useAppStore';
 
 function nvLoadNotes(): Note[] {
   try {
@@ -78,10 +67,15 @@ interface TocItem { level: number; text: string; line: number; collapsed: boolea
 interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
 
 // ── 검색어 하이라이트 ─────────────────────────────────────────────────
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function highlightText(text: string, query: string): string {
-  if (!query.trim()) return text;
+  const safe = escapeHtml(text);
+  if (!query.trim()) return safe;
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bshl">$1</mark>');
+  return safe.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bshl">$1</mark>');
 }
 
 // ── 마크다운 파서 ──────────────────────────────────────────────────────
@@ -197,10 +191,10 @@ function processInline(text: string, allNotes: Note[]): string {
     })
     .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_: string, sp: string, tag: string) =>
       `${sp}<span class="bwtag" data-tag="${tag}">#${tag}</span>`)
-    .replace(/!\[([^\]]*)\]\((data:[^)]+)\)/g, (_: string, alt: string, src: string) =>
-      `<img class="bimg" src="${src}" alt="${alt}"/>`)
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_: string, alt: string, src: string) =>
-      `<img class="bimg" src="${src}" alt="${alt}"/>`)
+    .replace(/!\[([^\]]*)\]\((data:image\/[^)]+)\)/g, (_: string, alt: string, src: string) =>
+      `<img class="bimg" src="${src}" alt="${alt.replace(/"/g, '&quot;')}"/>`)
+    .replace(/!\[([^\]]*)\]\(((?!javascript:)[^)]+)\)/g, (_: string, alt: string, src: string) =>
+      `<img class="bimg" src="${src}" alt="${alt.replace(/"/g, '&quot;')}"/>`)
     .replace(/`([^`]+)`/g,        '<code class="bcode">$1</code>')
     .replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g,    '<strong class="bbold">$1</strong>')
