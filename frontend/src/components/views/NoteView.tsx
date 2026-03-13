@@ -6,7 +6,48 @@ import {
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
 } from 'lucide-react';
-import { useAppStore, Note } from '../../store/useAppStore';
+import { useAppStore } from '../../store/useAppStore';
+
+// ── NoteView 전용 독립 스토리지 키 (PlannerView Memo와 완전 분리) ──
+const NV_NOTES_KEY   = 'noteview-notes-v1';
+const NV_FOLDERS_KEY = 'noteview-folders-v1';
+const NV_ACTIVE_KEY  = 'noteview-active-v1';
+
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  updatedAt: number;
+  folderId: string | null;
+  deletedAt: number | null;
+  starred?: boolean;
+}
+export interface NoteFolder {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+function nvLoadNotes(): Note[] {
+  try {
+    const raw = localStorage.getItem(NV_NOTES_KEY);
+    if (raw) return JSON.parse(raw) as Note[];
+  } catch { /**/ }
+  return [{ id: `note-${Date.now()}`, title: 'Welcome to Note', body: '## Getting Started\n\nStart writing your notes here.', updatedAt: Date.now(), folderId: null, deletedAt: null, starred: false }];
+}
+function nvLoadFolders(): NoteFolder[] {
+  try {
+    const raw = localStorage.getItem(NV_FOLDERS_KEY);
+    if (raw) return JSON.parse(raw) as NoteFolder[];
+  } catch { /**/ }
+  return [];
+}
+function nvSaveNotes(notes: Note[]) {
+  try { localStorage.setItem(NV_NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
+}
+function nvSaveFolders(folders: NoteFolder[]) {
+  try { localStorage.setItem(NV_FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
+}
 
 // ── KaTeX ─────────────────────────────────────────────────────────────
 declare global {
@@ -414,37 +455,57 @@ function GraphView({
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
-export const WikiView = () => {
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────
+export const NoteView = () => {
   const katexReady = useKaTeX();
 
-  // ── 스토어에서 모든 노트/폴더 상태와 CRUD를 가져옴 ──────────────
-  const {
-    appSettings,
-    notes, folders,
-    activeNoteId, activeFolderId,
-    setActiveNoteId, setActiveFolderId,
-    createNote: storeCreateNote,
-    updateNote,
-    moveNoteToTrash, restoreNote, permanentDeleteNote,
-    createFolder: storeCreateFolder, deleteFolder,
-  } = useAppStore();
+  // ── appSettings(darkMode)만 전역 스토어에서 가져옴 ───────────────
+  const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
+
+  // ── NoteView 전용 독립 상태 (PlannerView Memo와 완전 분리) ───────
+  const [notes,   setNotes]   = useState<Note[]>(nvLoadNotes);
+  const [folders, setFolders] = useState<NoteFolder[]>(nvLoadFolders);
+  const [activeNoteId,   setActiveNoteIdRaw]   = useState<string | null>(() => {
+    try { return localStorage.getItem(NV_ACTIVE_KEY) || nvLoadNotes()[0]?.id || null; } catch { return null; }
+  });
+  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash'>(null);
+
+  const setActiveNoteId = useCallback((id: string | null) => {
+    setActiveNoteIdRaw(id);
+    try { localStorage.setItem(NV_ACTIVE_KEY, id ?? ''); } catch { /**/ }
+  }, []);
 
   // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const createNote = useCallback(() => {
-    const id = storeCreateNote();
+    const id = `note-${Date.now()}`;
+    const folderId = (activeFolderId === null || activeFolderId === 'trash') ? null : activeFolderId;
+    const note: Note = { id, title: '', body: '', updatedAt: Date.now(), folderId, deletedAt: null, starred: false };
+    setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
+    setActiveNoteId(id);
     setViewMode('edit');
     setTimeout(() => titleInputRef.current?.focus(), 50);
     return id;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeCreateNote]);
+  }, [activeFolderId, setActiveNoteId]);
+
+  const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
+      nvSaveNotes(updated);
+      return updated;
+    });
+  }, []);
 
   const toggleStar = useCallback((id: string) => {
-    const note = notes.find(n => n.id === id);
-    if (note) updateNote(id, { starred: !note.starred });
-  }, [notes, updateNote]);
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, starred: !n.starred } : n);
+      nvSaveNotes(updated);
+      return updated;
+    });
+  }, []);
 
   const exportNote = useCallback((note: Note) => {
     const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
@@ -457,16 +518,62 @@ export const WikiView = () => {
   }, []);
 
   const createFolder = useCallback((name: string) => {
-    storeCreateFolder(name);
-  }, [storeCreateFolder]);
+    const folder: NoteFolder = { id: `folder-${Date.now()}`, name, createdAt: Date.now() };
+    setFolders(prev => { const u = [...prev, folder]; nvSaveFolders(u); return u; });
+    setActiveFolderId(folder.id);
+  }, []);
 
   const duplicateNote = useCallback((note: Note) => {
-    const id = storeCreateNote();
-    // 생성 직후 내용 복사
-    setTimeout(() => {
-      updateNote(id, { title: note.title + ' (copy)', body: note.body, folderId: note.folderId });
-    }, 0);
-  }, [storeCreateNote, updateNote]);
+    const id = `note-${Date.now()}`;
+    const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
+    setNotes(prev => { const u = [copy, ...prev]; nvSaveNotes(u); return u; });
+    setActiveNoteId(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setActiveNoteId]);
+
+  const moveNoteToTrash = useCallback((id: string) => {
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: Date.now() } : n);
+      nvSaveNotes(updated);
+      const nextActive = updated.find(n => !n.deletedAt)?.id ?? null;
+      setActiveNoteId(nextActive);
+      return updated;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setActiveNoteId]);
+
+  const restoreNote = useCallback((id: string) => {
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n);
+      nvSaveNotes(updated);
+      return updated;
+    });
+    setActiveNoteId(id);
+  }, [setActiveNoteId]);
+
+  const permanentDeleteNote = useCallback((id: string) => {
+    setNotes(prev => {
+      const updated = prev.filter(n => n.id !== id);
+      nvSaveNotes(updated);
+      return updated;
+    });
+    setActiveNoteId(notes.find(n => !n.deletedAt && n.id !== id)?.id ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, setActiveNoteId]);
+
+  const deleteFolder = useCallback((id: string) => {
+    setNotes(prev => {
+      const updated = prev.map(n => n.folderId === id ? { ...n, folderId: null } : n);
+      nvSaveNotes(updated);
+      return updated;
+    });
+    setFolders(prev => {
+      const updated = prev.filter(f => f.id !== id);
+      nvSaveFolders(updated);
+      return updated;
+    });
+    setActiveFolderId(prev => prev === id ? null : prev);
+  }, []);
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
