@@ -601,6 +601,36 @@ export const NoteView = () => {
   const importInputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Undo / Redo 히스토리 (노트별 독립 스택) ─────────────────────
+  // { body, cursor } 스냅샷을 최대 200개 유지
+  type Snapshot = { body: string; cursor: number };
+  const historyRef  = useRef<Record<string, Snapshot[]>>({});
+  const historyIdxRef = useRef<Record<string, number>>({});
+  const skipHistoryRef = useRef(false); // undo/redo 중 기록 억제
+
+  const pushHistory = useCallback((noteId: string, body: string, cursor: number) => {
+    if (skipHistoryRef.current) return;
+    const stack = historyRef.current[noteId] ?? [];
+    const idx   = historyIdxRef.current[noteId] ?? -1;
+    // 현재 위치 이후 스냅샷 제거 (분기 발생 시 이전 미래 삭제)
+    const trimmed = stack.slice(0, idx + 1);
+    trimmed.push({ body, cursor });
+    if (trimmed.length > 200) trimmed.shift();
+    historyRef.current[noteId]    = trimmed;
+    historyIdxRef.current[noteId] = trimmed.length - 1;
+  }, []);
+
+  const applySnapshot = useCallback((noteId: string, snap: Snapshot) => {
+    skipHistoryRef.current = true;
+    noteUpdate(noteId, { body: snap.body });
+    skipHistoryRef.current = false;
+    // 커서 복원
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(snap.cursor, snap.cursor); }
+    });
+  }, [noteUpdate]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     updateNote(id, patch);
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -707,8 +737,10 @@ export const NoteView = () => {
       reader.onload = ev => {
         const body = ev.target?.result as string;
         const title = file.name.replace(/\.md$/i, '');
-        const id = storeCreateNote();
-        setTimeout(() => updateNote(id, { title, body }), 0);
+        const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const note: Note = { id, title, body, updatedAt: Date.now(), folderId: activeFolderId === 'trash' ? null : activeFolderId, deletedAt: null, starred: false };
+        setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
+        setActiveNoteId(id);
       };
       reader.readAsText(file);
     });
@@ -725,6 +757,8 @@ export const NoteView = () => {
   const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!activeNote) return;
     const val = e.target.value;
+    const cursor = e.target.selectionStart;
+    pushHistory(activeNote.id, val, cursor);
     noteUpdate(activeNote.id, { body: val });
     // [[ 감지
     const pos = e.target.selectionStart;
@@ -773,12 +807,56 @@ export const NoteView = () => {
     }
   };
 
+  // ── 노트 전환 시 히스토리 초기 스냅샷 등록 ─────────────────────
+  useEffect(() => {
+    if (!activeNote) return;
+    const id = activeNote.id;
+    // 해당 노트의 히스토리가 아직 없으면 초기 스냅샷 등록
+    if (!historyRef.current[id] || historyRef.current[id].length === 0) {
+      historyRef.current[id] = [{ body: activeNote.body, cursor: 0 }];
+      historyIdxRef.current[id] = 0;
+    }
+  }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── 전역 단축키 ─────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (showSortMenu && e.key === 'Escape') { setShowSortMenu(false); return; }
       if (!mod) return;
+
+      // ── Undo (Ctrl+Z) ────────────────────────────────────────
+      if (e.key === 'z' && !e.shiftKey && viewMode === 'edit' && activeNote) {
+        e.preventDefault();
+        const stack = historyRef.current[activeNote.id];
+        const idx   = historyIdxRef.current[activeNote.id] ?? -1;
+        if (stack && idx > 0) {
+          const next = idx - 1;
+          historyIdxRef.current[activeNote.id] = next;
+          applySnapshot(activeNote.id, stack[next]);
+        }
+        return;
+      }
+      // ── Redo (Ctrl+Y 또는 Ctrl+Shift+Z) ─────────────────────
+      if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && viewMode === 'edit' && activeNote) {
+        e.preventDefault();
+        const stack = historyRef.current[activeNote.id];
+        const idx   = historyIdxRef.current[activeNote.id] ?? -1;
+        if (stack && idx < stack.length - 1) {
+          const next = idx + 1;
+          historyIdxRef.current[activeNote.id] = next;
+          applySnapshot(activeNote.id, stack[next]);
+        }
+        return;
+      }
+      // ── Save (Ctrl+S) — 즉시 저장 표시 ─────────────────────
+      if (e.key === 's') {
+        e.preventDefault();
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        setSavedAt(new Date());
+        return;
+      }
+
       switch (e.key) {
         case 'n': e.preventDefault(); createNote(); break;
         case 'd': e.preventDefault(); { const n = notes.find(x => x.id === activeNoteId); if (n) duplicateNote(n); } break;
@@ -786,33 +864,44 @@ export const NoteView = () => {
         case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
+        // 에디터 전용 단축키
+        case 'b': if (viewMode === 'edit') { e.preventDefault(); insert('**', '**'); } break;
+        case 'i': if (viewMode === 'edit') { e.preventDefault(); insert('*', '*'); } break;
+        case '`': if (viewMode === 'edit') { e.preventDefault(); insert('`', '`'); } break;
+        case '1': if (viewMode === 'edit') { e.preventDefault(); insert('# '); } break;
+        case '2': if (viewMode === 'edit') { e.preventDefault(); insert('## '); } break;
+        case '3': if (viewMode === 'edit') { e.preventDefault(); insert('### '); } break;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu]);
+  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu, viewMode, insert, activeNote, applySnapshot]);
 
   const TOOLBAR: (ToolbarItem | null)[] = [
-    { icon: <Heading1 size={13}/>, label: 'H1', fn: () => insert('# ') },
-    { icon: <Heading2 size={13}/>, label: 'H2', fn: () => insert('## ') },
-    { icon: <Heading3 size={13}/>, label: 'H3', fn: () => insert('### ') },
+    { icon: <Heading1 size={13}/>, label: 'H1 (Ctrl+1)', fn: () => insert('# ') },
+    { icon: <Heading2 size={13}/>, label: 'H2 (Ctrl+2)', fn: () => insert('## ') },
+    { icon: <Heading3 size={13}/>, label: 'H3 (Ctrl+3)', fn: () => insert('### ') },
     null,
-    { icon: <Bold size={13}/>,        label: 'Bold',      fn: () => insert('**', '**') },
-    { icon: <Italic size={13}/>,      label: 'Italic',    fn: () => insert('*', '*') },
-    { icon: <Code size={13}/>,        label: 'Code',      fn: () => insert('`', '`') },
-    { icon: <Hash size={13}/>,        label: 'Highlight', fn: () => insert('==', '==') },
+    { icon: <Bold size={13}/>,        label: 'Bold (Ctrl+B)',   fn: () => insert('**', '**') },
+    { icon: <Italic size={13}/>,      label: 'Italic (Ctrl+I)', fn: () => insert('*', '*') },
+    { icon: <Code size={13}/>,        label: 'Inline Code',     fn: () => insert('`', '`') },
+    { icon: <Hash size={13}/>,        label: 'Highlight',       fn: () => insert('==', '==') },
     null,
-    { icon: <List size={13}/>,        label: 'List',    fn: () => insert('- ') },
-    { icon: <ListOrdered size={13}/>, label: 'Numbered', fn: () => insert('1. ') },
-    { icon: <CheckSquare size={13}/>, label: 'Checkbox', fn: () => insert('- [ ] ') },
-    { icon: <Quote size={13}/>,       label: 'Quote',   fn: () => insert('> ') },
+    { icon: <List size={13}/>,        label: 'Bullet List',   fn: () => insert('- ') },
+    { icon: <ListOrdered size={13}/>, label: 'Numbered List', fn: () => insert('1. ') },
+    { icon: <CheckSquare size={13}/>, label: 'Checkbox',      fn: () => insert('- [ ] ') },
+    {
+      icon: <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>▶</span>,
+      label: 'Toggle Block',
+      fn: () => insert('> Toggle Title\n  '),
+    },
     null,
     { icon: <Table size={13}/>, label: 'Table',     fn: () => insert('\n| Col 1 | Col 2 |\n|-------|-------|\n| val 1 | val 2 |\n') },
     { icon: <Link size={13}/>,  label: 'Wiki Link', fn: () => insert('[[', ']]') },
     { icon: <Tag size={13}/>,   label: 'Tag',       fn: () => insert('#') },
     null,
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∑</span>, label: 'Inline Math', fn: () => insert('$', '$') },
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∫</span>, label: 'Block Math',  fn: () => insert('$$\n', '\n$$') },
+    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∑</span>, label: 'Inline Math ($…$)',   fn: () => insert('$', '$') },
+    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∫</span>, label: 'Block Math ($$…$$)', fn: () => insert('$$\n', '\n$$') },
     null,
     { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
     { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
@@ -981,20 +1070,34 @@ export const NoteView = () => {
             onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>Keyboard Shortcuts</div>
             {[
-              ['Ctrl + N',   'New Note'],
-              ['Ctrl + D',   'Duplicate Note'],
-              ['Ctrl + E',   'Toggle Preview'],
-              ['Ctrl + G',   'Toggle Graph View'],
-              ['Ctrl + F',   'Focus Mode'],
-              ['Ctrl + /',   'Show Shortcuts'],
-              ['[[...]]',    'Wiki link autocomplete'],
-              ['↑ ↓ Enter',  'Navigate autocomplete'],
-              ['Esc',        'Close autocomplete / modal'],
-            ].map(([key, desc]) => (
-              <div key={key} className="bsc-row">
-                <span style={{ color: c.textMuted }}>{desc}</span>
-                <span className="bsc-key">{key}</span>
-              </div>
+              ['Ctrl + N',         'New Note'],
+              ['Ctrl + D',         'Duplicate Note'],
+              ['Ctrl + E',         'Toggle Preview'],
+              ['Ctrl + G',         'Toggle Graph View'],
+              ['Ctrl + F',         'Focus Mode'],
+              ['Ctrl + /',         'Show Shortcuts'],
+              [null, null],
+              ['Ctrl + S',         'Save (instant)'],
+              ['Ctrl + Z',         'Undo'],
+              ['Ctrl + Y / ⇧+Z',  'Redo'],
+              [null, null],
+              ['Ctrl + B',         'Bold'],
+              ['Ctrl + I',         'Italic'],
+              ['Ctrl + `',         'Inline Code'],
+              ['Ctrl + 1',         'Heading 1'],
+              ['Ctrl + 2',         'Heading 2'],
+              ['Ctrl + 3',         'Heading 3'],
+              [null, null],
+              ['[[...]]',          'Wiki link autocomplete'],
+              ['↑ ↓ Enter',        'Navigate autocomplete'],
+              ['Esc',              'Close / cancel'],
+            ].map(([key, desc], i) => (
+              key === null
+                ? <div key={i} style={{ height: 1, background: c.textFaint, margin: '6px 0' }} />
+                : <div key={key} className="bsc-row">
+                    <span style={{ color: c.textMuted }}>{desc}</span>
+                    <span className="bsc-key">{key}</span>
+                  </div>
             ))}
             <button onClick={() => setShowShortcuts(false)}
               style={{ marginTop: 14, width: '100%', background: c.accentBg, border: 'none', borderRadius: 7, padding: '8px', color: c.accent, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
