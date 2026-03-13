@@ -59,19 +59,46 @@ def verify_owner(resource_user_id: str, current_user_id: str):
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
 # ==========================================
-class ScheduleCreate(BaseModel): date: str; text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
-class ScheduleUpdate(BaseModel): text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"
-class TodoCreate(BaseModel): date: str; text: str
-class RoutineCreate(BaseModel): text: str; created_date: str = ''
-class StatusUpdate(BaseModel): done: bool
-class RoutineLogUpdate(BaseModel): routine_id: str; date: str; done: bool
-class ExerciseBlockCreate(BaseModel): name: str; type: str; tags: list = []
-class HealthRoutineCreate(BaseModel): day_name: str; blocks: list
-class WorkoutLogCreate(BaseModel): date: str; block_id: str; sets: list; sort_order: int = 0
-class InbodyLogCreate(BaseModel): date: str; weight: float; smm: float; pbf: float
-class WeeklyScheduleCreate(BaseModel): day: int; title: str; start_time: str; end_time: str; color: str
-class RoutineUpdate(BaseModel): text: str
-class TodoTextUpdate(BaseModel): text: str
+class ScheduleCreate(BaseModel):
+    date: str; text: str; start_time: str; end_time: str
+    is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
+
+class ScheduleUpdate(BaseModel):
+    text: str; start_time: str; end_time: str
+    is_dday: bool = False; color: str = "gold"; category: str = "Study"
+
+class TodoCreate(BaseModel):
+    date: str; text: str
+
+class TodoTextUpdate(BaseModel):
+    text: str
+
+class RoutineCreate(BaseModel):
+    text: str; created_date: str = ''
+
+class RoutineUpdate(BaseModel):
+    text: str
+
+class StatusUpdate(BaseModel):
+    done: bool
+
+class RoutineLogUpdate(BaseModel):
+    routine_id: str; date: str; done: bool
+
+class ExerciseBlockCreate(BaseModel):
+    name: str; type: str; tags: list = []
+
+class HealthRoutineCreate(BaseModel):
+    day_name: str; blocks: list
+
+class WorkoutLogCreate(BaseModel):
+    date: str; block_id: str; sets: list; sort_order: int = 0
+
+class InbodyLogCreate(BaseModel):
+    date: str; weight: float; smm: float; pbf: float
+
+class WeeklyScheduleCreate(BaseModel):
+    day: int; title: str; start_time: str; end_time: str; color: str
 
 # ==========================================
 # Reset
@@ -155,6 +182,9 @@ async def toggle_todo(todo_id: str, payload: StatusUpdate, user_id: str = Depend
 
 @app.put("/api/todos_text/{todo_id}")
 async def update_todo_text(todo_id: str, payload: TodoTextUpdate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
     """투두 텍스트 수정 (done 상태는 PUT /api/todos/{id}로 분리)"""
     row = supabase.table("todos").select("user_id").eq("id", todo_id).single().execute().data
     verify_owner(row["user_id"], user_id)
@@ -241,8 +271,9 @@ async def create_block(block: ExerciseBlockCreate, user_id: str = Depends(get_cu
 
 @app.put("/api/blocks/{block_id}")
 async def update_block(block_id: str, block: ExerciseBlockCreate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).single().execute().data
-    if not row or row["user_id"] != user_id: raise HTTPException(403)
+    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
     return supabase.table("exercise_blocks").update({"name": block.name, "type": block.type, "tags": block.tags}).eq("id", block_id).execute().data
 
 @app.delete("/api/blocks/{block_id}")
@@ -378,20 +409,36 @@ async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
 # ==========================================
 @app.get("/api/backup")
 async def export_backup(user_id: str = Depends(get_current_user)):
-    """전체 데이터 백업 — 노트/폴더/스케줄/루틴/운동기록 한 번에 반환"""
-    notes      = supabase.table("notes").select("*").eq("user_id", user_id).execute().data or []
-    folders    = supabase.table("note_folders").select("*").eq("user_id", user_id).execute().data or []
-    schedules  = supabase.table("schedules").select("*").eq("user_id", user_id).execute().data or []
-    todos      = supabase.table("todos").select("*").eq("user_id", user_id).execute().data or []
-    routines   = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
-    routine_logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).execute().data or []
-    blocks     = supabase.table("exercise_blocks").select("*").eq("user_id", user_id).execute().data or []
-    workout_logs = supabase.table("workout_logs").select("*").eq("user_id", user_id).execute().data or []
-    inbody_logs  = supabase.table("inbody_logs").select("*").eq("user_id", user_id).execute().data or []
-    ddays      = supabase.table("ddays").select("*").eq("user_id", user_id).execute().data or []
+    """전체 데이터 백업 — 10개 테이블을 asyncio.gather로 병렬 조회"""
+    import asyncio
+    from datetime import datetime, timezone
+
+    def _fetch(table: str, order: str | None = None):
+        q = supabase.table(table).select("*").eq("user_id", user_id)
+        if order:
+            q = q.order(order)
+        return q.execute().data or []
+
+    loop = asyncio.get_event_loop()
+    (
+        notes, folders, schedules, todos, routines,
+        routine_logs, blocks, workout_logs, inbody_logs, ddays,
+    ) = await asyncio.gather(
+        loop.run_in_executor(None, lambda: _fetch("notes", "updated_at")),
+        loop.run_in_executor(None, lambda: _fetch("note_folders", "created_at")),
+        loop.run_in_executor(None, lambda: _fetch("schedules", "date")),
+        loop.run_in_executor(None, lambda: _fetch("todos", "date")),
+        loop.run_in_executor(None, lambda: _fetch("routines")),
+        loop.run_in_executor(None, lambda: _fetch("routine_logs")),
+        loop.run_in_executor(None, lambda: _fetch("exercise_blocks")),
+        loop.run_in_executor(None, lambda: _fetch("workout_logs", "date")),
+        loop.run_in_executor(None, lambda: _fetch("inbody_logs", "date")),
+        loop.run_in_executor(None, lambda: _fetch("ddays")),
+    )
+
     return {
         "version": 1,
-        "exported_at": __import__('datetime').datetime.utcnow().isoformat() + "Z",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": notes,
         "note_folders": folders,
         "schedules": schedules,
@@ -434,4 +481,5 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     upsert("workout_logs",    payload.workout_logs)
     upsert("inbody_logs",     payload.inbody_logs)
     upsert("ddays",           payload.ddays)
-    return {"status": "ok", "restored_at": __import__('datetime').datetime.utcnow().isoformat() + "Z"}
+    from datetime import datetime, timezone
+    return {"status": "ok", "restored_at": datetime.now(timezone.utc).isoformat()}

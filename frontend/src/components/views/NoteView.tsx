@@ -9,38 +9,19 @@ import {
 import { useAppStore } from '../../store/useAppStore';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
+import {
+  NV_NOTES_KEY, NV_FOLDERS_KEY, NV_ACTIVE_KEY,
+  nvLoadNotes, nvLoadFolders, nvSaveNotes, nvSaveFolders,
+  highlightText,
+  parseMarkdown, extractTOC, extractTags, extractLinks,
+} from './noteUtils';
+import { NoteGraphView } from './NoteGraphView';
 
-// ── NoteView 전용 독립 스토리지 키 (PlannerView Memo와 완전 분리) ──
-const NV_NOTES_KEY   = 'noteview-notes-v1';
-const NV_FOLDERS_KEY = 'noteview-folders-v1';
-const NV_ACTIVE_KEY  = 'noteview-active-v1';
+// Note와 NoteFolder 타입은 useAppStore에서 import — re-export for consumers
+import type { Note, NoteFolder } from '../../store/useAppStore';
+export type { Note, NoteFolder };
 
-// Note와 NoteFolder 타입은 useAppStore에서 import
-// (starred 필드는 useAppStore의 Note에도 추가됨 — 타입 일치)
-export type { Note, NoteFolder } from '../../store/useAppStore';
-
-function nvLoadNotes(): Note[] {
-  try {
-    const raw = localStorage.getItem(NV_NOTES_KEY);
-    if (raw) return JSON.parse(raw) as Note[];
-  } catch { /**/ }
-  return [{ id: `note-${Date.now()}`, title: 'Welcome to Note', body: '## Getting Started\n\nStart writing your notes here.', updatedAt: Date.now(), folderId: null, deletedAt: null, starred: false }];
-}
-function nvLoadFolders(): NoteFolder[] {
-  try {
-    const raw = localStorage.getItem(NV_FOLDERS_KEY);
-    if (raw) return JSON.parse(raw) as NoteFolder[];
-  } catch { /**/ }
-  return [];
-}
-function nvSaveNotes(notes: Note[]) {
-  try { localStorage.setItem(NV_NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
-}
-function nvSaveFolders(folders: NoteFolder[]) {
-  try { localStorage.setItem(NV_FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
-}
-
-// ── KaTeX ─────────────────────────────────────────────────────────────
+// ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
 declare global {
   interface Window {
     katex?: { renderToString: (expr: string, opts?: object) => string };
@@ -62,395 +43,8 @@ function useKaTeX(): boolean {
   return ready;
 }
 
-// ── 타입 ─────────────────────────────────────────────────────────────
-interface TocItem { level: number; text: string; line: number; collapsed: boolean; }
 interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
 
-// ── 검색어 하이라이트 ─────────────────────────────────────────────────
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function highlightText(text: string, query: string): string {
-  const safe = escapeHtml(text);
-  if (!query.trim()) return safe;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return safe.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bshl">$1</mark>');
-}
-
-// ── 마크다운 파서 ──────────────────────────────────────────────────────
-function parseMarkdown(md: string, allNotes: Note[]): string {
-  if (!md) return '';
-
-  // 1. 수식 보호
-  const mathBlocks: string[] = [];
-  let text = md
-    .replace(/\$\$[\s\S]+?\$\$/g, m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; })
-    .replace(/\$[^$\n]+\$/g,      m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; });
-
-  // 2. 코드블록 보호
-  const codeBlocks: string[] = [];
-  text = text.replace(/```([\w]*)\n([\s\S]*?)```/gm, (_, lang, code) => {
-    codeBlocks.push(`<pre class="bpre"><code class="blang-${lang}">${code.trimEnd()}</code></pre>`);
-    return `%%C${codeBlocks.length - 1}%%`;
-  });
-
-  // 3. 줄 단위 처리
-  const lines = text.split('\n');
-  const out: string[] = [];
-  let i = 0;
-
-  // 토글 블록: > 로 시작하는 연속 줄을 하나의 토글로
-  const flushToggle = (summary: string, bodyLines: string[]): string => {
-    const inner = bodyLines.join('\n');
-    const uid = Math.random().toString(36).slice(2);
-    return `<details class="btoggle" id="btg-${uid}"><summary class="btsummary">${summary}</summary><div class="btbody">${inner}</div></details>`;
-  };
-
-  // 들여쓰기 레벨 감지
-  const getIndent = (line: string) => {
-    const m = line.match(/^(\s+)/);
-    return m ? Math.floor(m[1].length / 2) : 0;
-  };
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // 토글 블록 (> 로 시작)
-    if (/^> /.test(line)) {
-      const summary = line.replace(/^> /, '');
-      const bodyLines: string[] = [];
-      i++;
-      while (i < lines.length && (lines[i].startsWith('  ') || lines[i] === '')) {
-        bodyLines.push(lines[i]);
-        i++;
-      }
-      out.push(flushToggle(processInline(summary, allNotes), bodyLines.map(l => processLine(l.replace(/^  /, ''), allNotes)).join('\n')));
-      continue;
-    }
-
-    // 번호 목록 그룹핑
-    if (/^\d+\. /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+\. /.test(lines[i])) {
-        const indent = getIndent(lines[i]);
-        const content = lines[i].replace(/^\s*\d+\. /, '');
-        items.push(`<li class="bol" style="margin-left:${indent * 16}px">${processInline(content, allNotes)}</li>`);
-        i++;
-      }
-      out.push(`<ol class="bol-group">${items.join('')}</ol>`);
-      continue;
-    }
-
-    // 불릿 목록 그룹핑
-    if (/^(\s*)[-*] /.test(line) && !/^(\s*)[-*] \[[ x]\]/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^(\s*)[-*] /.test(lines[i]) && !/^(\s*)[-*] \[[ x]\]/.test(lines[i])) {
-        const indent = getIndent(lines[i]);
-        const content = lines[i].replace(/^\s*[-*] /, '');
-        items.push(`<li class="bul" style="margin-left:${indent * 16}px">${processInline(content, allNotes)}</li>`);
-        i++;
-      }
-      out.push(`<ul class="bul-group">${items.join('')}</ul>`);
-      continue;
-    }
-
-    out.push(processLine(line, allNotes));
-    i++;
-  }
-
-  let html = out.join('\n');
-
-  // 4. 코드블록 복원
-  html = html.replace(/%%C(\d+)%%/g, (_, idx) => codeBlocks[Number(idx)]);
-
-  // 5. 수식 복원
-  html = html.replace(/%%M(\d+)%%/g, (_, idx: string) => {
-    const m = mathBlocks[Number(idx)];
-    if (!window.katex) return `<code>${m}</code>`;
-    const isBlock = m.startsWith('$$');
-    const expr = m.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
-    try {
-      return isBlock
-        ? `<div class="bmathb">${window.katex.renderToString(expr, { displayMode: true, throwOnError: false })}</div>`
-        : `<span class="bmathi">${window.katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
-    } catch { return `<code class="bmerr">${m}</code>`; }
-  });
-
-  return `<div class="broot">${html}</div>`;
-}
-
-// 인라인 마크다운 처리
-function processInline(text: string, allNotes: Note[]): string {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\[\[(.+?)\]\]/g, (_, t: string) => {
-      const f = allNotes.find(n => n.title === t && !n.deletedAt);
-      return f ? `<span class="bwl" data-id="${f.id}">[[${t}]]</span>`
-               : `<span class="bwlm">[[${t}]]</span>`;
-    })
-    .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_: string, sp: string, tag: string) =>
-      `${sp}<span class="bwtag" data-tag="${tag}">#${tag}</span>`)
-    .replace(/!\[([^\]]*)\]\((data:image\/[^)]+)\)/g, (_: string, alt: string, src: string) =>
-      `<img class="bimg" src="${src}" alt="${alt.replace(/"/g, '&quot;')}"/>`)
-    .replace(/!\[([^\]]*)\]\(((?!javascript:)[^)]+)\)/g, (_: string, alt: string, src: string) =>
-      `<img class="bimg" src="${src}" alt="${alt.replace(/"/g, '&quot;')}"/>`)
-    .replace(/`([^`]+)`/g,        '<code class="bcode">$1</code>')
-    .replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>')
-    .replace(/\*\*(.+?)\*\*/g,    '<strong class="bbold">$1</strong>')
-    .replace(/\*(.+?)\*/g,        '<em class="bital">$1</em>')
-    .replace(/~~(.+?)~~/g,        '<del>$1</del>')
-    .replace(/==(.+?)==/g,        '<mark class="bhl">$1</mark>');
-}
-
-// 줄 단위 블록 처리
-function processLine(line: string, allNotes: Note[]): string {
-  if (!line.trim()) return '<div class="bempty"></div>';
-  const inl = processInline(line, allNotes);
-  if (/^### /.test(line)) return `<h3 class="bh3">${processInline(line.replace(/^### /, ''), allNotes)}</h3>`;
-  if (/^## /.test(line))  return `<h2 class="bh2">${processInline(line.replace(/^## /, ''), allNotes)}</h2>`;
-  if (/^# /.test(line))   return `<h1 class="bh1">${processInline(line.replace(/^# /, ''), allNotes)}</h1>`;
-  if (/^---$/.test(line)) return '<hr class="bhr"/>';
-  if (/^- \[x\] /.test(line)) return `<div class="bchk done">✓ ${processInline(line.replace(/^- \[x\] /, ''), allNotes)}</div>`;
-  if (/^- \[ \] /.test(line)) return `<div class="bchk">☐ ${processInline(line.replace(/^- \[ \] /, ''), allNotes)}</div>`;
-  return `<p class="bpara">${inl}</p>`;
-}
-
-// ── 목차 추출 ─────────────────────────────────────────────────────────
-function extractTOC(body: string): TocItem[] {
-  return body.split('\n')
-    .map((line, i) => {
-      const m = line.match(/^(#{1,3}) (.+)$/);
-      return m ? { level: m[1].length, text: m[2], line: i, collapsed: false } : null;
-    })
-    .filter((x): x is TocItem => x !== null);
-}
-
-// ── 태그 추출 ─────────────────────────────────────────────────────────
-function extractTags(body: string): string[] {
-  return [...new Set(
-    (body.match(/(^|\s)#([\w\uAC00-\uD7A3]+)/g) || []).map(m => m.trim().replace('#', ''))
-  )];
-}
-
-// ── 링크 추출 ─────────────────────────────────────────────────────────
-function extractLinks(body: string): string[] {
-  return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
-}
-
-// ── 그래프 뷰 (Force-Directed) ───────────────────────────────────────
-interface GraphNode { id: string; title: string; x: number; y: number; vx: number; vy: number; links: number; }
-interface GraphEdge { from: string; to: string; }
-
-function GraphView({
-  notes, activeNoteId, onSelect, dark,
-}: {
-  notes: Note[]; activeNoteId: string | null; onSelect: (id: string) => void; dark: boolean;
-}) {
-  const svgRef    = useRef<SVGSVGElement>(null);
-  const frameRef  = useRef<number>(0);
-  const [size, setSize] = useState({ w: 600, h: 400 });
-  const [hovered,  setHovered]  = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const dragOffset = useRef({ dx: 0, dy: 0 });
-
-  // nodes/edges는 ref로 관리 (애니메이션 루프에서 직접 변경)
-  const nodesRef = useRef<GraphNode[]>([]);
-  const edgesRef = useRef<GraphEdge[]>([]);
-  const [tick, setTick] = useState(0); // 렌더 트리거
-
-  useEffect(() => {
-    const el = svgRef.current?.parentElement;
-    if (!el) return;
-    const ro = new ResizeObserver(e => {
-      const { width, height } = e[0].contentRect;
-      setSize({ w: width, h: height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const visible = useMemo(() => notes.filter(n => !n.deletedAt), [notes]);
-
-  // 노트가 바뀌면 그래프 재초기화
-  useEffect(() => {
-    const titleToId: Record<string, string> = {};
-    visible.forEach(n => { titleToId[n.title] = n.id; });
-
-    const linkCount: Record<string, number> = {};
-    const edgeSet = new Set<string>();
-    const edgeList: GraphEdge[] = [];
-    visible.forEach(n => {
-      extractLinks(n.body).forEach(title => {
-        const toId = titleToId[title];
-        if (!toId) return;
-        const key = [n.id, toId].sort().join('|');
-        if (!edgeSet.has(key)) { edgeSet.add(key); edgeList.push({ from: n.id, to: toId }); }
-        linkCount[n.id] = (linkCount[n.id] || 0) + 1;
-        linkCount[toId] = (linkCount[toId] || 0) + 1;
-      });
-    });
-    edgesRef.current = edgeList;
-
-    // 기존 위치 보존하면서 새 노트만 랜덤 배치
-    const existing = Object.fromEntries(nodesRef.current.map(n => [n.id, n]));
-    const cx = size.w / 2, cy = size.h / 2;
-    nodesRef.current = visible.map(n => existing[n.id] ?? {
-      id: n.id, title: n.title,
-      x: cx + (Math.random() - 0.5) * 300,
-      y: cy + (Math.random() - 0.5) * 300,
-      vx: 0, vy: 0, links: linkCount[n.id] || 0,
-    });
-    // links 카운트 갱신
-    nodesRef.current.forEach(nd => { nd.links = linkCount[nd.id] || 0; nd.title = visible.find(n => n.id === nd.id)?.title ?? nd.title; });
-  }, [visible.map(n => n.id).join(), size.w, size.h]);
-
-  // Force-directed 애니메이션 루프
-  useEffect(() => {
-    let alpha = 1.0;
-    const REPEL = 3000, ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
-
-    const step = () => {
-      const ns = nodesRef.current;
-      const es = edgesRef.current;
-      if (ns.length === 0 || alpha < 0.005) { setTick(t => t + 1); return; }
-
-      alpha *= 0.97;
-
-      // repulsion between all nodes
-      for (let i = 0; i < ns.length; i++) {
-        for (let j = i + 1; j < ns.length; j++) {
-          const dx = ns[j].x - ns[i].x, dy = ns[j].y - ns[i].y;
-          const dist2 = dx * dx + dy * dy + 1;
-          const force = REPEL / dist2;
-          const fx = force * dx / Math.sqrt(dist2), fy = force * dy / Math.sqrt(dist2);
-          ns[i].vx -= fx; ns[i].vy -= fy;
-          ns[j].vx += fx; ns[j].vy += fy;
-        }
-      }
-      // attraction along edges
-      es.forEach(e => {
-        const a = ns.find(n => n.id === e.from), b = ns.find(n => n.id === e.to);
-        if (!a || !b) return;
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (dist - LINK_DIST) * ATTRACT;
-        const fx = force * dx / dist, fy = force * dy / dist;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
-      });
-      // center gravity
-      const cx = size.w / 2, cy = size.h / 2;
-      ns.forEach(n => {
-        n.vx += (cx - n.x) * CENTER;
-        n.vy += (cy - n.y) * CENTER;
-      });
-      // integrate (skip dragged node)
-      ns.forEach(n => {
-        if (n.id === dragging) return;
-        n.vx *= DAMPING; n.vy *= DAMPING;
-        n.x  += n.vx * alpha;
-        n.y  += n.vy * alpha;
-        // boundary
-        n.x = Math.max(30, Math.min(size.w - 30, n.x));
-        n.y = Math.max(30, Math.min(size.h - 30, n.y));
-      });
-      setTick(t => t + 1);
-      frameRef.current = requestAnimationFrame(step);
-    };
-    frameRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frameRef.current);
-  }, [visible.map(n => n.id).join(), size.w, size.h, dragging]);
-
-  // 드래그
-  const onMouseDown = (e: React.MouseEvent, id: string) => {
-    const nd = nodesRef.current.find(n => n.id === id);
-    if (!nd) return;
-    dragOffset.current = { dx: e.clientX - nd.x, dy: e.clientY - nd.y };
-    setDragging(id);
-    e.preventDefault();
-  };
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      const nd = nodesRef.current.find(n => n.id === dragging);
-      if (!nd) return;
-      nd.x = e.clientX - dragOffset.current.dx;
-      nd.y = e.clientY - dragOffset.current.dy;
-      nd.vx = 0; nd.vy = 0;
-      setTick(t => t + 1);
-    };
-    const onUp = () => setDragging(null);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [dragging]);
-
-  const bg    = dark ? '#18181A' : '#F8F9FA';
-  const edgeC = dark ? '#6B7280' : '#9CA3AF';
-  const nodeC = dark ? '#2C2C2E' : '#FFFFFF';
-  const nodeB = dark ? '#4B5563' : '#E5E7EB';
-  const txtC  = dark ? '#E5E7EB' : '#374151';
-  const actC  = dark ? '#FACC15' : '#2563EB';
-  const hovBg = dark ? '#FACC1425' : '#DBEAFE';
-
-  const ns = nodesRef.current;
-  const es = edgesRef.current;
-
-  return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: bg }}>
-      <svg ref={svgRef} width="100%" height="100%" style={{ display: 'block' }}>
-        <defs>
-          <marker id="garr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-            <path d="M0,0 L6,3 L0,6 Z" fill={edgeC}/>
-          </marker>
-        </defs>
-        {es.map((e, i) => {
-          const a = ns.find(n => n.id === e.from), b = ns.find(n => n.id === e.to);
-          if (!a || !b) return null;
-          const isAct = e.from === activeNoteId || e.to === activeNoteId;
-          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-            stroke={isAct ? actC : edgeC} strokeWidth={isAct ? 1.5 : 1}
-            strokeOpacity={isAct ? 0.9 : 0.45} markerEnd="url(#garr)"/>;
-        })}
-        {ns.map(node => {
-          const r     = 7 + Math.min(node.links * 2, 10);
-          const isAct = node.id === activeNoteId;
-          const isHov = node.id === hovered;
-          const label = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
-          return (
-            <g key={node.id} style={{ cursor: 'pointer' }}
-              onClick={() => onSelect(node.id)}
-              onMouseDown={e => onMouseDown(e, node.id)}
-              onMouseEnter={() => setHovered(node.id)}
-              onMouseLeave={() => setHovered(null)}>
-              {isHov && <circle cx={node.x} cy={node.y} r={r + 6} fill={hovBg}/>}
-              <circle cx={node.x} cy={node.y} r={r}
-                fill={isAct ? actC : nodeC}
-                stroke={isAct || isHov ? actC : nodeB} strokeWidth={1.5}/>
-              {node.starred && <text x={node.x + r - 2} y={node.y - r + 4} fontSize="9" textAnchor="middle" style={{ pointerEvents: 'none' }}>★</text>}
-              <text x={node.x} y={node.y + r + 14} textAnchor="middle"
-                fontSize="10" fill={isAct ? actC : txtC} fontWeight={isAct ? '700' : '400'}
-                style={{ userSelect: 'none', pointerEvents: 'none' }}>
-                {label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{ position: 'absolute', bottom: 10, right: 12, fontSize: 10, color: dark ? '#444' : '#9CA3AF' }}>
-        {ns.length} notes · {es.length} links · drag nodes to reposition
-      </div>
-      {activeNoteId && (
-        <div style={{ position: 'absolute', bottom: 10, left: 12, fontSize: 10, color: actC, fontWeight: 600 }}>
-          {ns.find(n => n.id === activeNoteId)?.title}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
   const katexReady = useKaTeX();
@@ -559,8 +153,7 @@ export const NoteView = () => {
       }
     };
     load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // intentional: run once on mount only
 
   // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -575,8 +168,7 @@ export const NoteView = () => {
     setTimeout(() => titleInputRef.current?.focus(), 50);
     syncNoteToDB(note);
     return id;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFolderId, setActiveNoteId, syncNoteToDB]);
+  }, [activeFolderId, setActiveNoteId, setViewMode, syncNoteToDB]);
 
   // debounce ref — body 타이핑 중 과도한 DB 요청 방지
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -632,7 +224,6 @@ export const NoteView = () => {
     setNotes(prev => { const u = [copy, ...prev]; nvSaveNotes(u); return u; });
     setActiveNoteId(id);
     syncNoteToDB(copy);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setActiveNoteId, syncNoteToDB]);
 
   const moveNoteToTrash = useCallback((id: string) => {
@@ -645,7 +236,6 @@ export const NoteView = () => {
       if (trashed) syncNoteToDB(trashed);
       return updated;
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setActiveNoteId, syncNoteToDB]);
 
   const restoreNote = useCallback((id: string) => {
@@ -665,10 +255,14 @@ export const NoteView = () => {
       nvSaveNotes(updated);
       return updated;
     });
-    setActiveNoteId(notes.find(n => !n.deletedAt && n.id !== id)?.id ?? null);
+    // functional updater 패턴으로 stale closure 없이 최신 notes 참조
+    setNotes(prev => {
+      const next = prev.find(n => !n.deletedAt && n.id !== id)?.id ?? null;
+      setActiveNoteId(next);
+      return prev; // already filtered above
+    });
     removeNoteFromDB(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, setActiveNoteId, removeNoteFromDB]);
+  }, [setActiveNoteId, removeNoteFromDB]);
 
   const deleteFolder = useCallback((id: string) => {
     setNotes(prev => {
@@ -795,10 +389,9 @@ export const NoteView = () => {
     return result;
   }, [toc, tocCollapsed]);
 
+  // katexReady: KaTeX 스크립트 로드 완료 시 수식 재렌더를 위해 dep에 포함
   const parsedBody = useMemo(
     () => activeNote ? parseMarkdown(activeNote.body, notes) : '',
-    // katexReady가 바뀌면(KaTeX 로드 완료) 수식 재렌더 필요
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeNote?.body, notes, katexReady]
   );
 
@@ -926,7 +519,8 @@ export const NoteView = () => {
       historyRef.current[id] = [{ body: activeNote.body, cursor: 0 }];
       historyIdxRef.current[id] = 0;
     }
-  }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // activeNote?.id만 dep — body 변경 시마다 스냅샷을 재등록하지 않기 위해 의도적으로 id만 사용
+  }, [activeNote?.id]);
 
   // ── 전역 단축키 ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1029,8 +623,8 @@ export const NoteView = () => {
     if (e.detail === 2) setViewMode('edit');
   };
 
-  // ── 색상 테마 ─────────────────────────────────────────────────────
-  const c = {
+  // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
+  const c = useMemo(() => ({
     wrap:      dark ? '#18181A' : '#F5F4F0',
     sidebar:   dark ? '#1C1C1E' : '#FAFAF8',
     sideBdr:   dark ? '#2A2A2C' : '#E8E5DE',
@@ -1056,7 +650,7 @@ export const NoteView = () => {
     danger:    dark ? '#F87171'   : '#DC2626',
     green:     dark ? '#4ADE80'   : '#15803D',
     textarea:  dark ? '#18181A'   : '#FAFAF8',
-  };
+  }), [dark]);
 
   const trashCount   = notes.filter(n => n.deletedAt).length;
   const starredCount = notes.filter(n => n.starred && !n.deletedAt).length;
@@ -1079,8 +673,8 @@ export const NoteView = () => {
     { key: 'stats', label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ];
 
-  // ── CSS ──────────────────────────────────────────────────────────
-  const CSS = `
+  // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
+  const CSS = useMemo(() => `
     /* ── 프리뷰 렌더 ── */
     .broot{font-size:15px;line-height:1.9;padding:40px 60px;max-width:860px;margin:0 auto;color:${c.text}}
     .bh1{font-size:26px;font-weight:800;margin:32px 0 10px;color:${c.text};letter-spacing:-.5px}
@@ -1161,7 +755,7 @@ export const NoteView = () => {
     .btag-cloud span:hover{opacity:.75}
     .bdrag-over{background:${c.accentBg} !important;border:1px dashed ${c.accent} !important;border-radius:6px}
     .bnote-drag{opacity:.35}
-  `;
+  `, [c]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
@@ -1454,7 +1048,7 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <GraphView notes={notes} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+                <NoteGraphView notes={notes} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
               </div>
             ) : (
               <>
@@ -1531,7 +1125,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <GraphView notes={notes} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+              <NoteGraphView notes={notes} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
