@@ -9,7 +9,7 @@ import { useToast } from '../hooks/useToast';
 import { useDailyData } from '../hooks/useDaily';
 import { useStaticData } from '../hooks/useStatic';
 import { Theme, ThemeColor, ViewProps } from '../types';
-import { Sidebar } from './common/Sidebar';
+import { Sidebar, TabId } from './common/Sidebar';
 
 import { PlannerView } from './views/PlannerView';
 import { HealthView } from './views/HealthView';
@@ -27,9 +27,6 @@ const THEME_COLORS: ThemeColor[] = [
   { id: 'gray',   bg: 'bg-gray-500',   text: 'text-white',      border: 'border-gray-500'   },
 ];
 
-// Fix 3: 탭을 리터럴 유니온 타입으로 좁힘 — 오타가 나면 컴파일 에러 발생
-export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note';
-
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting, fetchNotes, fetchFolders } = useAppStore();
   const [activeTab, setActiveTab] = useState<TabId>('planner');
@@ -45,8 +42,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     fetchNotes();
     fetchFolders();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchNotes, fetchFolders]); // zustand actions은 참조가 안정적이므로 deps에 안전하게 포함
 
   // ── 3. Toast — useToast 훅으로 분리 ──────────────────────────────
   // 개선 전: toast state + useRef 타이머가 AppContent에 인라인

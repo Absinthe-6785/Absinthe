@@ -129,7 +129,7 @@ export const PlannerView = ({
     setEditingDdayId(d?.id ?? null);
     setShowDdayForm(true);
   };
-  const handleSaveDday = async () => {
+  const handleSaveDday = useCallback(async () => {
     if (!ddayForm.text || !ddayForm.date) return showToast('Enter title and date!', 'error');
     const path = editingDdayId ? `/api/schedules/${editingDdayId}` : '/api/schedules';
     const ok = await api(
@@ -138,18 +138,18 @@ export const PlannerView = ({
       { revalidate: 'static', successMsg: 'D-Day saved' },
     );
     if (ok) setShowDdayForm(false);
-  };
-  const handleDeleteDday = (id: string) =>
+  }, [api, ddayForm, editingDdayId, showToast]);
+  const handleDeleteDday = useCallback((id: string) =>
     showConfirm('Delete this D-Day?', () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: 'Deleted' }),
       { confirmLabel: 'Delete' },
-    );
+    ), [api, showConfirm]);
 
   // ── Routine ────────────────────────────────────────────────────────
-  const handleAddRoutine = (text: string) => {
+  const handleAddRoutine = useCallback((text: string) => {
     if (text.trim()) api('POST', '/api/routines', { text, created_date: formatDate(new Date()) }, { revalidate: 'daily' });
-  };
-  const handleToggleRoutine = (id: string, current: boolean) => {
+  }, [api, formatDate]);
+  const handleToggleRoutine = useCallback((id: string, current: boolean) => {
     // UI 즉시 반영 — 서버 응답 기다리지 않음
     mutateRoutines(
       (cur) => cur.map((r) => r.id === id ? { ...r, done: !current } : r),
@@ -162,23 +162,23 @@ export const PlannerView = ({
       // 실패 시 롤백
       if (!ok) mutateRoutines((cur) => cur.map((r) => r.id === id ? { ...r, done: current } : r), false);
     });
-  };
-  const handleDeleteRoutine = (id: string) =>
+  }, [api, formatDate, selectedDate, mutateRoutines]);
+  const handleDeleteRoutine = useCallback((id: string) =>
     showConfirm('Delete this routine?', () =>
       api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: 'Routine deleted' }),
       { confirmLabel: 'Delete' },
-    );
-  const handleUpdateRoutineText = async (id: string, text: string) => {
+    ), [api, showConfirm]);
+  const handleUpdateRoutineText = useCallback(async (id: string, text: string) => {
     if (!text.trim()) return setEditingRoutineId(null);
     const ok = await api('PUT', `/api/routines/${id}`, { text }, { revalidate: 'daily' });
     if (ok) setEditingRoutineId(null);
-  };
+  }, [api]);
 
   // ── Todo ───────────────────────────────────────────────────────────
-  const handleAddTodo = (text: string) => {
+  const handleAddTodo = useCallback((text: string) => {
     if (text.trim()) api('POST', '/api/todos', { date: formatDate(selectedDate), text }, { revalidate: 'daily' });
-  };
-  const handleToggleTodo = (id: string, current: boolean) => {
+  }, [api, formatDate, selectedDate]);
+  const handleToggleTodo = useCallback((id: string, current: boolean) => {
     // UI 즉시 반영
     mutateTodos(
       (cur) => cur.map((t) => t.id === id ? { ...t, done: !current } : t),
@@ -189,26 +189,26 @@ export const PlannerView = ({
         // 실패 시 롤백
         if (!ok) mutateTodos((cur) => cur.map((t) => t.id === id ? { ...t, done: current } : t), false);
       });
-  };
-  const handleDeleteTodo = (id: string) =>
-    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: 'Task deleted' });
-  const handleUpdateTodoText = async (id: string, text: string) => {
+  }, [api, formatDate, selectedDate, mutateTodos]);
+  const handleDeleteTodo = useCallback((id: string) =>
+    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: 'Task deleted' }), [api]);
+  const handleUpdateTodoText = useCallback(async (id: string, text: string) => {
     if (!text.trim()) return setEditingTodoId(null);
     const ok = await api('PUT', `/api/todos_text/${id}`,
       { date: formatDate(selectedDate), text },
       { revalidate: 'daily' }
     );
     if (ok) setEditingTodoId(null);
-  };
+  }, [api, formatDate, selectedDate]);
 
   // ── Schedule ───────────────────────────────────────────────────────
-  const openModal = (sch?: Schedule) => {
+  const openModal = useCallback((sch?: Schedule) => {
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);  // 편집 시 기존 end_next_day 복원
     setShowForm(true);
-  };
-  const handleSaveSchedule = async () => {
+  }, [appSettings]);
+  const handleSaveSchedule = useCallback(async () => {
     if (!newSch.text) return showToast('Enter text!', 'error');
     if (!endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
       return showToast('End time must be after start time! (Check "Next day" for overnight schedules)', 'error');
@@ -228,12 +228,12 @@ export const PlannerView = ({
     };
     if (isOverlap) { showConfirm('This schedule overlaps. Save anyway?', doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
     doSave();
-  };
-  const handleDeleteSchedule = (id: string) =>
+  }, [api, newSch, editingId, endNextDay, schedules, formatDate, selectedDate, showToast, showConfirm]);
+  const handleDeleteSchedule = useCallback((id: string) =>
     showConfirm('Delete this schedule?', () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: 'Deleted' }),
       { confirmLabel: 'Delete' },
-    );
+    ), [api, showConfirm]);
 
   // ── Derived values ─────────────────────────────────────────────────
   const { year, month, calendarDays, sortedSchedules } = useMemo(() => {

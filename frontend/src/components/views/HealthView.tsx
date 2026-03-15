@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, MouseEvent, ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
@@ -118,33 +118,33 @@ export const HealthView = ({
     setShowBlockModal(true);
   };
 
-  const commitTag = () => {
+  const commitTag = useCallback(() => {
     const t = tagInput.trim();
     if (!t) return;
     const already = (newBlock.tags ?? []).includes(t);
     if (!already) setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
     setTagInput('');
-  };
+  }, [tagInput, newBlock.tags]);
 
   const removeTag = (tag: string) =>
     setNewBlock(b => ({ ...b, tags: (b.tags ?? []).filter(t => t !== tag) }));
 
-  const handleSaveBlock = async () => {
+  const handleSaveBlock = useCallback(async () => {
     if (!newBlock.name) return showToast('Enter name!', 'error');
     const payload = { name: newBlock.name, type: newBlock.type, tags: newBlock.tags ?? [] };
     const ok = editingBlock
       ? await api('PUT', `/api/blocks/${editingBlock.id}`, payload, { revalidate: 'static', successMsg: 'Block updated' })
       : await api('POST', '/api/blocks', payload, { revalidate: 'static', successMsg: 'Block created' });
     if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength', tags: [] }); setEditingBlock(null); }
-  };
+  }, [api, newBlock, editingBlock, showToast]);
 
-  const handleDeleteBlock = (id: string, e: MouseEvent) => {
+  const handleDeleteBlock = useCallback((id: string, e: MouseEvent) => {
     e.stopPropagation();
     showConfirm('Delete this block?', () =>
       api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: 'Block deleted' }),
       { confirmLabel: 'Delete' },
     );
-  };
+  }, [api, showConfirm]);
 
   // ── 루틴 조합 ──────────────────────────────────────────────────────
   const openAssembleModal = (dayName: string) => {
@@ -155,13 +155,13 @@ export const HealthView = ({
   };
   const toggleBlockInRoutine = (blockId: string) =>
     setTempRoutineBlocks(prev => prev.includes(blockId) ? prev.filter(id => id !== blockId) : [...prev, blockId]);
-  const handleSaveRoutine = async () => {
+  const handleSaveRoutine = useCallback(async () => {
     const ok = await api('POST', '/api/health_routines', { day_name: activeDayForm, blocks: tempRoutineBlocks }, { revalidate: 'static', successMsg: 'Routine Saved' });
     if (ok) setShowAssembleModal(false);
-  };
+  }, [api, activeDayForm, tempRoutineBlocks]);
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
-  const handleLoadRoutine = (e: ChangeEvent<HTMLSelectElement>) => {
+  const handleLoadRoutine = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     const dayName = e.target.value;
     if (dayName === 'Load Routine') return;
     const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
@@ -185,13 +185,13 @@ export const HealthView = ({
     setIsDirty(true);
     e.target.value = 'Load Routine';
     showToast('Loaded!');
-  };
-  const handleAddWorkoutToToday = (block: ExerciseBlock) => {
+  }, [healthRoutines, healthBlocks, localWorkouts, showToast]);
+  const handleAddWorkoutToToday = useCallback((block: ExerciseBlock) => {
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast('Already added!', 'error');
     setIsDirty(true);
-    setLocalWorkouts([...localWorkouts, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
-  };
-  const handleRemoveWorkout = async (index: number, dbId: string) => {
+    setLocalWorkouts(prev => [...prev, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
+  }, [localWorkouts, showToast]);
+  const handleRemoveWorkout = useCallback(async (index: number, dbId: string) => {
     try {
       if (!dbId.startsWith('temp')) {
         const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
@@ -203,8 +203,8 @@ export const HealthView = ({
       setLocalWorkouts(next);
       if (next.length === 0) setIsDirty(false);
     } catch { showToast('Failed to remove', 'error'); }
-  };
-  const handleAddSet = (wIdx: number, asDropset = false) => {
+  }, [localWorkouts, mutateDaily, showToast]);
+  const handleAddSet = useCallback((wIdx: number, asDropset = false) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -216,8 +216,8 @@ export const HealthView = ({
       next[wIdx] = w;
       return next;
     });
-  };
-  const handleRemoveSet = (wIdx: number, sIdx: number) => {
+  }, [isWorkoutLocked]);
+  const handleRemoveSet = useCallback((wIdx: number, sIdx: number) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -227,8 +227,8 @@ export const HealthView = ({
       next[wIdx] = w;
       return next;
     });
-  };
-  const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
+  }, [isWorkoutLocked]);
+  const handleUpdateSet = useCallback((wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -236,8 +236,8 @@ export const HealthView = ({
       next[wIdx] = { ...next[wIdx], sets: next[wIdx].sets.map((s, i) => i === sIdx ? { ...s, [field]: value } as WorkoutSet : s) };
       return next;
     });
-  };
-  const handleSaveWorkouts = async () => {
+  }, [isWorkoutLocked]);
+  const handleSaveWorkouts = useCallback(async () => {
     if (localWorkouts.length === 0) return showToast('No workouts to save', 'error');
 
     // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
@@ -267,8 +267,8 @@ export const HealthView = ({
     } else {
       showToast('Failed to save workout', 'error');
     }
-  };
-  const handleSaveInbody = async () => {
+  }, [localWorkouts, formatDate, selectedDate, mutateDaily, showToast]);
+  const handleSaveInbody = useCallback(async () => {
     if (localInbody.weight < 0 || localInbody.smm < 0 || localInbody.pbf < 0)
       return showToast('Values cannot be negative', 'error');
     const ok = await api('POST', '/api/inbody',
@@ -276,7 +276,7 @@ export const HealthView = ({
       { revalidate: 'daily', successMsg: 'InBody Saved! 📈' }
     );
     if (ok) setIsInbodyDirty(false); // 저장 완료 → SWR 재검증 허용
-  };
+  }, [api, localInbody, formatDate, selectedDate]);
 
   const { year, month, calendarDays } = useMemo(() => {
     const y = currentDate.getFullYear(), m = currentDate.getMonth();

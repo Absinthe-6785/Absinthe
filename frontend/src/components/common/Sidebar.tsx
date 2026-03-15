@@ -1,6 +1,8 @@
 import { Calendar, Dumbbell, BarChart2, Settings, Moon, Sun, LogOut, BookOpen } from 'lucide-react';
 import { AppSettings } from '../../types';
-import { TabId } from '../AppContent';
+
+// AppContent 순환 참조 방지: TabId를 여기서 직접 정의
+export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note';
 
 interface SidebarProps {
   activeTab: TabId;

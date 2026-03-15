@@ -156,6 +156,8 @@ export const NoteView = () => {
   // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
   const titleInputRef = useRef<HTMLInputElement>(null);
 
+  const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
+
   const createNote = useCallback(() => {
     const id = `note-${Date.now()}`;
     const folderId = (activeFolderId === null || activeFolderId === 'trash') ? null : activeFolderId;
@@ -281,7 +283,6 @@ export const NoteView = () => {
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
-  const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
