@@ -31,7 +31,16 @@ export const NV_ACTIVE_KEY  = 'noteview-active-v1';
 export function nvLoadNotes(): NoteBase[] {
   try {
     const raw = localStorage.getItem(NV_NOTES_KEY);
-    if (raw) return JSON.parse(raw) as NoteBase[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as NoteBase[];
+      // null/undefined 필드 정규화 (구버전 데이터 호환)
+      return parsed.map(n => ({
+        ...n,
+        title: n.title ?? '',
+        body:  n.body  ?? '',
+        id:    n.id    ?? `note-${Date.now()}-${Math.random()}`,
+      }));
+    }
   } catch { /**/ }
   return [{
     id: `note-${Date.now()}`,

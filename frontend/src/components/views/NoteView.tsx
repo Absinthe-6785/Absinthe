@@ -350,12 +350,12 @@ export const NoteView = () => {
     if (activeTag)          list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
+      list = list.filter(n => (n.title ?? '').toLowerCase().includes(q) || (n.body ?? '').toLowerCase().includes(q));
     }
     // 정렬
     list = [...list].sort((a, b) => {
-      if (sortOrder === 'title')   return (a.title || '').localeCompare(b.title || '');
-      if (sortOrder === 'created') return Number(a.id.split('-')[1] || 0) - Number(b.id.split('-')[1] || 0);
+      if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
+      if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
       return b.updatedAt - a.updatedAt;
     });
     return list;
@@ -395,7 +395,7 @@ export const NoteView = () => {
   );
 
   const backlinks = useMemo(() =>
-    activeNote ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && n.body.includes(`[[${activeNote.title}]]`)) : [],
+    activeNote ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`)) : [],
     [notes, activeNote]
   );
   const allTags = useMemo(() => {
@@ -453,7 +453,7 @@ export const NoteView = () => {
   const acCandidates = useMemo(() => {
     if (!acQuery) return [];
     const q = acQuery.toLowerCase();
-    return notes.filter(n => !n.deletedAt && n.title.toLowerCase().includes(q)).slice(0, 8);
+    return notes.filter(n => !n.deletedAt && (n.title ?? '').toLowerCase().includes(q)).slice(0, 8);
   }, [notes, acQuery]);
 
   const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
