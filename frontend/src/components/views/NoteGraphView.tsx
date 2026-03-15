@@ -56,8 +56,9 @@ export function NoteGraphView({ notes, activeNoteId, onSelect, dark }: NoteGraph
     return () => ro.disconnect();
   }, []);
 
-  const visible = useMemo(() => notes.filter(n => !n.deletedAt), [notes]);
-  const visibleKey = visible.map(n => n.id).join();
+  const safeNotes = Array.isArray(notes) ? notes : [];
+  const visible = useMemo(() => safeNotes.filter(n => !n.deletedAt), [safeNotes]);
+  const visibleKey = visible.map(n => n.id).join(',');
 
   // 노트가 바뀌면 그래프 재초기화 (기존 위치 보존)
   useEffect(() => {
