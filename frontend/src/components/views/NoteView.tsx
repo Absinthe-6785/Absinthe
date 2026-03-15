@@ -121,7 +121,7 @@ export const NoteView = () => {
           const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null }) => {
             const local = localNotes.find(l => l.id === n.id);
             return {
-              id: n.id, title: n.title, body: n.body, updatedAt: n.updated_at,
+              id: n.id, title: n.title ?? '', body: n.body ?? '', updatedAt: n.updated_at,
               folderId:  n.folder_id  != null ? n.folder_id  : (local?.folderId  ?? null),
               deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
               starred: local?.starred ?? false,
@@ -347,7 +347,7 @@ export const NoteView = () => {
       activeFolderId === 'starred' ? notes.filter(n => n.starred && !n.deletedAt) :
       activeFolderId               ? notes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
                                      notes.filter(n => !n.deletedAt);
-    if (activeTag)          list = list.filter(n => extractTags(n.body).includes(activeTag));
+    if (activeTag)          list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
@@ -401,7 +401,7 @@ export const NoteView = () => {
   const allTags = useMemo(() => {
     const m: Record<string, number> = {};
     notes.filter(n => !n.deletedAt).forEach(n =>
-      extractTags(n.body).forEach(t => { m[t] = (m[t] || 0) + 1; })
+      extractTags(n.body ?? '').forEach(t => { m[t] = (m[t] || 0) + 1; })
     );
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [notes]);

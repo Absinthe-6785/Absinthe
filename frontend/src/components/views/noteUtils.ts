@@ -214,6 +214,7 @@ export function processLine(line: string, allNotes: NoteBase[]): string {
 export interface TocItem { level: number; text: string; line: number; collapsed: boolean; }
 
 export function extractTOC(body: string): TocItem[] {
+  if (!body) return [];
   return body.split('\n')
     .map((line, i) => {
       const m = line.match(/^(#{1,3}) (.+)$/);
@@ -223,11 +224,13 @@ export function extractTOC(body: string): TocItem[] {
 }
 
 export function extractTags(body: string): string[] {
+  if (!body) return [];
   return [...new Set(
     (body.match(/(^|\s)#([\w\uAC00-\uD7A3]+)/g) || []).map(m => m.trim().replace('#', ''))
   )];
 }
 
 export function extractLinks(body: string): string[] {
+  if (!body) return [];
   return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
 }
