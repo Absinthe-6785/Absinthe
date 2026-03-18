@@ -284,9 +284,17 @@ export const PlannerView = ({
 
         {/* 루틴 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
-          <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-            <Activity size={18} className="text-green-500"/> Routines
-          </h2>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <h2 className={`font-heading text-base lg:text-lg font-bold flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+              <Activity size={18} className="text-green-500"/> Routines
+            </h2>
+            <button
+              onClick={() => { setExceptionForm({ start_date: formatDate(selectedDate), end_date: formatDate(selectedDate), reason: '' }); setShowExceptionModal(true); }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all ${appSettings.darkMode ? 'bg-[#2A2A2A] text-gray-400 hover:text-blue-300' : 'bg-gray-100 text-gray-500 hover:text-blue-500'}`}
+              title="Set exception day">
+              🏖 Exception
+            </button>
+          </div>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
@@ -768,7 +776,7 @@ export const PlannerView = ({
                               start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
                               end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time,
                             }));
-                            setEndNextDay(true);
+                            // setEndNextDay(true) 제거 — 수동 설정 유지
                           } else {
                             setNewSch(prev => ({ ...prev, category: cat.id }));
                           }
@@ -802,7 +810,7 @@ export const PlannerView = ({
                     onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
                       ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
-                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">익일 종료</p>}
+                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">Next day</p>}
                 </div>
               </div>
               <div>
