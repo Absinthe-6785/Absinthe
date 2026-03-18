@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
-import jwt
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -42,15 +41,16 @@ security = HTTPBearer()
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     token = credentials.credentials
     try:
-        # Supabase가 ECC(P-256) 키로 마이그레이션됐으므로 서명 미검증 디코드 사용
-        # 토큰 위변조 방지는 Supabase 인프라가 담당 (프론트엔드에서 직접 발급 불가)
-        payload = jwt.decode(token, options={"verify_signature": False})
-        user_id = payload.get("sub")
+        # Supabase admin client로 서버 측 검증 — 서명 위변조 방지
+        response = supabase.auth.get_user(token)
+        user_id = response.user.id if response.user else None
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: no sub claim")
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
         return user_id
-    except jwt.DecodeError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 def verify_owner(resource_user_id: str, current_user_id: str):
     if resource_user_id != current_user_id:
@@ -59,19 +59,46 @@ def verify_owner(resource_user_id: str, current_user_id: str):
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
 # ==========================================
-class ScheduleCreate(BaseModel): date: str; text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
-class ScheduleUpdate(BaseModel): text: str; start_time: str; end_time: str; is_dday: bool = False; color: str = "gold"; category: str = "Study"
-class TodoCreate(BaseModel): date: str; text: str
-class RoutineCreate(BaseModel): text: str; created_date: str = ''
-class StatusUpdate(BaseModel): done: bool
-class RoutineLogUpdate(BaseModel): routine_id: str; date: str; done: bool
-class ExerciseBlockCreate(BaseModel): name: str; type: str; tags: list = []
-class HealthRoutineCreate(BaseModel): day_name: str; blocks: list
-class WorkoutLogCreate(BaseModel): date: str; block_id: str; sets: list; sort_order: int = 0
-class InbodyLogCreate(BaseModel): date: str; weight: float; smm: float; pbf: float
-class WeeklyScheduleCreate(BaseModel): day: int; title: str; start_time: str; end_time: str; color: str
-class RoutineUpdate(BaseModel): text: str
-class TodoTextUpdate(BaseModel): text: str
+class ScheduleCreate(BaseModel):
+    date: str; text: str; start_time: str; end_time: str
+    is_dday: bool = False; color: str = "gold"; category: str = "Study"; end_next_day: bool = False
+
+class ScheduleUpdate(BaseModel):
+    text: str; start_time: str; end_time: str
+    is_dday: bool = False; color: str = "gold"; category: str = "Study"
+
+class TodoCreate(BaseModel):
+    date: str; text: str
+
+class TodoTextUpdate(BaseModel):
+    text: str
+
+class RoutineCreate(BaseModel):
+    text: str; created_date: str = ''
+
+class RoutineUpdate(BaseModel):
+    text: str
+
+class StatusUpdate(BaseModel):
+    done: bool
+
+class RoutineLogUpdate(BaseModel):
+    routine_id: str; date: str; done: bool
+
+class ExerciseBlockCreate(BaseModel):
+    name: str; type: str; tags: list = []
+
+class HealthRoutineCreate(BaseModel):
+    day_name: str; blocks: list
+
+class WorkoutLogCreate(BaseModel):
+    date: str; block_id: str; sets: list; sort_order: int = 0
+
+class InbodyLogCreate(BaseModel):
+    date: str; weight: float; smm: float; pbf: float
+
+class WeeklyScheduleCreate(BaseModel):
+    day: int; title: str; start_time: str; end_time: str; color: str
 
 # ==========================================
 # Reset
@@ -155,6 +182,9 @@ async def toggle_todo(todo_id: str, payload: StatusUpdate, user_id: str = Depend
 
 @app.put("/api/todos_text/{todo_id}")
 async def update_todo_text(todo_id: str, payload: TodoTextUpdate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
     """투두 텍스트 수정 (done 상태는 PUT /api/todos/{id}로 분리)"""
     row = supabase.table("todos").select("user_id").eq("id", todo_id).single().execute().data
     verify_owner(row["user_id"], user_id)
@@ -176,19 +206,32 @@ async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_u
     routines = [r for r in routines if not r.get("created_date") or r["created_date"] <= date]
     logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).eq("date", date).execute().data or []
     log_dict = {str(log["routine_id"]): log.get("done", False) for log in logs}
-    return [{"id": str(r["id"]), "text": r.get("text", ""), "done": log_dict.get(str(r["id"]), False), "is_active": r.get("is_active", True)} for r in routines]
+    # 해당 날짜가 예외일인지 확인
+    exceptions = supabase.table("routine_exceptions").select("start_date, end_date").eq("user_id", user_id).lte("start_date", date).gte("end_date", date).execute().data or []
+    is_exception_day = len(exceptions) > 0
+    return [{"id": str(r["id"]), "text": r.get("text", ""), "done": log_dict.get(str(r["id"]), False), "is_active": r.get("is_active", True), "is_exception_day": is_exception_day} for r in routines]
 
 @app.get("/api/routines/range")
 async def get_routines_range(start_date: str, end_date: str, user_id: str = Depends(get_current_user)):
     """CSV 내보내기용 기간별 루틴 로그 조회 (날짜별 done 상태 포함)"""
     routines = supabase.table("routines").select("id, text, is_active").eq("user_id", user_id).execute().data or []
     logs = supabase.table("routine_logs").select("routine_id, date, done").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).execute().data or []
+    exc_rows = supabase.table("routine_exceptions").select("start_date, end_date").eq("user_id", user_id).execute().data or []
+    # 예외일 날짜 집합 생성
+    from datetime import date as date_cls, timedelta
+    exception_dates: set = set()
+    for exc in exc_rows:
+        d = date_cls.fromisoformat(exc["start_date"])
+        end = date_cls.fromisoformat(exc["end_date"])
+        while d <= end:
+            exception_dates.add(d.isoformat())
+            d += timedelta(days=1)
     # (routine_id, date) → done 매핑
     log_map = {(str(l["routine_id"]), l["date"]): l["done"] for l in logs}
     result = []
     for log in logs:
         routine = next((r for r in routines if str(r["id"]) == str(log["routine_id"])), None)
-        if routine:
+        if routine and log["date"] not in exception_dates:
             result.append({
                 "date": log["date"],
                 "text": routine["text"],
@@ -241,8 +284,9 @@ async def create_block(block: ExerciseBlockCreate, user_id: str = Depends(get_cu
 
 @app.put("/api/blocks/{block_id}")
 async def update_block(block_id: str, block: ExerciseBlockCreate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).single().execute().data
-    if not row or row["user_id"] != user_id: raise HTTPException(403)
+    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
     return supabase.table("exercise_blocks").update({"name": block.name, "type": block.type, "tags": block.tags}).eq("id", block_id).execute().data
 
 @app.delete("/api/blocks/{block_id}")
@@ -356,7 +400,35 @@ async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_cu
 # ==========================================
 # Notes
 # ==========================================
+class RoutineExceptionCreate(BaseModel):
+    start_date: str
+    end_date: str
+    reason: str = ''
+
 class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None
+
+# ==========================================
+# Routine Exceptions (예외일)
+# ==========================================
+@app.get("/api/routine_exceptions")
+async def get_routine_exceptions(user_id: str = Depends(get_current_user)):
+    return supabase.table("routine_exceptions").select("*").eq("user_id", user_id).order("start_date").execute().data or []
+
+@app.post("/api/routine_exceptions")
+async def create_routine_exception(exc: RoutineExceptionCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("routine_exceptions").insert({
+        "user_id": user_id,
+        "start_date": exc.start_date,
+        "end_date": exc.end_date,
+        "reason": exc.reason,
+    }).execute().data
+
+@app.delete("/api/routine_exceptions/{exc_id}")
+async def delete_routine_exception(exc_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("routine_exceptions").select("user_id").eq("id", exc_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("routine_exceptions").delete().eq("id", exc_id).execute().data
 
 @app.get("/api/notes")
 async def get_notes(user_id: str = Depends(get_current_user)):
@@ -378,20 +450,36 @@ async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
 # ==========================================
 @app.get("/api/backup")
 async def export_backup(user_id: str = Depends(get_current_user)):
-    """전체 데이터 백업 — 노트/폴더/스케줄/루틴/운동기록 한 번에 반환"""
-    notes      = supabase.table("notes").select("*").eq("user_id", user_id).execute().data or []
-    folders    = supabase.table("note_folders").select("*").eq("user_id", user_id).execute().data or []
-    schedules  = supabase.table("schedules").select("*").eq("user_id", user_id).execute().data or []
-    todos      = supabase.table("todos").select("*").eq("user_id", user_id).execute().data or []
-    routines   = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
-    routine_logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).execute().data or []
-    blocks     = supabase.table("exercise_blocks").select("*").eq("user_id", user_id).execute().data or []
-    workout_logs = supabase.table("workout_logs").select("*").eq("user_id", user_id).execute().data or []
-    inbody_logs  = supabase.table("inbody_logs").select("*").eq("user_id", user_id).execute().data or []
-    ddays      = supabase.table("ddays").select("*").eq("user_id", user_id).execute().data or []
+    """전체 데이터 백업 — 10개 테이블을 asyncio.gather로 병렬 조회"""
+    import asyncio
+    from datetime import datetime, timezone
+
+    def _fetch(table: str, order: str | None = None):
+        q = supabase.table(table).select("*").eq("user_id", user_id)
+        if order:
+            q = q.order(order)
+        return q.execute().data or []
+
+    loop = asyncio.get_event_loop()
+    (
+        notes, folders, schedules, todos, routines,
+        routine_logs, blocks, workout_logs, inbody_logs, ddays,
+    ) = await asyncio.gather(
+        loop.run_in_executor(None, lambda: _fetch("notes", "updated_at")),
+        loop.run_in_executor(None, lambda: _fetch("note_folders", "created_at")),
+        loop.run_in_executor(None, lambda: _fetch("schedules", "date")),
+        loop.run_in_executor(None, lambda: _fetch("todos", "date")),
+        loop.run_in_executor(None, lambda: _fetch("routines")),
+        loop.run_in_executor(None, lambda: _fetch("routine_logs")),
+        loop.run_in_executor(None, lambda: _fetch("exercise_blocks")),
+        loop.run_in_executor(None, lambda: _fetch("workout_logs", "date")),
+        loop.run_in_executor(None, lambda: _fetch("inbody_logs", "date")),
+        loop.run_in_executor(None, lambda: _fetch("ddays")),
+    )
+
     return {
         "version": 1,
-        "exported_at": __import__('datetime').datetime.utcnow().isoformat() + "Z",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": notes,
         "note_folders": folders,
         "schedules": schedules,
@@ -434,4 +522,5 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     upsert("workout_logs",    payload.workout_logs)
     upsert("inbody_logs",     payload.inbody_logs)
     upsert("ddays",           payload.ddays)
-    return {"status": "ok", "restored_at": __import__('datetime').datetime.utcnow().isoformat() + "Z"}
+    from datetime import datetime, timezone
+    return {"status": "ok", "restored_at": datetime.now(timezone.utc).isoformat()}

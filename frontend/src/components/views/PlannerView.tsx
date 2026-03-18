@@ -59,9 +59,11 @@ export const PlannerView = ({
   });
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'notes' | 'calendar' | 'timeline'>('todo');
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('todo');
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
+  const [showExceptionModal, setShowExceptionModal] = useState(false);
+  const [exceptionForm, setExceptionForm] = useState({ start_date: '', end_date: '', reason: '' });
   const [newRoutineText, setNewRoutineText] = useState('');
   const [newTodoText, setNewTodoText] = useState('');
   const [editRoutineText, setEditRoutineText] = useState('');
@@ -129,7 +131,7 @@ export const PlannerView = ({
     setEditingDdayId(d?.id ?? null);
     setShowDdayForm(true);
   };
-  const handleSaveDday = useCallback(async () => {
+  const handleSaveDday = async () => {
     if (!ddayForm.text || !ddayForm.date) return showToast('Enter title and date!', 'error');
     const path = editingDdayId ? `/api/schedules/${editingDdayId}` : '/api/schedules';
     const ok = await api(
@@ -138,18 +140,18 @@ export const PlannerView = ({
       { revalidate: 'static', successMsg: 'D-Day saved' },
     );
     if (ok) setShowDdayForm(false);
-  }, [api, ddayForm, editingDdayId, showToast]);
-  const handleDeleteDday = useCallback((id: string) =>
+  };
+  const handleDeleteDday = (id: string) =>
     showConfirm('Delete this D-Day?', () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: 'Deleted' }),
       { confirmLabel: 'Delete' },
-    ), [api, showConfirm]);
+    );
 
   // ── Routine ────────────────────────────────────────────────────────
-  const handleAddRoutine = useCallback((text: string) => {
+  const handleAddRoutine = (text: string) => {
     if (text.trim()) api('POST', '/api/routines', { text, created_date: formatDate(new Date()) }, { revalidate: 'daily' });
-  }, [api, formatDate]);
-  const handleToggleRoutine = useCallback((id: string, current: boolean) => {
+  };
+  const handleToggleRoutine = (id: string, current: boolean) => {
     // UI 즉시 반영 — 서버 응답 기다리지 않음
     mutateRoutines(
       (cur) => cur.map((r) => r.id === id ? { ...r, done: !current } : r),
@@ -162,23 +164,34 @@ export const PlannerView = ({
       // 실패 시 롤백
       if (!ok) mutateRoutines((cur) => cur.map((r) => r.id === id ? { ...r, done: current } : r), false);
     });
-  }, [api, formatDate, selectedDate, mutateRoutines]);
-  const handleDeleteRoutine = useCallback((id: string) =>
+  };
+  const handleDeleteRoutine = (id: string) =>
     showConfirm('Delete this routine?', () =>
       api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: 'Routine deleted' }),
       { confirmLabel: 'Delete' },
-    ), [api, showConfirm]);
-  const handleUpdateRoutineText = useCallback(async (id: string, text: string) => {
+    );
+  const handleUpdateRoutineText = async (id: string, text: string) => {
     if (!text.trim()) return setEditingRoutineId(null);
     const ok = await api('PUT', `/api/routines/${id}`, { text }, { revalidate: 'daily' });
     if (ok) setEditingRoutineId(null);
-  }, [api]);
+  };
+
+  // ── Routine Exception ────────────────────────────────────────────────
+  const handleSaveException = useCallback(async () => {
+    if (!exceptionForm.start_date || !exceptionForm.end_date) return showToast('Start and end date required', 'error');
+    if (exceptionForm.start_date > exceptionForm.end_date) return showToast('End date must be after start date', 'error');
+    const ok = await api('POST', '/api/routine_exceptions',
+      { start_date: exceptionForm.start_date, end_date: exceptionForm.end_date, reason: exceptionForm.reason },
+      { revalidate: 'daily', successMsg: 'Exception saved' }
+    );
+    if (ok) { setShowExceptionModal(false); setExceptionForm({ start_date: '', end_date: '', reason: '' }); }
+  }, [api, exceptionForm, showToast]);
 
   // ── Todo ───────────────────────────────────────────────────────────
-  const handleAddTodo = useCallback((text: string) => {
+  const handleAddTodo = (text: string) => {
     if (text.trim()) api('POST', '/api/todos', { date: formatDate(selectedDate), text }, { revalidate: 'daily' });
-  }, [api, formatDate, selectedDate]);
-  const handleToggleTodo = useCallback((id: string, current: boolean) => {
+  };
+  const handleToggleTodo = (id: string, current: boolean) => {
     // UI 즉시 반영
     mutateTodos(
       (cur) => cur.map((t) => t.id === id ? { ...t, done: !current } : t),
@@ -189,26 +202,26 @@ export const PlannerView = ({
         // 실패 시 롤백
         if (!ok) mutateTodos((cur) => cur.map((t) => t.id === id ? { ...t, done: current } : t), false);
       });
-  }, [api, formatDate, selectedDate, mutateTodos]);
-  const handleDeleteTodo = useCallback((id: string) =>
-    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: 'Task deleted' }), [api]);
-  const handleUpdateTodoText = useCallback(async (id: string, text: string) => {
+  };
+  const handleDeleteTodo = (id: string) =>
+    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: 'Task deleted' });
+  const handleUpdateTodoText = async (id: string, text: string) => {
     if (!text.trim()) return setEditingTodoId(null);
     const ok = await api('PUT', `/api/todos_text/${id}`,
       { date: formatDate(selectedDate), text },
       { revalidate: 'daily' }
     );
     if (ok) setEditingTodoId(null);
-  }, [api, formatDate, selectedDate]);
+  };
 
   // ── Schedule ───────────────────────────────────────────────────────
-  const openModal = useCallback((sch?: Schedule) => {
+  const openModal = (sch?: Schedule) => {
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: appSettings.defaultColor, category: appSettings.defaultCategory });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);  // 편집 시 기존 end_next_day 복원
     setShowForm(true);
-  }, [appSettings]);
-  const handleSaveSchedule = useCallback(async () => {
+  };
+  const handleSaveSchedule = async () => {
     if (!newSch.text) return showToast('Enter text!', 'error');
     if (!endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
       return showToast('End time must be after start time! (Check "Next day" for overnight schedules)', 'error');
@@ -228,12 +241,12 @@ export const PlannerView = ({
     };
     if (isOverlap) { showConfirm('This schedule overlaps. Save anyway?', doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
     doSave();
-  }, [api, newSch, editingId, endNextDay, schedules, formatDate, selectedDate, showToast, showConfirm]);
-  const handleDeleteSchedule = useCallback((id: string) =>
+  };
+  const handleDeleteSchedule = (id: string) =>
     showConfirm('Delete this schedule?', () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: 'Deleted' }),
       { confirmLabel: 'Delete' },
-    ), [api, showConfirm]);
+    );
 
   // ── Derived values ─────────────────────────────────────────────────
   const { year, month, calendarDays, sortedSchedules } = useMemo(() => {
@@ -257,11 +270,11 @@ export const PlannerView = ({
 
       {/* ── 모바일 탭 바 ── */}
       <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}>
-        {(['todo', 'notes', 'calendar', 'timeline'] as const).map(tab => (
+        {(['todo', 'memo', 'calendar', 'timeline'] as const).map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
             className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-[#1C1C1E] text-[#FACC15]' : `${theme.input} ${theme.textMuted}`}`}>
-            {tab === 'todo' ? 'Planner' : tab === 'notes' ? 'Notes' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
+            {tab === 'todo' ? 'Planner' : tab === 'memo' ? 'Memo' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
           </button>
         ))}
       </div>
@@ -278,6 +291,12 @@ export const PlannerView = ({
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text="Build a daily routine!" /></div>}
+            {/* 예외일 배너 */}
+            {routines[0]?.is_exception_day && (
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold mb-1 ${appSettings.darkMode ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-50 text-blue-600'}`}>
+                <span>🏖</span> Exception day — routines excluded from stats
+              </div>
+            )}
             {routines.map((r: Routine) => (
               <div key={r.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingRoutineId === r.id ? (
@@ -362,8 +381,8 @@ export const PlannerView = ({
         </div>
       </div>
 
-      {/* ══ Col-2: D-Day 위 + Notes 아래 ══ */}
-      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "notes" ? "flex" : "hidden lg:flex"}`}>
+      {/* ══ Col-2: D-Day 위 + Memo 아래 ══ */}
+      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "memo" ? "flex" : "hidden lg:flex"}`}>
 
         {/* D-Day */}
         <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
@@ -396,7 +415,7 @@ export const PlannerView = ({
           </div>
         </div>
 
-        {/* Notes — 폴더 + 휴지통 */}
+        {/* Memo — 폴더 + 휴지통 */}
         <div className={`flex-1 min-h-[400px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
 
           {/* 왼쪽: 폴더 + 노트 목록 */}
@@ -405,7 +424,7 @@ export const PlannerView = ({
             {/* 상단: 새 노트 버튼 */}
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0">
               <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1">
-                <FileText size={12} className="text-yellow-400"/> Notes
+                <FileText size={12} className="text-yellow-400"/> Memo
               </span>
               <div className="flex gap-1">
                 <button onClick={() => setShowFolderInput(v => !v)} title="New Folder"
@@ -832,6 +851,40 @@ export const PlannerView = ({
                 Save D-Day
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 예외일 설정 모달 */}
+      {showExceptionModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowExceptionModal(false)}>
+          <div className={`rounded-[28px] p-6 w-full max-w-[360px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-heading text-lg font-bold flex items-center gap-2">🏖 Set Exception Days</h3>
+              <button onClick={() => setShowExceptionModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
+            </div>
+            <p className={`text-xs mb-4 ${theme.textMuted}`}>Routines on these days will be excluded from completion stats.</p>
+            <div className="space-y-3">
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>Start Date</label>
+                <input type="date" value={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, start_date: e.target.value }))}
+                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>End Date</label>
+                <input type="date" value={exceptionForm.end_date} min={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, end_date: e.target.value }))}
+                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>Reason (optional)</label>
+                <input type="text" value={exceptionForm.reason} onChange={e => setExceptionForm(f => ({ ...f, reason: e.target.value }))}
+                  placeholder="e.g. Business trip" className={`w-full rounded-xl p-3 outline-none text-sm focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+              </div>
+            </div>
+            <button onClick={handleSaveException}
+              className="w-full mt-5 py-3 rounded-2xl font-bold text-sm bg-[#FACC15] text-[#1C1C1E] hover:scale-[1.02] transition-transform">
+              Save Exception
+            </button>
           </div>
         </div>
       )}

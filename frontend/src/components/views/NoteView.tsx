@@ -814,7 +814,7 @@ export const NoteView = () => {
       <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         {/* Header */}
         <div style={{ padding: '12px 12px 10px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontWeight: 800, fontSize: 14, color: c.accent, letterSpacing: -.3 }}>Board</span>
+          <span style={{ fontWeight: 800, fontSize: 14, color: c.accent, letterSpacing: -.3 }}>Note</span>
           <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 5px', borderRadius: 4 }}>β</span>
           <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ marginLeft: 'auto', padding: '2px 4px' }} title="Keyboard Shortcuts (Ctrl+/)">
             <Keyboard size={12}/>

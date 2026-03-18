@@ -20,7 +20,7 @@ const CATEGORY_META: Record<string, { icon: ReactNode; color: string; tw: string
 
 // 완전히 정적인 값 — 렌더마다 재생성되지 않도록 모듈 레벨로 분리.
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
-const SCHEDULE_HOURS = Array.from({ length: 24 }, (_, i) => i);
+// SCHEDULE_HOURS는 컴포넌트 내부에서 weeklySchedules 기반으로 동적 계산
 
 // parseTime: 렌더 루프 안에서 매번 재생성되지 않도록 모듈 레벨로 분리.
 const parseTime = (t: string): number => {
@@ -67,6 +67,13 @@ export const AnalyticsView = ({
   // lib/fetcher가 authFetch + HTTP 오류 throw를 이미 처리하므로 직접 사용.
   // 개선 전: authFetch를 직접 import해 동일한 에러처리를 useCallback으로 인라인 선언.
   // 개선 후: 공유 fetcher로 교체 → authFetch import 및 rangesFetcher useCallback 제거.
+  // 예외일 데이터
+  const { data: routineExceptions = [] } = useSWR<{id: string; start_date: string; end_date: string; reason: string}[]>(
+    `${API_URL}/api/routine_exceptions`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+
   const onRangeError = useCallback(
     () => showToast('Failed to load analytics data', 'error'),
     [showToast],
@@ -147,7 +154,11 @@ export const AnalyticsView = ({
       { confirmLabel: 'Delete' },
     );
 
-  const routineCompletionRate = routines?.length
+  const isExceptionDay = routineExceptions.some(exc =>
+    exc.start_date <= (routines[0] ? new Date().toISOString().slice(0,10) : '') &&
+    exc.end_date   >= (routines[0] ? new Date().toISOString().slice(0,10) : '')
+  );
+  const routineCompletionRate = (routines?.length && !isExceptionDay)
     ? Math.round((routines.filter((r: Routine) => r.done).length / routines.length) * 100)
     : 0;
 
@@ -260,6 +271,23 @@ export const AnalyticsView = ({
           </div>
 
           {/* 운동 요일 */}
+          {/* 예외일 목록 */}
+          {routineExceptions.length > 0 && (
+            <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+              <h2 className="font-heading text-base font-bold flex items-center gap-2 mb-3">
+                🏖 Exception Days
+              </h2>
+              <div className="space-y-2">
+                {routineExceptions.map(exc => (
+                  <div key={exc.id} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs ${appSettings.darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
+                    <span className="font-semibold">{exc.start_date === exc.end_date ? exc.start_date : `${exc.start_date} ~ ${exc.end_date}`}</span>
+                    {exc.reason && <span className={`${appSettings.darkMode ? 'text-blue-400' : 'text-blue-500'}`}>{exc.reason}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col relative transition-colors ${theme.card}`}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-heading text-base font-bold flex items-center gap-2">
@@ -309,7 +337,10 @@ export const AnalyticsView = ({
               <div>
                 <div className="flex justify-between items-end mb-2">
                   <span className={`text-sm font-semibold ${theme.textMuted}`}>Today's Routine Rate</span>
-                  <span className="text-sm font-bold">{routineCompletionRate}%</span>
+                  {isExceptionDay
+                    ? <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>🏖 Exception</span>
+                    : <span className="text-sm font-bold">{routineCompletionRate}%</span>
+                  }
                 </div>
                 <div className={`w-full h-3 rounded-full overflow-hidden ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
                   <div className={`h-full rounded-full transition-all duration-1000 ${routineCompletionRate >= 80 ? 'bg-[#FACC15]' : routineCompletionRate > 0 ? 'bg-yellow-400' : 'bg-gray-400'}`}
@@ -364,6 +395,18 @@ export const AnalyticsView = ({
               <Plus size={16} strokeWidth={3}/> Add
             </button>
           </div>
+          {(() => {
+            // 실제 일정의 최대 end_time 기준으로 표시 시간 결정
+            // 최소 18시, 최대 24시
+            const parseT = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
+            const maxHour = (weeklySchedules || []).reduce((max, s) => {
+              let end = parseT(s.end_time);
+              if (end <= parseT(s.start_time)) end += 24; // 자정 넘는 일정
+              return Math.min(Math.max(max, Math.ceil(end) + 1), 24);
+            }, 18); // 기본 최소 18시
+            const SCHEDULE_HOURS = Array.from({ length: maxHour }, (_, i) => i);
+            const gridHeight = maxHour * 64;
+            return (
           <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
             {/* 요일 헤더 */}
             <div className={`flex border-b h-10 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
@@ -374,7 +417,7 @@ export const AnalyticsView = ({
                 </div>
               ))}
             </div>
-            <div className={`flex-1 flex overflow-y-auto relative ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'} pb-10`}>
+            <div className={`flex-1 flex overflow-y-auto relative ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
               {/* 시간 라벨 */}
               <div className={`w-12 lg:w-16 flex flex-col border-r shrink-0 z-10 relative ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
                 {SCHEDULE_HOURS.map(h => (
@@ -384,7 +427,7 @@ export const AnalyticsView = ({
                 ))}
               </div>
               {/* 그리드 + 블록 */}
-              <div className="flex-1 relative min-h-[1536px]">
+              <div className="flex-1 relative" style={{ minHeight: `${gridHeight}px` }}>
                 {SCHEDULE_HOURS.map((_, i) => (
                   <div key={i} className={`absolute w-full h-16 border-b ${theme.border}`} style={{ top: `${i * 64}px` }}/>
                 ))}
@@ -409,6 +452,8 @@ export const AnalyticsView = ({
               </div>
             </div>
           </div>
+          );
+          })()}
         </div>
       </div>
 
