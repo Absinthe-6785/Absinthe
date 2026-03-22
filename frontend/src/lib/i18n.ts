@@ -1,0 +1,168 @@
+/**
+ * i18n.ts — 다국어 지원 (영어 / 한국어 / 일본어)
+ *
+ * 사용법:
+ *   const { t, lang } = useTranslation();
+ *   t('save')  →  'Save' | '저장' | '保存'
+ */
+
+export type Language = 'en' | 'ko' | 'ja';
+
+// ── 번역 사전 ────────────────────────────────────────────────────────
+const translations = {
+  // ── 공통 ──────────────────────────────────────────────────────────
+  save:           { en: 'Save',           ko: '저장',         ja: '保存'         },
+  cancel:         { en: 'Cancel',         ko: '취소',         ja: 'キャンセル'   },
+  delete:         { en: 'Delete',         ko: '삭제',         ja: '削除'         },
+  edit:           { en: 'Edit',           ko: '편집',         ja: '編集'         },
+  add:            { en: 'Add',            ko: '추가',         ja: '追加'         },
+  confirm:        { en: 'Confirm',        ko: '확인',         ja: '確認'         },
+  close:          { en: 'Close',          ko: '닫기',         ja: '閉じる'       },
+  loading:        { en: 'Loading...',     ko: '불러오는 중...', ja: '読み込み中...' },
+  signOut:        { en: 'Sign Out',       ko: '로그아웃',     ja: 'サインアウト' },
+  dark:           { en: 'Dark',           ko: '다크',         ja: 'ダーク'       },
+  light:          { en: 'Light',          ko: '라이트',       ja: 'ライト'       },
+  settings:       { en: 'Settings',       ko: '설정',         ja: '設定'         },
+  noFolder:       { en: 'No Folder',      ko: '폴더 없음',    ja: 'フォルダなし' },
+  title:          { en: 'Title',          ko: '제목',         ja: 'タイトル'     },
+  date:           { en: 'Date',           ko: '날짜',         ja: '日付'         },
+  reason:         { en: 'Reason',         ko: '사유',         ja: '理由'         },
+  optional:       { en: 'optional',       ko: '선택',         ja: '任意'         },
+
+  // ── Sidebar ────────────────────────────────────────────────────────
+  planner:        { en: 'Planner',        ko: '플래너',       ja: 'プランナー'   },
+  health:         { en: 'Health',         ko: '헬스',         ja: 'ヘルス'       },
+  analytics:      { en: 'Analytics',      ko: '분석',         ja: '分析'         },
+  note:           { en: 'Note',           ko: '노트',         ja: 'ノート'       },
+  out:            { en: 'Out',            ko: '나가기',       ja: '退出'         },
+
+  // ── PlannerView ────────────────────────────────────────────────────
+  routines:       { en: 'Routines',       ko: '루틴',         ja: 'ルーティン'   },
+  todoList:       { en: 'To-do list',     ko: '할 일',        ja: 'ToDo'         },
+  memo:           { en: 'Memo',           ko: '메모',         ja: 'メモ'         },
+  calendar:       { en: 'Calendar',       ko: '캘린더',       ja: 'カレンダー'   },
+  timeline:       { en: 'Timeline',       ko: '타임라인',     ja: 'タイムライン' },
+  dday:           { en: 'D-Day',          ko: 'D-Day',        ja: 'D-Day'        },
+  newFolder:      { en: 'New Folder',     ko: '새 폴더',      ja: '新フォルダ'   },
+  newNote:        { en: 'New Note',       ko: '새 노트',      ja: '新しいノート' },
+  folderName:     { en: 'Folder name',    ko: '폴더 이름',    ja: 'フォルダ名'   },
+  addRoutine:     { en: 'Add new routine...', ko: '루틴 추가...', ja: 'ルーティン追加...' },
+  addTask:        { en: 'Add new task...', ko: '할 일 추가...', ja: 'タスク追加...' },
+  startWriting:   { en: 'Start writing...', ko: '작성 시작...', ja: '書き始める...' },
+  noTasks:        { en: 'No tasks. Chill out!', ko: '할 일 없음. 쉬어요!', ja: 'タスクなし。一休み！' },
+  noDdays:        { en: 'No D-Days yet', ko: 'D-Day 없음',   ja: 'D-Dayなし'    },
+  noNotes:        { en: 'No notes',      ko: '노트 없음',    ja: 'ノートなし'   },
+  noRoutines:     { en: 'Build a daily routine!', ko: '루틴을 만들어보세요!', ja: 'ルーティンを作ろう！' },
+  trash:          { en: 'Trash',          ko: '휴지통',       ja: 'ゴミ箱'       },
+  starred:        { en: 'Starred',        ko: '즐겨찾기',     ja: 'スター'       },
+  editSchedule:   { en: 'Edit Schedule', ko: '일정 편집',    ja: 'スケジュール編集' },
+  newSchedule:    { en: 'New Schedule',  ko: '새 일정',      ja: '新しいスケジュール' },
+  editDday:       { en: 'Edit D-Day',    ko: 'D-Day 편집',   ja: 'D-Day編集'    },
+  newDday:        { en: 'New D-Day',     ko: '새 D-Day',     ja: '新しいD-Day'  },
+  nextDay:        { en: 'Next day',      ko: '익일',         ja: '翌日'         },
+  overlapMsg:     { en: 'This schedule overlaps. Save anyway?', ko: '일정이 겹칩니다. 저장할까요?', ja: 'スケジュールが重複しています。保存しますか？' },
+  exceptionDay:   { en: 'Exception day — routines excluded from stats', ko: '예외일 — 루틴 통계 제외', ja: '例外日 — ルーティン統計除外' },
+  setException:   { en: 'Set Exception Days', ko: '예외일 설정', ja: '例外日設定' },
+  exceptionDesc:  { en: 'Routines on these days will be excluded from completion stats.', ko: '해당 날짜의 루틴은 달성률 통계에서 제외됩니다.', ja: 'この期間のルーティンは達成率の統計から除外されます。' },
+  saveException:  { en: 'Save Exception', ko: '예외일 저장', ja: '例外日を保存' },
+  startDate:      { en: 'Start Date',    ko: '시작일',       ja: '開始日'       },
+  endDate:        { en: 'End Date',      ko: '종료일',       ja: '終了日'       },
+  exReason:       { en: 'Reason (optional)', ko: '사유 (선택)', ja: '理由（任意）' },
+  exReasonPh:     { en: 'e.g. Business trip', ko: '예: 출장', ja: '例：出張'    },
+
+  // ── Toast messages ─────────────────────────────────────────────────
+  enterText:      { en: 'Enter text!',   ko: '내용을 입력하세요!', ja: 'テキストを入力してください！' },
+  enterTitle:     { en: 'Enter title',   ko: '제목을 입력하세요', ja: 'タイトルを入力してください' },
+  enterTitleDate: { en: 'Enter title and date!', ko: '제목과 날짜를 입력하세요!', ja: 'タイトルと日付を入力してください！' },
+  endTimeError:   { en: 'End time must be after start time!', ko: '종료 시간이 시작 시간 이후여야 합니다!', ja: '終了時間は開始時間より後にしてください！' },
+  endTimeLater:   { en: 'End time must be later!', ko: '종료 시간을 더 늦게 설정하세요!', ja: '終了時間をもっと遅くしてください！' },
+  deleteRoutine:  { en: 'Delete this routine?', ko: '이 루틴을 삭제할까요?', ja: 'このルーティンを削除しますか？' },
+  deleteSchedule: { en: 'Delete this schedule?', ko: '이 일정을 삭제할까요?', ja: 'このスケジュールを削除しますか？' },
+  deleteDday:     { en: 'Delete this D-Day?', ko: 'D-Day를 삭제할까요?', ja: 'このD-Dayを削除しますか？' },
+  deleted:        { en: 'Deleted',       ko: '삭제됨',       ja: '削除しました' },
+  ddaySaved:      { en: 'D-Day saved',   ko: 'D-Day 저장됨', ja: 'D-Day保存しました' },
+  scheduleSaved:  { en: 'Schedule saved', ko: '일정 저장됨', ja: 'スケジュール保存しました' },
+  routineDeleted: { en: 'Routine deleted', ko: '루틴 삭제됨', ja: 'ルーティン削除しました' },
+
+  // ── HealthView ────────────────────────────────────────────────────
+  workout:        { en: 'Workout',       ko: '운동',         ja: 'ワークアウト' },
+  inbody:         { en: 'InBody',        ko: 'InBody',       ja: 'InBody'       },
+  exerciseName:   { en: 'Exercise Name', ko: '운동 이름',    ja: '種目名'       },
+  loadRoutine:    { en: 'Load Routine',  ko: '루틴 불러오기', ja: 'ルーティン読込' },
+  saveWorkout:    { en: 'Save Workout',  ko: '운동 저장',    ja: 'ワークアウト保存' },
+  workoutSaved:   { en: 'Workout Saved! 💪', ko: '운동 저장됨! 💪', ja: 'ワークアウト保存！💪' },
+  alreadyAdded:   { en: 'Already added!', ko: '이미 추가됨!', ja: 'すでに追加済み！' },
+  noWorkouts:     { en: 'No workouts to save', ko: '저장할 운동이 없음', ja: '保存するワークアウトがありません' },
+  failedSave:     { en: 'Failed to save workout', ko: '운동 저장 실패', ja: 'ワークアウト保存に失敗しました' },
+  failedRemove:   { en: 'Failed to remove', ko: '삭제 실패', ja: '削除に失敗しました' },
+  loaded:         { en: 'Loaded!',       ko: '불러옴!',      ja: '読み込みました！' },
+  noBlocks:       { en: 'No blocks assembled.', ko: '조합된 블록 없음.', ja: 'ブロックが未設定です。' },
+  enterName:      { en: 'Enter name!',   ko: '이름을 입력하세요!', ja: '名前を入力してください！' },
+  valuesNegative: { en: 'Values cannot be negative', ko: '음수는 입력할 수 없습니다', ja: '負の値は入力できません' },
+  inbodySaved:    { en: 'InBody Saved! 📈', ko: 'InBody 저장됨! 📈', ja: 'InBody保存！📈' },
+  deleteBlock:    { en: 'Delete this block?', ko: '이 블록을 삭제할까요?', ja: 'このブロックを削除しますか？' },
+  blockUpdated:   { en: 'Block updated', ko: '블록 업데이트됨', ja: 'ブロック更新しました' },
+  blockCreated:   { en: 'Block created', ko: '블록 생성됨', ja: 'ブロック作成しました' },
+  blockDeleted:   { en: 'Block deleted', ko: '블록 삭제됨', ja: 'ブロック削除しました' },
+  routineSaved:   { en: 'Routine Saved', ko: '루틴 저장됨', ja: 'ルーティン保存しました' },
+  strength:       { en: 'Strength',      ko: '웨이트',       ja: 'ストレングス' },
+  bodyweight:     { en: 'Bodyweight',    ko: '맨몸',         ja: '自重'         },
+  cardio:         { en: 'Cardio',        ko: '유산소',       ja: 'カーディオ'   },
+
+  // ── AnalyticsView ─────────────────────────────────────────────────
+  weeklyTimetable: { en: 'Weekly Timetable (24H)', ko: '주간 타임테이블 (24H)', ja: '週間タイムテーブル（24H）' },
+  addActivity:    { en: 'Add',           ko: '추가',         ja: '追加'         },
+  dayOfWeek:      { en: 'Day of Week',   ko: '요일',         ja: '曜日'         },
+  editActivity:   { en: 'Edit Activity', ko: '활동 편집',    ja: 'アクティビティ編集' },
+  newActivity:    { en: 'New Activity',  ko: '새 활동',      ja: '新しいアクティビティ' },
+  failedAnalytics: { en: 'Failed to load analytics data', ko: '분석 데이터 불러오기 실패', ja: '分析データの読み込みに失敗しました' },
+  enterTitleAct:  { en: 'Enter title',   ko: '제목 입력',    ja: 'タイトルを入力' },
+  exceptionDays:  { en: 'Exception Days', ko: '예외일 목록', ja: '例外日一覧'   },
+  exception:      { en: '🏖 Exception',  ko: '🏖 예외일',    ja: '🏖 例外日'    },
+  routineRate:    { en: 'Routine completion', ko: '루틴 달성률', ja: 'ルーティン達成率' },
+
+  // ── SettingsView ───────────────────────────────────────────────────
+  settingsTitle:  { en: 'Settings',      ko: '설정',         ja: '設定'         },
+  settingsDesc:   { en: 'Customize your planner and manage your data.', ko: '플래너를 커스터마이징하고 데이터를 관리하세요.', ja: 'プランナーをカスタマイズしてデータを管理します。' },
+  plannerDefaults: { en: 'Planner Defaults', ko: '플래너 기본값', ja: 'プランナーのデフォルト' },
+  defaultCategory: { en: 'Default Category', ko: '기본 카테고리', ja: 'デフォルトカテゴリ' },
+  defaultCategoryDesc: { en: 'Pre-selected category.', ko: '기본 선택 카테고리.', ja: 'デフォルト選択カテゴリ。' },
+  defaultColor:   { en: 'Default Color', ko: '기본 색상',    ja: 'デフォルトカラー' },
+  defaultColorDesc: { en: 'Pre-selected timeline color.', ko: '기본 타임라인 색상.', ja: 'デフォルトタイムラインカラー。' },
+  language:       { en: 'Language',      ko: '언어',         ja: '言語'         },
+  languageDesc:   { en: 'Select display language.', ko: '표시 언어를 선택하세요.', ja: '表示言語を選択します。' },
+  dataManagement: { en: 'Data Management', ko: '데이터 관리', ja: 'データ管理'  },
+  exportCsv:      { en: 'Export Data (CSV)', ko: '데이터 내보내기 (CSV)', ja: 'データエクスポート（CSV）' },
+  exportDesc:     { en: 'Download all your records.', ko: '모든 기록을 다운로드합니다.', ja: '全記録をダウンロードします。' },
+  comingSoon:     { en: 'Coming Soon',   ko: '준비 중',      ja: '準備中'       },
+  resetData:      { en: 'Reset All Data', ko: '모든 데이터 초기화', ja: '全データリセット' },
+  resetDesc:      { en: 'This action cannot be undone.', ko: '되돌릴 수 없는 작업입니다.', ja: 'この操作は元に戻せません。' },
+  resetConfirm:   { en: 'Are you sure? This will permanently delete ALL your data.', ko: '정말로 모든 데이터를 영구 삭제하시겠습니까?', ja: '本当によろしいですか？すべてのデータが完全に削除されます。' },
+  resetSuccess:   { en: 'All data has been permanently deleted.', ko: '모든 데이터가 삭제되었습니다.', ja: 'すべてのデータが削除されました。' },
+  resetFailed:    { en: 'Failed to reset data.', ko: '데이터 초기화 실패.', ja: 'データのリセットに失敗しました。' },
+
+  // ── 카테고리 ──────────────────────────────────────────────────────
+  catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
+  catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
+  catExercise:    { en: 'Exercise',      ko: '운동',         ja: '運動'         },
+  catPersonal:    { en: 'Personal',      ko: '개인',         ja: '個人'         },
+  catSleep:       { en: 'Sleep',         ko: '수면',         ja: '睡眠'         },
+  catSocial:      { en: 'Social',        ko: '사교',         ja: '交流'         },
+} as const;
+
+export type TranslationKey = keyof typeof translations;
+
+// ── 번역 함수 ────────────────────────────────────────────────────────
+export function getTranslator(lang: Language) {
+  return function t(key: TranslationKey): string {
+    return translations[key]?.[lang] ?? translations[key]?.en ?? key;
+  };
+}
+
+// ── React 훅 ─────────────────────────────────────────────────────────
+import { useAppStore } from '../store/useAppStore';
+
+export function useTranslation() {
+  const lang = (useAppStore(s => s.appSettings.language) ?? 'en') as Language;
+  return { t: getTranslator(lang), lang };
+}

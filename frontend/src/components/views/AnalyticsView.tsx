@@ -6,6 +6,7 @@ import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
+import { useTranslation } from '../../lib/i18n';
 import { AnalyticsProps, Schedule, Routine, WeeklySchedule } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -32,6 +33,7 @@ export const AnalyticsView = ({
   now, mutateStatic, showToast, weeklySchedules, schedules,
   appSettings, theme, THEME_COLORS, routines, formatDate,
 }: AnalyticsProps) => {
+  const { t } = useTranslation();
   const { mutate: api } = useApiMutation(null, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -75,7 +77,7 @@ export const AnalyticsView = ({
   );
 
   const onRangeError = useCallback(
-    () => showToast('Failed to load analytics data', 'error'),
+    () => showToast(t('failedAnalytics'), 'error'),
     [showToast],
   );
 
@@ -137,7 +139,7 @@ export const AnalyticsView = ({
     setShowWeeklyModal(true);
   };
   const saveWeeklySchedule = async () => {
-    if (!newWeeklySch.title) return showToast('Enter title', 'error');
+    if (!newWeeklySch.title) return showToast(t('enterTitleAct'), 'error');
     if (newWeeklySch.start_time && newWeeklySch.end_time && newWeeklySch.start_time >= newWeeklySch.end_time)
       return showToast('End time must be later!', 'error');
     const ok = await api(
@@ -338,7 +340,7 @@ export const AnalyticsView = ({
                 <div className="flex justify-between items-end mb-2">
                   <span className={`text-sm font-semibold ${theme.textMuted}`}>Today's Routine Rate</span>
                   {isExceptionDay
-                    ? <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>🏖 Exception</span>
+                    ? <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>{t('exception')}</span>
                     : <span className="text-sm font-bold">{routineCompletionRate}%</span>
                   }
                 </div>
@@ -389,16 +391,23 @@ export const AnalyticsView = ({
         <div className={`w-full lg:flex-[6.5] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card}`}>
           <div className="flex justify-between items-center mb-6">
             <h2 className="font-heading text-lg lg:text-xl font-bold flex items-center gap-2">
-              <CalendarDays size={22} className="text-[#FACC15]"/> Weekly Timetable (24H)
+              <CalendarDays size={22} className="text-[#FACC15]"/>{t('weeklyTimetable')}
             </h2>
             <button onClick={() => openWeeklyModal()} className="text-sm bg-[#1C1C1E] text-[#FACC15] px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform">
               <Plus size={16} strokeWidth={3}/> Add
             </button>
           </div>
           {(() => {
-            // 24시간 전체 표시 (00:00 ~ 23:00, 스크롤로 확인 가능)
-            const SCHEDULE_HOURS = Array.from({ length: 24 }, (_, i) => i);
-            const gridHeight = 24 * 64; // 1536px
+            // 실제 일정의 최대 end_time 기준으로 표시 시간 결정
+            // 최소 18시, 최대 24시
+            const parseT = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
+            const maxHour = (weeklySchedules || []).reduce((max, s) => {
+              let end = parseT(s.end_time);
+              if (end <= parseT(s.start_time)) end += 24; // 자정 넘는 일정
+              return Math.min(Math.max(max, Math.ceil(end) + 1), 24);
+            }, 18); // 기본 최소 18시
+            const SCHEDULE_HOURS = Array.from({ length: maxHour }, (_, i) => i);
+            const gridHeight = maxHour * 64;
             return (
           <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
             {/* 요일 헤더 */}

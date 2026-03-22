@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, MouseEvent, ChangeEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
@@ -8,6 +8,7 @@ import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
+import { useTranslation } from '../../lib/i18n';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
@@ -18,6 +19,7 @@ export const HealthView = ({
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS,
 }: HealthProps) => {
+  const { t } = useTranslation();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -118,33 +120,33 @@ export const HealthView = ({
     setShowBlockModal(true);
   };
 
-  const commitTag = useCallback(() => {
+  const commitTag = () => {
     const t = tagInput.trim();
     if (!t) return;
     const already = (newBlock.tags ?? []).includes(t);
     if (!already) setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
     setTagInput('');
-  }, [tagInput, newBlock.tags]);
+  };
 
   const removeTag = (tag: string) =>
     setNewBlock(b => ({ ...b, tags: (b.tags ?? []).filter(t => t !== tag) }));
 
-  const handleSaveBlock = useCallback(async () => {
-    if (!newBlock.name) return showToast('Enter name!', 'error');
+  const handleSaveBlock = async () => {
+    if (!newBlock.name) return showToast(t('enterName'), 'error');
     const payload = { name: newBlock.name, type: newBlock.type, tags: newBlock.tags ?? [] };
     const ok = editingBlock
-      ? await api('PUT', `/api/blocks/${editingBlock.id}`, payload, { revalidate: 'static', successMsg: 'Block updated' })
-      : await api('POST', '/api/blocks', payload, { revalidate: 'static', successMsg: 'Block created' });
+      ? await api('PUT', `/api/blocks/${editingBlock.id}`, payload, { revalidate: 'static', successMsg: t('blockUpdated') })
+      : await api('POST', '/api/blocks', payload, { revalidate: 'static', successMsg: t('blockCreated') });
     if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength', tags: [] }); setEditingBlock(null); }
-  }, [api, newBlock, editingBlock, showToast]);
+  };
 
-  const handleDeleteBlock = useCallback((id: string, e: MouseEvent) => {
+  const handleDeleteBlock = (id: string, e: MouseEvent) => {
     e.stopPropagation();
-    showConfirm('Delete this block?', () =>
-      api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: 'Block deleted' }),
+    showConfirm(t('deleteBlock'), () =>
+      api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') }),
       { confirmLabel: 'Delete' },
     );
-  }, [api, showConfirm]);
+  };
 
   // ── 루틴 조합 ──────────────────────────────────────────────────────
   const openAssembleModal = (dayName: string) => {
@@ -155,17 +157,17 @@ export const HealthView = ({
   };
   const toggleBlockInRoutine = (blockId: string) =>
     setTempRoutineBlocks(prev => prev.includes(blockId) ? prev.filter(id => id !== blockId) : [...prev, blockId]);
-  const handleSaveRoutine = useCallback(async () => {
-    const ok = await api('POST', '/api/health_routines', { day_name: activeDayForm, blocks: tempRoutineBlocks }, { revalidate: 'static', successMsg: 'Routine Saved' });
+  const handleSaveRoutine = async () => {
+    const ok = await api('POST', '/api/health_routines', { day_name: activeDayForm, blocks: tempRoutineBlocks }, { revalidate: 'static', successMsg: t('routineSaved') });
     if (ok) setShowAssembleModal(false);
-  }, [api, activeDayForm, tempRoutineBlocks]);
+  };
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
-  const handleLoadRoutine = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+  const handleLoadRoutine = (e: ChangeEvent<HTMLSelectElement>) => {
     const dayName = e.target.value;
     if (dayName === 'Load Routine') return;
     const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
-    if (!routine?.blocks?.length) { showToast('No blocks assembled.', 'error'); e.target.value = 'Load Routine'; return; }
+    if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = 'Load Routine'; return; }
 
     // routine.blocks 순서를 완전한 기준으로 삼아 최종 배열을 구성.
     // 1) 루틴에 포함된 블록: routine.blocks[i] 순서 그대로
@@ -184,14 +186,14 @@ export const HealthView = ({
     setLocalWorkouts([...routineOrdered, ...unrelated]);
     setIsDirty(true);
     e.target.value = 'Load Routine';
-    showToast('Loaded!');
-  }, [healthRoutines, healthBlocks, localWorkouts, showToast]);
-  const handleAddWorkoutToToday = useCallback((block: ExerciseBlock) => {
-    if (localWorkouts.find(w => w.block_id === block.id)) return showToast('Already added!', 'error');
+    showToast(t('loaded'));
+  };
+  const handleAddWorkoutToToday = (block: ExerciseBlock) => {
+    if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
     setIsDirty(true);
-    setLocalWorkouts(prev => [...prev, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
-  }, [localWorkouts, showToast]);
-  const handleRemoveWorkout = useCallback(async (index: number, dbId: string) => {
+    setLocalWorkouts([...localWorkouts, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
+  };
+  const handleRemoveWorkout = async (index: number, dbId: string) => {
     try {
       if (!dbId.startsWith('temp')) {
         const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
@@ -202,9 +204,9 @@ export const HealthView = ({
       const next = localWorkouts.filter((_, i) => i !== index);
       setLocalWorkouts(next);
       if (next.length === 0) setIsDirty(false);
-    } catch { showToast('Failed to remove', 'error'); }
-  }, [localWorkouts, mutateDaily, showToast]);
-  const handleAddSet = useCallback((wIdx: number, asDropset = false) => {
+    } catch { showToast(t('failedRemove'), 'error'); }
+  };
+  const handleAddSet = (wIdx: number, asDropset = false) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -216,8 +218,8 @@ export const HealthView = ({
       next[wIdx] = w;
       return next;
     });
-  }, [isWorkoutLocked]);
-  const handleRemoveSet = useCallback((wIdx: number, sIdx: number) => {
+  };
+  const handleRemoveSet = (wIdx: number, sIdx: number) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -227,8 +229,8 @@ export const HealthView = ({
       next[wIdx] = w;
       return next;
     });
-  }, [isWorkoutLocked]);
-  const handleUpdateSet = useCallback((wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
+  };
+  const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -236,9 +238,9 @@ export const HealthView = ({
       next[wIdx] = { ...next[wIdx], sets: next[wIdx].sets.map((s, i) => i === sIdx ? { ...s, [field]: value } as WorkoutSet : s) };
       return next;
     });
-  }, [isWorkoutLocked]);
-  const handleSaveWorkouts = useCallback(async () => {
-    if (localWorkouts.length === 0) return showToast('No workouts to save', 'error');
+  };
+  const handleSaveWorkouts = async () => {
+    if (localWorkouts.length === 0) return showToast(t('noWorkouts'), 'error');
 
     // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
     // 병렬 저장 시 네트워크 응답 순서가 뒤바뀌어 sort_order가 섞이는 문제 방지
@@ -255,7 +257,7 @@ export const HealthView = ({
     }
     const total = localWorkouts.length;
     if (failed === 0) {
-      showToast('Workout Saved! 💪');
+      showToast(t('workoutSaved'));
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
@@ -265,18 +267,18 @@ export const HealthView = ({
       setIsWorkoutLocked(true);
       mutateDaily();
     } else {
-      showToast('Failed to save workout', 'error');
+      showToast(t('failedSave'), 'error');
     }
-  }, [localWorkouts, formatDate, selectedDate, mutateDaily, showToast]);
-  const handleSaveInbody = useCallback(async () => {
+  };
+  const handleSaveInbody = async () => {
     if (localInbody.weight < 0 || localInbody.smm < 0 || localInbody.pbf < 0)
-      return showToast('Values cannot be negative', 'error');
+      return showToast(t('valuesNegative'), 'error');
     const ok = await api('POST', '/api/inbody',
       { date: formatDate(selectedDate), weight: Number(localInbody.weight), smm: Number(localInbody.smm), pbf: Number(localInbody.pbf) },
-      { revalidate: 'daily', successMsg: 'InBody Saved! 📈' }
+      { revalidate: 'daily', successMsg: t('inbodySaved') }
     );
     if (ok) setIsInbodyDirty(false); // 저장 완료 → SWR 재검증 허용
-  }, [api, localInbody, formatDate, selectedDate]);
+  };
 
   const { year, month, calendarDays } = useMemo(() => {
     const y = currentDate.getFullYear(), m = currentDate.getMonth();
@@ -459,8 +461,8 @@ export const HealthView = ({
             {!isWorkoutLocked && (
               <select onChange={handleLoadRoutine}
                 className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
-                <option>Load Routine</option>
-                {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>Load Day {i + 1}</option>)}
+                {/* @ts-ignore */}<option value="">{t('loadRoutine')}</option>
+                {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}></option>)}
               </select>
             )}
           </div>
@@ -734,7 +736,7 @@ export const HealthView = ({
             </h3>
 
             {/* 이름 */}
-            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder="Exercise Name"
+            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder={t('exerciseName')}
               onChange={e => setNewBlock({ ...newBlock, name: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleSaveBlock()}
               className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-[#FACC15] font-semibold text-base ${theme.input}`}/>
@@ -742,9 +744,9 @@ export const HealthView = ({
             {/* 타입 */}
             <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
               className={`w-full p-4 rounded-2xl mb-4 outline-none font-semibold text-base ${theme.input}`}>
-              <option value="strength">Strength</option>
-              <option value="bodyweight">Bodyweight</option>
-              <option value="cardio">Cardio</option>
+              <option value="strength">{t('strength')}</option>
+              <option value="bodyweight">{t('bodyweight')}</option>
+              <option value="cardio">{t('cardio')}</option>
             </select>
 
             {/* 태그 입력 */}

@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   darkMode: false,
   defaultCategory: 'Study',
   defaultColor: 'gold',
+  language: 'en',
 };
 
 const NOTES_KEY   = 'planner-notes-v2';

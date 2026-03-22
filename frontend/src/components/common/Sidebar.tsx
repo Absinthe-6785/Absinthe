@@ -1,5 +1,6 @@
 import { Calendar, Dumbbell, BarChart2, Settings, Moon, Sun, LogOut, BookOpen } from 'lucide-react';
 import { AppSettings } from '../../types';
+import { getTranslator } from '../../lib/i18n';
 
 // AppContent 순환 참조 방지: TabId를 여기서 직접 정의
 export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note';
@@ -20,7 +21,9 @@ export const Sidebar = ({
   updateSetting,
   handleSignOut,
   userName,
-}: SidebarProps) => (
+}: SidebarProps) => {
+  const t = getTranslator((appSettings.language ?? 'en') as 'en' | 'ko' | 'ja');
+  return (
   <div
     className={`w-full lg:w-[72px] rounded-none lg:rounded-[32px] flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 ${
       appSettings.darkMode ? 'bg-zinc-900' : 'bg-[#1C1C1E]'
@@ -33,7 +36,7 @@ export const Sidebar = ({
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
           tab === 'analytics' ? BarChart2 : BookOpen;
-        const label = tab === 'note' ? 'Note' : tab.charAt(0).toUpperCase() + tab.slice(1);
+        const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : t('note');
         const isActive = activeTab === tab;
         const isNote = tab === 'note';
         return (
@@ -75,7 +78,7 @@ export const Sidebar = ({
           <Moon size={20} strokeWidth={2.5} />
         )}
         <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">
-          {appSettings.darkMode ? 'Light' : 'Dark'}
+          {appSettings.darkMode ? t('light') : t('dark')}
         </span>
       </button>
 
@@ -101,8 +104,10 @@ export const Sidebar = ({
         className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-red-400 transition-colors"
       >
         <LogOut size={20} strokeWidth={2.5} />
-        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">Out</span>
+        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">{t('out')}</span>
       </button>
     </div>
   </div>
-);
+
+  );
+};

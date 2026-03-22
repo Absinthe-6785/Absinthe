@@ -11,6 +11,7 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { PlannerProps, Schedule, Todo, Routine, DDay } from '../../types';
+import { useTranslation } from '../../lib/i18n';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 
 // timeSlots는 currentDate/schedules와 무관한 고정 값(00:00~23:30, 48개).
@@ -25,6 +26,7 @@ export const PlannerView = ({
   mutateTodos, mutateRoutines,
   appSettings, schedules, todos, routines, ddays, markedDates, theme, THEME_COLORS,
 }: PlannerProps) => {
+  const { t } = useTranslation();
   const {
     notes, folders, activeNoteId, activeFolderId,
     createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
@@ -132,18 +134,18 @@ export const PlannerView = ({
     setShowDdayForm(true);
   };
   const handleSaveDday = async () => {
-    if (!ddayForm.text || !ddayForm.date) return showToast('Enter title and date!', 'error');
+    if (!ddayForm.text || !ddayForm.date) return showToast(t('enterTitleDate'), 'error');
     const path = editingDdayId ? `/api/schedules/${editingDdayId}` : '/api/schedules';
     const ok = await api(
       editingDdayId ? 'PUT' : 'POST', path,
       { text: ddayForm.text, date: ddayForm.date, start_time: '00:00', end_time: '00:00', is_dday: true, color: 'gold', category: 'Personal' },
-      { revalidate: 'static', successMsg: 'D-Day saved' },
+      { revalidate: 'static', successMsg: t('ddaySaved') },
     );
     if (ok) setShowDdayForm(false);
   };
   const handleDeleteDday = (id: string) =>
-    showConfirm('Delete this D-Day?', () =>
-      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: 'Deleted' }),
+    showConfirm(t('deleteDday'), () =>
+      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
       { confirmLabel: 'Delete' },
     );
 
@@ -166,8 +168,8 @@ export const PlannerView = ({
     });
   };
   const handleDeleteRoutine = (id: string) =>
-    showConfirm('Delete this routine?', () =>
-      api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: 'Routine deleted' }),
+    showConfirm(t('deleteRoutine'), () =>
+      api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: t('routineDeleted') }),
       { confirmLabel: 'Delete' },
     );
   const handleUpdateRoutineText = async (id: string, text: string) => {
@@ -222,9 +224,9 @@ export const PlannerView = ({
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
-    if (!newSch.text) return showToast('Enter text!', 'error');
+    if (!newSch.text) return showToast(t('enterText'), 'error');
     if (!endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
-      return showToast('End time must be after start time! (Check "Next day" for overnight schedules)', 'error');
+      return showToast(t('endTimeError'), 'error');
 
     // 익일인 경우 overlap 체크 생략 (자정 넘는 일정은 단순 문자열 비교 불가)
     const isOverlap = !endNextDay && schedules.some(s =>
@@ -235,16 +237,16 @@ export const PlannerView = ({
         editingId ? 'PUT' : 'POST',
         editingId ? `/api/schedules/${editingId}` : '/api/schedules',
         { ...newSch, date: formatDate(selectedDate), end_next_day: endNextDay },
-        { revalidate: 'both', successMsg: 'Schedule saved' },
+        { revalidate: 'both', successMsg: t('scheduleSaved') },
       );
       if (ok) setShowForm(false);
     };
-    if (isOverlap) { showConfirm('This schedule overlaps. Save anyway?', doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
+    if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
     doSave();
   };
   const handleDeleteSchedule = (id: string) =>
-    showConfirm('Delete this schedule?', () =>
-      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: 'Deleted' }),
+    showConfirm(t('deleteSchedule'), () =>
+      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') }),
       { confirmLabel: 'Delete' },
     );
 
@@ -274,7 +276,7 @@ export const PlannerView = ({
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
             className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-[#1C1C1E] text-[#FACC15]' : `${theme.input} ${theme.textMuted}`}`}>
-            {tab === 'todo' ? 'Planner' : tab === 'memo' ? 'Memo' : tab === 'calendar' ? 'Calendar' : 'Timeline'}
+            {tab === 'todo' ? t('planner') : tab === 'memo' ? t('memo') : tab === 'calendar' ? t('calendar') : t('timeline')}
           </button>
         ))}
       </div>
@@ -286,7 +288,7 @@ export const PlannerView = ({
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <h2 className={`font-heading text-base lg:text-lg font-bold flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-              <Activity size={18} className="text-green-500"/> Routines
+              <Activity size={18} className="text-green-500"/> {t('routines')}
             </h2>
             <button
               onClick={() => { setExceptionForm({ start_date: formatDate(selectedDate), end_date: formatDate(selectedDate), reason: '' }); setShowExceptionModal(true); }}
@@ -298,11 +300,11 @@ export const PlannerView = ({
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
-            {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text="Build a daily routine!" /></div>}
+            {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text={t('noRoutines')} /></div>}
             {/* 예외일 배너 */}
             {routines[0]?.is_exception_day && (
               <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold mb-1 ${appSettings.darkMode ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-50 text-blue-600'}`}>
-                <span>🏖</span> Exception day — routines excluded from stats
+                {t('exceptionDay')}
               </div>
             )}
             {routines.map((r: Routine) => (
@@ -332,11 +334,11 @@ export const PlannerView = ({
             <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
               <input type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
-                placeholder="Add new routine..." className="flex-1 bg-transparent outline-none text-sm font-medium"
+                placeholder={t('addRoutine')} className="flex-1 bg-transparent outline-none text-sm font-medium"
                 onKeyDown={e => { if (e.key === 'Enter' && newRoutineText.trim()) { handleAddRoutine(newRoutineText); setNewRoutineText(''); } }}/>
               {newRoutineText.trim() && (
                 <button onClick={() => { handleAddRoutine(newRoutineText); setNewRoutineText(''); }}
-                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">Add</button>
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">{t('add')}</button>
               )}
             </div>
           </div>
@@ -345,12 +347,12 @@ export const PlannerView = ({
         {/* 할일 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
           <h2 className={`font-heading text-base lg:text-lg font-bold mb-3 relative z-10 flex items-center gap-2 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-            <CheckCircle size={18} className="text-[#FACC15]"/> To-do list
+            <CheckCircle size={18} className="text-[#FACC15]"/> {t('todoList')}
           </h2>
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
-            {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text="No tasks. Chill out!" /></div>}
+            {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text={t('noTasks')} /></div>}
             {todos.map((t: Todo) => (
               <div key={t.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingTodoId === t.id ? (
@@ -378,11 +380,11 @@ export const PlannerView = ({
             <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
               <input type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
-                placeholder="Add new task..." className="flex-1 bg-transparent outline-none text-sm font-medium"
+                placeholder={t('addTask')} className="flex-1 bg-transparent outline-none text-sm font-medium"
                 onKeyDown={e => { if (e.key === 'Enter' && newTodoText.trim()) { handleAddTodo(newTodoText); setNewTodoText(''); } }}/>
               {newTodoText.trim() && (
                 <button onClick={() => { handleAddTodo(newTodoText); setNewTodoText(''); }}
-                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">Add</button>
+                  className="shrink-0 bg-[#1C1C1E] text-[#FACC15] px-3 py-1 rounded-lg text-xs font-bold active:scale-95">{t('add')}</button>
               )}
             </div>
           </div>
@@ -404,7 +406,7 @@ export const PlannerView = ({
           </div>
           <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
             {ddays.length === 0
-              ? <EmptyState theme={theme} icon={Target} text="No D-Days yet" onClick={() => openDdayModal()} />
+              ? <EmptyState theme={theme} icon={Target} text={t('noDdays')} onClick={() => openDdayModal()} />
               : ddays.map((d: DDay) => (
                 <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}>
                   <p className="text-sm font-semibold truncate flex-1 mr-2">{d.text}</p>
@@ -435,12 +437,12 @@ export const PlannerView = ({
                 <FileText size={12} className="text-yellow-400"/> Memo
               </span>
               <div className="flex gap-1">
-                <button onClick={() => setShowFolderInput(v => !v)} title="New Folder"
+                <button onClick={() => setShowFolderInput(v => !v)} title={t('newFolder')}
                   className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${theme.hoverBg} ${theme.textMuted}`}>
                   <FolderPlus size={11}/>
                 </button>
                 {activeFolderId !== 'trash' && (
-                  <button onClick={() => createNote()} title="New Note"
+                  <button onClick={() => createNote()} title={t('newNote')}
                     className="w-5 h-5 rounded-md bg-[#FACC15] text-[#1C1C1E] flex items-center justify-center active:scale-90 transition-all">
                     <Plus size={11} strokeWidth={3}/>
                   </button>
@@ -459,7 +461,7 @@ export const PlannerView = ({
                     }
                     if (e.key === 'Escape') { setShowFolderInput(false); setFolderInputVal(''); }
                   }}
-                  placeholder="Folder name"
+                  placeholder={t('folderName')}
                   className={`w-full text-xs font-semibold px-2 py-1.5 rounded-lg outline-none focus:ring-1 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
             )}
@@ -577,7 +579,7 @@ export const PlannerView = ({
                 <input value={activeNote.title}
                   onChange={e => activeFolderId !== 'trash' && updateNote(activeNote.id, { title: e.target.value })}
                   readOnly={activeFolderId === 'trash'}
-                  placeholder="Title"
+                  placeholder={t('title')}
                   className="font-heading text-lg lg:text-xl font-bold bg-transparent outline-none border-none w-full"/>
               </div>
               <div className={`mx-4 h-px shrink-0 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
@@ -588,7 +590,7 @@ export const PlannerView = ({
                   onChange={e => activeFolderId !== 'trash' && updateNote(activeNote.id, { body: e.target.value })}
                   readOnly={activeFolderId === 'trash'}
                   className="relative z-10 w-full h-full resize-none text-[15px] lg:text-[14px] bg-transparent outline-none border-none font-medium"
-                  placeholder="Start writing..."
+                  placeholder={t('startWriting')}
                   style={{ lineHeight: '24px', paddingTop: '4px' }}/>
               </div>
             </div>
@@ -745,7 +747,7 @@ export const PlannerView = ({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
           <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingId ? 'Edit Schedule' : 'New Schedule'}</h3>
+              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingId ? t('editSchedule') : t('newSchedule')}</h3>
               <button onClick={() => setShowForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
             <div className="space-y-5">
@@ -810,7 +812,7 @@ export const PlannerView = ({
                     onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
                       ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
-                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">Next day</p>}
+                  {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">{t('nextDay')}</p>}
                 </div>
               </div>
               <div>
@@ -840,7 +842,7 @@ export const PlannerView = ({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowDdayForm(false)}>
           <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl font-bold">{editingDdayId ? 'Edit D-Day' : 'New D-Day'}</h3>
+              <h3 className="font-heading text-xl font-bold">{editingDdayId ? t('editDday') : t('newDday')}</h3>
               <button onClick={() => setShowDdayForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
             <div className="space-y-4">
@@ -868,25 +870,25 @@ export const PlannerView = ({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowExceptionModal(false)}>
           <div className={`rounded-[28px] p-6 w-full max-w-[360px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-5">
-              <h3 className="font-heading text-lg font-bold flex items-center gap-2">🏖 Set Exception Days</h3>
+              <h3 className="font-heading text-lg font-bold flex items-center gap-2">{t('setException')}</h3>
               <button onClick={() => setShowExceptionModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
             </div>
-            <p className={`text-xs mb-4 ${theme.textMuted}`}>Routines on these days will be excluded from completion stats.</p>
+            <p className={`text-xs mb-4 ${theme.textMuted}`}>{t('exceptionDesc')}</p>
             <div className="space-y-3">
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>Start Date</label>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('startDate')}</label>
                 <input type="date" value={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, start_date: e.target.value }))}
                   className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>End Date</label>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('endDate')}</label>
                 <input type="date" value={exceptionForm.end_date} min={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, end_date: e.target.value }))}
                   className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
               <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>Reason (optional)</label>
+                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('exReason')}</label>
                 <input type="text" value={exceptionForm.reason} onChange={e => setExceptionForm(f => ({ ...f, reason: e.target.value }))}
-                  placeholder="e.g. Business trip" className={`w-full rounded-xl p-3 outline-none text-sm focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+                  placeholder={t('exReasonPh')} className={`w-full rounded-xl p-3 outline-none text-sm focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
             </div>
             <button onClick={handleSaveException}

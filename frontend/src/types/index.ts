@@ -60,6 +60,7 @@ export interface WeeklySchedule {
 }
 export interface AppSettings {
   darkMode: boolean; defaultCategory: string; defaultColor: string;
+  language: 'en' | 'ko' | 'ja';
 }
 export interface HealthRoutine { id: string; day_name: string; blocks: string[]; }
 export interface Theme {
