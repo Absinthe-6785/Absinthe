@@ -24,8 +24,8 @@ const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 // SCHEDULE_HOURS는 컴포넌트 내부에서 weeklySchedules 기반으로 동적 계산
 
 // parseTime: 렌더 루프 안에서 매번 재생성되지 않도록 모듈 레벨로 분리.
-const parseTime = (t: string): number => {
-  const [h, m] = t.split(':');
+const parseTime = (timeStr: string): number => {
+  const [h, m] = timeStr.split(':');
   return parseInt(h || '0') + parseInt(m || '0') / 60;
 };
 
@@ -400,7 +400,7 @@ export const AnalyticsView = ({
           {(() => {
             // 실제 일정의 최대 end_time 기준으로 표시 시간 결정
             // 최소 18시, 최대 24시
-            const parseT = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
+            const parseT = (ts: string) => { const [h, m] = ts.split(':').map(Number); return h + m / 60; };
             const maxHour = (weeklySchedules || []).reduce((max, s) => {
               let end = parseT(s.end_time);
               if (end <= parseT(s.start_time)) end += 24; // 자정 넘는 일정
