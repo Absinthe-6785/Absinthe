@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef, MouseEvent, ChangeEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -50,6 +50,11 @@ export const HealthView = ({
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
+  // ── 드래그 정렬 상태 ──────────────────────────────────────────────
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const dragNodeRef = useRef<HTMLDivElement | null>(null);
+  const dragStartY = useRef<number>(0);
   // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
   const [isInbodyDirty, setIsInbodyDirty] = useState(false);
   const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
@@ -165,9 +170,9 @@ export const HealthView = ({
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
   const handleLoadRoutine = (e: ChangeEvent<HTMLSelectElement>) => {
     const dayName = e.target.value;
-    if (dayName === 'Load Routine') return;
+    if (!dayName || dayName === '__load__') return;
     const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
-    if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = 'Load Routine'; return; }
+    if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = '__load__'; return; }
 
     // routine.blocks 순서를 완전한 기준으로 삼아 최종 배열을 구성.
     // 1) 루틴에 포함된 블록: routine.blocks[i] 순서 그대로
@@ -185,7 +190,7 @@ export const HealthView = ({
     const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
     setLocalWorkouts([...routineOrdered, ...unrelated]);
     setIsDirty(true);
-    e.target.value = 'Load Routine';
+    e.target.value = '__load__';
     showToast(t('loaded'));
   };
   const handleAddWorkoutToToday = (block: ExerciseBlock) => {
@@ -270,6 +275,48 @@ export const HealthView = ({
       showToast(t('failedSave'), 'error');
     }
   };
+  // ── 드래그 정렬 핸들러 ────────────────────────────────────────────
+  const handleDragStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, index: number) => {
+    if (isWorkoutLocked) return;
+    setDragIndex(index);
+    dragNodeRef.current = e.currentTarget;
+    e.currentTarget.style.opacity = '0.5';
+  };
+
+  const handleDragEnter = (index: number) => {
+    if (dragIndex === null || dragIndex === index) return;
+    setDragOverIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      setLocalWorkouts(prev => {
+        const next = [...prev];
+        const [moved] = next.splice(dragIndex, 1);
+        next.splice(dragOverIndex, 0, moved);
+        return next;
+      });
+      setIsDirty(true);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+    if (dragNodeRef.current) dragNodeRef.current.style.opacity = '1';
+    dragNodeRef.current = null;
+  };
+
+  // 터치 드래그
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (dragIndex === null) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+    const cardEl = elements.find(el => el.getAttribute('data-workout-index'));
+    if (cardEl) {
+      const idx = Number(cardEl.getAttribute('data-workout-index'));
+      if (idx !== dragIndex) setDragOverIndex(idx);
+    }
+  };
+
   const handleSaveInbody = async () => {
     if (localInbody.weight < 0 || localInbody.smm < 0 || localInbody.pbf < 0)
       return showToast(t('valuesNegative'), 'error');
@@ -461,8 +508,8 @@ export const HealthView = ({
             {!isWorkoutLocked && (
               <select onChange={handleLoadRoutine}
                 className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
-                {/* @ts-ignore */}<option value="">{t('loadRoutine')}</option>
-                {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}></option>)}
+                <option value="__load__">{t('loadRoutine')}</option>
+                {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>Load Day {i + 1}</option>)}
               </select>
             )}
           </div>
@@ -470,7 +517,22 @@ export const HealthView = ({
           <div className="space-y-5 pb-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
-              <div key={w.id} className={`border rounded-3xl p-5 relative group shadow-sm ${theme.border}`}>
+              <div
+                key={w.id}
+                data-workout-index={wIdx}
+                draggable={!isWorkoutLocked}
+                onDragStart={e => handleDragStart(e as any, wIdx)}
+                onDragEnter={() => handleDragEnter(wIdx)}
+                onDragEnd={handleDragEnd}
+                onDragOver={e => e.preventDefault()}
+                onTouchStart={e => handleDragStart(e as any, wIdx)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleDragEnd}
+                className={`border rounded-3xl p-5 relative group shadow-sm transition-all duration-150 ${theme.border} ${
+                  dragOverIndex === wIdx && dragIndex !== wIdx
+                    ? appSettings.darkMode ? 'border-[#FACC15] bg-[#FACC15]/5 scale-[1.01]' : 'border-[#FACC15] bg-yellow-50/50 scale-[1.01]'
+                    : ''
+                } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}>
                 {!isWorkoutLocked && (
                   <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
                     className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
@@ -478,7 +540,10 @@ export const HealthView = ({
                   </button>
                 )}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className={`w-3 h-3 rounded-full ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
+                  {!isWorkoutLocked && (
+                    <GripVertical size={18} className={`shrink-0 ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'} cursor-grab active:cursor-grabbing`}/>
+                  )}
+                  <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
                   <h3 className="font-heading text-lg font-bold">{w.exercise_blocks?.name || 'Unknown'}</h3>
                 </div>
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
@@ -736,7 +801,7 @@ export const HealthView = ({
             </h3>
 
             {/* 이름 */}
-            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder={t('exerciseName')}
+            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder="Exercise Name"
               onChange={e => setNewBlock({ ...newBlock, name: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleSaveBlock()}
               className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-[#FACC15] font-semibold text-base ${theme.input}`}/>
@@ -744,9 +809,9 @@ export const HealthView = ({
             {/* 타입 */}
             <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
               className={`w-full p-4 rounded-2xl mb-4 outline-none font-semibold text-base ${theme.input}`}>
-              <option value="strength">{t('strength')}</option>
-              <option value="bodyweight">{t('bodyweight')}</option>
-              <option value="cardio">{t('cardio')}</option>
+              <option value="strength">Strength</option>
+              <option value="bodyweight">Bodyweight</option>
+              <option value="cardio">Cardio</option>
             </select>
 
             {/* 태그 입력 */}
