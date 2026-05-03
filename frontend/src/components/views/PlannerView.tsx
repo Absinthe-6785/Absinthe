@@ -307,7 +307,7 @@ export const PlannerView = ({
                 {t('exceptionDay')}
               </div>
             )}
-            {routines.map((r: Routine) => (
+            {routines.filter((r: Routine) => r.is_active !== false).map((r: Routine) => (
               <div key={r.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingRoutineId === r.id ? (
                   <input autoFocus value={editRoutineText}
