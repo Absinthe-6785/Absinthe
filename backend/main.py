@@ -201,17 +201,18 @@ async def delete_todo(todo_id: str, user_id: str = Depends(get_current_user)):
 # ==========================================
 @app.get("/api/routines_with_logs")
 async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_user)):
-    from datetime import date as date_cls
-    today = str(date_cls.today())
-    # 오늘 날짜: is_active=True인 루틴만 표시 (삭제된 루틴 숨김)
-    # 과거 날짜: 삭제된 루틴도 포함 (기록 보존)
     all_routines = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
-    if date < today:
-        routines = [r for r in all_routines if not r.get("created_date") or r["created_date"] <= date]
-    else:
-        routines = [r for r in all_routines if r.get("is_active", True) and (not r.get("created_date") or r["created_date"] <= date)]
     logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).eq("date", date).execute().data or []
     log_dict = {str(log["routine_id"]): log.get("done", False) for log in logs}
+    logged_ids = {str(log["routine_id"]) for log in logs}  # 해당 날짜에 로그가 있는 루틴 ID
+
+    # created_date 필터 먼저 적용
+    routines = [r for r in all_routines if not r.get("created_date") or r["created_date"] <= date]
+
+    # is_active=True → 항상 표시
+    # is_active=False → 해당 날짜에 로그가 있을 때만 표시 (과거 기록 보존)
+    routines = [r for r in routines if r.get("is_active", True) or str(r["id"]) in logged_ids]
+
     # 해당 날짜가 예외일인지 확인
     exceptions = supabase.table("routine_exceptions").select("start_date, end_date").eq("user_id", user_id).lte("start_date", date).gte("end_date", date).execute().data or []
     is_exception_day = len(exceptions) > 0
