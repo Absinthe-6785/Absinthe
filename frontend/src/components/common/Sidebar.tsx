@@ -39,7 +39,6 @@ export const Sidebar = ({
           tab === 'recipe'    ? BookMarked : BookOpen;
         const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : tab === 'note' ? t('note') : t('recipe');
         const isActive = activeTab === tab;
-        const isNote = tab === 'note' || tab === 'recipe';
         return (
           <button
             key={tab}
@@ -56,11 +55,7 @@ export const Sidebar = ({
             <span className={`text-[9px] font-bold leading-none mt-0.5 ${isActive ? 'text-[#1C1C1E]' : 'text-gray-500'}`}>
               {label}
             </span>
-            {isNote && (
-              <span className={`absolute -top-1 -right-1 text-[7px] font-bold px-1 py-0.5 rounded-full leading-none ${
-                isActive ? 'bg-[#1C1C1E] text-[#FACC15]' : 'bg-[#FACC15] text-[#1C1C1E]'
-              }`}>β</span>
-            )}
+
           </button>
         );
       })}

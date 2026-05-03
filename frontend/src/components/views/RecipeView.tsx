@@ -23,11 +23,11 @@ export interface Recipe {
 interface RecipeViewProps extends BaseViewProps {}
 
 // ── 상수 ────────────────────────────────────────────────────────────
-const CATEGORIES = ['All', 'Breakfast', 'Lunch', 'Dinner', 'Snack', 'Drink', 'Other'] as const;
+const CATEGORIES = ['All', 'Korean', 'Japanese', 'Chinese', 'Western', 'Fusion', 'Dessert', 'Drink', 'Other'] as const;
 type Category = typeof CATEGORIES[number];
 
 const EMPTY_FORM = {
-  title: '', category: 'Other', ingredients: '', steps: '', memo: '', starred: false,
+  title: '', category: 'Korean', ingredients: '', steps: '', memo: '', starred: false,
 };
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
@@ -159,9 +159,14 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
   // ── 색상 ──────────────────────────────────────────────────────────
   const catColor: Record<string, string> = {
-    Breakfast: 'bg-orange-400', Lunch: 'bg-green-500',
-    Dinner: 'bg-blue-500', Snack: 'bg-yellow-400',
-    Drink: 'bg-cyan-500', Other: 'bg-gray-400',
+    Korean:   'bg-orange-400',
+    Japanese: 'bg-pink-400',
+    Chinese:  'bg-red-500',
+    Western:  'bg-blue-500',
+    Fusion:   'bg-purple-500',
+    Dessert:  'bg-yellow-400',
+    Drink:    'bg-cyan-500',
+    Other:    'bg-gray-400',
   };
 
   // ── 렌더 ──────────────────────────────────────────────────────────
