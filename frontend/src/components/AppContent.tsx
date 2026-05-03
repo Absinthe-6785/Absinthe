@@ -16,6 +16,7 @@ import { HealthView } from './views/HealthView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
 import { NoteView } from './views/NoteView';
+import { RecipeView } from './views/RecipeView';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -136,6 +137,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
         {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
         {activeTab === 'note'      && <NoteView />}
+        {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
       </div>
 
       {toast && (

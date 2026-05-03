@@ -1,9 +1,9 @@
-import { Calendar, Dumbbell, BarChart2, Settings, Moon, Sun, LogOut, BookOpen } from 'lucide-react';
+import { Calendar, Dumbbell, BarChart2, Settings, Moon, Sun, LogOut, BookOpen, BookMarked } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { getTranslator } from '../../lib/i18n';
 
 // AppContent 순환 참조 방지: TabId를 여기서 직접 정의
-export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note';
+export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note' | 'recipe';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -31,14 +31,15 @@ export const Sidebar = ({
   >
     {/* ── 주요 탭 ── */}
     <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
-      {(['planner', 'health', 'analytics', 'note'] as const).map((tab) => {
+      {(['planner', 'health', 'analytics', 'note', 'recipe'] as const).map((tab) => {
         const Icon =
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
-          tab === 'analytics' ? BarChart2 : BookOpen;
-        const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : t('note');
+          tab === 'analytics' ? BarChart2 :
+          tab === 'recipe'    ? BookMarked : BookOpen;
+        const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : tab === 'note' ? t('note') : t('recipe');
         const isActive = activeTab === tab;
-        const isNote = tab === 'note';
+        const isNote = tab === 'note' || tab === 'recipe';
         return (
           <button
             key={tab}

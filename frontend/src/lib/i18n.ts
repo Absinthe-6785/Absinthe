@@ -141,6 +141,13 @@ const translations = {
   resetSuccess:   { en: 'All data has been permanently deleted.', ko: '모든 데이터가 삭제되었습니다.', ja: 'すべてのデータが削除されました。' },
   resetFailed:    { en: 'Failed to reset data.', ko: '데이터 초기화 실패.', ja: 'データのリセットに失敗しました。' },
 
+  // ── Recipe ───────────────────────────────────────────────────────
+  recipe:         { en: 'Recipe',        ko: '레시피',       ja: 'レシピ'       },
+  recipes:        { en: 'Recipes',       ko: '레시피',       ja: 'レシピ'       },
+
+  // ── Recipe ───────────────────────────────────────────────────────
+  recipe:         { en: 'Recipe',        ko: '레시피',       ja: 'レシピ'       },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

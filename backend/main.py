@@ -400,12 +400,62 @@ async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_cu
 # ==========================================
 # Notes
 # ==========================================
+class RecipeCreate(BaseModel):
+    title: str
+    category: str = 'Other'
+    ingredients: str = ''
+    steps: str = ''
+    memo: str = ''
+    starred: bool = False
+
 class RoutineExceptionCreate(BaseModel):
     start_date: str
     end_date: str
     reason: str = ''
 
 class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None
+
+# ==========================================
+# Recipes (레시피)
+# ==========================================
+@app.get("/api/recipes")
+async def get_recipes(user_id: str = Depends(get_current_user)):
+    return supabase.table("recipes").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data or []
+
+@app.post("/api/recipes")
+async def create_recipe(recipe: RecipeCreate, user_id: str = Depends(get_current_user)):
+    data = supabase.table("recipes").insert({
+        "user_id": user_id,
+        "title": recipe.title,
+        "category": recipe.category,
+        "ingredients": recipe.ingredients,
+        "steps": recipe.steps,
+        "memo": recipe.memo,
+        "starred": recipe.starred,
+    }).execute().data
+    return data[0] if data else {}
+
+@app.put("/api/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("recipes").select("user_id").eq("id", recipe_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    data = supabase.table("recipes").update({
+        "title": recipe.title,
+        "category": recipe.category,
+        "ingredients": recipe.ingredients,
+        "steps": recipe.steps,
+        "memo": recipe.memo,
+        "starred": recipe.starred,
+    }).eq("id", recipe_id).execute().data
+    return data[0] if data else {}
+
+@app.delete("/api/recipes/{recipe_id}")
+async def delete_recipe(recipe_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("recipes").select("user_id").eq("id", recipe_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("recipes").delete().eq("id", recipe_id).execute().data
 
 # ==========================================
 # Routine Exceptions (예외일)
