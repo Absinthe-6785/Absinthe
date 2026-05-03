@@ -201,7 +201,7 @@ async def delete_todo(todo_id: str, user_id: str = Depends(get_current_user)):
 # ==========================================
 @app.get("/api/routines_with_logs")
 async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_user)):
-    routines = supabase.table("routines").select("*").eq("user_id", user_id).execute().data or []
+    routines = supabase.table("routines").select("*").eq("user_id", user_id).eq("is_active", True).execute().data or []
     # created_date가 없거나(기존 데이터) 요청 날짜 이하인 루틴만 표시
     routines = [r for r in routines if not r.get("created_date") or r["created_date"] <= date]
     logs = supabase.table("routine_logs").select("*").eq("user_id", user_id).eq("date", date).execute().data or []
@@ -266,10 +266,11 @@ async def update_routine_text(routine_id: str, routine: RoutineUpdate, user_id: 
 
 @app.delete("/api/routines/{routine_id}")
 async def delete_routine(routine_id: str, user_id: str = Depends(get_current_user)):
+    """소프트 삭제 — is_active=False 처리, 과거 로그 보존"""
     row = supabase.table("routines").select("user_id").eq("id", routine_id).single().execute().data
     verify_owner(row["user_id"], user_id)
-    supabase.table("routine_logs").delete().eq("routine_id", routine_id).execute()
-    return supabase.table("routines").delete().eq("id", routine_id).execute().data
+    # 로그 삭제 제거: 과거 달성률 통계 보존을 위해 하드 삭제 대신 비활성화
+    return supabase.table("routines").update({"is_active": False}).eq("id", routine_id).execute().data
 
 # ==========================================
 # Exercise Blocks
