@@ -210,8 +210,32 @@ async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_u
     routines = [r for r in all_routines if not r.get("created_date") or r["created_date"] <= date]
 
     # is_active=True → 항상 표시
-    # is_active=False → 해당 날짜에 로그가 있을 때만 표시 (과거 기록 보존)
-    routines = [r for r in routines if r.get("is_active", True) or str(r["id"]) in logged_ids]
+    # is_active=False → created_date ~ 마지막 로그 날짜 범위 안에 있을 때만 표시
+    if any(not r.get("is_active", True) for r in routines):
+        inactive_ids = [str(r["id"]) for r in routines if not r.get("is_active", True)]
+        if inactive_ids:
+            all_logs = supabase.table("routine_logs").select("routine_id, date").eq("user_id", user_id).in_("routine_id", inactive_ids).execute().data or []
+            last_log_date = {}
+            for log in all_logs:
+                rid = str(log["routine_id"])
+                if rid not in last_log_date or log["date"] > last_log_date[rid]:
+                    last_log_date[rid] = log["date"]
+        else:
+            last_log_date = {}
+    else:
+        last_log_date = {}
+
+    def should_show(r):
+        if r.get("is_active", True):
+            return True
+        rid = str(r["id"])
+        last = last_log_date.get(rid)
+        # 마지막 로그 날짜까지는 표시, 이후에는 숨김
+        if last is None:
+            return False
+        return date <= last
+
+    routines = [r for r in routines if should_show(r)]
 
     # 해당 날짜가 예외일인지 확인
     exceptions = supabase.table("routine_exceptions").select("start_date, end_date").eq("user_id", user_id).lte("start_date", date).gte("end_date", date).execute().data or []
