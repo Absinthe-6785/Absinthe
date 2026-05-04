@@ -209,31 +209,15 @@ async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_u
     # created_date 필터 먼저 적용
     routines = [r for r in all_routines if not r.get("created_date") or r["created_date"] <= date]
 
-    # is_active=True → 항상 표시
-    # is_active=False → created_date ~ 마지막 로그 날짜 범위 안에 있을 때만 표시
-    if any(not r.get("is_active", True) for r in routines):
-        inactive_ids = [str(r["id"]) for r in routines if not r.get("is_active", True)]
-        if inactive_ids:
-            all_logs = supabase.table("routine_logs").select("routine_id, date").eq("user_id", user_id).in_("routine_id", inactive_ids).execute().data or []
-            last_log_date = {}
-            for log in all_logs:
-                rid = str(log["routine_id"])
-                if rid not in last_log_date or log["date"] > last_log_date[rid]:
-                    last_log_date[rid] = log["date"]
-        else:
-            last_log_date = {}
-    else:
-        last_log_date = {}
-
+    # is_active=True  → 항상 표시
+    # is_active=False → deleted_at 이전 날짜에만 표시 (삭제일 당일 포함 안 함)
     def should_show(r):
         if r.get("is_active", True):
             return True
-        rid = str(r["id"])
-        last = last_log_date.get(rid)
-        # 마지막 로그 날짜까지는 표시, 이후에는 숨김
-        if last is None:
-            return False
-        return date <= last
+        deleted_at = r.get("deleted_at")
+        if not deleted_at:
+            return False  # deleted_at 없으면 숨김
+        return date < deleted_at  # 삭제일 이전 날짜에만 표시
 
     routines = [r for r in routines if should_show(r)]
 
@@ -297,11 +281,14 @@ async def update_routine_text(routine_id: str, routine: RoutineUpdate, user_id: 
 
 @app.delete("/api/routines/{routine_id}")
 async def delete_routine(routine_id: str, user_id: str = Depends(get_current_user)):
-    """소프트 삭제 — is_active=False 처리, 과거 로그 보존"""
+    """소프트 삭제 — is_active=False + deleted_at 기록, 과거 로그 보존"""
+    from datetime import date as date_cls
     row = supabase.table("routines").select("user_id").eq("id", routine_id).single().execute().data
     verify_owner(row["user_id"], user_id)
-    # 로그 삭제 제거: 과거 달성률 통계 보존을 위해 하드 삭제 대신 비활성화
-    return supabase.table("routines").update({"is_active": False}).eq("id", routine_id).execute().data
+    return supabase.table("routines").update({
+        "is_active": False,
+        "deleted_at": str(date_cls.today()),
+    }).eq("id", routine_id).execute().data
 
 # ==========================================
 # Exercise Blocks
