@@ -276,7 +276,14 @@ export const HealthView = ({
     }
   };
   // ── 드래그 정렬 핸들러 ────────────────────────────────────────────
-  const handleDragStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, index: number) => {
+  const handleDragStart = (e: React.MouseEvent<HTMLDivElement>, index: number) => {
+    if (isWorkoutLocked) return;
+    setDragIndex(index);
+    dragNodeRef.current = e.currentTarget;
+    e.currentTarget.style.opacity = '0.5';
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>, index: number) => {
     if (isWorkoutLocked) return;
     setDragIndex(index);
     dragNodeRef.current = e.currentTarget;
@@ -354,7 +361,7 @@ export const HealthView = ({
         </div>
         <div className={`lg:h-[40%] min-h-0 max-h-[280px] lg:max-h-none rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="font-heading text-lg font-bold">Workout Blocks</h2>
+            <h2 className="font-heading text-lg font-bold">{t('workoutBlocks')}</h2>
             <button onClick={() => openBlockModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
           {/* 태그별 그룹 + 필터 */}
@@ -430,7 +437,7 @@ export const HealthView = ({
                     <div>
                       {allTags.length > 0 && (
                         <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>OTHER</span>
+                          <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>{t('other')}</span>
                           <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
                         </div>
                       )}
@@ -447,7 +454,7 @@ export const HealthView = ({
 
         <div className={`max-h-[420px] lg:max-h-none lg:flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="font-heading text-lg font-bold">Routine Setup</h2>
+            <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
                 type="number" inputMode="numeric" min="1" max="7"
@@ -469,7 +476,7 @@ export const HealthView = ({
                   }
                 }}
                 className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
-              <span className={`text-xs font-semibold ${theme.textMuted}`}>Split(s)</span>
+              <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto space-y-4">
@@ -500,7 +507,7 @@ export const HealthView = ({
         <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors lg:min-h-0 lg:flex-1 ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
-              <h2 className="font-heading text-2xl font-bold">Today's Workout</h2>
+              <h2 className="font-heading text-2xl font-bold">{t('todayWorkout')}</h2>
               <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>
                 {selectedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
               </p>
@@ -521,11 +528,11 @@ export const HealthView = ({
                 key={w.id}
                 data-workout-index={wIdx}
                 draggable={!isWorkoutLocked}
-                onDragStart={e => handleDragStart(e as any, wIdx)}
+                onDragStart={e => handleDragStart(e, wIdx)}
                 onDragEnter={() => handleDragEnter(wIdx)}
                 onDragEnd={handleDragEnd}
                 onDragOver={e => e.preventDefault()}
-                onTouchStart={e => handleDragStart(e as any, wIdx)}
+                onTouchStart={e => handleTouchStart(e, wIdx)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleDragEnd}
                 className={`border rounded-3xl p-5 relative group shadow-sm transition-all duration-150 ${theme.border} ${
@@ -575,7 +582,7 @@ export const HealthView = ({
                         {isDS && (
                           <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
                             <div className="h-px flex-1 bg-orange-400/50"/>
-                            <span className="text-[10px] font-bold text-orange-400 shrink-0">DROP SET</span>
+                            <span className="text-[10px] font-bold text-orange-400 shrink-0">{t('dropSet')}</span>
                             <div className="h-px flex-1 bg-orange-400/50"/>
                           </div>
                         )}
@@ -671,8 +678,8 @@ export const HealthView = ({
                     </svg>
                   </div>
                   <div>
-                    <p className={`text-sm font-bold ${appSettings.darkMode ? 'text-green-400' : 'text-green-700'}`}>Workout Saved</p>
-                    <p className={`text-[11px] ${appSettings.darkMode ? 'text-green-600' : 'text-green-500'}`}>Tap Edit to modify</p>
+                    <p className={`text-sm font-bold ${appSettings.darkMode ? 'text-green-400' : 'text-green-700'}`}>{t('workoutSavedShort')}</p>
+                    <p className={`text-[11px] ${appSettings.darkMode ? 'text-green-600' : 'text-green-500'}`}>{t('tapEditModify')}</p>
                   </div>
                 </div>
                 <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
@@ -684,7 +691,7 @@ export const HealthView = ({
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
                 className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all">
-                <Save size={20}/> Complete Workout
+                <Save size={20}/> {t('completeWorkout')}
               </button>
             )}
           </div>
@@ -767,7 +774,7 @@ export const HealthView = ({
           <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col justify-between transition-colors gap-3 lg:gap-0 ${theme.card}`}>
             <div className="flex justify-between items-center mb-2 lg:mb-4">
               <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Target size={18} className="text-[#FACC15]"/> InBody</h2>
-              <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3.5 py-2 rounded-xl hover:bg-gray-800 transition-colors">Save</button>
+              <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3.5 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
             {[
               { label: 'Weight', field: 'weight' as const, unit: 'kg', color: 'text-blue-500' },
@@ -801,7 +808,7 @@ export const HealthView = ({
             </h3>
 
             {/* 이름 */}
-            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder="Exercise Name"
+            <input autoFocus type="text" value={newBlock.name ?? ''} placeholder={t('exerciseName')}
               onChange={e => setNewBlock({ ...newBlock, name: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleSaveBlock()}
               className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-[#FACC15] font-semibold text-base ${theme.input}`}/>
@@ -809,14 +816,14 @@ export const HealthView = ({
             {/* 타입 */}
             <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
               className={`w-full p-4 rounded-2xl mb-4 outline-none font-semibold text-base ${theme.input}`}>
-              <option value="strength">Strength</option>
-              <option value="bodyweight">Bodyweight</option>
-              <option value="cardio">Cardio</option>
+              <option value="strength">{t('strength')}</option>
+              <option value="bodyweight">{t('bodyweight')}</option>
+              <option value="cardio">{t('cardio')}</option>
             </select>
 
             {/* 태그 입력 */}
             <div className={`rounded-2xl p-3 mb-2 ${theme.input}`}>
-              <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>Tags (Enter or comma to add)</p>
+              <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('tagsPlaceholder')}</p>
               {/* 등록된 태그 */}
               {(newBlock.tags ?? []).length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
@@ -832,7 +839,7 @@ export const HealthView = ({
               <input
                 type="text"
                 value={tagInput}
-                placeholder="e.g. chest, push, upper"
+                placeholder={t('exNamePlaceholder')}
                 onChange={e => {
                   const val = e.target.value;
                   if (val.endsWith(',')) {
@@ -849,7 +856,7 @@ export const HealthView = ({
                 className="w-full bg-transparent outline-none text-sm font-semibold placeholder-gray-400"
               />
             </div>
-            <p className={`text-[11px] mb-4 ${theme.textMuted}`}>Tap a block to add to today's workout. Use tags to filter blocks.</p>
+            <p className={`text-[11px] mb-4 ${theme.textMuted}`}>{t('tapBlockHint')}</p>
 
             <button onClick={handleSaveBlock} className="w-full bg-[#1C1C1E] text-[#FACC15] p-4 rounded-2xl font-bold text-lg hover:bg-gray-800 transition-colors">
               {editingBlock ? 'Save Changes' : 'Create'}
@@ -886,7 +893,7 @@ export const HealthView = ({
               {/* 선택된 순서 미리보기 */}
               {tempRoutineBlocks.length > 0 && (
                 <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
-                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>ORDER (drag to reorder)</p>
+                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
                       const b = (healthBlocks || []).find((bk: ExerciseBlock) => bk.id === id);
@@ -932,7 +939,7 @@ export const HealthView = ({
               </div>
 
               <button onClick={handleSaveRoutine} className="mt-5 shrink-0 w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg p-4 rounded-2xl hover:bg-gray-800 transition-colors">
-                Save Routine
+                {t('routineSaved')}
               </button>
             </div>
           </div>
