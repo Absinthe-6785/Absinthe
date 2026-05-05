@@ -780,7 +780,7 @@ export const PlannerView = ({
                             }));
                             // setEndNextDay(true) 제거 — 수동 설정 유지
                           } else {
-                            setNewSch(prev => ({ ...prev, category: cat.id }));
+                            setNewSch(prev => ({ ...prev, category: cat.id, ...(cat.id === 'Exercise' ? { color: 'blue' } : {}) }));
                           }
                         })()}
                       className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1
