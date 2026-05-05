@@ -118,19 +118,31 @@ export const NoteView = () => {
         if (nRes.ok) {
           const raw = await nRes.json();
           const localNotes = nvLoadNotes();
-          const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null }) => {
+          const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean }) => {
             const local = localNotes.find(l => l.id === n.id);
+            // 충돌 해결: updatedAt이 더 최신인 쪽을 우선
+            const localIsNewer = local && local.updatedAt > n.updated_at;
             return {
-              id: n.id, title: n.title ?? '', body: n.body ?? '', updatedAt: n.updated_at,
+              id: n.id,
+              title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
+              body:      localIsNewer ? (local.body  ?? '') : (n.body  ?? ''),
+              updatedAt: localIsNewer ? local.updatedAt     : n.updated_at,
               folderId:  n.folder_id  != null ? n.folder_id  : (local?.folderId  ?? null),
               deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
-              starred: local?.starred ?? false,
+              // starred: 로컬이 더 최신이면 로컬, 아니면 DB 값 사용 (양쪽 모두 보존)
+              starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
             };
           });
+          // 로컬에만 있는 노트(DB에 없는 것) → DB에 업로드 (실패해도 계속 진행)
+          const dbIds = new Set(raw.map((n: { id: string }) => n.id));
+          const localOnly = localNotes.filter(l => !dbIds.has(l.id) && !l.deletedAt);
+          if (localOnly.length > 0) {
+            await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
+          }
           // 30일 지난 휴지통 자동 제거
           const MONTH = 30 * 24 * 60 * 60 * 1000;
           const valid = dbNotes.filter(n => !n.deletedAt || Date.now() - n.deletedAt < MONTH);
-          if (valid.length > 0) {
+          if (dbNotes.length > 0) {  // DB에 노트가 있으면 항상 setNotes (valid가 0이어도)
             setNotes(valid);
             nvSaveNotes(valid);
             // activeNoteId가 유효한지 확인
@@ -140,10 +152,10 @@ export const NoteView = () => {
               try { localStorage.setItem(NV_ACTIVE_KEY, next ?? ''); } catch { /**/ }
               return next;
             });
-          } else {
-            // DB 비어있으면 localStorage 노트를 DB에 업로드
+          } else if (dbNotes.length === 0) {
+            // DB 완전히 비어있으면 localStorage 노트를 DB에 업로드
             const local = nvLoadNotes();
-            await Promise.all(local.map(note => syncNoteToDB(note)));
+            await Promise.allSettled(local.map(note => syncNoteToDB(note)));
           }
         }
       } catch { /**/ } finally {

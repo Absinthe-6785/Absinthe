@@ -243,16 +243,24 @@ async def get_routines_range(start_date: str, end_date: str, user_id: str = Depe
             d += timedelta(days=1)
     # (routine_id, date) → done 매핑
     log_map = {(str(l["routine_id"]), l["date"]): l["done"] for l in logs}
+    routine_map = {str(r["id"]): r for r in routines}
     result = []
     for log in logs:
-        routine = next((r for r in routines if str(r["id"]) == str(log["routine_id"])), None)
-        if routine and log["date"] not in exception_dates:
-            result.append({
-                "date": log["date"],
-                "text": routine["text"],
-                "done": log_map.get((str(log["routine_id"]), log["date"]), False),
-                "is_active": routine.get("is_active", True),
-            })
+        routine = routine_map.get(str(log["routine_id"]))
+        if not routine:
+            continue
+        if log["date"] in exception_dates:
+            continue
+        # 삭제된 루틴: deleted_at 이후 날짜의 로그는 통계에서 제외
+        deleted_at = routine.get("deleted_at")
+        if deleted_at and log["date"] >= deleted_at:
+            continue
+        result.append({
+            "date": log["date"],
+            "text": routine["text"],
+            "done": log_map.get((str(log["routine_id"]), log["date"]), False),
+            "is_active": routine.get("is_active", True),
+        })
     result.sort(key=lambda x: x["date"])
     return result
 
@@ -533,6 +541,7 @@ async def export_backup(user_id: str = Depends(get_current_user)):
     (
         notes, folders, schedules, todos, routines,
         routine_logs, blocks, workout_logs, inbody_logs, ddays,
+        recipes, routine_exceptions,
     ) = await asyncio.gather(
         loop.run_in_executor(None, lambda: _fetch("notes", "updated_at")),
         loop.run_in_executor(None, lambda: _fetch("note_folders", "created_at")),
@@ -544,10 +553,12 @@ async def export_backup(user_id: str = Depends(get_current_user)):
         loop.run_in_executor(None, lambda: _fetch("workout_logs", "date")),
         loop.run_in_executor(None, lambda: _fetch("inbody_logs", "date")),
         loop.run_in_executor(None, lambda: _fetch("ddays")),
+        loop.run_in_executor(None, lambda: _fetch("recipes", "created_at")),
+        loop.run_in_executor(None, lambda: _fetch("routine_exceptions", "start_date")),
     )
 
     return {
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": notes,
         "note_folders": folders,
@@ -559,6 +570,8 @@ async def export_backup(user_id: str = Depends(get_current_user)):
         "workout_logs": workout_logs,
         "inbody_logs": inbody_logs,
         "ddays": ddays,
+        "recipes": recipes,
+        "routine_exceptions": routine_exceptions,
     }
 
 class RestorePayload(BaseModel):
@@ -572,6 +585,8 @@ class RestorePayload(BaseModel):
     workout_logs: list = []
     inbody_logs: list = []
     ddays: list = []
+    recipes: list = []
+    routine_exceptions: list = []
 
 @app.post("/api/restore")
 async def import_backup(payload: RestorePayload, user_id: str = Depends(get_current_user)):
@@ -591,5 +606,7 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     upsert("workout_logs",    payload.workout_logs)
     upsert("inbody_logs",     payload.inbody_logs)
     upsert("ddays",           payload.ddays)
+    upsert("recipes",           payload.recipes)
+    upsert("routine_exceptions", payload.routine_exceptions)
     from datetime import datetime, timezone
     return {"status": "ok", "restored_at": datetime.now(timezone.utc).isoformat()}
