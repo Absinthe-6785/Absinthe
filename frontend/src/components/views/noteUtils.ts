@@ -32,13 +32,19 @@ export function nvLoadNotes(): NoteBase[] {
   try {
     const raw = localStorage.getItem(NV_NOTES_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as NoteBase[];
+      const parsed = JSON.parse(raw);
+      // 배열 여부 확인 (손상된 데이터 방어)
+      const arr: NoteBase[] = Array.isArray(parsed) ? parsed : [];
       // null/undefined 필드 정규화 (구버전 데이터 호환)
-      return parsed.map(n => ({
+      return arr.map(n => ({
         ...n,
         title: n.title ?? '',
         body:  n.body  ?? '',
         id:    n.id    ?? `note-${Date.now()}-${Math.random()}`,
+        updatedAt: n.updatedAt ?? Date.now(),
+        folderId:  n.folderId  ?? null,
+        deletedAt: n.deletedAt ?? null,
+        starred:   n.starred   ?? false,
       }));
     }
   } catch { /**/ }
@@ -56,7 +62,10 @@ export function nvLoadNotes(): NoteBase[] {
 export function nvLoadFolders(): NoteFolderBase[] {
   try {
     const raw = localStorage.getItem(NV_FOLDERS_KEY);
-    if (raw) return JSON.parse(raw) as NoteFolderBase[];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed as NoteFolderBase[] : [];
+    }
   } catch { /**/ }
   return [];
 }

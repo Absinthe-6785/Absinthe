@@ -83,7 +83,7 @@ export const NoteView = () => {
   }, []);
 
   // ── NoteView 전용 독립 상태 (PlannerView Memo와 완전 분리) ───────
-  const [notes,   setNotes]   = useState<Note[]>(nvLoadNotes);
+  const [notes,   setNotes]   = useState<Note[]>(() => { const n = nvLoadNotes(); return Array.isArray(n) ? n : []; });
   const [folders, setFolders] = useState<NoteFolder[]>(nvLoadFolders);
   const [activeNoteId,   setActiveNoteIdRaw]   = useState<string | null>(() => {
     try { return localStorage.getItem(NV_ACTIVE_KEY) || nvLoadNotes()[0]?.id || null; } catch { return null; }
@@ -354,11 +354,12 @@ export const NoteView = () => {
 
   // ── 필터링 ──────────────────────────────────────────────────────
   const visibleNotes = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
     let list: Note[] =
-      activeFolderId === 'trash'   ? notes.filter(n => n.deletedAt) :
-      activeFolderId === 'starred' ? notes.filter(n => n.starred && !n.deletedAt) :
-      activeFolderId               ? notes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
-                                     notes.filter(n => !n.deletedAt);
+      activeFolderId === 'trash'   ? safeNotes.filter(n => n.deletedAt) :
+      activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
+      activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
+                                     safeNotes.filter(n => !n.deletedAt);
     if (activeTag)          list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

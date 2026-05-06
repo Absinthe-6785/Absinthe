@@ -307,7 +307,7 @@ export const PlannerView = ({
                 {t('exceptionDay')}
               </div>
             )}
-            {routines.map((r: Routine) => (
+            {routines.filter((r: Routine) => r.is_active !== false).map((r: Routine) => (
               <div key={r.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingRoutineId === r.id ? (
                   <input autoFocus value={editRoutineText}
@@ -769,7 +769,14 @@ export const PlannerView = ({
                     { id: 'Social',   label: 'Social',  icon: '🤝' },
                   ] as const).map(cat => (
                     <button key={cat.id} onClick={() => (() => {
-                          if (cat.id === 'Sleep') {
+                          if (cat.id === 'Exercise') {
+                            setNewSch(prev => ({
+                              ...prev,
+                              category:   'Exercise',
+                              color:      'blue',
+                              text:       prev.text || 'Exercise',
+                            }));
+                          } else if (cat.id === 'Sleep') {
                             setNewSch(prev => ({
                               ...prev,
                               category:   'Sleep',
@@ -780,7 +787,7 @@ export const PlannerView = ({
                             }));
                             // setEndNextDay(true) 제거 — 수동 설정 유지
                           } else {
-                            setNewSch(prev => ({ ...prev, category: cat.id, ...(cat.id === 'Exercise' ? { color: 'blue' } : {}) }));
+                            setNewSch(prev => ({ ...prev, category: cat.id }));
                           }
                         })()}
                       className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1

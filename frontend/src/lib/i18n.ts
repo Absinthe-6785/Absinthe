@@ -158,7 +158,7 @@ const translations = {
   orderDrag:      { en: 'ORDER (drag to reorder)', ko: '순서 (드래그로 변경)', ja: '順番（ドラッグで変更）' },
   splits:         { en: 'Split(s)',         ko: '분할',          ja: '分割'             },
   tagsPlaceholder:{ en: 'Tags (Enter or comma to add)', ko: '태그 (Enter 또는 쉼표로 추가)', ja: 'タグ（EnterまたはカンマEで追加）' },
-  tapBlockHint:   { en: 'Tap a block to add to today's workout. Use tags to filter blocks.', ko: '블록을 탭하여 오늘 운동에 추가. 태그로 필터링하세요.', ja: 'ブロックをタップして今日のワークアウトに追加。タグでフィルタリング。' },
+  tapBlockHint:   { en: "Tap a block to add to today's workout. Use tags to filter blocks.", ko: '블록을 탭하여 오늘 운동에 추가. 태그로 필터링하세요.', ja: 'ブロックをタップして今日のワークアウトに追加。タグでフィルタリング。' },
   exNamePlaceholder: { en: 'e.g. chest, push, upper', ko: '예: 가슴, 밀기, 상체', ja: '例：胸、プッシュ、上半身' },
 
   // ── RecipeView ────────────────────────────────────────────────────
