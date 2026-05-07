@@ -210,7 +210,7 @@ export const AnalyticsView = ({
       {/* ── 헤더 + 기간 선택 ── */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-6 px-2 lg:pl-2 lg:pr-6 shrink-0 gap-4 lg:gap-0">
         <div>
-          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-white' : 'text-gray-900'}`}>Your Analytics</h1>
+          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-white' : 'text-gray-900'}`}>{t('yourAnalytics')}</h1>
           <p className={`text-sm lg:text-base font-medium mt-1 ${theme.textMuted}`}>{analyticsStart} ~ {analyticsEnd}</p>
         </div>
         <div className="flex flex-col items-start lg:items-end gap-3 w-full lg:w-auto">
@@ -230,12 +230,12 @@ export const AnalyticsView = ({
           </div>
           {timeRange === 'custom' && (
             <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-sm border animate-in slide-in-from-top-2 w-full lg:w-auto ${theme.card} ${theme.border}`}>
-              <span className={`text-xs font-bold ${theme.textMuted}`}>From</span>
+              <span className={`text-xs font-bold ${theme.textMuted}`}>{t('from')}</span>
               <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)} className={`text-sm font-semibold px-2 py-1 rounded-lg outline-none ${theme.input}`}/>
               <span className={`font-bold ${theme.textMuted}`}>—</span>
               <span className={`text-xs font-bold ${theme.textMuted}`}>To</span>
               <input type="date" value={customEndDate} min={customStartDate} onChange={e => setCustomEndDate(e.target.value)} className={`text-sm font-semibold px-2 py-1 rounded-lg outline-none ${theme.input}`}/>
-              {(!customStartDate || !customEndDate) && <span className="text-[10px] font-semibold text-amber-500 ml-1">Select both dates</span>}
+              {(!customStartDate || !customEndDate) && <span className="text-[10px] font-semibold text-amber-500 ml-1">{t('selectBothDates')}</span>}
             </div>
           )}
         </div>
@@ -469,12 +469,12 @@ export const AnalyticsView = ({
             </div>
             <div className="space-y-5">
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Title</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('activityTitle')}</label>
                 <input type="text" value={newWeeklySch.title} onChange={e => setNewWeeklySch({ ...newWeeklySch, title: e.target.value })}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-semibold ${theme.input}`} placeholder="e.g. Morning Workout"/>
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-semibold ${theme.input}`} placeholder={t('activityPh')}/>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Day of Week</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('dayOfWeek')}</label>
                 <select value={newWeeklySch.day} onChange={e => setNewWeeklySch({ ...newWeeklySch, day: parseInt(e.target.value) })}
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-semibold ${theme.input}`}>
                   {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
@@ -496,7 +496,7 @@ export const AnalyticsView = ({
                 ))}
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Color Theme</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('colorTheme')}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {THEME_COLORS.map(c => (
                     <button key={c.id} onClick={() => setNewWeeklySch({ ...newWeeklySch, color: c.bg })}
@@ -506,7 +506,7 @@ export const AnalyticsView = ({
               </div>
               <div className="pt-2 flex gap-3">
                 {editingWeeklyId && (
-                  <button onClick={() => deleteWeeklySchedule(editingWeeklyId)} className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-2xl p-4 hover:bg-red-500/20 transition-colors">Delete</button>
+                  <button onClick={() => deleteWeeklySchedule(editingWeeklyId)} className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-2xl p-4 hover:bg-red-500/20 transition-colors">{t('delete')}</button>
                 )}
                 <button onClick={saveWeeklySchedule} className={`bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 transition-transform active:scale-[0.98] ${editingWeeklyId ? 'flex-[2]' : 'w-full'}`}>
                   Save

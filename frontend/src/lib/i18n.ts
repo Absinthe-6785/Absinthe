@@ -161,6 +161,14 @@ const translations = {
   tapBlockHint:   { en: "Tap a block to add to today's workout. Use tags to filter blocks.", ko: '블록을 탭하여 오늘 운동에 추가. 태그로 필터링하세요.', ja: 'ブロックをタップして今日のワークアウトに追加。タグでフィルタリング。' },
   exNamePlaceholder: { en: 'e.g. chest, push, upper', ko: '예: 가슴, 밀기, 상체', ja: '例：胸、プッシュ、上半身' },
 
+  // ── AnalyticsView ───────────────────────────────────────────────────
+  yourAnalytics:  { en: 'Your Analytics',    ko: '나의 분석',     ja: 'マイ分析'         },
+  from:           { en: 'From',              ko: '시작',          ja: '開始'             },
+  selectBothDates:{ en: 'Select both dates', ko: '날짜를 선택하세요', ja: '両方の日付を選択してください' },
+  activityTitle:  { en: 'Title',             ko: '제목',          ja: 'タイトル'         },
+  activityPh:     { en: 'e.g. Morning Workout', ko: '예: 아침 운동', ja: '例：朝のワークアウト' },
+  colorTheme:     { en: 'Color Theme',       ko: '색상 테마',     ja: 'カラーテーマ'     },
+
   // ── RecipeView ────────────────────────────────────────────────────
   recipes:        { en: 'Recipes',          ko: '레시피',        ja: 'レシピ'           },
   recipeStarred:  { en: 'Starred',          ko: '즐겨찾기',      ja: 'スター'           },

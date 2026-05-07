@@ -148,13 +148,15 @@ async def create_schedule(schedule: ScheduleCreate, user_id: str = Depends(get_c
 
 @app.put("/api/schedules/{schedule_id}")
 async def update_schedule(schedule_id: str, schedule: ScheduleUpdate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("schedules").select("user_id").eq("id", schedule_id).single().execute().data
+    row = supabase.table("schedules").select("user_id").eq("id", schedule_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("schedules").update(schedule.model_dump()).eq("id", schedule_id).execute().data
 
 @app.delete("/api/schedules/{schedule_id}")
 async def delete_schedule(schedule_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("schedules").select("user_id").eq("id", schedule_id).single().execute().data
+    row = supabase.table("schedules").select("user_id").eq("id", schedule_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("schedules").delete().eq("id", schedule_id).execute().data
 
@@ -176,7 +178,8 @@ async def create_todo(todo: TodoCreate, user_id: str = Depends(get_current_user)
 
 @app.put("/api/todos/{todo_id}")
 async def toggle_todo(todo_id: str, payload: StatusUpdate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("todos").select("user_id").eq("id", todo_id).single().execute().data
+    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("todos").update({"done": payload.done}).eq("id", todo_id).execute().data
 
@@ -186,13 +189,15 @@ async def update_todo_text(todo_id: str, payload: TodoTextUpdate, user_id: str =
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     """투두 텍스트 수정 (done 상태는 PUT /api/todos/{id}로 분리)"""
-    row = supabase.table("todos").select("user_id").eq("id", todo_id).single().execute().data
+    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("todos").update({"text": payload.text}).eq("id", todo_id).execute().data
 
 @app.delete("/api/todos/{todo_id}")
 async def delete_todo(todo_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("todos").select("user_id").eq("id", todo_id).single().execute().data
+    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("todos").delete().eq("id", todo_id).execute().data
 
@@ -283,7 +288,8 @@ async def toggle_routine_log(log: RoutineLogUpdate, user_id: str = Depends(get_c
 @app.put("/api/routines/{routine_id}")
 async def update_routine_text(routine_id: str, routine: RoutineUpdate, user_id: str = Depends(get_current_user)):
     """루틴 텍스트 수정"""
-    row = supabase.table("routines").select("user_id").eq("id", routine_id).single().execute().data
+    row = supabase.table("routines").select("user_id").eq("id", routine_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("routines").update({"text": routine.text}).eq("id", routine_id).execute().data
 
@@ -291,7 +297,8 @@ async def update_routine_text(routine_id: str, routine: RoutineUpdate, user_id: 
 async def delete_routine(routine_id: str, user_id: str = Depends(get_current_user)):
     """소프트 삭제 — is_active=False + deleted_at 기록, 과거 로그 보존"""
     from datetime import date as date_cls
-    row = supabase.table("routines").select("user_id").eq("id", routine_id).single().execute().data
+    row = supabase.table("routines").select("user_id").eq("id", routine_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("routines").update({
         "is_active": False,
@@ -318,7 +325,8 @@ async def update_block(block_id: str, block: ExerciseBlockCreate, user_id: str =
 
 @app.delete("/api/blocks/{block_id}")
 async def delete_block(block_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).single().execute().data
+    row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("exercise_blocks").delete().eq("id", block_id).execute().data
 
@@ -360,7 +368,8 @@ async def save_workout(log: WorkoutLogCreate, user_id: str = Depends(get_current
 
 @app.delete("/api/workouts/{log_id}")
 async def delete_workout(log_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("workout_logs").select("user_id").eq("id", log_id).single().execute().data
+    row = supabase.table("workout_logs").select("user_id").eq("id", log_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("workout_logs").delete().eq("id", log_id).execute().data
 
@@ -395,7 +404,8 @@ async def upsert_note_folder(folder: NoteFolderCreate, user_id: str = Depends(ge
 
 @app.delete("/api/note_folders/{folder_id}")
 async def delete_note_folder(folder_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("note_folders").select("user_id").eq("id", folder_id).single().execute().data
+    row = supabase.table("note_folders").select("user_id").eq("id", folder_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     # 소속 노트 folder_id를 null로 초기화
     supabase.table("notes").update({"folder_id": None}).eq("folder_id", folder_id).execute()
@@ -414,13 +424,15 @@ async def create_weekly_schedule(schedule: WeeklyScheduleCreate, user_id: str = 
 
 @app.put("/api/weekly_schedules/{schedule_id}")
 async def update_weekly_schedule(schedule_id: str, schedule: WeeklyScheduleCreate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("weekly_schedules").select("user_id").eq("id", schedule_id).single().execute().data
+    row = supabase.table("weekly_schedules").select("user_id").eq("id", schedule_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("weekly_schedules").update(schedule.model_dump()).eq("id", schedule_id).execute().data
 
 @app.delete("/api/weekly_schedules/{schedule_id}")
 async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("weekly_schedules").select("user_id").eq("id", schedule_id).single().execute().data
+    row = supabase.table("weekly_schedules").select("user_id").eq("id", schedule_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("weekly_schedules").delete().eq("id", schedule_id).execute().data
 
@@ -518,7 +530,8 @@ async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("notes").select("user_id").eq("id", note_id).single().execute().data
+    row = supabase.table("notes").select("user_id").eq("id", note_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("notes").delete().eq("id", note_id).execute().data
 
