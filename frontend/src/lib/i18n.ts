@@ -202,7 +202,7 @@ const translations = {
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
-  catExercise:    { en: 'Exercise',      ko: '운동',         ja: '運動'         },
+  catExercise:    { en: 'Workout',       ko: '운동',         ja: 'ワークアウト'  },
   catPersonal:    { en: 'Personal',      ko: '개인',         ja: '個人'         },
   catSleep:       { en: 'Sleep',         ko: '수면',         ja: '睡眠'         },
   catSocial:      { en: 'Social',        ko: '사교',         ja: '交流'         },

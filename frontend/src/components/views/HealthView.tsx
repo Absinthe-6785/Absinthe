@@ -521,7 +521,7 @@ export const HealthView = ({
             )}
           </div>
 
-          <div className="space-y-5 pb-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
+          <div className="space-y-3 pb-2 lg:space-y-5 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
             {localWorkouts.map((w: Workout, wIdx: number) => (
               <div
@@ -573,7 +573,7 @@ export const HealthView = ({
                     <div className="w-9 text-center shrink-0">✓</div>
                   </div>
                 )}
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
                     const isDS = isStrengthSet(s) && s.is_dropset;
                     return (
@@ -593,7 +593,7 @@ export const HealthView = ({
                           <button
                             onClick={() => !isWorkoutLocked && w.sets.length > 1 && handleRemoveSet(wIdx, sIdx)}
                             title={isWorkoutLocked ? '' : 'Tap to delete'}
-                            className={`w-7 h-7 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
+                            className={`w-8 h-8 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
                               ${isWorkoutLocked
                                 ? theme.textMuted
                                 : w.sets.length > 1
@@ -609,14 +609,14 @@ export const HealthView = ({
                               value={displayKg(s.kg, w.block_id)}
                               placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value, w.block_id))}
-                              className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
                           {/* Bodyweight / Strength reps */}
                           {isStrengthSet(s) && (
                             <input type="number" inputMode="numeric" min="0"
                               value={s.reps} placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                              className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                           )}
 
                           {/* Cardio 입력 */}
@@ -624,17 +624,17 @@ export const HealthView = ({
                             <>
                               <input type="text" inputMode="numeric" value={s.time} placeholder="min"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                                className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                               <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                className={`flex-1 min-w-0 text-[15px] font-bold text-center rounded-xl py-2.5 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
                             </>
                           )}
 
                           {/* 완료 체크 — 큰 탭 버튼 */}
                           <button
                             onClick={() => handleUpdateSet(wIdx, sIdx, 'done', !s.done)}
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
+                            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
                               ${s.done ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.card} ${theme.textMuted}`}`}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12"/>
@@ -690,7 +690,7 @@ export const HealthView = ({
             ) : (
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
-                className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-3.5 lg:py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all">
+                className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10">
                 <Save size={20}/> {t('completeWorkout')}
               </button>
             )}

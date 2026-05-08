@@ -763,7 +763,7 @@ export const PlannerView = ({
                   {([
                     { id: 'Study',    label: 'Study',   icon: '📚' },
                     { id: 'Work',     label: 'Work',    icon: '💼' },
-                    { id: 'Exercise', label: 'Exercise',icon: '🏋️' },
+                    { id: 'Exercise', label: 'Workout', icon: '🏋️' },
                     { id: 'Personal', label: 'Personal',icon: '👤' },
                     { id: 'Sleep',    label: 'Sleep',   icon: '🌙' },
                     { id: 'Social',   label: 'Social',  icon: '🤝' },
@@ -774,7 +774,7 @@ export const PlannerView = ({
                               ...prev,
                               category:   'Exercise',
                               color:      'blue',
-                              text:       prev.text || 'Exercise',
+                              text:       prev.text || 'Workout',
                             }));
                           } else if (cat.id === 'Sleep') {
                             setNewSch(prev => ({
