@@ -164,8 +164,7 @@ export const SettingsView = ({
                 <button
                   onClick={() => showConfirm(t('resetConfirm'), doResetData)}
                   className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition-colors"
-                >
-                  Reset Data
+                >{t('resetData')}
                 </button>
               </div>
 
@@ -179,8 +178,7 @@ export const SettingsView = ({
                 <button
                   onClick={onSignOut}
                   className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors border ${theme.border} ${theme.hoverBg}`}
-                >
-                  Sign Out
+                >{t('signOut')}
                 </button>
               </div>
             </div>

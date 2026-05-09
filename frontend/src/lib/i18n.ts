@@ -24,6 +24,7 @@ const translations = {
   light:          { en: 'Light',          ko: '라이트',       ja: 'ライト'       },
   settings:       { en: 'Settings',       ko: '설정',         ja: '設定'         },
   noFolder:       { en: 'No Folder',      ko: '폴더 없음',    ja: 'フォルダなし' },
+  allNotes:       { en: 'All Notes',      ko: '전체 노트',    ja: 'すべてのノート' },
   title:          { en: 'Title',          ko: '제목',         ja: 'タイトル'     },
   date:           { en: 'Date',           ko: '날짜',         ja: '日付'         },
   reason:         { en: 'Reason',         ko: '사유',         ja: '理由'         },

@@ -773,7 +773,7 @@ export const HealthView = ({
           {/* InBody */}
           <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col justify-between transition-colors gap-3 lg:gap-0 ${theme.card}`}>
             <div className="flex justify-between items-center mb-2 lg:mb-4">
-              <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Target size={18} className="text-[#FACC15]"/> InBody</h2>
+              <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Target size={18} className="text-[#FACC15]"/> {t('inbody')}</h2>
               <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3.5 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
             {[

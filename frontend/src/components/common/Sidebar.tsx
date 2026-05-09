@@ -79,7 +79,7 @@ export const Sidebar = ({
       </button>
 
       <button
-        aria-label="Settings"
+        aria-label={t('settings')}
         onClick={() => setActiveTab('settings')}
         className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl transition-all ${
           activeTab === 'settings'
@@ -94,7 +94,7 @@ export const Sidebar = ({
       </button>
 
       <button
-        aria-label="Sign Out"
+        aria-label={t('signOut')}
         onClick={handleSignOut}
         title={`Sign out (${userName})`}
         className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-red-400 transition-colors"

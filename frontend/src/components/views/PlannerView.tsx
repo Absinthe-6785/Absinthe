@@ -475,7 +475,7 @@ export const PlannerView = ({
                 className={`w-full flex items-center gap-1.5 px-3 py-2 text-left transition-colors
                   ${activeFolderId === null ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
                 <Inbox size={11} className={activeFolderId === null ? 'text-[#FACC15]' : theme.textMuted}/>
-                <span className={`text-[11px] font-bold truncate ${activeFolderId === null ? 'text-[#FACC15]' : ''}`}>All Notes</span>
+                <span className={`text-[11px] font-bold truncate ${activeFolderId === null ? 'text-[#FACC15]' : ''}`}>{t('allNotes')}</span>
                 <span className={`ml-auto text-[10px] font-bold ${theme.textMuted}`}>{notes.filter(n => !n.deletedAt).length}</span>
               </button>
 
@@ -513,7 +513,7 @@ export const PlannerView = ({
                 className={`w-full flex items-center gap-1.5 px-3 py-2 text-left transition-colors
                   ${activeFolderId === 'trash' ? (appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]') : theme.hoverBg}`}>
                 <Trash2 size={11} className={activeFolderId === 'trash' ? 'text-red-400' : theme.textMuted}/>
-                <span className={`text-[11px] font-bold truncate ${activeFolderId === 'trash' ? 'text-red-400' : ''}`}>Trash</span>
+                <span className={`text-[11px] font-bold truncate ${activeFolderId === 'trash' ? 'text-red-400' : ''}`}>{t('trash')}</span>
                 <span className={`ml-auto text-[10px] font-bold ${theme.textMuted}`}>{notes.filter(n => n.deletedAt !== null).length || ''}</span>
               </button>
             </div>
@@ -568,7 +568,7 @@ export const PlannerView = ({
                     <select value={activeNote.folderId ?? ''}
                       onChange={e => updateNote(activeNote.id, { folderId: e.target.value || null })}
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg outline-none ${theme.input} ${theme.textMuted}`}>
-                      <option value="">No Folder</option>
+                      <option value="">{t('noFolder')}</option>
                       {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                     <p className={`text-[10px] ml-auto ${theme.textMuted}`}>
