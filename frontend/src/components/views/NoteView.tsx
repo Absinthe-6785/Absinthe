@@ -6,6 +6,8 @@ import {
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
 } from 'lucide-react';
+import { useConfirm } from '../../hooks/useConfirm';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { useAppStore } from '../../store/useAppStore';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
@@ -50,6 +52,7 @@ export const NoteView = () => {
   // ── appSettings(darkMode)만 전역 스토어에서 가져옴 ───────────────
   const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
+  const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
   // ── DB sync 헬퍼 (fire-and-forget, 실패해도 localStorage 유지) ───
   const syncNoteToDB = useCallback(async (note: Note) => {
@@ -1318,13 +1321,27 @@ export const NoteView = () => {
           })()}
           {isTrash && (
             <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
-              <button onClick={() => permanentDeleteNote(activeNote.id)}
+              <button onClick={() => showConfirm(
+                  'Delete this note permanently? This cannot be undone.',
+                  () => permanentDeleteNote(activeNote.id),
+                  { confirmLabel: 'Delete', variant: 'destructive' }
+                )}
                 style={{ width: '100%', background: `${c.danger}15`, border: `1px solid ${c.danger}40`, color: c.danger, borderRadius: 6, padding: '6px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
                 Delete Permanently
               </button>
             </div>
           )}
         </div>
+      )}
+      {confirm && (
+        <ConfirmModal
+          message={confirm.message}
+          onConfirm={handleConfirm}
+          onCancel={clearConfirm}
+          darkMode={dark}
+          confirmLabel={confirm.confirmLabel}
+          variant={confirm.variant}
+        />
       )}
     </div>
   );
