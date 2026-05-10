@@ -52,6 +52,7 @@ const translations = {
   startWriting:   { en: 'Start writing...', ko: '작성 시작...', ja: '書き始める...' },
   noTasks:        { en: 'No tasks. Chill out!', ko: '할 일 없음. 쉬어요!', ja: 'タスクなし。一休み！' },
   noDdays:        { en: 'No D-Days yet', ko: 'D-Day 없음',   ja: 'D-Dayなし'    },
+  noSchedules:    { en: 'No schedules yet', ko: '일정이 없습니다', ja: 'スケジュールなし' },
   noNotes:        { en: 'No notes',      ko: '노트 없음',    ja: 'ノートなし'   },
   noRoutines:     { en: 'Build a daily routine!', ko: '루틴을 만들어보세요!', ja: 'ルーティンを作ろう！' },
   trash:          { en: 'Trash',          ko: '휴지통',       ja: 'ゴミ箱'       },

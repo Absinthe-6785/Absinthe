@@ -674,7 +674,7 @@ export const PlannerView = ({
                 {sortedSchedules.length === 0 && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 opacity-40 pointer-events-none" style={{ top: '320px' }}>
                     <Clock size={28} className={theme.textMuted}/>
-                    <p className={`text-sm font-semibold ${theme.textMuted}`}>No schedules yet</p>
+                    <p className={`text-sm font-semibold ${theme.textMuted}`}>{t('noSchedules')}</p>
                   </div>
                 )}
                 {/* ── 당일 스케줄 ── */}
