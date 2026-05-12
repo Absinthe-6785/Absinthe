@@ -226,6 +226,30 @@ export const NoteView = () => {
     URL.revokeObjectURL(url);
   }, []);
 
+  // 전체 노트 ZIP 없이 개별 .md 파일로 순차 다운로드 (삭제된 노트 제외)
+  const exportAllNotes = useCallback(() => {
+    const active = notes.filter(n => !n.deletedAt);
+    if (active.length === 0) return;
+    // 파일명 중복 방지를 위해 인덱스 추가
+    const nameCount: Record<string, number> = {};
+    active.forEach((note, idx) => {
+      const safeName = (note.title ?? 'untitled').replace(/[/\\?%*:|"<>]/g, '-') || 'untitled';
+      const count = nameCount[safeName] ?? 0;
+      nameCount[safeName] = count + 1;
+      const fileName = count > 0 ? `${safeName}_${count}.md` : `${safeName}.md`;
+      // 순차 다운로드 (브라우저 팝업 차단 방지)
+      setTimeout(() => {
+        const blob = new Blob([note.body ?? ''], { type: 'text/markdown;charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, idx * 200);
+    });
+  }, [notes]);
+
   const createFolder = useCallback((name: string) => {
     const folder: NoteFolder = { id: `folder-${Date.now()}`, name, createdAt: Date.now() };
     setFolders(prev => { const u = [...prev, folder]; nvSaveFolders(u); return u; });
@@ -624,6 +648,7 @@ export const NoteView = () => {
     null,
     { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
     { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
+    { icon: <Save size={13}/>,      label: 'Export All',   fn: () => exportAllNotes() },
   ];
 
   const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -957,6 +982,11 @@ export const NoteView = () => {
             {!isTrash && (
               <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files">
                 <Upload size={11}/>
+              </button>
+            )}
+            {!isTrash && (
+              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${notes.filter(n=>!n.deletedAt).length} notes as .md`}>
+                <Save size={11}/>
               </button>
             )}
             {!isTrash && (
