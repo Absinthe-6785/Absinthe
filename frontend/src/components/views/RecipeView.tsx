@@ -42,6 +42,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'title'>('newest');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -55,7 +56,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
       if (!res.ok) throw new Error(`[${res.status}]`);
       setRecipes(await res.json());
     } catch (e) {
-      showToast('Failed to load recipes', 'error');
+      showToast(t('failLoadRecipes'), 'error');
     } finally {
       setLoading(false);
     }
@@ -70,17 +71,22 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
   // ── 필터 ──────────────────────────────────────────────────────────
   const visible = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return recipes.filter(r => {
+    const filtered = recipes.filter(r => {
       if (showStarredOnly && !r.starred) return false;
       if (activeCategory !== 'All' && r.category !== activeCategory) return false;
       if (q && !(r.title ?? '').toLowerCase().includes(q) && !(r.ingredients ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [recipes, searchQuery, activeCategory, showStarredOnly]);
+    return [...filtered].sort((a, b) => {
+      if (sortOrder === 'title')  return (a.title ?? '').localeCompare(b.title ?? '');
+      if (sortOrder === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); // newest
+    });
+  }, [recipes, searchQuery, activeCategory, showStarredOnly, sortOrder]);
 
   // ── CRUD ──────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
-    if (!form.title.trim()) return showToast('Enter recipe title!', 'error');
+    if (!form.title.trim()) return showToast(t('enterRecipeTitle'), 'error');
 
     const payload = { ...form, title: form.title.trim() };
     try {
@@ -99,26 +105,26 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
           ? prev.map(r => r.id === editingId ? saved : r)
           : [saved, ...prev]
       );
-      showToast(editingId ? 'Recipe updated' : 'Recipe saved');
+      showToast(editingId ? t('recipeUpdated') : t('recipeSaved'));
       setShowForm(false);
       setEditingId(null);
       setForm({ ...EMPTY_FORM });
       setExpandedId(saved.id);
     } catch {
-      showToast('Failed to save recipe', 'error');
+      showToast(t('failSaveRecipe'), 'error');
     }
   }, [form, editingId, showToast]);
 
   const handleDelete = useCallback((id: string, title: string) => {
-    showConfirm(`Delete "${title}"?`, async () => {
+    showConfirm(t('deleteRecipe'), async () => {
       try {
         const res = await authFetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error();
         setRecipes(prev => prev.filter(r => r.id !== id));
         if (expandedId === id) setExpandedId(null);
-        showToast('Deleted');
+        showToast(t('recipeDeleted'));
       } catch {
-        showToast('Failed to delete', 'error');
+        showToast(t('failDeleteRecipe'), 'error');
       }
     }, { confirmLabel: 'Delete' });
   }, [showConfirm, expandedId, showToast]);
@@ -177,12 +183,12 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
       <div className={`flex items-center justify-between px-5 pt-5 pb-3 shrink-0`}>
         <h1 className="font-heading text-2xl font-black tracking-tight flex items-center gap-2">
           <BookMarked size={22} className="text-[#FACC15]"/>
-          Recipes
+          {t('recipes')}
         </h1>
         <button
           onClick={openNew}
           className="flex items-center gap-1.5 bg-[#FACC15] text-[#1C1C1E] px-4 py-2 rounded-2xl text-sm font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
-          <Plus size={15}/> New
+          <Plus size={15}/>{t('newRecipe')}
         </button>
       </div>
 
@@ -192,7 +198,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
           <Search size={14} className={theme.textMuted}/>
           <input
             value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search recipes or ingredients..."
+            placeholder={t('searchRecipe')}
             className="flex-1 bg-transparent outline-none text-sm"/>
           {searchQuery && <button onClick={() => setSearchQuery('')}><X size={14} className={theme.textMuted}/></button>}
         </div>
@@ -210,18 +216,28 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
             className={`shrink-0 flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold transition-all ${
               showStarredOnly ? 'bg-yellow-400 text-[#1C1C1E]' : `${dark ? 'bg-[#2C2C2E] text-gray-400' : 'bg-white text-gray-500'}`
             }`}>
-            <Star size={11} fill={showStarredOnly ? '#1C1C1E' : 'none'}/> Starred
+            <Star size={11} fill={showStarredOnly ? '#1C1C1E' : 'none'}/>{t('recipeStarred')}
           </button>
+          <div className={`shrink-0 flex items-center gap-1 p-1 rounded-xl ${dark ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+            {(['newest', 'oldest', 'title'] as const).map(s => (
+              <button key={s} onClick={() => setSortOrder(s)}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
+                  sortOrder === s ? 'bg-[#1C1C1E] text-[#FACC15]' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
+                }`}>
+                {s === 'newest' ? '↓ New' : s === 'oldest' ? '↑ Old' : 'A-Z'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* 레시피 목록 */}
       <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-3">
         {loading && (
-          <div className={`text-center py-10 text-sm ${theme.textMuted}`}>Loading...</div>
+          <div className={`text-center py-10 text-sm ${theme.textMuted}`}>{t('recipeLoading')}</div>
         )}
         {!loading && visible.length === 0 && (
-          <EmptyState theme={theme} icon={BookMarked} text="No recipes yet. Add your first recipe!"/>
+          <EmptyState theme={theme} icon={BookMarked} text={t('noRecipes')}/>
         )}
         {visible.map(recipe => {
           const isExpanded = expandedId === recipe.id;
@@ -267,7 +283,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                   {/* 재료 */}
                   {ingredients.length > 0 && (
                     <div>
-                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${theme.textMuted}`}>Ingredients</p>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${theme.textMuted}`}>{t('ingredients')}</p>
                       <ul className="space-y-1">
                         {ingredients.map((ing, i) => (
                           <li key={i} className="flex items-start gap-2 text-sm">
@@ -282,7 +298,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                   {/* 조리 순서 */}
                   {steps.length > 0 && (
                     <div>
-                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${theme.textMuted}`}>Steps</p>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${theme.textMuted}`}>{t('steps')}</p>
                       <ol className="space-y-2">
                         {steps.map((step, i) => (
                           <li key={i} className="flex items-start gap-3 text-sm">
@@ -297,7 +313,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                   {/* 메모 */}
                   {recipe.memo?.trim() && (
                     <div>
-                      <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>Memo</p>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>{t('recipeMemo')}</p>
                       <p className={`text-sm leading-relaxed ${theme.textMuted}`}>{recipe.memo}</p>
                     </div>
                   )}
@@ -317,7 +333,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
             onClick={e => e.stopPropagation()}>
 
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-heading text-xl font-bold">{editingId ? 'Edit Recipe' : 'New Recipe'}</h2>
+              <h2 className="font-heading text-xl font-bold">{editingId ? t('editRecipe') : t('newRecipe')}</h2>
               <button onClick={() => { setShowForm(false); setEditingId(null); }}
                 className={`p-2 rounded-full ${theme.textMuted} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
                 <X size={18}/>
@@ -327,15 +343,15 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
             <div className="space-y-4">
               {/* 제목 */}
               <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>Title *</label>
+                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('title')} *</label>
                 <input ref={titleRef} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Recipe name..."
+                  placeholder={t('recipeName')}
                   className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
 
               {/* 카테고리 */}
               <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>Category</label>
+                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('category')}</label>
                 <div className="flex flex-wrap gap-2">
                   {CATEGORIES.filter(c => c !== 'All').map(cat => (
                     <button key={cat} onClick={() => setForm(f => ({ ...f, category: cat }))}
@@ -350,7 +366,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
               {/* 재료 */}
               <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>Ingredients <span className={`font-normal ${theme.textMuted}`}>(one per line)</span></label>
+                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('ingredients')} <span className={`font-normal ${theme.textMuted}`}>({t('onePerLine')})</span></label>
                 <textarea value={form.ingredients} onChange={e => setForm(f => ({ ...f, ingredients: e.target.value }))}
                   placeholder={"200g chicken breast\n1 tbsp olive oil\n2 cloves garlic"}
                   rows={4}
@@ -359,7 +375,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
               {/* 조리 순서 */}
               <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>Steps <span className={`font-normal ${theme.textMuted}`}>(one per line)</span></label>
+                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('steps')} <span className={`font-normal ${theme.textMuted}`}>({t('onePerLine')})</span></label>
                 <textarea value={form.steps} onChange={e => setForm(f => ({ ...f, steps: e.target.value }))}
                   placeholder={"Preheat oven to 200°C\nSeason chicken with salt and pepper\nBake for 25 minutes"}
                   rows={5}
@@ -368,9 +384,9 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
               {/* 메모 */}
               <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>Memo</label>
+                <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('recipeMemo')}</label>
                 <textarea value={form.memo} onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
-                  placeholder="Tips, variations, source..."
+                  placeholder={t('recipeTips')}
                   rows={2}
                   className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
               </div>
@@ -381,14 +397,14 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                   form.starred ? 'bg-yellow-400/20 text-yellow-500' : `${dark ? 'bg-[#2C2C2E]' : 'bg-gray-100'} ${theme.textMuted}`
                 }`}>
                 <Star size={14} fill={form.starred ? '#FACC15' : 'none'} color={form.starred ? '#FACC15' : undefined}/>
-                {form.starred ? 'Starred' : 'Add to Starred'}
+                {form.starred ? t('recipeStarred') : t('addStarred')}
               </button>
             </div>
 
             {/* 저장 버튼 */}
             <button onClick={handleSave}
               className="w-full mt-6 py-3.5 rounded-2xl font-bold text-sm bg-[#FACC15] text-[#1C1C1E] hover:scale-[1.02] transition-transform active:scale-[0.98] flex items-center justify-center gap-2">
-              <Check size={16}/> {editingId ? 'Update Recipe' : 'Save Recipe'}
+              <Check size={16}/> {editingId ? t('updateRecipe') : t('saveRecipe')}
             </button>
           </div>
         </div>

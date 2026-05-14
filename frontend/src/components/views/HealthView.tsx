@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2 } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -47,6 +47,7 @@ export const HealthView = ({
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
@@ -246,6 +247,7 @@ export const HealthView = ({
   };
   const handleSaveWorkouts = async () => {
     if (localWorkouts.length === 0) return showToast(t('noWorkouts'), 'error');
+    setIsSaving(true);
 
     // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
     // 병렬 저장 시 네트워크 응답 순서가 뒤바뀌어 sort_order가 섞이는 문제 방지
@@ -261,6 +263,7 @@ export const HealthView = ({
       } catch { failed++; }
     }
     const total = localWorkouts.length;
+    setIsSaving(false);
     if (failed === 0) {
       showToast(t('workoutSaved'));
       setIsDirty(false);
@@ -690,8 +693,9 @@ export const HealthView = ({
             ) : (
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
-                className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10">
-                <Save size={20}/> {t('completeWorkout')}
+                disabled={isSaving}
+            className={`w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
+                {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
               </button>
             )}
           </div>
