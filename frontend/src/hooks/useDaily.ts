@@ -28,7 +28,7 @@ export const useDailyData = (
   // onError 콜백만 useMemo로 메모이제이션 (showToast는 useCallback으로 안정됨)
   // DAILY_SWR_BASE = {} 는 SWR 기본값과 동일해 실질 효과가 없으므로 제거.
   const swrOpts = useMemo(
-    () => ({ onError: (e: Error) => onError?.(`Fetch failed: ${e.message}`) }),
+    () => ({ onError: (e: Error) => onError?.(`Fetch failed: ${e.message}`), revalidateOnFocus: false }),
     [onError],
   );
 
