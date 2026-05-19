@@ -51,11 +51,14 @@ export const HealthView = ({
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
-  // ── 드래그 정렬 상태 ──────────────────────────────────────────────
+  // ── 드래그 정렬 상태 (워크아웃) ──────────────────────────────────
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragNodeRef = useRef<HTMLDivElement | null>(null);
   const dragStartY = useRef<number>(0);
+  // ── 드래그 정렬 상태 (루틴 ORDER) ────────────────────────────────
+  const [routineDragIdx, setRoutineDragIdx] = useState<number | null>(null);
+  const [routineDragOverIdx, setRoutineDragOverIdx] = useState<number | null>(null);
   // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
   const [isInbodyDirty, setIsInbodyDirty] = useState(false);
   const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
@@ -91,8 +94,33 @@ export const HealthView = ({
     el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
   }, [selectedDate]);
 
-  // selectedDate 변경 시 isDirty 즉시 리셋
-  useEffect(() => { setIsDirty(false); setIsInbodyDirty(false); }, [selectedDate]);
+  // ── Draft 자동 저장/복원 ──────────────────────────────────────────
+  const draftKey = `healthDraft:${formatDate(selectedDate)}`;
+
+  // selectedDate 변경 시: draft가 있으면 복원, 없으면 서버 데이터로 초기화
+  useEffect(() => {
+    setIsInbodyDirty(false);
+    const raw = localStorage.getItem(draftKey);
+    if (raw) {
+      try {
+        const draft: Workout[] = JSON.parse(raw);
+        setLocalWorkouts(draft);
+        setIsDirty(true);
+        setIsWorkoutLocked(false);
+        showToast('Draft restored — tap Complete Workout to save');
+        return;
+      } catch { localStorage.removeItem(draftKey); }
+    }
+    setIsDirty(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  // isDirty 중 localWorkouts 변경 시마다 draft 저장
+  useEffect(() => {
+    if (isDirty && localWorkouts.length > 0) {
+      localStorage.setItem(draftKey, JSON.stringify(localWorkouts));
+    }
+  }, [localWorkouts, isDirty, draftKey]);
 
   useEffect(() => {
     if (!isDirty) {
@@ -209,7 +237,7 @@ export const HealthView = ({
       }
       const next = localWorkouts.filter((_, i) => i !== index);
       setLocalWorkouts(next);
-      if (next.length === 0) setIsDirty(false);
+      if (next.length === 0) { setIsDirty(false); localStorage.removeItem(draftKey); }
     } catch { showToast(t('failedRemove'), 'error'); }
   };
   const handleAddSet = (wIdx: number, asDropset = false) => {
@@ -265,11 +293,13 @@ export const HealthView = ({
     const total = localWorkouts.length;
     setIsSaving(false);
     if (failed === 0) {
+      localStorage.removeItem(draftKey);
       showToast(t('workoutSaved'));
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
     } else if (failed < total) {
+      localStorage.removeItem(draftKey);
       showToast(`${total - failed}/${total} saved. Some failed.`, 'error');
       setIsDirty(false);
       setIsWorkoutLocked(true);
@@ -894,18 +924,67 @@ export const HealthView = ({
                 <button onClick={() => setShowAssembleModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
               </div>
 
-              {/* 선택된 순서 미리보기 */}
+              {/* 선택된 순서 미리보기 — 드래그로 재정렬 */}
               {tempRoutineBlocks.length > 0 && (
                 <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
-                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
+                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>ORDER (drag to reorder)</p>
                   <div className="flex flex-wrap gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
                       const b = (healthBlocks || []).find((bk: ExerciseBlock) => bk.id === id);
-                      return b ? (
-                        <span key={id} className="flex items-center gap-1 bg-[#FACC15] text-[#1C1C1E] text-xs font-bold px-2.5 py-1 rounded-lg">
-                          <span className="opacity-60 text-[10px]">{idx + 1}</span> {b.name}
+                      if (!b) return null;
+                      const isDraggingThis = routineDragIdx === idx;
+                      const isDragOver = routineDragOverIdx === idx && routineDragIdx !== idx;
+                      return (
+                        <span
+                          key={id}
+                          draggable
+                          onDragStart={() => setRoutineDragIdx(idx)}
+                          onDragEnter={() => setRoutineDragOverIdx(idx)}
+                          onDragOver={e => e.preventDefault()}
+                          onDragEnd={() => {
+                            if (routineDragIdx !== null && routineDragOverIdx !== null && routineDragIdx !== routineDragOverIdx) {
+                              setTempRoutineBlocks(prev => {
+                                const next = [...prev];
+                                const [moved] = next.splice(routineDragIdx, 1);
+                                next.splice(routineDragOverIdx, 0, moved);
+                                return next;
+                              });
+                            }
+                            setRoutineDragIdx(null);
+                            setRoutineDragOverIdx(null);
+                          }}
+                          onTouchStart={() => setRoutineDragIdx(idx)}
+                          onTouchMove={e => {
+                            const touch = e.touches[0];
+                            const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                            const chip = el?.closest('[data-routine-idx]');
+                            if (chip) {
+                              const over = Number(chip.getAttribute('data-routine-idx'));
+                              if (!isNaN(over)) setRoutineDragOverIdx(over);
+                            }
+                          }}
+                          onTouchEnd={() => {
+                            if (routineDragIdx !== null && routineDragOverIdx !== null && routineDragIdx !== routineDragOverIdx) {
+                              setTempRoutineBlocks(prev => {
+                                const next = [...prev];
+                                const [moved] = next.splice(routineDragIdx, 1);
+                                next.splice(routineDragOverIdx, 0, moved);
+                                return next;
+                              });
+                            }
+                            setRoutineDragIdx(null);
+                            setRoutineDragOverIdx(null);
+                          }}
+                          data-routine-idx={idx}
+                          className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg cursor-grab active:cursor-grabbing select-none transition-all
+                            ${isDraggingThis ? 'opacity-40 scale-95' : ''}
+                            ${isDragOver ? 'ring-2 ring-[#1C1C1E] scale-105' : ''}
+                            bg-[#FACC15] text-[#1C1C1E]`}>
+                          <span className="opacity-60 text-[10px]">{idx + 1}</span>
+                          {b.name}
+                          <GripVertical size={11} className="opacity-40 ml-0.5"/>
                         </span>
-                      ) : null;
+                      );
                     })}
                   </div>
                 </div>
