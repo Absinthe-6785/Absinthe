@@ -185,23 +185,29 @@ export const NoteView = () => {
     return id;
   }, [activeFolderId, setActiveNoteId, setViewMode, syncNoteToDB]);
 
-  // debounce ref — body 타이핑 중 과도한 DB 요청 방지
-  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // debounce refs — body 타이핑 중 과도한 localStorage/DB 쓰기 방지
+  const syncTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lsTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     setNotes(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      // body 변경은 600ms debounce, 나머지(title, folderId, starred)는 즉시 sync
       const updatedNote = updated.find(n => n.id === id);
-      if (updatedNote) {
-        if ('body' in patch) {
-          if (syncTimer.current) clearTimeout(syncTimer.current);
+
+      if ('body' in patch) {
+        // body: localStorage는 300ms, DB sync는 600ms 디바운스
+        // — 매 keystroke마다 동기 localStorage 쓰기가 발생하면 저사양 기기에서 입력 지연 유발
+        if (lsTimer.current)   clearTimeout(lsTimer.current);
+        if (syncTimer.current) clearTimeout(syncTimer.current);
+        lsTimer.current   = setTimeout(() => nvSaveNotes(updated), 300);
+        if (updatedNote)
           syncTimer.current = setTimeout(() => syncNoteToDB(updatedNote), 600);
-        } else {
-          syncNoteToDB(updatedNote);
-        }
+      } else {
+        // title, folderId, starred: 즉시 저장 (짧은 값, 빈도 낮음)
+        nvSaveNotes(updated);
+        if (updatedNote) syncNoteToDB(updatedNote);
       }
+
       return updated;
     });
   }, [syncNoteToDB]);

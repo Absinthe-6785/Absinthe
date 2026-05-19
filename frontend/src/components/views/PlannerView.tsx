@@ -35,7 +35,7 @@ export const PlannerView = ({
   } = useAppStore();
 
   // 폴더 로드
-  useEffect(() => { fetchFolders(); }, []);
+  useEffect(() => { fetchFolders(); }, [fetchFolders]);
 
   // 현재 폴더/휴지통 기준 필터링
   const visibleNotes = useMemo(() => {

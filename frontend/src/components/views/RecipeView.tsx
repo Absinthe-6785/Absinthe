@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Plus, Search, Star, X, ChevronDown, ChevronUp, Trash2, Pencil, Check, BookMarked } from 'lucide-react';
+import useSWR from 'swr';
 import { authFetch } from '../../lib/supabase';
+import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
@@ -37,8 +39,6 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
   // ── 상태 ─────────────────────────────────────────────────────────
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
@@ -49,20 +49,15 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const titleRef = useRef<HTMLInputElement>(null);
 
-  // ── 데이터 로드 ───────────────────────────────────────────────────
-  const load = useCallback(async () => {
-    try {
-      const res = await authFetch(`${API_URL}/api/recipes`);
-      if (!res.ok) throw new Error(`[${res.status}]`);
-      setRecipes(await res.json());
-    } catch (e) {
-      showToast(t('failLoadRecipes'), 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
-
-  useEffect(() => { load(); }, [load]);
+  // ── 데이터 로드 — SWR ─────────────────────────────────────────────
+  // 개선 전: useCallback + useEffect + useState(recipes/loading) 수동 관리.
+  //          탭 전환 시 캐시 없이 매번 재요청, 에러 처리도 별도.
+  // 개선 후: useSWR — 자동 캐싱/재검증/로딩 상태 통합. mutate로 낙관적 업데이트.
+  const { data: recipes = [], isLoading: loading, mutate: mutateRecipes } = useSWR<Recipe[]>(
+    `${API_URL}/api/recipes`,
+    fetcher,
+    { onError: () => showToast(t('failLoadRecipes'), 'error') },
+  );
 
   useEffect(() => {
     if (showForm) setTimeout(() => titleRef.current?.focus(), 50);
@@ -100,10 +95,12 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
       if (!res.ok) throw new Error();
       const saved: Recipe = await res.json();
 
-      setRecipes(prev =>
-        editingId
-          ? prev.map(r => r.id === editingId ? saved : r)
-          : [saved, ...prev]
+      // 낙관적 업데이트 후 SWR 캐시 반영 (revalidate: false → 불필요한 재요청 없음)
+      mutateRecipes(
+        prev => editingId
+          ? (prev ?? []).map(r => r.id === editingId ? saved : r)
+          : [saved, ...(prev ?? [])],
+        false,
       );
       showToast(editingId ? t('recipeUpdated') : t('recipeSaved'));
       setShowForm(false);
@@ -113,25 +110,26 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
     } catch {
       showToast(t('failSaveRecipe'), 'error');
     }
-  }, [form, editingId, showToast]);
+  }, [form, editingId, showToast, mutateRecipes]);
 
   const handleDelete = useCallback((id: string, title: string) => {
     showConfirm(t('deleteRecipe'), async () => {
       try {
         const res = await authFetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error();
-        setRecipes(prev => prev.filter(r => r.id !== id));
+        mutateRecipes(prev => (prev ?? []).filter(r => r.id !== id), false);
         if (expandedId === id) setExpandedId(null);
         showToast(t('recipeDeleted'));
       } catch {
         showToast(t('failDeleteRecipe'), 'error');
       }
     }, { confirmLabel: 'Delete' });
-  }, [showConfirm, expandedId, showToast]);
+  }, [showConfirm, expandedId, showToast, mutateRecipes]);
 
   const handleToggleStar = useCallback(async (recipe: Recipe) => {
     const updated = { ...recipe, starred: !recipe.starred };
-    setRecipes(prev => prev.map(r => r.id === recipe.id ? updated : r));
+    // 낙관적 업데이트
+    mutateRecipes(prev => (prev ?? []).map(r => r.id === recipe.id ? updated : r), false);
     try {
       const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}`, {
         method: 'PUT',
@@ -139,10 +137,11 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
       });
       if (!res.ok) throw new Error();
     } catch {
-      setRecipes(prev => prev.map(r => r.id === recipe.id ? recipe : r));
-      showToast('Failed to update', 'error');
+      // 실패 시 롤백
+      mutateRecipes(prev => (prev ?? []).map(r => r.id === recipe.id ? recipe : r), false);
+      showToast(t('failSaveRecipe'), 'error');
     }
-  }, [showToast]);
+  }, [showToast, mutateRecipes]);
 
   const openEdit = useCallback((recipe: Recipe) => {
     setForm({

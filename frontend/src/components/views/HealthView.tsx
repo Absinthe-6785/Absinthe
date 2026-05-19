@@ -97,6 +97,11 @@ export const HealthView = ({
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const draftKey = `healthDraft:${formatDate(selectedDate)}`;
 
+  // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
+  // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
+  const isDirtyRef = useRef(false);
+  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
+
   // selectedDate 변경 시: draft가 있으면 복원, 없으면 서버 데이터로 초기화
   useEffect(() => {
     setIsInbodyDirty(false);
@@ -106,12 +111,14 @@ export const HealthView = ({
         const draft: Workout[] = JSON.parse(raw);
         setLocalWorkouts(draft);
         setIsDirty(true);
+        isDirtyRef.current = true; // 동일 배치에서 workouts effect가 읽을 수 있도록 즉시 반영
         setIsWorkoutLocked(false);
         showToast('Draft restored — tap Complete Workout to save');
         return;
       } catch { localStorage.removeItem(draftKey); }
     }
     setIsDirty(false);
+    isDirtyRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
@@ -122,8 +129,9 @@ export const HealthView = ({
     }
   }, [localWorkouts, isDirty, draftKey]);
 
+  // workouts(SWR)가 갱신될 때 isDirtyRef로 판단 → draft 복원 직후 덮어쓰기 방지
   useEffect(() => {
-    if (!isDirty) {
+    if (!isDirtyRef.current) {
       const sorted = [...(workouts || [])].sort((a, b) => {
         const ao = a.sort_order ?? 9999;
         const bo = b.sort_order ?? 9999;
@@ -132,7 +140,7 @@ export const HealthView = ({
       setLocalWorkouts(sorted);
       setIsWorkoutLocked(sorted.length > 0);
     }
-  }, [workouts, isDirty]);
+  }, [workouts]);
 
   useEffect(() => {
     if (!isInbodyDirty)

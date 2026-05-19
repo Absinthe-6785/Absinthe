@@ -78,7 +78,7 @@ export const AnalyticsView = ({
 
   const onRangeError = useCallback(
     () => showToast(t('failedAnalytics'), 'error'),
-    [showToast],
+    [showToast, t],
   );
 
   const { data: rangeSchedules, isLoading: isRangeLoading } = useSWR(
@@ -116,11 +116,20 @@ export const AnalyticsView = ({
     return s;
   }, [weekWorkouts]);
 
-  // 토글 오버라이드 — 이번 세션 중 사용자가 직접 누른 날짜
-  const [workoutToggle, setWorkoutToggle] = useState<Record<string, boolean>>({});
+  // 토글 오버라이드 — 탭 전환 시에도 유지되도록 sessionStorage에서 초기값 복원
+  const [workoutToggle, setWorkoutToggle] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = sessionStorage.getItem('workoutToggle');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
   const toggleWorkoutDay = (dateStr: string) => {
     const current = workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
-    setWorkoutToggle(prev => ({ ...prev, [dateStr]: !current }));
+    setWorkoutToggle(prev => {
+      const next = { ...prev, [dateStr]: !current };
+      try { sessionStorage.setItem('workoutToggle', JSON.stringify(next)); } catch { /**/ }
+      return next;
+    });
   };
   const isWorkoutDone = (dateStr: string) =>
     workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
@@ -156,9 +165,9 @@ export const AnalyticsView = ({
       { confirmLabel: 'Delete' },
     );
 
+  const todayStr = formatDate(now.toJSDate());
   const isExceptionDay = routineExceptions.some(exc =>
-    exc.start_date <= (routines[0] ? new Date().toISOString().slice(0,10) : '') &&
-    exc.end_date   >= (routines[0] ? new Date().toISOString().slice(0,10) : '')
+    exc.start_date <= todayStr && exc.end_date >= todayStr
   );
   const routineCompletionRate = (routines?.length && !isExceptionDay)
     ? Math.round((routines.filter((r: Routine) => r.done).length / routines.length) * 100)
@@ -328,7 +337,7 @@ export const AnalyticsView = ({
               })}
             </div>
             <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
-              Tap to mark · Auto-updated when workout is saved
+              Tap to mark · Synced from workout records · resets on sign-out
             </p>
           </div>
 
