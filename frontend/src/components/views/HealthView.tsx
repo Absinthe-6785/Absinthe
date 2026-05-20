@@ -48,6 +48,10 @@ export const HealthView = ({
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
+  const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
+  const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
 
   // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
   // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
@@ -103,10 +107,6 @@ export const HealthView = ({
       setTimeout(() => setCopied(false), 2000);
     }
   }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts]);
-  const [isSaving, setIsSaving] = useState(false);
-  // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
-  const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
-  const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   // ── 드래그 정렬 상태 (워크아웃) ──────────────────────────────────
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
