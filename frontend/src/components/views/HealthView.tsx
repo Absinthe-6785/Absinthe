@@ -547,7 +547,7 @@ export const HealthView = ({
                 )}
 
                 {/* 블록 없을 때 */}
-                {blocks.length === 0 && <EmptyState theme={theme} onClick={() => openBlockModal()} icon={Dumbbell} text="Create exercise blocks"/>}
+                {blocks.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="Create exercise blocks — tap + above"/>}
 
                 {/* 태그별 그룹 섹션 */}
                 <div className="overflow-y-auto min-h-0 pr-1 pb-2 space-y-3">
