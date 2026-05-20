@@ -145,10 +145,6 @@ const translations = {
 
   // ── Recipe ───────────────────────────────────────────────────────
   recipe:         { en: 'Recipe',        ko: '레시피',       ja: 'レシピ'       },
-  recipes:        { en: 'Recipes',       ko: '레시피',       ja: 'レシピ'       },
-
-  // ── Recipe ───────────────────────────────────────────────────────
-  recipe:         { en: 'Recipe',        ko: '레시피',       ja: 'レシピ'       },
 
   // ── HealthView ────────────────────────────────────────────────────
   workoutBlocks:  { en: 'Workout Blocks',   ko: '운동 블록',     ja: 'ワークアウトブロック' },

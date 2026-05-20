@@ -9,12 +9,14 @@
  * 변경: useConfirm() 한 줄로 대체. ConfirmModal 렌더 패턴도 단순화.
  */
 
-import { Settings, Save, Download, AlertTriangle, LogOut, Globe } from 'lucide-react';
+import { useState } from 'react';
+import { Settings, Save, Download, AlertTriangle, LogOut, Loader2 } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
+import { exportAllToCsv } from '../../lib/csvExport';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -24,6 +26,34 @@ export const SettingsView = ({
   // ✅ DRY: useConfirm으로 3줄 → 1줄
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const { t } = useTranslation();
+
+  // ── CSV 내보내기 상태 ──────────────────────────────────────────────
+  const today = new Date().toISOString().slice(0, 10);
+  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [exportStart, setExportStart] = useState(oneMonthAgo);
+  const [exportEnd,   setExportEnd]   = useState(today);
+  const [exporting,   setExporting]   = useState(false);
+  const [exportMsg,   setExportMsg]   = useState('');
+
+  const doExport = async () => {
+    if (!exportStart || !exportEnd) return showToast(t('selectBothDates'), 'error');
+    if (exportStart > exportEnd)    return showToast(t('endTimeError'), 'error');
+    setExporting(true);
+    setExportMsg('');
+    try {
+      await exportAllToCsv({
+        startDate: exportStart,
+        endDate:   exportEnd,
+        onProgress: msg => setExportMsg(msg),
+      });
+      showToast('Export complete!');
+    } catch {
+      showToast('Export failed. Please try again.', 'error');
+    } finally {
+      setExporting(false);
+      setExportMsg('');
+    }
+  };
 
   const doResetData = async () => {
     try {
@@ -140,18 +170,48 @@ export const SettingsView = ({
               <Save size={20} />{t('dataManagement')}
             </h2>
             <div className="space-y-6">
-              <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0">
-                <div>
-                  <p className="text-base font-bold">{t('exportCsv')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('exportDesc')}</p>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
+                  <div>
+                    <p className="text-base font-bold">{t('exportCsv')}</p>
+                    <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('exportDesc')}</p>
+                  </div>
+                  <button
+                    onClick={doExport}
+                    disabled={exporting}
+                    className="bg-[#1C1C1E] text-[#FACC15] px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+                  >
+                    {exporting
+                      ? <><Loader2 size={16} className="animate-spin"/>{exportMsg || 'Exporting...'}</>
+                      : <><Download size={16}/>{t('exportCsv')}</>
+                    }
+                  </button>
                 </div>
-                <button
-                  disabled
-                  onClick={() => showToast(t('comingSoon'), 'error')}
-                  className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 opacity-50 cursor-not-allowed ${theme.input}`}
-                >
-                  <Download size={18} />{t('comingSoon')}
-                </button>
+                {/* 날짜 범위 선택 */}
+                <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+                  <div className="flex-1">
+                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('startDate')}</p>
+                    <input
+                      type="date"
+                      value={exportStart}
+                      max={exportEnd}
+                      onChange={e => setExportStart(e.target.value)}
+                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}
+                    />
+                  </div>
+                  <div className="flex items-end pb-2 text-sm font-bold opacity-40 hidden sm:flex">→</div>
+                  <div className="flex-1">
+                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('endDate')}</p>
+                    <input
+                      type="date"
+                      value={exportEnd}
+                      min={exportStart}
+                      max={today}
+                      onChange={e => setExportEnd(e.target.value)}
+                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0 pt-6 border-t ${theme.border}`}>

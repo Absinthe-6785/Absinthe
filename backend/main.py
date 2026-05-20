@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -86,7 +86,7 @@ class RoutineLogUpdate(BaseModel):
     routine_id: str; date: str; done: bool
 
 class ExerciseBlockCreate(BaseModel):
-    name: str; type: str; tags: list = []
+    name: str; type: str; tags: list = Field(default_factory=list)
 
 class HealthRoutineCreate(BaseModel):
     day_name: str; blocks: list
@@ -113,12 +113,22 @@ async def ping():
 
 @app.delete("/api/reset")
 async def reset_all_data(user_id: str = Depends(get_current_user)):
-    supabase.table("schedules").delete().eq("user_id", user_id).execute()
-    supabase.table("todos").delete().eq("user_id", user_id).execute()
-    supabase.table("routines").delete().eq("user_id", user_id).execute()
+    # /api/restore가 다루는 12개 테이블과 동일하게 맞춤.
+    # 삭제 순서: 자식 테이블(logs, notes) → 부모 테이블(folders, routines, blocks) 순으로
+    # FK 제약이 있는 경우를 대비해 의존 관계 역순으로 삭제.
+    supabase.table("routine_logs").delete().eq("user_id", user_id).execute()
+    supabase.table("routine_exceptions").delete().eq("user_id", user_id).execute()
     supabase.table("workout_logs").delete().eq("user_id", user_id).execute()
     supabase.table("inbody_logs").delete().eq("user_id", user_id).execute()
+    supabase.table("schedules").delete().eq("user_id", user_id).execute()
+    supabase.table("todos").delete().eq("user_id", user_id).execute()
     supabase.table("weekly_schedules").delete().eq("user_id", user_id).execute()
+    supabase.table("notes").delete().eq("user_id", user_id).execute()
+    supabase.table("note_folders").delete().eq("user_id", user_id).execute()
+    supabase.table("routines").delete().eq("user_id", user_id).execute()
+    supabase.table("exercise_blocks").delete().eq("user_id", user_id).execute()
+    supabase.table("health_routines").delete().eq("user_id", user_id).execute()
+    supabase.table("recipes").delete().eq("user_id", user_id).execute()
     return {"message": "All user data has been permanently deleted."}
 
 # ==========================================
@@ -185,9 +195,6 @@ async def toggle_todo(todo_id: str, payload: StatusUpdate, user_id: str = Depend
 
 @app.put("/api/todos_text/{todo_id}")
 async def update_todo_text(todo_id: str, payload: TodoTextUpdate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
-    if not row: raise HTTPException(status_code=404, detail="Not found")
-    verify_owner(row["user_id"], user_id)
     """투두 텍스트 수정 (done 상태는 PUT /api/todos/{id}로 분리)"""
     row = supabase.table("todos").select("user_id").eq("id", todo_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
@@ -437,7 +444,8 @@ async def delete_weekly_schedule(schedule_id: str, user_id: str = Depends(get_cu
     return supabase.table("weekly_schedules").delete().eq("id", schedule_id).execute().data
 
 # ==========================================
-# Notes
+# Pydantic Models — Recipes / Exceptions / Notes
+# (엔드포인트보다 앞에 선언해야 FastAPI가 참조 가능)
 # ==========================================
 class RecipeCreate(BaseModel):
     title: str
@@ -550,7 +558,7 @@ async def export_backup(user_id: str = Depends(get_current_user)):
             q = q.order(order)
         return q.execute().data or []
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()  # get_event_loop()는 Python 3.10+에서 deprecated
     (
         notes, folders, schedules, todos, routines,
         routine_logs, blocks, workout_logs, inbody_logs, ddays,

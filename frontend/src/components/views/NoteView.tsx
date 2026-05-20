@@ -49,7 +49,13 @@ interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
 export const NoteView = () => {
   const katexReady = useKaTeX();
 
-  // ── appSettings(darkMode)만 전역 스토어에서 가져옴 ───────────────
+  // ── 전역 스토어 — appSettings(darkMode)만 참조 ────────────────────
+  // 설계 의도: NoteView는 PlannerView(Memo)와 완전히 독립된 노트 시스템.
+  //   - 노트/폴더 상태는 NoteView 전용 localStorage 키(NV_NOTES_KEY 등)에서 관리.
+  //   - useAppStore의 notes/folders는 PlannerView Memo 전용이며 NoteView와 공유하지 않음.
+  //   - 두 상태가 충돌하지 않는 이유: 키가 다르고(NV_NOTES_KEY vs planner-notes-v2)
+  //     DB 엔드포인트(/api/notes)는 upsert 방식이므로 각자 독립적으로 sync.
+  //   - 향후 통합이 필요하다면 useAppStore의 notes를 제거하고 NoteView 쪽으로 일원화 권장.
   const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -185,29 +191,23 @@ export const NoteView = () => {
     return id;
   }, [activeFolderId, setActiveNoteId, setViewMode, syncNoteToDB]);
 
-  // debounce refs — body 타이핑 중 과도한 localStorage/DB 쓰기 방지
-  const syncTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lsTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // debounce ref — body 타이핑 중 과도한 DB 요청 방지
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     setNotes(prev => {
       const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
+      nvSaveNotes(updated);
+      // body 변경은 600ms debounce, 나머지(title, folderId, starred)는 즉시 sync
       const updatedNote = updated.find(n => n.id === id);
-
-      if ('body' in patch) {
-        // body: localStorage는 300ms, DB sync는 600ms 디바운스
-        // — 매 keystroke마다 동기 localStorage 쓰기가 발생하면 저사양 기기에서 입력 지연 유발
-        if (lsTimer.current)   clearTimeout(lsTimer.current);
-        if (syncTimer.current) clearTimeout(syncTimer.current);
-        lsTimer.current   = setTimeout(() => nvSaveNotes(updated), 300);
-        if (updatedNote)
+      if (updatedNote) {
+        if ('body' in patch) {
+          if (syncTimer.current) clearTimeout(syncTimer.current);
           syncTimer.current = setTimeout(() => syncNoteToDB(updatedNote), 600);
-      } else {
-        // title, folderId, starred: 즉시 저장 (짧은 값, 빈도 낮음)
-        nvSaveNotes(updated);
-        if (updatedNote) syncNoteToDB(updatedNote);
+        } else {
+          syncNoteToDB(updatedNote);
+        }
       }
-
       return updated;
     });
   }, [syncNoteToDB]);

@@ -122,6 +122,9 @@ export const useAppStore = create<StoreState>()(
       return {
         appSettings: DEFAULT_SETTINGS,
         memoText: '',
+        // ⚠️  notes/folders/activeNoteId는 PlannerView Memo 전용.
+        //     NoteView는 별도 localStorage 키(NV_NOTES_KEY)와 자체 useState로 독립 관리.
+        //     두 시스템은 키가 달라 충돌 없음. 향후 통합 시 NoteView 쪽으로 일원화 권장.
         notes: initialNotes,
         folders: initialFolders,
         activeNoteId: loadActive(initialNotes),
@@ -150,6 +153,9 @@ export const useAppStore = create<StoreState>()(
         },
         deleteFolder: (id) => {
           // 폴더 삭제 시 소속 노트는 미분류(folderId=null)로 이동
+          // set() 전에 이동 대상 id를 먼저 캡처 — set() 이후 get().notes는 이미 변경된 상태라
+          // folderId로 원래 소속을 추적할 수 없음
+          const movedNoteIds = new Set(get().notes.filter(n => n.folderId === id).map(n => n.id));
           const notes = get().notes.map(n => n.folderId === id ? { ...n, folderId: null } : n);
           const folders = get().folders.filter(f => f.id !== id);
           const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
@@ -157,8 +163,8 @@ export const useAppStore = create<StoreState>()(
           saveNotes(notes);
           saveFolders(folders);
           get().removeFolderFromDB(id);
-          // 이동된 노트들 DB sync
-          notes.filter(n => n.folderId === null).forEach(n => get().syncNote(n));
+          // 실제로 이 폴더에 속했던 노트만 DB sync (원래 미분류였던 노트 제외)
+          notes.filter(n => movedNoteIds.has(n.id)).forEach(n => get().syncNote(n));
         },
         setActiveFolderId: id => set({ activeFolderId: id }),
 
@@ -334,8 +340,20 @@ export const useAppStore = create<StoreState>()(
       storage: createJSONStorage(() => localStorage),
       version: 4,
       partialize: s => ({ appSettings: s.appSettings, weightUnits: s.weightUnits }),
-      migrate: (persisted: unknown, _v: number) => {
+      // v1→v2: 초기 버전 (appSettings만 persist)
+      // v2→v3: weightUnits 추가
+      // v3→v4: appSettings.language 추가
+      // v5 이상 추가 시: fromVersion별 분기로 마이그레이션 로직 확장
+      migrate: (persisted: unknown, fromVersion: number) => {
         const s = persisted as Partial<StoreState>;
+        // 모든 버전 공통: DEFAULT_SETTINGS로 누락 필드 보완 + weightUnits 초기화
+        // fromVersion이 낮을수록 더 많은 필드가 누락될 수 있으나
+        // DEFAULT_SETTINGS spread로 안전하게 복원 가능한 단순 구조이므로 단일 로직 유지.
+        // 향후 스키마 변경(필드 제거/rename)이 생기면 fromVersion 분기 추가 필요.
+        if (fromVersion < 1) {
+          // v0 이하: 완전 초기화
+          return { appSettings: DEFAULT_SETTINGS, weightUnits: {} } as StoreState;
+        }
         return { ...s, appSettings: { ...DEFAULT_SETTINGS, ...(s.appSettings ?? {}) }, weightUnits: s.weightUnits ?? {} } as StoreState;
       },
       onRehydrateStorage: () => s => {

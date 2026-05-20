@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2 } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -47,6 +47,62 @@ export const HealthView = ({
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
+  // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
+  const buildWorkoutSummary = useCallback((date: string, ws: Workout[]): string => {
+    const lines: string[] = [`📅 ${date}`, ''];
+    ws.forEach((w, i) => {
+      const name = w.exercise_blocks?.name ?? 'Unknown';
+      lines.push(`${i + 1}. ${name}`);
+      w.sets.forEach(s => {
+        if (isCardioSet(s)) {
+          const parts = [`Set ${s.set}`];
+          if (s.time)     parts.push(`⏱ ${s.time}`);
+          if (s.distance) parts.push(`📍 ${s.distance}km`);
+          if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
+          lines.push(`   ${parts.join('  ')}${s.done ? ' ✓' : ''}`);
+        } else {
+          const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
+          const kg   = s.kg   !== '' ? `${s.kg}${unit}` : '-';
+          const reps = s.reps !== '' ? `${s.reps}reps`  : '-';
+          const drop = s.is_dropset ? ' [DROP]' : '';
+          lines.push(`   Set ${s.set}${drop}  ${kg} × ${reps}${s.done ? ' ✓' : ''}`);
+        }
+      });
+      lines.push('');
+    });
+    // 총량 요약 (strength/bodyweight만)
+    const totalSets   = ws.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
+    const totalVolume = ws.reduce((acc, w) =>
+      acc + w.sets.filter(isStrengthSet).reduce((a, s) =>
+        a + (s.done && s.kg !== '' && s.reps !== '' ? Number(s.kg) * Number(s.reps) : 0), 0), 0);
+    if (totalSets > 0)   lines.push(`💪 Total sets: ${totalSets}`);
+    if (totalVolume > 0) lines.push(`🏋️ Total volume: ${totalVolume.toLocaleString()}kg`);
+    return lines.join('\n');
+  }, [weightUnits]);
+
+  const handleCopySummary = useCallback(async () => {
+    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard API 미지원 시 fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity  = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts]);
   const [isSaving, setIsSaving] = useState(false);
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
@@ -723,10 +779,22 @@ export const HealthView = ({
                     <p className={`text-[11px] ${appSettings.darkMode ? 'text-green-600' : 'text-green-500'}`}>{t('tapEditModify')}</p>
                   </div>
                 </div>
-                <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1C1C1E] text-[#FACC15] font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all shrink-0">
-                  <Pencil size={14}/> Edit
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleCopySummary}
+                    title="Copy workout summary to clipboard"
+                    className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all
+                      ${copied
+                        ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')
+                        : (appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                      }`}>
+                    {copied ? <><Check size={13}/> Copied!</> : <><ClipboardCopy size={13}/> Copy</>}
+                  </button>
+                  <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1C1C1E] text-[#FACC15] font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all">
+                    <Pencil size={14}/> Edit
+                  </button>
+                </div>
               </div>
             ) : (
               /* ── 편집 상태: Complete Workout 버튼 ── */
