@@ -69,21 +69,19 @@ export const HealthView = ({
           lines.push(`   ${parts.join('  ')}${s.done ? ' ✓' : ''}`);
         } else {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
-          const kg   = s.kg   !== '' ? `${s.kg}${unit}` : '-';
-          const reps = s.reps !== '' ? `${s.reps}reps`  : '-';
+          // s.kg는 항상 kg 원본값 → lbs 단위면 displayKg()와 동일하게 변환해서 표시
+          const displayVal = s.kg !== '' ? displayKg(s.kg, w.block_id) : '';
+          const kgStr = displayVal !== '' ? `${displayVal}${unit}` : '-';
+          const reps = s.reps !== '' ? `${s.reps}reps` : '-';
           const drop = s.is_dropset ? ' [DROP]' : '';
-          lines.push(`   Set ${s.set}${drop}  ${kg} × ${reps}${s.done ? ' ✓' : ''}`);
+          lines.push(`   Set ${s.set}${drop}  ${kgStr} × ${reps}${s.done ? ' ✓' : ''}`);
         }
       });
       lines.push('');
     });
-    // 총량 요약 (strength/bodyweight만)
-    const totalSets   = ws.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
-    const totalVolume = ws.reduce((acc, w) =>
-      acc + w.sets.filter(isStrengthSet).reduce((a, s) =>
-        a + (s.done && s.kg !== '' && s.reps !== '' ? Number(s.kg) * Number(s.reps) : 0), 0), 0);
-    if (totalSets > 0)   lines.push(`💪 Total sets: ${totalSets}`);
-    if (totalVolume > 0) lines.push(`🏋️ Total volume: ${totalVolume.toLocaleString()}kg`);
+    // 총 세트 요약
+    const totalSets = ws.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
+    if (totalSets > 0) lines.push(`💪 Total sets: ${totalSets}`);
     return lines.join('\n');
   }, [weightUnits]);
 
