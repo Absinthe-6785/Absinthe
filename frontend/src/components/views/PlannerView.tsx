@@ -528,8 +528,8 @@ export const PlannerView = ({
                 </p>
               )}
               {visibleNotes.map(n => (
-                <button key={n.id} onClick={() => setActiveNoteId(n.id)}
-                  className={`w-full text-left px-3 py-2.5 transition-colors group relative
+                <div key={n.id} onClick={() => setActiveNoteId(n.id)}
+                  className={`w-full text-left px-3 py-2.5 transition-colors group relative cursor-pointer
                     ${n.id === activeNoteId
                       ? appSettings.darkMode ? 'bg-[#3A3A3C]' : 'bg-[#F5F0DC]'
                       : theme.hoverBg}`}>
@@ -544,7 +544,7 @@ export const PlannerView = ({
                     className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity ${theme.hoverBg} ${activeFolderId === 'trash' ? 'text-red-500' : 'text-red-400'}`}>
                     <X size={10}/>
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           </div>
