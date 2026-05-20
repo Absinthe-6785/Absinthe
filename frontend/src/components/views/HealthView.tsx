@@ -52,41 +52,51 @@ export const HealthView = ({
   // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
+  // ── 날짜별 메모 ───────────────────────────────────────────────────────
+  const [workoutMemo, setWorkoutMemo] = useState('');
 
   // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
   // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
-  const buildWorkoutSummary = useCallback((date: string, ws: Workout[]): string => {
+  const buildWorkoutSummary = useCallback((date: string, ws: Workout[], memo: string): string => {
     const lines: string[] = [`📅 ${date}`, ''];
-    ws.forEach((w, i) => {
+    let exerciseNum = 1;
+    ws.forEach(w => {
+      // 세션 구분선
+      if (w.block_id === '__session__') {
+        lines.push(`── ${w.exercise_blocks?.name ?? ''} ──`);
+        lines.push('');
+        return;
+      }
       const name = w.exercise_blocks?.name ?? 'Unknown';
-      lines.push(`${i + 1}. ${name}`);
+      lines.push(`${exerciseNum++}. ${name}`);
       w.sets.forEach(s => {
         if (isCardioSet(s)) {
           const parts = [`Set ${s.set}`];
           if (s.time)     parts.push(`⏱ ${s.time}`);
           if (s.distance) parts.push(`📍 ${s.distance}km`);
           if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
-          lines.push(`   ${parts.join('  ')}${s.done ? ' ✓' : ''}`);
+          lines.push(`   ${parts.join('  ')}`);
         } else {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
-          // s.kg는 항상 kg 원본값 → lbs 단위면 displayKg()와 동일하게 변환해서 표시
           const displayVal = s.kg !== '' ? displayKg(s.kg, w.block_id) : '';
           const kgStr = displayVal !== '' ? `${displayVal}${unit}` : '-';
           const reps = s.reps !== '' ? `${s.reps}reps` : '-';
           const drop = s.is_dropset ? ' [DROP]' : '';
-          lines.push(`   Set ${s.set}${drop}  ${kgStr} × ${reps}${s.done ? ' ✓' : ''}`);
+          lines.push(`   Set ${s.set}${drop}  ${kgStr} × ${reps}`);
         }
       });
       lines.push('');
     });
-    // 총 세트 요약
-    const totalSets = ws.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
+    // 총 세트 요약 (세션 구분선 제외)
+    const realWs = ws.filter(w => w.block_id !== '__session__');
+    const totalSets = realWs.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
     if (totalSets > 0) lines.push(`💪 Total sets: ${totalSets}`);
+    if (memo.trim()) { lines.push(''); lines.push(`📝 ${memo.trim()}`); }
     return lines.join('\n');
   }, [weightUnits]);
 
   const handleCopySummary = useCallback(async () => {
-    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts);
+    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -150,6 +160,13 @@ export const HealthView = ({
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const draftKey = `healthDraft:${formatDate(selectedDate)}`;
+  const memoKey  = `healthMemo:${formatDate(selectedDate)}`;
+
+  // selectedDate 변경 시 메모도 localStorage에서 복원
+  useEffect(() => {
+    setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
   // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
@@ -289,9 +306,24 @@ export const HealthView = ({
     setIsDirty(true);
     setLocalWorkouts([...localWorkouts, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
   };
+
+  // ── 세션 구분선 ───────────────────────────────────────────────────
+  const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;
+  const handleAddSessionBreak = (labelKey: typeof SESSION_KEYS[number]) => {
+    const label = t(labelKey);
+    setIsDirty(true);
+    setLocalWorkouts(prev => [...prev, {
+      id: `session-${Date.now()}`,
+      block_id: '__session__',
+      exercise_blocks: { id: '__session__', name: label, type: 'strength', tags: [] } as ExerciseBlock,
+      sets: [],
+    }]);
+  };
+
   const handleRemoveWorkout = async (index: number, dbId: string) => {
     try {
-      if (!dbId.startsWith('temp')) {
+      // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
+      if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {
         const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`[${res.status}]`);
         // DB 삭제 성공 즉시 mutateDaily → SWR 캐시도 동기화.
@@ -336,23 +368,27 @@ export const HealthView = ({
     });
   };
   const handleSaveWorkouts = async () => {
-    if (localWorkouts.length === 0) return showToast(t('noWorkouts'), 'error');
+    if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
+      return showToast(t('noWorkouts'), 'error');
     setIsSaving(true);
 
     // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
-    // 병렬 저장 시 네트워크 응답 순서가 뒤바뀌어 sort_order가 섞이는 문제 방지
+    // 세션 구분선(__session__)은 DB 저장 불필요 — 스킵
     let failed = 0;
+    let dbIdx = 0; // 실제 DB 저장 순서 (세션 구분선 제외)
     for (let idx = 0; idx < localWorkouts.length; idx++) {
       const w = localWorkouts[idx];
+      if (w.block_id === '__session__') continue;
       try {
         const res = await authFetch(`${API_URL}/api/workouts`, {
           method: 'POST',
-          body: JSON.stringify({ date: formatDate(selectedDate), block_id: w.block_id, sets: w.sets, sort_order: idx }),
+          body: JSON.stringify({ date: formatDate(selectedDate), block_id: w.block_id, sets: w.sets, sort_order: dbIdx }),
         });
         if (!res.ok) failed++;
       } catch { failed++; }
+      dbIdx++;
     }
-    const total = localWorkouts.length;
+    const total = dbIdx; // 실제 저장 시도한 운동 수
     setIsSaving(false);
     if (failed === 0) {
       localStorage.removeItem(draftKey);
@@ -608,18 +644,71 @@ export const HealthView = ({
               </p>
             </div>
             {!isWorkoutLocked && (
-              <select onChange={handleLoadRoutine}
-                className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
-                <option value="__load__">{t('loadRoutine')}</option>
-                {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>Load Day {i + 1}</option>)}
-              </select>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* 세션 구분선 추가 드롭다운 */}
+                <select
+                  onChange={e => {
+                    const v = e.target.value as typeof SESSION_KEYS[number] | '';
+                    if (v) handleAddSessionBreak(v);
+                    e.target.value = '';
+                  }}
+                  className={`text-xs font-bold px-3 py-2 rounded-xl outline-none cursor-pointer border ${appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-300 border-gray-700' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                  <option value="">{t('addSession')}</option>
+                  {SESSION_KEYS.map(k => (
+                    <option key={k} value={k}>{t(k)}</option>
+                  ))}
+                </select>
+                <select onChange={handleLoadRoutine}
+                  className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
+                  <option value="__load__">{t('loadRoutine')}</option>
+                  {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>Load Day {i + 1}</option>)}
+                </select>
+              </div>
             )}
           </div>
 
           <div className="space-y-3 pb-2 lg:space-y-5 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
-            {localWorkouts.map((w: Workout, wIdx: number) => (
-              <div
+            {localWorkouts.map((w: Workout, wIdx: number) => {
+
+              /* ── 세션 구분선 렌더링 ── */
+              if (w.block_id === '__session__') {
+                return (
+                  <div
+                    key={w.id}
+                    data-workout-index={wIdx}
+                    draggable={!isWorkoutLocked}
+                    onDragStart={e => handleDragStart(e, wIdx)}
+                    onDragEnter={() => handleDragEnter(wIdx)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={e => e.preventDefault()}
+                    onTouchStart={e => handleTouchStart(e, wIdx)}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleDragEnd}
+                    className="flex items-center gap-2 py-1 select-none">
+                    {!isWorkoutLocked && (
+                      <GripVertical size={15} className={`shrink-0 cursor-grab active:cursor-grabbing ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'}`}/>
+                    )}
+                    <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+                    <span className={`text-[11px] font-black tracking-widest px-3 py-1 rounded-full shrink-0
+                      ${appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-400' : 'bg-gray-100 text-gray-400'}`}>
+                      {w.exercise_blocks?.name}
+                    </span>
+                    <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
+                    {!isWorkoutLocked && (
+                      <button
+                        onClick={() => handleRemoveWorkout(wIdx, w.id)}
+                        className="shrink-0 p-1 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
+                        <X size={13}/>
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              /* ── 일반 운동 카드 렌더링 ── */
+              return (
+                <div
                 key={w.id}
                 data-workout-index={wIdx}
                 draggable={!isWorkoutLocked}
@@ -757,7 +846,8 @@ export const HealthView = ({
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
           <div className="shrink-0 pt-4">
             {isWorkoutLocked ? (
@@ -802,6 +892,20 @@ export const HealthView = ({
                 {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
               </button>
             )}
+            {/* ── 날짜별 메모 ── */}
+            <div className={`mt-3 rounded-2xl p-3 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+              <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>📝 MEMO</p>
+              <textarea
+                value={workoutMemo}
+                onChange={e => {
+                  setWorkoutMemo(e.target.value);
+                  localStorage.setItem(memoKey, e.target.value);
+                }}
+                placeholder="오늘의 컨디션, 특이사항 등을 기록하세요…"
+                rows={3}
+                className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
+              />
+            </div>
           </div>
         </div>
 

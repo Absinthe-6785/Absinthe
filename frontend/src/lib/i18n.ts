@@ -197,6 +197,12 @@ const translations = {
   other:          { en: 'Other',          ko: '기타',         ja: 'その他'       },
   workoutSavedShort: { en: 'Workout Saved', ko: '운동 저장됨', ja: '保存しました' },
 
+  // ── Session divider ───────────────────────────────────────────────
+  addSession:      { en: '+ Session',      ko: '+ 세션',       ja: '+ セッション'  },
+  sessionMorning:  { en: '🌅 Morning',     ko: '🌅 아침',      ja: '🌅 朝'         },
+  sessionAfternoon:{ en: '🏋️ Afternoon',   ko: '🏋️ 오후',     ja: '🏋️ 午後'      },
+  sessionEvening:  { en: '🌙 Evening',     ko: '🌙 저녁',      ja: '🌙 夜'         },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
