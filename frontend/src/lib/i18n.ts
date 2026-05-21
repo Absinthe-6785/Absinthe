@@ -112,7 +112,7 @@ const translations = {
   cardio:         { en: 'Cardio',        ko: '유산소',       ja: 'カーディオ'   },
 
   // ── AnalyticsView ─────────────────────────────────────────────────
-  weeklyTimetable: { en: 'Weekly Timetable (24H)', ko: '주간 타임테이블 (24H)', ja: '週間タイムテーブル（24H）' },
+  weeklyTimetable: { en: 'Weekly Timetable', ko: '주간 타임테이블', ja: '週間タイムテーブル' },
   addActivity:    { en: 'Add',           ko: '추가',         ja: '追加'         },
   dayOfWeek:      { en: 'Day of Week',   ko: '요일',         ja: '曜日'         },
   editActivity:   { en: 'Edit Activity', ko: '활동 편집',    ja: 'アクティビティ編集' },

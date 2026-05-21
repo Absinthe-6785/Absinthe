@@ -406,56 +406,68 @@ export const AnalyticsView = ({
               <Plus size={16} strokeWidth={3}/> Add
             </button>
           </div>
+          {/* 타임테이블 그리드 — 0~23시 고정 24시간 표시 */}
           {(() => {
-            // 실제 일정의 최대 end_time 기준으로 표시 시간 결정
-            // 최소 18시, 최대 24시
-            const parseT = (ts: string) => { const [h, m] = ts.split(':').map(Number); return h + m / 60; };
-            const maxHour = (weeklySchedules || []).reduce((max, s) => {
-              let end = parseT(s.end_time);
-              if (end <= parseT(s.start_time)) end += 24; // 자정 넘는 일정
-              return Math.min(Math.max(max, Math.ceil(end) + 1), 24);
-            }, 18); // 기본 최소 18시
-            const SCHEDULE_HOURS = Array.from({ length: maxHour }, (_, i) => i);
-            const gridHeight = maxHour * 64;
+            const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0 ~ 23
+            const ROW_H = 48; // 1시간당 px (컴팩트)
             return (
           <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
             {/* 요일 헤더 */}
-            <div className={`flex border-b h-10 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-              <div className={`w-12 lg:w-16 border-r ${theme.border}`}/>
+            <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+              <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
               {DAYS_OF_WEEK.map(day => (
                 <div key={day} className={`flex-1 flex items-center justify-center border-r last:border-r-0 ${theme.border}`}>
                   <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>{day}</span>
                 </div>
               ))}
             </div>
-            <div className={`flex-1 flex overflow-y-auto relative ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
+            {/* 스크롤 영역 */}
+            <div className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
               {/* 시간 라벨 */}
-              <div className={`w-12 lg:w-16 flex flex-col border-r shrink-0 z-10 relative ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-                {SCHEDULE_HOURS.map(h => (
-                  <div key={h} className={`h-16 border-b flex items-start justify-center pt-1.5 ${theme.border}`}>
-                    <span className={`text-[9px] lg:text-[10px] font-medium tabular-nums ${theme.textMuted}`}>{String(h).padStart(2,'0')}:00</span>
+              <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+                {HOURS.map(h => (
+                  <div key={h} className={`border-b flex items-start justify-center pt-1 ${theme.border}`} style={{ height: `${ROW_H}px` }}>
+                    <span className={`text-[9px] lg:text-[10px] font-medium tabular-nums ${theme.textMuted}`}>
+                      {String(h).padStart(2, '0')}:00
+                    </span>
                   </div>
                 ))}
               </div>
               {/* 그리드 + 블록 */}
-              <div className="flex-1 relative" style={{ minHeight: `${gridHeight}px` }}>
-                {SCHEDULE_HOURS.map((_, i) => (
-                  <div key={i} className={`absolute w-full h-16 border-b ${theme.border}`} style={{ top: `${i * 64}px` }}/>
+              <div className="flex-1 relative" style={{ minHeight: `${24 * ROW_H}px` }}>
+                {/* 수평 구분선 */}
+                {HOURS.map(h => (
+                  <div key={h} className={`absolute w-full border-b ${h % 6 === 0 ? 'opacity-60' : 'opacity-30'} ${theme.border}`}
+                    style={{ top: `${h * ROW_H}px`, height: `${ROW_H}px` }}/>
                 ))}
-                <div className="absolute inset-0 flex">
-                  {DAYS_OF_WEEK.map((_, i) => <div key={i} className={`flex-1 border-r border-dashed ${theme.border} last:border-r-0`}/>)}
+                {/* 수직 요일 구분선 */}
+                <div className="absolute inset-0 flex pointer-events-none">
+                  {DAYS_OF_WEEK.map((_, i) => (
+                    <div key={i} className={`flex-1 border-r border-dashed opacity-40 last:border-r-0 ${theme.border}`}/>
+                  ))}
                 </div>
+                {/* 일정 블록 */}
                 {(weeklySchedules || []).map((block: WeeklySchedule) => {
                   const start = parseTime(block.start_time);
                   let dur = parseTime(block.end_time) - start;
                   if (dur < 0) dur += 24;
                   return (
-                    <div key={block.id} onClick={() => openWeeklyModal(block)}
-                      className="absolute p-0.5 lg:p-1 hover:scale-[1.02] cursor-pointer z-10 transition-transform"
-                      style={{ top: `${start * 64}px`, height: `${dur * 64}px`, left: `${(block.day / 7) * 100}%`, width: `${100 / 7}%` }}>
-                      <div className={`w-full h-full rounded-lg lg:rounded-xl p-1.5 lg:p-2 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 transition-all ${block.color}`}>
-                        <span className="text-[9px] lg:text-xs font-bold leading-tight line-clamp-2">{block.title}</span>
-                        <span className="text-[10px] font-medium opacity-90 mt-1 hidden sm:block tabular-nums">{block.start_time} - {block.end_time}</span>
+                    <div key={block.id}
+                      onClick={() => openWeeklyModal(block)}
+                      className="absolute px-0.5 py-0.5 cursor-pointer z-10"
+                      style={{
+                        top:    `${start * ROW_H}px`,
+                        height: `${Math.max(dur * ROW_H, ROW_H * 0.5)}px`,
+                        left:   `${(block.day / 7) * 100}%`,
+                        width:  `${100 / 7}%`,
+                      }}>
+                      <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all ${block.color}`}>
+                        <span className="text-[9px] lg:text-[10px] font-bold leading-tight line-clamp-2">{block.title}</span>
+                        {dur >= 0.75 && (
+                          <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">
+                            {block.start_time}–{block.end_time}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
