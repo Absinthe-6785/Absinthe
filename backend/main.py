@@ -317,7 +317,8 @@ async def delete_routine(routine_id: str, user_id: str = Depends(get_current_use
 # ==========================================
 @app.get("/api/blocks")
 async def get_blocks(user_id: str = Depends(get_current_user)):
-    return supabase.table("exercise_blocks").select("*").eq("user_id", user_id).execute().data or []
+    # deleted_at IS NULL 인 것만 반환 — soft delete 된 블록은 목록에서 숨김
+    return supabase.table("exercise_blocks").select("*").eq("user_id", user_id).is_("deleted_at", "null").execute().data or []
 
 @app.post("/api/blocks")
 async def create_block(block: ExerciseBlockCreate, user_id: str = Depends(get_current_user)):
@@ -335,7 +336,9 @@ async def delete_block(block_id: str, user_id: str = Depends(get_current_user)):
     row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
-    return supabase.table("exercise_blocks").delete().eq("id", block_id).execute().data
+    # Hard delete 대신 soft delete — workout_logs의 FK 참조(이름/타입)를 보존
+    from datetime import datetime, timezone
+    return supabase.table("exercise_blocks").update({"deleted_at": datetime.now(timezone.utc).isoformat()}).eq("id", block_id).execute().data
 
 # ==========================================
 # Health Routines
