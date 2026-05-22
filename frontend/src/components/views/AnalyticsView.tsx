@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
-import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X, Moon, Users, User } from 'lucide-react';
+import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X, Moon, Users, User, ChevronDown } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
@@ -135,6 +135,7 @@ export const AnalyticsView = ({
     workoutToggle[dateStr] ?? workoutDoneSet.has(dateStr);
 
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [excOpen, setExcOpen] = useState(false);
   const [editingWeeklyId, setEditingWeeklyId] = useState<string | null>(null);
   const [newWeeklySch, setNewWeeklySch] = useState<Partial<WeeklySchedule>>({
     day: 0, title: '', start_time: '09:00', end_time: '10:00', color: THEME_COLORS.find(c => c.id === 'blue')?.bg ?? THEME_COLORS[0].bg,
@@ -281,21 +282,30 @@ export const AnalyticsView = ({
             </div>
           </div>
 
-          {/* 운동 요일 */}
-          {/* 예외일 목록 */}
+          {/* 예외일 목록 — 접기/펼치기 */}
           {routineExceptions.length > 0 && (
-            <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
-              <h2 className="font-heading text-base font-bold flex items-center gap-2 mb-3">
-                🏖 Exception Days
-              </h2>
-              <div className="space-y-2">
-                {routineExceptions.map(exc => (
-                  <div key={exc.id} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs ${appSettings.darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
-                    <span className="font-semibold">{exc.start_date === exc.end_date ? exc.start_date : `${exc.start_date} ~ ${exc.end_date}`}</span>
-                    {exc.reason && <span className={`${appSettings.darkMode ? 'text-blue-400' : 'text-blue-500'}`}>{exc.reason}</span>}
-                  </div>
-                ))}
-              </div>
+            <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}`}>
+              <button
+                onClick={() => setExcOpen(o => !o)}
+                className={`flex items-center justify-between w-full px-5 lg:px-6 py-4 text-left transition-colors ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}>
+                <h2 className="font-heading text-base font-bold flex items-center gap-2">
+                  🏖 Exception Days
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>
+                    {routineExceptions.length}
+                  </span>
+                </h2>
+                <ChevronDown size={16} className={`transition-transform duration-200 ${excOpen ? 'rotate-180' : ''} ${theme.textMuted}`}/>
+              </button>
+              {excOpen && (
+                <div className="px-5 lg:px-6 pb-5 space-y-2">
+                  {routineExceptions.map(exc => (
+                    <div key={exc.id} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs ${appSettings.darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
+                      <span className="font-semibold">{exc.start_date === exc.end_date ? exc.start_date : `${exc.start_date} ~ ${exc.end_date}`}</span>
+                      {exc.reason && <span className={`${appSettings.darkMode ? 'text-blue-400' : 'text-blue-500'}`}>{exc.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -406,13 +416,11 @@ export const AnalyticsView = ({
               <Plus size={16} strokeWidth={3}/> Add
             </button>
           </div>
-          {/* 타임테이블 그리드 — 0~23시 고정 24시간 표시 */}
           {(() => {
-            const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0 ~ 23
-            const ROW_H = 48; // 1시간당 px (컴팩트)
+            const HOURS = Array.from({ length: 24 }, (_, i) => i);
+            const ROW_H = 48;
             return (
           <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
-            {/* 요일 헤더 */}
             <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
               <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
               {DAYS_OF_WEEK.map(day => (
@@ -421,9 +429,7 @@ export const AnalyticsView = ({
                 </div>
               ))}
             </div>
-            {/* 스크롤 영역 */}
             <div className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
-              {/* 시간 라벨 */}
               <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
                 {HOURS.map(h => (
                   <div key={h} className={`border-b flex items-start justify-center pt-1 ${theme.border}`} style={{ height: `${ROW_H}px` }}>
@@ -433,40 +439,28 @@ export const AnalyticsView = ({
                   </div>
                 ))}
               </div>
-              {/* 그리드 + 블록 */}
               <div className="flex-1 relative" style={{ minHeight: `${24 * ROW_H}px` }}>
-                {/* 수평 구분선 */}
                 {HOURS.map(h => (
-                  <div key={h} className={`absolute w-full border-b ${h % 6 === 0 ? 'opacity-60' : 'opacity-30'} ${theme.border}`}
+                  <div key={h} className={`absolute w-full border-b ${theme.border} ${h % 6 === 0 ? 'opacity-50' : 'opacity-20'}`}
                     style={{ top: `${h * ROW_H}px`, height: `${ROW_H}px` }}/>
                 ))}
-                {/* 수직 요일 구분선 */}
                 <div className="absolute inset-0 flex pointer-events-none">
                   {DAYS_OF_WEEK.map((_, i) => (
-                    <div key={i} className={`flex-1 border-r border-dashed opacity-40 last:border-r-0 ${theme.border}`}/>
+                    <div key={i} className={`flex-1 border-r border-dashed opacity-30 last:border-r-0 ${theme.border}`}/>
                   ))}
                 </div>
-                {/* 일정 블록 */}
                 {(weeklySchedules || []).map((block: WeeklySchedule) => {
                   const start = parseTime(block.start_time);
                   let dur = parseTime(block.end_time) - start;
                   if (dur < 0) dur += 24;
                   return (
-                    <div key={block.id}
-                      onClick={() => openWeeklyModal(block)}
+                    <div key={block.id} onClick={() => openWeeklyModal(block)}
                       className="absolute px-0.5 py-0.5 cursor-pointer z-10"
-                      style={{
-                        top:    `${start * ROW_H}px`,
-                        height: `${Math.max(dur * ROW_H, ROW_H * 0.5)}px`,
-                        left:   `${(block.day / 7) * 100}%`,
-                        width:  `${100 / 7}%`,
-                      }}>
+                      style={{ top: `${start * ROW_H}px`, height: `${Math.max(dur * ROW_H, ROW_H * 0.5)}px`, left: `${(block.day / 7) * 100}%`, width: `${100 / 7}%` }}>
                       <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all ${block.color}`}>
                         <span className="text-[9px] lg:text-[10px] font-bold leading-tight line-clamp-2">{block.title}</span>
                         {dur >= 0.75 && (
-                          <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">
-                            {block.start_time}–{block.end_time}
-                          </span>
+                          <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">{block.start_time}–{block.end_time}</span>
                         )}
                       </div>
                     </div>
@@ -475,7 +469,7 @@ export const AnalyticsView = ({
               </div>
             </div>
           </div>
-          );
+            );
           })()}
         </div>
       </div>
