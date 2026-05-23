@@ -49,11 +49,16 @@ export const HealthView = ({
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // isWorkoutLocked: Complete Workout 저장 후 잠금 — Edit 버튼 누르기 전까지 수정 불가
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   // ── 날짜별 메모 ───────────────────────────────────────────────────────
   const [workoutMemo, setWorkoutMemo] = useState('');
+  // ── 이전 세션 데이터 / PR — block_id 키로 캐시 ───────────────────────
+  const [prevData, setPrevData] = useState<Record<string, {
+    prev_sets: WorkoutSet[];
+    prev_date: string | null;
+    pr_kg: number | null;
+  }>>({});
 
   // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
   // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
@@ -165,8 +170,26 @@ export const HealthView = ({
   // selectedDate 변경 시 메모도 localStorage에서 복원
   useEffect(() => {
     setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
+    setPrevData({}); // 날짜 변경 시 이전 세션 캐시 초기화
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
+
+  // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch
+  useEffect(() => {
+    const dateStr = formatDate(selectedDate);
+    const realWorkouts = localWorkouts.filter(w => w.block_id !== '__session__');
+    if (realWorkouts.length === 0) return;
+    realWorkouts.forEach(async w => {
+      if (prevData[w.block_id] !== undefined) return; // 이미 캐시됨
+      try {
+        const res = await authFetch(`${API_URL}/api/workouts/prev/${w.block_id}?before_date=${dateStr}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setPrevData(prev => ({ ...prev, [w.block_id]: data }));
+      } catch { /* silent */ }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localWorkouts]);
 
   // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
   // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
@@ -533,13 +556,13 @@ export const HealthView = ({
                   <div className="flex flex-wrap gap-1.5 mb-3 shrink-0">
                     <button onClick={() => setActiveTagFilter(null)}
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
-                        ${activeTagFilter === null ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                        ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
                       All
                     </button>
                     {allTags.map(tag => (
                       <button key={tag} onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
                         className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
-                          ${activeTagFilter === tag ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
+                          ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
                         #{tag}
                       </button>
                     ))}
@@ -735,7 +758,39 @@ export const HealthView = ({
                     <GripVertical size={18} className={`shrink-0 ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'} cursor-grab active:cursor-grabbing`}/>
                   )}
                   <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
-                  <h3 className="font-heading text-lg font-bold">{w.exercise_blocks?.name || 'Unknown'}</h3>
+                  <h3 className="font-heading text-lg font-bold flex-1">{w.exercise_blocks?.name || 'Unknown'}</h3>
+                  {/* PR / 이전 세션 배지 */}
+                  {(() => {
+                    const pd = prevData[w.block_id];
+                    if (!pd || w.exercise_blocks?.type === 'cardio') return null;
+                    // 현재 세션 최고 무게
+                    const curMax = Math.max(0, ...w.sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').map(s => parseFloat(String((s as StrengthSet).kg))));
+                    // PR 여부
+                    const isPR = pd.pr_kg !== null && curMax > 0 && curMax > pd.pr_kg;
+                    // 이전 세션 최고 무게 (표시용)
+                    const prevMax = pd.prev_sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').reduce((m, s) => Math.max(m, parseFloat(String((s as StrengthSet).kg))), 0);
+                    const diff = curMax > 0 && prevMax > 0 ? curMax - prevMax : 0;
+                    return (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isPR && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400 text-amber-900 tracking-wider">
+                            PR 🏆
+                          </span>
+                        )}
+                        {prevMax > 0 && !isPR && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                            diff > 0
+                              ? 'bg-green-500/15 text-green-500'
+                              : diff < 0
+                                ? 'bg-red-500/15 text-red-400'
+                                : appSettings.darkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {diff > 0 ? `+${displayKg(diff, w.block_id)}` : diff < 0 ? displayKg(diff, w.block_id) : `=${displayKg(prevMax, w.block_id)}`}{getUnit(w.block_id)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
@@ -793,14 +848,14 @@ export const HealthView = ({
                               value={displayKg(s.kg, w.block_id)}
                               placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value, w.block_id))}
-                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                           )}
                           {/* Bodyweight / Strength reps */}
                           {isStrengthSet(s) && (
                             <input type="number" inputMode="numeric" min="0"
                               value={s.reps} placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                           )}
 
                           {/* Cardio 입력 */}
@@ -808,10 +863,10 @@ export const HealthView = ({
                             <>
                               <input type="text" inputMode="numeric" value={s.time} placeholder="min"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                               <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
                                 onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.card}`}/>
+                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                             </>
                           )}
 
@@ -819,7 +874,7 @@ export const HealthView = ({
                           <button
                             onClick={() => handleUpdateSet(wIdx, sIdx, 'done', !s.done)}
                             className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
-                              ${s.done ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.card} ${theme.textMuted}`}`}>
+                              ${s.done ? 'bg-green-500 text-white' : `${theme.card} ${theme.textMuted}`}`}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12"/>
                             </svg>
@@ -970,8 +1025,8 @@ export const HealthView = ({
                   return (
                     <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-9 cursor-pointer">
                       <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold text-sm
-                        ${isSelected ? 'bg-[#FACC15] text-[#1C1C1E] shadow-md'
-                          : isTodayCell ? `ring-2 ring-[#FACC15] ${theme.hoverBg}`
+                        ${isSelected ? 'bg-blue-500 text-white shadow-md'
+                          : isTodayCell ? `ring-2 ring-blue-400 ${theme.hoverBg}`
                           : theme.hoverBg}`}>
                         {day}
                       </div>
@@ -1023,7 +1078,7 @@ export const HealthView = ({
             <input autoFocus type="text" value={newBlock.name ?? ''} placeholder={t('exerciseName')}
               onChange={e => setNewBlock({ ...newBlock, name: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleSaveBlock()}
-              className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-[#FACC15] font-semibold text-base ${theme.input}`}/>
+              className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-blue-400 font-semibold text-base ${theme.input}`}/>
 
             {/* 타입 */}
             <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
@@ -1040,7 +1095,7 @@ export const HealthView = ({
               {(newBlock.tags ?? []).length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {(newBlock.tags ?? []).map(tag => (
-                    <span key={tag} className="flex items-center gap-1 text-xs font-bold bg-[#FACC15] text-[#1C1C1E] px-2.5 py-1 rounded-lg">
+                    <span key={tag} className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-600'}`}>
                       #{tag}
                       <button onClick={() => removeTag(tag)} className="ml-0.5 hover:opacity-70"><X size={10}/></button>
                     </span>
@@ -1183,8 +1238,8 @@ export const HealthView = ({
                           <div key={b.id} onClick={() => toggleBlockInRoutine(b.id)}
                             className={`relative text-sm font-semibold px-4 py-2.5 rounded-xl border-2 cursor-pointer transition-all select-none
                               ${sel
-                                ? 'border-[#FACC15] bg-[#FACC15] text-[#1C1C1E]'
-                                : `border-transparent ${theme.input} hover:border-[#FACC15]/50`}`}>
+                                ? 'border-blue-500 bg-blue-500 text-white'
+                                : `border-transparent ${theme.input} hover:border-blue-400/50`}`}>
                             {b.name}
                             {sel && (
                               <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#1C1C1E] text-[#FACC15] text-[10px] font-black rounded-full flex items-center justify-center">
