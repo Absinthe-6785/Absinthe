@@ -414,6 +414,86 @@ async def delete_workout(log_id: str, user_id: str = Depends(get_current_user)):
     verify_owner(row["user_id"], user_id)
     return supabase.table("workout_logs").delete().eq("id", log_id).execute().data
 
+@app.get("/api/heatmap")
+async def get_heatmap(user_id: str = Depends(get_current_user)):
+    """
+    최근 16주(112일) 날짜별 활동 강도 반환.
+    workout_count / routine_done / routine_total / study_mins / is_exception
+    프론트에서 level(0~4)로 변환해 GitHub-style 히트맵에 사용.
+    """
+    from datetime import date, timedelta
+    from collections import defaultdict
+
+    today = date.today()
+    start = today - timedelta(days=111)
+    start_str, end_str = start.isoformat(), today.isoformat()
+
+    workouts_raw = (
+        supabase.table("workout_logs").select("date, block_id")
+        .eq("user_id", user_id).gte("date", start_str).lte("date", end_str)
+        .execute().data or []
+    )
+    routines_raw = (
+        supabase.table("routine_logs").select("date, completed")
+        .eq("user_id", user_id).gte("date", start_str).lte("date", end_str)
+        .execute().data or []
+    )
+    schedules_raw = (
+        supabase.table("schedules").select("date, category, start_time, end_time")
+        .eq("user_id", user_id).gte("date", start_str).lte("date", end_str)
+        .execute().data or []
+    )
+    exceptions_raw = (
+        supabase.table("routine_exceptions").select("start_date, end_date")
+        .eq("user_id", user_id).execute().data or []
+    )
+
+    workout_cnt: dict = defaultdict(int)
+    for w in workouts_raw:
+        if w.get("date"): workout_cnt[w["date"]] += 1
+
+    routine_done: dict = defaultdict(int)
+    routine_total: dict = defaultdict(int)
+    for r in routines_raw:
+        d = r.get("date")
+        if not d: continue
+        routine_total[d] += 1
+        if r.get("completed"): routine_done[d] += 1
+
+    study_mins: dict = defaultdict(int)
+    for s in schedules_raw:
+        d = s.get("date")
+        if not d or s.get("category", "").lower() not in ("study", "공부"): continue
+        try:
+            sh, sm = map(int, s["start_time"].split(":")[:2])
+            eh, em = map(int, s["end_time"].split(":")[:2])
+            study_mins[d] += max(0, (eh * 60 + em) - (sh * 60 + sm))
+        except Exception:
+            pass
+
+    exception_dates: set = set()
+    for exc in exceptions_raw:
+        cur = date.fromisoformat(exc["start_date"])
+        end_d = date.fromisoformat(exc["end_date"])
+        while cur <= end_d:
+            exception_dates.add(cur.isoformat())
+            cur += timedelta(days=1)
+
+    result = []
+    cur = start
+    while cur <= today:
+        ds = cur.isoformat()
+        result.append({
+            "date": ds,
+            "workout_count": workout_cnt[ds],
+            "routine_done": routine_done[ds],
+            "routine_total": routine_total[ds],
+            "study_mins": study_mins[ds],
+            "is_exception": ds in exception_dates,
+        })
+        cur += timedelta(days=1)
+    return result
+
 # ==========================================
 # Inbody
 # ==========================================
