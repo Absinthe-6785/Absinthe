@@ -97,6 +97,9 @@ class WorkoutLogCreate(BaseModel):
 class InbodyLogCreate(BaseModel):
     date: str; weight: float; smm: float; pbf: float
 
+class WorkoutMemoCreate(BaseModel):
+    date: str; memo: str
+
 class WeeklyScheduleCreate(BaseModel):
     day: int; title: str; start_time: str; end_time: str; color: str
 
@@ -413,6 +416,21 @@ async def delete_workout(log_id: str, user_id: str = Depends(get_current_user)):
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     return supabase.table("workout_logs").delete().eq("id", log_id).execute().data
+
+# ==========================================
+# Workout Memo
+# ==========================================
+@app.get("/api/workout_memo")
+async def get_workout_memo(date: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("workout_memos").select("memo").eq("user_id", user_id).eq("date", date).maybe_single().execute().data
+    return {"memo": row["memo"] if row else ""}
+
+@app.post("/api/workout_memo")
+async def save_workout_memo(payload: WorkoutMemoCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("workout_memos").upsert(
+        {"user_id": user_id, "date": payload.date, "memo": payload.memo},
+        on_conflict="user_id,date"
+    ).execute().data
 
 @app.get("/api/heatmap")
 async def get_heatmap(user_id: str = Depends(get_current_user)):

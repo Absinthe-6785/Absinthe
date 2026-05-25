@@ -13,6 +13,156 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 
+// ── 프로틴 계산기 서브 컴포넌트 ─────────────────────────────────────────
+interface ProteinCalculatorProps {
+  initialWeight: number;
+  theme: { card: string; input: string; textMuted: string; border: string; text: string; hoverBg: string };
+  darkMode: boolean;
+}
+
+const ProteinCalculator = ({ initialWeight, theme, darkMode }: ProteinCalculatorProps) => {
+  const { t } = useTranslation();
+  const [proteinWeight, setProteinWeight] = useState<string>(
+    initialWeight > 0 ? String(initialWeight) : ''
+  );
+  const [proteinGoal, setProteinGoal] = useState<'muscle' | 'maintain' | 'fat' | 'athlete'>('muscle');
+  const [proteinActivity, setProteinActivity] = useState<'low' | 'mod' | 'high' | 'very'>('mod');
+  const [proteinMeals, setProteinMeals] = useState<number>(3);
+
+  // 목표 × 활동량에 따른 g/kg 계수 [최소, 최대]
+  const FACTORS: Record<string, [number, number]> = {
+    'muscle-low':    [1.6, 2.0], 'muscle-mod':    [1.8, 2.2],
+    'muscle-high':   [2.0, 2.4], 'muscle-very':   [2.2, 2.6],
+    'maintain-low':  [1.2, 1.6], 'maintain-mod':  [1.4, 1.8],
+    'maintain-high': [1.6, 2.0], 'maintain-very': [1.8, 2.2],
+    'fat-low':       [1.6, 2.2], 'fat-mod':       [1.8, 2.4],
+    'fat-high':      [2.0, 2.6], 'fat-very':      [2.2, 2.8],
+    'athlete-low':   [1.8, 2.4], 'athlete-mod':   [2.0, 2.6],
+    'athlete-high':  [2.2, 2.8], 'athlete-very':  [2.4, 3.2],
+  };
+
+  const wNum = parseFloat(proteinWeight) || 0;
+  const [lo, hi] = FACTORS[`${proteinGoal}-${proteinActivity}`] ?? [1.6, 2.0];
+  const targetLo  = Math.round(wNum * lo);
+  const targetHi  = Math.round(wNum * hi);
+  const targetMid = Math.round((targetLo + targetHi) / 2);
+  const perMeal   = proteinMeals > 0 ? Math.round(targetMid / proteinMeals) : 0;
+  const valid = wNum > 0;
+
+  const GOAL_OPTS = [
+    { v: 'muscle'   as const, label: t('goalMuscle'),   color: 'bg-blue-500'   },
+    { v: 'maintain' as const, label: t('goalMaintain'),  color: 'bg-green-500'  },
+    { v: 'fat'      as const, label: t('goalFat'),       color: 'bg-orange-500' },
+    { v: 'athlete'  as const, label: t('goalAthlete'),   color: 'bg-purple-500' },
+  ];
+  const ACT_OPTS = [
+    { v: 'low'  as const, label: t('actLow')  },
+    { v: 'mod'  as const, label: t('actMod')  },
+    { v: 'high' as const, label: t('actHigh') },
+    { v: 'very' as const, label: t('actVery') },
+  ];
+
+  return (
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors ${theme.card}`}>
+      {/* 헤더 */}
+      <h2 className="font-heading text-lg font-bold flex items-center gap-2">
+        <span className="text-xl">🥩</span> {t('proteinCalc')}
+      </h2>
+
+      {/* 체중 입력 */}
+      <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+        <div>
+          <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
+          <div className="flex items-end gap-1">
+            <input
+              type="number" inputMode="decimal" min="0" step="0.1"
+              value={proteinWeight}
+              placeholder="0"
+              onChange={e => setProteinWeight(e.target.value)}
+              className="w-16 bg-transparent text-xl font-bold outline-none ml-1"
+            />
+            <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>kg</span>
+          </div>
+        </div>
+        <span className="text-2xl mr-1">⚖️</span>
+      </div>
+
+      {/* 목표 선택 */}
+      <div>
+        <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('goal').toUpperCase()}</p>
+        <div className="grid grid-cols-2 gap-2">
+          {GOAL_OPTS.map(({ v, label, color }) => (
+            <button key={v} onClick={() => setProteinGoal(v)}
+              className={`py-2.5 rounded-xl text-xs font-bold transition-all
+                ${proteinGoal === v
+                  ? `${color} text-white shadow-md`
+                  : `${theme.input} ${theme.textMuted} hover:opacity-80`}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 활동량 선택 */}
+      <div>
+        <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('activityLevel').toUpperCase()}</p>
+        <div className="grid grid-cols-2 gap-2">
+          {ACT_OPTS.map(({ v, label }) => (
+            <button key={v} onClick={() => setProteinActivity(v)}
+              className={`py-2 rounded-xl text-xs font-semibold transition-all
+                ${proteinActivity === v
+                  ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md'
+                  : `${theme.input} ${theme.textMuted} hover:opacity-80`}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 끼니 수 */}
+      <div className="flex items-center justify-between">
+        <p className={`text-xs font-bold ${theme.textMuted}`}>{t('meals').toUpperCase()}</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setProteinMeals(m => Math.max(1, m - 1))}
+            className={`w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center ${theme.input} hover:opacity-70 transition-opacity`}>
+            −
+          </button>
+          <span className="text-lg font-bold w-4 text-center tabular-nums">{proteinMeals}</span>
+          <button onClick={() => setProteinMeals(m => Math.min(8, m + 1))}
+            className={`w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center ${theme.input} hover:opacity-70 transition-opacity`}>
+            +
+          </button>
+        </div>
+      </div>
+
+      {/* 결과 */}
+      <div className={`rounded-2xl p-4 text-center ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+        {valid ? (
+          <>
+            <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('dailyProtein').toUpperCase()}</p>
+            <p className="text-4xl font-black text-[#FACC15] tabular-nums">{targetMid}g</p>
+            <p className={`text-xs mt-1 ${theme.textMuted}`}>
+              {t('proteinRange')}: {targetLo}–{targetHi}g
+            </p>
+            {proteinMeals > 0 && (
+              <div className={`mt-3 pt-3 border-t ${theme.border} flex justify-center items-baseline gap-1`}>
+                <span className="text-2xl font-black tabular-nums">{perMeal}g</span>
+                <span className={`text-xs font-semibold ${theme.textMuted}`}>
+                  / {t('perMeal')} ({proteinMeals} {t('meals')})
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className={`text-sm font-semibold ${theme.textMuted}`}>
+            체중을 입력하면 권장 단백질 섭취량을 계산해드립니다
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
@@ -167,10 +317,24 @@ export const HealthView = ({
   const draftKey = `healthDraft:${formatDate(selectedDate)}`;
   const memoKey  = `healthMemo:${formatDate(selectedDate)}`;
 
-  // selectedDate 변경 시 메모도 localStorage에서 복원
+  // selectedDate 변경 시 메모 복원 — 서버 우선, localStorage는 fallback
   useEffect(() => {
-    setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
+    let cancelled = false;
     setPrevData({}); // 날짜 변경 시 이전 세션 캐시 초기화
+    const dateStr = formatDate(selectedDate);
+    (async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/workout_memo?date=${dateStr}`);
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          const serverMemo: string = data?.memo ?? '';
+          setWorkoutMemo(serverMemo || (localStorage.getItem(memoKey) ?? ''));
+          return;
+        }
+      } catch { /* silent — 네트워크 오류 시 localStorage로 */ }
+      if (!cancelled) setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
@@ -412,6 +576,17 @@ export const HealthView = ({
       dbIdx++;
     }
     const total = dbIdx; // 실제 저장 시도한 운동 수
+
+    // 메모도 서버에 저장 (운동 저장 성공 여부와 무관하게 항상 시도)
+    if (workoutMemo.trim()) {
+      try {
+        await authFetch(`${API_URL}/api/workout_memo`, {
+          method: 'POST',
+          body: JSON.stringify({ date: formatDate(selectedDate), memo: workoutMemo.trim() }),
+        });
+      } catch { /* silent */ }
+    }
+
     setIsSaving(false);
     if (failed === 0) {
       localStorage.removeItem(draftKey);
@@ -1062,6 +1237,13 @@ export const HealthView = ({
               </div>
             ))}
           </div>
+
+          {/* ── 프로틴 계산기 ── */}
+          <ProteinCalculator
+            initialWeight={localInbody.weight}
+            theme={theme}
+            darkMode={appSettings.darkMode}
+          />
         </div>
       </div>
 

@@ -203,6 +203,24 @@ const translations = {
   sessionAfternoon:{ en: '🏋️ Afternoon',   ko: '🏋️ 오후',     ja: '🏋️ 午後'      },
   sessionEvening:  { en: '🌙 Evening',     ko: '🌙 저녁',      ja: '🌙 夜'         },
 
+  // ── Protein Calculator ───────────────────────────────────────────
+  proteinCalc:     { en: 'Protein Calculator', ko: '프로틴 계산기', ja: 'プロテイン計算機' },
+  bodyWeight:      { en: 'Body Weight',        ko: '체중',          ja: '体重'             },
+  goal:            { en: 'Goal',               ko: '목표',          ja: '目標'             },
+  goalMuscle:      { en: 'Build Muscle',       ko: '근육 증가',     ja: '筋肉増量'         },
+  goalMaintain:    { en: 'Maintain',           ko: '유지',          ja: '維持'             },
+  goalFat:         { en: 'Fat Loss',           ko: '체지방 감소',   ja: '脂肪燃焼'         },
+  goalAthlete:     { en: 'Athlete',            ko: '운동선수',      ja: 'アスリート'       },
+  activityLevel:   { en: 'Activity Level',     ko: '활동량',        ja: '活動量'           },
+  actLow:          { en: 'Low (1–2×/wk)',      ko: '낮음 (주 1–2회)', ja: '低 (週1–2回)'  },
+  actMod:          { en: 'Moderate (3–4×/wk)', ko: '보통 (주 3–4회)', ja: '中 (週3–4回)'  },
+  actHigh:         { en: 'High (5–6×/wk)',     ko: '높음 (주 5–6회)', ja: '高 (週5–6回)'  },
+  actVery:         { en: 'Very High (daily)',  ko: '매우 높음 (매일)', ja: '非常に高 (毎日)' },
+  dailyProtein:    { en: 'Daily Protein',      ko: '일일 단백질',   ja: '1日のタンパク質'  },
+  perMeal:         { en: 'per meal',           ko: '끼니당',        ja: '食事ごと'         },
+  meals:           { en: 'meals',              ko: '끼',            ja: '食'               },
+  proteinRange:    { en: 'Recommended range',  ko: '권장 범위',     ja: '推奨範囲'         },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
