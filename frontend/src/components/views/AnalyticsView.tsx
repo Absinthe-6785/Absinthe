@@ -137,14 +137,10 @@ export const AnalyticsView = ({
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [excOpen, setExcOpen] = useState(false);
 
-  // ── Heatmap 데이터 ─────────────────────────────────────────────────
+  // ── Heatmap 데이터 (최근 16주) ────────────────────────────────────
   const { data: heatmapData = [] } = useSWR<{
-    date: string;
-    workout_count: number;
-    routine_done: number;
-    routine_total: number;
-    study_mins: number;
-    is_exception: boolean;
+    date: string; workout_count: number; routine_done: number;
+    routine_total: number; study_mins: number; is_exception: boolean;
   }[]>(`${API_URL}/api/heatmap`, fetcher, { revalidateOnFocus: false });
   const [editingWeeklyId, setEditingWeeklyId] = useState<string | null>(null);
   const [newWeeklySch, setNewWeeklySch] = useState<Partial<WeeklySchedule>>({
@@ -225,17 +221,16 @@ export const AnalyticsView = ({
     return { items: items.sort((a, b) => a.start.localeCompare(b.start)), totalHrs: Math.round(totalMins / 6) / 10 };
   }, [analyticsSchedules]);
 
-  // ── Weekly Review narrative 계산 ──────────────────────────────────
+  // ── Weekly Review narrative ───────────────────────────────────────
   const weeklyReview = useMemo(() => {
     if (!heatmapData.length) return null;
     const today = now.toJSDate();
     const todayStr = formatDate(today);
-    const dow = (today.getDay() + 6) % 7; // 0=Mon
+    const dow = (today.getDay() + 6) % 7;
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - dow);
     const weekStartStr = formatDate(weekStart);
     const thisWeek = heatmapData.filter(d => d.date >= weekStartStr && d.date <= todayStr);
-
     const workoutDays   = thisWeek.filter(d => d.workout_count > 0 && !d.is_exception).length;
     const totalWorkouts = thisWeek.reduce((s, d) => s + d.workout_count, 0);
     const routineDays   = thisWeek.filter(d => d.routine_total > 0 && !d.is_exception);
@@ -246,8 +241,6 @@ export const AnalyticsView = ({
     const topCat        = computedStats[0] ?? null;
     const missedDays    = routineDays.filter(d => d.routine_done < d.routine_total).length;
     const exceptionDays = thisWeek.filter(d => d.is_exception).length;
-
-    // 오늘 기준 연속 운동일 스트릭
     let streak = 0;
     const sorted = [...heatmapData].sort((a, b) => b.date.localeCompare(a.date));
     for (const d of sorted) {
@@ -296,7 +289,7 @@ export const AnalyticsView = ({
       </div>
 
       <div className="flex-1 flex flex-col lg:flex-row gap-5 overflow-y-auto lg:overflow-hidden pr-2 pb-20 lg:pb-2">
-        {/* ── 좌측: 통계 카드들 ── */}
+        {/* ── 좌측: 통계 카드 3개 ── */}
         <div className="w-full lg:flex-[3.5] flex flex-col gap-5 shrink-0">
 
           {/* ── Weekly Review ── */}
@@ -304,12 +297,8 @@ export const AnalyticsView = ({
             <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors ${theme.card}`}>
               <h2 className="font-heading text-base font-bold flex items-center gap-2">
                 <CheckCircle size={16} className="text-green-500"/> This Week
-                <span className={`text-xs font-normal ${theme.textMuted}`}>
-                  {weeklyReview.daysElapsed}d in
-                </span>
+                <span className={`text-xs font-normal ${theme.textMuted}`}>{weeklyReview.daysElapsed}d in</span>
               </h2>
-
-              {/* 스탯 그리드 */}
               <div className="grid grid-cols-2 gap-2.5">
                 {/* 운동 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
@@ -319,79 +308,54 @@ export const AnalyticsView = ({
                     <span className={`text-xs font-semibold mb-0.5 ${theme.textMuted}`}>days</span>
                   </div>
                   <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.totalWorkouts} sessions total</span>
-                  {weeklyReview.streak > 1 && (
-                    <span className="text-[10px] font-bold text-orange-400">🔥 {weeklyReview.streak}-day streak</span>
-                  )}
+                  {weeklyReview.streak > 1 && <span className="text-[10px] font-bold text-orange-400">🔥 {weeklyReview.streak}-day streak</span>}
                 </div>
-
                 {/* 루틴 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Routine</span>
                   {weeklyReview.routineRate !== null ? (
                     <>
-                      <div className="flex items-end gap-1.5">
-                        <span className={`text-2xl font-black tabular-nums ${
-                          weeklyReview.routineRate >= 80 ? 'text-green-500'
-                          : weeklyReview.routineRate >= 50 ? 'text-amber-400'
-                          : 'text-red-400'
-                        }`}>{weeklyReview.routineRate}%</span>
+                      <span className={`text-2xl font-black tabular-nums ${weeklyReview.routineRate >= 80 ? 'text-green-500' : weeklyReview.routineRate >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {weeklyReview.routineRate}%
+                      </span>
+                      <div className={`w-full h-1.5 rounded-full ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                        <div className={`h-full rounded-full transition-all duration-700 ${weeklyReview.routineRate >= 80 ? 'bg-green-500' : weeklyReview.routineRate >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
+                          style={{ width: `${weeklyReview.routineRate}%` }}/>
                       </div>
-                      <div className={`w-full h-1.5 rounded-full mt-0.5 ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                        <div className={`h-full rounded-full transition-all duration-700 ${
-                          weeklyReview.routineRate >= 80 ? 'bg-green-500'
-                          : weeklyReview.routineRate >= 50 ? 'bg-amber-400'
-                          : 'bg-red-400'
-                        }`} style={{ width: `${weeklyReview.routineRate}%` }}/>
-                      </div>
-                      {weeklyReview.missedDays > 0 && (
-                        <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.missedDays} day{weeklyReview.missedDays > 1 ? 's' : ''} missed</span>
-                      )}
+                      {weeklyReview.missedDays > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.missedDays} day{weeklyReview.missedDays > 1 ? 's' : ''} missed</span>}
                     </>
-                  ) : (
-                    <span className={`text-sm font-semibold ${theme.textMuted}`}>No data</span>
-                  )}
+                  ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>No data</span>}
                 </div>
-
-                {/* 공부 시간 */}
+                {/* 공부 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Study</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.studyHrs}</span>
                     <span className={`text-xs font-semibold mb-0.5 ${theme.textMuted}`}>hrs</span>
                   </div>
-                  {weeklyReview.studyHrs > 0 && weeklyReview.daysElapsed > 0 && (
-                    <span className={`text-[10px] font-medium ${theme.textMuted}`}>
-                      avg {Math.round(weeklyReview.studyHrs / weeklyReview.daysElapsed * 10) / 10}h/day
-                    </span>
-                  )}
+                  {weeklyReview.studyHrs > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>avg {Math.round(weeklyReview.studyHrs / weeklyReview.daysElapsed * 10) / 10}h/day</span>}
                 </div>
-
-                {/* Top category */}
+                {/* Top Focus */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Top Focus</span>
                   {weeklyReview.topCat ? (
                     <>
-                      <div className={`flex items-center gap-1.5 mt-0.5`}>
-                        <div className={`w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] shrink-0 ${weeklyReview.topCat.color}`}>
-                          {weeklyReview.topCat.icon}
-                        </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className={`w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] shrink-0 ${weeklyReview.topCat.color}`}>{weeklyReview.topCat.icon}</div>
                         <span className="text-sm font-black truncate">{weeklyReview.topCat.cat}</span>
                       </div>
-                      <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.topCat.hrs}h · {weeklyReview.topCat.percent}% of time</span>
+                      <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.topCat.hrs}h · {weeklyReview.topCat.percent}%</span>
                     </>
-                  ) : (
-                    <span className={`text-sm font-semibold ${theme.textMuted}`}>—</span>
-                  )}
+                  ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>—</span>}
                 </div>
               </div>
-
-              {/* Narrative 한 줄 요약 */}
+              {/* Narrative */}
               {(() => {
                 const { workoutDays, routineRate, studyHrs, streak, missedDays, exceptionDays } = weeklyReview;
                 const msgs: string[] = [];
-                if (streak >= 3) msgs.push(`🔥 ${streak}-day workout streak going`);
+                if (streak >= 3) msgs.push(`🔥 ${streak}-day workout streak`);
                 else if (workoutDays >= 4) msgs.push('💪 Strong workout week');
-                else if (workoutDays === 0) msgs.push('😴 No workouts yet this week');
+                else if (workoutDays === 0) msgs.push('😴 No workouts yet');
                 if (routineRate !== null) {
                   if (routineRate === 100) msgs.push('✅ Perfect routine week');
                   else if (routineRate >= 80) msgs.push('✅ Routine on track');
@@ -400,7 +364,7 @@ export const AnalyticsView = ({
                 if (studyHrs >= 20) msgs.push('📚 Heavy study week');
                 else if (studyHrs >= 10) msgs.push('📖 Good study load');
                 if (exceptionDays > 0) msgs.push(`🏖 ${exceptionDays} exception day${exceptionDays > 1 ? 's' : ''}`);
-                if (msgs.length === 0) return null;
+                if (!msgs.length) return null;
                 return (
                   <div className={`rounded-xl px-3.5 py-2.5 text-xs font-semibold leading-relaxed ${appSettings.darkMode ? 'bg-[#1C1C1E] text-gray-300' : 'bg-gray-50 text-gray-600'}`}>
                     {msgs.join(' · ')}
@@ -410,7 +374,7 @@ export const AnalyticsView = ({
             </div>
           )}
 
-          {/* 시간 분포 */}
+          {/* ── 시간 분포 ── */}
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative transition-colors ${theme.card}`}>
             <h2 className={`font-heading text-lg font-bold mb-6 flex items-center gap-2 ${appSettings.darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
               <Clock size={20} className="text-blue-500"/> Time Distribution
@@ -441,8 +405,7 @@ export const AnalyticsView = ({
           {/* ── Exception Days — 접기/펼치기 ── */}
           {routineExceptions.length > 0 && (
             <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}`}>
-              <button
-                onClick={() => setExcOpen(o => !o)}
+              <button onClick={() => setExcOpen(o => !o)}
                 className={`flex items-center justify-between w-full px-5 lg:px-6 py-4 text-left transition-colors ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}>
                 <h2 className="font-heading text-base font-bold flex items-center gap-2">
                   🏖 Exception Days
@@ -467,140 +430,81 @@ export const AnalyticsView = ({
 
           {/* ── Activity Heatmap ── */}
           {heatmapData.length > 0 && (() => {
-            // 16주 × 7일 그리드 구성 (월요일 시작)
-            const today = new Date();
-            const todayStr = today.toISOString().slice(0, 10);
-            // heatmapData를 날짜 키로 변환
+            const todayStr = formatDate(now.toJSDate());
             const dataMap = Object.fromEntries(heatmapData.map(d => [d.date, d]));
-
-            // 활동 level 계산 (0~4)
             const getLevel = (d: typeof heatmapData[0] | undefined): number => {
-              if (!d) return 0;
-              if (d.is_exception) return -1; // 예외일
+              if (!d || d.is_exception) return 0;
               let score = 0;
               if (d.workout_count > 0) score += 2;
               if (d.workout_count >= 3) score += 1;
-              if (d.routine_total > 0) {
-                const rate = d.routine_done / d.routine_total;
-                if (rate >= 0.8) score += 2;
-                else if (rate >= 0.5) score += 1;
-              }
+              if (d.routine_total > 0) score += d.routine_done / d.routine_total >= 0.8 ? 2 : d.routine_done / d.routine_total >= 0.5 ? 1 : 0;
               if (d.study_mins >= 120) score += 1;
               return Math.min(4, score);
             };
-
-            const cellColor = (level: number, isException: boolean): string => {
-              if (isException) return appSettings.darkMode ? 'bg-blue-900/30' : 'bg-blue-100';
-              const dark = appSettings.darkMode;
-              if (level === 0) return dark ? 'bg-gray-800' : 'bg-gray-100';
-              if (level === 1) return dark ? 'bg-green-900/60' : 'bg-green-100';
-              if (level === 2) return dark ? 'bg-green-700/70' : 'bg-green-300';
-              if (level === 3) return dark ? 'bg-green-500/80' : 'bg-green-500';
-              return dark ? 'bg-green-400' : 'bg-green-600';
+            const cellColor = (level: number, isExc: boolean): string => {
+              if (isExc) return appSettings.darkMode ? 'bg-blue-900/40' : 'bg-blue-100';
+              const dk = appSettings.darkMode;
+              return ['bg-gray-800','bg-green-900/60','bg-green-700/70','bg-green-500/80','bg-green-400'][level] || (dk ? 'bg-gray-100' : 'bg-green-600');
             };
-
-            // 16주 그리드 (일요일~토요일 기준 아닌 월요일 시작)
-            // 오늘 기준 가장 최근 일요일(일주일의 끝)부터 역산
+            const endDate = new Date(now.toJSDate());
+            const dow = (endDate.getDay() + 6) % 7;
+            endDate.setDate(endDate.getDate() + (6 - dow));
             const weeks: string[][] = [];
-            const endDate = new Date(today);
-            // 오늘 포함 마지막 주의 일요일까지 채우기
-            const dow = (today.getDay() + 6) % 7; // 0=Mon
-            endDate.setDate(today.getDate() + (6 - dow));
-
             for (let w = 15; w >= 0; w--) {
               const week: string[] = [];
-              for (let d = 6; d >= 0; d--) {
+              for (let d = 0; d < 7; d++) {
                 const date = new Date(endDate);
-                date.setDate(endDate.getDate() - w * 7 - d);
+                date.setDate(endDate.getDate() - w * 7 - (6 - d));
                 week.push(date.toISOString().slice(0, 10));
               }
-              weeks.push(week.reverse()); // Mon→Sun
+              weeks.push(week);
             }
-
             const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const days = ['M','','W','','F','','S'];
-
-            // 월 라벨 위치 계산
             const monthLabels: { label: string; colIdx: number }[] = [];
             weeks.forEach((week, wi) => {
-              const firstDay = week[0];
-              if (firstDay) {
-                const m = parseInt(firstDay.slice(5, 7)) - 1;
-                const day = parseInt(firstDay.slice(8, 10));
-                if (day <= 7 && (monthLabels.length === 0 || monthLabels[monthLabels.length - 1].label !== months[m])) {
-                  monthLabels.push({ label: months[m], colIdx: wi });
-                }
-              }
+              const m = parseInt(week[0].slice(5, 7)) - 1;
+              const day = parseInt(week[0].slice(8, 10));
+              if (day <= 7 && (!monthLabels.length || monthLabels[monthLabels.length - 1].label !== months[m]))
+                monthLabels.push({ label: months[m], colIdx: wi });
             });
-
             return (
               <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
                 <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2">
                   <Activity size={16} className="text-green-500"/> Activity
                   <span className={`text-xs font-normal ${theme.textMuted}`}>16 weeks</span>
                 </h2>
-
                 <div className="overflow-x-auto">
                   <div className="min-w-[280px]">
-                    {/* 월 라벨 */}
                     <div className="flex mb-1 pl-5">
                       {weeks.map((_, wi) => {
                         const ml = monthLabels.find(m => m.colIdx === wi);
-                        return (
-                          <div key={wi} className="flex-1 text-center">
-                            {ml && <span className={`text-[9px] font-semibold ${theme.textMuted}`}>{ml.label}</span>}
-                          </div>
-                        );
+                        return <div key={wi} className="flex-1 text-center">{ml && <span className={`text-[9px] font-semibold ${theme.textMuted}`}>{ml.label}</span>}</div>;
                       })}
                     </div>
-
                     <div className="flex gap-0">
-                      {/* 요일 라벨 */}
                       <div className="flex flex-col gap-0.5 mr-1">
-                        {days.map((d, i) => (
-                          <div key={i} className={`h-3.5 flex items-center text-[9px] font-semibold ${theme.textMuted}`} style={{ width: '14px' }}>
-                            {d}
-                          </div>
+                        {['M','','W','','F','','S'].map((d, i) => (
+                          <div key={i} className={`h-3.5 flex items-center text-[9px] font-semibold ${theme.textMuted}`} style={{ width: '14px' }}>{d}</div>
                         ))}
                       </div>
-
-                      {/* 셀 그리드 */}
                       {weeks.map((week, wi) => (
                         <div key={wi} className="flex flex-col gap-0.5 flex-1">
                           {week.map((dateStr, di) => {
                             const d = dataMap[dateStr];
-                            const level = getLevel(d);
-                            const isExc = d?.is_exception ?? false;
+                            const level = d?.is_exception ? -1 : getLevel(d);
                             const isFuture = dateStr > todayStr;
-                            const tooltip = d ? [
-                              dateStr,
-                              d.workout_count > 0 ? `💪 ${d.workout_count} workout(s)` : '',
-                              d.routine_total > 0 ? `✅ ${d.routine_done}/${d.routine_total} routines` : '',
-                              d.study_mins > 0 ? `📚 ${Math.round(d.study_mins / 6) / 10}h study` : '',
-                              isExc ? '🏖 Exception day' : '',
-                            ].filter(Boolean).join(' · ') : dateStr;
+                            const tooltip = d ? [dateStr, d.workout_count > 0 ? `💪 ${d.workout_count} workout(s)` : '', d.routine_total > 0 ? `✅ ${d.routine_done}/${d.routine_total} routines` : '', d.study_mins > 0 ? `📚 ${Math.round(d.study_mins / 6) / 10}h study` : '', d.is_exception ? '🏖 Exception' : ''].filter(Boolean).join(' · ') : dateStr;
                             return (
-                              <div
-                                key={di}
-                                title={tooltip}
-                                className={`h-3.5 rounded-[3px] transition-colors ${
-                                  isFuture
-                                    ? appSettings.darkMode ? 'bg-gray-800/40' : 'bg-gray-50'
-                                    : cellColor(level, isExc)
-                                }`}
-                              />
+                              <div key={di} title={tooltip}
+                                className={`h-3.5 rounded-[3px] transition-colors ${isFuture ? (appSettings.darkMode ? 'bg-gray-800/40' : 'bg-gray-50') : cellColor(level, d?.is_exception ?? false)}`}/>
                             );
                           })}
                         </div>
                       ))}
                     </div>
-
-                    {/* 범례 */}
                     <div className="flex items-center justify-end gap-1.5 mt-3">
                       <span className={`text-[10px] ${theme.textMuted}`}>Less</span>
-                      {[0,1,2,3,4].map(l => (
-                        <div key={l} className={`w-3 h-3 rounded-[3px] ${cellColor(l, false)}`}/>
-                      ))}
+                      {[0,1,2,3,4].map(l => <div key={l} className={`w-3 h-3 rounded-[3px] ${cellColor(l, false)}`}/>)}
                       <span className={`text-[10px] ${theme.textMuted}`}>More</span>
                     </div>
                   </div>
@@ -717,43 +621,33 @@ export const AnalyticsView = ({
             </button>
           </div>
           {(() => {
-            // 실제 일정의 최대 end_time 기준으로 표시 시간 결정
-            // 최소 18시, 최대 24시
-            const parseT = (ts: string) => { const [h, m] = ts.split(':').map(Number); return h + m / 60; };
-            const maxHour = (weeklySchedules || []).reduce((max, s) => {
-              let end = parseT(s.end_time);
-              if (end <= parseT(s.start_time)) end += 24; // 자정 넘는 일정
-              return Math.min(Math.max(max, Math.ceil(end) + 1), 24);
-            }, 18); // 기본 최소 18시
-            const SCHEDULE_HOURS = Array.from({ length: maxHour }, (_, i) => i);
-            const gridHeight = maxHour * 64;
+            const HOURS = Array.from({ length: 24 }, (_, i) => i);
+            const ROW_H = 48;
             return (
           <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
-            {/* 요일 헤더 */}
-            <div className={`flex border-b h-10 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-              <div className={`w-12 lg:w-16 border-r ${theme.border}`}/>
+            <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+              <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
               {DAYS_OF_WEEK.map(day => (
                 <div key={day} className={`flex-1 flex items-center justify-center border-r last:border-r-0 ${theme.border}`}>
                   <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>{day}</span>
                 </div>
               ))}
             </div>
-            <div className={`flex-1 flex overflow-y-auto relative ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
-              {/* 시간 라벨 */}
-              <div className={`w-12 lg:w-16 flex flex-col border-r shrink-0 z-10 relative ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
-                {SCHEDULE_HOURS.map(h => (
-                  <div key={h} className={`h-16 border-b flex items-start justify-center pt-1.5 ${theme.border}`}>
+            <div className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
+              <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+                {HOURS.map(h => (
+                  <div key={h} className={`border-b flex items-start justify-center pt-1 ${theme.border}`} style={{ height: `${ROW_H}px` }}>
                     <span className={`text-[9px] lg:text-[10px] font-medium tabular-nums ${theme.textMuted}`}>{String(h).padStart(2,'0')}:00</span>
                   </div>
                 ))}
               </div>
-              {/* 그리드 + 블록 */}
-              <div className="flex-1 relative" style={{ minHeight: `${gridHeight}px` }}>
-                {SCHEDULE_HOURS.map((_, i) => (
-                  <div key={i} className={`absolute w-full h-16 border-b ${theme.border}`} style={{ top: `${i * 64}px` }}/>
+              <div className="flex-1 relative" style={{ minHeight: `${24 * ROW_H}px` }}>
+                {HOURS.map(h => (
+                  <div key={h} className={`absolute w-full border-b ${theme.border} ${h % 6 === 0 ? 'opacity-50' : 'opacity-20'}`}
+                    style={{ top: `${h * ROW_H}px`, height: `${ROW_H}px` }}/>
                 ))}
-                <div className="absolute inset-0 flex">
-                  {DAYS_OF_WEEK.map((_, i) => <div key={i} className={`flex-1 border-r border-dashed ${theme.border} last:border-r-0`}/>)}
+                <div className="absolute inset-0 flex pointer-events-none">
+                  {DAYS_OF_WEEK.map((_, i) => <div key={i} className={`flex-1 border-r border-dashed opacity-30 last:border-r-0 ${theme.border}`}/>)}
                 </div>
                 {(weeklySchedules || []).map((block: WeeklySchedule) => {
                   const start = parseTime(block.start_time);
@@ -761,11 +655,11 @@ export const AnalyticsView = ({
                   if (dur < 0) dur += 24;
                   return (
                     <div key={block.id} onClick={() => openWeeklyModal(block)}
-                      className="absolute p-0.5 lg:p-1 hover:scale-[1.02] cursor-pointer z-10 transition-transform"
-                      style={{ top: `${start * 64}px`, height: `${dur * 64}px`, left: `${(block.day / 7) * 100}%`, width: `${100 / 7}%` }}>
-                      <div className={`w-full h-full rounded-lg lg:rounded-xl p-1.5 lg:p-2 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 transition-all ${block.color}`}>
-                        <span className="text-[9px] lg:text-xs font-bold leading-tight line-clamp-2">{block.title}</span>
-                        <span className="text-[10px] font-medium opacity-90 mt-1 hidden sm:block tabular-nums">{block.start_time} - {block.end_time}</span>
+                      className="absolute px-0.5 py-0.5 cursor-pointer z-10"
+                      style={{ top: `${start * ROW_H}px`, height: `${Math.max(dur * ROW_H, ROW_H * 0.5)}px`, left: `${(block.day / 7) * 100}%`, width: `${100 / 7}%` }}>
+                      <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all ${block.color}`}>
+                        <span className="text-[9px] lg:text-[10px] font-bold leading-tight line-clamp-2">{block.title}</span>
+                        {dur >= 0.75 && <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">{block.start_time}–{block.end_time}</span>}
                       </div>
                     </div>
                   );
@@ -773,7 +667,7 @@ export const AnalyticsView = ({
               </div>
             </div>
           </div>
-          );
+            );
           })()}
         </div>
       </div>
