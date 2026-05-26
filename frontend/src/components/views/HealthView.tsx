@@ -185,7 +185,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   if (!profileLoaded) return null;
 
   return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors ${theme.card}`}>
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${theme.card}`}>
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥩 {t('proteinTracker')}</h2>
       </div>
@@ -311,9 +311,9 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       )}
 
       {tab === 'log' && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
           {dailyTarget > 0 ? (
-            <div className={`rounded-2xl p-4 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+            <div className={`rounded-2xl p-4 shrink-0 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
               <div className="flex justify-between items-baseline mb-2">
                 <span className="text-3xl font-black text-[#FACC15] tabular-nums">{Math.round(totalIntake)}g</span>
                 <span className={`text-xs font-bold ${theme.textMuted}`}>/ {dailyTarget}g {t('progressOf')}</span>
@@ -369,7 +369,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
             </button>
           )}
           {intakeLogs.length > 0 && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 overflow-y-auto min-h-0 flex-1">
               {intakeLogs.map(log => (
                 <div key={log.id} className={`rounded-xl px-3 py-2.5 flex items-center justify-between ${theme.input}`}>
                   <div>
@@ -1416,19 +1416,20 @@ export const HealthView = ({
             </div>
           </div>
 
-          {/* InBody — 컴팩트 가로형 */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card}`}>
+          {/* InBody — 세로 배열 (데스크탑) / 가로 스크롤 (모바일) */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card} lg:w-[160px] lg:shrink-0`}>
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-[#FACC15]"/> {t('inbody')}</h2>
               <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3 py-1.5 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
-            <div className="flex gap-3">
+            {/* 모바일: 가로 3열 / 데스크탑: 세로 3행 */}
+            <div className="flex gap-3 lg:flex-col lg:gap-2">
               {[
                 { label: 'Weight', field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
                 { label: 'SMM',    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
                 { label: 'PBF',    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
               ].map(({ label, field, unit, color }) => (
-                <div key={field} className={`flex-1 rounded-2xl p-2.5 border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+                <div key={field} className={`flex-1 lg:flex-none rounded-2xl p-2.5 border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
                   <p className={`text-[10px] font-bold mb-1 ${color}`}>{label}</p>
                   <div className="flex items-end gap-0.5">
                     <input type="number" inputMode="decimal" min="0" step="0.1"
@@ -1442,14 +1443,16 @@ export const HealthView = ({
             </div>
           </div>
 
-          {/* ── 프로틴 트래커 ── */}
-          <ProteinTracker
-            theme={theme}
-            darkMode={appSettings.darkMode}
-            selectedDate={selectedDate}
-            formatDate={formatDate}
-            showToast={showToast}
-          />
+          {/* ── 프로틴 트래커 — flex-1로 나머지 공간 전부 활용 ── */}
+          <div className="flex-1 min-w-0">
+            <ProteinTracker
+              theme={theme}
+              darkMode={appSettings.darkMode}
+              selectedDate={selectedDate}
+              formatDate={formatDate}
+              showToast={showToast}
+            />
+          </div>
         </div>
       </div>
 
