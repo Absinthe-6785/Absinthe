@@ -13,47 +13,95 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 
-// ── 프로틴 계산기 서브 컴포넌트 ─────────────────────────────────────────
-interface ProteinCalculatorProps {
-  initialWeight: number;
+// ── 프로틴 트래커 서브 컴포넌트 ─────────────────────────────────────────
+interface ProteinSource { id: string; name: string; source_type: 'fixed' | 'per100g'; protein_per_serving: number | null; protein_per_100g: number | null; }
+interface ProteinIntakeLog { id: string; source_id: string; amount_g: number; protein_g: number; protein_sources: { name: string; source_type: string } | null; }
+interface ProteinProfile { weight: number; goal: string; activity: string; daily_target_g: number; }
+
+interface ProteinTrackerProps {
   theme: { card: string; input: string; textMuted: string; border: string; text: string; hoverBg: string };
   darkMode: boolean;
+  selectedDate: Date;
+  formatDate: (d: Date) => string;
+  showToast: (msg: string, type?: string) => void;
 }
 
-const ProteinCalculator = ({ initialWeight, theme, darkMode }: ProteinCalculatorProps) => {
+const PROTEIN_FACTORS: Record<string, [number, number]> = {
+  'muscle-low':[1.6,2.0],'muscle-mod':[1.8,2.2],'muscle-high':[2.0,2.4],'muscle-very':[2.2,2.6],
+  'maintain-low':[1.2,1.6],'maintain-mod':[1.4,1.8],'maintain-high':[1.6,2.0],'maintain-very':[1.8,2.2],
+  'fat-low':[1.6,2.2],'fat-mod':[1.8,2.4],'fat-high':[2.0,2.6],'fat-very':[2.2,2.8],
+  'athlete-low':[1.8,2.4],'athlete-mod':[2.0,2.6],'athlete-high':[2.2,2.8],'athlete-very':[2.4,3.2],
+};
+
+const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }: ProteinTrackerProps) => {
   const { t } = useTranslation();
-  const [proteinWeight, setProteinWeight] = useState<string>(
-    initialWeight > 0 ? String(initialWeight) : ''
-  );
-  const [proteinGoal, setProteinGoal] = useState<'muscle' | 'maintain' | 'fat' | 'athlete'>('muscle');
-  const [proteinActivity, setProteinActivity] = useState<'low' | 'mod' | 'high' | 'very'>('mod');
-  const [proteinMeals, setProteinMeals] = useState<number>(3);
 
-  // 목표 × 활동량에 따른 g/kg 계수 [최소, 최대]
-  const FACTORS: Record<string, [number, number]> = {
-    'muscle-low':    [1.6, 2.0], 'muscle-mod':    [1.8, 2.2],
-    'muscle-high':   [2.0, 2.4], 'muscle-very':   [2.2, 2.6],
-    'maintain-low':  [1.2, 1.6], 'maintain-mod':  [1.4, 1.8],
-    'maintain-high': [1.6, 2.0], 'maintain-very': [1.8, 2.2],
-    'fat-low':       [1.6, 2.2], 'fat-mod':       [1.8, 2.4],
-    'fat-high':      [2.0, 2.6], 'fat-very':      [2.2, 2.8],
-    'athlete-low':   [1.8, 2.4], 'athlete-mod':   [2.0, 2.6],
-    'athlete-high':  [2.2, 2.8], 'athlete-very':  [2.4, 3.2],
-  };
+  const [tab, setTab] = useState<'goal' | 'sources' | 'log'>('log');
 
-  const wNum = parseFloat(proteinWeight) || 0;
-  const [lo, hi] = FACTORS[`${proteinGoal}-${proteinActivity}`] ?? [1.6, 2.0];
-  const targetLo  = Math.round(wNum * lo);
-  const targetHi  = Math.round(wNum * hi);
-  const targetMid = Math.round((targetLo + targetHi) / 2);
-  const perMeal   = proteinMeals > 0 ? Math.round(targetMid / proteinMeals) : 0;
-  const valid = wNum > 0;
+  const [profile, setProfile]             = useState<ProteinProfile | null>(null);
+  const [profWeight, setProfWeight]       = useState('');
+  const [profGoal, setProfGoal]           = useState<'muscle'|'maintain'|'fat'|'athlete'>('muscle');
+  const [profAct, setProfAct]             = useState<'low'|'mod'|'high'|'very'>('mod');
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  const [sources, setSources]             = useState<ProteinSource[]>([]);
+  const [showAddSource, setShowAddSource] = useState(false);
+  const [newSrcName, setNewSrcName]       = useState('');
+  const [newSrcType, setNewSrcType]       = useState<'fixed'|'per100g'>('fixed');
+  const [newSrcVal, setNewSrcVal]         = useState('');
+
+  const [intakeLogs, setIntakeLogs]       = useState<ProteinIntakeLog[]>([]);
+  const [selectedSrc, setSelectedSrc]     = useState<string>('');
+  const [intakeAmt, setIntakeAmt]         = useState('');
+
+  const dateStr = formatDate(selectedDate);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [pRes, sRes] = await Promise.all([
+          authFetch(`${API_URL}/api/protein_profile`),
+          authFetch(`${API_URL}/api/protein_sources`),
+        ]);
+        if (pRes.ok) {
+          const p = await pRes.json();
+          if (p?.daily_target_g) {
+            setProfile(p);
+            setProfWeight(String(p.weight));
+            setProfGoal(p.goal as typeof profGoal);
+            setProfAct(p.activity as typeof profAct);
+          }
+        }
+        if (sRes.ok) setSources(await sRes.json());
+      } catch { /* silent */ }
+      setProfileLoaded(true);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/protein_intake?date=${dateStr}`);
+        if (res.ok) setIntakeLogs(await res.json());
+        else setIntakeLogs([]);
+      } catch { setIntakeLogs([]); }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStr]);
+
+  const wNum        = parseFloat(profWeight) || 0;
+  const [lo, hi]    = PROTEIN_FACTORS[`${profGoal}-${profAct}`] ?? [1.6, 2.0];
+  const calcTarget  = Math.round((wNum * lo + wNum * hi) / 2);
+  const dailyTarget = profile?.daily_target_g ?? 0;
+  const totalIntake = intakeLogs.reduce((s, l) => s + l.protein_g, 0);
+  const pct         = dailyTarget > 0 ? Math.min(100, Math.round((totalIntake / dailyTarget) * 100)) : 0;
 
   const GOAL_OPTS = [
-    { v: 'muscle'   as const, label: t('goalMuscle'),   color: 'bg-blue-500'   },
-    { v: 'maintain' as const, label: t('goalMaintain'),  color: 'bg-green-500'  },
-    { v: 'fat'      as const, label: t('goalFat'),       color: 'bg-orange-500' },
-    { v: 'athlete'  as const, label: t('goalAthlete'),   color: 'bg-purple-500' },
+    { v: 'muscle'   as const, label: t('goalMuscle'),  color: 'bg-blue-500'   },
+    { v: 'maintain' as const, label: t('goalMaintain'), color: 'bg-green-500'  },
+    { v: 'fat'      as const, label: t('goalFat'),      color: 'bg-orange-500' },
+    { v: 'athlete'  as const, label: t('goalAthlete'),  color: 'bg-purple-500' },
   ];
   const ACT_OPTS = [
     { v: 'low'  as const, label: t('actLow')  },
@@ -62,103 +110,283 @@ const ProteinCalculator = ({ initialWeight, theme, darkMode }: ProteinCalculator
     { v: 'very' as const, label: t('actVery') },
   ];
 
+  const handleSaveProfile = async () => {
+    if (!wNum) return showToast(t('enterName'), 'error');
+    const payload = { weight: wNum, goal: profGoal, activity: profAct, daily_target_g: calcTarget };
+    try {
+      const res = await authFetch(`${API_URL}/api/protein_profile`, { method: 'POST', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error();
+      setProfile(payload);
+      showToast(t('proteinGoalSaved'));
+      setTab('log');
+    } catch { showToast('Failed to save goal', 'error'); }
+  };
+
+  const handleAddSource = async () => {
+    if (!newSrcName.trim() || !newSrcVal) return;
+    const payload: Omit<ProteinSource, 'id'> = {
+      name: newSrcName.trim(), source_type: newSrcType,
+      protein_per_serving: newSrcType === 'fixed'   ? parseFloat(newSrcVal) : null,
+      protein_per_100g:    newSrcType === 'per100g' ? parseFloat(newSrcVal) : null,
+    };
+    try {
+      const res = await authFetch(`${API_URL}/api/protein_sources`, { method: 'POST', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setSources(prev => [...prev, data[0]]);
+      setNewSrcName(''); setNewSrcVal(''); setShowAddSource(false);
+      showToast(t('sourceCreated'));
+    } catch { showToast('Failed to add source', 'error'); }
+  };
+
+  const handleDeleteSource = async (id: string) => {
+    try {
+      await authFetch(`${API_URL}/api/protein_sources/${id}`, { method: 'DELETE' });
+      setSources(prev => prev.filter(s => s.id !== id));
+      showToast(t('sourceDeleted'));
+    } catch { /* silent */ }
+  };
+
+  const handleLogIntake = async () => {
+    const src = sources.find(s => s.id === selectedSrc);
+    if (!src || !intakeAmt) return;
+    const amt     = parseFloat(intakeAmt);
+    const protein = src.source_type === 'fixed'
+      ? (src.protein_per_serving ?? 0)
+      : Math.round((src.protein_per_100g ?? 0) * amt / 100 * 10) / 10;
+    try {
+      const res = await authFetch(`${API_URL}/api/protein_intake`, {
+        method: 'POST',
+        body: JSON.stringify({ date: dateStr, source_id: src.id, amount_g: amt, protein_g: protein }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: { name: src.name, source_type: src.source_type } }]);
+      setIntakeAmt('');
+      showToast(t('intakeLogged'));
+    } catch { showToast('Failed to log intake', 'error'); }
+  };
+
+  const handleDeleteIntake = async (id: string) => {
+    try {
+      await authFetch(`${API_URL}/api/protein_intake/${id}`, { method: 'DELETE' });
+      setIntakeLogs(prev => prev.filter(l => l.id !== id));
+      showToast(t('intakeDeleted'));
+    } catch { /* silent */ }
+  };
+
+  const selectedSrcObj  = sources.find(s => s.id === selectedSrc);
+  const previewProtein  = selectedSrcObj && intakeAmt
+    ? selectedSrcObj.source_type === 'fixed'
+      ? selectedSrcObj.protein_per_serving ?? 0
+      : Math.round((selectedSrcObj.protein_per_100g ?? 0) * parseFloat(intakeAmt || '0') / 100 * 10) / 10
+    : null;
+
+  if (!profileLoaded) return null;
+
   return (
     <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors ${theme.card}`}>
-      {/* 헤더 */}
-      <h2 className="font-heading text-lg font-bold flex items-center gap-2">
-        <span className="text-xl">🥩</span> {t('proteinCalc')}
-      </h2>
-
-      {/* 체중 입력 */}
-      <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
-        <div>
-          <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
-          <div className="flex items-end gap-1">
-            <input
-              type="number" inputMode="decimal" min="0" step="0.1"
-              value={proteinWeight}
-              placeholder="0"
-              onChange={e => setProteinWeight(e.target.value)}
-              className="w-16 bg-transparent text-xl font-bold outline-none ml-1"
-            />
-            <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>kg</span>
-          </div>
-        </div>
-        <span className="text-2xl mr-1">⚖️</span>
-      </div>
-
-      {/* 목표 선택 */}
-      <div>
-        <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('goal').toUpperCase()}</p>
-        <div className="grid grid-cols-2 gap-2">
-          {GOAL_OPTS.map(({ v, label, color }) => (
-            <button key={v} onClick={() => setProteinGoal(v)}
-              className={`py-2.5 rounded-xl text-xs font-bold transition-all
-                ${proteinGoal === v
-                  ? `${color} text-white shadow-md`
-                  : `${theme.input} ${theme.textMuted} hover:opacity-80`}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 활동량 선택 */}
-      <div>
-        <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('activityLevel').toUpperCase()}</p>
-        <div className="grid grid-cols-2 gap-2">
-          {ACT_OPTS.map(({ v, label }) => (
-            <button key={v} onClick={() => setProteinActivity(v)}
-              className={`py-2 rounded-xl text-xs font-semibold transition-all
-                ${proteinActivity === v
-                  ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md'
-                  : `${theme.input} ${theme.textMuted} hover:opacity-80`}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 끼니 수 */}
       <div className="flex items-center justify-between">
-        <p className={`text-xs font-bold ${theme.textMuted}`}>{t('meals').toUpperCase()}</p>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setProteinMeals(m => Math.max(1, m - 1))}
-            className={`w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center ${theme.input} hover:opacity-70 transition-opacity`}>
-            −
+        <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥩 {t('proteinTracker')}</h2>
+      </div>
+      <div className={`flex rounded-2xl p-1 gap-1 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-100'}`}>
+        {([['goal', t('proteinProfile')], ['sources', t('proteinSources')], ['log', t('proteinLog')]] as const).map(([v, label]) => (
+          <button key={v} onClick={() => setTab(v)}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+              ${tab === v ? 'bg-[#1C1C1E] text-[#FACC15] shadow-sm' : theme.textMuted}`}>
+            {label}
           </button>
-          <span className="text-lg font-bold w-4 text-center tabular-nums">{proteinMeals}</span>
-          <button onClick={() => setProteinMeals(m => Math.min(8, m + 1))}
-            className={`w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center ${theme.input} hover:opacity-70 transition-opacity`}>
-            +
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* 결과 */}
-      <div className={`rounded-2xl p-4 text-center ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
-        {valid ? (
-          <>
-            <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('dailyProtein').toUpperCase()}</p>
-            <p className="text-4xl font-black text-[#FACC15] tabular-nums">{targetMid}g</p>
-            <p className={`text-xs mt-1 ${theme.textMuted}`}>
-              {t('proteinRange')}: {targetLo}–{targetHi}g
-            </p>
-            {proteinMeals > 0 && (
-              <div className={`mt-3 pt-3 border-t ${theme.border} flex justify-center items-baseline gap-1`}>
-                <span className="text-2xl font-black tabular-nums">{perMeal}g</span>
-                <span className={`text-xs font-semibold ${theme.textMuted}`}>
-                  / {t('perMeal')} ({proteinMeals} {t('meals')})
-                </span>
+      {tab === 'goal' && (
+        <div className="flex flex-col gap-3">
+          <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+            <div>
+              <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
+              <div className="flex items-end gap-1">
+                <input type="number" inputMode="decimal" min="0" step="0.1"
+                  value={profWeight} placeholder="0" onChange={e => setProfWeight(e.target.value)}
+                  className="w-16 bg-transparent text-xl font-bold outline-none ml-1"/>
+                <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>kg</span>
               </div>
-            )}
-          </>
-        ) : (
-          <p className={`text-sm font-semibold ${theme.textMuted}`}>
-            체중을 입력하면 권장 단백질 섭취량을 계산해드립니다
-          </p>
-        )}
-      </div>
+            </div>
+            <span className="text-2xl mr-1">⚖️</span>
+          </div>
+          <div>
+            <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('goal').toUpperCase()}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {GOAL_OPTS.map(({ v, label, color }) => (
+                <button key={v} onClick={() => setProfGoal(v)}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all
+                    ${profGoal === v ? `${color} text-white shadow-md` : `${theme.input} ${theme.textMuted}`}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('activityLevel').toUpperCase()}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {ACT_OPTS.map(({ v, label }) => (
+                <button key={v} onClick={() => setProfAct(v)}
+                  className={`py-2 rounded-xl text-xs font-semibold transition-all
+                    ${profAct === v ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md' : `${theme.input} ${theme.textMuted}`}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {wNum > 0 && (
+            <div className={`rounded-2xl p-3 flex items-center justify-between ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+              <p className={`text-xs font-bold ${theme.textMuted}`}>{t('dailyProtein')}</p>
+              <p className="text-2xl font-black text-[#FACC15] tabular-nums">{calcTarget}g</p>
+            </div>
+          )}
+          <button onClick={handleSaveProfile}
+            className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold py-3.5 rounded-2xl hover:bg-gray-800 transition-colors">
+            {t('saveGoal')}
+          </button>
+        </div>
+      )}
+
+      {tab === 'sources' && (
+        <div className="flex flex-col gap-3">
+          {sources.length === 0 && !showAddSource && (
+            <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
+          )}
+          {sources.map(src => (
+            <div key={src.id} className={`rounded-2xl p-3 flex items-center justify-between ${theme.input}`}>
+              <div>
+                <p className="text-sm font-bold">{src.name}</p>
+                <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
+                  {src.source_type === 'fixed' ? `${src.protein_per_serving}g / serving` : `${src.protein_per_100g}g / 100g`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+                  {src.source_type === 'fixed' ? 'FIXED' : '/100g'}
+                </span>
+                <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
+                  <X size={14}/>
+                </button>
+              </div>
+            </div>
+          ))}
+          {showAddSource ? (
+            <div className={`rounded-2xl p-4 flex flex-col gap-3 border-2 border-[#FACC15]/40 ${theme.input}`}>
+              <input autoFocus type="text" value={newSrcName} placeholder={t('proteinSourceName')}
+                onChange={e => setNewSrcName(e.target.value)}
+                className="w-full bg-transparent text-sm font-semibold outline-none"/>
+              <div className="flex gap-2">
+                {(['fixed', 'per100g'] as const).map(v => (
+                  <button key={v} onClick={() => setNewSrcType(v)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+                      ${newSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                    {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
+                  </button>
+                ))}
+              </div>
+              <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'}`}>
+                <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
+                  onChange={e => setNewSrcVal(e.target.value)}
+                  className="w-16 bg-transparent text-lg font-bold outline-none"/>
+                <span className={`text-xs font-semibold ${theme.textMuted}`}>g {newSrcType === 'fixed' ? '/ serving' : '/ 100g'}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setShowAddSource(false); setNewSrcName(''); setNewSrcVal(''); }}
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
+                <button onClick={handleAddSource}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('add')}</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowAddSource(true)}
+              className={`w-full py-3 rounded-2xl text-sm font-bold border-2 border-dashed transition-colors
+                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+              + {t('add')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {tab === 'log' && (
+        <div className="flex flex-col gap-3">
+          {dailyTarget > 0 ? (
+            <div className={`rounded-2xl p-4 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="text-3xl font-black text-[#FACC15] tabular-nums">{Math.round(totalIntake)}g</span>
+                <span className={`text-xs font-bold ${theme.textMuted}`}>/ {dailyTarget}g {t('progressOf')}</span>
+              </div>
+              <div className={`h-2.5 rounded-full overflow-hidden ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'}`}>
+                <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-[#FACC15]'}`} style={{ width: `${pct}%` }}/>
+              </div>
+              <p className={`text-xs font-bold mt-1.5 text-right ${pct >= 100 ? 'text-green-500' : theme.textMuted}`}>{pct}%</p>
+            </div>
+          ) : (
+            <button onClick={() => setTab('goal')}
+              className={`text-xs text-center py-3 rounded-2xl font-bold border-2 border-dashed transition-colors
+                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+              {t('saveGoal')} →
+            </button>
+          )}
+          {sources.length > 0 ? (
+            <div className={`rounded-2xl p-3 flex flex-col gap-2.5 border-2 border-transparent focus-within:border-[#FACC15]/40 transition-colors ${theme.input}`}>
+              <select value={selectedSrc} onChange={e => { setSelectedSrc(e.target.value); setIntakeAmt(''); }}
+                className={`w-full bg-transparent text-sm font-semibold outline-none ${!selectedSrc ? theme.textMuted : ''}`}>
+                <option value="">{t('addIntake')}…</option>
+                {sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              {selectedSrc && (
+                <div className="flex items-center gap-2">
+                  {selectedSrcObj?.source_type === 'per100g' ? (
+                    <>
+                      <input type="number" inputMode="decimal" min="0" step="1"
+                        value={intakeAmt} placeholder="0" onChange={e => setIntakeAmt(e.target.value)}
+                        className="w-16 bg-transparent text-lg font-bold outline-none"/>
+                      <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
+                        g{previewProtein !== null ? ` → ${previewProtein}g protein` : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <p className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
+                      {selectedSrcObj?.protein_per_serving}g protein / serving
+                    </p>
+                  )}
+                  <button onClick={handleLogIntake}
+                    disabled={!intakeAmt && selectedSrcObj?.source_type === 'per100g'}
+                    className="bg-[#1C1C1E] text-[#FACC15] text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
+                    {t('add')}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button onClick={() => setTab('sources')}
+              className={`text-xs text-center py-3 rounded-2xl font-bold border-2 border-dashed
+                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+              {t('noSources')} →
+            </button>
+          )}
+          {intakeLogs.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {intakeLogs.map(log => (
+                <div key={log.id} className={`rounded-xl px-3 py-2.5 flex items-center justify-between ${theme.input}`}>
+                  <div>
+                    <p className="text-sm font-bold">{log.protein_sources?.name ?? '—'}</p>
+                    <p className={`text-xs ${theme.textMuted}`}>
+                      {log.protein_sources?.source_type === 'per100g' ? `${log.amount_g}g · ` : ''}{log.protein_g}g protein
+                    </p>
+                  </div>
+                  <button onClick={() => handleDeleteIntake(log.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
+                    <X size={13}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -1188,37 +1416,39 @@ export const HealthView = ({
             </div>
           </div>
 
-          {/* InBody */}
-          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col justify-between transition-colors gap-3 lg:gap-0 ${theme.card}`}>
-            <div className="flex justify-between items-center mb-2 lg:mb-4">
-              <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Target size={18} className="text-[#FACC15]"/> {t('inbody')}</h2>
-              <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3.5 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
+          {/* InBody — 컴팩트 가로형 */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card}`}>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-[#FACC15]"/> {t('inbody')}</h2>
+              <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3 py-1.5 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
-            {[
-              { label: 'Weight', field: 'weight' as const, unit: 'kg', color: 'text-blue-500' },
-              { label: 'SMM',    field: 'smm'    as const, unit: 'kg', color: 'text-green-500' },
-              { label: 'PBF',    field: 'pbf'    as const, unit: '%',  color: 'text-red-500' },
-            ].map(({ label, field, unit, color }) => (
-              <div key={field} className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
-                <div>
-                  <p className={`text-xs font-semibold ml-1 ${theme.textMuted}`}>{label}</p>
-                  <div className="flex items-end gap-1">
-                    <input type="number" inputMode="decimal" min="0" step="0.1" value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
+            <div className="flex gap-3">
+              {[
+                { label: 'Weight', field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
+                { label: 'SMM',    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
+                { label: 'PBF',    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
+              ].map(({ label, field, unit, color }) => (
+                <div key={field} className={`flex-1 rounded-2xl p-2.5 border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+                  <p className={`text-[10px] font-bold mb-1 ${color}`}>{label}</p>
+                  <div className="flex items-end gap-0.5">
+                    <input type="number" inputMode="decimal" min="0" step="0.1"
+                      value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
                       onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
-                      className="w-16 bg-transparent text-xl font-bold outline-none ml-1"/>
-                    <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>{unit}</span>
+                      className="w-full bg-transparent text-lg font-black outline-none tabular-nums"/>
+                    <span className={`text-xs font-semibold pb-0.5 ${theme.textMuted}`}>{unit}</span>
                   </div>
                 </div>
-                <Activity size={20} className={`${color} mr-2`}/>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          {/* ── 프로틴 계산기 ── */}
-          <ProteinCalculator
-            initialWeight={localInbody.weight}
+          {/* ── 프로틴 트래커 ── */}
+          <ProteinTracker
             theme={theme}
             darkMode={appSettings.darkMode}
+            selectedDate={selectedDate}
+            formatDate={formatDate}
+            showToast={showToast}
           />
         </div>
       </div>
