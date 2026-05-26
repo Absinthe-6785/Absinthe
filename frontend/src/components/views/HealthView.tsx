@@ -187,9 +187,9 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   return (
     <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${theme.card}`}>
       <div className="flex items-center justify-between">
-        <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥩 {t('proteinTracker')}</h2>
+        <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥤 {t('proteinTracker')}</h2>
       </div>
-      <div className={`flex rounded-2xl p-1 gap-1 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-100'}`}>
+      <div className={`flex rounded-2xl p-1 gap-1 shrink-0 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-100'}`}>
         {([['goal', t('proteinProfile')], ['sources', t('proteinSources')], ['log', t('proteinLog')]] as const).map(([v, label]) => (
           <button key={v} onClick={() => setTab(v)}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
@@ -199,8 +199,9 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
         ))}
       </div>
 
+      {/* 탭 콘텐츠 — min-h로 높이 고정하여 탭 전환 시 레이아웃 흔들림 방지 */}
       {tab === 'goal' && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 min-h-[320px]">
           <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
             <div>
               <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
@@ -251,7 +252,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       )}
 
       {tab === 'sources' && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 min-h-[320px]">
           {sources.length === 0 && !showAddSource && (
             <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
           )}
@@ -311,7 +312,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       )}
 
       {tab === 'log' && (
-        <div className="flex flex-col gap-3 flex-1 min-h-0">
+        <div className="flex flex-col gap-3 flex-1 min-h-[320px] min-h-0">
           {dailyTarget > 0 ? (
             <div className={`rounded-2xl p-4 shrink-0 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
               <div className="flex justify-between items-baseline mb-2">
@@ -1418,9 +1419,10 @@ export const HealthView = ({
 
           {/* InBody — 세로 배열 (데스크탑) / 가로 스크롤 (모바일) */}
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card} lg:w-[160px] lg:shrink-0`}>
-            <div className="flex justify-between items-center mb-3">
+            {/* 제목과 저장 버튼 — 세로 배치로 여유 확보 */}
+            <div className="flex flex-col gap-2.5 mb-3">
               <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-[#FACC15]"/> {t('inbody')}</h2>
-              <button onClick={handleSaveInbody} className="text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3 py-1.5 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
+              <button onClick={handleSaveInbody} className="w-full text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
             {/* 모바일: 가로 3열 / 데스크탑: 세로 3행 */}
             <div className="flex gap-3 lg:flex-col lg:gap-2">
