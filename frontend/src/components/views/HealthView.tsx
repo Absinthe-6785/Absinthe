@@ -286,19 +286,20 @@ export const HealthView = ({
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
 
   const KG_PER_LBS = 0.45359237;
+  const r1 = (n: number) => Math.round(n * 10) / 10; // 소수점 1자리 반올림 헬퍼
   const displayKg = (kg: number | string, blockId: string): string => {
     const n = parseFloat(String(kg));
     if (isNaN(n) || kg === '' || kg === null) return '';
     return getUnit(blockId) === 'lbs'
-      ? String(Math.round(n / KG_PER_LBS * 10) / 10)
-      : String(n);
+      ? String(r1(n / KG_PER_LBS))
+      : String(r1(n));
   };
   const inputToKg = (val: string, blockId: string): string => {
     if (val === '' || val === null) return '';
     const n = parseFloat(val);
     if (isNaN(n)) return '';
     return getUnit(blockId) === 'lbs'
-      ? String(Math.round(n * KG_PER_LBS * 100) / 100)
+      ? String(r1(n * KG_PER_LBS))
       : val;
   };
 
@@ -317,24 +318,10 @@ export const HealthView = ({
   const draftKey = `healthDraft:${formatDate(selectedDate)}`;
   const memoKey  = `healthMemo:${formatDate(selectedDate)}`;
 
-  // selectedDate 변경 시 메모 복원 — 서버 우선, localStorage는 fallback
+  // selectedDate 변경 시 메모도 localStorage에서 복원
   useEffect(() => {
-    let cancelled = false;
+    setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
     setPrevData({}); // 날짜 변경 시 이전 세션 캐시 초기화
-    const dateStr = formatDate(selectedDate);
-    (async () => {
-      try {
-        const res = await authFetch(`${API_URL}/api/workout_memo?date=${dateStr}`);
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          const serverMemo: string = data?.memo ?? '';
-          setWorkoutMemo(serverMemo || (localStorage.getItem(memoKey) ?? ''));
-          return;
-        }
-      } catch { /* silent — 네트워크 오류 시 localStorage로 */ }
-      if (!cancelled) setWorkoutMemo(localStorage.getItem(memoKey) ?? '');
-    })();
-    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
@@ -576,17 +563,6 @@ export const HealthView = ({
       dbIdx++;
     }
     const total = dbIdx; // 실제 저장 시도한 운동 수
-
-    // 메모도 서버에 저장 (운동 저장 성공 여부와 무관하게 항상 시도)
-    if (workoutMemo.trim()) {
-      try {
-        await authFetch(`${API_URL}/api/workout_memo`, {
-          method: 'POST',
-          body: JSON.stringify({ date: formatDate(selectedDate), memo: workoutMemo.trim() }),
-        });
-      } catch { /* silent */ }
-    }
-
     setIsSaving(false);
     if (failed === 0) {
       localStorage.removeItem(draftKey);

@@ -97,11 +97,19 @@ class WorkoutLogCreate(BaseModel):
 class InbodyLogCreate(BaseModel):
     date: str; weight: float; smm: float; pbf: float
 
-class WorkoutMemoCreate(BaseModel):
-    date: str; memo: str
-
 class WeeklyScheduleCreate(BaseModel):
     day: int; title: str; start_time: str; end_time: str; color: str
+
+class ProteinProfileCreate(BaseModel):
+    weight: float; goal: str; activity: str; daily_target_g: int
+
+class ProteinSourceCreate(BaseModel):
+    name: str; source_type: str          # 'fixed' | 'per100g'
+    protein_per_serving: float | None = None
+    protein_per_100g: float | None = None
+
+class ProteinIntakeCreate(BaseModel):
+    date: str; source_id: str; amount_g: float; protein_g: float
 
 # ==========================================
 # Reset
@@ -418,21 +426,55 @@ async def delete_workout(log_id: str, user_id: str = Depends(get_current_user)):
     return supabase.table("workout_logs").delete().eq("id", log_id).execute().data
 
 # ==========================================
-# Workout Memo
+# Protein Tracker — Profile / Sources / Intake
 # ==========================================
-@app.get("/api/workout_memo")
-async def get_workout_memo(date: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("workout_memos").select("memo").eq("user_id", user_id).eq("date", date).maybe_single().execute().data
-    return {"memo": row["memo"] if row else ""}
 
-@app.post("/api/workout_memo")
-async def save_workout_memo(payload: WorkoutMemoCreate, user_id: str = Depends(get_current_user)):
-    return supabase.table("workout_memos").upsert(
-        {"user_id": user_id, "date": payload.date, "memo": payload.memo},
-        on_conflict="user_id,date"
+# ── 프로필 (목표 설정, user당 1행 upsert) ──
+@app.get("/api/protein_profile")
+async def get_protein_profile(user_id: str = Depends(get_current_user)):
+    row = supabase.table("protein_profiles").select("*").eq("user_id", user_id).maybe_single().execute().data
+    return row or {}
+
+@app.post("/api/protein_profile")
+async def save_protein_profile(payload: ProteinProfileCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("protein_profiles").upsert(
+        {"user_id": user_id, **payload.model_dump()},
+        on_conflict="user_id"
     ).execute().data
 
-@app.get("/api/heatmap")
+# ── 소스 블록 ──
+@app.get("/api/protein_sources")
+async def get_protein_sources(user_id: str = Depends(get_current_user)):
+    return supabase.table("protein_sources").select("*").eq("user_id", user_id).order("created_at").execute().data or []
+
+@app.post("/api/protein_sources")
+async def create_protein_source(payload: ProteinSourceCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("protein_sources").insert({"user_id": user_id, **payload.model_dump()}).execute().data
+
+@app.delete("/api/protein_sources/{source_id}")
+async def delete_protein_source(source_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("protein_sources").select("user_id").eq("id", source_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("protein_sources").delete().eq("id", source_id).execute().data
+
+# ── 일일 섭취 기록 ──
+@app.get("/api/protein_intake")
+async def get_protein_intake(date: str, user_id: str = Depends(get_current_user)):
+    return supabase.table("protein_intake_logs").select("*, protein_sources(name, source_type)").eq("user_id", user_id).eq("date", date).order("created_at").execute().data or []
+
+@app.post("/api/protein_intake")
+async def log_protein_intake(payload: ProteinIntakeCreate, user_id: str = Depends(get_current_user)):
+    return supabase.table("protein_intake_logs").insert({"user_id": user_id, **payload.model_dump()}).execute().data
+
+@app.delete("/api/protein_intake/{log_id}")
+async def delete_protein_intake(log_id: str, user_id: str = Depends(get_current_user)):
+    row = supabase.table("protein_intake_logs").select("user_id").eq("id", log_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("protein_intake_logs").delete().eq("id", log_id).execute().data
+
+
 async def get_heatmap(user_id: str = Depends(get_current_user)):
     """
     최근 16주(112일) 날짜별 활동 강도 반환.
