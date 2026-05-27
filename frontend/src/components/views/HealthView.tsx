@@ -161,7 +161,6 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       showToast(t('intakeLogged'));
     } catch { showToast('Failed to log intake', 'error'); }
   };
-  };
 
   const handleDeleteSource = async (id: string) => {
     try {
@@ -187,7 +186,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: { name: src.name, source_type: src.source_type } }]);
+      setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: { name: src.name, source_type: src.source_type, category: src.category } }]);
       setIntakeAmt('');
       showToast(t('intakeLogged'));
     } catch { showToast('Failed to log intake', 'error'); }
