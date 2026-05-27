@@ -94,8 +94,8 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [lo, hi]    = PROTEIN_FACTORS[`${profGoal}-${profAct}`] ?? [1.6, 2.0];
   const calcTarget  = Math.round((wNum * lo + wNum * hi) / 2);
   const dailyTarget = profile?.daily_target_g ?? 0;
-  const totalIntake = intakeLogs.reduce((s, l) => s + l.protein_g, 0);
-  const pct         = dailyTarget > 0 ? Math.min(100, Math.round((totalIntake / dailyTarget) * 100)) : 0;
+  const totalIntake = Math.round(intakeLogs.reduce((s, l) => s + l.protein_g, 0) * 100) / 100;
+  const pct         = dailyTarget > 0 ? Math.min(100, Math.round((totalIntake / dailyTarget) * 1000) / 10) : 0;
 
   const GOAL_OPTS = [
     { v: 'muscle'   as const, label: t('goalMuscle'),  color: 'bg-blue-500'   },
@@ -149,11 +149,13 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
 
   const handleLogIntake = async () => {
     const src = sources.find(s => s.id === selectedSrc);
-    if (!src || !intakeAmt) return;
+    if (!src) return;
+    // 둘 다 amount 필수 (fixed는 개수, per100g는 그램)
+    if (!intakeAmt || parseFloat(intakeAmt) <= 0) return;
     const amt     = parseFloat(intakeAmt);
     const protein = src.source_type === 'fixed'
-      ? (src.protein_per_serving ?? 0)
-      : Math.round((src.protein_per_100g ?? 0) * amt / 100 * 10) / 10;
+      ? Math.round((src.protein_per_serving ?? 0) * amt * 100) / 100
+      : Math.round((src.protein_per_100g ?? 0) * amt / 100 * 100) / 100;
     try {
       const res = await authFetch(`${API_URL}/api/protein_intake`, {
         method: 'POST',
@@ -176,13 +178,19 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   };
 
   const selectedSrcObj  = sources.find(s => s.id === selectedSrc);
-  const previewProtein  = selectedSrcObj && intakeAmt
+  const previewProtein  = selectedSrcObj && intakeAmt && parseFloat(intakeAmt) > 0
     ? selectedSrcObj.source_type === 'fixed'
-      ? selectedSrcObj.protein_per_serving ?? 0
-      : Math.round((selectedSrcObj.protein_per_100g ?? 0) * parseFloat(intakeAmt || '0') / 100 * 10) / 10
+      ? Math.round((selectedSrcObj.protein_per_serving ?? 0) * parseFloat(intakeAmt) * 100) / 100
+      : Math.round((selectedSrcObj.protein_per_100g ?? 0) * parseFloat(intakeAmt || '0') / 100 * 100) / 100
     : null;
 
-  if (!profileLoaded) return null;
+  if (!profileLoaded) return (
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 h-full ${theme.card}`}>
+      <div className="h-6 w-36 rounded-xl bg-current opacity-10 animate-pulse"/>
+      <div className="h-10 w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
+      <div className="flex-1 rounded-2xl bg-current opacity-10 animate-pulse"/>
+    </div>
+  );
 
   return (
     <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${theme.card}`}>
@@ -252,62 +260,69 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       )}
 
       {tab === 'sources' && (
-        <div className="flex flex-col gap-3 min-h-[320px]">
-          {sources.length === 0 && !showAddSource && (
-            <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
-          )}
-          {sources.map(src => (
-            <div key={src.id} className={`rounded-2xl p-3 flex items-center justify-between ${theme.input}`}>
-              <div>
-                <p className="text-sm font-bold">{src.name}</p>
-                <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
-                  {src.source_type === 'fixed' ? `${src.protein_per_serving}g / serving` : `${src.protein_per_100g}g / 100g`}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
-                  {src.source_type === 'fixed' ? 'FIXED' : '/100g'}
-                </span>
-                <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
-                  <X size={14}/>
-                </button>
-              </div>
-            </div>
-          ))}
-          {showAddSource ? (
-            <div className={`rounded-2xl p-4 flex flex-col gap-3 border-2 border-[#FACC15]/40 ${theme.input}`}>
-              <input autoFocus type="text" value={newSrcName} placeholder={t('proteinSourceName')}
-                onChange={e => setNewSrcName(e.target.value)}
-                className="w-full bg-transparent text-sm font-semibold outline-none"/>
-              <div className="flex gap-2">
-                {(['fixed', 'per100g'] as const).map(v => (
-                  <button key={v} onClick={() => setNewSrcType(v)}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
-                      ${newSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
-                    {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
+        /* 전체를 고정 높이 flex-col로 → 목록만 스크롤, 하단 Add 폼/버튼은 항상 고정 */
+        <div className="flex flex-col min-h-[320px] h-[320px]">
+          {/* 스크롤 목록 */}
+          <div className="flex-1 overflow-y-auto flex flex-col gap-2 min-h-0 pr-0.5">
+            {sources.length === 0 && !showAddSource && (
+              <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
+            )}
+            {sources.map(src => (
+              <div key={src.id} className={`rounded-2xl p-3 flex items-center justify-between shrink-0 ${theme.input}`}>
+                <div>
+                  <p className="text-sm font-bold">{src.name}</p>
+                  <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
+                    {src.source_type === 'fixed' ? `${src.protein_per_serving}g / serving` : `${src.protein_per_100g}g / 100g`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+                    {src.source_type === 'fixed' ? 'FIXED' : '/100g'}
+                  </span>
+                  <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
+                    <X size={14}/>
                   </button>
-                ))}
+                </div>
               </div>
-              <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'}`}>
-                <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
-                  onChange={e => setNewSrcVal(e.target.value)}
-                  className="w-16 bg-transparent text-lg font-bold outline-none"/>
-                <span className={`text-xs font-semibold ${theme.textMuted}`}>g {newSrcType === 'fixed' ? '/ serving' : '/ 100g'}</span>
+            ))}
+          </div>
+          {/* 하단 고정: 추가 폼 or + Add 버튼 */}
+          <div className="shrink-0 pt-2">
+            {showAddSource ? (
+              <div className={`rounded-2xl p-4 flex flex-col gap-3 border-2 border-[#FACC15]/40 ${theme.input}`}>
+                <input autoFocus type="text" value={newSrcName} placeholder={t('proteinSourceName')}
+                  onChange={e => setNewSrcName(e.target.value)}
+                  className="w-full bg-transparent text-sm font-semibold outline-none"/>
+                <div className="flex gap-2">
+                  {(['fixed', 'per100g'] as const).map(v => (
+                    <button key={v} onClick={() => setNewSrcType(v)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+                        ${newSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                      {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
+                    </button>
+                  ))}
+                </div>
+                <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'}`}>
+                  <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
+                    onChange={e => setNewSrcVal(e.target.value)}
+                    className="w-16 bg-transparent text-lg font-bold outline-none"/>
+                  <span className={`text-xs font-semibold ${theme.textMuted}`}>g {newSrcType === 'fixed' ? '/ serving' : '/ 100g'}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setShowAddSource(false); setNewSrcName(''); setNewSrcVal(''); }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
+                  <button onClick={handleAddSource}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('add')}</button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => { setShowAddSource(false); setNewSrcName(''); setNewSrcVal(''); }}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
-                <button onClick={handleAddSource}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('add')}</button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setShowAddSource(true)}
-              className={`w-full py-3 rounded-2xl text-sm font-bold border-2 border-dashed transition-colors
-                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
-              + {t('add')}
-            </button>
-          )}
+            ) : (
+              <button onClick={() => setShowAddSource(true)}
+                className={`w-full py-3 rounded-2xl text-sm font-bold border-2 border-dashed transition-colors
+                  ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+                + {t('add')}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -316,7 +331,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           {dailyTarget > 0 ? (
             <div className={`rounded-2xl p-4 shrink-0 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
               <div className="flex justify-between items-baseline mb-2">
-                <span className="text-3xl font-black text-[#FACC15] tabular-nums">{Math.round(totalIntake)}g</span>
+                <span className="text-3xl font-black text-[#FACC15] tabular-nums">{totalIntake}g</span>
                 <span className={`text-xs font-bold ${theme.textMuted}`}>/ {dailyTarget}g {t('progressOf')}</span>
               </div>
               <div className={`h-2.5 rounded-full overflow-hidden ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'}`}>
@@ -350,12 +365,17 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                       </span>
                     </>
                   ) : (
-                    <p className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
-                      {selectedSrcObj?.protein_per_serving}g protein / serving
-                    </p>
+                    <>
+                      <input type="number" inputMode="numeric" min="1" step="1"
+                        value={intakeAmt} placeholder="1" onChange={e => setIntakeAmt(e.target.value)}
+                        className="w-14 bg-transparent text-lg font-bold outline-none"/>
+                      <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
+                        개{previewProtein !== null ? ` → ${previewProtein}g protein` : ` (${selectedSrcObj?.protein_per_serving}g / 개)`}
+                      </span>
+                    </>
                   )}
                   <button onClick={handleLogIntake}
-                    disabled={!intakeAmt && selectedSrcObj?.source_type === 'per100g'}
+                    disabled={!intakeAmt || parseFloat(intakeAmt) <= 0}
                     className="bg-[#1C1C1E] text-[#FACC15] text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
                     {t('add')}
                   </button>
