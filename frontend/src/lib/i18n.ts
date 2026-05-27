@@ -32,7 +32,7 @@ const translations = {
 
   // ── Sidebar ────────────────────────────────────────────────────────
   planner:        { en: 'Planner',        ko: '플래너',       ja: 'プランナー'   },
-  health:         { en: 'Health',         ko: '헬스',         ja: 'ヘルス'       },
+  health:         { en: 'Health',         ko: '헬스',         ja: 'フィットネス'       },
   analytics:      { en: 'Analytics',      ko: '분석',         ja: '分析'         },
   note:           { en: 'Note',           ko: '노트',         ja: 'ノート'       },
   out:            { en: 'Out',            ko: '나가기',       ja: '退出'         },
