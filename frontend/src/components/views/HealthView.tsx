@@ -18,7 +18,7 @@ interface ProteinSource { id: string; name: string; category: string; source_typ
 interface ProteinIntakeLog { id: string; source_id: string | null; amount_g: number; protein_g: number; note: string | null; protein_sources: { name: string; source_type: string; category: string } | null; }
 interface ProteinProfile { weight: number; goal: string; activity: string; daily_target_g: number; }
 
-const CATEGORIES = ['🍗 Meat', '🐟 Fish', '🥚 Egg & Dairy', '🌱 Plant', '🥤 Supplement', '🍽️ Meal', '기타'] as const;
+const CATEGORIES = ['🍗 Meat', '🐟 Fish', '🥚 Egg & Dairy', '🌱 Plant', '🥤 Supplement', '🍽️ Meal', 'Other'] as const;
 type Category = typeof CATEGORIES[number];
 
 interface ProteinTrackerProps {
@@ -52,7 +52,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [newSrcName, setNewSrcName]       = useState('');
   const [newSrcType, setNewSrcType]       = useState<'fixed'|'per100g'>('fixed');
   const [newSrcVal, setNewSrcVal]         = useState('');
-  const [newSrcCat, setNewSrcCat]         = useState<Category>('기타');
+  const [newSrcCat, setNewSrcCat]         = useState<Category>('Other');
 
   const [intakeLogs, setIntakeLogs]       = useState<ProteinIntakeLog[]>([]);
   const [selectedSrc, setSelectedSrc]     = useState<string>('');   // '' = 미선택, '__custom__' = 직접입력
@@ -141,7 +141,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSources(prev => [...prev, data[0]]);
-      setNewSrcName(''); setNewSrcVal(''); setNewSrcCat('기타'); setShowAddSource(false);
+      setNewSrcName(''); setNewSrcVal(''); setNewSrcCat('Other'); setShowAddSource(false);
       showToast(t('sourceCreated'));
     } catch { showToast('Failed to add source', 'error'); }
   };
@@ -445,12 +445,12 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           {intakeLogs.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto pb-1.5 shrink-0 scrollbar-none">
               {(['ALL', ...CATEGORIES] as const)
-                .filter(c => c === 'ALL' || intakeLogs.some(l => (l.protein_sources?.category ?? '기타') === c || (c === '기타' && !l.protein_sources)))
+                .filter(c => c === 'ALL' || intakeLogs.some(l => (l.protein_sources?.category ?? 'Other') === c || (c === 'Other' && !l.protein_sources)))
                 .map(c => (
                   <button key={c} onClick={() => setFilterCat(c)}
                     className={`whitespace-nowrap text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all shrink-0
                       ${filterCat === c ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
-                    {c === 'ALL' ? '전체' : c}
+                    {c === 'ALL' ? 'All' : c}
                   </button>
                 ))}
             </div>
@@ -460,7 +460,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           {intakeLogs.length > 0 ? (
             <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-1.5 pt-0.5">
               {intakeLogs
-                .filter(l => filterCat === 'ALL' || (l.protein_sources?.category ?? '기타') === filterCat || (!l.protein_sources && filterCat === '기타'))
+                .filter(l => filterCat === 'ALL' || (l.protein_sources?.category ?? 'Other') === filterCat || (!l.protein_sources && filterCat === 'Other'))
                 .map(log => (
                   <div key={log.id} className={`rounded-xl px-3 py-2 flex items-center justify-between shrink-0 ${theme.input}`}>
                     <div className="min-w-0 mr-2">
