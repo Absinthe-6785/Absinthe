@@ -524,6 +524,8 @@ export const HealthView = ({
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
+  // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
+  const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   // ── 날짜별 메모 ───────────────────────────────────────────────────────
   const [workoutMemo, setWorkoutMemo] = useState('');
@@ -1320,9 +1322,19 @@ export const HealthView = ({
                           {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
                             <input type="number" inputMode="decimal" min="0"
                               step={getUnit(w.block_id) === 'lbs' ? '10' : '5'}
-                              value={displayKg(s.kg, w.block_id)}
+                              value={rawKgInput[`${wIdx}-${sIdx}`] ?? displayKg(s.kg, w.block_id)}
                               placeholder="—"
-                              onChange={e => handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(e.target.value, w.block_id))}
+                              onChange={e => {
+                                const raw = e.target.value;
+                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: raw }));
+                                handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(raw, w.block_id));
+                              }}
+                              onFocus={() => {
+                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: displayKg(s.kg, w.block_id) }));
+                              }}
+                              onBlur={() => {
+                                setRawKgInput(prev => { const n = { ...prev }; delete n[`${wIdx}-${sIdx}`]; return n; });
+                              }}
                               className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                           )}
                           {/* Bodyweight / Strength reps */}

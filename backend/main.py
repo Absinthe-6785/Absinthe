@@ -105,11 +105,13 @@ class ProteinProfileCreate(BaseModel):
 
 class ProteinSourceCreate(BaseModel):
     name: str; source_type: str          # 'fixed' | 'per100g'
+    category: str = '기타'
     protein_per_serving: float | None = None
     protein_per_100g: float | None = None
 
 class ProteinIntakeCreate(BaseModel):
-    date: str; source_id: str; amount_g: float; protein_g: float
+    date: str; source_id: str | None = None; amount_g: float; protein_g: float
+    note: str | None = None
 
 # ==========================================
 # Reset
@@ -461,7 +463,12 @@ async def delete_protein_source(source_id: str, user_id: str = Depends(get_curre
 # ── 일일 섭취 기록 ──
 @app.get("/api/protein_intake")
 async def get_protein_intake(date: str, user_id: str = Depends(get_current_user)):
-    return supabase.table("protein_intake_logs").select("*, protein_sources(name, source_type)").eq("user_id", user_id).eq("date", date).order("created_at").execute().data or []
+    try:
+        data = supabase.table("protein_intake_logs").select("*, protein_sources(name, source_type, category)").eq("user_id", user_id).eq("date", date).order("created_at").execute().data or []
+    except Exception:
+        # protein_sources에 category 컬럼이 없는 경우 fallback
+        data = supabase.table("protein_intake_logs").select("*, protein_sources(name, source_type)").eq("user_id", user_id).eq("date", date).order("created_at").execute().data or []
+    return data
 
 @app.post("/api/protein_intake")
 async def log_protein_intake(payload: ProteinIntakeCreate, user_id: str = Depends(get_current_user)):
