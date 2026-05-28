@@ -612,7 +612,7 @@ export const HealthView = ({
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
 
   const KG_PER_LBS = 0.45359237;
-  const r1 = (n: number) => Math.round(n * 10) / 10; // 소수점 1자리 반올림 헬퍼
+  const r1 = (n: number) => parseFloat(n.toFixed(1));
   const displayKg = (kg: number | string, blockId: string): string => {
     const n = parseFloat(String(kg));
     if (isNaN(n) || kg === '' || kg === null) return '';
@@ -624,8 +624,9 @@ export const HealthView = ({
     if (val === '' || val === null) return '';
     const n = parseFloat(val);
     if (isNaN(n)) return '';
+    // lbs → kg: 반올림 없이 원본 정밀도 유지 (반올림하면 역변환 시 오차 발생)
     return getUnit(blockId) === 'lbs'
-      ? String(r1(n * KG_PER_LBS))
+      ? String(n * KG_PER_LBS)
       : val;
   };
 
