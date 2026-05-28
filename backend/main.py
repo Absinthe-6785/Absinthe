@@ -460,6 +460,13 @@ async def delete_protein_source(source_id: str, user_id: str = Depends(get_curre
     verify_owner(row["user_id"], user_id)
     return supabase.table("protein_sources").delete().eq("id", source_id).execute().data
 
+@app.put("/api/protein_sources/{source_id}")
+async def update_protein_source(source_id: str, payload: ProteinSourceCreate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("protein_sources").select("user_id").eq("id", source_id).maybe_single().execute().data
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    return supabase.table("protein_sources").update(payload.model_dump()).eq("id", source_id).execute().data
+
 # ── 일일 섭취 기록 ──
 @app.get("/api/protein_intake")
 async def get_protein_intake(date: str, user_id: str = Depends(get_current_user)):

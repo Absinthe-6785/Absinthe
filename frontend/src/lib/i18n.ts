@@ -230,6 +230,8 @@ const translations = {
   proteinSourceName:{ en: 'Source name (e.g. Chicken)', ko: '소스 이름 (예: 닭가슴살)', ja: 'ソース名 (例：鶏肉)' },
   sourceCreated:    { en: 'Source added',         ko: '소스 추가됨',     ja: 'ソースを追加しました'      },
   sourceDeleted:    { en: 'Source deleted',       ko: '소스 삭제됨',     ja: 'ソースを削除しました'      },
+  sourceUpdated:    { en: 'Source updated',       ko: '소스 수정됨',     ja: 'ソースを更新しました'      },
+  serving:          { en: 'serving',              ko: '1회',             ja: '1回分'                     },
   intakeLogged:     { en: 'Logged! 💪',           ko: '기록됨! 💪',      ja: '記録しました！💪'          },
   intakeDeleted:    { en: 'Removed',              ko: '삭제됨',          ja: '削除しました'              },
   directInput:      { en: '✏️ Custom entry',      ko: '✏️ 직접 입력',    ja: '✏️ 直接入力'               },

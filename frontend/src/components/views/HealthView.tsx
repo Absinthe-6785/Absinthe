@@ -54,6 +54,13 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [newSrcVal, setNewSrcVal]         = useState('');
   const [newSrcCat, setNewSrcCat]         = useState<Category>('Other');
 
+  // 소스 수정 state
+  const [editSrcId, setEditSrcId]         = useState<string | null>(null);
+  const [editSrcName, setEditSrcName]     = useState('');
+  const [editSrcCat, setEditSrcCat]       = useState<Category>('Other');
+  const [editSrcType, setEditSrcType]     = useState<'fixed'|'per100g'>('fixed');
+  const [editSrcVal, setEditSrcVal]       = useState('');
+
   const [intakeLogs, setIntakeLogs]       = useState<ProteinIntakeLog[]>([]);
   const [selectedSrc, setSelectedSrc]     = useState<string>('');   // '' = 미선택, '__custom__' = 직접입력
   const [intakeAmt, setIntakeAmt]         = useState('');
@@ -160,6 +167,23 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setCustomNote(''); setCustomProtein(''); setSelectedSrc('');
       showToast(t('intakeLogged'));
     } catch { showToast('Failed to log intake', 'error'); }
+  };
+
+  const handleUpdateSource = async () => {
+    if (!editSrcId || !editSrcName.trim() || !editSrcVal) return;
+    const payload = {
+      name: editSrcName.trim(), category: editSrcCat, source_type: editSrcType,
+      protein_per_serving: editSrcType === 'fixed'   ? parseFloat(editSrcVal) : null,
+      protein_per_100g:    editSrcType === 'per100g' ? parseFloat(editSrcVal) : null,
+    };
+    try {
+      const res = await authFetch(`${API_URL}/api/protein_sources/${editSrcId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setSources(prev => prev.map(s => s.id === editSrcId ? { ...s, ...payload } : s));
+      setEditSrcId(null);
+      showToast(t('sourceUpdated'));
+    } catch { showToast('Failed to update source', 'error'); }
   };
 
   const handleDeleteSource = async (id: string) => {
@@ -291,22 +315,67 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
               <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
             )}
             {sources.map(src => (
-              <div key={src.id} className={`rounded-2xl p-3 flex items-center justify-between shrink-0 ${theme.input}`}>
-                <div>
-                  <p className="text-sm font-bold">{src.name}</p>
-                  <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
-                    {src.category && <span className="mr-1">{src.category} ·</span>}
-                    {src.source_type === 'fixed' ? `${src.protein_per_serving}g / serving` : `${src.protein_per_100g}g / 100g`}
-                  </p>
+              <div key={src.id} className={`rounded-2xl shrink-0 overflow-hidden ${theme.input}`}>
+                {/* 기본 행 */}
+                <div className="p-3 flex items-center justify-between">
+                  <div className="min-w-0 mr-2">
+                    <p className="text-sm font-bold truncate">{src.name}</p>
+                    <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
+                      {src.category && <span className="mr-1">{src.category} ·</span>}
+                      {src.source_type === 'fixed' ? `${src.protein_per_serving}g / ${t('serving')}` : `${src.protein_per_100g}g / 100g`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+                      {src.source_type === 'fixed' ? t('proteinFixed').split(' ')[0] : '/100g'}
+                    </span>
+                    <button onClick={() => {
+                      if (editSrcId === src.id) { setEditSrcId(null); return; }
+                      setEditSrcId(src.id);
+                      setEditSrcName(src.name);
+                      setEditSrcCat((src.category || 'Other') as Category);
+                      setEditSrcType(src.source_type);
+                      setEditSrcVal(String(src.source_type === 'fixed' ? src.protein_per_serving : src.protein_per_100g));
+                    }} className={`p-1.5 rounded-full transition-colors ${editSrcId === src.id ? 'bg-[#FACC15]/20 text-[#FACC15]' : 'hover:bg-gray-500/20 text-gray-400'}`}>
+                      <Pencil size={13}/>
+                    </button>
+                    <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
+                      <X size={13}/>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
-                    {src.source_type === 'fixed' ? 'FIXED' : '/100g'}
-                  </span>
-                  <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
-                    <X size={14}/>
-                  </button>
-                </div>
+                {/* 인라인 수정 폼 */}
+                {editSrcId === src.id && (
+                  <div className={`px-3 pb-3 flex flex-col gap-2 border-t ${darkMode ? 'border-white/10' : 'border-black/5'}`}>
+                    <input type="text" value={editSrcName} onChange={e => setEditSrcName(e.target.value)}
+                      className="w-full bg-transparent text-sm font-semibold outline-none pt-2"/>
+                    <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as Category)}
+                      className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-[#2C2C2E]' : 'text-gray-700 bg-gray-100'}`}>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <div className="flex gap-2">
+                      {(['fixed', 'per100g'] as const).map(v => (
+                        <button key={v} onClick={() => setEditSrcType(v)}
+                          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all
+                            ${editSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                          {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" inputMode="decimal" min="0" step="0.1" value={editSrcVal}
+                        onChange={e => setEditSrcVal(e.target.value)}
+                        className={`w-16 text-lg font-bold outline-none bg-transparent`}/>
+                      <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
+                        g {editSrcType === 'fixed' ? `/ ${t('serving')}` : '/ 100g'}
+                      </span>
+                      <button onClick={() => setEditSrcId(null)}
+                        className={`py-1.5 px-3 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
+                      <button onClick={handleUpdateSource}
+                        className="py-1.5 px-3 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('save')}</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
