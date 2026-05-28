@@ -152,7 +152,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
     try {
       const res = await authFetch(`${API_URL}/api/protein_intake`, {
         method: 'POST',
-        body: JSON.stringify({ date: dateStr, source_id: null, amount_g: protein, protein_g: protein, note: customNote.trim() || '직접 입력' }),
+        body: JSON.stringify({ date: dateStr, source_id: null, amount_g: protein, protein_g: protein, note: customNote.trim() || 'Custom entry' }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -208,10 +208,10 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
     : null;
 
   if (!profileLoaded) return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 h-full ${theme.card}`}>
-      <div className="h-6 w-36 rounded-xl bg-current opacity-10 animate-pulse"/>
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 h-full min-h-[480px] ${theme.card}`}>
+      <div className="h-7 w-36 rounded-xl bg-current opacity-10 animate-pulse"/>
       <div className="h-10 w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
-      <div className="flex-1 rounded-2xl bg-current opacity-10 animate-pulse"/>
+      <div className="h-[320px] w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
     </div>
   );
 
@@ -232,7 +232,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
 
       {/* 탭 콘텐츠 — min-h로 높이 고정하여 탭 전환 시 레이아웃 흔들림 방지 */}
       {tab === 'goal' && (
-        <div className="flex flex-col gap-3 min-h-[320px]">
+        <div className="flex flex-col gap-3 h-[320px] overflow-y-auto">
           <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
             <div>
               <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
@@ -380,8 +380,8 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           <div className={`rounded-2xl p-3 flex flex-col gap-2 border-2 border-transparent focus-within:border-[#FACC15]/40 transition-colors shrink-0 mb-2.5 ${theme.input}`}>
             <select value={selectedSrc} onChange={e => { setSelectedSrc(e.target.value); setIntakeAmt(''); setCustomNote(''); setCustomProtein(''); }}
               className={`w-full bg-transparent text-sm font-semibold outline-none ${!selectedSrc ? theme.textMuted : ''}`}>
-              <option value="">섭취 추가…</option>
-              <option value="__custom__">✏️ 직접 입력</option>
+              <option value="">{t('addIntakeLabel')}</option>
+              <option value="__custom__">{t('directInput')}</option>
               {sources.length > 0 && <option disabled>──────────────</option>}
               {sources.map(s => <option key={s.id} value={s.id}>[{s.category}] {s.name}</option>)}
             </select>
@@ -436,7 +436,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
 
             {sources.length === 0 && selectedSrc === '' && (
               <button onClick={() => setTab('sources')} className={`text-xs font-bold ${theme.textMuted} hover:text-[#FACC15] transition-colors text-left`}>
-                + 소스 먼저 추가하기 →
+                {t('addSourceFirst')}
               </button>
             )}
           </div>
@@ -465,7 +465,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                   <div key={log.id} className={`rounded-xl px-3 py-2 flex items-center justify-between shrink-0 ${theme.input}`}>
                     <div className="min-w-0 mr-2">
                       <p className="text-sm font-bold truncate">
-                        {log.protein_sources?.name ?? log.note ?? '직접 입력'}
+                        {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
                       </p>
                       <p className={`text-xs ${theme.textMuted}`}>
                         {log.protein_sources?.category && <span className="mr-1">{log.protein_sources.category}</span>}
@@ -479,7 +479,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                 ))}
             </div>
           ) : (
-            <p className={`text-xs text-center py-3 ${theme.textMuted}`}>오늘 기록이 없습니다</p>
+            <p className={`text-xs text-center py-3 ${theme.textMuted}`}>{t('noIntakeToday')}</p>
           )}
         </div>
       )}
@@ -1443,7 +1443,7 @@ export const HealthView = ({
                   setWorkoutMemo(e.target.value);
                   localStorage.setItem(memoKey, e.target.value);
                 }}
-                placeholder="오늘의 컨디션, 특이사항 등을 기록하세요…"
+                placeholder={t('memoPlaceholder')}
                 rows={3}
                 className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
               />

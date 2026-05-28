@@ -62,6 +62,7 @@ const translations = {
   editDday:       { en: 'Edit D-Day',    ko: 'D-Day 편집',   ja: 'D-Day編集'    },
   newDday:        { en: 'New D-Day',     ko: '새 D-Day',     ja: '新しいD-Day'  },
   nextDay:        { en: 'Next day',      ko: '익일',         ja: '翌日'         },
+  memoPlaceholder: { en: "Today's condition, notes, etc...", ko: '오늘의 컨디션, 특이사항 등을 기록하세요…', ja: '今日のコンディション、特記事項など…' },
   overlapMsg:     { en: 'This schedule overlaps. Save anyway?', ko: '일정이 겹칩니다. 저장할까요?', ja: 'スケジュールが重複しています。保存しますか？' },
   exceptionDay:   { en: 'Exception day — routines excluded from stats', ko: '예외일 — 루틴 통계 제외', ja: '例外日 — ルーティン統計除外' },
   setException:   { en: 'Set Exception Days', ko: '예외일 설정', ja: '例外日設定' },
@@ -231,6 +232,11 @@ const translations = {
   sourceDeleted:    { en: 'Source deleted',       ko: '소스 삭제됨',     ja: 'ソースを削除しました'      },
   intakeLogged:     { en: 'Logged! 💪',           ko: '기록됨! 💪',      ja: '記録しました！💪'          },
   intakeDeleted:    { en: 'Removed',              ko: '삭제됨',          ja: '削除しました'              },
+  directInput:      { en: '✏️ Custom entry',      ko: '✏️ 직접 입력',    ja: '✏️ 直接入力'               },
+  noIntakeToday:    { en: 'No records today',     ko: '오늘 기록이 없습니다', ja: '今日の記録はありません'   },
+  addSourceFirst:   { en: '+ Add a source first →', ko: '+ 소스 먼저 추가하기 →', ja: '+ ソースを先に追加 →' },
+  addIntakeLabel:   { en: 'Add intake…',          ko: '섭취 추가…',      ja: '摂取を追加…'               },
+  customEntryLabel: { en: 'Custom entry',         ko: '직접 입력',       ja: '直接入力'                  },
   progressOf:       { en: 'of goal',              ko: '목표 달성',       ja: '目標達成'                  },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
