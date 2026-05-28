@@ -241,6 +241,9 @@ const translations = {
   customEntryLabel: { en: 'Custom entry',         ko: '직접 입력',       ja: '直接入力'                  },
   progressOf:       { en: 'of goal',              ko: '목표 달성',       ja: '目標達成'                  },
 
+  // ── 시간 입력 로케일 (input[type=time] lang 속성용 BCP 47 태그) ──
+  timeLang:       { en: 'en-US',          ko: 'ko-KR',        ja: 'ja-JP'        },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

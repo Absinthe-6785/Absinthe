@@ -801,11 +801,9 @@ export const PlannerView = ({
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Start</label>
-                  <select value={newSch.start_time}
+                  <input type="time" value={newSch.start_time} step="1800" lang={t('timeLang')}
                     onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
-                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}>
-                    {TIME_SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
-                  </select>
+                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
                 </div>
                 <div className="flex-1">
                   <div className="flex justify-between items-center mb-2">
@@ -817,12 +815,10 @@ export const PlannerView = ({
                       +1 day
                     </button>
                   </div>
-                  <select value={newSch.end_time}
+                  <input type="time" value={newSch.end_time} step="1800" lang={t('timeLang')}
                     onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
-                      ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}>
-                    {TIME_SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
-                  </select>
+                      ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
                   {endNextDay && <p className="text-[10px] text-[#FACC15] font-bold mt-1 pl-1">{t('nextDay')}</p>}
                 </div>
               </div>
