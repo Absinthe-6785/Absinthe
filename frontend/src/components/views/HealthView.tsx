@@ -66,7 +66,6 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [intakeAmt, setIntakeAmt]         = useState('');
   const [customNote, setCustomNote]       = useState('');
   const [customProtein, setCustomProtein] = useState('');
-  const [filterCat, setFilterCat]         = useState<Category | 'ALL'>('ALL'); // kept for future use
 
   const dateStr = formatDate(selectedDate);
 
@@ -593,7 +592,7 @@ export const HealthView = ({
     return saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3';
   });
   const [showBlockModal, setShowBlockModal] = useState(false);
-  const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength', tags: [] });
+  const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength', tags: [], cardio_mode: 'both' });
   // editingBlock: 수정 대상 블록 (null이면 신규 생성 모드)
   const [editingBlock, setEditingBlock] = useState<ExerciseBlock | null>(null);
   // tagInput: 태그 입력 중간값 (Enter/쉼표로 확정)
@@ -657,7 +656,12 @@ export const HealthView = ({
     // 총 세트 요약 (세션 구분선 제외)
     const realWs = ws.filter(w => w.block_id !== '__session__');
     const totalSets = realWs.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
+    const totalCardioTime = realWs.reduce((acc, w) => {
+      return acc + w.sets.filter(s => isCardioSet(s) && s.done && (s as CardioSet).time)
+        .reduce((m, s) => m + (parseFloat((s as CardioSet).time) || 0), 0);
+    }, 0);
     if (totalSets > 0) lines.push(`💪 Total sets: ${totalSets}`);
+    if (totalCardioTime > 0) lines.push(`⏱ Total cardio: ${totalCardioTime}min`);
     if (memo.trim()) { lines.push(''); lines.push(`📝 ${memo.trim()}`); }
     return lines.join('\n');
   }, [weightUnits]);
@@ -811,10 +815,10 @@ export const HealthView = ({
   const openBlockModal = (block?: ExerciseBlock) => {
     if (block) {
       setEditingBlock(block);
-      setNewBlock({ name: block.name, type: block.type, tags: block.tags ?? [] });
+      setNewBlock({ name: block.name, type: block.type, tags: block.tags ?? [], cardio_mode: block.cardio_mode ?? 'both' });
     } else {
       setEditingBlock(null);
-      setNewBlock({ name: '', type: 'strength', tags: [] });
+      setNewBlock({ name: '', type: 'strength', tags: [], cardio_mode: 'both' });
     }
     setTagInput('');
     setShowBlockModal(true);
@@ -833,11 +837,11 @@ export const HealthView = ({
 
   const handleSaveBlock = async () => {
     if (!newBlock.name) return showToast(t('enterName'), 'error');
-    const payload = { name: newBlock.name, type: newBlock.type, tags: newBlock.tags ?? [] };
+    const payload = { name: newBlock.name, type: newBlock.type, tags: newBlock.tags ?? [], cardio_mode: newBlock.cardio_mode ?? 'both' };
     const ok = editingBlock
       ? await api('PUT', `/api/blocks/${editingBlock.id}`, payload, { revalidate: 'static', successMsg: t('blockUpdated') })
       : await api('POST', '/api/blocks', payload, { revalidate: 'static', successMsg: t('blockCreated') });
-    if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength', tags: [] }); setEditingBlock(null); }
+    if (ok) { setShowBlockModal(false); setNewBlock({ name: '', type: 'strength', tags: [], cardio_mode: 'both' }); setEditingBlock(null); }
   };
 
   const handleDeleteBlock = (id: string, e: MouseEvent) => {
@@ -1357,6 +1361,18 @@ export const HealthView = ({
                     );
                   })()}
                 </div>
+                {/* 컬럼 헤더 — cardio */}
+                {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (() => {
+                  const mode = w.exercise_blocks?.cardio_mode ?? 'both';
+                  return (
+                    <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+                      <div className="w-7 text-center shrink-0 opacity-50">tap=del</div>
+                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">min</div>}
+                      {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
+                      <div className="w-9 text-center shrink-0">✓</div>
+                    </div>
+                  );
+                })()}
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
                   <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
@@ -1434,16 +1450,23 @@ export const HealthView = ({
                           )}
 
                           {/* Cardio 입력 */}
-                          {isCardioSet(s) && (
-                            <>
-                              <input type="text" inputMode="numeric" value={s.time} placeholder="min"
-                                onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
-                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                              <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
-                                onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                            </>
-                          )}
+                          {isCardioSet(s) && (() => {
+                            const mode = w.exercise_blocks?.cardio_mode ?? 'both';
+                            return (
+                              <>
+                                {(mode === 'time' || mode === 'both') && (
+                                  <input type="text" inputMode="numeric" value={s.time} placeholder="min"
+                                    onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
+                                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                                )}
+                                {(mode === 'distance' || mode === 'both') && (
+                                  <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
+                                    onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
+                                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                                )}
+                              </>
+                            );
+                          })()}
 
                           {/* 완료 체크 — 큰 탭 버튼 */}
                           <button
@@ -1465,7 +1488,7 @@ export const HealthView = ({
                   <div className="mt-3 flex gap-2">
                     <button onClick={() => handleAddSet(wIdx)}
                       className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-[#FACC15] text-[#1C1C1E] active:scale-[0.98] transition-all">
-                      + Set
+                      {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? '+ Round' : '+ Set'}
                     </button>
                     {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
                       <button onClick={() => handleAddSet(wIdx, true)}
@@ -1680,12 +1703,30 @@ export const HealthView = ({
               className={`w-full p-4 rounded-2xl mb-4 outline-none focus:ring-2 focus:ring-blue-400 font-semibold text-base ${theme.input}`}/>
 
             {/* 타입 */}
-            <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value })}
+            <select value={newBlock.type ?? 'strength'} onChange={e => setNewBlock({ ...newBlock, type: e.target.value, cardio_mode: 'both' })}
               className={`w-full p-4 rounded-2xl mb-4 outline-none font-semibold text-base ${theme.input}`}>
               <option value="strength">{t('strength')}</option>
               <option value="bodyweight">{t('bodyweight')}</option>
               <option value="cardio">{t('cardio')}</option>
             </select>
+
+            {/* Cardio 모드 선택 */}
+            {newBlock.type === 'cardio' && (
+              <div className={`rounded-2xl p-3 mb-4 ${theme.input}`}>
+                <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('cardioMode')}</p>
+                <div className="flex gap-2">
+                  {(['time', 'distance', 'both'] as const).map(mode => (
+                    <button key={mode} onClick={() => setNewBlock({ ...newBlock, cardio_mode: mode })}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
+                        ${(newBlock.cardio_mode ?? 'both') === mode
+                          ? 'bg-[#1C1C1E] text-[#FACC15]'
+                          : `${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'} ${theme.textMuted}`}`}>
+                      {mode === 'time' ? t('cardioTime') : mode === 'distance' ? t('cardioDistance') : t('cardioBoth')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 태그 입력 */}
             <div className={`rounded-2xl p-3 mb-2 ${theme.input}`}>

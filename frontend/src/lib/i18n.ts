@@ -111,6 +111,10 @@ const translations = {
   strength:       { en: 'Strength',      ko: '웨이트',       ja: 'ストレングス' },
   bodyweight:     { en: 'Bodyweight',    ko: '맨몸',         ja: '自重'         },
   cardio:         { en: 'Cardio',        ko: '유산소',       ja: 'カーディオ'   },
+  cardioMode:     { en: 'Record mode',   ko: '기록 방식',    ja: '記録方式'     },
+  cardioTime:     { en: 'Time only',     ko: '시간만',       ja: '時間のみ'     },
+  cardioDistance: { en: 'Distance only', ko: '거리만',       ja: '距離のみ'     },
+  cardioBoth:     { en: 'Time + Distance', ko: '시간 + 거리', ja: '時間＋距離'  },
 
   // ── AnalyticsView ─────────────────────────────────────────────────
   weeklyTimetable: { en: 'Weekly Timetable', ko: '주간 타임테이블', ja: '週間タイムテーブル' },

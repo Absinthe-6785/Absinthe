@@ -87,6 +87,7 @@ class RoutineLogUpdate(BaseModel):
 
 class ExerciseBlockCreate(BaseModel):
     name: str; type: str; tags: list = Field(default_factory=list)
+    cardio_mode: str = 'both'  # 'time' | 'distance' | 'both'
 
 class HealthRoutineCreate(BaseModel):
     day_name: str; blocks: list
@@ -341,7 +342,7 @@ async def update_block(block_id: str, block: ExerciseBlockCreate, user_id: str =
     row = supabase.table("exercise_blocks").select("user_id").eq("id", block_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
-    return supabase.table("exercise_blocks").update({"name": block.name, "type": block.type, "tags": block.tags}).eq("id", block_id).execute().data
+    return supabase.table("exercise_blocks").update({"name": block.name, "type": block.type, "tags": block.tags, "cardio_mode": block.cardio_mode}).eq("id", block_id).execute().data
 
 @app.delete("/api/blocks/{block_id}")
 async def delete_block(block_id: str, user_id: str = Depends(get_current_user)):
@@ -370,12 +371,12 @@ async def save_health_routine(routine: HealthRoutineCreate, user_id: str = Depen
 # ==========================================
 @app.get("/api/workouts")
 async def get_workouts(date: str, user_id: str = Depends(get_current_user)):
-    return supabase.table("workout_logs").select("*, exercise_blocks(name, type)").eq("user_id", user_id).eq("date", date).order("sort_order").execute().data or []
+    return supabase.table("workout_logs").select("*, exercise_blocks(name, type, cardio_mode)").eq("user_id", user_id).eq("date", date).order("sort_order").execute().data or []
 
 @app.get("/api/workouts/range")
 async def get_workouts_range(start_date: str, end_date: str, user_id: str = Depends(get_current_user)):
     """CSV 내보내기용 기간별 운동 기록 조회"""
-    return supabase.table("workout_logs").select("*, exercise_blocks(name, type)").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).order("date").execute().data or []
+    return supabase.table("workout_logs").select("*, exercise_blocks(name, type, cardio_mode)").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).order("date").execute().data or []
 
 @app.get("/api/workouts/prev/{block_id}")
 async def get_prev_workout(block_id: str, before_date: str, user_id: str = Depends(get_current_user)):
