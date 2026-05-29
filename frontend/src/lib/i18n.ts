@@ -232,6 +232,8 @@ const translations = {
   sourceDeleted:    { en: 'Source deleted',       ko: '소스 삭제됨',     ja: 'ソースを削除しました'      },
   sourceUpdated:    { en: 'Source updated',       ko: '소스 수정됨',     ja: 'ソースを更新しました'      },
   serving:          { en: 'serving',              ko: '1회',             ja: '1回分'                     },
+  unit:             { en: 'unit',                 ko: '개',              ja: '個'                        },
+  memoOptional:     { en: 'Memo (optional)',       ko: '메모 (선택)',     ja: 'メモ（任意）'              },
   intakeLogged:     { en: 'Logged! 💪',           ko: '기록됨! 💪',      ja: '記録しました！💪'          },
   intakeDeleted:    { en: 'Removed',              ko: '삭제됨',          ja: '削除しました'              },
   directInput:      { en: '✏️ Custom entry',      ko: '✏️ 직접 입력',    ja: '✏️ 直接入力'               },
@@ -240,9 +242,6 @@ const translations = {
   addIntakeLabel:   { en: 'Add intake…',          ko: '섭취 추가…',      ja: '摂取を追加…'               },
   customEntryLabel: { en: 'Custom entry',         ko: '직접 입력',       ja: '直接入力'                  },
   progressOf:       { en: 'of goal',              ko: '목표 달성',       ja: '目標達成'                  },
-
-  // ── 시간 입력 로케일 (input[type=time] lang 속성용 BCP 47 태그) ──
-  timeLang:       { en: 'en-US',          ko: 'ko-KR',        ja: 'ja-JP'        },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

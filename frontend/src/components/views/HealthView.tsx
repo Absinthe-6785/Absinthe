@@ -66,7 +66,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [intakeAmt, setIntakeAmt]         = useState('');
   const [customNote, setCustomNote]       = useState('');
   const [customProtein, setCustomProtein] = useState('');
-  const [filterCat, setFilterCat]         = useState<Category | 'ALL'>('ALL');
+  const [filterCat, setFilterCat]         = useState<Category | 'ALL'>('ALL'); // kept for future use
 
   const dateStr = formatDate(selectedDate);
 
@@ -307,77 +307,84 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       )}
 
       {tab === 'sources' && (
-        /* 전체를 고정 높이 flex-col로 → 목록만 스크롤, 하단 Add 폼/버튼은 항상 고정 */
         <div className="flex flex-col min-h-[320px] h-[320px]">
-          {/* 스크롤 목록 */}
-          <div className="flex-1 overflow-y-auto flex flex-col gap-2 min-h-0 pr-0.5">
+          {/* 카테고리별 그룹 스크롤 목록 */}
+          <div className="flex-1 overflow-y-auto flex flex-col min-h-0 pr-0.5">
             {sources.length === 0 && !showAddSource && (
               <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
             )}
-            {sources.map(src => (
-              <div key={src.id} className={`rounded-2xl shrink-0 overflow-hidden ${theme.input}`}>
-                {/* 기본 행 */}
-                <div className="p-3 flex items-center justify-between">
-                  <div className="min-w-0 mr-2">
-                    <p className="text-sm font-bold truncate">{src.name}</p>
-                    <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
-                      {src.category && <span className="mr-1">{src.category} ·</span>}
-                      {src.source_type === 'fixed' ? `${src.protein_per_serving}g / ${t('serving')}` : `${src.protein_per_100g}g / 100g`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
-                      {src.source_type === 'fixed' ? t('proteinFixed').split(' ')[0] : '/100g'}
-                    </span>
-                    <button onClick={() => {
-                      if (editSrcId === src.id) { setEditSrcId(null); return; }
-                      setEditSrcId(src.id);
-                      setEditSrcName(src.name);
-                      setEditSrcCat((src.category || 'Other') as Category);
-                      setEditSrcType(src.source_type);
-                      setEditSrcVal(String(src.source_type === 'fixed' ? src.protein_per_serving : src.protein_per_100g));
-                    }} className={`p-1.5 rounded-full transition-colors ${editSrcId === src.id ? 'bg-[#FACC15]/20 text-[#FACC15]' : 'hover:bg-gray-500/20 text-gray-400'}`}>
-                      <Pencil size={13}/>
-                    </button>
-                    <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
-                      <X size={13}/>
-                    </button>
+            {CATEGORIES.map(cat => {
+              const catSources = sources.filter(s => (s.category || 'Other') === cat);
+              if (catSources.length === 0) return null;
+              return (
+                <div key={cat} className="mb-3">
+                  <p className={`text-[10px] font-black uppercase tracking-wider mb-1.5 px-0.5 ${theme.textMuted}`}>{cat}</p>
+                  <div className="flex flex-col gap-2">
+                    {catSources.map(src => (
+                      <div key={src.id} className={`rounded-2xl shrink-0 overflow-hidden ${theme.input}`}>
+                        <div className="p-3 flex items-center justify-between">
+                          <div className="min-w-0 mr-2">
+                            <p className="text-sm font-bold truncate">{src.name}</p>
+                            <p className={`text-xs mt-0.5 ${theme.textMuted}`}>
+                              {src.source_type === 'fixed' ? `${src.protein_per_serving}g / ${t('serving')}` : `${src.protein_per_100g}g / 100g`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${src.source_type === 'fixed' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+                              {src.source_type === 'fixed' ? t('proteinFixed').split(' ')[0] : '/100g'}
+                            </span>
+                            <button onClick={() => {
+                              if (editSrcId === src.id) { setEditSrcId(null); return; }
+                              setEditSrcId(src.id);
+                              setEditSrcName(src.name);
+                              setEditSrcCat((src.category || 'Other') as Category);
+                              setEditSrcType(src.source_type);
+                              setEditSrcVal(String(src.source_type === 'fixed' ? src.protein_per_serving : src.protein_per_100g));
+                            }} className={`p-1.5 rounded-full transition-colors ${editSrcId === src.id ? 'bg-[#FACC15]/20 text-[#FACC15]' : 'hover:bg-gray-500/20 text-gray-400'}`}>
+                              <Pencil size={13}/>
+                            </button>
+                            <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
+                              <X size={13}/>
+                            </button>
+                          </div>
+                        </div>
+                        {editSrcId === src.id && (
+                          <div className={`px-3 pb-3 flex flex-col gap-2 border-t ${darkMode ? 'border-white/10' : 'border-black/5'}`}>
+                            <input type="text" value={editSrcName} onChange={e => setEditSrcName(e.target.value)}
+                              className="w-full bg-transparent text-sm font-semibold outline-none pt-2"/>
+                            <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as Category)}
+                              className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-[#2C2C2E]' : 'text-gray-700 bg-gray-100'}`}>
+                              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <div className="flex gap-2">
+                              {(['fixed', 'per100g'] as const).map(v => (
+                                <button key={v} onClick={() => setEditSrcType(v)}
+                                  className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all
+                                    ${editSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                                  {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input type="number" inputMode="decimal" min="0" step="0.1" value={editSrcVal}
+                                onChange={e => setEditSrcVal(e.target.value)}
+                                className="w-16 text-lg font-bold outline-none bg-transparent"/>
+                              <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
+                                g {editSrcType === 'fixed' ? `/ ${t('serving')}` : '/ 100g'}
+                              </span>
+                              <button onClick={() => setEditSrcId(null)}
+                                className={`py-1.5 px-3 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
+                              <button onClick={handleUpdateSource}
+                                className="py-1.5 px-3 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('save')}</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {/* 인라인 수정 폼 */}
-                {editSrcId === src.id && (
-                  <div className={`px-3 pb-3 flex flex-col gap-2 border-t ${darkMode ? 'border-white/10' : 'border-black/5'}`}>
-                    <input type="text" value={editSrcName} onChange={e => setEditSrcName(e.target.value)}
-                      className="w-full bg-transparent text-sm font-semibold outline-none pt-2"/>
-                    <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as Category)}
-                      className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-[#2C2C2E]' : 'text-gray-700 bg-gray-100'}`}>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <div className="flex gap-2">
-                      {(['fixed', 'per100g'] as const).map(v => (
-                        <button key={v} onClick={() => setEditSrcType(v)}
-                          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all
-                            ${editSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
-                          {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input type="number" inputMode="decimal" min="0" step="0.1" value={editSrcVal}
-                        onChange={e => setEditSrcVal(e.target.value)}
-                        className={`w-16 text-lg font-bold outline-none bg-transparent`}/>
-                      <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
-                        g {editSrcType === 'fixed' ? `/ ${t('serving')}` : '/ 100g'}
-                      </span>
-                      <button onClick={() => setEditSrcId(null)}
-                        className={`py-1.5 px-3 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
-                      <button onClick={handleUpdateSource}
-                        className="py-1.5 px-3 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('save')}</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
           {/* 하단 고정: 추가 폼 or + Add 버튼 */}
           <div className="shrink-0 pt-2">
@@ -403,7 +410,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                   <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
                     onChange={e => setNewSrcVal(e.target.value)}
                     className="w-16 bg-transparent text-lg font-bold outline-none"/>
-                  <span className={`text-xs font-semibold ${theme.textMuted}`}>g {newSrcType === 'fixed' ? '/ serving' : '/ 100g'}</span>
+                  <span className={`text-xs font-semibold ${theme.textMuted}`}>g {newSrcType === 'fixed' ? `/ ${t('serving')}` : '/ 100g'}</span>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => { setShowAddSource(false); setNewSrcName(''); setNewSrcVal(''); }}
@@ -451,14 +458,28 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
               className={`w-full bg-transparent text-sm font-semibold outline-none ${!selectedSrc ? theme.textMuted : ''}`}>
               <option value="">{t('addIntakeLabel')}</option>
               <option value="__custom__">{t('directInput')}</option>
-              {sources.length > 0 && <option disabled>──────────────</option>}
-              {sources.map(s => <option key={s.id} value={s.id}>[{s.category}] {s.name}</option>)}
+              {/* 카테고리별 optgroup */}
+              {CATEGORIES.filter(cat => sources.some(s => (s.category || 'Other') === cat)).map(cat => (
+                <optgroup key={cat} label={cat}>
+                  {sources.filter(s => (s.category || 'Other') === cat).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+              {/* 카테고리 없는 소스 fallback */}
+              {sources.filter(s => !s.category).length > 0 && (
+                <optgroup label="Other">
+                  {sources.filter(s => !s.category).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
 
             {/* 직접 입력 모드 */}
             {selectedSrc === '__custom__' && (
               <div className="flex flex-col gap-2">
-                <input type="text" value={customNote} placeholder="메모 (선택)" onChange={e => setCustomNote(e.target.value)}
+                <input type="text" value={customNote} placeholder={t('memoOptional')} onChange={e => setCustomNote(e.target.value)}
                   className="w-full bg-transparent text-sm font-semibold outline-none border-b border-gray-600/30 pb-1"/>
                 <div className="flex items-center gap-2">
                   <input type="number" inputMode="decimal" min="0" step="0.1" value={customProtein} placeholder="0"
@@ -491,7 +512,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                       value={intakeAmt} placeholder="1" onChange={e => setIntakeAmt(e.target.value)}
                       className="w-14 bg-transparent text-lg font-bold outline-none"/>
                     <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
-                      개{previewProtein !== null ? ` → ${previewProtein}g protein` : ` (${selectedSrcObj?.protein_per_serving}g / 개)`}
+                      {t('unit')}{previewProtein !== null ? ` → ${previewProtein}g protein` : ` (${selectedSrcObj?.protein_per_serving}g / ${t('unit')})`}
                     </span>
                   </>
                 )}
@@ -510,42 +531,38 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
             )}
           </div>
 
-          {/* 카테고리 필터 칩 */}
-          {intakeLogs.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto pb-1.5 shrink-0 scrollbar-none">
-              {(['ALL', ...CATEGORIES] as const)
-                .filter(c => c === 'ALL' || intakeLogs.some(l => (l.protein_sources?.category ?? 'Other') === c || (c === 'Other' && !l.protein_sources)))
-                .map(c => (
-                  <button key={c} onClick={() => setFilterCat(c)}
-                    className={`whitespace-nowrap text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all shrink-0
-                      ${filterCat === c ? 'bg-[#FACC15] text-[#1C1C1E]' : `${theme.input} ${theme.textMuted}`}`}>
-                    {c === 'ALL' ? 'All' : c}
-                  </button>
-                ))}
-            </div>
-          )}
-
-          {/* 로그 목록 — 고정 스크롤 영역 */}
+          {/* 로그 목록 — 카테고리별 섹션 그룹핑 */}
           {intakeLogs.length > 0 ? (
-            <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-1.5 pt-0.5">
-              {intakeLogs
-                .filter(l => filterCat === 'ALL' || (l.protein_sources?.category ?? 'Other') === filterCat || (!l.protein_sources && filterCat === 'Other'))
-                .map(log => (
-                  <div key={log.id} className={`rounded-xl px-3 py-2 flex items-center justify-between shrink-0 ${theme.input}`}>
-                    <div className="min-w-0 mr-2">
-                      <p className="text-sm font-bold truncate">
-                        {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
-                      </p>
-                      <p className={`text-xs ${theme.textMuted}`}>
-                        {log.protein_sources?.category && <span className="mr-1">{log.protein_sources.category}</span>}
-                        {log.protein_sources?.source_type === 'per100g' ? `${log.amount_g}g · ` : ''}{log.protein_g}g protein
-                      </p>
+            <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-0 pt-0.5">
+              {(['__custom__', ...CATEGORIES] as const).map(cat => {
+                const logs = cat === '__custom__'
+                  ? intakeLogs.filter(l => !l.protein_sources)
+                  : intakeLogs.filter(l => l.protein_sources && (l.protein_sources.category || 'Other') === cat);
+                if (logs.length === 0) return null;
+                const catLabel = cat === '__custom__' ? t('customEntryLabel') : cat;
+                return (
+                  <div key={cat} className="mb-2">
+                    <p className={`text-[10px] font-black uppercase tracking-wider mb-1 px-1 ${theme.textMuted}`}>{catLabel}</p>
+                    <div className="flex flex-col gap-1">
+                      {logs.map(log => (
+                        <div key={log.id} className={`rounded-xl px-3 py-2 flex items-center justify-between shrink-0 ${theme.input}`}>
+                          <div className="min-w-0 mr-2">
+                            <p className="text-sm font-bold truncate">
+                              {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
+                            </p>
+                            <p className={`text-xs ${theme.textMuted}`}>
+                              {log.protein_sources?.source_type === 'per100g' ? `${log.amount_g}g · ` : ''}{log.protein_g}g protein
+                            </p>
+                          </div>
+                          <button onClick={() => handleDeleteIntake(log.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors shrink-0">
+                            <X size={13}/>
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <button onClick={() => handleDeleteIntake(log.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors shrink-0">
-                      <X size={13}/>
-                    </button>
                   </div>
-                ))}
+                );
+              })}
             </div>
           ) : (
             <p className={`text-xs text-center py-3 ${theme.textMuted}`}>{t('noIntakeToday')}</p>
@@ -1310,13 +1327,14 @@ export const HealthView = ({
                   {(() => {
                     const pd = prevData[w.block_id];
                     if (!pd || w.exercise_blocks?.type === 'cardio') return null;
-                    // 현재 세션 최고 무게
-                    const curMax = Math.max(0, ...w.sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').map(s => parseFloat(String((s as StrengthSet).kg))));
-                    // PR 여부
-                    const isPR = pd.pr_kg !== null && curMax > 0 && curMax > pd.pr_kg;
-                    // 이전 세션 최고 무게 (표시용)
-                    const prevMax = pd.prev_sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').reduce((m, s) => Math.max(m, parseFloat(String((s as StrengthSet).kg))), 0);
-                    const diff = curMax > 0 && prevMax > 0 ? curMax - prevMax : 0;
+                    // raw kg → 표시 단위로 변환 후 비교 (float 오차 및 구버전 저장값 차이 방지)
+                    const toDisplay = (kg: number) => parseFloat(displayKg(kg, w.block_id) || '0');
+                    const curMax = Math.max(0, ...w.sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').map(s => toDisplay(parseFloat(String((s as StrengthSet).kg)))));
+                    const prevMax = pd.prev_sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').reduce((m, s) => Math.max(m, toDisplay(parseFloat(String((s as StrengthSet).kg)))), 0);
+                    const prKgDisplay = pd.pr_kg !== null ? toDisplay(pd.pr_kg) : null;
+                    const isPR = prKgDisplay !== null && curMax > 0 && curMax > prKgDisplay;
+                    const diff = curMax > 0 && prevMax > 0 ? parseFloat((curMax - prevMax).toFixed(1)) : 0;
+                    const unit = getUnit(w.block_id);
                     return (
                       <div className="flex items-center gap-1.5 shrink-0">
                         {isPR && (
@@ -1332,7 +1350,7 @@ export const HealthView = ({
                                 ? 'bg-red-500/15 text-red-400'
                                 : appSettings.darkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
                           }`}>
-                            {diff > 0 ? `+${displayKg(diff, w.block_id)}` : diff < 0 ? displayKg(diff, w.block_id) : `=${displayKg(prevMax, w.block_id)}`}{getUnit(w.block_id)}
+                            {diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : `=${prevMax}`}{unit}
                           </span>
                         )}
                       </div>
