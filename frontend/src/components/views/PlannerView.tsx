@@ -26,7 +26,7 @@ export const PlannerView = ({
   mutateTodos, mutateRoutines,
   appSettings, schedules, todos, routines, ddays, markedDates, theme, THEME_COLORS,
 }: PlannerProps) => {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const {
     notes, folders, activeNoteId, activeFolderId,
     createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
@@ -180,11 +180,11 @@ export const PlannerView = ({
 
   // ── Routine Exception ────────────────────────────────────────────────
   const handleSaveException = useCallback(async () => {
-    if (!exceptionForm.start_date || !exceptionForm.end_date) return showToast('Start and end date required', 'error');
-    if (exceptionForm.start_date > exceptionForm.end_date) return showToast('End date must be after start date', 'error');
+    if (!exceptionForm.start_date || !exceptionForm.end_date) return showToast(t('exStartEndRequired'), 'error');
+    if (exceptionForm.start_date > exceptionForm.end_date) return showToast(t('exEndAfterStart'), 'error');
     const ok = await api('POST', '/api/routine_exceptions',
       { start_date: exceptionForm.start_date, end_date: exceptionForm.end_date, reason: exceptionForm.reason },
-      { revalidate: 'daily', successMsg: 'Exception saved' }
+      { revalidate: 'daily', successMsg: t('exceptionSaved') }
     );
     if (ok) { setShowExceptionModal(false); setExceptionForm({ start_date: '', end_date: '', reason: '' }); }
   }, [api, exceptionForm, showToast]);
@@ -353,27 +353,27 @@ export const PlannerView = ({
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
             {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text={t('noTasks')} /></div>}
-            {todos.map((t: Todo) => (
-              <div key={t.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
-                {editingTodoId === t.id ? (
+            {todos.map((todo: Todo) => (
+              <div key={todo.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
+                {editingTodoId === todo.id ? (
                   <input autoFocus value={editTodoText}
                     onChange={e => setEditTodoText(e.target.value)}
                     onBlur={() => setEditingTodoId(null)}
                     onKeyDown={e => {
-                      if (e.key === 'Enter') handleUpdateTodoText(t.id, editTodoText);
+                      if (e.key === 'Enter') handleUpdateTodoText(todo.id, editTodoText);
                       else if (e.key === 'Escape') setEditingTodoId(null);
                     }}
                     className="flex-1 bg-transparent outline-none border-b-2 border-[#FACC15] text-base font-semibold"
                   />
                 ) : (
                   <label className="flex items-center gap-3 cursor-pointer flex-1 h-full">
-                    <input type="checkbox" checked={t.done} onChange={() => handleToggleTodo(t.id, t.done)} className="w-5 h-5 accent-[#FACC15] cursor-pointer" />
-                    <span className={`text-base font-medium ${t.done ? 'line-through opacity-50' : ''}`}>{t.text}</span>
+                    <input type="checkbox" checked={todo.done} onChange={() => handleToggleTodo(todo.id, todo.done)} className="w-5 h-5 accent-[#FACC15] cursor-pointer" />
+                    <span className={`text-base font-medium ${todo.done ? 'line-through opacity-50' : ''}`}>{todo.text}</span>
                   </label>
                 )}
                 <div className={`flex gap-1 ml-2 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                  <button onClick={() => { setEditingTodoId(t.id); setEditTodoText(t.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>
-                  <button onClick={() => handleDeleteTodo(t.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>
+                  <button onClick={() => { setEditingTodoId(todo.id); setEditTodoText(todo.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>
+                  <button onClick={() => handleDeleteTodo(todo.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>
                 </div>
               </div>
             ))}
@@ -752,13 +752,13 @@ export const PlannerView = ({
             </div>
             <div className="space-y-5">
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Text</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelText')}</label>
                 <input autoFocus type="text" value={newSch.text} onChange={e => setNewSch({ ...newSch, text: e.target.value })}
                   onKeyDown={e => e.key === 'Enter' && handleSaveSchedule()}
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`} placeholder="e.g. Meeting"/>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Category</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelCategory')}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     { id: 'Study',    label: 'Study',   icon: '📚' },
@@ -800,14 +800,14 @@ export const PlannerView = ({
               </div>
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Start</label>
-                  <input type="time" value={newSch.start_time} step="1800" lang={t('timeLang')}
+                  <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelStart')}</label>
+                  <input type="time" value={newSch.start_time} step="1800" lang={lang}
                     onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
                 </div>
                 <div className="flex-1">
                   <div className="flex justify-between items-center mb-2">
-                    <label className={`text-sm font-semibold ${theme.textMuted}`}>End</label>
+                    <label className={`text-sm font-semibold ${theme.textMuted}`}>{t('labelEnd')}</label>
                     <button type="button"
                       onClick={() => setEndNextDay(v => !v)}
                       className={`text-[11px] font-bold px-2 py-0.5 rounded-lg transition-colors
@@ -815,7 +815,7 @@ export const PlannerView = ({
                       +1 day
                     </button>
                   </div>
-                  <input type="time" value={newSch.end_time} step="1800" lang={t('timeLang')}
+                  <input type="time" value={newSch.end_time} step="1800" lang={lang}
                     onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
                     className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
                       ${endNextDay ? 'ring-2 ring-[#FACC15]' : ''}`}/>
@@ -823,7 +823,7 @@ export const PlannerView = ({
                 </div>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Color</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelColor')}</label>
                 <div className="flex gap-3">
                   {THEME_COLORS.map(c => (
                     <div key={c.id} onClick={() => setNewSch({ ...newSch, color: c.id })}
@@ -834,10 +834,10 @@ export const PlannerView = ({
               </div>
               <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-2xl ${theme.input}`}>
                 <input type="checkbox" checked={newSch.is_dday} onChange={e => setNewSch({ ...newSch, is_dday: e.target.checked })} className="w-5 h-5 accent-[#FACC15]"/>
-                <span className="text-base font-semibold">Set as D-Day</span>
+                <span className="text-base font-semibold">{t('setAsDday')}</span>
               </label>
               <button onClick={handleSaveSchedule} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 mt-2 hover:bg-gray-800 transition-colors shadow-lg">
-                Save Schedule
+                {t('saveSchedule')}
               </button>
             </div>
           </div>
@@ -854,18 +854,18 @@ export const PlannerView = ({
             </div>
             <div className="space-y-4">
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Title</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('title')}</label>
                 <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
                   onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`} placeholder="e.g. Exam Day"/>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>Date</label>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('date')}</label>
                 <input type="date" value={ddayForm.date} onChange={e => setDdayForm({ ...ddayForm, date: e.target.value })}
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${theme.input}`}/>
               </div>
               <button onClick={handleSaveDday} className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors shadow-lg">
-                Save D-Day
+                {t('saveDday')}
               </button>
             </div>
           </div>
@@ -900,7 +900,7 @@ export const PlannerView = ({
             </div>
             <button onClick={handleSaveException}
               className="w-full mt-5 py-3 rounded-2xl font-bold text-sm bg-[#FACC15] text-[#1C1C1E] hover:scale-[1.02] transition-transform">
-              Save Exception
+              {t('saveException')}
             </button>
           </div>
         </div>
