@@ -639,8 +639,7 @@ export const HealthView = ({
         if (isCardioSet(s)) {
           const parts = [`Set ${s.set}`];
           if (s.time)     parts.push(`⏱ ${s.time}`);
-          if (s.distance) parts.push(`📍 ${s.distance}km`);
-          if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
+          if (s.distance) parts.push(`📍 ${s.distance}km`);          if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
           lines.push(`   ${parts.join('  ')}`);
         } else {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
@@ -658,10 +657,22 @@ export const HealthView = ({
     const totalSets = realWs.reduce((acc, w) => acc + w.sets.filter(s => !isCardioSet(s) && s.done).length, 0);
     const totalCardioTime = realWs.reduce((acc, w) => {
       return acc + w.sets.filter(s => isCardioSet(s) && s.done && (s as CardioSet).time)
-        .reduce((m, s) => m + (parseFloat((s as CardioSet).time) || 0), 0);
+        .reduce((m, s) => {
+          const parts = (s as CardioSet).time.split(':').map(Number);
+          const mins = parts.length === 3
+            ? parts[0] * 60 + parts[1] + parts[2] / 60
+            : parts.length === 2
+              ? parts[0] + parts[1] / 60
+              : parts[0];
+          return m + mins;
+        }, 0);
     }, 0);
     if (totalSets > 0) lines.push(`💪 Total sets: ${totalSets}`);
-    if (totalCardioTime > 0) lines.push(`⏱ Total cardio: ${totalCardioTime}min`);
+    if (totalCardioTime > 0) {
+      const h = Math.floor(totalCardioTime / 60);
+      const m = Math.round(totalCardioTime % 60);
+      lines.push(`⏱ Total cardio: ${h > 0 ? `${h}h ` : ''}${m}min`);
+    }
     if (memo.trim()) { lines.push(''); lines.push(`📝 ${memo.trim()}`); }
     return lines.join('\n');
   }, [weightUnits]);
@@ -938,7 +949,41 @@ export const HealthView = ({
       return next;
     });
   };
-  const handleRemoveSet = (wIdx: number, sIdx: number) => {
+  // ── Cardio 시간 자동 포맷 ──────────────────────────────────────────────────
+  // 숫자만 입력하면 자동으로 H:MM:SS / MM:SS 형식으로 변환
+  // "130" → "1:30" / "10000" → "1:00:00" / "1:30" → 그대로
+  const formatTimeInput = (raw: string): string => {
+    // 이미 : 포함 → 그대로
+    if (raw.includes(':')) return raw;
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    const n = parseInt(digits, 10);
+    if (digits.length <= 2) {
+      // 1~99 → 분으로 처리: "5" → "5:00", "45" → "45:00"
+      return `${n}:00`;
+    } else if (digits.length <= 4) {
+      // 3~4자리 → MM:SS: "130" → "1:30", "1530" → "15:30"
+      const ss = n % 100;
+      const mm = Math.floor(n / 100);
+      return `${mm}:${String(ss).padStart(2, '0')}`;
+    } else {
+      // 5~6자리 → H:MM:SS: "10000" → "1:00:00", "13045" → "1:30:45"
+      const ss = n % 100;
+      const mm = Math.floor(n / 100) % 100;
+      const hh = Math.floor(n / 10000);
+      return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    }
+  };
+
+  const handleTimeInput = (wIdx: number, sIdx: number, raw: string) => {
+    // 입력 중엔 raw 값 그대로 표시, blur 시 포맷
+    handleUpdateSet(wIdx, sIdx, 'time', raw);
+  };
+
+  const handleTimeBlur = (wIdx: number, sIdx: number, raw: string) => {
+    if (!raw) return;
+    handleUpdateSet(wIdx, sIdx, 'time', formatTimeInput(raw));
+  };
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -1455,8 +1500,11 @@ export const HealthView = ({
                             return (
                               <>
                                 {(mode === 'time' || mode === 'both') && (
-                                  <input type="text" inputMode="numeric" value={s.time} placeholder="min"
-                                    onChange={e => handleUpdateSet(wIdx, sIdx, 'time', e.target.value)}
+                                  <input type="text" inputMode="numeric"
+                                    value={s.time}
+                                    placeholder="0:00"
+                                    onChange={e => handleTimeInput(wIdx, sIdx, e.target.value)}
+                                    onBlur={e => handleTimeBlur(wIdx, sIdx, e.target.value)}
                                     className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                                 )}
                                 {(mode === 'distance' || mode === 'both') && (
