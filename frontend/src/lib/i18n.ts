@@ -101,6 +101,7 @@ const translations = {
   loaded:         { en: 'Loaded!',       ko: '불러옴!',      ja: '読み込みました！' },
   noBlocks:       { en: 'No blocks assembled.', ko: '조합된 블록 없음.', ja: 'ブロックが未設定です。' },
   enterName:      { en: 'Enter name!',   ko: '이름을 입력하세요!', ja: '名前を入力してください！' },
+  enterWeight:    { en: 'Enter weight!', ko: '몸무게를 입력하세요!', ja: '体重を入力してください！' },
   valuesNegative: { en: 'Values cannot be negative', ko: '음수는 입력할 수 없습니다', ja: '負の値は入力できません' },
   inbodySaved:    { en: 'InBody Saved! 📈', ko: 'InBody 저장됨! 📈', ja: 'InBody保存！📈' },
   deleteBlock:    { en: 'Delete this block?', ko: '이 블록을 삭제할까요?', ja: 'このブロックを削除しますか？' },

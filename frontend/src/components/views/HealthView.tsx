@@ -124,7 +124,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   ];
 
   const handleSaveProfile = async () => {
-    if (!wNum) return showToast(t('enterName'), 'error');
+    if (!wNum) return showToast(t('enterWeight'), 'error');
     const payload = { weight: wNum, goal: profGoal, activity: profAct, daily_target_g: calcTarget };
     try {
       const res = await authFetch(`${API_URL}/api/protein_profile`, { method: 'POST', body: JSON.stringify(payload) });
@@ -639,7 +639,8 @@ export const HealthView = ({
         if (isCardioSet(s)) {
           const parts = [`Set ${s.set}`];
           if (s.time)     parts.push(`⏱ ${s.time}`);
-          if (s.distance) parts.push(`📍 ${s.distance}km`);          if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
+          if (s.distance) parts.push(`📍 ${s.distance}km`);
+          if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
           lines.push(`   ${parts.join('  ')}`);
         } else {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
@@ -984,6 +985,8 @@ export const HealthView = ({
     if (!raw) return;
     handleUpdateSet(wIdx, sIdx, 'time', formatTimeInput(raw));
   };
+
+  const handleRemoveSet = (wIdx: number, sIdx: number) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -1412,7 +1415,7 @@ export const HealthView = ({
                   return (
                     <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
                       <div className="w-7 text-center shrink-0 opacity-50">tap=del</div>
-                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">min</div>}
+                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">MM:SS</div>}
                       {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
                       <div className="w-9 text-center shrink-0">✓</div>
                     </div>
