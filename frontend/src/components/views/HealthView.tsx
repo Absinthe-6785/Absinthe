@@ -132,7 +132,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setProfile(payload);
       showToast(t('proteinGoalSaved'));
       setTab('log');
-    } catch { showToast('Failed to save goal', 'error'); }
+    } catch { showToast(t('failedSaveGoal'), 'error'); }
   };
 
   const handleAddSource = async () => {
@@ -149,7 +149,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setSources(prev => [...prev, data[0]]);
       setNewSrcName(''); setNewSrcVal(''); setNewSrcCat('Other'); setShowAddSource(false);
       showToast(t('sourceCreated'));
-    } catch { showToast('Failed to add source', 'error'); }
+    } catch { showToast(t('failedAddSource'), 'error'); }
   };
 
   const handleLogCustom = async () => {
@@ -165,7 +165,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: null }]);
       setCustomNote(''); setCustomProtein(''); setSelectedSrc('');
       showToast(t('intakeLogged'));
-    } catch { showToast('Failed to log intake', 'error'); }
+    } catch { showToast(t('failedLogIntake'), 'error'); }
   };
 
   const handleUpdateSource = async () => {
@@ -182,7 +182,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setSources(prev => prev.map(s => s.id === editSrcId ? { ...s, ...payload } : s));
       setEditSrcId(null);
       showToast(t('sourceUpdated'));
-    } catch { showToast('Failed to update source', 'error'); }
+    } catch { showToast(t('failedUpdateSource'), 'error'); }
   };
 
   const handleDeleteSource = async (id: string) => {
@@ -212,7 +212,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: { name: src.name, source_type: src.source_type, category: src.category } }]);
       setIntakeAmt('');
       showToast(t('intakeLogged'));
-    } catch { showToast('Failed to log intake', 'error'); }
+    } catch { showToast(t('failedLogIntake'), 'error'); }
   };
 
   const handleDeleteIntake = async (id: string) => {
@@ -484,7 +484,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                   <input type="number" inputMode="decimal" min="0" step="0.1" value={customProtein} placeholder="0"
                     onChange={e => setCustomProtein(e.target.value)}
                     className="w-16 bg-transparent text-lg font-bold outline-none"/>
-                  <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>g protein</span>
+                  <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>{t('gProtein')}</span>
                   <button onClick={handleLogCustom} disabled={!customProtein || parseFloat(customProtein) <= 0}
                     className="bg-[#1C1C1E] text-[#FACC15] text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
                     {t('add')}
@@ -502,7 +502,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                       value={intakeAmt} placeholder="0" onChange={e => setIntakeAmt(e.target.value)}
                       className="w-16 bg-transparent text-lg font-bold outline-none"/>
                     <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
-                      g{previewProtein !== null ? ` → ${previewProtein}g protein` : ''}
+                      {`g${previewProtein !== null ? ` → ${previewProtein}${t('gProtein')}` : ''}`}
                     </span>
                   </>
                 ) : (
@@ -511,7 +511,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                       value={intakeAmt} placeholder="1" onChange={e => setIntakeAmt(e.target.value)}
                       className="w-14 bg-transparent text-lg font-bold outline-none"/>
                     <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>
-                      {t('unit')}{previewProtein !== null ? ` → ${previewProtein}g protein` : ` (${selectedSrcObj?.protein_per_serving}g / ${t('unit')})`}
+                      {t('unit')}{previewProtein !== null ? ` → ${previewProtein}${t('gProtein')}` : ` (${selectedSrcObj?.protein_per_serving}g / ${t('unit')})`}
                     </span>
                   </>
                 )}
@@ -550,7 +550,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                               {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
                             </p>
                             <p className={`text-xs ${theme.textMuted}`}>
-                              {log.protein_sources?.source_type === 'per100g' ? `${log.amount_g}g · ` : ''}{log.protein_g}g protein
+                              {log.protein_sources?.source_type === 'per100g' ? `${log.amount_g}g · ` : ''}{log.protein_g}{t('gProtein')}
                             </p>
                           </div>
                           <button onClick={() => handleDeleteIntake(log.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors shrink-0">
@@ -578,7 +578,7 @@ export const HealthView = ({
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS,
 }: HealthProps) => {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -697,7 +697,7 @@ export const HealthView = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts]);
+  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
   // ── 드래그 정렬 상태 (워크아웃) ──────────────────────────────────
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -787,7 +787,7 @@ export const HealthView = ({
         setIsDirty(true);
         isDirtyRef.current = true; // 동일 배치에서 workouts effect가 읽을 수 있도록 즉시 반영
         setIsWorkoutLocked(false);
-        showToast('Draft restored — tap Complete Workout to save');
+        showToast(t('draftRestored'));
         return;
       } catch { localStorage.removeItem(draftKey); }
     }
@@ -837,15 +837,15 @@ export const HealthView = ({
   };
 
   const commitTag = () => {
-    const t = tagInput.trim();
-    if (!t) return;
-    const already = (newBlock.tags ?? []).includes(t);
-    if (!already) setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
+    const tag = tagInput.trim();
+    if (!tag) return;
+    const already = (newBlock.tags ?? []).includes(tag);
+    if (!already) setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), tag] }));
     setTagInput('');
   };
 
   const removeTag = (tag: string) =>
-    setNewBlock(b => ({ ...b, tags: (b.tags ?? []).filter(t => t !== tag) }));
+    setNewBlock(b => ({ ...b, tags: (b.tags ?? []).filter(tg => tg !== tag) }));
 
   const handleSaveBlock = async () => {
     if (!newBlock.name) return showToast(t('enterName'), 'error');
@@ -860,7 +860,7 @@ export const HealthView = ({
     e.stopPropagation();
     showConfirm(t('deleteBlock'), () =>
       api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') }),
-      { confirmLabel: 'Delete' },
+      { confirmLabel: t('deleteLabel') },
     );
   };
 
@@ -1037,7 +1037,7 @@ export const HealthView = ({
       mutateDaily();
     } else if (failed < total) {
       localStorage.removeItem(draftKey);
-      showToast(`${total - failed}/${total} saved. Some failed.`, 'error');
+      showToast(t('partialSave').replace('{done}', String(total - failed)).replace('{total}', String(total)), 'error');
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
@@ -1125,7 +1125,7 @@ export const HealthView = ({
                 ${mobileHealthTab === tab
                   ? 'bg-[#1C1C1E] text-[#FACC15]'
                   : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? 'Blocks' : tab === 'routine' ? 'Routine' : tab === 'workout' ? 'Workout' : '🥤 Protein'}
+              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'workout' ? t('tabWorkout') : '🥤 Protein'}
             </button>
           ))}
         </div>
@@ -1173,7 +1173,7 @@ export const HealthView = ({
                     <button onClick={() => setActiveTagFilter(null)}
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
                         ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
-                      All
+                      {t('filterAll')}
                     </button>
                     {allTags.map(tag => (
                       <button key={tag} onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
@@ -1186,7 +1186,7 @@ export const HealthView = ({
                 )}
 
                 {/* 블록 없을 때 */}
-                {blocks.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="Create exercise blocks — tap + above"/>}
+                {blocks.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text={t('noBlocksEmpty')}/>}
 
                 {/* 태그별 그룹 섹션 */}
                 <div className="overflow-y-auto min-h-0 pr-1 pb-2 space-y-3">
@@ -1260,7 +1260,7 @@ export const HealthView = ({
                 <div key={dayName} className={`rounded-2xl p-4 border ${theme.border}`}>
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="font-heading text-base font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-sm text-blue-500 font-bold">+ Assemble</button>
+                    <button onClick={() => openAssembleModal(dayName)} className="text-sm text-blue-500 font-bold">{t('assembleBtn')}</button>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {blocks.map(b => <span key={b.id} className={`text-xs font-semibold px-2.5 py-1 rounded-lg border shadow-sm ${theme.card} ${theme.border}`}>{b.name}</span>)}
@@ -1279,7 +1279,7 @@ export const HealthView = ({
             <div>
               <h2 className="font-heading text-2xl font-bold">{t('todayWorkout')}</h2>
               <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>
-                {selectedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                {selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
               </p>
             </div>
             {!isWorkoutLocked && (
@@ -1300,14 +1300,14 @@ export const HealthView = ({
                 <select onChange={handleLoadRoutine}
                   className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
                   <option value="__load__">{t('loadRoutine')}</option>
-                  {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>Load Day {i + 1}</option>)}
+                  {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>{t('loadDay').replace('{n}', String(i + 1))}</option>)}
                 </select>
               </div>
             )}
           </div>
 
           <div className="space-y-3 pb-2 lg:space-y-5 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
-            {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text="No workouts added. Let's get moving!"/>}
+            {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text={t('noWorkoutsEmpty')}/>}
             {localWorkouts.map((w: Workout, wIdx: number) => {
 
               /* ── 세션 구분선 렌더링 ── */
@@ -1414,8 +1414,8 @@ export const HealthView = ({
                   const mode = w.exercise_blocks?.cardio_mode ?? 'both';
                   return (
                     <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                      <div className="w-7 text-center shrink-0 opacity-50">tap=del</div>
-                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">MM:SS</div>}
+                      <div className="w-7 text-center shrink-0 opacity-50">{t('tapDel')}</div>
+                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">{t('colMmss')}</div>}
                       {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
                       <div className="w-9 text-center shrink-0">✓</div>
                     </div>
@@ -1424,7 +1424,7 @@ export const HealthView = ({
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
                   <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                    <div className="w-7 text-center shrink-0 opacity-50">tap=del</div>
+                    <div className="w-7 text-center shrink-0 opacity-50">{t('tapDel')}</div>
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
@@ -1539,12 +1539,12 @@ export const HealthView = ({
                   <div className="mt-3 flex gap-2">
                     <button onClick={() => handleAddSet(wIdx)}
                       className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-[#FACC15] text-[#1C1C1E] active:scale-[0.98] transition-all">
-                      {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? '+ Round' : '+ Set'}
+                      {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
                     </button>
                     {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
                       <button onClick={() => handleAddSet(wIdx, true)}
                         className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-orange-400/20 text-orange-400 border border-orange-400/40 active:scale-[0.98] transition-all">
-                        ↓ Drop Set
+                        {t('addDropSet')}
                       </button>
                     )}
                   </div>
@@ -1580,11 +1580,11 @@ export const HealthView = ({
                         ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')
                         : (appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
                       }`}>
-                    {copied ? <><Check size={13}/> Copied!</> : <><ClipboardCopy size={13}/> Copy</>}
+                    {copied ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}
                   </button>
                   <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1C1C1E] text-[#FACC15] font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all">
-                    <Pencil size={14}/> Edit
+                    <Pencil size={14}/> {t('editBtn')}
                   </button>
                 </div>
               </div>
@@ -1619,7 +1619,7 @@ export const HealthView = ({
             {/* 공통 헤더 */}
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-heading text-base font-bold tabular-nums">
-                {currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                {currentDate.toLocaleString(lang, { month: 'long', year: 'numeric' })}
               </h2>
               <div className="flex gap-1">
                 <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronLeft size={15}/></button>
@@ -1696,9 +1696,9 @@ export const HealthView = ({
             {/* 모바일: 가로 3열 / 데스크탑: 세로 3행 */}
             <div className="flex gap-3 lg:flex-col lg:gap-2">
               {[
-                { label: 'Weight', field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
-                { label: 'SMM',    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
-                { label: 'PBF',    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
+                { label: t('inbodyWeight'), field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
+                { label: t('inbodySMM'),    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
+                { label: t('inbodyPBF'),    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
               ].map(({ label, field, unit, color }) => (
                 <div key={field} className={`flex-1 lg:flex-none rounded-2xl p-2.5 border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
                   <p className={`text-[10px] font-bold mb-1 ${color}`}>{label}</p>
@@ -1743,7 +1743,7 @@ export const HealthView = ({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowBlockModal(false)}>
           <div className={`p-6 lg:p-8 rounded-[32px] w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
             <h3 className="font-heading text-xl font-bold mb-6 flex justify-between items-center">
-              {editingBlock ? 'Edit Block' : 'New Block'}
+              {editingBlock ? t('editBlock') : t('newBlockLabel')}
               <button onClick={() => setShowBlockModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
             </h3>
 
@@ -1801,9 +1801,9 @@ export const HealthView = ({
                 onChange={e => {
                   const val = e.target.value;
                   if (val.endsWith(',')) {
-                    const t = val.slice(0, -1).trim();
-                    if (t && !(newBlock.tags ?? []).includes(t))
-                      setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), t] }));
+                    const tag = val.slice(0, -1).trim();
+                    if (tag && !(newBlock.tags ?? []).includes(tag))
+                      setNewBlock(b => ({ ...b, tags: [...(b.tags ?? []), tag] }));
                     setTagInput('');
                   } else {
                     setTagInput(val);
@@ -1842,8 +1842,8 @@ export const HealthView = ({
             <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[440px] shadow-2xl flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-5 shrink-0">
                 <div>
-                  <h3 className="font-heading text-xl font-bold">Assemble {activeDayForm}</h3>
-                  <p className={`text-xs mt-0.5 ${theme.textMuted}`}>{tempRoutineBlocks.length} selected · tap to toggle</p>
+                  <h3 className="font-heading text-xl font-bold">{t('assembleTitle')} {activeDayForm}</h3>
+                  <p className={`text-xs mt-0.5 ${theme.textMuted}`}>{t('assembleHint').replace('{count}', String(tempRoutineBlocks.length))}</p>
                 </div>
                 <button onClick={() => setShowAssembleModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
               </div>
@@ -1851,7 +1851,7 @@ export const HealthView = ({
               {/* 선택된 순서 미리보기 — 드래그로 재정렬 */}
               {tempRoutineBlocks.length > 0 && (
                 <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
-                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>ORDER (drag to reorder)</p>
+                  <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
                       const b = (healthBlocks || []).find((bk: ExerciseBlock) => bk.id === id);
@@ -1946,7 +1946,7 @@ export const HealthView = ({
               </div>
 
               <button onClick={handleSaveRoutine} className="mt-5 shrink-0 w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg p-4 rounded-2xl hover:bg-gray-800 transition-colors">
-                {t('routineSaved')}
+                {t('saveRoutine')}
               </button>
             </div>
           </div>

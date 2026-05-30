@@ -146,7 +146,7 @@ export const PlannerView = ({
   const handleDeleteDday = (id: string) =>
     showConfirm(t('deleteDday'), () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
-      { confirmLabel: 'Delete' },
+      { confirmLabel: t('deleteLabel') },
     );
 
   // ── Routine ────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ export const PlannerView = ({
   const handleDeleteRoutine = (id: string) =>
     showConfirm(t('deleteRoutine'), () =>
       api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: t('routineDeleted') }),
-      { confirmLabel: 'Delete' },
+      { confirmLabel: t('deleteLabel') },
     );
   const handleUpdateRoutineText = async (id: string, text: string) => {
     if (!text.trim()) return setEditingRoutineId(null);
@@ -241,13 +241,13 @@ export const PlannerView = ({
       );
       if (ok) setShowForm(false);
     };
-    if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: 'Save', variant: 'primary' }); return; }
+    if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: t('saveLabel'), variant: 'primary' }); return; }
     doSave();
   };
   const handleDeleteSchedule = (id: string) =>
     showConfirm(t('deleteSchedule'), () =>
       api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') }),
-      { confirmLabel: 'Delete' },
+      { confirmLabel: t('deleteLabel') },
     );
 
   // ── Derived values ─────────────────────────────────────────────────
@@ -501,7 +501,7 @@ export const PlannerView = ({
                       <span className={`ml-auto text-[10px] font-bold shrink-0 ${theme.textMuted}`}>{notes.filter(n => !n.deletedAt && n.folderId === f.id).length}</span>
                     </button>
                   )}
-                  <button onClick={() => showConfirm(`Delete folder "${f.name}"?`, () => deleteFolder(f.id), { confirmLabel: 'Delete' })}
+                  <button onClick={() => showConfirm(t('deleteFolderMsg').replace('{name}', f.name), () => deleteFolder(f.id), { confirmLabel: t('deleteLabel') })}
                     className={`absolute right-1 p-0.5 rounded opacity-0 group-hover:opacity-100 text-red-400 transition-opacity`}>
                     <X size={9}/>
                   </button>
@@ -537,7 +537,7 @@ export const PlannerView = ({
                     {n.title || 'Untitled'}
                   </p>
                   <p className={`text-[10px] truncate mt-0.5 ${theme.textMuted}`}>
-                    {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {new Date(n.updatedAt).toLocaleDateString(lang, { month: 'short', day: 'numeric' })}
                   </p>
                   <button
                     onClick={e => { e.stopPropagation(); activeFolderId === 'trash' ? permanentDeleteNote(n.id) : moveNoteToTrash(n.id); }}
@@ -557,10 +557,10 @@ export const PlannerView = ({
                 {activeFolderId === 'trash' ? (
                   <div className="flex items-center gap-2 mb-2">
                     <AlertTriangle size={13} className="text-red-400 shrink-0"/>
-                    <span className={`text-[11px] font-semibold text-red-400`}>In Trash · deleted {new Date(activeNote.deletedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    <span className={`text-[11px] font-semibold text-red-400`}>{t('inTrashMsg').replace('{date}', new Date(activeNote.deletedAt!).toLocaleDateString(lang, { month: 'short', day: 'numeric' }))}</span>
                     <button onClick={() => restoreNote(activeNote.id)}
                       className="ml-auto flex items-center gap-1 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors shrink-0">
-                      <RotateCcw size={11}/> Restore
+                      <RotateCcw size={11}/> {t('restoreLabel')}
                     </button>
                   </div>
                 ) : (
@@ -572,7 +572,7 @@ export const PlannerView = ({
                       {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                     <p className={`text-[10px] ml-auto ${theme.textMuted}`}>
-                      {new Date(activeNote.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(activeNote.updatedAt).toLocaleString(lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 )}
@@ -609,7 +609,7 @@ export const PlannerView = ({
         <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
           <div className="flex justify-between items-center mb-2">
             <h2 className="font-heading text-sm lg:text-base font-bold tabular-nums">
-              {currentDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+              {currentDate.toLocaleString(lang, { month: 'long', year: 'numeric' })}
             </h2>
             <div className="flex gap-1">
               <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1 rounded-full ${theme.hoverBg}`}><ChevronLeft size={15}/></button>
@@ -651,7 +651,7 @@ export const PlannerView = ({
                 <Clock size={24} className="text-[#FACC15]"/> Timeline
               </h2>
               <p className={`text-xs font-semibold mt-0.5 ${theme.textMuted}`}>
-                {selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' })}
+                {selectedDate.toLocaleDateString(lang, { month: 'short', day: 'numeric', weekday: 'short' })}
               </p>
             </div>
             <button onClick={() => openModal()} className="bg-[#1C1C1E] text-[#FACC15] p-2.5 rounded-full shadow-md hover:scale-105 transition-transform">
