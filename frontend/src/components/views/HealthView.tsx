@@ -1222,7 +1222,7 @@ export const HealthView = ({
           })()}
         </div>
 
-        <div className={`max-h-[420px] lg:max-h-none lg:flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+        <div className={`lg:flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -1262,8 +1262,12 @@ export const HealthView = ({
                     <h3 className="font-heading text-base font-bold">{dayName}</h3>
                     <button onClick={() => openAssembleModal(dayName)} className="text-sm text-blue-500 font-bold">{t('assembleBtn')}</button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {blocks.map(b => <span key={b.id} className={`text-xs font-semibold px-2.5 py-1 rounded-lg border shadow-sm ${theme.card} ${theme.border}`}>{b.name}</span>)}
+                  <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                    {blocks.map(b => (
+                      <span key={b.id} className={`text-xs font-semibold px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap ${theme.card} ${theme.border}`}>
+                        {b.name}
+                      </span>
+                    ))}
                   </div>
                 </div>
               );

@@ -572,6 +572,7 @@ export const NoteView = () => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (showSortMenu && e.key === 'Escape') { setShowSortMenu(false); return; }
+      if (focusMode  && e.key === 'Escape') { setFocusMode(false); return; }
       if (!mod) return;
 
       // ── Undo (Ctrl+Z) ────────────────────────────────────────
@@ -624,7 +625,7 @@ export const NoteView = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu, viewMode, insert, activeNote, applySnapshot]);
+  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu, focusMode, setFocusMode, viewMode, insert, activeNote, applySnapshot]);
 
   const TOOLBAR: (ToolbarItem | null)[] = [
     { icon: <Heading1 size={13}/>, label: 'H1 (Ctrl+1)', fn: () => insert('# ') },
@@ -809,8 +810,7 @@ export const NoteView = () => {
       <input ref={imageInputRef}  type="file" accept="image/*"  style={{ display: 'none' }} onChange={handleImageInsert}/>
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
-      {/* ── 포커스 모드 오버레이 ── */}
-      {focusMode && <div className="focus-overlay" onClick={() => setFocusMode(false)}/>}
+      {/* ── 포커스 모드: ESC로 종료 가능하도록 전역 클릭 핸들링은 버튼으로만 처리 ── */}
 
       {/* ── 단축키 모달 ── */}
       {showShortcuts && (
@@ -858,7 +858,7 @@ export const NoteView = () => {
       )}
 
       {/* ── Left Sidebar ── */}
-      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
+      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', visibility: focusMode ? 'hidden' : 'visible', background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         {/* Header */}
         <div style={{ padding: '12px 12px 10px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ fontWeight: 800, fontSize: 14, color: c.accent, letterSpacing: -.3 }}>Note</span>
@@ -962,7 +962,7 @@ export const NoteView = () => {
       </div>
 
       {/* ── Note List ── */}
-      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
+      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', visibility: focusMode ? 'hidden' : 'visible', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
             {activeTag ? `#${activeTag}` : folderLabel}
@@ -1081,11 +1081,18 @@ export const NoteView = () => {
                   <span style={{ fontSize: 11 }}>⎘</span>
                 </button>
               )}
-              {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
-                style={{ color: showRightPanel ? c.accent : c.textMuted }}>
-                <AlignLeft size={12}/>
+              {/* Focus Mode */}
+              <button onClick={() => setFocusMode(v => !v)} className="btbtn" title={focusMode ? 'Exit Focus Mode (Esc)' : 'Focus Mode — hide sidebars'}
+                style={{ color: focusMode ? c.accent : c.textMuted }}>
+                {focusMode ? <Minimize2 size={12}/> : <Maximize2 size={12}/>}
               </button>
+              {/* Right panel toggle — hidden in focus mode */}
+              {!focusMode && (
+                <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
+                  style={{ color: showRightPanel ? c.accent : c.textMuted }}>
+                  <AlignLeft size={12}/>
+                </button>
+              )}
               {/* Export */}
               <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
                 <Save size={12}/>
@@ -1193,7 +1200,7 @@ export const NoteView = () => {
       </div>
 
       {/* ── Right Panel ── */}
-      {activeNote && viewMode !== 'graph' && showRightPanel && (
+      {activeNote && viewMode !== 'graph' && showRightPanel && !focusMode && (
         <div style={{ width: 210, minWidth: 210, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
             {RIGHT_PANELS.map(({ key, label, icon }) => (
