@@ -9,6 +9,8 @@ import {
   extractLinkContexts,
   mergeDbAndLocalNotes,
   getLocalOnlyNotes,
+  mergeNoteArrays,
+  mergeFolderArrays,
   normalizeNoteFolderId,
   noteSyncPayload,
   type NoteBase,
@@ -83,6 +85,20 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     expect(normalizeNoteFolderId('starred')).toBeNull();
     expect(normalizeNoteFolderId('trash')).toBeNull();
     expect(normalizeNoteFolderId('folder-1')).toBe('folder-1');
+  });
+
+  it('mergeNoteArrays keeps newer updatedAt per id', () => {
+    const a: NoteBase = { id: '1', title: 'old', body: '', updatedAt: 100, folderId: null, deletedAt: null };
+    const b: NoteBase = { id: '1', title: 'new', body: 'x', updatedAt: 200, folderId: null, deletedAt: null };
+    expect(mergeNoteArrays([a], [b])[0].title).toBe('new');
+  });
+
+  it('mergeFolderArrays unions by id', () => {
+    const merged = mergeFolderArrays(
+      [{ id: 'f1', name: 'A', createdAt: 1 }],
+      [{ id: 'f2', name: 'B', createdAt: 2 }],
+    );
+    expect(merged).toHaveLength(2);
   });
 
   it('noteSyncPayload includes starred for upsert', () => {

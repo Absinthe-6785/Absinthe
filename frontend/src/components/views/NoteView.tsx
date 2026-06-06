@@ -8,17 +8,14 @@ import {
 import { useConfirm } from '../../hooks/useConfirm';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useAppStore } from '../../store/useAppStore';
-import { authFetch } from '../../lib/supabase';
-import { API_URL } from '../../lib/config';
+import { useNotesStore } from '../../store/useNotesStore';
 import {
-  NV_NOTES_KEY, NV_FOLDERS_KEY, NV_ACTIVE_KEY,
-  nvLoadNotes, nvLoadFolders, nvSaveNotes, nvSaveFolders,
   highlightText,
   extractTOC, extractTags, extractLinks,
   extractLinkContexts,
   findNoteByTitle, findWikiLinkInText,
   parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
-  mergeDbAndLocalNotes, getLocalOnlyNotes, normalizeNoteFolderId, noteSyncPayload,
+  normalizeNoteFolderId,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
@@ -104,243 +101,61 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 export const NoteView = () => {
   const katexReady = useKaTeX();
 
-  // ── 전역 스토어 — appSettings(darkMode)만 참조 ────────────────────
-  // 설계 의도: NoteView는 PlannerView(Memo)와 완전히 독립된 노트 시스템.
-  //   - 노트/폴더 상태는 NoteView 전용 localStorage 키(NV_NOTES_KEY 등)에서 관리.
-  //   - useAppStore의 notes/folders는 PlannerView Memo 전용이며 NoteView와 공유하지 않음.
-  //   - 두 상태가 충돌하지 않는 이유: 키가 다르고(NV_NOTES_KEY vs planner-notes-v2)
-  //     DB 엔드포인트(/api/notes)는 upsert 방식이므로 각자 독립적으로 sync.
-  //   - 향후 통합이 필요하다면 useAppStore의 notes를 제거하고 NoteView 쪽으로 일원화 권장.
   const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
-  const removeNoteFromDB = useCallback(async (id: string) => {
-    try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
-  }, []);
+  const notes = useNotesStore(s => s.notes);
+  const folders = useNotesStore(s => s.folders);
+  const activeNoteId = useNotesStore(s => s.activeNoteId);
+  const isSyncing = useNotesStore(s => s.isSyncing);
+  const savedAt = useNotesStore(s => s.savedAt);
+  const syncError = useNotesStore(s => s.syncError);
+  const setActiveNoteId = useNotesStore(s => s.setActiveNoteId);
+  const storeCreateNote = useNotesStore(s => s.createNote);
+  const updateNote = useNotesStore(s => s.updateNote);
+  const toggleStar = useNotesStore(s => s.toggleStar);
+  const storeDuplicateNote = useNotesStore(s => s.duplicateNote);
+  const moveNoteToTrash = useNotesStore(s => s.moveNoteToTrash);
+  const restoreNote = useNotesStore(s => s.restoreNote);
+  const permanentDeleteNote = useNotesStore(s => s.permanentDeleteNote);
+  const storeCreateFolder = useNotesStore(s => s.createFolder);
+  const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
+  const importNote = useNotesStore(s => s.importNote);
+  const flushPendingSync = useNotesStore(s => s.flushPendingSync);
+  const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
+  const retrySync = useNotesStore(s => s.retrySync);
 
-  const syncFolderToDB = useCallback(async (folder: NoteFolder) => {
-    try {
-      await authFetch(`${API_URL}/api/note_folders`, {
-        method: 'POST',
-        body: JSON.stringify({ id: folder.id, name: folder.name, created_at: folder.createdAt }),
-      });
-    } catch { /**/ }
-  }, []);
+  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
-  const removeFolderFromDB = useCallback(async (id: string) => {
-    try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
-  }, []);
-
-  // ── NoteView 전용 독립 상태 (PlannerView Memo와 완전 분리) ───────
-  const [notes,   setNotes]   = useState<Note[]>(() => { const n = nvLoadNotes(); return Array.isArray(n) ? n : []; });
-  const [folders, setFolders] = useState<NoteFolder[]>(nvLoadFolders);
-  const [activeNoteId,   setActiveNoteIdRaw]   = useState<string | null>(() => {
-    try { return localStorage.getItem(NV_ACTIVE_KEY) || nvLoadNotes()[0]?.id || null; } catch { return null; }
-  });
-  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash'>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const lastFailedNoteRef = useRef<Note | null>(null);
-  const notesRef = useRef(notes);
-  notesRef.current = notes;
-
-  // ── DB sync — 실패 시 syncError 표시, 성공 시 savedAt 갱신 ───────
-  const syncNoteToDB = useCallback(async (note: Note): Promise<boolean> => {
-    try {
-      const res = await authFetch(`${API_URL}/api/notes`, {
-        method: 'POST',
-        body: JSON.stringify(noteSyncPayload(note)),
-      });
-      if (!res.ok) {
-        lastFailedNoteRef.current = note;
-        setSyncError(`Cloud sync failed (${res.status})`);
-        return false;
-      }
-      lastFailedNoteRef.current = null;
-      setSyncError(null);
-      setSavedAt(new Date());
-      return true;
-    } catch (err) {
-      lastFailedNoteRef.current = note;
-      setSyncError(err instanceof Error ? err.message : 'Cloud sync failed');
-      return false;
-    }
-  }, []);
-
-  const retrySync = useCallback(() => {
-    const target = lastFailedNoteRef.current
-      ?? notesRef.current.find(n => n.id === activeNoteId)
-      ?? null;
-    if (target) syncNoteToDB(target);
-  }, [activeNoteId, syncNoteToDB]);
-
-  const setActiveNoteId = useCallback((id: string | null) => {
-    setActiveNoteIdRaw(id);
-    try { localStorage.setItem(NV_ACTIVE_KEY, id ?? ''); } catch { /**/ }
-  }, []);
-
-  // ── 최초 마운트 시 DB에서 노트/폴더 로드 ────────────────────────
-  useEffect(() => {
-    const load = async () => {
-      setIsSyncing(true);
-      try {
-        // 폴더 먼저
-        const fRes = await authFetch(`${API_URL}/api/note_folders`);
-        if (!fRes.ok) setSyncError(`Failed to load folders (${fRes.status})`);
-        if (fRes.ok) {
-          const raw = await fRes.json();
-          const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
-            id: f.id, name: f.name, createdAt: f.created_at,
-          }));
-          if (dbFolders.length > 0) {
-            setFolders(dbFolders);
-            nvSaveFolders(dbFolders);
-          }
-        }
-        // 노트
-        const nRes = await authFetch(`${API_URL}/api/notes`);
-        if (!nRes.ok) setSyncError(`Failed to load notes (${nRes.status})`);
-        if (nRes.ok) {
-          const raw = await nRes.json();
-          const localNotes = nvLoadNotes();
-          const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean }) => {
-            const local = localNotes.find(l => l.id === n.id);
-            // 충돌 해결: updatedAt이 더 최신인 쪽을 우선
-            const localIsNewer = local && local.updatedAt > n.updated_at;
-            return {
-              id: n.id,
-              title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
-              body:      localIsNewer ? (local.body  ?? '') : (n.body  ?? ''),
-              updatedAt: localIsNewer ? local.updatedAt     : n.updated_at,
-              folderId:  n.folder_id  != null ? n.folder_id  : (local?.folderId  ?? null),
-              deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
-              // starred: 로컬이 더 최신이면 로컬, 아니면 DB 값 사용 (양쪽 모두 보존)
-              starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
-            };
-          });
-          // 로컬에만 있는 노트(DB에 없는 것) → DB에 업로드 (실패해도 로컬은 merge로 유지)
-          const dbIds = raw.map((n: { id: string }) => n.id);
-          const localOnly = getLocalOnlyNotes(dbIds, localNotes);
-          if (localOnly.length > 0) {
-            await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
-          }
-          const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
-          if (dbNotes.length > 0 || localOnly.length > 0) {
-            setNotes(merged);
-            nvSaveNotes(merged);
-            // activeNoteId가 유효한지 확인
-            setActiveNoteIdRaw(prev => {
-              const stillValid = merged.some(n => n.id === prev && !n.deletedAt);
-              const next = stillValid ? prev : (merged.find(n => !n.deletedAt)?.id ?? null);
-              try { localStorage.setItem(NV_ACTIVE_KEY, next ?? ''); } catch { /**/ }
-              return next;
-            });
-          } else if (dbNotes.length === 0) {
-            // DB 완전히 비어있으면 localStorage 노트를 DB에 업로드
-            const local = nvLoadNotes();
-            await Promise.allSettled(local.map(note => syncNoteToDB(note)));
-          }
-        }
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Failed to load from cloud');
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-    load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentional: run once on mount only
-
-  // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
   const titleInputRef = useRef<HTMLInputElement>(null);
-
-  const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('preview');
 
   const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
-    const id = `note-${Date.now()}`;
-    const folderId = initial?.folderId !== undefined
-      ? initial.folderId
-      : normalizeNoteFolderId(activeFolderId);
-    const note: Note = {
-      id,
-      title: initial?.title ?? '',
-      body: initial?.body ?? '',
-      updatedAt: Date.now(),
-      folderId,
-      deletedAt: null,
-      starred: false,
-    };
-    setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
-    setActiveNoteId(id);
+    const id = storeCreateNote({
+      title: initial?.title,
+      body: initial?.body,
+      folderId: initial?.folderId,
+      folderContext: initial?.folderId !== undefined ? undefined : activeFolderId,
+    });
     setViewMode('edit');
     setTimeout(() => titleInputRef.current?.focus(), 50);
-    syncNoteToDB(note);
     return id;
-  }, [activeFolderId, setActiveNoteId, setViewMode, syncNoteToDB]);
+  }, [activeFolderId, storeCreateNote]);
 
-  // debounce ref — body 타이핑 중 과도한 DB 요청 방지
-  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSyncNoteRef = useRef<Note | null>(null);
+  const duplicateNote = useCallback((note: Note) => {
+    storeDuplicateNote(note);
+  }, [storeDuplicateNote]);
 
-  const flushPendingSync = useCallback(() => {
-    if (syncTimer.current) {
-      clearTimeout(syncTimer.current);
-      syncTimer.current = null;
-    }
-    const pending = pendingSyncNoteRef.current;
-    if (pending) {
-      pendingSyncNoteRef.current = null;
-      syncNoteToDB(pending);
-    }
-  }, [syncNoteToDB]);
+  const createFolder = useCallback((name: string) => {
+    const id = storeCreateFolder(name);
+    setActiveFolderId(id);
+  }, [storeCreateFolder]);
 
-  // 탭 전환(unmount) · 페이지 이탈 시 debounce 중인 body를 즉시 DB sync
-  useEffect(() => {
-    const onPageHide = () => flushPendingSync();
-    window.addEventListener('pagehide', onPageHide);
-    window.addEventListener('beforeunload', onPageHide);
-    return () => {
-      window.removeEventListener('pagehide', onPageHide);
-      window.removeEventListener('beforeunload', onPageHide);
-      flushPendingSync();
-    };
-  }, [flushPendingSync]);
-
-  const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      // body 변경은 600ms debounce, 나머지(title, folderId, starred)는 즉시 sync
-      const updatedNote = updated.find(n => n.id === id);
-      if (updatedNote) {
-        if ('body' in patch) {
-          pendingSyncNoteRef.current = updatedNote;
-          if (syncTimer.current) clearTimeout(syncTimer.current);
-          syncTimer.current = setTimeout(() => {
-            syncTimer.current = null;
-            pendingSyncNoteRef.current = null;
-            syncNoteToDB(updatedNote);
-          }, 600);
-        } else {
-          flushPendingSync();
-          syncNoteToDB(updatedNote);
-        }
-      }
-      return updated;
-    });
-  }, [syncNoteToDB, flushPendingSync]);
-
-  const toggleStar = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, starred: !n.starred } : n);
-      nvSaveNotes(updated);
-      const note = updated.find(n => n.id === id);
-      if (note) syncNoteToDB(note);
-      return updated;
-    });
-  }, [syncNoteToDB]);
+  const deleteFolder = useCallback((id: string) => {
+    storeDeleteFolder(id);
+    setActiveFolderId(prev => (prev === id ? null : prev));
+  }, [storeDeleteFolder]);
 
   const exportNote = useCallback((note: Note) => {
     const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
@@ -375,74 +190,6 @@ export const NoteView = () => {
       }, idx * 200);
     });
   }, [notes]);
-
-  const createFolder = useCallback((name: string) => {
-    const folder: NoteFolder = { id: `folder-${Date.now()}`, name, createdAt: Date.now() };
-    setFolders(prev => { const u = [...prev, folder]; nvSaveFolders(u); return u; });
-    setActiveFolderId(folder.id);
-    syncFolderToDB(folder);
-  }, [syncFolderToDB]);
-
-  const duplicateNote = useCallback((note: Note) => {
-    const id = `note-${Date.now()}`;
-    const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
-    setNotes(prev => { const u = [copy, ...prev]; nvSaveNotes(u); return u; });
-    setActiveNoteId(id);
-    syncNoteToDB(copy);
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const moveNoteToTrash = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      const nextActive = updated.find(n => !n.deletedAt)?.id ?? null;
-      setActiveNoteId(nextActive);
-      const trashed = updated.find(n => n.id === id);
-      if (trashed) syncNoteToDB(trashed);
-      return updated;
-    });
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const restoreNote = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      const restored = updated.find(n => n.id === id);
-      if (restored) syncNoteToDB(restored);
-      return updated;
-    });
-    setActiveNoteId(id);
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const permanentDeleteNote = useCallback((id: string) => {
-    // 단일 setNotes 호출로 이중 렌더 제거
-    setNotes(prev => {
-      const updated = prev.filter(n => n.id !== id);
-      nvSaveNotes(updated);
-      const next = updated.find(n => !n.deletedAt)?.id ?? null;
-      setActiveNoteId(next);
-      return updated;
-    });
-    removeNoteFromDB(id);
-  }, [setActiveNoteId, removeNoteFromDB]);
-
-  const deleteFolder = useCallback((id: string) => {
-    setNotes(prev => {
-      const affected = new Set(prev.filter(n => n.folderId === id).map(n => n.id));
-      const updated = prev.map(n => affected.has(n.id) ? { ...n, folderId: null } : n);
-      nvSaveNotes(updated);
-      // 이 폴더에 속했던 노트들만 DB 반영 (전체 folderId=null 노트 재sync 방지)
-      updated.filter(n => affected.has(n.id)).forEach(n => syncNoteToDB(n));
-      return updated;
-    });
-    setFolders(prev => {
-      const updated = prev.filter(f => f.id !== id);
-      nvSaveFolders(updated);
-      return updated;
-    });
-    setActiveFolderId(prev => prev === id ? null : prev);
-    removeFolderFromDB(id);
-  }, [syncNoteToDB, removeFolderFromDB]);
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
@@ -612,14 +359,11 @@ export const NoteView = () => {
         const body = ev.target?.result as string;
         const title = file.name.replace(/\.md$/i, '');
         const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const note: Note = {
+        importNote({
           id, title, body, updatedAt: Date.now(),
           folderId: normalizeNoteFolderId(activeFolderId),
           deletedAt: null, starred: false,
-        };
-        setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
-        setActiveNoteId(id);
-        syncNoteToDB(note);
+        });
       };
       reader.readAsText(file);
     });
@@ -641,7 +385,7 @@ export const NoteView = () => {
     syncShortcutRef.current = {
       flushPendingSync,
       syncNoteToDB,
-      getActiveNote: () => notesRef.current.find(n => n.id === activeNoteId) ?? null,
+      getActiveNote: () => useNotesStore.getState().notes.find(n => n.id === activeNoteId) ?? null,
     };
   });
 

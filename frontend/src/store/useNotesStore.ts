@@ -1,0 +1,385 @@
+/**
+ * useNotesStore — Notes + Planner Memo 공유 노트 상태
+ *
+ * 단일 localStorage(notes-v2 등) + DB sync.
+ * NoteView·PlannerView 모두 이 스토어를 사용한다.
+ */
+import { create } from 'zustand';
+import { API_URL } from '../lib/config';
+import { authFetch } from '../lib/supabase';
+import {
+  type NoteBase as Note,
+  type NoteFolderBase as NoteFolder,
+  loadNotes,
+  loadFolders,
+  loadActiveNoteId,
+  saveNotes,
+  saveFolders,
+  saveActiveNoteId,
+  mergeDbAndLocalNotes,
+  getLocalOnlyNotes,
+  mergeFolderArrays,
+  normalizeNoteFolderId,
+  noteSyncPayload,
+  NOTE_TRASH_RETENTION_MS,
+} from '../components/views/noteUtils';
+
+export type { Note, NoteFolder };
+
+export interface CreateNoteOpts {
+  title?: string;
+  body?: string;
+  folderId?: string | null;
+  /** UI 가상 폴더(trash/starred) — folderId 미지정 시 사용 */
+  folderContext?: string | null | 'trash' | 'starred';
+}
+
+interface NotesState {
+  notes: Note[];
+  folders: NoteFolder[];
+  activeNoteId: string | null;
+  /** Planner Memo 패널용 폴더 필터 (NoteView는 자체 activeFolderId + starred 사용) */
+  activeFolderId: string | null | 'trash';
+  isSyncing: boolean;
+  savedAt: Date | null;
+  syncError: string | null;
+
+  setActiveNoteId: (id: string | null) => void;
+  setActiveFolderId: (id: string | null | 'trash') => void;
+  createNote: (opts?: CreateNoteOpts) => string;
+  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => void;
+  toggleStar: (id: string) => void;
+  duplicateNote: (note: Note) => string;
+  moveNoteToTrash: (id: string) => void;
+  restoreNote: (id: string) => void;
+  permanentDeleteNote: (id: string) => void;
+  createFolder: (name: string) => string;
+  renameFolder: (id: string, name: string) => void;
+  deleteFolder: (id: string) => void;
+  importNote: (note: Note) => void;
+
+  hydrateFromDB: () => Promise<void>;
+  syncNoteToDB: (note: Note) => Promise<boolean>;
+  flushPendingSync: () => void;
+  retrySync: () => void;
+}
+
+// ── 모듈 레벨 debounce (리렌더 불필요) ─────────────────────────────
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSyncNote: Note | null = null;
+let lastFailedNote: Note | null = null;
+const BODY_SYNC_MS = 600;
+
+function resolveFolderId(opts?: CreateNoteOpts): string | null {
+  if (opts?.folderId !== undefined) return opts.folderId;
+  return normalizeNoteFolderId(opts?.folderContext ?? null);
+}
+
+function mapDbNote(
+  n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean },
+  local: Note | undefined,
+): Note {
+  const localIsNewer = local && local.updatedAt > n.updated_at;
+  return {
+    id: n.id,
+    title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
+    body:      localIsNewer ? (local.body  ?? '') : (n.body  ?? ''),
+    updatedAt: localIsNewer ? local.updatedAt     : n.updated_at,
+    folderId:  n.folder_id != null ? n.folder_id : (local?.folderId ?? null),
+    deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
+    starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
+  };
+}
+
+const initialNotes = loadNotes();
+const initialFolders = loadFolders();
+
+export const useNotesStore = create<NotesState>((set, get) => {
+  const syncNoteToDB = async (note: Note): Promise<boolean> => {
+    try {
+      const res = await authFetch(`${API_URL}/api/notes`, {
+        method: 'POST',
+        body: JSON.stringify(noteSyncPayload(note)),
+      });
+      if (!res.ok) {
+        lastFailedNote = note;
+        set({ syncError: `Cloud sync failed (${res.status})` });
+        return false;
+      }
+      lastFailedNote = null;
+      set({ syncError: null, savedAt: new Date() });
+      return true;
+    } catch (err) {
+      lastFailedNote = note;
+      set({ syncError: err instanceof Error ? err.message : 'Cloud sync failed' });
+      return false;
+    }
+  };
+
+  const removeNoteFromDB = async (id: string) => {
+    try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
+  };
+
+  const syncFolderToDB = async (folder: NoteFolder) => {
+    try {
+      await authFetch(`${API_URL}/api/note_folders`, {
+        method: 'POST',
+        body: JSON.stringify({ id: folder.id, name: folder.name, created_at: folder.createdAt }),
+      });
+    } catch { /**/ }
+  };
+
+  const removeFolderFromDB = async (id: string) => {
+    try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
+  };
+
+  const flushPendingSync = () => {
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    if (pendingSyncNote) {
+      const note = pendingSyncNote;
+      pendingSyncNote = null;
+      void syncNoteToDB(note);
+    }
+  };
+
+  const scheduleBodySync = (note: Note) => {
+    pendingSyncNote = note;
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => {
+      syncTimer = null;
+      pendingSyncNote = null;
+      void syncNoteToDB(note);
+    }, BODY_SYNC_MS);
+  };
+
+  return {
+    notes: initialNotes,
+    folders: initialFolders,
+    activeNoteId: loadActiveNoteId(initialNotes),
+    activeFolderId: null,
+    isSyncing: false,
+    savedAt: null,
+    syncError: null,
+
+    setActiveNoteId: (id) => {
+      set({ activeNoteId: id });
+      saveActiveNoteId(id);
+    },
+
+    setActiveFolderId: (id) => set({ activeFolderId: id }),
+
+    createNote: (opts) => {
+      const id = `note-${Date.now()}`;
+      const note: Note = {
+        id,
+        title: opts?.title ?? '',
+        body: opts?.body ?? '',
+        updatedAt: Date.now(),
+        folderId: resolveFolderId(opts),
+        deletedAt: null,
+        starred: false,
+      };
+      const notes = [note, ...get().notes];
+      set({ notes, activeNoteId: id });
+      saveNotes(notes);
+      saveActiveNoteId(id);
+      void syncNoteToDB(note);
+      return id;
+    },
+
+    importNote: (note) => {
+      const notes = [note, ...get().notes];
+      set({ notes, activeNoteId: note.id });
+      saveNotes(notes);
+      saveActiveNoteId(note.id);
+      void syncNoteToDB(note);
+    },
+
+    updateNote: (id, patch) => {
+      const notes = get().notes.map(n =>
+        n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
+      );
+      set({ notes });
+      saveNotes(notes);
+      const updated = notes.find(n => n.id === id);
+      if (!updated) return;
+      if ('body' in patch) {
+        scheduleBodySync(updated);
+      } else {
+        flushPendingSync();
+        void syncNoteToDB(updated);
+      }
+    },
+
+    toggleStar: (id) => {
+      const notes = get().notes.map(n =>
+        n.id === id ? { ...n, starred: !n.starred, updatedAt: Date.now() } : n
+      );
+      set({ notes });
+      saveNotes(notes);
+      const note = notes.find(n => n.id === id);
+      if (note) void syncNoteToDB(note);
+    },
+
+    duplicateNote: (note) => {
+      const id = `note-${Date.now()}`;
+      const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
+      const notes = [copy, ...get().notes];
+      set({ notes, activeNoteId: id });
+      saveNotes(notes);
+      saveActiveNoteId(id);
+      void syncNoteToDB(copy);
+      return id;
+    },
+
+    moveNoteToTrash: (id) => {
+      const notes = get().notes.map(n =>
+        n.id === id ? { ...n, deletedAt: Date.now() } : n
+      );
+      const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
+      set({ notes, activeNoteId: nextActive });
+      saveNotes(notes);
+      saveActiveNoteId(nextActive);
+      const trashed = notes.find(n => n.id === id);
+      if (trashed) void syncNoteToDB(trashed);
+    },
+
+    restoreNote: (id) => {
+      const notes = get().notes.map(n =>
+        n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n
+      );
+      const restored = notes.find(n => n.id === id);
+      set({
+        notes,
+        activeNoteId: id,
+        activeFolderId: restored?.folderId ?? get().activeFolderId,
+      });
+      saveNotes(notes);
+      saveActiveNoteId(id);
+      if (restored) void syncNoteToDB(restored);
+    },
+
+    permanentDeleteNote: (id) => {
+      const notes = get().notes.filter(n => n.id !== id);
+      const nextActive = get().activeNoteId === id
+        ? (notes.find(n => !n.deletedAt)?.id ?? null)
+        : get().activeNoteId;
+      set({ notes, activeNoteId: nextActive });
+      saveNotes(notes);
+      saveActiveNoteId(nextActive);
+      void removeNoteFromDB(id);
+    },
+
+    createFolder: (name) => {
+      const id = `folder-${Date.now()}`;
+      const folder: NoteFolder = { id, name, createdAt: Date.now() };
+      const folders = [...get().folders, folder];
+      set({ folders, activeFolderId: id });
+      saveFolders(folders);
+      void syncFolderToDB(folder);
+      return id;
+    },
+
+    renameFolder: (id, name) => {
+      const folders = get().folders.map(f => f.id === id ? { ...f, name } : f);
+      set({ folders });
+      saveFolders(folders);
+      const folder = folders.find(f => f.id === id);
+      if (folder) void syncFolderToDB(folder);
+    },
+
+    deleteFolder: (id) => {
+      const movedIds = new Set(get().notes.filter(n => n.folderId === id).map(n => n.id));
+      const notes = get().notes.map(n => movedIds.has(n.id) ? { ...n, folderId: null } : n);
+      const folders = get().folders.filter(f => f.id !== id);
+      const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
+      set({ folders, notes, activeFolderId });
+      saveNotes(notes);
+      saveFolders(folders);
+      void removeFolderFromDB(id);
+      notes.filter(n => movedIds.has(n.id)).forEach(n => { void syncNoteToDB(n); });
+    },
+
+    hydrateFromDB: async () => {
+      set({ isSyncing: true });
+      try {
+        const fRes = await authFetch(`${API_URL}/api/note_folders`);
+        if (!fRes.ok) set({ syncError: `Failed to load folders (${fRes.status})` });
+        if (fRes.ok) {
+          const raw = await fRes.json();
+          const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
+            id: f.id, name: f.name, createdAt: f.created_at,
+          }));
+          const localFolders = get().folders;
+          const dbIds = new Set(dbFolders.map(f => f.id));
+          const localOnly = localFolders.filter(f => !dbIds.has(f.id));
+          const mergedFolders = mergeFolderArrays(localOnly, dbFolders);
+          if (mergedFolders.length > 0) {
+            set({ folders: mergedFolders });
+            saveFolders(mergedFolders);
+            if (localOnly.length > 0) {
+              await Promise.allSettled(localOnly.map(f => syncFolderToDB(f)));
+            }
+          }
+        }
+
+        const nRes = await authFetch(`${API_URL}/api/notes`);
+        if (!nRes.ok) set({ syncError: `Failed to load notes (${nRes.status})` });
+        if (nRes.ok) {
+          const raw = await nRes.json();
+          const localNotes = get().notes;
+          const dbNotes: Note[] = raw.map((n: Parameters<typeof mapDbNote>[0]) => {
+            const local = localNotes.find(l => l.id === n.id);
+            return mapDbNote(n, local);
+          });
+
+          const dbIds = raw.map((n: { id: string }) => n.id);
+          const localOnly = getLocalOnlyNotes(dbIds, localNotes);
+          if (localOnly.length > 0) {
+            await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
+          }
+
+          const expired = dbNotes.filter(
+            n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
+          );
+          expired.forEach(n => { void removeNoteFromDB(n.id); });
+
+          const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
+          if (dbNotes.length > 0 || localOnly.length > 0) {
+            const prevActive = get().activeNoteId;
+            const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
+            const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
+            set({ notes: merged, activeNoteId: nextActive });
+            saveNotes(merged);
+            saveActiveNoteId(nextActive);
+          } else if (dbNotes.length === 0) {
+            await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
+          }
+        }
+      } catch (err) {
+        set({ syncError: err instanceof Error ? err.message : 'Failed to load from cloud' });
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
+
+    syncNoteToDB,
+    flushPendingSync,
+    retrySync: () => {
+      const target = lastFailedNote
+        ?? get().notes.find(n => n.id === get().activeNoteId)
+        ?? null;
+      if (target) void syncNoteToDB(target);
+    },
+  };
+});
+
+// 페이지 이탈 · 탭 전환 시 body debounce flush
+if (typeof window !== 'undefined') {
+  const flush = () => useNotesStore.getState().flushPendingSync();
+  window.addEventListener('pagehide', flush);
+  window.addEventListener('beforeunload', flush);
+}
