@@ -220,6 +220,8 @@ interface BlockEditorProps {
   searchQuery?: string;
   /** 위키링크 [[ 자동완성 후보 (노트 제목 목록) */
   wikiTargets?: string[];
+  /** edit 모드 Ctrl/Cmd+클릭으로 [[제목]] 따라가기 */
+  onWikiNavigate?: (title: string) => void;
 }
 
 interface BlockMenuState { blockId: string; anchorY: number; anchorX: number; }
@@ -305,6 +307,7 @@ interface SingleBlockProps {
   onWikiOpen:   (state: WikiMenuState) => void;
   onWikiClose:  () => void;
   isMenuOpen:   boolean;   // 이 블록을 대상으로 슬래시/위키 메뉴가 열려있는지
+  onWikiNavigate?: (title: string) => void;
   // Toggle Step 1
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2
@@ -319,7 +322,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
   dragState, startDrag, getDragProps,
   onSlashOpen, onSlashClose,
-  onWikiOpen, onWikiClose, isMenuOpen,
+  onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
   onToggleAddChild,
   onToggleEnter,
   onTableChange,
@@ -408,7 +411,7 @@ const SingleBlock = React.memo(function SingleBlock({
     // Phase 3
     onSlashOpen, onSlashClose,
     // 위키링크 자동완성
-    onWikiOpen, onWikiClose, isMenuOpen,
+    onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
     // Toggle Step 1
     onToggleAddChild,
     // Toggle Step 2
@@ -469,6 +472,7 @@ interface RCtx {
   onWikiOpen:   (state: WikiMenuState) => void;
   onWikiClose:  () => void;
   isMenuOpen:   boolean;
+  onWikiNavigate?: (title: string) => void;
   // Toggle Step 1: 빈 자식 영역 클릭 → 자식 블록 생성
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2: 헤더 Enter → 첫 자식 블록 생성 & 포커스
@@ -497,6 +501,7 @@ interface EditableBlockProps {
   onWikiOpen:   (state: WikiMenuState) => void;
   onWikiClose:  () => void;
   isMenuOpen:   boolean;
+  onWikiNavigate?: (title: string) => void;
   // Toggle Step 2: Enter 동작을 완전히 대체하는 콜백 (toggle 헤더 전용)
   onEnterOverride?: (currentContent: string) => void;
 }
@@ -506,7 +511,7 @@ function EditableBlock({
   style, className, editableRef,
   onSplitBlock, onMergeWithPrev, onContentChange, tag = 'p',
   onSlashOpen, onSlashClose,
-  onWikiOpen, onWikiClose, isMenuOpen,
+  onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
   onEnterOverride,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
@@ -630,6 +635,23 @@ function EditableBlock({
     document.execCommand('insertText', false, text);
   }, []);
 
+  // Ctrl/Cmd+클릭으로 클릭 위치의 [[제목]] 따라가기 (일반 클릭은 캐럿 배치 유지)
+  const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (!onWikiNavigate || !(e.ctrlKey || e.metaKey)) return;
+    const el = e.currentTarget;
+    const text   = getElText(el);
+    const offset = getCaretOffset(el);
+    const re = /\[\[([^\]\n]+)\]\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      if (offset >= m.index && offset <= m.index + m[0].length) {
+        e.preventDefault();
+        onWikiNavigate(m[1]);
+        return;
+      }
+    }
+  }, [onWikiNavigate]);
+
   return (
     <Tag
       ref={(el: HTMLElement | null) => { editableRef.current = el; }}
@@ -646,6 +668,7 @@ function EditableBlock({
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
       onPaste={handlePaste}
+      onClick={handleClick}
       data-placeholder={placeholder}
       dangerouslySetInnerHTML={{ __html: block.content }}
     />
@@ -1433,6 +1456,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   onChange={children => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, children })))}
                   colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
                   wikiTargets={ctx.wikiTargets}
+                  onWikiNavigate={ctx.onWikiNavigate}
                   // Toggle Step 3: 자식 → 부모 탈출 콜백
                   onEscapeToParentBelow={() => {
                     // toggle 바로 아래에 새 paragraph 삽입 + 포커스
@@ -1545,13 +1569,14 @@ interface BlockEditorInnerProps {
   colors: BlockEditorColors; readOnly: boolean;
   searchQuery: string; depth: number;
   wikiTargets: string[];
+  onWikiNavigate?: (title: string) => void;
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
   onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
-  wikiTargets,
+  wikiTargets, onWikiNavigate,
   onEscapeToParentBelow, onEscapeToParentHeader,
 }: BlockEditorInnerProps) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -1776,6 +1801,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onAddBelow={handleAddBelow} readOnly={readOnly}
             searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
             headingIndex={headingIndexById[block.id]}
+            onWikiNavigate={onWikiNavigate}
             onSplitBlock={handleSplitBlock}
             onMergeWithPrev={handleMergeWithPrev}
             onContentChange={handleContentChange}
@@ -2062,7 +2088,7 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
 }
 
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
-export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [] }: BlockEditorProps) {
+export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate }: BlockEditorProps) {
   return (
     <>
       <style>{`
@@ -2080,6 +2106,7 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
         blocks={blocks} onChange={onChange} colors={colors}
         readOnly={readOnly} searchQuery={searchQuery} depth={0}
         wikiTargets={wikiTargets}
+        onWikiNavigate={onWikiNavigate}
       />
       {!readOnly && (
         <div style={{ minHeight:80, cursor:'text', paddingLeft:52 }}

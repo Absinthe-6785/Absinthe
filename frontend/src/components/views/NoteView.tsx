@@ -57,8 +57,9 @@ interface NoteBlockEditorProps {
   readOnly: boolean;
   searchQuery: string;
   wikiTargets: string[];
+  onWikiNavigate?: (title: string) => void;
 }
-const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wikiTargets }: NoteBlockEditorProps) => {
+const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wikiTargets, onWikiNavigate }: NoteBlockEditorProps) => {
   const { blocks, handleBlockChange, undo, redo } = useBlockEditor(body, onBodyChange);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
@@ -83,6 +84,7 @@ const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wi
       readOnly={readOnly}
       searchQuery={searchQuery}
       wikiTargets={wikiTargets}
+      onWikiNavigate={onWikiNavigate}
     />
   );
 };
@@ -815,6 +817,12 @@ export const NoteView = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
 
+  // 위키링크 따라가기 — 제목이 일치하는(삭제되지 않은) 노트로 이동
+  const navigateToWiki = useCallback((title: string) => {
+    const found = notes.find(n => n.title === title && !n.deletedAt);
+    if (found) setActiveNoteId(found.id);
+  }, [notes, setActiveNoteId]);
+
   // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/preview 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
     const el = document.querySelector(`[data-be-heading="${headingIdx}"]`);
@@ -1343,7 +1351,7 @@ export const NoteView = () => {
                   <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
-                      입력으로 블록 추가 · 드래그로 순서 변경
+                      입력으로 블록 추가 · 드래그로 순서 변경 · Ctrl+클릭으로 [[링크]] 이동
                     </span>
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
@@ -1394,6 +1402,7 @@ export const NoteView = () => {
                           readOnly={false}
                           searchQuery={searchQuery}
                           wikiTargets={wikiTargets}
+                          onWikiNavigate={navigateToWiki}
                         />
                       </div>
                     )
