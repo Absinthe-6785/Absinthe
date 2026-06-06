@@ -16,6 +16,8 @@ import {
   saveNotes,
   saveFolders,
   saveActiveNoteId,
+  clearNotesStorage,
+  createDefaultWelcomeNotes,
   mergeDbAndLocalNotes,
   getLocalOnlyNotes,
   mergeFolderArrays,
@@ -62,6 +64,8 @@ interface NotesState {
   syncNoteToDB: (note: Note) => Promise<boolean>;
   flushPendingSync: () => void;
   retrySync: () => void;
+  /** Settings Reset — localStorage + in-memory notes 초기화 */
+  resetAllNotes: () => void;
 }
 
 // ── 모듈 레벨 debounce (리렌더 불필요) ─────────────────────────────
@@ -373,6 +377,26 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ?? get().notes.find(n => n.id === get().activeNoteId)
         ?? null;
       if (target) void syncNoteToDB(target);
+    },
+
+    resetAllNotes: () => {
+      if (syncTimer) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+      }
+      pendingSyncNote = null;
+      lastFailedNote = null;
+      clearNotesStorage();
+      const notes = createDefaultWelcomeNotes();
+      set({
+        notes,
+        folders: [],
+        activeNoteId: notes[0]?.id ?? null,
+        activeFolderId: null,
+        syncError: null,
+        savedAt: null,
+        isSyncing: false,
+      });
     },
   };
 });

@@ -191,6 +191,24 @@ export function saveActiveNoteId(id: string | null): void {
   try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
 }
 
+/** Settings Reset 등 — notes localStorage 전부 제거 */
+export function clearNotesStorage(): void {
+  try {
+    localStorage.removeItem(NOTES_KEY);
+    localStorage.removeItem(FOLDERS_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
+  } catch { /**/ }
+}
+
+/** DB·로컬 초기화 후 기본 환영 노트 1개 생성 */
+export function createDefaultWelcomeNotes(): NoteBase[] {
+  const notes = defaultSeedNotes();
+  saveNotes(notes);
+  saveActiveNoteId(notes[0]?.id ?? null);
+  saveFolders([]);
+  return notes;
+}
+
 /** @deprecated use loadNotes */
 export const nvLoadNotes = loadNotes;
 /** @deprecated use loadFolders */
