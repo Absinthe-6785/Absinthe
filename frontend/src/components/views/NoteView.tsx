@@ -639,7 +639,6 @@ export const NoteView = () => {
     tagTxt:    dark ? '#A78BFA'   : '#7A6544',
     danger:    dark ? '#F87171'   : '#DC2626',
     green:     dark ? '#4ADE80'   : '#15803D',
-    textarea:  dark ? '#18181A'   : '#FAFAF8',
   }), [dark]);
 
   // ── 블록 에디터 색상 팔레트 (c → BlockEditorColors 매핑) ──────────
