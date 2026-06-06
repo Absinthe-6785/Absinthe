@@ -14,7 +14,7 @@
  */
 
 import React, {
-  useState, useRef, useCallback, useMemo, useEffect,
+  useState, useRef, useCallback, useMemo, useEffect, useContext,
   type ReactNode, type CSSProperties,
 } from 'react';
 import {
@@ -89,6 +89,19 @@ function getElText(el: HTMLElement): string {
 // BlockEditorInner → SingleBlock 간 포커스 명령 전달
 type FocusCmd = { blockId: string; offset: 'start' | 'end' | number };
 const focusRegistry = new Map<string, (cmd: FocusCmd) => void>();
+
+/** SingleBlock 리렌더 최소화 — blocks 배열 참조 대신 ref로 최신 상태 접근 */
+interface BlocksCtxValue {
+  getBlocks: () => Block[];
+  onChange: (b: Block[]) => void;
+}
+const BlocksCtx = React.createContext<BlocksCtxValue | null>(null);
+
+function useBlocksCtx(): BlocksCtxValue {
+  const ctx = useContext(BlocksCtx);
+  if (!ctx) throw new Error('useBlocksCtx must be used within BlocksCtx');
+  return ctx;
+}
 
 // ── 드래그&드롭 훅 ────────────────────────────────────────────────────
 interface DragState {
@@ -293,7 +306,7 @@ function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = 
 
 // ── SingleBlock ───────────────────────────────────────────────────────
 interface SingleBlockProps {
-  block: Block; blocks: Block[]; onChange: (b: Block[]) => void;
+  block: Block;
   colors: BlockEditorColors; selected: boolean;
   onSelect: (id: string) => void; onOpenMenu: (s: BlockMenuState) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
@@ -326,8 +339,40 @@ interface SingleBlockProps {
   onActiveBlockChange?: (id: string | null) => void;
 }
 
+function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
+  return prev.block === next.block
+    && prev.selected === next.selected
+    && prev.readOnly === next.readOnly
+    && prev.searchQuery === next.searchQuery
+    && prev.depth === next.depth
+    && prev.isMenuOpen === next.isMenuOpen
+    && prev.headingIndex === next.headingIndex
+    && prev.focusCmd === next.focusCmd
+    && prev.dragState === next.dragState
+    && prev.colors === next.colors
+    && prev.wikiTargets === next.wikiTargets
+    && prev.onSelect === next.onSelect
+    && prev.onOpenMenu === next.onOpenMenu
+    && prev.onAddBelow === next.onAddBelow
+    && prev.onSplitBlock === next.onSplitBlock
+    && prev.onMergeWithPrev === next.onMergeWithPrev
+    && prev.onContentChange === next.onContentChange
+    && prev.startDrag === next.startDrag
+    && prev.getDragProps === next.getDragProps
+    && prev.onSlashOpen === next.onSlashOpen
+    && prev.onSlashClose === next.onSlashClose
+    && prev.onWikiOpen === next.onWikiOpen
+    && prev.onWikiClose === next.onWikiClose
+    && prev.onWikiNavigate === next.onWikiNavigate
+    && prev.onToggleAddChild === next.onToggleAddChild
+    && prev.onToggleEnter === next.onToggleEnter
+    && prev.onTableChange === next.onTableChange
+    && prev.onNavigateBlock === next.onNavigateBlock
+    && prev.onActiveBlockChange === next.onActiveBlockChange;
+}
+
 const SingleBlock = React.memo(function SingleBlock({
-  block, blocks, onChange, colors: c, selected,
+  block, colors: c, selected,
   onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
   onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
   dragState, startDrag, getDragProps,
@@ -339,17 +384,20 @@ const SingleBlock = React.memo(function SingleBlock({
   onNavigateBlock,
   onActiveBlockChange,
 }: SingleBlockProps) {
+  const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
   const shellRef = useRef<HTMLDivElement>(null);
 
   const handleToggleTodo = useCallback(() => {
+    const blocks = getBlocks();
     onChange(updateBlockById(blocks, block.id, b => ({ ...b, checked: !b.checked })));
-  }, [blocks, block.id, onChange]);
+  }, [block.id, getBlocks, onChange]);
 
   const handleToggleCollapse = useCallback(() => {
     setToggleOpen(v => !v);
+    const blocks = getBlocks();
     onChange(updateBlockById(blocks, block.id, b => ({ ...b, collapsed: !b.collapsed })));
-  }, [blocks, block.id, onChange]);
+  }, [block.id, getBlocks, onChange]);
 
   const editableRef = useRef<HTMLElement | null>(null);
 
@@ -420,7 +468,7 @@ const SingleBlock = React.memo(function SingleBlock({
     toggleOpen, inline,
     onToggleCollapse: handleToggleCollapse,
     onToggleTodo: handleToggleTodo,
-    blocks, onChange, searchQuery, depth, wikiTargets,
+    getBlocks, onChange, searchQuery, depth, wikiTargets,
     readOnly, onSelect, onOpenMenu, onAddBelow,
     // Phase 2
     onSplitBlock, onMergeWithPrev, onContentChange,
@@ -479,7 +527,7 @@ const SingleBlock = React.memo(function SingleBlock({
       {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
     </div>
   );
-});
+}, singleBlockPropsEqual);
 
 const hBtn = (c: BlockEditorColors): CSSProperties => ({
   background:c.card, border:`1px solid ${c.border}`, borderRadius:5,
@@ -493,7 +541,7 @@ interface RCtx {
   inline: (s: string) => ReactNode;
   onToggleCollapse: () => void;
   onToggleTodo: () => void;
-  blocks: Block[]; onChange: (b: Block[]) => void;
+  getBlocks: () => Block[]; onChange: (b: Block[]) => void;
   searchQuery: string; depth: number; readOnly: boolean;
   wikiTargets: string[];
   onSelect: (id: string) => void;
@@ -1698,7 +1746,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
               {block.children.length > 0 ? (
                 <BlockEditorInner
                   blocks={block.children}
-                  onChange={children => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, children })))}
+                  onChange={children => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, children })))}
                   colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
                   wikiTargets={ctx.wikiTargets}
                   onWikiNavigate={ctx.onWikiNavigate}
@@ -1708,7 +1756,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   onEscapeToParentBelow={() => {
                     // toggle 바로 아래에 새 paragraph 삽입 + 포커스
                     const newBlock = makeBlock('paragraph');
-                    ctx.onChange(insertBlockAfter(ctx.blocks, block.id, newBlock));
+                    ctx.onChange(insertBlockAfter(ctx.getBlocks(), block.id, newBlock));
                     requestAnimationFrame(() => {
                       const h = focusRegistry.get(newBlock.id);
                       if (h) h({ blockId: newBlock.id, offset: 'start' });
@@ -1779,14 +1827,14 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       return (
         <CodeBlock
           block={block} colors={c} readOnly={readOnly}
-          onChange={patch => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, ...patch })))}
+          onChange={patch => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, ...patch })))}
         />
       );
     case 'image':
       return (
         <ImageBlock
           block={block} colors={c} readOnly={readOnly}
-          onChange={patch => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, ...patch })))}
+          onChange={patch => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, ...patch })))}
         />
       );
     case 'table':
@@ -1802,7 +1850,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       return (
         <MathBlock
           block={block} colors={c} readOnly={readOnly}
-          onChange={math => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, math })))}
+          onChange={math => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, math })))}
         />
       );
     default:
@@ -1830,6 +1878,14 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   externalFocusId, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader,
 }: BlockEditorInnerProps) {
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+
+  const blocksCtx = useMemo<BlocksCtxValue>(() => ({
+    getBlocks: () => blocksRef.current,
+    onChange,
+  }), [onChange]);
+
   const [selected, setSelected] = useState<string | null>(null);
   const [blockMenu, setBlockMenu] = useState<BlockMenuState | null>(null);
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
@@ -1842,50 +1898,52 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   const handleAddBelow = useCallback((id: string) => {
     const nb = makeBlock('paragraph');
-    onChange(insertBlockAfter(blocks, id, nb));
+    onChange(insertBlockAfter(blocksRef.current, id, nb));
     setFocusCmd({ blockId: nb.id, offset: 'start' });
     setSelected(nb.id);
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   const handleDelete = useCallback((id: string) => {
-    const updated = deleteBlockById(blocks, id);
+    const updated = deleteBlockById(blocksRef.current, id);
     onChange(updated.length > 0 ? updated : [makeBlock('paragraph')]);
     setSelected(null);
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   const handleMove = useCallback((id: string, dir: 'up' | 'down') => {
-    const idx = blocks.findIndex(b => b.id === id);
+    const bs = blocksRef.current;
+    const idx = bs.findIndex(b => b.id === id);
     if (idx < 0) return;
     const newIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= blocks.length) return;
-    const next = [...blocks];
+    if (newIdx < 0 || newIdx >= bs.length) return;
+    const next = [...bs];
     [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
     onChange(next);
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   const handleConvert = useCallback((id: string, newType: BlockType) => {
-    onChange(updateBlockById(blocks, id, b => convertBlock(b, newType)));
+    onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
     setBlockMenu(null);
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   // ── Phase 2: 블록 분리 (Enter) ───────────────────────────────────
   const handleSplitBlock = useCallback((id: string, before: string, after: string) => {
-    const idx = blocks.findIndex(b => b.id === id);
+    const bs = blocksRef.current;
+    const idx = bs.findIndex(b => b.id === id);
     if (idx < 0) return;
 
     // Toggle Step 3: 마지막 자식이 빈 paragraph + Enter → 부모 toggle 아래로 탈출
-    const isLast    = idx === blocks.length - 1;
+    const isLast    = idx === bs.length - 1;
     const isEmpty   = before === '' && after === '';
-    const isPara    = blocks[idx].type === 'paragraph';
+    const isPara    = bs[idx].type === 'paragraph';
     if (isLast && isEmpty && isPara && onEscapeToParentBelow) {
       // 빈 자식 블록 삭제 후 부모에 탈출 신호
-      const cleaned = blocks.filter(b => b.id !== id);
+      const cleaned = bs.filter(b => b.id !== id);
       onChange(cleaned.length > 0 ? cleaned : []);
       onEscapeToParentBelow();
       return;
     }
 
-    const cur = blocks[idx];
+    const cur = bs[idx];
     const updatedCur: Block = { ...cur, content: before };
     const newType: BlockType = ['heading1','heading2','heading3'].includes(cur.type)
       ? 'paragraph' : cur.type;
@@ -1895,24 +1953,25 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       checked: false,
     });
 
-    const next = [...blocks];
+    const next = [...bs];
     next[idx] = updatedCur;
     next.splice(idx + 1, 0, newBlock);
     onChange(next);
 
     setFocusCmd({ blockId: newBlock.id, offset: 'start' });
     setSelected(newBlock.id);
-  }, [blocks, onChange, onEscapeToParentBelow]);
+  }, [onChange, onEscapeToParentBelow]);
 
   // ── Phase 2: 블록 병합 (Backspace at start) ──────────────────────
   const handleMergeWithPrev = useCallback((id: string, selfContent: string) => {
-    const ids = flattenBlockIds(blocks);
+    const bs = blocksRef.current;
+    const ids = flattenBlockIds(bs);
     const pos  = ids.indexOf(id);
 
     // Toggle Step 3: 첫 번째 자식의 커서가 맨 앞 + 빈 내용 → 헤더로 탈출
     if (pos === 0 && selfContent === '' && onEscapeToParentHeader) {
       // 빈 첫 자식 삭제
-      const cleaned = blocks.filter(b => b.id !== id);
+      const cleaned = bs.filter(b => b.id !== id);
       onChange(cleaned.length > 0 ? cleaned : []);
       onEscapeToParentHeader();
       return;
@@ -1921,29 +1980,29 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (pos <= 0) return;
 
     const prevId    = ids[pos - 1];
-    const prevBlock = findBlockById(blocks, prevId);
+    const prevBlock = findBlockById(bs, prevId);
     if (!prevBlock) return;
 
     const mergedContent = prevBlock.content + selfContent;
     const mergeOffset   = prevBlock.content.length;
 
-    let next = updateBlockById(blocks, prevId, b => ({ ...b, content: mergedContent }));
+    let next = updateBlockById(bs, prevId, b => ({ ...b, content: mergedContent }));
     next = deleteBlockById(next, id);
     onChange(next);
 
     setFocusCmd({ blockId: prevId, offset: mergeOffset });
     setSelected(prevId);
-  }, [blocks, onChange, onEscapeToParentHeader]);
+  }, [onChange, onEscapeToParentHeader]);
 
   // ── Phase 2: 블록 content 변경 ───────────────────────────────────
   const handleContentChange = useCallback((id: string, content: string) => {
-    onChange(updateBlockById(blocks, id, b => ({ ...b, content })));
-  }, [blocks, onChange]);
+    onChange(updateBlockById(blocksRef.current, id, b => ({ ...b, content })));
+  }, [onChange]);
 
   // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
   const handleToggleAddChild = useCallback((toggleBlockId: string) => {
     const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(blocks, toggleBlockId, b => ({
+    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
       ...b,
       collapsed: false,
       children: [newChild],
@@ -1953,12 +2012,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       const handler = focusRegistry.get(newChild.id);
       if (handler) handler({ blockId: newChild.id, offset: 'start' });
     });
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   // ── Toggle Step 2: 헤더 Enter → 자식 블록 생성 & 포커스 ──────────
   const handleToggleEnter = useCallback((toggleBlockId: string, currentContent: string) => {
     const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(blocks, toggleBlockId, b => {
+    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => {
       // 헤더 content를 currentContent로 업데이트 (캐럿 위치 이후 텍스트 있을 경우 대비)
       const updated: Block = { ...b, content: currentContent, collapsed: false };
       // 자식이 이미 있으면 맨 앞에 삽입, 없으면 새로 생성
@@ -1969,25 +2028,26 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       const handler = focusRegistry.get(newChild.id);
       if (handler) handler({ blockId: newChild.id, offset: 'start' });
     });
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   // ── Table: 셀/행/열 변경 ─────────────────────────────────────────
   const handleTableChange = useCallback((
     blockId: string, headers: string[], rows: string[][],
   ) => {
-    onChange(updateBlockById(blocks, blockId, b => ({
+    onChange(updateBlockById(blocksRef.current, blockId, b => ({
       ...b, tableHeaders: headers, tableRows: rows,
     })));
-  }, [blocks, onChange]);
+  }, [onChange]);
 
   const handleNavigateBlock = useCallback((fromId: string, dir: 'up' | 'down') => {
-    const ids = flattenBlockIds(blocks);
+    const bs = blocksRef.current;
+    const ids = flattenBlockIds(bs);
     const pos = ids.indexOf(fromId);
     if (pos < 0) return;
     const targetPos = dir === 'up' ? pos - 1 : pos + 1;
     if (targetPos < 0 || targetPos >= ids.length) return;
     const targetId = ids[targetPos];
-    const targetBlock = findBlockById(blocks, targetId);
+    const targetBlock = findBlockById(bs, targetId);
     if (!targetBlock) return;
     setSelected(targetId);
     onActiveBlockChange?.(targetId);
@@ -1997,7 +2057,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         ? (dir === 'up' ? 'end' : 'start')
         : 'start',
     });
-  }, [blocks, onActiveBlockChange]);
+  }, [onActiveBlockChange]);
 
   // 외부 포커스 요청 (이미지 삽입 직후 등)
   useEffect(() => {
@@ -2013,13 +2073,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const { blockId, query } = slashMenu;
 
     // 현재 블록 content에서 '/쿼리' 부분 제거
-    onChange(updateBlockById(blocks, blockId, b => {
+    onChange(updateBlockById(blocksRef.current, blockId, b => {
       const slashIdx = b.content.lastIndexOf('/' + query);
       const cleaned  = slashIdx >= 0
         ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
         : b.content;
       // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
-      if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned };
+      if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned, mathBlock: (b.math || cleaned).includes('\n') };
       if (type === 'code')  return { ...b, type, content: '', code: b.code || cleaned };
       if (type === 'image') return { ...b, type, content: '', src: '', alt: '', caption: undefined, width: undefined };
       return { ...b, type, content: cleaned };
@@ -2028,7 +2088,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setSlashMenu(null);
     // 타입 변환 후 해당 블록 포커스 (끝)
     setFocusCmd({ blockId, offset: 'end' });
-  }, [slashMenu, blocks, onChange]);
+  }, [slashMenu, onChange]);
 
   // ── 위키링크 선택 → 포커스된 contentEditable에 직접 [[제목]] 삽입 ──
   // 상태 round-trip 대신 DOM을 직접 조작해 캐럿 위치를 정확히 유지한다.
@@ -2071,11 +2131,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [blocks, depth]);
 
   return (
+  <BlocksCtx.Provider value={blocksCtx}>
     <>
       <div style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 52), position:'relative' }}>
         {blocks.map(block => (
           <SingleBlock
-            key={block.id} block={block} blocks={blocks} onChange={onChange}
+            key={block.id} block={block}
             colors={c} selected={selected === block.id}
             onSelect={setSelected} onOpenMenu={setBlockMenu}
             onAddBelow={handleAddBelow} readOnly={readOnly}
@@ -2137,6 +2198,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         />
       )}
     </>
+  </BlocksCtx.Provider>
   );
 }
 
@@ -2369,8 +2431,13 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
   );
 }
 
+const noopBlockChange = () => {};
+
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
-export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate, onActiveBlockChange, externalFocusId, onExternalFocusConsumed }: BlockEditorProps) {
+export const BlockEditor = React.memo(function BlockEditor({
+  blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate,
+  onActiveBlockChange, externalFocusId, onExternalFocusConsumed,
+}: BlockEditorProps) {
   return (
     <>
       <style>{`
@@ -2409,7 +2476,25 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
       )}
     </>
   );
-}
+});
+
+/** readOnly 프리뷰 — undo/history 없이 body → Block[] 1회 파싱만 수행 */
+export const BlockEditorPreview = React.memo(function BlockEditorPreview({
+  body, colors, searchQuery = '', wikiTargets = [], onWikiNavigate,
+}: Pick<BlockEditorProps, 'colors' | 'searchQuery' | 'wikiTargets' | 'onWikiNavigate'> & { body: string }) {
+  const blocks = useMemo(() => markdownToBlocks(body), [body]);
+  return (
+    <BlockEditor
+      blocks={blocks}
+      onChange={noopBlockChange}
+      colors={colors}
+      readOnly
+      searchQuery={searchQuery}
+      wikiTargets={wikiTargets}
+      onWikiNavigate={onWikiNavigate}
+    />
+  );
+});
 
 /** NoteView에서 ref로 호출하는 BlockEditor API */
 export interface BlockEditorHandle {

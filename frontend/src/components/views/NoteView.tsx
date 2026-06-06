@@ -19,7 +19,7 @@ import {
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
-import { BlockEditor, useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
+import { BlockEditorPreview, useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -430,6 +430,11 @@ export const NoteView = () => {
   const activeNote = useMemo(
     () => notes.find(n => n.id === activeNoteId) ?? null,
     [notes, activeNoteId]
+  );
+
+  const handleActiveBodyChange = useCallback(
+    (md: string) => { if (activeNoteId) noteUpdate(activeNoteId, { body: md }); },
+    [activeNoteId, noteUpdate],
   );
 
   const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
@@ -1148,7 +1153,7 @@ export const NoteView = () => {
                           ref={blockEditorRef}
                           key={activeNote.id}
                           body={activeNote.body}
-                          onBodyChange={md => noteUpdate(activeNote.id, { body: md })}
+                          onBodyChange={handleActiveBodyChange}
                           colors={blockColors}
                           readOnly={false}
                           searchQuery={searchQuery}
@@ -1160,14 +1165,13 @@ export const NoteView = () => {
                   )}
                   {viewMode === 'preview' && (
                     <div onClick={handleBlockPreviewClick} style={{ minHeight: '100%', padding: '24px 16px 80px', maxWidth: 900, margin: '0 auto' }}>
-                      <NoteBlockEditor
+                      <BlockEditorPreview
                         key={`${activeNote.id}-preview-${katexReady}`}
                         body={activeNote.body}
-                        onBodyChange={isTrash ? () => {} : md => noteUpdate(activeNote.id, { body: md })}
                         colors={blockColors}
-                        readOnly
                         searchQuery={searchQuery}
                         wikiTargets={wikiTargets}
+                        onWikiNavigate={navigateToWiki}
                       />
                     </div>
                   )}

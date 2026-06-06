@@ -82,6 +82,10 @@ export interface Block {
 
   // math
   math?: string;           // LaTeX 표현식
+  mathBlock?: boolean;     // true → $$...$$ 블록, false/undefined → $...$ 인라인
+
+  // numbered list — 원본 번호 보존 (2., 3. 등)
+  listIndex?: number;
 }
 
 /** contentEditable로 편집되는 텍스트 계열 블록 */
@@ -194,7 +198,7 @@ export function markdownToBlocks(md: string): Block[] {
       i++;
     }
     i++;
-    return makeBlock('math', { math: mathLines.join('\n') });
+    return makeBlock('math', { math: mathLines.join('\n'), mathBlock: true });
   };
 
   // ── 테이블 ───────────────────────────────────────────────────────
@@ -271,9 +275,10 @@ export function markdownToBlocks(md: string): Block[] {
     if (!/^\s*\d+\. /.test(lines[i])) return null;
     const result: Block[] = [];
     while (i < lines.length && /^\s*\d+\. /.test(lines[i])) {
-      const indent = Math.floor((lines[i].match(/^(\s*)/)?.[1].length ?? 0) / 2);
-      const content = lines[i].replace(/^\s*\d+\. /, '');
-      result.push(makeBlock('numbered', { content, indent }));
+      const m = lines[i].match(/^(\s*)(\d+)\. (.+)$/);
+      if (!m) break;
+      const indent = Math.floor(m[1].length / 2);
+      result.push(makeBlock('numbered', { content: m[3], indent, listIndex: Number(m[2]) }));
       i++;
     }
     return result;
@@ -303,12 +308,9 @@ export function markdownToBlocks(md: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // 빈 줄
+    // 빈 줄 — 빈 paragraph로 보존 (연속 빈 줄도 각각 유지)
     if (!line.trim()) {
-      // 연속 빈 줄은 하나로 합침
-      if (blocks.length > 0 && blocks[blocks.length - 1].type !== 'paragraph' || blocks.length === 0) {
-        blocks.push(makeBlock('paragraph', { content: '' }));
-      }
+      blocks.push(makeBlock('paragraph', { content: '' }));
       i++;
       continue;
     }
@@ -367,10 +369,10 @@ export function markdownToBlocks(md: string): Block[] {
       i++; continue;
     }
 
-    // 인라인 수식 $...$
+    // 인라인 수식 $...$ (단일 줄)
     if (/^\$[^$].+[^$]\$$/.test(line.trim()) || /^\$\$.+\$\$$/.test(line.trim())) {
       const expr = line.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
-      blocks.push(makeBlock('math', { math: expr }));
+      blocks.push(makeBlock('math', { math: expr, mathBlock: false }));
       i++; continue;
     }
 
@@ -415,7 +417,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
       }
       case 'numbered': {
         const pad = '  '.repeat(block.indent);
-        lines.push(`${pad}1. ${block.content}`);
+        lines.push(`${pad}${block.listIndex ?? 1}. ${block.content}`);
         break;
       }
       case 'todo': {
@@ -466,7 +468,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
         const headers = block.tableHeaders ?? [];
         if (headers.length > 0) {
           lines.push(`| ${headers.join(' | ')} |`);
-          lines.push(`| ${headers.map(() => '-------').join(' | ')} |`);
+          lines.push(`| ${headers.map(() => '---').join(' | ')} |`);
           (block.tableRows ?? []).forEach(row =>
             lines.push(`| ${row.join(' | ')} |`)
           );
@@ -475,7 +477,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
       }
 
       case 'math':
-        if ((block.math ?? '').includes('\n')) {
+        if (block.mathBlock || (block.math ?? '').includes('\n')) {
           lines.push('$$');
           lines.push(block.math ?? '');
           lines.push('$$');

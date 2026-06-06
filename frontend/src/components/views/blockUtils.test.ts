@@ -46,12 +46,14 @@ describe('parseImageTitle / formatImageTitle', () => {
 });
 
 describe('markdownToBlocks ↔ blocksToMarkdown', () => {
-  it('roundtrips paragraph and headings (blank lines between blocks collapse)', () => {
+  it('roundtrips paragraph and headings with blank lines', () => {
     const md = '# Title\n\nBody text\n\n## Sub';
-    const out = blocksToMarkdown(markdownToBlocks(md));
-    expect(out).toContain('# Title');
-    expect(out).toContain('Body text');
-    expect(out).toContain('## Sub');
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
+  it('preserves consecutive blank lines', () => {
+    const md = 'Line A\n\n\nLine B';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
   it('roundtrips bullet and todo lists', () => {
@@ -64,22 +66,30 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
-  it('roundtrips math block (single-line expr serializes inline)', () => {
+  it('roundtrips math block ($$ delimiters preserved)', () => {
     const md = '$$\na^2 + b^2\n$$';
     const blocks = markdownToBlocks(md);
     expect(blocks[0].type).toBe('math');
     expect(blocks[0].math).toBe('a^2 + b^2');
-    expect(blocksToMarkdown(blocks)).toBe('$a^2 + b^2$');
+    expect(blocks[0].mathBlock).toBe(true);
+    expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
-  it('roundtrips table (divider width normalized)', () => {
-    const md = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+  it('roundtrips inline math ($...$)', () => {
+    const md = '$E=mc^2$';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
+  it('roundtrips numbered list with original indices', () => {
+    const md = '1. first\n2. second\n3. third';
     const blocks = markdownToBlocks(md);
-    expect(blocks[0].tableHeaders).toEqual(['A', 'B']);
-    expect(blocks[0].tableRows).toEqual([['1', '2']]);
-    const out = blocksToMarkdown(blocks);
-    expect(out).toContain('| A | B |');
-    expect(out).toContain('| 1 | 2 |');
+    expect(blocks.map(b => b.listIndex)).toEqual([1, 2, 3]);
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips table', () => {
+    const md = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
   it('roundtrips image with caption and width', () => {
@@ -108,25 +118,35 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     const md = '> Toggle title\n  child line';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
+
+  it('roundtrips collapsed toggle (>!)', () => {
+    const md = '>! Collapsed\n  hidden child';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
+  it('roundtrips quote (single line, no children)', () => {
+    const md = '> A single quote';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
 });
 
 describe('block helpers', () => {
   let blocks: ReturnType<typeof markdownToBlocks>;
 
   beforeEach(() => {
-    blocks = markdownToBlocks('first\n\nsecond');
+    blocks = markdownToBlocks('first\n\nsecond'); // first, blank, second
   });
 
   it('insertBlockAfter inserts after target id', () => {
     const id = blocks[0].id;
     const nb = makeBlock('paragraph', { content: 'inserted' });
     const next = insertBlockAfter(blocks, id, nb);
-    expect(next.map(b => b.content)).toEqual(['first', 'inserted', 'second']);
+    expect(next.map(b => b.content)).toEqual(['first', 'inserted', '', 'second']);
   });
 
   it('deleteBlockById removes block', () => {
     const next = deleteBlockById(blocks, blocks[0].id);
-    expect(next.map(b => b.content)).toEqual(['second']);
+    expect(next.map(b => b.content)).toEqual(['', 'second']);
   });
 
   it('updateBlockById patches block', () => {
