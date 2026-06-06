@@ -263,6 +263,84 @@ describe('useNotesStore — per-note pending queue', () => {
   });
 });
 
+describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
+  beforeEach(() => resetStore());
+
+  it('moveNoteToTrash bumps updatedAt so trash state wins on hydrate', async () => {
+    const before = Date.now();
+    const note: NoteBase = {
+      id: 'n-trash', title: 'T', body: 'b', updatedAt: 100,
+      folderId: null, deletedAt: null,
+    };
+    useNotesStore.setState({ notes: [note], activeNoteId: note.id });
+
+    useNotesStore.getState().moveNoteToTrash(note.id);
+    const trashed = useNotesStore.getState().notes.find(n => n.id === note.id)!;
+    expect(trashed.deletedAt).not.toBeNull();
+    expect(trashed.updatedAt).toBeGreaterThanOrEqual(before);
+
+    authFetchMock
+      .mockResolvedValueOnce(okJson([]))
+      .mockResolvedValueOnce(okJson([{
+        id: note.id, title: 'T', body: 'b', updated_at: 100, folder_id: null, deleted_at: null,
+      }]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    const after = useNotesStore.getState().notes.find(n => n.id === note.id)!;
+    expect(after.deletedAt).not.toBeNull();
+  });
+
+  it('deleteFolder bumps updatedAt on affected notes', () => {
+    const folderId = 'folder-1';
+    const note: NoteBase = {
+      id: 'n-f', title: 'F', body: '', updatedAt: 50,
+      folderId, deletedAt: null,
+    };
+    useNotesStore.setState({
+      notes: [note],
+      folders: [{ id: folderId, name: 'Work', createdAt: 1 }],
+    });
+
+    const before = Date.now();
+    useNotesStore.getState().deleteFolder(folderId);
+    const updated = useNotesStore.getState().notes.find(n => n.id === note.id)!;
+    expect(updated.folderId).toBeNull();
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it('hydrate keeps local folderId when local updatedAt is newer than DB', async () => {
+    const note: NoteBase = {
+      id: 'n-folder', title: 'T', body: 'b', updatedAt: 500,
+      folderId: 'folder-new', deletedAt: null,
+    };
+    useNotesStore.setState({ notes: [note] });
+
+    authFetchMock
+      .mockResolvedValueOnce(okJson([]))
+      .mockResolvedValueOnce(okJson([{
+        id: note.id, title: 'T', body: 'b', updated_at: 100,
+        folder_id: 'folder-old', deleted_at: null,
+      }]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(useNotesStore.getState().notes[0].folderId).toBe('folder-new');
+  });
+
+  it('updateNote folderId change bumps updatedAt (already via updateNote)', () => {
+    authFetchMock.mockResolvedValue(okJson({}));
+    const id = useNotesStore.getState().createNote({ title: 'T', body: '' });
+    const created = useNotesStore.getState().notes.find(n => n.id === id)!;
+    const prevUpdatedAt = created.updatedAt;
+
+    useNotesStore.getState().updateNote(id, { folderId: 'folder-x' });
+    const updated = useNotesStore.getState().notes.find(n => n.id === id)!;
+    expect(updated.folderId).toBe('folder-x');
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(prevUpdatedAt);
+  });
+});
+
 describe('useNotesStore — Planner + NoteView shared state', () => {
   beforeEach(() => resetStore());
 

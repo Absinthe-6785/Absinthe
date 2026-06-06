@@ -103,8 +103,12 @@ function mapDbNote(
     title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
     body:      localIsNewer ? (local.body  ?? '') : (n.body  ?? ''),
     updatedAt: localIsNewer ? local.updatedAt     : n.updated_at,
-    folderId:  n.folder_id != null ? n.folder_id : (local?.folderId ?? null),
-    deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
+    folderId:  localIsNewer
+      ? (local.folderId ?? null)
+      : (n.folder_id != null ? n.folder_id : (local?.folderId ?? null)),
+    deletedAt: localIsNewer
+      ? (local.deletedAt ?? null)
+      : (n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null)),
     starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
   };
 }
@@ -250,8 +254,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     moveNoteToTrash: (id) => {
+      const now = Date.now();
       const notes = get().notes.map(n =>
-        n.id === id ? { ...n, deletedAt: Date.now() } : n
+        n.id === id ? { ...n, deletedAt: now, updatedAt: now } : n
       );
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
       set({ notes, activeNoteId: nextActive });
@@ -307,7 +312,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     deleteFolder: (id) => {
       const movedIds = new Set(get().notes.filter(n => n.folderId === id).map(n => n.id));
-      const notes = get().notes.map(n => movedIds.has(n.id) ? { ...n, folderId: null } : n);
+      const now = Date.now();
+      const notes = get().notes.map(n =>
+        movedIds.has(n.id) ? { ...n, folderId: null, updatedAt: now } : n
+      );
       const folders = get().folders.filter(f => f.id !== id);
       const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
       set({ folders, notes, activeFolderId });
