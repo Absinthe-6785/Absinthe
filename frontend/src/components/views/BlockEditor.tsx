@@ -36,6 +36,7 @@ import {
   isValidImageUrl,
   imageAltFromUrl,
 } from './blockUtils';
+import { normalizeWikiTitle } from './noteUtils';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
 
@@ -263,7 +264,8 @@ function blockIcon(type: BlockType): ReactNode {
 // ── 인라인 마크다운 렌더러 (readOnly 렌더 전용) ──────────────────────
 // 위키링크/태그는 data 속성을 부여해 상위 컨테이너에서 클릭 위임으로 처리한다.
 // 인라인 수식 $...$ 은 window.katex로 렌더(미로드 시 코드로 폴백).
-function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = ''): ReactNode {
+function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = '', wikiTargets: string[] = []): ReactNode {
+  const wikiSet = new Set(wikiTargets.map(normalizeWikiTitle));
   const esc = (s: string) =>
     s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -288,8 +290,14 @@ function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = 
     .replace(/~~(.+?)~~/g,         '<del>$1</del>')
     .replace(/==(.+?)==/g,         `<mark style="background:${c.accentBg};color:${c.accent}">$1</mark>`)
     .replace(/`([^`]+)`/g,         `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">$1</code>`)
-    .replace(/\[\[(.+?)\]\]/g, (_m, t: string) =>
-      `<span class="be-wikilink" data-wiki="${t.replace(/"/g,'&quot;')}" style="color:${c.accent};text-decoration:underline;text-underline-offset:2px;cursor:pointer">${t}</span>`)
+    .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
+      const broken = wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(t));
+      const color  = broken ? c.textMuted : c.accent;
+      const deco   = broken ? 'underline dashed' : 'underline';
+      const extra  = broken ? ';opacity:0.85;font-style:italic' : '';
+      const title  = broken ? ' title="Create note"' : '';
+      return `<span class="be-wikilink${broken ? ' be-wikilink-broken' : ''}" data-wiki="${t.replace(/"/g,'&quot;')}"${title} style="color:${color};text-decoration:${deco};text-underline-offset:2px;cursor:pointer${extra}">${t}</span>`;
+    })
     .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
       `${sp}<span class="be-tag" data-tag="${tag.replace(/"/g,'&quot;')}" style="color:${c.accent};opacity:.85;cursor:pointer">#${tag}</span>`);
 
@@ -431,7 +439,7 @@ const SingleBlock = React.memo(function SingleBlock({
     }
   }, [focusCmd, block.id]);
 
-  const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery);
+  const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery, wikiTargets);
 
   // ── 드래그 인디케이터 계산 ──────────────────────────────────────
   const isDragging   = dragState?.draggingId === block.id;

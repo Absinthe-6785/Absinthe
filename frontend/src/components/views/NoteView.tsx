@@ -16,6 +16,8 @@ import {
   highlightText,
   extractTOC, extractTags, extractLinks,
   extractLinkContexts,
+  findNoteByTitle, findWikiLinkInText,
+  parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
@@ -231,10 +233,20 @@ export const NoteView = () => {
 
   const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
 
-  const createNote = useCallback(() => {
+  const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
     const id = `note-${Date.now()}`;
-    const folderId = (activeFolderId === null || activeFolderId === 'trash') ? null : activeFolderId;
-    const note: Note = { id, title: '', body: '', updatedAt: Date.now(), folderId, deletedAt: null, starred: false };
+    const folderId = initial?.folderId !== undefined
+      ? initial.folderId
+      : (activeFolderId === null || activeFolderId === 'trash' || activeFolderId === 'starred') ? null : activeFolderId;
+    const note: Note = {
+      id,
+      title: initial?.title ?? '',
+      body: initial?.body ?? '',
+      updatedAt: Date.now(),
+      folderId,
+      deletedAt: null,
+      starred: false,
+    };
     setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
     setActiveNoteId(id);
     setViewMode('edit');
@@ -412,10 +424,19 @@ export const NoteView = () => {
       activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
       activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
                                      safeNotes.filter(n => !n.deletedAt);
-    if (activeTag)          list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
+    if (activeTag) list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(n => (n.title ?? '').toLowerCase().includes(q) || (n.body ?? '').toLowerCase().includes(q));
+      const parsed = parseNoteSearchQuery(searchQuery);
+      if (parsed.mode === 'tag') {
+        list = list.filter(n => noteMatchesTagSearch(n.body ?? '', parsed.value));
+      } else {
+        const q = parsed.value.toLowerCase();
+        list = list.filter(n =>
+          (n.title ?? '').toLowerCase().includes(q) ||
+          (n.body ?? '').toLowerCase().includes(q) ||
+          extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q))
+        );
+      }
     }
     // 정렬
     list = [...list].sort((a, b) => {
@@ -468,8 +489,12 @@ export const NoteView = () => {
     [notes]
   );
   const backlinks = useMemo(() =>
-    activeNote
-      ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`))
+    activeNote && (activeNote.title ?? '').trim()
+      ? notes.filter(n =>
+          n.id !== activeNote.id &&
+          !n.deletedAt &&
+          noteReferencesTitle(n.body ?? '', activeNote.title ?? '')
+        )
       : [],
     [notes, activeNote?.id, activeNote?.title]
   );
@@ -585,11 +610,18 @@ export const NoteView = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
 
-  // 위키링크 따라가기 — 제목이 일치하는(삭제되지 않은) 노트로 이동
-  const navigateToWiki = useCallback((title: string) => {
-    const found = notes.find(n => n.title === title && !n.deletedAt);
-    if (found) setActiveNoteId(found.id);
-  }, [notes, setActiveNoteId]);
+  // 위키링크 따라가기 — 있으면 이동, 없으면 [[제목]] 노트 자동 생성
+  const navigateToWiki = useCallback((title: string, opts?: { preferPreview?: boolean }) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const found = findNoteByTitle(trimmed, notes);
+    if (found) {
+      setActiveNoteId(found.id);
+      if (opts?.preferPreview) setViewMode('preview');
+      return;
+    }
+    createNote({ title: trimmed, body: '' });
+  }, [notes, setActiveNoteId, setViewMode, createNote]);
 
   // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/preview 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
@@ -602,21 +634,21 @@ export const NoteView = () => {
     const target = e.target as HTMLElement;
     const wl = target.closest('.be-wikilink') as HTMLElement | null;
     if (wl?.dataset.wiki) {
-      const title = wl.dataset.wiki;
-      const found = notes.find(n => n.title === title && !n.deletedAt);
-      if (found) setActiveNoteId(found.id);
+      navigateToWiki(wl.dataset.wiki, { preferPreview: true });
       return;
     }
     const tg = target.closest('.be-tag') as HTMLElement | null;
     if (tg?.dataset.tag) {
       const tag = tg.dataset.tag;
+      setActiveFolderId(null);
       setActiveTag(prev => prev === tag ? null : (tag ?? null));
+      setSearchQuery('');
       return;
     }
     // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
     if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles')) return;
     if (e.detail === 2) setViewMode('edit');
-  }, [notes, setActiveNoteId]);
+  }, [navigateToWiki]);
 
   // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
   const c = useMemo(() => ({
@@ -816,6 +848,8 @@ export const NoteView = () => {
               ['/',                'Slash command — insert block'],
               ['[[...]]',          'Wiki link autocomplete'],
               ['Ctrl + Click',     'Follow wiki link (edit mode)'],
+              ['Click [[link]]',   'Follow link · create if missing (preview)'],
+              ['#tag in search',   'Filter notes by tag'],
               ['↑ ↓ Enter',        'Navigate menus'],
               ['Esc',              'Close / cancel'],
             ].map(([key, desc], i) => (
@@ -882,7 +916,7 @@ export const NoteView = () => {
               </div>
               <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
                 <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
-                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
+                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search… (#tag)" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
               </div>
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
@@ -940,7 +974,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1280,8 +1314,8 @@ export const NoteView = () => {
                     </div>
                     {/* 발췌 문단들 */}
                     {ctx.excerpts.map((excerpt, ei) => {
-                      // [[제목]] 부분을 강조 표시
-                      const target = `[[${activeNote!.title ?? ''}]]`;
+                      // [[제목]] 부분을 강조 표시 (대소문자 무시 매칭)
+                      const target = findWikiLinkInText(excerpt, activeNote!.title ?? '') ?? `[[${activeNote!.title ?? ''}]]`;
                       const parts  = excerpt.split(target);
                       return (
                         <div key={ei} style={{
@@ -1312,20 +1346,37 @@ export const NoteView = () => {
                   </div>
                 ))
               }
-              {/* ── Outgoing links ── */}
+              {/* ── Outgoing links (resolved + broken) ── */}
               {(() => {
                 const outLinks = extractLinks(activeNote.body);
-                const found = outLinks.map(t => notes.find(n => n.title === t && !n.deletedAt)).filter((n): n is Note => n !== undefined);
-                return found.length > 0 ? (
+                if (outLinks.length === 0) return null;
+                const resolved = outLinks.filter(t => findNoteByTitle(t, notes));
+                const broken   = outLinks.filter(t => !findNoteByTitle(t, notes));
+                return (
                   <>
                     <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 600, borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                      Outgoing {<span style={{ color: c.green }}>({found.length})</span>}
+                      Outgoing <span style={{ color: c.green }}>({resolved.length})</span>
+                      {broken.length > 0 && <span style={{ color: c.textFaint }}> · {broken.length} missing</span>}
                     </div>
-                    {found.map(n => (
-                      <div key={n.id} className="bbl" style={{ color: c.green }} onClick={() => setActiveNoteId(n.id)}>→ {n.title}</div>
-                    ))}
+                    {outLinks.map(title => {
+                      const found = findNoteByTitle(title, notes);
+                      if (found) {
+                        return (
+                          <div key={title} className="bbl" style={{ color: c.green }}
+                            onClick={() => setActiveNoteId(found.id)}>→ {title}</div>
+                        );
+                      }
+                      return (
+                        <div key={title} className="bbl"
+                          style={{ color: c.textMuted, fontStyle: 'italic' }}
+                          title="Click to create note"
+                          onClick={() => navigateToWiki(title)}>
+                          → {title} <span style={{ fontSize: 9, color: c.accent }}>+ create</span>
+                        </div>
+                      );
+                    })}
                   </>
-                ) : null;
+                );
               })()}
             </div>
           )}
@@ -1340,7 +1391,7 @@ export const NoteView = () => {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
                     {noteTags.map(t => (
                       <span key={t} className={`btpill ${activeTag === t ? 'active' : ''}`}
-                        onClick={() => setActiveTag(prev => prev === t ? null : t)}>#{t}</span>
+                        onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === t ? null : t); }}>#{t}</span>
                     ))}
                   </div>
                 )
@@ -1349,7 +1400,7 @@ export const NoteView = () => {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {allTags.map(([tag, count]) => (
                   <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                    onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                    onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                     #{tag} <span style={{ color: c.textMuted }}>{count}</span>
                   </span>
                 ))}
@@ -1404,7 +1455,7 @@ export const NoteView = () => {
                         return (
                           <span key={tag}
                             style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag === tag ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                            onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                             #{tag}
                           </span>
                         );

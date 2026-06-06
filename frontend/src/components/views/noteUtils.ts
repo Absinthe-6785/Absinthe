@@ -256,7 +256,64 @@ export function extractTags(body: string): string[] {
 
 export function extractLinks(body: string): string[] {
   if (!body) return [];
-  return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
+  return [...new Set([...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1].trim()).filter(Boolean))];
+}
+
+/** 위키 제목 정규화 — 대소문자 무시 비교용 */
+export function normalizeWikiTitle(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+/** 제목으로 노트 찾기 (대소문자 무시, 삭제된 노트 제외) */
+export function findNoteByTitle(title: string, notes: NoteBase[]): NoteBase | undefined {
+  const key = normalizeWikiTitle(title);
+  if (!key) return undefined;
+  return notes.find(n => !n.deletedAt && normalizeWikiTitle(n.title ?? '') === key);
+}
+
+/** body에 [[targetTitle]] 링크가 있는지 (대소문자 무시) */
+export function noteReferencesTitle(body: string, targetTitle: string): boolean {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key || !body) return false;
+  return extractLinks(body).some(l => normalizeWikiTitle(l) === key);
+}
+
+/** body에서 targetTitle을 가리키는 실제 [[...]] 토큰 (하이라이트용) */
+export function findWikiLinkToken(body: string, targetTitle: string): string | null {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key) return null;
+  for (const link of extractLinks(body)) {
+    if (normalizeWikiTitle(link) === key) return `[[${link}]]`;
+  }
+  return null;
+}
+
+/** 텍스트 조각에서 targetTitle을 가리키는 [[...]] 토큰 (발췌 하이라이트용) */
+export function findWikiLinkInText(text: string, targetTitle: string): string | null {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key) return null;
+  const re = /\[\[(.+?)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (normalizeWikiTitle(m[1]) === key) return m[0];
+  }
+  return null;
+}
+
+/** 검색어 파싱 — #tag → 태그 검색, 그 외 텍스트 검색 */
+export function parseNoteSearchQuery(query: string): { mode: 'tag' | 'text'; value: string } {
+  const q = query.trim();
+  if (q.startsWith('#') && q.length > 1) {
+    return { mode: 'tag', value: q.slice(1).trim() };
+  }
+  return { mode: 'text', value: q };
+}
+
+/** 노트가 태그 검색어와 매칭되는지 (부분 일치, 대소문자 무시) */
+export function noteMatchesTagSearch(body: string, tagQuery: string): boolean {
+  const q = tagQuery.trim().toLowerCase();
+  if (!q) return true;
+  return extractTags(body).some(t => t.toLowerCase().includes(q));
 }
 
 // ── 백링크 컨텍스트 ──────────────────────────────────────────────────
@@ -289,19 +346,22 @@ export function extractLinkContexts(
 
   const MAX_EXCERPTS = opts.maxExcerpts ?? 2;
   const EXCERPT_MAX  = opts.excerptMax  ?? 140;
-  const pattern      = `[[${targetTitle}]]`;
+  const targetKey    = normalizeWikiTitle(targetTitle);
 
   const results: LinkContext[] = [];
 
   for (const note of allNotes) {
     if (note.deletedAt) continue;
     const body = note.body ?? '';
-    if (!body.includes(pattern)) continue;
+    if (!noteReferencesTitle(body, targetTitle)) continue;
+
+    const paragraphHasLink = (p: string) =>
+      extractLinks(p).some(l => normalizeWikiTitle(l) === targetKey);
 
     // 빈 줄(\n\n)로 문단 분리
     const paragraphs = body.split(/\n{2,}/);
     let excerpts = paragraphs
-      .filter(p => p.includes(pattern))
+      .filter(paragraphHasLink)
       .slice(0, MAX_EXCERPTS)
       .map(p => {
         // 마크다운 문법 기호 정리 (헤딩 # 제거, 줄 합치기)
@@ -317,7 +377,7 @@ export function extractLinkContexts(
     if (excerpts.length === 0) {
       excerpts = body
         .split('\n')
-        .filter(l => l.includes(pattern))
+        .filter(paragraphHasLink)
         .slice(0, MAX_EXCERPTS)
         .map(l => {
           const clean = l.replace(/^#{1,6}\s+/, '').trim();
