@@ -71,6 +71,7 @@ export interface Block {
   src?:  string;
   alt?:  string;
   caption?: string;
+  width?: number;          // 표시 너비(px) — 마크다운 title에 |w:N 으로 직렬화
 
   // table
   tableHeaders?: string[];
@@ -81,6 +82,31 @@ export interface Block {
 
   // math
   math?: string;           // LaTeX 표현식
+}
+
+/** contentEditable로 편집되는 텍스트 계열 블록 */
+export const TEXT_BLOCK_TYPES = new Set<BlockType>([
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'bullet', 'numbered', 'todo', 'quote', 'callout',
+]);
+
+export function isTextBlockType(type: BlockType): boolean {
+  return TEXT_BLOCK_TYPES.has(type);
+}
+
+/** 마크다운 image title에서 캡션·너비 파싱 ("caption|w:400") */
+export function parseImageTitle(raw: string): { caption?: string; width?: number } {
+  const widthMatch = raw.match(/\|w:(\d+)/);
+  const width = widthMatch ? Number(widthMatch[1]) : undefined;
+  const caption = raw.replace(/\|w:\d+/, '').trim() || undefined;
+  return { caption, width };
+}
+
+/** 마크다운 image title 직렬화 */
+export function formatImageTitle(caption?: string, width?: number): string | undefined {
+  let title = caption ?? '';
+  if (width != null) title = title ? `${title}|w:${width}` : `|w:${width}`;
+  return title || undefined;
 }
 
 // ── ID 생성 ──────────────────────────────────────────────────────────
@@ -204,12 +230,16 @@ export function markdownToBlocks(md: string): Block[] {
   const tryImage = (line: string): Block | null => {
     const m = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (!m) return null;
-    // src 에 마크다운 title 문법으로 캡션이 포함될 수 있음: src "caption"
+    // src 에 마크다운 title 문법으로 캡션/너비 포함 가능: src "caption|w:400"
     let src = m[2];
     let caption: string | undefined;
+    let width: number | undefined;
     const titleMatch = src.match(/^(\S.*?)\s+"([^"]*)"$/);
-    if (titleMatch) { src = titleMatch[1]; caption = titleMatch[2]; }
-    return makeBlock('image', caption !== undefined ? { alt: m[1], src, caption } : { alt: m[1], src });
+    if (titleMatch) {
+      src = titleMatch[1];
+      ({ caption, width } = parseImageTitle(titleMatch[2]));
+    }
+    return makeBlock('image', { alt: m[1], src, ...(caption !== undefined ? { caption } : {}), ...(width !== undefined ? { width } : {}) });
   };
 
   // ── 번호 목록 연속 처리 ──────────────────────────────────────────
@@ -397,8 +427,9 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
 
       case 'image': {
-        // 캡션은 마크다운 title 문법으로 직렬화해 라운드트립 보존: ![alt](src "caption")
-        const cap = block.caption ? ` "${block.caption.replace(/"/g, '')}"` : '';
+        // 캡션·너비는 title에 직렬화: ![alt](src "caption|w:400")
+        const title = formatImageTitle(block.caption, block.width);
+        const cap = title ? ` "${title.replace(/"/g, '')}"` : '';
         lines.push(`![${block.alt ?? ''}](${block.src ?? ''}${cap})`);
         break;
       }
@@ -452,6 +483,20 @@ export function updateBlockById(
     }
     return b;
   });
+}
+
+/** afterId 뒤(없으면 끝)에 이미지 블록 삽입 */
+export function insertImageAfter(
+  blocks: Block[],
+  afterId: string | null,
+  src: string,
+  alt: string,
+): { blocks: Block[]; imageId: string } {
+  const img = makeBlock('image', { src, alt });
+  if (!afterId) return { blocks: [...blocks, img], imageId: img.id };
+  const result = insertBlockAfter(blocks, afterId, img);
+  const inserted = flattenBlockIds(result).includes(img.id);
+  return inserted ? { blocks: result, imageId: img.id } : { blocks: [...blocks, img], imageId: img.id };
 }
 
 /** 특정 id 블록 뒤에 새 블록 삽입 */

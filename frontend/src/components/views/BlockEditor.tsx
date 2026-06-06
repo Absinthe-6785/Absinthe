@@ -28,7 +28,8 @@ import {
   type Block, type BlockType,
   makeBlock,
   updateBlockById, insertBlockAfter, deleteBlockById,
-  findBlockById, flattenBlockIds,
+  findBlockById, flattenBlockIds, insertImageAfter,
+  isTextBlockType,
   BLOCK_TYPE_MENU, filterBlockMenu,
   blocksToMarkdown, markdownToBlocks,
   convertBlock,
@@ -222,6 +223,11 @@ interface BlockEditorProps {
   wikiTargets?: string[];
   /** edit 모드 Ctrl/Cmd+클릭으로 [[제목]] 따라가기 */
   onWikiNavigate?: (title: string) => void;
+  /** 포커스된 블록 id — 이미지 삽입 위치 등 */
+  onActiveBlockChange?: (id: string | null) => void;
+  /** 외부에서 특정 블록으로 포커스 이동 요청 */
+  externalFocusId?: string | null;
+  onExternalFocusConsumed?: () => void;
 }
 
 interface BlockMenuState { blockId: string; anchorY: number; anchorX: number; }
@@ -314,6 +320,8 @@ interface SingleBlockProps {
   onToggleEnter: (toggleBlockId: string, currentContent: string) => void;
   // Table
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
+  onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
+  onActiveBlockChange?: (id: string | null) => void;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -326,8 +334,11 @@ const SingleBlock = React.memo(function SingleBlock({
   onToggleAddChild,
   onToggleEnter,
   onTableChange,
+  onNavigateBlock,
+  onActiveBlockChange,
 }: SingleBlockProps) {
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
+  const shellRef = useRef<HTMLDivElement>(null);
 
   const handleToggleTodo = useCallback(() => {
     onChange(updateBlockById(blocks, block.id, b => ({ ...b, checked: !b.checked })));
@@ -340,23 +351,27 @@ const SingleBlock = React.memo(function SingleBlock({
 
   const editableRef = useRef<HTMLElement | null>(null);
 
-  // 포커스 레지스트리에 등록
+  // 포커스 레지스트리 — 텍스트(contentEditable) / 비텍스트(shell) 분기
   useEffect(() => {
     const handler = (cmd: FocusCmd) => {
-      const el = editableRef.current;
-      if (!el) return;
-      el.focus();
-      requestAnimationFrame(() => {
-        if (!editableRef.current) return;
-        const target = editableRef.current;
-        if (cmd.offset === 'start')       setCaretOffset(target, 0);
-        else if (cmd.offset === 'end')    setCaretOffset(target, getElText(target).length);
-        else                              setCaretOffset(target, cmd.offset as number);
-      });
+      if (isTextBlockType(block.type)) {
+        const el = editableRef.current;
+        if (!el) return;
+        el.focus();
+        requestAnimationFrame(() => {
+          if (!editableRef.current) return;
+          const target = editableRef.current;
+          if (cmd.offset === 'start')       setCaretOffset(target, 0);
+          else if (cmd.offset === 'end')    setCaretOffset(target, getElText(target).length);
+          else                              setCaretOffset(target, cmd.offset as number);
+        });
+      } else {
+        shellRef.current?.focus();
+      }
     };
     focusRegistry.set(block.id, handler);
     return () => { focusRegistry.delete(block.id); };
-  }, [block.id]);
+  }, [block.id, block.type]);
 
   // 외부 focusCmd가 이 블록을 가리키면 실행
   useEffect(() => {
@@ -418,7 +433,29 @@ const SingleBlock = React.memo(function SingleBlock({
     onToggleEnter,
     // Table
     onTableChange,
+    onNavigateBlock,
+    onActiveBlockChange,
   });
+
+  const shellKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp')   { e.preventDefault(); onNavigateBlock(block.id, 'up'); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); onNavigateBlock(block.id, 'down'); }
+  }, [block.id, onNavigateBlock]);
+
+  // 토글은 내부 EditableBlock이 있으므로 shell 제외
+  const SHELL_NAV_TYPES = new Set<BlockType>(['image', 'divider', 'code', 'math', 'table']);
+  const needsShell = !readOnly && SHELL_NAV_TYPES.has(block.type);
+  const body = needsShell ? (
+    <div
+      ref={shellRef}
+      tabIndex={0}
+      onKeyDown={shellKeyDown}
+      onFocus={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}
+      style={{ outline: 'none', borderRadius: 6 }}
+    >
+      {inner}
+    </div>
+  ) : inner;
 
   return (
     <div
@@ -433,10 +470,10 @@ const SingleBlock = React.memo(function SingleBlock({
         userSelect: dragState ? 'none' : undefined,
       }}
       className="be-block"
-      onClick={() => onSelect(block.id)}>
+      onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
       {handles}
-      {inner}
+      {body}
       {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
     </div>
   );
@@ -479,6 +516,8 @@ interface RCtx {
   onToggleEnter: (toggleBlockId: string, currentContent: string) => void;
   // Table: 셀 편집 결과를 부모 blocks로 올림
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
+  onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
+  onActiveBlockChange?: (id: string | null) => void;
 }
 
 // ── EditableBlock: contentEditable 인라인 편집기 ─────────────────────
@@ -504,6 +543,8 @@ interface EditableBlockProps {
   onWikiNavigate?: (title: string) => void;
   // Toggle Step 2: Enter 동작을 완전히 대체하는 콜백 (toggle 헤더 전용)
   onEnterOverride?: (currentContent: string) => void;
+  onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
+  onActiveBlockChange?: (id: string | null) => void;
 }
 
 function EditableBlock({
@@ -512,7 +553,7 @@ function EditableBlock({
   onSplitBlock, onMergeWithPrev, onContentChange, tag = 'p',
   onSlashOpen, onSlashClose,
   onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
-  onEnterOverride,
+  onEnterOverride, onNavigateBlock, onActiveBlockChange,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
 
@@ -613,20 +654,31 @@ function EditableBlock({
       }
     }
 
+    // ── ↑/↓: 블록 경계에서 이웃 블록으로 이동 ───────────────────
+    if (e.key === 'ArrowUp') {
+      const offset = getCaretOffset(el);
+      if (offset === 0) { e.preventDefault(); onNavigateBlock(block.id, 'up'); return; }
+    }
+    if (e.key === 'ArrowDown') {
+      const text = getElText(el);
+      if (getCaretOffset(el) === text.length) { e.preventDefault(); onNavigateBlock(block.id, 'down'); return; }
+    }
+
     // ── Escape: 슬래시/위키 메뉴 닫기 ────────────────────────────
     if (e.key === 'Escape') {
       onSlashClose();
       onWikiClose();
     }
-  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen]);
+  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock]);
 
   const handleFocus = useCallback(() => {
+    onActiveBlockChange?.(block.id);
     // contentEditable 최초 포커스 시 innerText를 block.content로 초기화
     const el = editableRef.current;
     if (el && el.innerText.replace(/\n$/, '') !== block.content) {
       el.innerText = block.content;
     }
-  }, [block.content, editableRef]);
+  }, [block.content, editableRef, block.id, onActiveBlockChange]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     // 서식 없이 순수 텍스트만 붙여넣기
@@ -1254,13 +1306,42 @@ interface ImageBlockProps {
   block: Block;
   colors: BlockEditorColors;
   readOnly: boolean;
-  onChange: (patch: { src?: string; alt?: string; caption?: string }) => void;
+  onChange: (patch: { src?: string; alt?: string; caption?: string; width?: number }) => void;
 }
 
 function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
+
+  const imgStyle = (width?: number): CSSProperties => ({
+    maxWidth: '100%',
+    width: width ? width : 'auto',
+    borderRadius: 8,
+    border: `1px solid ${c.border}`,
+    display: 'block',
+    margin: '0 auto',
+  });
+
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const img = wrapRef.current?.querySelector('img');
+    const startW = block.width ?? img?.clientWidth ?? 300;
+    resizeRef.current = { startX: e.clientX, startW };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onResizeMove = (e: React.PointerEvent) => {
+    if (!resizeRef.current) return;
+    const delta = e.clientX - resizeRef.current.startX;
+    const next = Math.max(80, Math.min(900, Math.round(resizeRef.current.startW + delta)));
+    onChange({ width: next });
+  };
+
+  const endResize = () => { resizeRef.current = null; };
 
   const loadFile = (f: File) => {
     const reader = new FileReader();
@@ -1273,7 +1354,7 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
     return (
       <figure style={{ margin:'8px 0', textAlign:'center' }}>
         {block.src
-          ? <img src={block.src} alt={block.alt ?? ''} style={{ maxWidth:'100%', borderRadius:8, border:`1px solid ${c.border}` }}/>
+          ? <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
           : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
               <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>이미지 없음</div>
             </div>}
@@ -1317,10 +1398,25 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
     );
   }
 
-  // ── 편집: src 있음 → 이미지 + 교체/삭제 + 캡션 ──
+  // ── 편집: src 있음 → 이미지 + 리사이즈 + 교체/삭제 + 캡션 ──
   return (
     <figure onClick={e => e.stopPropagation()} style={{ margin:'8px 0', textAlign:'center' }}>
-      <img src={block.src} alt={block.alt ?? ''} style={{ maxWidth:'100%', borderRadius:8, border:`1px solid ${c.border}` }}/>
+      <div ref={wrapRef} style={{ position:'relative', display:'inline-block', maxWidth:'100%' }}>
+        <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
+        <div
+          role="separator"
+          aria-label="이미지 크기 조절"
+          onPointerDown={startResize}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+          style={{
+            position:'absolute', right:-4, bottom:-4, width:14, height:14,
+            cursor:'nwse-resize', background:c.accent, borderRadius:3,
+            border:`2px solid ${c.card}`, touchAction:'none',
+          }}
+        />
+      </div>
       <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:6 }}>
         <button onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>교체</button>
         <button onClick={() => onChange({ src: '' })} style={imgBtnStyle(c, true)}>삭제</button>
@@ -1342,6 +1438,9 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     editableRef, onSplitBlock, onMergeWithPrev, onContentChange,
     onSlashOpen, onSlashClose,
     onWikiOpen, onWikiClose, isMenuOpen,
+    onNavigateBlock: ctx.onNavigateBlock,
+    onActiveBlockChange: ctx.onActiveBlockChange,
+    onWikiNavigate: ctx.onWikiNavigate,
   };
   const ep = (tag: EditableBlockProps['tag'], style: CSSProperties, placeholder?: string) =>
     !readOnly ? (
@@ -1457,6 +1556,8 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
                   wikiTargets={ctx.wikiTargets}
                   onWikiNavigate={ctx.onWikiNavigate}
+                  onActiveBlockChange={ctx.onActiveBlockChange}
+                  externalFocusId={undefined}
                   // Toggle Step 3: 자식 → 부모 탈출 콜백
                   onEscapeToParentBelow={() => {
                     // toggle 바로 아래에 새 paragraph 삽입 + 포커스
@@ -1570,13 +1671,17 @@ interface BlockEditorInnerProps {
   searchQuery: string; depth: number;
   wikiTargets: string[];
   onWikiNavigate?: (title: string) => void;
+  onActiveBlockChange?: (id: string | null) => void;
+  externalFocusId?: string | null;
+  onExternalFocusConsumed?: () => void;
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
   onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
-  wikiTargets, onWikiNavigate,
+  wikiTargets, onWikiNavigate, onActiveBlockChange,
+  externalFocusId, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader,
 }: BlockEditorInnerProps) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -1728,6 +1833,35 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       ...b, tableHeaders: headers, tableRows: rows,
     })));
   }, [blocks, onChange]);
+
+  const handleNavigateBlock = useCallback((fromId: string, dir: 'up' | 'down') => {
+    const ids = flattenBlockIds(blocks);
+    const pos = ids.indexOf(fromId);
+    if (pos < 0) return;
+    const targetPos = dir === 'up' ? pos - 1 : pos + 1;
+    if (targetPos < 0 || targetPos >= ids.length) return;
+    const targetId = ids[targetPos];
+    const targetBlock = findBlockById(blocks, targetId);
+    if (!targetBlock) return;
+    setSelected(targetId);
+    onActiveBlockChange?.(targetId);
+    setFocusCmd({
+      blockId: targetId,
+      offset: isTextBlockType(targetBlock.type)
+        ? (dir === 'up' ? 'end' : 'start')
+        : 'start',
+    });
+  }, [blocks, onActiveBlockChange]);
+
+  // 외부 포커스 요청 (이미지 삽입 직후 등)
+  useEffect(() => {
+    if (!externalFocusId) return;
+    setSelected(externalFocusId);
+    onActiveBlockChange?.(externalFocusId);
+    setFocusCmd({ blockId: externalFocusId, offset: 'start' });
+    onExternalFocusConsumed?.();
+  }, [externalFocusId, onActiveBlockChange, onExternalFocusConsumed]);
+
   const handleSlashSelect = useCallback((type: BlockType) => {
     if (!slashMenu) return;
     const { blockId, query } = slashMenu;
@@ -1817,6 +1951,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onToggleAddChild={handleToggleAddChild}
             onToggleEnter={handleToggleEnter}
             onTableChange={handleTableChange}
+            onNavigateBlock={handleNavigateBlock}
+            onActiveBlockChange={onActiveBlockChange}
           />
         ))}
       </div>
@@ -2088,7 +2224,7 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
 }
 
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
-export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate }: BlockEditorProps) {
+export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate, onActiveBlockChange, externalFocusId, onExternalFocusConsumed }: BlockEditorProps) {
   return (
     <>
       <style>{`
@@ -2107,6 +2243,9 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
         readOnly={readOnly} searchQuery={searchQuery} depth={0}
         wikiTargets={wikiTargets}
         onWikiNavigate={onWikiNavigate}
+        onActiveBlockChange={onActiveBlockChange}
+        externalFocusId={externalFocusId}
+        onExternalFocusConsumed={onExternalFocusConsumed}
       />
       {!readOnly && (
         <div style={{ minHeight:80, cursor:'text', paddingLeft:52 }}
@@ -2124,6 +2263,11 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
       )}
     </>
   );
+}
+
+/** NoteView에서 ref로 호출하는 BlockEditor API */
+export interface BlockEditorHandle {
+  insertImage: (src: string, alt: string) => void;
 }
 
 // ── NoteView 연동 어댑터 훅 ──────────────────────────────────────────
@@ -2203,7 +2347,26 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     applyMd(next);
   }, [applyMd]);
 
-  return { blocks, handleBlockChange, undo, redo };
+  const activeBlockIdRef = useRef<string | null>(null);
+  const [externalFocusId, setExternalFocusId] = useState<string | null>(null);
+
+  const setActiveBlockId = useCallback((id: string | null) => {
+    activeBlockIdRef.current = id;
+  }, []);
+
+  const insertImage = useCallback((src: string, alt: string) => {
+    const { blocks: next, imageId } = insertImageAfter(blocks, activeBlockIdRef.current, src, alt);
+    handleBlockChange(next);
+    activeBlockIdRef.current = imageId;
+    setExternalFocusId(imageId);
+  }, [blocks, handleBlockChange]);
+
+  const clearExternalFocus = useCallback(() => setExternalFocusId(null), []);
+
+  return {
+    blocks, handleBlockChange, undo, redo,
+    insertImage, setActiveBlockId, externalFocusId, clearExternalFocus,
+  };
 }
 
 declare global {

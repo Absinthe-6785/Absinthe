@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Eye, Edit3,
   RotateCcw, AlertTriangle, Star,
@@ -19,7 +19,7 @@ import {
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
-import { BlockEditor, useBlockEditor, type BlockEditorColors } from './BlockEditor';
+import { BlockEditor, useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -56,8 +56,16 @@ interface NoteBlockEditorProps {
   wikiTargets: string[];
   onWikiNavigate?: (title: string) => void;
 }
-const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wikiTargets, onWikiNavigate }: NoteBlockEditorProps) => {
-  const { blocks, handleBlockChange, undo, redo } = useBlockEditor(body, onBodyChange);
+const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
+  { body, onBodyChange, colors, readOnly, searchQuery, wikiTargets, onWikiNavigate },
+  ref,
+) {
+  const {
+    blocks, handleBlockChange, undo, redo,
+    insertImage, setActiveBlockId, externalFocusId, clearExternalFocus,
+  } = useBlockEditor(body, onBodyChange);
+
+  useImperativeHandle(ref, () => ({ insertImage }), [insertImage]);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
   // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
@@ -82,9 +90,12 @@ const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wi
       searchQuery={searchQuery}
       wikiTargets={wikiTargets}
       onWikiNavigate={onWikiNavigate}
+      onActiveBlockChange={setActiveBlockId}
+      externalFocusId={externalFocusId}
+      onExternalFocusConsumed={clearExternalFocus}
     />
   );
-};
+});
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
@@ -385,6 +396,7 @@ export const NoteView = () => {
 
   const imageInputRef  = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const blockEditorRef = useRef<BlockEditorHandle>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
@@ -486,26 +498,18 @@ export const NoteView = () => {
     setNewFolderName(''); setShowFolderForm(false);
   }, [newFolderName, createFolder]);
 
-  // 노트 body 끝에 이미지 마크다운을 추가 (블록 에디터가 새 이미지 블록으로 파싱)
-  const appendImageToBody = useCallback((noteId: string, name: string, src: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n =>
-        n.id === noteId
-          ? { ...n, body: `${n.body}${n.body && !n.body.endsWith('\n') ? '\n' : ''}![${name}](${src})`, updatedAt: Date.now() }
-          : n
-      );
-      nvSaveNotes(updated);
-      const note = updated.find(n => n.id === noteId);
-      if (note) syncNoteToDB(note);
-      return updated;
-    });
-  }, [syncNoteToDB]);
+  // 포커스된 블록 뒤에 이미지 삽입 (edit 모드 BlockEditor ref 경유)
+  const insertImageAtCursor = useCallback((name: string, src: string) => {
+    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    blockEditorRef.current.insertImage(src, name);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
+  }, [viewMode]);
 
   const handleImageInsert = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file || !activeNote) return;
-    const id = activeNote.id;
     const reader = new FileReader();
-    reader.onload = ev => appendImageToBody(id, file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
+    reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -514,15 +518,14 @@ export const NoteView = () => {
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (!activeNote) return;
-    const id = activeNote.id;
+    if (!activeNote || viewMode !== 'edit') return;
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     files.forEach(file => {
       const reader = new FileReader();
-      reader.onload = ev => appendImageToBody(id, file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
+      reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
       reader.readAsDataURL(file);
     });
-  }, [activeNote, appendImageToBody]);
+  }, [activeNote, viewMode, insertImageAtCursor]);
 
   // ── .md 파일 Import ─────────────────────────────────────────────
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1107,7 +1110,7 @@ export const NoteView = () => {
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
-                    <button onClick={() => imageInputRef.current?.click()} className="btbtn" title="Insert image (appends to note)">
+                    <button onClick={() => imageInputRef.current?.click()} className="btbtn" title="Insert image at cursor">
                       <ImageIcon size={13}/>
                     </button>
                     {isSyncing && (
@@ -1146,6 +1149,7 @@ export const NoteView = () => {
                     ) : (
                       <div style={{ minHeight: '100%', padding: '24px 0 80px' }}>
                         <NoteBlockEditor
+                          ref={blockEditorRef}
                           key={activeNote.id}
                           body={activeNote.body}
                           onBodyChange={md => noteUpdate(activeNote.id, { body: md })}
