@@ -617,6 +617,7 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   const base: Block = { ...block, type: newType };
   // 타입별 기본값 초기화
   if (newType === 'code' && !base.code)     base.code = base.content;
+  if (newType === 'math' && !base.math)     base.math = base.content;
   if (newType === 'todo')                   base.checked = base.checked ?? false;
   if (newType === 'toggle')                 base.collapsed = base.collapsed ?? false;
   if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = '💡';

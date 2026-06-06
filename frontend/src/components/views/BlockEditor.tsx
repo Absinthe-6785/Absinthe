@@ -31,6 +31,7 @@ import {
   findBlockById, flattenBlockIds,
   BLOCK_TYPE_MENU, filterBlockMenu,
   blocksToMarkdown, markdownToBlocks,
+  convertBlock,
 } from './blockUtils';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
@@ -1045,6 +1046,97 @@ function TableBlock({ block, colors: c, readOnly, inline, onTableChange }: Table
   );
 }
 
+// ── MathBlock: 포커스 시 raw LaTeX, 비포커스 시 KaTeX 렌더 ───────────
+interface MathBlockProps {
+  block: Block;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  onChange: (math: string) => void;
+}
+
+function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockProps) {
+  const expr = block.math ?? '';
+  // 빈 수식 블록(예: /math 직후)은 곧바로 편집 상태로 시작
+  const [editing, setEditing] = useState(!readOnly && !expr.trim());
+  const [draft, setDraft] = useState(expr);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // 편집 중이 아닐 때 외부 변경을 draft에 반영
+  useEffect(() => { if (!editing) setDraft(expr); }, [expr, editing]);
+
+  // 편집 진입 시 textarea 포커스 (끝으로 캐럿)
+  useEffect(() => {
+    if (editing) {
+      const ta = taRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }
+  }, [editing]);
+
+  const rendered = useMemo(() => {
+    if (typeof window !== 'undefined' && window.katex && expr.trim()) {
+      try { return window.katex.renderToString(expr, { displayMode: true, throwOnError: false }); }
+      catch { return null; }
+    }
+    return null;
+  }, [expr]);
+
+  // ── readOnly(프리뷰) ──
+  if (readOnly) {
+    return rendered
+      ? <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
+      : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
+          {expr.trim() ? expr : '수식 없음'}
+        </code>;
+  }
+
+  // ── 편집 모드 (textarea로 raw LaTeX 입력) ──
+  if (editing) {
+    return (
+      <div style={{ margin:'4px 0' }} onClick={e => e.stopPropagation()}>
+        <textarea
+          ref={taRef}
+          value={draft}
+          spellCheck={false}
+          placeholder="LaTeX 입력 (예: a^2 + b^2 = c^2)"
+          onChange={e => { setDraft(e.target.value); onChange(e.target.value); }}
+          onBlur={() => setEditing(false)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { e.preventDefault(); (e.currentTarget as HTMLTextAreaElement).blur(); }
+          }}
+          style={{
+            width:'100%', minHeight:54, resize:'vertical', boxSizing:'border-box',
+            background:c.codeBg, color:c.text, border:`1px solid ${c.accent}`,
+            borderRadius:8, padding:'10px 12px', outline:'none',
+            fontFamily:'monospace', fontSize:13, lineHeight:1.5,
+          }}
+        />
+        {/* 실시간 미리보기 */}
+        {rendered && (
+          <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto', borderTop:`1px dashed ${c.border}`, marginTop:6 }}
+            dangerouslySetInnerHTML={{ __html: rendered }}/>
+        )}
+        <div style={{ fontSize:10, color:c.textFaint, marginTop:3, textAlign:'right' }}>
+          KaTeX · Esc 또는 포커스 해제로 완료
+        </div>
+      </div>
+    );
+  }
+
+  // ── 비편집(렌더) — 클릭하면 편집 ──
+  return (
+    <div
+      onClick={e => { e.stopPropagation(); setEditing(true); }}
+      title="클릭해서 수식 편집"
+      style={{ cursor:'text', padding:'6px 0', borderRadius:6 }}>
+      {rendered
+        ? <div style={{ textAlign:'center', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
+        : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
+            {expr.trim() ? expr : '수식 입력 (클릭)'}
+          </code>}
+    </div>
+  );
+}
+
 function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
   const { inline, editableRef, onSplitBlock, onMergeWithPrev, onContentChange, readOnly,
           onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, isMenuOpen } = ctx;
@@ -1273,16 +1365,13 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
           onTableChange={ctx.onTableChange}
         />
       );
-    case 'math': {
-      const expr = block.math ?? '';
-      if (typeof window !== 'undefined' && window.katex) {
-        try {
-          const html = window.katex.renderToString(expr, { displayMode:true, throwOnError:false });
-          return <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html:html }}/>;
-        } catch { /* fall through */ }
-      }
-      return <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color:c.text }}>{expr}</code>;
-    }
+    case 'math':
+      return (
+        <MathBlock
+          block={block} colors={c} readOnly={readOnly}
+          onChange={math => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, math })))}
+        />
+      );
     default:
       return <p style={{ color:c.text, fontSize:15, lineHeight:1.7 }}>{block.content}</p>;
   }
@@ -1337,7 +1426,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [blocks, onChange]);
 
   const handleConvert = useCallback((id: string, newType: BlockType) => {
-    onChange(updateBlockById(blocks, id, b => ({ ...b, type: newType })));
+    onChange(updateBlockById(blocks, id, b => convertBlock(b, newType)));
     setBlockMenu(null);
   }, [blocks, onChange]);
 
@@ -1462,6 +1551,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       const cleaned  = slashIdx >= 0
         ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
         : b.content;
+      // math 변환 시 남은 텍스트를 LaTeX 식으로 시드하고 content는 비움
+      if (type === 'math') return { ...b, type, content: '', math: b.math || cleaned };
       return { ...b, type, content: cleaned };
     }));
 
