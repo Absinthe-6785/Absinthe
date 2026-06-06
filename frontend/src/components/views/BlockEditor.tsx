@@ -288,6 +288,7 @@ interface SingleBlockProps {
   onSelect: (id: string) => void; onOpenMenu: (s: BlockMenuState) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
   searchQuery: string; depth: number; wikiTargets: string[];
+  headingIndex?: number;   // 최상위 헤딩 순번 (TOC 점프 타겟용), 헤딩이 아니면 undefined
   // Phase 2: 편집 콜백
   onSplitBlock:    (id: string, before: string, after: string) => void;
   onMergeWithPrev: (id: string, selfContent: string) => void;
@@ -314,7 +315,7 @@ interface SingleBlockProps {
 
 const SingleBlock = React.memo(function SingleBlock({
   block, blocks, onChange, colors: c, selected,
-  onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth, wikiTargets,
+  onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
   onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
   dragState, startDrag, getDragProps,
   onSlashOpen, onSlashClose,
@@ -419,6 +420,7 @@ const SingleBlock = React.memo(function SingleBlock({
   return (
     <div
       {...getDragProps(block.id)}
+      data-be-heading={headingIndex}
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
         borderRadius:6, padding:'1px 0',
@@ -1751,6 +1753,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     }
   }, [focusCmd]);
 
+  // 최상위(depth 0) 헤딩 블록의 순번 — TOC(extractTOC와 동일한 문서 순서) 점프 타겟
+  const headingIndexById = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (depth === 0) {
+      let h = 0;
+      for (const b of blocks) {
+        if (b.type === 'heading1' || b.type === 'heading2' || b.type === 'heading3') m[b.id] = h++;
+      }
+    }
+    return m;
+  }, [blocks, depth]);
+
   return (
     <>
       <div style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 52), position:'relative' }}>
@@ -1761,6 +1775,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onSelect={setSelected} onOpenMenu={setBlockMenu}
             onAddBelow={handleAddBelow} readOnly={readOnly}
             searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
+            headingIndex={headingIndexById[block.id]}
             onSplitBlock={handleSplitBlock}
             onMergeWithPrev={handleMergeWithPrev}
             onContentChange={handleContentChange}

@@ -815,6 +815,12 @@ export const NoteView = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
 
+  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/preview 공통.
+  const scrollToHeading = useCallback((headingIdx: number) => {
+    const el = document.querySelector(`[data-be-heading="${headingIdx}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   // 블록 readOnly 프리뷰용 클릭 위임 — be-wikilink / be-tag data 속성 처리
   const handleBlockPreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -1450,12 +1456,7 @@ export const NoteView = () => {
                   <div key={item.idx} className="btoc" style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
                     onClick={() => {
                       if (item.hasChildren) { toggleTocCollapse(item.idx); return; }
-                      const ta = textareaRef.current;
-                      if (ta && viewMode !== 'preview') {
-                        const pos = activeNote.body.split('\n').slice(0, item.line).join('\n').length;
-                        ta.focus(); ta.setSelectionRange(pos, pos);
-                        ta.scrollTop = (pos / activeNote.body.length) * ta.scrollHeight;
-                      }
+                      scrollToHeading(item.idx);
                     }}>
                     {item.hasChildren
                       ? (tocCollapsed[item.idx]
@@ -1468,11 +1469,7 @@ export const NoteView = () => {
                       onClick={e => {
                         if (item.hasChildren) return; // 이미 처리됨
                         e.stopPropagation();
-                        const ta = textareaRef.current;
-                        if (ta && viewMode !== 'preview') {
-                          const pos = activeNote.body.split('\n').slice(0, item.line).join('\n').length;
-                          ta.focus(); ta.setSelectionRange(pos, pos);
-                        }
+                        scrollToHeading(item.idx);
                       }}>
                       {item.text}
                     </span>
