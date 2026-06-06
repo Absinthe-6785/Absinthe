@@ -18,7 +18,7 @@ import {
   extractLinkContexts,
   findNoteByTitle, findWikiLinkInText,
   parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
-  mergeDbAndLocalNotes, getLocalOnlyNotes, normalizeNoteFolderId,
+  mergeDbAndLocalNotes, getLocalOnlyNotes, normalizeNoteFolderId, noteSyncPayload,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
@@ -115,20 +115,6 @@ export const NoteView = () => {
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
-  // ── DB sync 헬퍼 (fire-and-forget, 실패해도 localStorage 유지) ───
-  const syncNoteToDB = useCallback(async (note: Note) => {
-    try {
-      await authFetch(`${API_URL}/api/notes`, {
-        method: 'POST',
-        body: JSON.stringify({
-          id: note.id, title: note.title, body: note.body,
-          updated_at: note.updatedAt, folder_id: note.folderId,
-          deleted_at: note.deletedAt, starred: note.starred ?? false,
-        }),
-      });
-    } catch { /**/ }
-  }, []);
-
   const removeNoteFromDB = useCallback(async (id: string) => {
     try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
   }, []);
@@ -154,6 +140,41 @@ export const NoteView = () => {
   });
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash'>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const lastFailedNoteRef = useRef<Note | null>(null);
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+
+  // ── DB sync — 실패 시 syncError 표시, 성공 시 savedAt 갱신 ───────
+  const syncNoteToDB = useCallback(async (note: Note): Promise<boolean> => {
+    try {
+      const res = await authFetch(`${API_URL}/api/notes`, {
+        method: 'POST',
+        body: JSON.stringify(noteSyncPayload(note)),
+      });
+      if (!res.ok) {
+        lastFailedNoteRef.current = note;
+        setSyncError(`Cloud sync failed (${res.status})`);
+        return false;
+      }
+      lastFailedNoteRef.current = null;
+      setSyncError(null);
+      setSavedAt(new Date());
+      return true;
+    } catch (err) {
+      lastFailedNoteRef.current = note;
+      setSyncError(err instanceof Error ? err.message : 'Cloud sync failed');
+      return false;
+    }
+  }, []);
+
+  const retrySync = useCallback(() => {
+    const target = lastFailedNoteRef.current
+      ?? notesRef.current.find(n => n.id === activeNoteId)
+      ?? null;
+    if (target) syncNoteToDB(target);
+  }, [activeNoteId, syncNoteToDB]);
 
   const setActiveNoteId = useCallback((id: string | null) => {
     setActiveNoteIdRaw(id);
@@ -167,6 +188,7 @@ export const NoteView = () => {
       try {
         // 폴더 먼저
         const fRes = await authFetch(`${API_URL}/api/note_folders`);
+        if (!fRes.ok) setSyncError(`Failed to load folders (${fRes.status})`);
         if (fRes.ok) {
           const raw = await fRes.json();
           const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
@@ -179,6 +201,7 @@ export const NoteView = () => {
         }
         // 노트
         const nRes = await authFetch(`${API_URL}/api/notes`);
+        if (!nRes.ok) setSyncError(`Failed to load notes (${nRes.status})`);
         if (nRes.ok) {
           const raw = await nRes.json();
           const localNotes = nvLoadNotes();
@@ -220,11 +243,14 @@ export const NoteView = () => {
             await Promise.allSettled(local.map(note => syncNoteToDB(note)));
           }
         }
-      } catch { /**/ } finally {
+      } catch (err) {
+        setSyncError(err instanceof Error ? err.message : 'Failed to load from cloud');
+      } finally {
         setIsSyncing(false);
       }
     };
     load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentional: run once on mount only
 
   // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
@@ -424,7 +450,6 @@ export const NoteView = () => {
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
   const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'stats'>('toc');
-  const [savedAt,        setSavedAt]        = useState<Date | null>(null);
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -438,12 +463,8 @@ export const NoteView = () => {
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     updateNote(id, patch);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
   }, [updateNote]);
 
   // ── 필터링 ──────────────────────────────────────────────────────
@@ -561,8 +582,6 @@ export const NoteView = () => {
   const insertImageAtCursor = useCallback((name: string, src: string) => {
     if (viewMode !== 'edit' || !blockEditorRef.current) return;
     blockEditorRef.current.insertImage(src, name);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
   }, [viewMode]);
 
   const insertEmptyImageBlockAtCursor = useCallback(() => {
@@ -612,8 +631,18 @@ export const NoteView = () => {
   const shortcutRef = useRef({
     showSortMenu, viewMode, activeNote, createNote, duplicateNote,
   });
+  const syncShortcutRef = useRef({
+    flushPendingSync,
+    syncNoteToDB,
+    getActiveNote: () => null as Note | null,
+  });
   useEffect(() => {
     shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote };
+    syncShortcutRef.current = {
+      flushPendingSync,
+      syncNoteToDB,
+      getActiveNote: () => notesRef.current.find(n => n.id === activeNoteId) ?? null,
+    };
   });
 
   useEffect(() => {
@@ -623,11 +652,13 @@ export const NoteView = () => {
       if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
       if (!mod) return;
 
-      // ── Save (Ctrl+S) — 즉시 저장 표시 ─────────────────────
+      // ── Save (Ctrl+S) — debounce flush + 즉시 cloud sync ─────
       if (e.key === 's') {
         e.preventDefault();
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        setSavedAt(new Date());
+        const { flushPendingSync: flush, syncNoteToDB: sync, getActiveNote } = syncShortcutRef.current;
+        flush();
+        const note = getActiveNote();
+        if (note) void sync(note);
         return;
       }
 
@@ -1127,6 +1158,24 @@ export const NoteView = () => {
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               )}
+              {/* Cloud sync status */}
+              {!isTrash && (
+                syncError ? (
+                  <button type="button" onClick={retrySync} className="btbtn" title="Retry cloud sync"
+                    style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
+                    <AlertTriangle size={10}/> {syncError}
+                  </button>
+                ) : isSyncing ? (
+                  <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
+                    syncing…
+                  </span>
+                ) : savedAt ? (
+                  <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                ) : null
+              )}
               {/* View Mode Toggle */}
               <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
                 {VIEW_MODES.map(({ key, icon, label }) => (
@@ -1183,16 +1232,6 @@ export const NoteView = () => {
                     <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="Insert image block at cursor">
                       <ImageIcon size={13}/>
                     </button>
-                    {isSyncing && (
-                      <span style={{ marginLeft: 'auto', fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/> syncing...
-                      </span>
-                    )}
-                    {!isSyncing && savedAt && (
-                      <span style={{ marginLeft: isSyncing ? 4 : 'auto', fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} saved
-                      </span>
-                    )}
                   </div>
                 )}
 

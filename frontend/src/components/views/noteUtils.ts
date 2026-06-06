@@ -295,6 +295,19 @@ export function getLocalOnlyNotes(dbNoteIds: Iterable<string>, localNotes: NoteB
   return localNotes.filter(l => !ids.has(l.id) && !l.deletedAt);
 }
 
+/** POST /api/notes upsert 페이로드 — NoteView·Planner 공통 */
+export function noteSyncPayload(note: NoteBase) {
+  return {
+    id: note.id,
+    title: note.title ?? '',
+    body: note.body ?? '',
+    updated_at: note.updatedAt,
+    folder_id: note.folderId ?? null,
+    deleted_at: note.deletedAt ?? null,
+    starred: note.starred ?? false,
+  };
+}
+
 /** 위키 제목 정규화 — 대소문자 무시 비교용 */
 export function normalizeWikiTitle(title: string): string {
   return title.trim().toLowerCase();

@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { AppSettings } from '../types';
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
+import { noteSyncPayload } from '../components/views/noteUtils';
 
 // ─── 타입 정의 ────────────────────────────────────────────────────────
 export interface NoteFolder {
@@ -235,7 +236,7 @@ export const useAppStore = create<StoreState>()(
             const localNotes = get().notes;
 
             // DB 노트 변환 — folder_id/deleted_at 없는 구버전 DB는 localStorage 값 우선
-            const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null }) => {
+            const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean }) => {
               const local = localNotes.find(l => l.id === n.id);
               return {
                 id: n.id,
@@ -246,6 +247,7 @@ export const useAppStore = create<StoreState>()(
                 folderId: (n.folder_id != null) ? n.folder_id : (local?.folderId ?? null),
                 // DB에 deleted_at 컬럼이 있으면 DB 우선, 없으면 localStorage 보존
                 deletedAt: (n.deleted_at !== undefined) ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
+                starred: n.starred ?? local?.starred ?? false,
               };
             });
 
@@ -280,7 +282,7 @@ export const useAppStore = create<StoreState>()(
               await Promise.all(local.map(note =>
                 authFetch(`${API_URL}/api/notes`, {
                   method: 'POST',
-                  body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt, folder_id: note.folderId, deleted_at: note.deletedAt }),
+                  body: JSON.stringify(noteSyncPayload(note)),
                 })
               ));
             }
@@ -302,7 +304,7 @@ export const useAppStore = create<StoreState>()(
           try {
             await authFetch(`${API_URL}/api/notes`, {
               method: 'POST',
-              body: JSON.stringify({ id: note.id, title: note.title, body: note.body, updated_at: note.updatedAt, folder_id: note.folderId, deleted_at: note.deletedAt }),
+              body: JSON.stringify(noteSyncPayload(note)),
             });
           } catch { /**/ }
         },

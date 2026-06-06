@@ -10,6 +10,7 @@ import {
   mergeDbAndLocalNotes,
   getLocalOnlyNotes,
   normalizeNoteFolderId,
+  noteSyncPayload,
   type NoteBase,
 } from './noteUtils';
 
@@ -82,6 +83,14 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     expect(normalizeNoteFolderId('starred')).toBeNull();
     expect(normalizeNoteFolderId('trash')).toBeNull();
     expect(normalizeNoteFolderId('folder-1')).toBe('folder-1');
+  });
+
+  it('noteSyncPayload includes starred for upsert', () => {
+    const payload = noteSyncPayload({
+      id: 'n1', title: 'T', body: 'B', updatedAt: 1, folderId: null, deletedAt: null, starred: true,
+    });
+    expect(payload.starred).toBe(true);
+    expect(payload.folder_id).toBeNull();
   });
 });
 
