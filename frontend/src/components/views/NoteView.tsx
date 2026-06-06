@@ -18,6 +18,7 @@ import {
   extractLinkContexts,
   findNoteByTitle, findWikiLinkInText,
   parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
+  mergeDbAndLocalNotes, getLocalOnlyNotes, normalizeNoteFolderId,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
@@ -196,22 +197,20 @@ export const NoteView = () => {
               starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
             };
           });
-          // 로컬에만 있는 노트(DB에 없는 것) → DB에 업로드 (실패해도 계속 진행)
-          const dbIds = new Set(raw.map((n: { id: string }) => n.id));
-          const localOnly = localNotes.filter(l => !dbIds.has(l.id) && !l.deletedAt);
+          // 로컬에만 있는 노트(DB에 없는 것) → DB에 업로드 (실패해도 로컬은 merge로 유지)
+          const dbIds = raw.map((n: { id: string }) => n.id);
+          const localOnly = getLocalOnlyNotes(dbIds, localNotes);
           if (localOnly.length > 0) {
             await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
           }
-          // 30일 지난 휴지통 자동 제거
-          const MONTH = 30 * 24 * 60 * 60 * 1000;
-          const valid = dbNotes.filter(n => !n.deletedAt || Date.now() - n.deletedAt < MONTH);
-          if (dbNotes.length > 0) {  // DB에 노트가 있으면 항상 setNotes (valid가 0이어도)
-            setNotes(valid);
-            nvSaveNotes(valid);
+          const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
+          if (dbNotes.length > 0 || localOnly.length > 0) {
+            setNotes(merged);
+            nvSaveNotes(merged);
             // activeNoteId가 유효한지 확인
             setActiveNoteIdRaw(prev => {
-              const stillValid = valid.some(n => n.id === prev && !n.deletedAt);
-              const next = stillValid ? prev : (valid.find(n => !n.deletedAt)?.id ?? null);
+              const stillValid = merged.some(n => n.id === prev && !n.deletedAt);
+              const next = stillValid ? prev : (merged.find(n => !n.deletedAt)?.id ?? null);
               try { localStorage.setItem(NV_ACTIVE_KEY, next ?? ''); } catch { /**/ }
               return next;
             });
@@ -237,7 +236,7 @@ export const NoteView = () => {
     const id = `note-${Date.now()}`;
     const folderId = initial?.folderId !== undefined
       ? initial.folderId
-      : (activeFolderId === null || activeFolderId === 'trash' || activeFolderId === 'starred') ? null : activeFolderId;
+      : normalizeNoteFolderId(activeFolderId);
     const note: Note = {
       id,
       title: initial?.title ?? '',
@@ -257,6 +256,31 @@ export const NoteView = () => {
 
   // debounce ref — body 타이핑 중 과도한 DB 요청 방지
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSyncNoteRef = useRef<Note | null>(null);
+
+  const flushPendingSync = useCallback(() => {
+    if (syncTimer.current) {
+      clearTimeout(syncTimer.current);
+      syncTimer.current = null;
+    }
+    const pending = pendingSyncNoteRef.current;
+    if (pending) {
+      pendingSyncNoteRef.current = null;
+      syncNoteToDB(pending);
+    }
+  }, [syncNoteToDB]);
+
+  // 탭 전환(unmount) · 페이지 이탈 시 debounce 중인 body를 즉시 DB sync
+  useEffect(() => {
+    const onPageHide = () => flushPendingSync();
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('beforeunload', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onPageHide);
+      flushPendingSync();
+    };
+  }, [flushPendingSync]);
 
   const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     setNotes(prev => {
@@ -266,15 +290,21 @@ export const NoteView = () => {
       const updatedNote = updated.find(n => n.id === id);
       if (updatedNote) {
         if ('body' in patch) {
+          pendingSyncNoteRef.current = updatedNote;
           if (syncTimer.current) clearTimeout(syncTimer.current);
-          syncTimer.current = setTimeout(() => syncNoteToDB(updatedNote), 600);
+          syncTimer.current = setTimeout(() => {
+            syncTimer.current = null;
+            pendingSyncNoteRef.current = null;
+            syncNoteToDB(updatedNote);
+          }, 600);
         } else {
+          flushPendingSync();
           syncNoteToDB(updatedNote);
         }
       }
       return updated;
     });
-  }, [syncNoteToDB]);
+  }, [syncNoteToDB, flushPendingSync]);
 
   const toggleStar = useCallback((id: string) => {
     setNotes(prev => {
@@ -563,9 +593,14 @@ export const NoteView = () => {
         const body = ev.target?.result as string;
         const title = file.name.replace(/\.md$/i, '');
         const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const note: Note = { id, title, body, updatedAt: Date.now(), folderId: activeFolderId === 'trash' ? null : activeFolderId, deletedAt: null, starred: false };
+        const note: Note = {
+          id, title, body, updatedAt: Date.now(),
+          folderId: normalizeNoteFolderId(activeFolderId),
+          deletedAt: null, starred: false,
+        };
         setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
         setActiveNoteId(id);
+        syncNoteToDB(note);
       };
       reader.readAsText(file);
     });

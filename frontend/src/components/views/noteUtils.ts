@@ -259,6 +259,42 @@ export function extractLinks(body: string): string[] {
   return [...new Set([...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1].trim()).filter(Boolean))];
 }
 
+/** 휴지통 보존 기간 (30일) */
+export const NOTE_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** 가상 폴더(trash/starred) → null, 실제 폴더 id 유지 */
+export function normalizeNoteFolderId(
+  folderId: string | null | 'trash' | 'starred' | undefined,
+): string | null {
+  if (folderId === null || folderId === undefined || folderId === 'trash' || folderId === 'starred') {
+    return null;
+  }
+  return folderId;
+}
+
+/**
+ * DB 로드 결과와 localStorage를 병합.
+ * DB에 없는 로컬 전용 노트는 업로드 성공 여부와 무관하게 UI에 유지한다.
+ */
+export function mergeDbAndLocalNotes(
+  dbNotes: NoteBase[],
+  localNotes: NoteBase[],
+  now = Date.now(),
+): NoteBase[] {
+  const dbIds = new Set(dbNotes.map(n => n.id));
+  const validFromDb = dbNotes.filter(
+    n => !n.deletedAt || now - n.deletedAt < NOTE_TRASH_RETENTION_MS,
+  );
+  const localOnly = localNotes.filter(l => !dbIds.has(l.id) && !l.deletedAt);
+  return [...localOnly, ...validFromDb].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** DB 응답에 없는 활성 로컬 노트 */
+export function getLocalOnlyNotes(dbNoteIds: Iterable<string>, localNotes: NoteBase[]): NoteBase[] {
+  const ids = new Set(dbNoteIds);
+  return localNotes.filter(l => !ids.has(l.id) && !l.deletedAt);
+}
+
 /** 위키 제목 정규화 — 대소문자 무시 비교용 */
 export function normalizeWikiTitle(title: string): string {
   return title.trim().toLowerCase();

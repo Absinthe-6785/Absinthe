@@ -7,6 +7,9 @@ import {
   parseNoteSearchQuery,
   noteMatchesTagSearch,
   extractLinkContexts,
+  mergeDbAndLocalNotes,
+  getLocalOnlyNotes,
+  normalizeNoteFolderId,
   type NoteBase,
 } from './noteUtils';
 
@@ -45,6 +48,40 @@ describe('tag search helpers', () => {
   it('noteMatchesTagSearch supports partial match', () => {
     expect(noteMatchesTagSearch('#workflow #idea', 'work')).toBe(true);
     expect(noteMatchesTagSearch('plain text', 'work')).toBe(false);
+  });
+});
+
+describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
+  const dbNotes: NoteBase[] = [
+    { id: 'db-1', title: 'From DB', body: '', updatedAt: 100, folderId: null, deletedAt: null },
+  ];
+  const localNotes: NoteBase[] = [
+    { id: 'db-1', title: 'Local newer', body: 'x', updatedAt: 200, folderId: null, deletedAt: null },
+    { id: 'local-only', title: 'Offline', body: '', updatedAt: 150, folderId: null, deletedAt: null },
+  ];
+
+  it('keeps local-only notes alongside db notes', () => {
+    const dbMerged = dbNotes.map(n => {
+      const local = localNotes.find(l => l.id === n.id)!;
+      return local.updatedAt > n.updatedAt ? local : n;
+    });
+    const merged = mergeDbAndLocalNotes(dbMerged, localNotes);
+    expect(merged.map(n => n.id)).toContain('local-only');
+    expect(merged.map(n => n.id)).toContain('db-1');
+  });
+
+  it('getLocalOnlyNotes excludes db ids and trashed', () => {
+    const localOnly = getLocalOnlyNotes(['db-1'], [
+      ...localNotes,
+      { id: 'trashed', title: 'T', body: '', updatedAt: 1, folderId: null, deletedAt: 99 },
+    ]);
+    expect(localOnly.map(n => n.id)).toEqual(['local-only']);
+  });
+
+  it('normalizeNoteFolderId maps virtual folders to null', () => {
+    expect(normalizeNoteFolderId('starred')).toBeNull();
+    expect(normalizeNoteFolderId('trash')).toBeNull();
+    expect(normalizeNoteFolderId('folder-1')).toBe('folder-1');
   });
 });
 
