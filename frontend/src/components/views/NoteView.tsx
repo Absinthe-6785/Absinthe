@@ -20,6 +20,7 @@ import {
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
+import { BlockEditor, useBlockEditor, type BlockEditorColors } from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -45,6 +46,29 @@ function useKaTeX(): boolean {
 }
 
 interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
+
+// ── 블록 에디터 어댑터 ────────────────────────────────────────────────
+// useBlockEditor 훅은 조건부로 호출할 수 없으므로 별도 컴포넌트로 분리한다.
+// 부모에서 key={note.id}로 마운트해 노트 전환 시 블록 상태가 초기화되도록 한다.
+interface NoteBlockEditorProps {
+  body: string;
+  onBodyChange: (md: string) => void;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  searchQuery: string;
+}
+const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery }: NoteBlockEditorProps) => {
+  const { blocks, handleBlockChange } = useBlockEditor(body, onBodyChange);
+  return (
+    <BlockEditor
+      blocks={blocks}
+      onChange={handleBlockChange}
+      colors={colors}
+      readOnly={readOnly}
+      searchQuery={searchQuery}
+    />
+  );
+};
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
@@ -501,10 +525,26 @@ export const NoteView = () => {
     setTimeout(() => { ta.focus(); ta.setSelectionRange(s + before.length, s + before.length + sel.length); }, 0);
   }, [activeNote, noteUpdate]);
 
+  // 노트 body 끝에 이미지 마크다운을 추가 (블록 에디터가 새 이미지 블록으로 파싱)
+  const appendImageToBody = useCallback((noteId: string, name: string, src: string) => {
+    setNotes(prev => {
+      const updated = prev.map(n =>
+        n.id === noteId
+          ? { ...n, body: `${n.body}${n.body && !n.body.endsWith('\n') ? '\n' : ''}![${name}](${src})`, updatedAt: Date.now() }
+          : n
+      );
+      nvSaveNotes(updated);
+      const note = updated.find(n => n.id === noteId);
+      if (note) syncNoteToDB(note);
+      return updated;
+    });
+  }, [syncNoteToDB]);
+
   const handleImageInsert = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const file = e.target.files?.[0]; if (!file || !activeNote) return;
+    const id = activeNote.id;
     const reader = new FileReader();
-    reader.onload = ev => insert(`![${file.name.replace(/\.[^.]+$/, '')}](${ev.target?.result as string})`);
+    reader.onload = ev => appendImageToBody(id, file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -513,22 +553,15 @@ export const NoteView = () => {
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (!activeNote) return;
+    const id = activeNote.id;
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     files.forEach(file => {
       const reader = new FileReader();
-      reader.onload = ev => {
-        const src = ev.target?.result as string;
-        const name = file.name.replace(/\.[^.]+$/, '');
-        const ta = textareaRef.current;
-        if (!ta || !activeNote) return;
-        const pos = ta.selectionStart ?? activeNote.body.length;
-        const before = activeNote.body.slice(0, pos);
-        const after  = activeNote.body.slice(pos);
-        noteUpdate(activeNote.id, { body: `${before}![${name}](${src})${after}` });
-      };
+      reader.onload = ev => appendImageToBody(id, file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
       reader.readAsDataURL(file);
     });
-  }, [activeNote, noteUpdate]);
+  }, [activeNote, appendImageToBody]);
 
   // ── 표 삽입 헬퍼 ──────────────────────────────────────────────
   const insertTable = useCallback(() => {
@@ -804,6 +837,29 @@ export const NoteView = () => {
     green:     dark ? '#4ADE80'   : '#15803D',
     textarea:  dark ? '#18181A'   : '#FAFAF8',
   }), [dark]);
+
+  // ── 블록 에디터 색상 팔레트 (c → BlockEditorColors 매핑) ──────────
+  const blockColors = useMemo<BlockEditorColors>(() => ({
+    bg:         c.editor,
+    text:       c.text,
+    textMuted:  c.textMuted,
+    textFaint:  c.textFaint,
+    accent:     c.accent,
+    accentBg:   c.accentBg,
+    border:     c.sideBdr,
+    card:       c.card,
+    cardHov:    c.cardHov,
+    input:      c.input,
+    inputBdr:   c.inputBdr,
+    toolbar:    c.toolbar,
+    danger:     c.danger,
+    green:      c.green,
+    codeBg:     dark ? '#1C1C1E' : '#F5F2EA',
+    calloutBg:  c.accentBg,
+    toggleBg:   dark ? '#FACC1510' : '#FFF8E1',
+    quoteBdr:   c.textFaint,
+    selection:  c.accentBg,
+  }), [c, dark]);
 
   // 매 렌더마다 filter() 반복 방지
   const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
@@ -1249,14 +1305,19 @@ export const NoteView = () => {
               </div>
             ) : (
               <>
-                {/* Toolbar - edit 모드에서만 */}
+                {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
                 {!isTrash && viewMode === 'edit' && (
-                  <div style={{ padding: '2px 10px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
-                    {TOOLBAR.map((btn, i) =>
-                      btn === null
-                        ? <div key={i} style={{ width: 1, height: 13, background: c.sideBdr, margin: '0 2px' }}/>
-                        : <button key={i} className="btbtn" onClick={btn.fn} title={btn.label}>{btn.icon}</button>
-                    )}
+                  <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
+                      입력으로 블록 추가 · 드래그로 순서 변경
+                    </span>
+                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
+                      <Upload size={13}/>
+                    </button>
+                    <button onClick={() => imageInputRef.current?.click()} className="btbtn" title="Insert image (appends to note)">
+                      <ImageIcon size={13}/>
+                    </button>
                     {isSyncing && (
                       <span style={{ marginLeft: 'auto', fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/> syncing...
@@ -1291,33 +1352,15 @@ export const NoteView = () => {
                         <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                       </div>
                     ) : (
-                      <div style={{ position: 'relative', height: '100%' }}>
-                        <textarea ref={textareaRef} className="wiki-textarea"
-                          value={activeNote.body}
-                          onChange={handleEditorChange}
-                          onKeyDown={handleEditorKeyDown}
-                          placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\n> Toggle heading\n  Content inside toggle\n\nMath: $a^2+b^2=c^2$\n\nWiki link: [[Note Title]]'}/>
-                        {/* [[ 자동완성 드롭다운 */}
-                        {acVisible && acCandidates.length > 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            top:  acPos.top,
-                            left: Math.min(acPos.left, (textareaRef.current?.offsetWidth ?? 600) - 220),
-                            background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
-                            boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
-                          }}>
-                            <div style={{ padding: '4px 10px 3px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}`, fontWeight: 700, letterSpacing: 1 }}>
-                              LINK TO NOTE
-                            </div>
-                            {acCandidates.map((n, i) => (
-                              <div key={n.id} className={`bac-item ${i === acIndex ? 'active' : ''}`}
-                                onMouseDown={e => { e.preventDefault(); applyAutoComplete(n.title); }}>
-                                <span style={{ fontSize: 10, color: c.textFaint, marginRight: 6 }}>📄</span>
-                                {n.title}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      <div style={{ minHeight: '100%', padding: '24px 0 80px' }}>
+                        <NoteBlockEditor
+                          key={activeNote.id}
+                          body={activeNote.body}
+                          onBodyChange={md => noteUpdate(activeNote.id, { body: md })}
+                          colors={blockColors}
+                          readOnly={false}
+                          searchQuery={searchQuery}
+                        />
                       </div>
                     )
                   )}

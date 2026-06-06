@@ -440,7 +440,7 @@ interface EditableBlockProps {
   onMergeWithPrev: (id: string, selfContent: string) => void;
   onContentChange: (id: string, content: string) => void;
   /** 래퍼 태그 (p, h1, h2, …, span). 기본값: 'p' */
-  tag?: keyof JSX.IntrinsicElements;
+  tag?: keyof React.JSX.IntrinsicElements;
   // Phase 3: 슬래시 커맨드
   onSlashOpen:  (state: SlashMenuState) => void;
   onSlashClose: () => void;
@@ -1667,6 +1667,6 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
 
 declare global {
   interface Window {
-    katex?: { renderToString: (expr: string, opts: { displayMode: boolean; throwOnError: boolean }) => string };
+    katex?: { renderToString: (expr: string, opts?: object) => string };
   }
 }
