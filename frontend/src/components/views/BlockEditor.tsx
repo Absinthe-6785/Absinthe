@@ -1216,6 +1216,98 @@ function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockProps) {
   );
 }
 
+// ── ImageBlock: 업로드 / URL / 캡션 편집 ─────────────────────────────
+const imgBtnStyle = (c: BlockEditorColors, danger = false): CSSProperties => ({
+  background: danger ? `${c.danger}15` : c.card,
+  border: `1px solid ${danger ? c.danger + '50' : c.border}`,
+  color: danger ? c.danger : c.text,
+  borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', gap: 5, lineHeight: 1,
+});
+
+interface ImageBlockProps {
+  block: Block;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  onChange: (patch: { src?: string; alt?: string; caption?: string }) => void;
+}
+
+function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [showUrl, setShowUrl] = useState(false);
+  const [urlDraft, setUrlDraft] = useState('');
+
+  const loadFile = (f: File) => {
+    const reader = new FileReader();
+    reader.onload = ev => onChange({ src: ev.target?.result as string, alt: block.alt || f.name.replace(/\.[^.]+$/, '') });
+    reader.readAsDataURL(f);
+  };
+
+  // ── readOnly(프리뷰) ──
+  if (readOnly) {
+    return (
+      <figure style={{ margin:'8px 0', textAlign:'center' }}>
+        {block.src
+          ? <img src={block.src} alt={block.alt ?? ''} style={{ maxWidth:'100%', borderRadius:8, border:`1px solid ${c.border}` }}/>
+          : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
+              <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>이미지 없음</div>
+            </div>}
+        {block.caption && <figcaption style={{ fontSize:12, color:c.textMuted, marginTop:6, fontStyle:'italic' }}>{block.caption}</figcaption>}
+      </figure>
+    );
+  }
+
+  const hiddenFile = (
+    <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
+      onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }}/>
+  );
+
+  // ── 편집: src 없음 → 업로더 ──
+  if (!block.src) {
+    return (
+      <div onClick={e => e.stopPropagation()} style={{ margin:'8px 0' }}>
+        <div
+          onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); const f = Array.from(e.dataTransfer.files).find(x => x.type.startsWith('image/')); if (f) loadFile(f); }}
+          style={{ border:`2px dashed ${c.border}`, borderRadius:10, padding:'22px 16px', textAlign:'center', background:c.card }}>
+          <div style={{ marginBottom:10, color:c.textFaint }}><ImageIcon size={22}/></div>
+          <div style={{ display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap' }}>
+            <button onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 업로드</button>
+            <button onClick={() => setShowUrl(v => !v)} style={imgBtnStyle(c)}>URL 입력</button>
+          </div>
+          {showUrl && (
+            <div style={{ display:'flex', gap:6, marginTop:10, justifyContent:'center' }}>
+              <input value={urlDraft} autoFocus
+                onChange={e => setUrlDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && urlDraft.trim()) onChange({ src: urlDraft.trim() }); }}
+                placeholder="https://image-url..."
+                style={{ flex:1, maxWidth:320, background:c.input, border:`1px solid ${c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
+              <button onClick={() => { if (urlDraft.trim()) onChange({ src: urlDraft.trim() }); }} style={imgBtnStyle(c)}>추가</button>
+            </div>
+          )}
+          <div style={{ fontSize:10, color:c.textFaint, marginTop:8 }}>이미지를 끌어다 놓을 수도 있어요</div>
+        </div>
+        {hiddenFile}
+      </div>
+    );
+  }
+
+  // ── 편집: src 있음 → 이미지 + 교체/삭제 + 캡션 ──
+  return (
+    <figure onClick={e => e.stopPropagation()} style={{ margin:'8px 0', textAlign:'center' }}>
+      <img src={block.src} alt={block.alt ?? ''} style={{ maxWidth:'100%', borderRadius:8, border:`1px solid ${c.border}` }}/>
+      <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:6 }}>
+        <button onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>교체</button>
+        <button onClick={() => onChange({ src: '' })} style={imgBtnStyle(c, true)}>삭제</button>
+      </div>
+      <input value={block.caption ?? ''} onChange={e => onChange({ caption: e.target.value })}
+        placeholder="캡션 (선택)"
+        style={{ display:'block', margin:'8px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
+      {hiddenFile}
+    </figure>
+  );
+}
+
 function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
   const { inline, editableRef, onSplitBlock, onMergeWithPrev, onContentChange, readOnly,
           onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, isMenuOpen } = ctx;
@@ -1419,15 +1511,10 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       );
     case 'image':
       return (
-        <figure style={{ margin:'8px 0', textAlign:'center' }}>
-          {block.src
-            ? <img src={block.src} alt={block.alt ?? ''} style={{ maxWidth:'100%', borderRadius:8, border:`1px solid ${c.border}` }}/>
-            : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
-                <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>이미지 없음</div>
-              </div>
-          }
-          {block.caption && <figcaption style={{ fontSize:12, color:c.textMuted, marginTop:6, fontStyle:'italic' }}>{block.caption}</figcaption>}
-        </figure>
+        <ImageBlock
+          block={block} colors={c} readOnly={readOnly}
+          onChange={patch => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, ...patch })))}
+        />
       );
     case 'table':
       return (
@@ -1625,8 +1712,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
         : b.content;
       // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
-      if (type === 'math') return { ...b, type, content: '', math: b.math || cleaned };
-      if (type === 'code') return { ...b, type, content: '', code: b.code || cleaned };
+      if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned };
+      if (type === 'code')  return { ...b, type, content: '', code: b.code || cleaned };
+      if (type === 'image') return { ...b, type, content: '' };
       return { ...b, type, content: cleaned };
     }));
 

@@ -204,7 +204,12 @@ export function markdownToBlocks(md: string): Block[] {
   const tryImage = (line: string): Block | null => {
     const m = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (!m) return null;
-    return makeBlock('image', { alt: m[1], src: m[2] });
+    // src 에 마크다운 title 문법으로 캡션이 포함될 수 있음: src "caption"
+    let src = m[2];
+    let caption: string | undefined;
+    const titleMatch = src.match(/^(\S.*?)\s+"([^"]*)"$/);
+    if (titleMatch) { src = titleMatch[1]; caption = titleMatch[2]; }
+    return makeBlock('image', caption !== undefined ? { alt: m[1], src, caption } : { alt: m[1], src });
   };
 
   // ── 번호 목록 연속 처리 ──────────────────────────────────────────
@@ -391,10 +396,12 @@ export function blocksToMarkdown(blocks: Block[]): string {
         lines.push('```');
         break;
 
-      case 'image':
-        lines.push(`![${block.alt ?? ''}](${block.src ?? ''})`);
-        if (block.caption) lines.push(block.caption);
+      case 'image': {
+        // 캡션은 마크다운 title 문법으로 직렬화해 라운드트립 보존: ![alt](src "caption")
+        const cap = block.caption ? ` "${block.caption.replace(/"/g, '')}"` : '';
+        lines.push(`![${block.alt ?? ''}](${block.src ?? ''}${cap})`);
         break;
+      }
 
       case 'divider':
         lines.push('---');
