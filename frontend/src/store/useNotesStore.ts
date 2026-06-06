@@ -21,8 +21,13 @@ import {
   mergeDbAndLocalNotes,
   getLocalOnlyNotes,
   mergeFolderArrays,
+  mergeNotesFromStorageJson,
+  mergeFoldersFromStorageJson,
   normalizeNoteFolderId,
   noteSyncPayload,
+  NOTES_KEY,
+  FOLDERS_KEY,
+  ACTIVE_KEY,
   NOTE_TRASH_RETENTION_MS,
   LOCAL_NOTES_SAVE_ERROR,
   LOCAL_FOLDERS_SAVE_ERROR,
@@ -458,9 +463,52 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 });
 
+// ── 다중 탭: storage 이벤트로 localStorage 변경 병합 ─────────────────
+let applyingStorageMerge = false;
+
+function applyStorageMerge(key: string | null, newValue: string | null) {
+  if (!key || applyingStorageMerge) return;
+  const state = useNotesStore.getState();
+
+  if (key === NOTES_KEY) {
+    const merged = mergeNotesFromStorageJson(state.notes, newValue);
+    const prevActive = state.activeNoteId;
+    const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
+    const nextActive = stillValid ? prevActive : loadActiveNoteId(merged);
+    applyingStorageMerge = true;
+    useNotesStore.setState({ notes: merged, activeNoteId: nextActive });
+    if (!saveNotes(merged)) useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
+    if (nextActive !== prevActive) saveActiveNoteId(nextActive);
+    applyingStorageMerge = false;
+    return;
+  }
+
+  if (key === FOLDERS_KEY) {
+    const merged = mergeFoldersFromStorageJson(state.folders, newValue);
+    applyingStorageMerge = true;
+    useNotesStore.setState({ folders: merged });
+    if (!saveFolders(merged)) useNotesStore.setState({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
+    applyingStorageMerge = false;
+    return;
+  }
+
+  if (key === ACTIVE_KEY && newValue !== null) {
+    const id = newValue || null;
+    if (id && state.notes.some(n => n.id === id)) {
+      useNotesStore.setState({ activeNoteId: id });
+    }
+  }
+}
+
 // 페이지 이탈 · 탭 전환 시 body debounce flush
 if (typeof window !== 'undefined') {
   const flush = () => useNotesStore.getState().flushPendingSync();
   window.addEventListener('pagehide', flush);
   window.addEventListener('beforeunload', flush);
+  window.addEventListener('storage', (e: StorageEvent) => {
+    if (e.storageArea !== localStorage) return;
+    applyStorageMerge(e.key, e.newValue);
+  });
 }
+
+export { applyStorageMerge };

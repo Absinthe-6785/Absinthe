@@ -109,6 +109,30 @@ export function mergeFolderArrays(...groups: NoteFolderBase[][]): NoteFolderBase
   return [...map.values()].sort((a, b) => a.createdAt - b.createdAt);
 }
 
+/** 다른 탭 localStorage JSON → 현재 notes와 updatedAt 기준 병합 */
+export function mergeNotesFromStorageJson(local: NoteBase[], raw: string | null): NoteBase[] {
+  if (!raw) return local;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return local;
+    return mergeNoteArrays(local, parsed.map(n => normalizeNote(n)));
+  } catch {
+    return local;
+  }
+}
+
+/** 다른 탭 localStorage JSON → 현재 folders와 id 기준 병합 */
+export function mergeFoldersFromStorageJson(local: NoteFolderBase[], raw: string | null): NoteFolderBase[] {
+  if (!raw) return local;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return local;
+    return mergeFolderArrays(local, parsed as NoteFolderBase[]);
+  } catch {
+    return local;
+  }
+}
+
 function defaultSeedNotes(): NoteBase[] {
   return [{
     id: `note-${Date.now()}`,

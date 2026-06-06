@@ -11,6 +11,8 @@ import {
   getLocalOnlyNotes,
   mergeNoteArrays,
   mergeFolderArrays,
+  mergeNotesFromStorageJson,
+  mergeFoldersFromStorageJson,
   normalizeNoteFolderId,
   noteSyncPayload,
   saveNotes,
@@ -110,6 +112,28 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     });
     expect(payload.starred).toBe(true);
     expect(payload.folder_id).toBeNull();
+  });
+});
+
+describe('mergeNotesFromStorageJson — multi-tab', () => {
+  it('keeps newer updatedAt per note id from peer tab', () => {
+    const local: NoteBase[] = [
+      { id: '1', title: 'A', body: 'local-old', updatedAt: 100, folderId: null, deletedAt: null },
+      { id: '2', title: 'B', body: 'only-local', updatedAt: 50, folderId: null, deletedAt: null },
+    ];
+    const peer = JSON.stringify([
+      { id: '1', title: 'A', body: 'peer-new', updatedAt: 200, folderId: null, deletedAt: null },
+    ]);
+    const merged = mergeNotesFromStorageJson(local, peer);
+    expect(merged.find(n => n.id === '1')?.body).toBe('peer-new');
+    expect(merged.find(n => n.id === '2')?.body).toBe('only-local');
+  });
+
+  it('mergeFoldersFromStorageJson unions folders by id', () => {
+    const local = [{ id: 'f1', name: 'A', createdAt: 1 }];
+    const peer = JSON.stringify([{ id: 'f2', name: 'B', createdAt: 2 }]);
+    const merged = mergeFoldersFromStorageJson(local, peer);
+    expect(merged).toHaveLength(2);
   });
 });
 
