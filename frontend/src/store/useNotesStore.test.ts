@@ -341,6 +341,39 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
   });
 });
 
+describe('useNotesStore — permanentDeleteNote pending cleanup', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.useFakeTimers();
+    authFetchMock.mockResolvedValue(okJson({}));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('does not POST deleted note when body debounce timer fires', async () => {
+    const id = 'note-del';
+    useNotesStore.setState({
+      notes: [{ id, title: 'T', body: 'draft', updatedAt: 1, folderId: null, deletedAt: Date.now() }],
+      activeNoteId: id,
+    });
+    authFetchMock.mockClear();
+
+    useNotesStore.getState().updateNote(id, { body: 'unsynced edit' });
+    useNotesStore.getState().permanentDeleteNote(id);
+
+    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(false);
+
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    const postCalls = authFetchMock.mock.calls.filter(
+      ([url, opts]) =>
+        String(url).includes('/api/notes') &&
+        (opts as RequestInit)?.method === 'POST',
+    );
+    expect(postCalls).toHaveLength(0);
+  });
+});
+
 describe('useNotesStore — Planner + NoteView shared state', () => {
   beforeEach(() => resetStore());
 

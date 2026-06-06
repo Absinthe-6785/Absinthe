@@ -282,6 +282,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     permanentDeleteNote: (id) => {
+      clearBodySyncTimer(id);
+      pendingBodySync.delete(id);
       const notes = get().notes.filter(n => n.id !== id);
       const nextActive = get().activeNoteId === id
         ? (notes.find(n => !n.deletedAt)?.id ?? null)
