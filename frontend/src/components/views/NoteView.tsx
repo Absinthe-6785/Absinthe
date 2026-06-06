@@ -110,7 +110,7 @@ export const NoteView = () => {
         body: JSON.stringify({
           id: note.id, title: note.title, body: note.body,
           updated_at: note.updatedAt, folder_id: note.folderId,
-          deleted_at: note.deletedAt,
+          deleted_at: note.deletedAt, starred: note.starred ?? false,
         }),
       });
     } catch { /**/ }
