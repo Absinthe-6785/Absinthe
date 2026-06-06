@@ -24,6 +24,8 @@ import {
   normalizeNoteFolderId,
   noteSyncPayload,
   NOTE_TRASH_RETENTION_MS,
+  LOCAL_NOTES_SAVE_ERROR,
+  LOCAL_FOLDERS_SAVE_ERROR,
 } from '../components/views/noteUtils';
 
 export type { Note, NoteFolder };
@@ -73,6 +75,7 @@ interface NotesState {
 const pendingBodySync = new Map<string, Note>();
 const bodySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let lastFailedNote: Note | null = null;
+let lastFailedDeleteId: string | null = null;
 const BODY_SYNC_MS = 600;
 
 function clearBodySyncTimer(noteId: string) {
@@ -129,7 +132,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         return false;
       }
       lastFailedNote = null;
-      set({ syncError: null, savedAt: new Date() });
+      if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
+      else set({ savedAt: new Date() });
       return true;
     } catch (err) {
       lastFailedNote = note;
@@ -138,8 +142,30 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }
   };
 
-  const removeNoteFromDB = async (id: string) => {
-    try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
+  const removeNoteFromDB = async (id: string): Promise<boolean> => {
+    try {
+      const res = await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        lastFailedDeleteId = id;
+        set({ syncError: `Cloud delete failed (${res.status})` });
+        return false;
+      }
+      if (lastFailedDeleteId === id) lastFailedDeleteId = null;
+      if (!lastFailedNote) set({ syncError: null });
+      return true;
+    } catch (err) {
+      lastFailedDeleteId = id;
+      set({ syncError: err instanceof Error ? err.message : 'Cloud delete failed' });
+      return false;
+    }
+  };
+
+  const persistNotes = (notes: Note[]) => {
+    if (!saveNotes(notes)) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+  };
+
+  const persistFolders = (folders: NoteFolder[]) => {
+    if (!saveFolders(folders)) set({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
   };
 
   const syncFolderToDB = async (folder: NoteFolder) => {
@@ -202,7 +228,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       };
       const notes = [note, ...get().notes];
       set({ notes, activeNoteId: id });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(id);
       void syncNoteToDB(note);
       return id;
@@ -211,7 +237,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     importNote: (note) => {
       const notes = [note, ...get().notes];
       set({ notes, activeNoteId: note.id });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(note.id);
       void syncNoteToDB(note);
     },
@@ -221,7 +247,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
       );
       set({ notes });
-      saveNotes(notes);
+      persistNotes(notes);
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
       if ('body' in patch) {
@@ -237,7 +263,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         n.id === id ? { ...n, starred: !n.starred, updatedAt: Date.now() } : n
       );
       set({ notes });
-      saveNotes(notes);
+      persistNotes(notes);
       const note = notes.find(n => n.id === id);
       if (note) void syncNoteToDB(note);
     },
@@ -247,7 +273,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
       const notes = [copy, ...get().notes];
       set({ notes, activeNoteId: id });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(id);
       void syncNoteToDB(copy);
       return id;
@@ -260,7 +286,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       );
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
       set({ notes, activeNoteId: nextActive });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(nextActive);
       const trashed = notes.find(n => n.id === id);
       if (trashed) void syncNoteToDB(trashed);
@@ -276,7 +302,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         activeNoteId: id,
         activeFolderId: restored?.folderId ?? get().activeFolderId,
       });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(id);
       if (restored) void syncNoteToDB(restored);
     },
@@ -289,7 +315,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ? (notes.find(n => !n.deletedAt)?.id ?? null)
         : get().activeNoteId;
       set({ notes, activeNoteId: nextActive });
-      saveNotes(notes);
+      persistNotes(notes);
       saveActiveNoteId(nextActive);
       void removeNoteFromDB(id);
     },
@@ -299,7 +325,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const folder: NoteFolder = { id, name, createdAt: Date.now() };
       const folders = [...get().folders, folder];
       set({ folders, activeFolderId: id });
-      saveFolders(folders);
+      persistFolders(folders);
       void syncFolderToDB(folder);
       return id;
     },
@@ -307,7 +333,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     renameFolder: (id, name) => {
       const folders = get().folders.map(f => f.id === id ? { ...f, name } : f);
       set({ folders });
-      saveFolders(folders);
+      persistFolders(folders);
       const folder = folders.find(f => f.id === id);
       if (folder) void syncFolderToDB(folder);
     },
@@ -321,8 +347,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const folders = get().folders.filter(f => f.id !== id);
       const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
       set({ folders, notes, activeFolderId });
-      saveNotes(notes);
-      saveFolders(folders);
+      persistNotes(notes);
+      persistFolders(folders);
       void removeFolderFromDB(id);
       notes.filter(n => movedIds.has(n.id)).forEach(n => { void syncNoteToDB(n); });
     },
@@ -343,7 +369,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           const mergedFolders = mergeFolderArrays(localOnly, dbFolders);
           if (mergedFolders.length > 0) {
             set({ folders: mergedFolders });
-            saveFolders(mergedFolders);
+            persistFolders(mergedFolders);
             if (localOnly.length > 0) {
               await Promise.allSettled(localOnly.map(f => syncFolderToDB(f)));
             }
@@ -377,7 +403,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
             const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
             set({ notes: merged, activeNoteId: nextActive });
-            saveNotes(merged);
+            persistNotes(merged);
             saveActiveNoteId(nextActive);
           } else if (dbNotes.length === 0) {
             await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
@@ -393,16 +419,30 @@ export const useNotesStore = create<NotesState>((set, get) => {
     syncNoteToDB,
     flushPendingSync,
     retrySync: () => {
+      if (!saveNotes(get().notes)) {
+        set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+        return;
+      }
+      if (!saveFolders(get().folders)) {
+        set({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
+        return;
+      }
+      if (lastFailedDeleteId) {
+        void removeNoteFromDB(lastFailedDeleteId);
+        return;
+      }
       const target = lastFailedNote
         ?? get().notes.find(n => n.id === get().activeNoteId)
         ?? null;
       if (target) void syncNoteToDB(target);
+      else if (!lastFailedDeleteId) set({ syncError: null });
     },
 
     resetAllNotes: () => {
       clearAllBodySyncTimers();
       pendingBodySync.clear();
       lastFailedNote = null;
+      lastFailedDeleteId = null;
       clearNotesStorage();
       const notes = createDefaultWelcomeNotes();
       set({

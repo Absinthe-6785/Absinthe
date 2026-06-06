@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   extractLinks,
   findNoteByTitle,
@@ -13,6 +13,9 @@ import {
   mergeFolderArrays,
   normalizeNoteFolderId,
   noteSyncPayload,
+  saveNotes,
+  LOCAL_NOTES_SAVE_ERROR,
+  NOTES_KEY,
   type NoteBase,
 } from './noteUtils';
 
@@ -107,6 +110,29 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     });
     expect(payload.starred).toBe(true);
     expect(payload.folder_id).toBeNull();
+  });
+});
+
+describe('saveNotes localStorage failure', () => {
+  const storage = new Map<string, string>();
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v); },
+      removeItem: (k: string) => { storage.delete(k); },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns false when setItem throws QuotaExceededError', () => {
+    vi.stubGlobal('localStorage', {
+      setItem: (key: string) => {
+        if (key === NOTES_KEY) throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      },
+    });
+
+    expect(saveNotes([{ id: '1', title: 't', body: 'b', updatedAt: 1, folderId: null, deletedAt: null }])).toBe(false);
+    expect(LOCAL_NOTES_SAVE_ERROR).toContain('storage');
   });
 });
 

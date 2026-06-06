@@ -179,12 +179,27 @@ export function loadActiveNoteId(notes: NoteBase[]): string | null {
   return notes.find(n => !n.deletedAt)?.id ?? null;
 }
 
-export function saveNotes(notes: NoteBase[]): void {
-  try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
+export const LOCAL_NOTES_SAVE_ERROR =
+  'Local save failed — storage may be full. Export notes or free browser storage.';
+export const LOCAL_FOLDERS_SAVE_ERROR =
+  'Local folder save failed — storage may be full. Free browser storage.';
+
+export function saveNotes(notes: NoteBase[]): boolean {
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function saveFolders(folders: NoteFolderBase[]): void {
-  try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
+export function saveFolders(folders: NoteFolderBase[]): boolean {
+  try {
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function saveActiveNoteId(id: string | null): void {

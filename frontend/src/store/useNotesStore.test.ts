@@ -7,6 +7,8 @@ import {
   FOLDERS_KEY,
   ACTIVE_KEY,
   noteSyncPayload,
+  LOCAL_NOTES_SAVE_ERROR,
+  LOCAL_FOLDERS_SAVE_ERROR,
   type NoteBase,
 } from '../components/views/noteUtils';
 
@@ -371,6 +373,75 @@ describe('useNotesStore — permanentDeleteNote pending cleanup', () => {
         (opts as RequestInit)?.method === 'POST',
     );
     expect(postCalls).toHaveLength(0);
+  });
+});
+
+describe('useNotesStore — delete failure & local save errors', () => {
+  beforeEach(() => resetStore());
+
+  it('permanentDeleteNote sets syncError on DELETE failure and retrySync retries DELETE', async () => {
+    const id = 'note-del-fail';
+    useNotesStore.setState({
+      notes: [{ id, title: 'T', body: '', updatedAt: 1, folderId: null, deletedAt: Date.now() }],
+      activeNoteId: id,
+    });
+
+    authFetchMock.mockResolvedValueOnce(failResponse(503));
+    useNotesStore.getState().permanentDeleteNote(id);
+    await Promise.resolve();
+
+    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(false);
+    expect(useNotesStore.getState().syncError).toContain('503');
+
+    authFetchMock.mockResolvedValueOnce(okJson({}));
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+
+    expect(authFetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining(`/api/notes/${id}`),
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(useNotesStore.getState().syncError).toBeNull();
+  });
+
+  it('sets syncError when notes localStorage save fails and retrySync clears after recovery', async () => {
+    authFetchMock.mockResolvedValue(okJson({}));
+    const id = 'note-quota';
+    useNotesStore.setState({
+      notes: [{ id, title: 'T', body: 'x', updatedAt: 1, folderId: null, deletedAt: null }],
+      activeNoteId: id,
+    });
+
+    const setItem = vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY) {
+        throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      }
+      storage.set(key, value);
+    });
+
+    useNotesStore.getState().updateNote(id, { title: 'Too big' });
+    expect(useNotesStore.getState().syncError).toBe(LOCAL_NOTES_SAVE_ERROR);
+
+    setItem.mockRestore();
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    expect(useNotesStore.getState().syncError).toBeNull();
+  });
+
+  it('sets syncError when folders localStorage save fails', () => {
+    useNotesStore.setState({ notes: [], folders: [] });
+
+    const setItem = vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === FOLDERS_KEY) {
+        throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      }
+      storage.set(key, value);
+    });
+
+    useNotesStore.getState().createFolder('Work');
+    expect(useNotesStore.getState().syncError).toBe(LOCAL_FOLDERS_SAVE_ERROR);
+
+    setItem.mockRestore();
   });
 });
 
