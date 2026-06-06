@@ -1137,6 +1137,85 @@ function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockProps) {
   );
 }
 
+// ── CodeBlock: 언어 라벨 + 편집 가능한 코드 textarea ─────────────────
+interface CodeBlockProps {
+  block: Block;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  onChange: (patch: { code?: string; language?: string }) => void;
+}
+
+function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockProps) {
+  const code = block.code ?? '';
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // 편집 중 캐럿 안정화를 위해 로컬 draft 사용 (외부 변경은 비포커스 시 동기화)
+  const [draft, setDraft] = useState(code);
+  useEffect(() => {
+    if (document.activeElement !== taRef.current) setDraft(code);
+  }, [code]);
+
+  // 빈 코드 블록(예: /code 직후)은 마운트 시 포커스
+  useEffect(() => {
+    if (!readOnly && !code.trim()) taRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (readOnly) {
+    return (
+      <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }}>
+        {block.language && (
+          <div style={{ padding:'4px 12px', borderBottom:`1px solid ${c.border}`, fontSize:11, color:c.textMuted, fontFamily:'monospace', fontWeight:600 }}>
+            {block.language}
+          </div>
+        )}
+        <pre style={{ margin:0, padding:'12px 16px', overflowX:'auto', fontSize:13, lineHeight:1.6 }}>
+          <code style={{ color:c.text, fontFamily:'monospace' }}>{code || ' '}</code>
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }}
+      onClick={e => e.stopPropagation()}>
+      <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderBottom:`1px solid ${c.border}` }}>
+        <Code2 size={12} color={c.textMuted}/>
+        <input
+          value={block.language ?? ''}
+          onChange={e => onChange({ language: e.target.value })}
+          placeholder="language"
+          spellCheck={false}
+          style={{ background:'transparent', border:'none', outline:'none', color:c.textMuted, fontFamily:'monospace', fontSize:11, fontWeight:600, width:140 }}
+        />
+      </div>
+      <textarea
+        ref={taRef}
+        value={draft}
+        spellCheck={false}
+        placeholder="코드 입력…"
+        onChange={e => { setDraft(e.target.value); onChange({ code: e.target.value }); }}
+        onKeyDown={e => {
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            const ta = e.currentTarget;
+            const s = ta.selectionStart, en = ta.selectionEnd;
+            const next = draft.slice(0, s) + '  ' + draft.slice(en);
+            setDraft(next);
+            onChange({ code: next });
+            requestAnimationFrame(() => { if (taRef.current) taRef.current.selectionStart = taRef.current.selectionEnd = s + 2; });
+          }
+          if (e.key === 'Escape') (e.currentTarget as HTMLTextAreaElement).blur();
+        }}
+        style={{
+          width:'100%', minHeight:72, resize:'vertical', boxSizing:'border-box',
+          background:'transparent', color:c.text, border:'none', outline:'none',
+          padding:'12px 16px', fontFamily:'monospace', fontSize:13, lineHeight:1.6,
+        }}
+      />
+    </div>
+  );
+}
+
 function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
   const { inline, editableRef, onSplitBlock, onMergeWithPrev, onContentChange, readOnly,
           onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, isMenuOpen } = ctx;
@@ -1333,16 +1412,10 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       return <hr style={{ border:'none', borderTop:`1px solid ${c.border}`, margin:'12px 0' }}/>;
     case 'code':
       return (
-        <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }}>
-          {block.language && (
-            <div style={{ padding:'4px 12px', borderBottom:`1px solid ${c.border}`, fontSize:11, color:c.textMuted, fontFamily:'monospace', fontWeight:600 }}>
-              {block.language}
-            </div>
-          )}
-          <pre style={{ margin:0, padding:'12px 16px', overflowX:'auto', fontSize:13, lineHeight:1.6 }}>
-            <code style={{ color:c.text, fontFamily:'monospace' }}>{block.code ?? ''}</code>
-          </pre>
-        </div>
+        <CodeBlock
+          block={block} colors={c} readOnly={readOnly}
+          onChange={patch => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, ...patch })))}
+        />
       );
     case 'image':
       return (
@@ -1551,8 +1624,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       const cleaned  = slashIdx >= 0
         ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
         : b.content;
-      // math 변환 시 남은 텍스트를 LaTeX 식으로 시드하고 content는 비움
+      // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
       if (type === 'math') return { ...b, type, content: '', math: b.math || cleaned };
+      if (type === 'code') return { ...b, type, content: '', code: b.code || cleaned };
       return { ...b, type, content: cleaned };
     }));
 
