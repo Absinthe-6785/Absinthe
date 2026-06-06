@@ -236,23 +236,47 @@ function blockIcon(type: BlockType): ReactNode {
   return map[type] ?? <Type size={s}/>;
 }
 
-// ── 인라인 마크다운 렌더러 ───────────────────────────────────────────
+// ── 인라인 마크다운 렌더러 (readOnly 렌더 전용) ──────────────────────
+// 위키링크/태그는 data 속성을 부여해 상위 컨테이너에서 클릭 위임으로 처리한다.
+// 인라인 수식 $...$ 은 window.katex로 렌더(미로드 시 코드로 폴백).
 function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = ''): ReactNode {
   const esc = (s: string) =>
     s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  let html = esc(text)
+
+  // 1. 인라인 수식 보호 — esc/다른 치환 영향을 받지 않도록 플레이스홀더로 분리
+  const math: string[] = [];
+  const work = text.replace(/\$([^$\n]+)\$/g, (_m, expr: string) => {
+    let rendered: string;
+    if (typeof window !== 'undefined' && window.katex) {
+      try { rendered = window.katex.renderToString(expr, { displayMode: false, throwOnError: false }); }
+      catch { rendered = `<code style="background:${c.codeBg};color:${c.danger};padding:1px 5px;border-radius:4px">${esc('$' + expr + '$')}</code>`; }
+    } else {
+      rendered = `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">${esc(expr)}</code>`;
+    }
+    math.push(rendered);
+    return `\u0000M${math.length - 1}\u0000`;
+  });
+
+  let html = esc(work)
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g,     '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g,         '<em>$1</em>')
     .replace(/~~(.+?)~~/g,         '<del>$1</del>')
     .replace(/==(.+?)==/g,         `<mark style="background:${c.accentBg};color:${c.accent}">$1</mark>`)
     .replace(/`([^`]+)`/g,         `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">$1</code>`)
-    .replace(/\[\[(.+?)\]\]/g,     `<span style="color:${c.accent};text-decoration:underline;cursor:pointer">$1</span>`)
-    .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, `$1<span style="color:${c.accent};opacity:.8">#$2</span>`);
+    .replace(/\[\[(.+?)\]\]/g, (_m, t: string) =>
+      `<span class="be-wikilink" data-wiki="${t.replace(/"/g,'&quot;')}" style="color:${c.accent};text-decoration:underline;text-underline-offset:2px;cursor:pointer">${t}</span>`)
+    .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
+      `${sp}<span class="be-tag" data-tag="${tag.replace(/"/g,'&quot;')}" style="color:${c.accent};opacity:.85;cursor:pointer">#${tag}</span>`);
+
   if (searchQuery.trim()) {
     const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     html = html.replace(new RegExp(`(${q})`, 'gi'), '<mark style="background:#fbbf24;color:#000">$1</mark>');
   }
+
+  // 2. 수식 복원 (검색 하이라이트가 katex HTML을 건드리지 않도록 마지막에)
+  html = html.replace(/\u0000M(\d+)\u0000/g, (_m, i: string) => math[Number(i)]);
+
   return <span dangerouslySetInnerHTML={{ __html: html }}/>;
 }
 
@@ -1476,7 +1500,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   return (
     <>
-      <div style={{ paddingLeft: depth > 0 ? 0 : 52, position:'relative' }}>
+      <div style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 52), position:'relative' }}>
         {blocks.map(block => (
           <SingleBlock
             key={block.id} block={block} blocks={blocks} onChange={onChange}

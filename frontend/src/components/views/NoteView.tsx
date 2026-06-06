@@ -15,7 +15,7 @@ import {
   NV_NOTES_KEY, NV_FOLDERS_KEY, NV_ACTIVE_KEY,
   nvLoadNotes, nvLoadFolders, nvSaveNotes, nvSaveFolders,
   highlightText,
-  parseMarkdown, extractTOC, extractTags, extractLinks,
+  extractTOC, extractTags, extractLinks,
   extractLinkContexts,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
@@ -497,12 +497,6 @@ export const NoteView = () => {
     () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [notes]
   );
-  const parsedBody = useMemo(
-    () => activeNote ? parseMarkdown(activeNote.body, notes) : '',
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeNote?.body, noteTitles, katexReady]
-  );
-
   const backlinks = useMemo(() =>
     activeNote
       ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`))
@@ -821,15 +815,26 @@ export const NoteView = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
 
-  const handlePreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // 블록 readOnly 프리뷰용 클릭 위임 — be-wikilink / be-tag data 속성 처리
+  const handleBlockPreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    const wl = target.closest('.bwl') as HTMLElement | null;
-    if (wl?.dataset.id) { setActiveNoteId(wl.dataset.id); return; }
-    const wt = target.closest('.bwtag') as HTMLElement | null;
-    if (wt?.dataset.tag) { setActiveTag(prev => prev === wt.dataset.tag ? null : (wt.dataset.tag ?? null)); return; }
-    if (target.closest('.btoggle, .btsummary')) return;
+    const wl = target.closest('.be-wikilink') as HTMLElement | null;
+    if (wl?.dataset.wiki) {
+      const title = wl.dataset.wiki;
+      const found = notes.find(n => n.title === title && !n.deletedAt);
+      if (found) setActiveNoteId(found.id);
+      return;
+    }
+    const tg = target.closest('.be-tag') as HTMLElement | null;
+    if (tg?.dataset.tag) {
+      const tag = tg.dataset.tag;
+      setActiveTag(prev => prev === tag ? null : (tag ?? null));
+      return;
+    }
+    // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
+    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles')) return;
     if (e.detail === 2) setViewMode('edit');
-  }, [setActiveNoteId]);
+  }, [notes, setActiveNoteId]);
 
   // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
   const c = useMemo(() => ({
@@ -1388,9 +1393,17 @@ export const NoteView = () => {
                     )
                   )}
                   {viewMode === 'preview' && (
-                    <div
-                      onClick={handlePreviewClick}
-                      dangerouslySetInnerHTML={{ __html: parsedBody }}/>
+                    <div onClick={handleBlockPreviewClick} style={{ minHeight: '100%', padding: '24px 16px 80px', maxWidth: 900, margin: '0 auto' }}>
+                      <NoteBlockEditor
+                        key={`${activeNote.id}-preview-${katexReady}`}
+                        body={activeNote.body}
+                        onBodyChange={isTrash ? () => {} : md => noteUpdate(activeNote.id, { body: md })}
+                        colors={blockColors}
+                        readOnly
+                        searchQuery={searchQuery}
+                        wikiTargets={wikiTargets}
+                      />
+                    </div>
                   )}
                 </div>
               </>
