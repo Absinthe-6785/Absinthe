@@ -16,6 +16,7 @@ import {
   nvLoadNotes, nvLoadFolders, nvSaveNotes, nvSaveFolders,
   highlightText,
   parseMarkdown, extractTOC, extractTags, extractLinks,
+  extractLinkContexts,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
@@ -295,26 +296,24 @@ export const NoteView = () => {
   }, [setActiveNoteId, syncNoteToDB]);
 
   const permanentDeleteNote = useCallback((id: string) => {
+    // 단일 setNotes 호출로 이중 렌더 제거
     setNotes(prev => {
       const updated = prev.filter(n => n.id !== id);
       nvSaveNotes(updated);
-      return updated;
-    });
-    // functional updater 패턴으로 stale closure 없이 최신 notes 참조
-    setNotes(prev => {
-      const next = prev.find(n => !n.deletedAt && n.id !== id)?.id ?? null;
+      const next = updated.find(n => !n.deletedAt)?.id ?? null;
       setActiveNoteId(next);
-      return prev; // already filtered above
+      return updated;
     });
     removeNoteFromDB(id);
   }, [setActiveNoteId, removeNoteFromDB]);
 
   const deleteFolder = useCallback((id: string) => {
     setNotes(prev => {
-      const updated = prev.map(n => n.folderId === id ? { ...n, folderId: null } : n);
+      const affected = new Set(prev.filter(n => n.folderId === id).map(n => n.id));
+      const updated = prev.map(n => affected.has(n.id) ? { ...n, folderId: null } : n);
       nvSaveNotes(updated);
-      // folderId가 null로 변경된 노트들 DB 반영
-      updated.filter(n => n.folderId === null).forEach(n => syncNoteToDB(n));
+      // 이 폴더에 속했던 노트들만 DB 반영 (전체 folderId=null 노트 재sync 방지)
+      updated.filter(n => affected.has(n.id)).forEach(n => syncNoteToDB(n));
       return updated;
     });
     setFolders(prev => {
@@ -344,7 +343,15 @@ export const NoteView = () => {
   const [acIndex,  setAcIndex]  = useState(0);
   const [acVisible,setAcVisible]= useState(false);
   const [acPos,    setAcPos]    = useState({ top: 0, left: 0 });
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
+  // ── 표 편집 모달 ─────────────────────────────────────────────────
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [tableRows,   setTableRows]   = useState(3);
+  const [tableCols,   setTableCols]   = useState(3);
+  const [tableHeaders, setTableHeaders] = useState<string[]>(['Col 1', 'Col 2', 'Col 3']);
+  // ── 이미지 드래그&드롭 ───────────────────────────────────────────
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const imageInputRef  = useRef<HTMLInputElement>(null);
@@ -407,7 +414,11 @@ export const NoteView = () => {
     return list;
   }, [notes, activeFolderId, searchQuery, activeTag, sortOrder]);
 
-  const activeNote = notes.find(n => n.id === activeNoteId) ?? null;
+  // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
+  const activeNote = useMemo(
+    () => notes.find(n => n.id === activeNoteId) ?? null,
+    [notes, activeNoteId]
+  );
 
   const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
 
@@ -434,15 +445,32 @@ export const NoteView = () => {
     return result;
   }, [toc, tocCollapsed]);
 
-  // katexReady: KaTeX 스크립트 로드 완료 시 수식 재렌더를 위해 dep에 포함
+  // parsedBody: notes 전체 대신 noteTitles(위키링크 해결용 최소 슬라이스)만 dep에 포함
+  // → 다른 노트 body가 바뀌어도 현재 노트 뷰가 불필요하게 재파싱되지 않음
+  const noteTitles = useMemo(
+    () => notes.map(n => ({ id: n.id, title: n.title, deletedAt: n.deletedAt })),
+    [notes]
+  );
   const parsedBody = useMemo(
     () => activeNote ? parseMarkdown(activeNote.body, notes) : '',
-    [activeNote?.body, notes, katexReady]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeNote?.body, noteTitles, katexReady]
   );
 
   const backlinks = useMemo(() =>
-    activeNote ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`)) : [],
-    [notes, activeNote]
+    activeNote
+      ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`))
+      : [],
+    [notes, activeNote?.id, activeNote?.title]
+  );
+
+  // 백링크 컨텍스트 — 각 백링크 노트에서 [[제목]] 포함 문단 발췌
+  const backlinkContexts = useMemo(() =>
+    activeNote
+      ? extractLinkContexts(activeNote.title ?? '', notes)
+      : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [notes, activeNote?.id, activeNote?.title]
   );
   const allTags = useMemo(() => {
     const m: Record<string, number> = {};
@@ -451,23 +479,27 @@ export const NoteView = () => {
     );
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [notes]);
-  const noteTags = activeNote ? extractTags(activeNote.body) : [];
+  // noteTags: activeNote.body가 바뀔 때만 재계산
+  const noteTags = useMemo(
+    () => activeNote ? extractTags(activeNote.body) : [],
+    [activeNote?.body]
+  );
 
   // ── 폴더 ────────────────────────────────────────────────────────
-  const addFolder = () => {
+  const addFolder = useCallback(() => {
     if (!newFolderName.trim()) return;
     createFolder(newFolderName.trim());
     setNewFolderName(''); setShowFolderForm(false);
-  };
+  }, [newFolderName, createFolder]);
 
   // ── 텍스트 삽입 ─────────────────────────────────────────────────
-  const insert = (before: string, after = '') => {
+  const insert = useCallback((before: string, after = '') => {
     const ta = textareaRef.current; if (!ta || !activeNote) return;
     const s = ta.selectionStart, e = ta.selectionEnd;
     const sel = activeNote.body.substring(s, e);
     noteUpdate(activeNote.id, { body: activeNote.body.substring(0, s) + before + sel + after + activeNote.body.substring(e) });
     setTimeout(() => { ta.focus(); ta.setSelectionRange(s + before.length, s + before.length + sel.length); }, 0);
-  };
+  }, [activeNote, noteUpdate]);
 
   const handleImageInsert = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -476,6 +508,39 @@ export const NoteView = () => {
     reader.readAsDataURL(file);
     e.target.value = '';
   };
+
+  // ── 이미지 드래그&드롭 ─────────────────────────────────────────
+  const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const src = ev.target?.result as string;
+        const name = file.name.replace(/\.[^.]+$/, '');
+        const ta = textareaRef.current;
+        if (!ta || !activeNote) return;
+        const pos = ta.selectionStart ?? activeNote.body.length;
+        const before = activeNote.body.slice(0, pos);
+        const after  = activeNote.body.slice(pos);
+        noteUpdate(activeNote.id, { body: `${before}![${name}](${src})${after}` });
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [activeNote, noteUpdate]);
+
+  // ── 표 삽입 헬퍼 ──────────────────────────────────────────────
+  const insertTable = useCallback(() => {
+    const hdrs = tableHeaders.slice(0, tableCols);
+    const header = `| ${hdrs.join(' | ')} |`;
+    const divider = `| ${hdrs.map(() => '-------').join(' | ')} |`;
+    const rows = Array.from({ length: tableRows }, (_, r) =>
+      `| ${hdrs.map((_, c) => `r${r+1}c${c+1}`).join(' | ')} |`
+    );
+    insert(`\n${header}\n${divider}\n${rows.join('\n')}\n`);
+    setShowTableModal(false);
+  }, [tableCols, tableRows, tableHeaders, insert]);
 
   // ── .md 파일 Import ─────────────────────────────────────────────
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -502,7 +567,43 @@ export const NoteView = () => {
     return notes.filter(n => !n.deletedAt && (n.title ?? '').toLowerCase().includes(q)).slice(0, 8);
   }, [notes, acQuery]);
 
-  const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  // ── [[ 자동완성 캐럿 좌표 계산 (mirror-div 방식) ────────────────
+  // textarea와 동일한 스타일의 숨겨진 div를 이용해 캐럿의 실제 픽셀 위치를 구한다.
+  // 외부 라이브러리 없이 scroll offset까지 정확히 반영.
+  const getCaretPixelPos = useCallback((ta: HTMLTextAreaElement, index: number): { top: number; left: number } => {
+    const MIRROR_STYLE: Partial<CSSStyleDeclaration> = {
+      position:   'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap',
+      wordBreak:  'break-word', overflow:  'hidden',
+      // textarea 스타일과 동일하게
+      fontSize:   '15px', lineHeight: '1.9', fontFamily: 'inherit',
+      padding:    '40px 60px', border: 'none',
+      boxSizing:  'border-box',
+    };
+
+    const mirror = document.createElement('div');
+    Object.assign(mirror.style, MIRROR_STYLE);
+    mirror.style.width = ta.offsetWidth + 'px';
+
+    // 캐럿 앞 텍스트 + 마커 span
+    const before  = document.createTextNode(ta.value.slice(0, index));
+    const marker  = document.createElement('span');
+    marker.textContent = '\u200b'; // 제로-너비 공백 — 위치 기준점
+    mirror.appendChild(before);
+    mirror.appendChild(marker);
+    ta.parentElement!.appendChild(mirror);
+
+    const taRect  = ta.getBoundingClientRect();
+    const mRect   = marker.getBoundingClientRect();
+    const result  = {
+      top:  mRect.top  - taRect.top  + ta.scrollTop  + marker.offsetHeight,
+      left: mRect.left - taRect.left + ta.scrollLeft,
+    };
+
+    ta.parentElement!.removeChild(mirror);
+    return result;
+  }, []);
+
+  const handleEditorChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!activeNote) return;
     const val = e.target.value;
     const cursor = e.target.selectionStart;
@@ -516,16 +617,13 @@ export const NoteView = () => {
       setAcQuery(match[1]);
       setAcIndex(0);
       setAcVisible(true);
-      // 커서 위치 계산
-      const ta = e.target;
-      const linesBefore = before.split('\n');
-      const lineNum = linesBefore.length - 1;
-      const lineH = 24;
-      setAcPos({ top: (lineNum + 1) * lineH + 4, left: 180 });
+      // 캐럿 실제 픽셀 위치 계산
+      const coords = getCaretPixelPos(e.target, pos);
+      setAcPos({ top: coords.top + 4, left: coords.left });
     } else {
       setAcVisible(false);
     }
-  };
+  }, [activeNote, pushHistory, noteUpdate]);
 
   const applyAutoComplete = (title: string) => {
     const ta = textareaRef.current; if (!ta || !activeNote) return;
@@ -567,35 +665,44 @@ export const NoteView = () => {
   // activeNote?.id만 dep — body 변경 시마다 스냅샷을 재등록하지 않기 위해 의도적으로 id만 사용
   }, [activeNote?.id]);
 
-  // ── 전역 단축키 ─────────────────────────────────────────────────
+  // ── 전역 단축키 — ref 패턴으로 핸들러를 한 번만 등록 ─────────────
+  // 가변 값은 ref에 저장해 stale closure 없이 항상 최신 값 읽기
+  const shortcutRef = useRef({
+    showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot,
+  });
+  useEffect(() => {
+    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot };
+  });
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const { showSortMenu: sm, viewMode: vm, activeNote: an, createNote: cn,
+              duplicateNote: dn, insert: ins, applySnapshot: snap } = shortcutRef.current;
       const mod = e.ctrlKey || e.metaKey;
-      if (showSortMenu && e.key === 'Escape') { setShowSortMenu(false); return; }
-      if (focusMode  && e.key === 'Escape') { setFocusMode(false); return; }
+      if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
       if (!mod) return;
 
       // ── Undo (Ctrl+Z) ────────────────────────────────────────
-      if (e.key === 'z' && !e.shiftKey && viewMode === 'edit' && activeNote) {
+      if (e.key === 'z' && !e.shiftKey && vm === 'edit' && an) {
         e.preventDefault();
-        const stack = historyRef.current[activeNote.id];
-        const idx   = historyIdxRef.current[activeNote.id] ?? -1;
+        const stack = historyRef.current[an.id];
+        const idx   = historyIdxRef.current[an.id] ?? -1;
         if (stack && idx > 0) {
           const next = idx - 1;
-          historyIdxRef.current[activeNote.id] = next;
-          applySnapshot(activeNote.id, stack[next]);
+          historyIdxRef.current[an.id] = next;
+          snap(an.id, stack[next]);
         }
         return;
       }
       // ── Redo (Ctrl+Y 또는 Ctrl+Shift+Z) ─────────────────────
-      if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && viewMode === 'edit' && activeNote) {
+      if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && vm === 'edit' && an) {
         e.preventDefault();
-        const stack = historyRef.current[activeNote.id];
-        const idx   = historyIdxRef.current[activeNote.id] ?? -1;
+        const stack = historyRef.current[an.id];
+        const idx   = historyIdxRef.current[an.id] ?? -1;
         if (stack && idx < stack.length - 1) {
           const next = idx + 1;
-          historyIdxRef.current[activeNote.id] = next;
-          applySnapshot(activeNote.id, stack[next]);
+          historyIdxRef.current[an.id] = next;
+          snap(an.id, stack[next]);
         }
         return;
       }
@@ -608,26 +715,26 @@ export const NoteView = () => {
       }
 
       switch (e.key) {
-        case 'n': e.preventDefault(); createNote(); break;
-        case 'd': e.preventDefault(); { const n = notes.find(x => x.id === activeNoteId); if (n) duplicateNote(n); } break;
+        case 'n': e.preventDefault(); cn(); break;
+        case 'd': e.preventDefault(); { if (an) dn(an); } break;
         case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'edit' : 'preview'); break;
         case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
-        // 에디터 전용 단축키
-        case 'b': if (viewMode === 'edit') { e.preventDefault(); insert('**', '**'); } break;
-        case 'i': if (viewMode === 'edit') { e.preventDefault(); insert('*', '*'); } break;
-        case '`': if (viewMode === 'edit') { e.preventDefault(); insert('`', '`'); } break;
-        case '1': if (viewMode === 'edit') { e.preventDefault(); insert('# '); } break;
-        case '2': if (viewMode === 'edit') { e.preventDefault(); insert('## '); } break;
-        case '3': if (viewMode === 'edit') { e.preventDefault(); insert('### '); } break;
+        case 'b': if (vm === 'edit') { e.preventDefault(); ins('**', '**'); } break;
+        case 'i': if (vm === 'edit') { e.preventDefault(); ins('*', '*'); } break;
+        case '`': if (vm === 'edit') { e.preventDefault(); ins('`', '`'); } break;
+        case '1': if (vm === 'edit') { e.preventDefault(); ins('# '); } break;
+        case '2': if (vm === 'edit') { e.preventDefault(); ins('## '); } break;
+        case '3': if (vm === 'edit') { e.preventDefault(); ins('### '); } break;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [createNote, duplicateNote, notes, activeNoteId, showSortMenu, focusMode, setFocusMode, viewMode, insert, activeNote, applySnapshot]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
 
-  const TOOLBAR: (ToolbarItem | null)[] = [
+  const TOOLBAR = useMemo<(ToolbarItem | null)[]>(() => [
     { icon: <Heading1 size={13}/>, label: 'H1 (Ctrl+1)', fn: () => insert('# ') },
     { icon: <Heading2 size={13}/>, label: 'H2 (Ctrl+2)', fn: () => insert('## ') },
     { icon: <Heading3 size={13}/>, label: 'H3 (Ctrl+3)', fn: () => insert('### ') },
@@ -646,7 +753,7 @@ export const NoteView = () => {
       fn: () => insert('> Toggle Title\n  '),
     },
     null,
-    { icon: <Table size={13}/>, label: 'Table',     fn: () => insert('\n| Col 1 | Col 2 |\n|-------|-------|\n| val 1 | val 2 |\n') },
+    { icon: <Table size={13}/>, label: 'Insert Table',     fn: () => { setTableHeaders(Array.from({ length: tableCols }, (_, i) => `Col ${i+1}`)); setShowTableModal(true); } },
     { icon: <Link size={13}/>,  label: 'Wiki Link', fn: () => insert('[[', ']]') },
     { icon: <Tag size={13}/>,   label: 'Tag',       fn: () => insert('#') },
     null,
@@ -656,19 +763,18 @@ export const NoteView = () => {
     { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
     { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
     { icon: <Save size={13}/>,      label: 'Export All',   fn: () => exportAllNotes() },
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
 
-  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     const wl = target.closest('.bwl') as HTMLElement | null;
     if (wl?.dataset.id) { setActiveNoteId(wl.dataset.id); return; }
     const wt = target.closest('.bwtag') as HTMLElement | null;
     if (wt?.dataset.tag) { setActiveTag(prev => prev === wt.dataset.tag ? null : (wt.dataset.tag ?? null)); return; }
-    const tg = target.closest('.btoggle, .btsummary');
-    if (tg) return; // 토글 클릭은 기본 동작 유지
-    // 본문 더블클릭 → 에디터 전환
+    if (target.closest('.btoggle, .btsummary')) return;
     if (e.detail === 2) setViewMode('edit');
-  };
+  }, [setActiveNoteId]);
 
   // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
   const c = useMemo(() => ({
@@ -699,26 +805,31 @@ export const NoteView = () => {
     textarea:  dark ? '#18181A'   : '#FAFAF8',
   }), [dark]);
 
-  const trashCount   = notes.filter(n => n.deletedAt).length;
-  const starredCount = notes.filter(n => n.starred && !n.deletedAt).length;
+  // 매 렌더마다 filter() 반복 방지
+  const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
+  const starredCount    = useMemo(() => notes.filter(n => n.starred && !n.deletedAt).length, [notes]);
+  const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
   const isTrash      = activeFolderId === 'trash';
 
-  const folderLabel =
-    activeFolderId === null      ? 'All Notes' :
-    activeFolderId === 'trash'   ? '🗑 Trash' :
-    (() => { const f = folders.find(f => f.id === activeFolderId); return f ? f.name : ''; })();
+  const folderLabel = useMemo(() =>
+    activeFolderId === null    ? 'All Notes' :
+    activeFolderId === 'trash' ? '🗑 Trash' :
+    (folders.find(f => f.id === activeFolderId)?.name ?? ''),
+    [activeFolderId, folders]
+  );
 
-  const VIEW_MODES: { key: 'edit' | 'preview' | 'graph'; icon: ReactNode; label: string }[] = [
-    { key: 'edit',    icon: <Edit3 size={11}/>,   label: 'Edit' },
-    { key: 'preview', icon: <Eye size={11}/>,     label: 'Read' },
-    { key: 'graph',   icon: <GitFork size={11}/>, label: 'Graph' },
-  ];
-  const RIGHT_PANELS: { key: 'toc' | 'links' | 'tags' | 'stats'; label: string; icon: ReactNode }[] = [
-    { key: 'toc',   label: 'Outline', icon: <AlignLeft size={11}/> },
-    { key: 'links', label: 'Links',   icon: <Link size={11}/> },
-    { key: 'tags',  label: 'Tags',    icon: <Tag size={11}/> },
-    { key: 'stats', label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
-  ];
+  // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
+  const VIEW_MODES = useMemo(() => [
+    { key: 'edit'    as const, icon: <Edit3 size={11}/>,   label: 'Edit' },
+    { key: 'preview' as const, icon: <Eye size={11}/>,     label: 'Read' },
+    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
+  ], []);
+  const RIGHT_PANELS = useMemo(() => [
+    { key: 'toc'   as const, label: 'Outline', icon: <AlignLeft size={11}/> },
+    { key: 'links' as const, label: 'Links',   icon: <Link size={11}/> },
+    { key: 'tags'  as const, label: 'Tags',    icon: <Tag size={11}/> },
+    { key: 'stats' as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
+  ], []);
 
   // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
   const CSS = useMemo(() => `
@@ -802,6 +913,19 @@ export const NoteView = () => {
     .btag-cloud span:hover{opacity:.75}
     .bdrag-over{background:${c.accentBg} !important;border:1px dashed ${c.accent} !important;border-radius:6px}
     .bnote-drag{opacity:.35}
+    /* ── 드래그&드롭 에디터 오버레이 ── */
+    .editor-drop-zone{position:relative}
+    .editor-drop-overlay{position:absolute;inset:0;background:${c.accentBg};border:3px dashed ${c.accent};border-radius:12px;display:flex;align-items:center;justify-content:center;z-index:20;pointer-events:none;font-size:15px;color:${c.accent};font-weight:700;gap:8px;opacity:.92}
+    /* ── 아이콘 사이드바 ── */
+    .bicon-bar{display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px}
+    .bicon-btn{background:none;border:none;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:${c.textMuted};transition:all .12s;position:relative}
+    .bicon-btn:hover{background:${c.cardHov};color:${c.accent}}
+    .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
+    .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
+    .bicon-btn:hover .bicon-tooltip{opacity:1}
+    /* ── 표 편집 모달 ── */
+    .btable-modal-cell{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:5px;padding:4px 7px;font-size:12px;outline:none;width:100%}
+    .btable-modal-cell:focus{border-color:${c.accent}}
   `, [c]);
 
   return (
@@ -810,7 +934,8 @@ export const NoteView = () => {
       <input ref={imageInputRef}  type="file" accept="image/*"  style={{ display: 'none' }} onChange={handleImageInsert}/>
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
-      {/* ── 포커스 모드: ESC로 종료 가능하도록 전역 클릭 핸들링은 버튼으로만 처리 ── */}
+      {/* ── 포커스 모드 오버레이 ── */}
+      {focusMode && <div className="focus-overlay" onClick={() => setFocusMode(false)}/>}
 
       {/* ── 단축키 모달 ── */}
       {showShortcuts && (
@@ -858,111 +983,132 @@ export const NoteView = () => {
       )}
 
       {/* ── Left Sidebar ── */}
-      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', visibility: focusMode ? 'hidden' : 'visible', background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
-        {/* Header */}
-        <div style={{ padding: '12px 12px 10px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontWeight: 800, fontSize: 14, color: c.accent, letterSpacing: -.3 }}>Note</span>
-          <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 5px', borderRadius: 4 }}>β</span>
-          <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ marginLeft: 'auto', padding: '2px 4px' }} title="Keyboard Shortcuts (Ctrl+/)">
-            <Keyboard size={12}/>
-          </button>
-        </div>
-        {/* Search */}
-        <div style={{ padding: '7px 9px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
-          <Search size={11} style={{ position: 'absolute', left: 17, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
-          <input className="bwsi" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {/* All Notes */}
-          <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
-            onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
-            <span style={{ flex: 1 }}>All Notes</span>
-            <span style={{ fontSize: 10, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 6px', fontWeight: 700 }}>
-              {notes.filter(n => !n.deletedAt).length}
-            </span>
-          </div>
-
-          {/* Starred */}
-          <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-            onClick={() => { setActiveFolderId('starred'); setActiveTag(null); }}>
-            <Star size={11} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-            <span style={{ flex: 1 }}>Starred</span>
-            {starredCount > 0 && <span style={{ fontSize: 10, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 6px', fontWeight: 700 }}>{starredCount}</span>}
-          </div>
-
-          {/* Folders */}
-          <div className="bseclbl">Folders</div>
-          {folders.map(f => (
-            <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-              onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}
-              onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
-              onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
-              onDrop={e => {
-                e.currentTarget.classList.remove('bdrag-over');
-                if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); }
-              }}
-              style={{ gap: 5 }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-              <span style={{ fontSize: 10, color: c.textMuted }}>
-                {notes.filter(n => n.folderId === f.id && !n.deletedAt).length}
-              </span>
-              <button onClick={e => { e.stopPropagation(); deleteFolder(f.id); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: '1px 3px', borderRadius: 3, opacity: 0 }}
-                className="folder-del"
-                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
-                <Trash2 size={10}/>
+      {!focusMode && (
+        <div style={{ width: sidebarCollapsed ? 44 : 185, minWidth: sidebarCollapsed ? 44 : 185, background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', overflow: 'hidden', zIndex: 99 }}>
+          {sidebarCollapsed ? (
+            <div className="bicon-bar" style={{ flex: 1 }}>
+              <button className="bicon-btn" onClick={() => setSidebarCollapsed(false)} style={{ marginBottom: 4 }}>
+                <ChevronRight size={14}/>
+                <span className="bicon-tooltip">Expand sidebar</span>
+              </button>
+              <div style={{ width: 20, height: 1, background: c.sideBdr, margin: '2px 0 6px' }}/>
+              <button className={`bicon-btn ${activeFolderId === null && !activeTag ? 'active' : ''}`}
+                onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
+                <AlignLeft size={14}/>
+                <span className="bicon-tooltip">All Notes ({activeNoteCount})</span>
+              </button>
+              <button className={`bicon-btn ${activeFolderId === 'starred' ? 'active' : ''}`}
+                onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
+                <Star size={14} fill={activeFolderId === 'starred' ? c.accent : 'none'} color={activeFolderId === 'starred' ? c.accent : c.textMuted}/>
+                <span className="bicon-tooltip">Starred</span>
+              </button>
+              {folders.map(f => (
+                <button key={f.id} className={`bicon-btn ${activeFolderId === f.id ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}>
+                  <span style={{ fontSize: 14 }}>📁</span>
+                  <span className="bicon-tooltip">{f.name} ({notes.filter(n => n.folderId === f.id && !n.deletedAt).length})</span>
+                </button>
+              ))}
+              <div style={{ flex: 1 }}/>
+              <button className={`bicon-btn ${isTrash ? 'active' : ''}`}
+                onClick={() => setActiveFolderId('trash')} style={{ color: isTrash ? c.danger : c.textMuted }}>
+                <Trash2 size={14}/>
+                {trashCount > 0 && <span className="bicon-tooltip">Trash ({trashCount})</span>}
+                {trashCount === 0 && <span className="bicon-tooltip">Trash</span>}
               </button>
             </div>
-          ))}
-          {showFolderForm ? (
-            <div style={{ padding: '5px 9px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <input className="bwi" style={{ width: '100%' }} placeholder="Folder name"
-                value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addFolder(); if (e.key === 'Escape') setShowFolderForm(false); }}
-                autoFocus/>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button className="bwbg" style={{ flex: 1, padding: '4px' }} onClick={addFolder}>Add</button>
-                <button onClick={() => setShowFolderForm(false)}
-                  style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 6, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '4px' }}>Cancel</button>
-              </div>
-            </div>
           ) : (
-            <div className="bfi" onClick={() => setShowFolderForm(true)} style={{ color: c.textMuted, fontSize: 11 }}>
-              <FolderPlus size={11} color={c.textMuted}/>
-              <span>New Folder</span>
-            </div>
-          )}
-
-          {/* Tags */}
-          {allTags.length > 0 && (
             <>
-              <div className="bseclbl" style={{ marginTop: 4 }}>Tags</div>
-              <div style={{ padding: '3px 9px 8px', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {allTags.map(([tag, count]) => (
-                  <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                    onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
-                    #{tag} <span style={{ color: c.textMuted, marginLeft: 2 }}>{count}</span>
+              <div style={{ padding: '10px 10px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>Note</span>
+                <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
+                <div style={{ flex: 1 }}/>
+                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Shortcuts"><Keyboard size={11}/></button>
+                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Collapse">
+                  <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
+                </button>
+              </div>
+              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
+                <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
+                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
+                  <span style={{ flex: 1 }}>All Notes</span>
+                  <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
+                    {notes.filter(n => !n.deletedAt).length}
                   </span>
+                </div>
+                <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
+                  <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
+                  <span style={{ flex: 1 }}>Starred</span>
+                  {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
+                </div>
+                <div className="bseclbl">Folders</div>
+                {folders.map(f => (
+                  <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
+                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}
+                    onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
+                    onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
+                    onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
+                    style={{ gap: 4 }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{f.name}</span>
+                    <span style={{ fontSize: 9, color: c.textMuted }}>{notes.filter(n => n.folderId === f.id && !n.deletedAt).length}</span>
+                    <button onClick={e => { e.stopPropagation(); deleteFolder(f.id); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: '1px 2px', borderRadius: 3, opacity: 0 }}
+                      className="folder-del"
+                      onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                      onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
+                      <Trash2 size={9}/>
+                    </button>
+                  </div>
                 ))}
+                {showFolderForm ? (
+                  <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder="Folder name"
+                      value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addFolder(); if (e.key === 'Escape') setShowFolderForm(false); }}
+                      autoFocus/>
+                    <div style={{ display: 'flex', gap: 3 }}>
+                      <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={addFolder}>Add</button>
+                      <button onClick={() => setShowFolderForm(false)}
+                        style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bfi" onClick={() => setShowFolderForm(true)} style={{ color: c.textMuted, fontSize: 10 }}>
+                    <FolderPlus size={10} color={c.textMuted}/><span>New Folder</span>
+                  </div>
+                )}
+                {allTags.length > 0 && (
+                  <>
+                    <div className="bseclbl" style={{ marginTop: 4 }}>Tags</div>
+                    <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                      {allTags.map(([tag, count]) => (
+                        <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
+                          onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                          #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
+                  <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
+                    <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
+                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>Trash</span>
+                    {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
+                  </div>
+                </div>
               </div>
             </>
           )}
-
-          {/* Trash */}
-          <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-            <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
-              <Trash2 size={11} color={isTrash ? c.danger : c.textMuted}/>
-              <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>Trash</span>
-              {trashCount > 0 && <span style={{ fontSize: 10, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 6px', fontWeight: 700 }}>{trashCount}</span>}
-            </div>
-          </div>
         </div>
-      </div>
-
+      )}
       {/* ── Note List ── */}
-      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', visibility: focusMode ? 'hidden' : 'visible', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
+      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
             {activeTag ? `#${activeTag}` : folderLabel}
@@ -991,7 +1137,7 @@ export const NoteView = () => {
               </button>
             )}
             {!isTrash && (
-              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${notes.filter(n=>!n.deletedAt).length} notes as .md`}>
+              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${activeNoteCount} notes as .md`}>
                 <Save size={11}/>
               </button>
             )}
@@ -1081,18 +1227,11 @@ export const NoteView = () => {
                   <span style={{ fontSize: 11 }}>⎘</span>
                 </button>
               )}
-              {/* Focus Mode */}
-              <button onClick={() => setFocusMode(v => !v)} className="btbtn" title={focusMode ? 'Exit Focus Mode (Esc)' : 'Focus Mode — hide sidebars'}
-                style={{ color: focusMode ? c.accent : c.textMuted }}>
-                {focusMode ? <Minimize2 size={12}/> : <Maximize2 size={12}/>}
+              {/* Right panel toggle */}
+              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
+                style={{ color: showRightPanel ? c.accent : c.textMuted }}>
+                <AlignLeft size={12}/>
               </button>
-              {/* Right panel toggle — hidden in focus mode */}
-              {!focusMode && (
-                <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
-                  style={{ color: showRightPanel ? c.accent : c.textMuted }}>
-                  <AlignLeft size={12}/>
-                </button>
-              )}
               {/* Export */}
               <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
                 <Save size={12}/>
@@ -1106,7 +1245,7 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
               </div>
             ) : (
               <>
@@ -1131,8 +1270,18 @@ export const NoteView = () => {
                   </div>
                 )}
 
-                {/* Body — 단일 컬럼 전체 너비 */}
-                <div style={{ flex: 1, overflow: 'auto' }}>
+                {/* Body — 드래그&드롭 + 단일 컬럼 전체 너비 */}
+                <div
+                  className="editor-drop-zone"
+                  style={{ flex: 1, overflow: 'auto', position: 'relative' }}
+                  onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
+                  onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+                  onDrop={handleEditorDrop}>
+                  {isDragOver && (
+                    <div className="editor-drop-overlay">
+                      <ImageIcon size={22}/> Drop image to insert
+                    </div>
+                  )}
                   {viewMode === 'edit' && (
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
@@ -1151,7 +1300,9 @@ export const NoteView = () => {
                         {/* [[ 자동완성 드롭다운 */}
                         {acVisible && acCandidates.length > 0 && (
                           <div style={{
-                            position: 'absolute', top: acPos.top, left: Math.min(acPos.left, 300),
+                            position: 'absolute',
+                            top:  acPos.top,
+                            left: Math.min(acPos.left, (textareaRef.current?.offsetWidth ?? 600) - 220),
                             background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
                             boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
                           }}>
@@ -1183,7 +1334,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -1200,7 +1351,7 @@ export const NoteView = () => {
       </div>
 
       {/* ── Right Panel ── */}
-      {activeNote && viewMode !== 'graph' && showRightPanel && !focusMode && (
+      {activeNote && viewMode !== 'graph' && showRightPanel && (
         <div style={{ width: 210, minWidth: 210, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
             {RIGHT_PANELS.map(({ key, label, icon }) => (
@@ -1255,19 +1406,81 @@ export const NoteView = () => {
           {/* Links */}
           {rightPanel === 'links' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-              <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>Backlinks</div>
+              {/* ── Backlinks with context ── */}
+              <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
+                Backlinks {backlinks.length > 0 && <span style={{ color: c.accent }}>({backlinks.length})</span>}
+              </div>
               {backlinks.length === 0
                 ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>No backlinks</p>
-                : backlinks.map(n => (
-                  <div key={n.id} className="bbl" onClick={() => setActiveNoteId(n.id)}>↗ {n.title}</div>
+                : backlinkContexts.map(ctx => (
+                  <div key={ctx.noteId}
+                    style={{
+                      margin: '0 8px 6px',
+                      borderRadius: 7,
+                      border: `1px solid ${c.sideBdr}`,
+                      background: c.cardHov,
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => setActiveNoteId(ctx.noteId)}
+                  >
+                    {/* 노트 제목 행 */}
+                    <div style={{
+                      padding: '5px 9px 4px',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      borderBottom: ctx.excerpts.length > 0 ? `1px solid ${c.sideBdr}` : 'none',
+                    }}>
+                      <span style={{ fontSize: 10, color: c.accent, flexShrink: 0 }}>↗</span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, color: c.text,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {ctx.noteTitle}
+                      </span>
+                    </div>
+                    {/* 발췌 문단들 */}
+                    {ctx.excerpts.map((excerpt, ei) => {
+                      // [[제목]] 부분을 강조 표시
+                      const target = `[[${activeNote!.title ?? ''}]]`;
+                      const parts  = excerpt.split(target);
+                      return (
+                        <div key={ei} style={{
+                          padding: '4px 9px 5px',
+                          fontSize: 10, lineHeight: 1.55,
+                          color: c.textMuted,
+                          borderTop: ei > 0 ? `1px dashed ${c.sideBdr}` : 'none',
+                        }}>
+                          {parts.map((part, pi) => (
+                            <span key={pi}>
+                              {part}
+                              {pi < parts.length - 1 && (
+                                <mark style={{
+                                  background: dark ? '#FACC1433' : '#DBEAFE',
+                                  color: dark ? '#FACC14' : '#1D4ED8',
+                                  borderRadius: 3,
+                                  padding: '0 2px',
+                                  fontWeight: 600,
+                                }}>
+                                  {target}
+                                </mark>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ))
               }
+              {/* ── Outgoing links ── */}
               {(() => {
                 const outLinks = extractLinks(activeNote.body);
                 const found = outLinks.map(t => notes.find(n => n.title === t && !n.deletedAt)).filter((n): n is Note => n !== undefined);
                 return found.length > 0 ? (
                   <>
-                    <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 600, borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>Outgoing</div>
+                    <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 600, borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
+                      Outgoing {<span style={{ color: c.green }}>({found.length})</span>}
+                    </div>
                     {found.map(n => (
                       <div key={n.id} className="bbl" style={{ color: c.green }} onClick={() => setActiveNoteId(n.id)}>→ {n.title}</div>
                     ))}
@@ -1374,6 +1587,80 @@ export const NoteView = () => {
               </button>
             </div>
           )}
+        </div>
+      )}
+      {/* ── 표 삽입 모달 ── */}
+      {showTableModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowTableModal(false)}>
+          <div style={{ background: c.card, borderRadius: 14, padding: '22px 24px', width: 360, boxShadow: '0 8px 32px #00000035' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, color: c.text, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Table size={15} color={c.accent}/> Insert Table
+            </div>
+            {/* 행/열 수 */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Rows</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
+                  <button onClick={() => setTableRows(r => Math.max(1, r - 1))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableRows}</span>
+                  <button onClick={() => setTableRows(r => Math.min(20, r + 1))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Columns</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
+                  <button onClick={() => { const n = Math.max(1, tableCols - 1); setTableCols(n); setTableHeaders(h => h.slice(0, n).concat(Array.from({ length: Math.max(0, n - h.length) }, (_, i) => `Col ${h.length + i + 1}`))); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
+                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableCols}</span>
+                  <button onClick={() => { const n = Math.min(10, tableCols + 1); setTableCols(n); setTableHeaders(h => [...h, `Col ${n}`]); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
+                </div>
+              </div>
+            </div>
+            {/* 헤더 이름 */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: .5 }}>Column Headers</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {tableHeaders.slice(0, tableCols).map((h, i) => (
+                  <input key={i} className="btable-modal-cell" style={{ width: `calc(${Math.floor(100 / Math.min(tableCols, 3))}% - 6px)` }}
+                    value={h} onChange={e => setTableHeaders(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}/>
+                ))}
+              </div>
+            </div>
+            {/* 미리보기 */}
+            <div style={{ background: c.input, borderRadius: 8, padding: '10px 12px', marginBottom: 16, overflowX: 'auto' }}>
+              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: .5 }}>Preview</div>
+              <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
+                <thead>
+                  <tr>{tableHeaders.slice(0, tableCols).map((h, i) => (
+                    <th key={i} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', background: c.toolbar, color: c.text, fontWeight: 600, textAlign: 'left' }}>{h || `Col ${i+1}`}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: Math.min(tableRows, 3) }).map((_, r) => (
+                    <tr key={r}>{tableHeaders.slice(0, tableCols).map((_, c2) => (
+                      <td key={c2} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', color: c.textMuted }}>r{r+1}c{c2+1}</td>
+                    ))}</tr>
+                  ))}
+                  {tableRows > 3 && <tr><td colSpan={tableCols} style={{ padding: '4px 8px', color: c.textFaint, fontSize: 10, textAlign: 'center', border: `1px solid ${c.sideBdr}` }}>+{tableRows - 3} more rows</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setShowTableModal(false)}
+                style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 8, padding: '10px', color: c.textMuted, fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                Cancel
+              </button>
+              <button onClick={insertTable}
+                style={{ flex: 2, background: c.accent, border: 'none', borderRadius: 8, padding: '10px', color: dark ? '#0F0F11' : '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>
+                Insert Table
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {confirm && (

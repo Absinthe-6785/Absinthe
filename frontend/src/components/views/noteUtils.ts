@@ -5,6 +5,13 @@
  * 테스트 작성 및 재사용이 용이하도록 독립 모듈로 관리.
  */
 
+// KaTeX 전역 선언 (동적 로드 후 window.katex로 접근)
+declare global {
+  interface Window {
+    katex?: { renderToString: (expr: string, opts?: object) => string };
+  }
+}
+
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
 export interface NoteBase {
@@ -116,10 +123,9 @@ export function parseMarkdown(md: string, allNotes: NoteBase[]): string {
   const out: string[] = [];
   let i = 0;
 
-  const flushToggle = (summary: string, bodyLines: string[]): string => {
-    const inner = bodyLines.join('\n');
+  const flushToggle = (summary: string, body: string): string => {
     const uid = Math.random().toString(36).slice(2);
-    return `<details class="btoggle" id="btg-${uid}"><summary class="btsummary">${summary}</summary><div class="btbody">${inner}</div></details>`;
+    return `<details class="btoggle" id="btg-${uid}"><summary class="btsummary">${summary}</summary><div class="btbody">${body}</div></details>`;
   };
 
   const getIndent = (line: string) => {
@@ -251,4 +257,78 @@ export function extractTags(body: string): string[] {
 export function extractLinks(body: string): string[] {
   if (!body) return [];
   return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
+}
+
+// ── 백링크 컨텍스트 ──────────────────────────────────────────────────
+export interface LinkContext {
+  /** 백링크를 포함하는 노트 */
+  noteId: string;
+  noteTitle: string;
+  /** [[제목]] 을 포함한 문단(들) — 최대 2개, 각 최대 140자로 truncate */
+  excerpts: string[];
+}
+
+/**
+ * extractLinkContexts(targetTitle, allNotes)
+ *
+ * targetTitle 을 [[targetTitle]] 형태로 참조하는 모든 노트를 찾아
+ * 해당 [[링크]]가 포함된 문단을 발췌해 반환한다.
+ *
+ * 발췌 규칙:
+ *   - 빈 줄 기준으로 문단을 나누고, [[targetTitle]] 이 들어있는 문단을 수집
+ *   - 문단이 없으면 [[링크]] 가 포함된 단일 줄을 fallback으로 사용
+ *   - 각 발췌문은 최대 EXCERPT_MAX 글자로 잘라 '…' 처리
+ *   - 노트당 최대 MAX_EXCERPTS 개 발췌
+ */
+export function extractLinkContexts(
+  targetTitle: string,
+  allNotes: NoteBase[],
+  opts: { maxExcerpts?: number; excerptMax?: number } = {},
+): LinkContext[] {
+  if (!targetTitle.trim()) return [];
+
+  const MAX_EXCERPTS = opts.maxExcerpts ?? 2;
+  const EXCERPT_MAX  = opts.excerptMax  ?? 140;
+  const pattern      = `[[${targetTitle}]]`;
+
+  const results: LinkContext[] = [];
+
+  for (const note of allNotes) {
+    if (note.deletedAt) continue;
+    const body = note.body ?? '';
+    if (!body.includes(pattern)) continue;
+
+    // 빈 줄(\n\n)로 문단 분리
+    const paragraphs = body.split(/\n{2,}/);
+    let excerpts = paragraphs
+      .filter(p => p.includes(pattern))
+      .slice(0, MAX_EXCERPTS)
+      .map(p => {
+        // 마크다운 문법 기호 정리 (헤딩 # 제거, 줄 합치기)
+        const clean = p
+          .split('\n')
+          .map(l => l.replace(/^#{1,6}\s+/, '').trim())
+          .filter(Boolean)
+          .join(' ');
+        return clean.length > EXCERPT_MAX ? clean.slice(0, EXCERPT_MAX) + '…' : clean;
+      });
+
+    // 문단 분리로 못 찾은 경우 — 줄 단위 fallback
+    if (excerpts.length === 0) {
+      excerpts = body
+        .split('\n')
+        .filter(l => l.includes(pattern))
+        .slice(0, MAX_EXCERPTS)
+        .map(l => {
+          const clean = l.replace(/^#{1,6}\s+/, '').trim();
+          return clean.length > EXCERPT_MAX ? clean.slice(0, EXCERPT_MAX) + '…' : clean;
+        });
+    }
+
+    if (excerpts.length > 0) {
+      results.push({ noteId: note.id, noteTitle: note.title ?? '', excerpts });
+    }
+  }
+
+  return results;
 }
