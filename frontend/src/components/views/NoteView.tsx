@@ -1,10 +1,9 @@
-import { useState, useMemo, useCallback, useRef, useEffect, ReactNode } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
-  Search, Plus, Trash2, FolderPlus, Bold, Italic, Code, List, ListOrdered,
-  Heading1, Heading2, Heading3, Table, CheckSquare, Eye, Edit3,
-  RotateCcw, Hash, Quote, AlertTriangle, Star,
+  Search, Plus, Trash2, FolderPlus, Eye, Edit3,
+  RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
-  ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
+  ChevronDown, ChevronRight, GitFork, Upload, Keyboard,
 } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -45,8 +44,6 @@ function useKaTeX(): boolean {
   return ready;
 }
 
-interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
-
 // ── 블록 에디터 어댑터 ────────────────────────────────────────────────
 // useBlockEditor 훅은 조건부로 호출할 수 없으므로 별도 컴포넌트로 분리한다.
 // 부모에서 key={note.id}로 마운트해 노트 전환 시 블록 상태가 초기화되도록 한다.
@@ -63,7 +60,7 @@ const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wi
   const { blocks, handleBlockChange, undo, redo } = useBlockEditor(body, onBodyChange);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
-  // capture + stopImmediatePropagation으로 NoteView 전역 단축키(textarea용)와 충돌 방지.
+  // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
   useEffect(() => {
     if (readOnly) return;
     const handler = (e: KeyboardEvent) => {
@@ -381,59 +378,20 @@ export const NoteView = () => {
   const [sortOrder,      setSortOrder]      = useState<'updated' | 'title' | 'created'>('updated');
   const [showSortMenu,   setShowSortMenu]   = useState(false);
   const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
-  // [[ 자동완성
-  const [acQuery,  setAcQuery]  = useState('');
-  const [acIndex,  setAcIndex]  = useState(0);
-  const [acVisible,setAcVisible]= useState(false);
-  const [acPos,    setAcPos]    = useState({ top: 0, left: 0 });
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
-  // ── 표 편집 모달 ─────────────────────────────────────────────────
-  const [showTableModal, setShowTableModal] = useState(false);
-  const [tableRows,   setTableRows]   = useState(3);
-  const [tableCols,   setTableCols]   = useState(3);
-  const [tableHeaders, setTableHeaders] = useState<string[]>(['Col 1', 'Col 2', 'Col 3']);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const imageInputRef  = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Undo / Redo 히스토리 (노트별 독립 스택) ─────────────────────
-  type Snapshot = { body: string; cursor: number };
-  const historyRef    = useRef<Record<string, Snapshot[]>>({});
-  const historyIdxRef = useRef<Record<string, number>>({});
-  const skipHistoryRef = useRef(false);
-
-  // noteUpdate를 먼저 선언 (applySnapshot이 참조하므로)
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     updateNote(id, patch);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
   }, [updateNote]);
-
-  const pushHistory = useCallback((noteId: string, body: string, cursor: number) => {
-    if (skipHistoryRef.current) return;
-    const stack = historyRef.current[noteId] ?? [];
-    const idx   = historyIdxRef.current[noteId] ?? -1;
-    const trimmed = stack.slice(0, idx + 1);
-    trimmed.push({ body, cursor });
-    if (trimmed.length > 200) trimmed.shift();
-    historyRef.current[noteId]    = trimmed;
-    historyIdxRef.current[noteId] = trimmed.length - 1;
-  }, []);
-
-  const applySnapshot = useCallback((noteId: string, snap: Snapshot) => {
-    skipHistoryRef.current = true;
-    noteUpdate(noteId, { body: snap.body });
-    skipHistoryRef.current = false;
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (ta) { ta.focus(); ta.setSelectionRange(snap.cursor, snap.cursor); }
-    });
-  }, [noteUpdate]);
 
   // ── 필터링 ──────────────────────────────────────────────────────
   const visibleNotes = useMemo(() => {
@@ -488,12 +446,6 @@ export const NoteView = () => {
     return result;
   }, [toc, tocCollapsed]);
 
-  // parsedBody: notes 전체 대신 noteTitles(위키링크 해결용 최소 슬라이스)만 dep에 포함
-  // → 다른 노트 body가 바뀌어도 현재 노트 뷰가 불필요하게 재파싱되지 않음
-  const noteTitles = useMemo(
-    () => notes.map(n => ({ id: n.id, title: n.title, deletedAt: n.deletedAt })),
-    [notes]
-  );
   // 위키링크 [[ 자동완성 후보 — 삭제되지 않은 노트의 제목
   const wikiTargets = useMemo(
     () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
@@ -534,15 +486,6 @@ export const NoteView = () => {
     setNewFolderName(''); setShowFolderForm(false);
   }, [newFolderName, createFolder]);
 
-  // ── 텍스트 삽입 ─────────────────────────────────────────────────
-  const insert = useCallback((before: string, after = '') => {
-    const ta = textareaRef.current; if (!ta || !activeNote) return;
-    const s = ta.selectionStart, e = ta.selectionEnd;
-    const sel = activeNote.body.substring(s, e);
-    noteUpdate(activeNote.id, { body: activeNote.body.substring(0, s) + before + sel + after + activeNote.body.substring(e) });
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(s + before.length, s + before.length + sel.length); }, 0);
-  }, [activeNote, noteUpdate]);
-
   // 노트 body 끝에 이미지 마크다운을 추가 (블록 에디터가 새 이미지 블록으로 파싱)
   const appendImageToBody = useCallback((noteId: string, name: string, src: string) => {
     setNotes(prev => {
@@ -581,18 +524,6 @@ export const NoteView = () => {
     });
   }, [activeNote, appendImageToBody]);
 
-  // ── 표 삽입 헬퍼 ──────────────────────────────────────────────
-  const insertTable = useCallback(() => {
-    const hdrs = tableHeaders.slice(0, tableCols);
-    const header = `| ${hdrs.join(' | ')} |`;
-    const divider = `| ${hdrs.map(() => '-------').join(' | ')} |`;
-    const rows = Array.from({ length: tableRows }, (_, r) =>
-      `| ${hdrs.map((_, c) => `r${r+1}c${c+1}`).join(' | ')} |`
-    );
-    insert(`\n${header}\n${divider}\n${rows.join('\n')}\n`);
-    setShowTableModal(false);
-  }, [tableCols, tableRows, tableHeaders, insert]);
-
   // ── .md 파일 Import ─────────────────────────────────────────────
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -611,152 +542,22 @@ export const NoteView = () => {
     e.target.value = '';
   };
 
-  // ── [[ 자동완성 ─────────────────────────────────────────────────
-  const acCandidates = useMemo(() => {
-    if (!acQuery) return [];
-    const q = acQuery.toLowerCase();
-    return notes.filter(n => !n.deletedAt && (n.title ?? '').toLowerCase().includes(q)).slice(0, 8);
-  }, [notes, acQuery]);
-
-  // ── [[ 자동완성 캐럿 좌표 계산 (mirror-div 방식) ────────────────
-  // textarea와 동일한 스타일의 숨겨진 div를 이용해 캐럿의 실제 픽셀 위치를 구한다.
-  // 외부 라이브러리 없이 scroll offset까지 정확히 반영.
-  const getCaretPixelPos = useCallback((ta: HTMLTextAreaElement, index: number): { top: number; left: number } => {
-    const MIRROR_STYLE: Partial<CSSStyleDeclaration> = {
-      position:   'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap',
-      wordBreak:  'break-word', overflow:  'hidden',
-      // textarea 스타일과 동일하게
-      fontSize:   '15px', lineHeight: '1.9', fontFamily: 'inherit',
-      padding:    '40px 60px', border: 'none',
-      boxSizing:  'border-box',
-    };
-
-    const mirror = document.createElement('div');
-    Object.assign(mirror.style, MIRROR_STYLE);
-    mirror.style.width = ta.offsetWidth + 'px';
-
-    // 캐럿 앞 텍스트 + 마커 span
-    const before  = document.createTextNode(ta.value.slice(0, index));
-    const marker  = document.createElement('span');
-    marker.textContent = '\u200b'; // 제로-너비 공백 — 위치 기준점
-    mirror.appendChild(before);
-    mirror.appendChild(marker);
-    ta.parentElement!.appendChild(mirror);
-
-    const taRect  = ta.getBoundingClientRect();
-    const mRect   = marker.getBoundingClientRect();
-    const result  = {
-      top:  mRect.top  - taRect.top  + ta.scrollTop  + marker.offsetHeight,
-      left: mRect.left - taRect.left + ta.scrollLeft,
-    };
-
-    ta.parentElement!.removeChild(mirror);
-    return result;
-  }, []);
-
-  const handleEditorChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!activeNote) return;
-    const val = e.target.value;
-    const cursor = e.target.selectionStart;
-    pushHistory(activeNote.id, val, cursor);
-    noteUpdate(activeNote.id, { body: val });
-    // [[ 감지
-    const pos = e.target.selectionStart;
-    const before = val.slice(0, pos);
-    const match = before.match(/\[\[([^\]\n]*)$/);
-    if (match) {
-      setAcQuery(match[1]);
-      setAcIndex(0);
-      setAcVisible(true);
-      // 캐럿 실제 픽셀 위치 계산
-      const coords = getCaretPixelPos(e.target, pos);
-      setAcPos({ top: coords.top + 4, left: coords.left });
-    } else {
-      setAcVisible(false);
-    }
-  }, [activeNote, pushHistory, noteUpdate]);
-
-  const applyAutoComplete = (title: string) => {
-    const ta = textareaRef.current; if (!ta || !activeNote) return;
-    const pos = ta.selectionStart;
-    const body = activeNote.body;
-    const before = body.slice(0, pos);
-    const match = before.match(/\[\[([^\]\n]*)$/);
-    if (!match) return;
-    const start = pos - match[0].length;
-    const newBody = body.slice(0, start) + `[[${title}]]` + body.slice(pos);
-    noteUpdate(activeNote.id, { body: newBody });
-    setAcVisible(false);
-    setTimeout(() => {
-      const newPos = start + title.length + 4;
-      ta.focus(); ta.setSelectionRange(newPos, newPos);
-    }, 0);
-  };
-
-  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (acVisible) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setAcIndex(i => Math.min(i + 1, acCandidates.length - 1)); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); setAcIndex(i => Math.max(i - 1, 0)); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        if (acCandidates[acIndex]) { e.preventDefault(); applyAutoComplete(acCandidates[acIndex].title); return; }
-      }
-      if (e.key === 'Escape') { setAcVisible(false); return; }
-    }
-  };
-
-  // ── 노트 전환 시 히스토리 초기 스냅샷 등록 ─────────────────────
-  useEffect(() => {
-    if (!activeNote) return;
-    const id = activeNote.id;
-    // 해당 노트의 히스토리가 아직 없으면 초기 스냅샷 등록
-    if (!historyRef.current[id] || historyRef.current[id].length === 0) {
-      historyRef.current[id] = [{ body: activeNote.body, cursor: 0 }];
-      historyIdxRef.current[id] = 0;
-    }
-  // activeNote?.id만 dep — body 변경 시마다 스냅샷을 재등록하지 않기 위해 의도적으로 id만 사용
-  }, [activeNote?.id]);
-
   // ── 전역 단축키 — ref 패턴으로 핸들러를 한 번만 등록 ─────────────
   // 가변 값은 ref에 저장해 stale closure 없이 항상 최신 값 읽기
   const shortcutRef = useRef({
-    showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot,
+    showSortMenu, viewMode, activeNote, createNote, duplicateNote,
   });
   useEffect(() => {
-    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot };
+    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote };
   });
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const { showSortMenu: sm, viewMode: vm, activeNote: an, createNote: cn,
-              duplicateNote: dn, insert: ins, applySnapshot: snap } = shortcutRef.current;
+      const { showSortMenu: sm, activeNote: an, createNote: cn, duplicateNote: dn } = shortcutRef.current;
       const mod = e.ctrlKey || e.metaKey;
       if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
       if (!mod) return;
 
-      // ── Undo (Ctrl+Z) ────────────────────────────────────────
-      if (e.key === 'z' && !e.shiftKey && vm === 'edit' && an) {
-        e.preventDefault();
-        const stack = historyRef.current[an.id];
-        const idx   = historyIdxRef.current[an.id] ?? -1;
-        if (stack && idx > 0) {
-          const next = idx - 1;
-          historyIdxRef.current[an.id] = next;
-          snap(an.id, stack[next]);
-        }
-        return;
-      }
-      // ── Redo (Ctrl+Y 또는 Ctrl+Shift+Z) ─────────────────────
-      if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && vm === 'edit' && an) {
-        e.preventDefault();
-        const stack = historyRef.current[an.id];
-        const idx   = historyIdxRef.current[an.id] ?? -1;
-        if (stack && idx < stack.length - 1) {
-          const next = idx + 1;
-          historyIdxRef.current[an.id] = next;
-          snap(an.id, stack[next]);
-        }
-        return;
-      }
       // ── Save (Ctrl+S) — 즉시 저장 표시 ─────────────────────
       if (e.key === 's') {
         e.preventDefault();
@@ -772,50 +573,12 @@ export const NoteView = () => {
         case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
-        case 'b': if (vm === 'edit') { e.preventDefault(); ins('**', '**'); } break;
-        case 'i': if (vm === 'edit') { e.preventDefault(); ins('*', '*'); } break;
-        case '`': if (vm === 'edit') { e.preventDefault(); ins('`', '`'); } break;
-        case '1': if (vm === 'edit') { e.preventDefault(); ins('# '); } break;
-        case '2': if (vm === 'edit') { e.preventDefault(); ins('## '); } break;
-        case '3': if (vm === 'edit') { e.preventDefault(); ins('### '); } break;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
-
-  const TOOLBAR = useMemo<(ToolbarItem | null)[]>(() => [
-    { icon: <Heading1 size={13}/>, label: 'H1 (Ctrl+1)', fn: () => insert('# ') },
-    { icon: <Heading2 size={13}/>, label: 'H2 (Ctrl+2)', fn: () => insert('## ') },
-    { icon: <Heading3 size={13}/>, label: 'H3 (Ctrl+3)', fn: () => insert('### ') },
-    null,
-    { icon: <Bold size={13}/>,        label: 'Bold (Ctrl+B)',   fn: () => insert('**', '**') },
-    { icon: <Italic size={13}/>,      label: 'Italic (Ctrl+I)', fn: () => insert('*', '*') },
-    { icon: <Code size={13}/>,        label: 'Inline Code',     fn: () => insert('`', '`') },
-    { icon: <Hash size={13}/>,        label: 'Highlight',       fn: () => insert('==', '==') },
-    null,
-    { icon: <List size={13}/>,        label: 'Bullet List',   fn: () => insert('- ') },
-    { icon: <ListOrdered size={13}/>, label: 'Numbered List', fn: () => insert('1. ') },
-    { icon: <CheckSquare size={13}/>, label: 'Checkbox',      fn: () => insert('- [ ] ') },
-    {
-      icon: <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>▶</span>,
-      label: 'Toggle Block',
-      fn: () => insert('> Toggle Title\n  '),
-    },
-    null,
-    { icon: <Table size={13}/>, label: 'Insert Table',     fn: () => { setTableHeaders(Array.from({ length: tableCols }, (_, i) => `Col ${i+1}`)); setShowTableModal(true); } },
-    { icon: <Link size={13}/>,  label: 'Wiki Link', fn: () => insert('[[', ']]') },
-    { icon: <Tag size={13}/>,   label: 'Tag',       fn: () => insert('#') },
-    null,
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∑</span>, label: 'Inline Math ($…$)',   fn: () => insert('$', '$') },
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∫</span>, label: 'Block Math ($$…$$)', fn: () => insert('$$\n', '\n$$') },
-    null,
-    { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
-    { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
-    { icon: <Save size={13}/>,      label: 'Export All',   fn: () => exportAllNotes() },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
 
   // 위키링크 따라가기 — 제목이 일치하는(삭제되지 않은) 노트로 이동
   const navigateToWiki = useCallback((title: string) => {
@@ -993,10 +756,7 @@ export const NoteView = () => {
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:15px;line-height:1.9;padding:40px 60px;font-family:inherit}
     .bshl{background:${dark ? '#FACC1550' : '#FFE88A'};color:${dark ? '#FACC15' : '#7A5500'};border-radius:2px;padding:0 2px}
-    .bac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-radius:5px;transition:background .1s;color:${c.text}}
-    .bac-item:hover,.bac-item.active{background:${c.accentBg};color:${c.accent}}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
@@ -1020,9 +780,6 @@ export const NoteView = () => {
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
     .bicon-btn:hover .bicon-tooltip{opacity:1}
-    /* ── 표 편집 모달 ── */
-    .btable-modal-cell{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:5px;padding:4px 7px;font-size:12px;outline:none;width:100%}
-    .btable-modal-cell:focus{border-color:${c.accent}}
   `, [c]);
 
   return (
@@ -1050,18 +807,13 @@ export const NoteView = () => {
               ['Ctrl + /',         'Show Shortcuts'],
               [null, null],
               ['Ctrl + S',         'Save (instant)'],
-              ['Ctrl + Z',         'Undo'],
-              ['Ctrl + Y / ⇧+Z',  'Redo'],
+              ['Ctrl + Z',         'Undo (edit mode)'],
+              ['Ctrl + Y / ⇧+Z',  'Redo (edit mode)'],
               [null, null],
-              ['Ctrl + B',         'Bold'],
-              ['Ctrl + I',         'Italic'],
-              ['Ctrl + `',         'Inline Code'],
-              ['Ctrl + 1',         'Heading 1'],
-              ['Ctrl + 2',         'Heading 2'],
-              ['Ctrl + 3',         'Heading 3'],
-              [null, null],
+              ['/',                'Slash command — insert block'],
               ['[[...]]',          'Wiki link autocomplete'],
-              ['↑ ↓ Enter',        'Navigate autocomplete'],
+              ['Ctrl + Click',     'Follow wiki link (edit mode)'],
+              ['↑ ↓ Enter',        'Navigate menus'],
               ['Esc',              'Close / cancel'],
             ].map(([key, desc], i) => (
               key === null
@@ -1672,80 +1424,6 @@ export const NoteView = () => {
               </button>
             </div>
           )}
-        </div>
-      )}
-      {/* ── 표 삽입 모달 ── */}
-      {showTableModal && (
-        <div style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowTableModal(false)}>
-          <div style={{ background: c.card, borderRadius: 14, padding: '22px 24px', width: 360, boxShadow: '0 8px 32px #00000035' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, color: c.text, display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Table size={15} color={c.accent}/> Insert Table
-            </div>
-            {/* 행/열 수 */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Rows</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
-                  <button onClick={() => setTableRows(r => Math.max(1, r - 1))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableRows}</span>
-                  <button onClick={() => setTableRows(r => Math.min(20, r + 1))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
-                </div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Columns</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
-                  <button onClick={() => { const n = Math.max(1, tableCols - 1); setTableCols(n); setTableHeaders(h => h.slice(0, n).concat(Array.from({ length: Math.max(0, n - h.length) }, (_, i) => `Col ${h.length + i + 1}`))); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableCols}</span>
-                  <button onClick={() => { const n = Math.min(10, tableCols + 1); setTableCols(n); setTableHeaders(h => [...h, `Col ${n}`]); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
-                </div>
-              </div>
-            </div>
-            {/* 헤더 이름 */}
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: .5 }}>Column Headers</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {tableHeaders.slice(0, tableCols).map((h, i) => (
-                  <input key={i} className="btable-modal-cell" style={{ width: `calc(${Math.floor(100 / Math.min(tableCols, 3))}% - 6px)` }}
-                    value={h} onChange={e => setTableHeaders(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}/>
-                ))}
-              </div>
-            </div>
-            {/* 미리보기 */}
-            <div style={{ background: c.input, borderRadius: 8, padding: '10px 12px', marginBottom: 16, overflowX: 'auto' }}>
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: .5 }}>Preview</div>
-              <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
-                <thead>
-                  <tr>{tableHeaders.slice(0, tableCols).map((h, i) => (
-                    <th key={i} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', background: c.toolbar, color: c.text, fontWeight: 600, textAlign: 'left' }}>{h || `Col ${i+1}`}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: Math.min(tableRows, 3) }).map((_, r) => (
-                    <tr key={r}>{tableHeaders.slice(0, tableCols).map((_, c2) => (
-                      <td key={c2} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', color: c.textMuted }}>r{r+1}c{c2+1}</td>
-                    ))}</tr>
-                  ))}
-                  {tableRows > 3 && <tr><td colSpan={tableCols} style={{ padding: '4px 8px', color: c.textFaint, fontSize: 10, textAlign: 'center', border: `1px solid ${c.sideBdr}` }}>+{tableRows - 3} more rows</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setShowTableModal(false)}
-                style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 8, padding: '10px', color: c.textMuted, fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                Cancel
-              </button>
-              <button onClick={insertTable}
-                style={{ flex: 2, background: c.accent, border: 'none', borderRadius: 8, padding: '10px', color: dark ? '#0F0F11' : '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>
-                Insert Table
-              </button>
-            </div>
-          </div>
         </div>
       )}
       {confirm && (
