@@ -202,6 +202,67 @@ describe('useNotesStore — Settings Reset', () => {
   });
 });
 
+describe('useNotesStore — per-note pending queue', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.useFakeTimers();
+    authFetchMock.mockResolvedValue(okJson({}));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function postedBodies() {
+    return authFetchMock.mock.calls
+      .filter(([url]) => String(url).includes('/api/notes'))
+      .map(([, opts]) => JSON.parse((opts as RequestInit).body as string));
+  }
+
+  it('flushPendingSync syncs all notes with pending body edits', async () => {
+    const idA = 'note-a';
+    const idB = 'note-b';
+    useNotesStore.setState({
+      notes: [
+        { id: idA, title: 'A', body: 'a0', updatedAt: 1, folderId: null, deletedAt: null },
+        { id: idB, title: 'B', body: 'b0', updatedAt: 2, folderId: null, deletedAt: null },
+      ],
+      activeNoteId: idA,
+    });
+    authFetchMock.mockClear();
+
+    useNotesStore.getState().updateNote(idA, { body: 'a-edited' });
+    useNotesStore.getState().updateNote(idB, { body: 'b-edited' });
+    useNotesStore.getState().flushPendingSync();
+    await Promise.resolve();
+
+    const bodies = postedBodies();
+    expect(bodies.some(b => b.body === 'a-edited')).toBe(true);
+    expect(bodies.some(b => b.body === 'b-edited')).toBe(true);
+  });
+
+  it('independent debounce timers sync both notes after note switch', async () => {
+    const idA = 'note-a';
+    const idB = 'note-b';
+    useNotesStore.setState({
+      notes: [
+        { id: idA, title: 'A', body: 'a0', updatedAt: 1, folderId: null, deletedAt: null },
+        { id: idB, title: 'B', body: 'b0', updatedAt: 2, folderId: null, deletedAt: null },
+      ],
+      activeNoteId: idA,
+    });
+    authFetchMock.mockClear();
+
+    useNotesStore.getState().updateNote(idA, { body: 'a-edited' });
+    useNotesStore.getState().setActiveNoteId(idB);
+    useNotesStore.getState().updateNote(idB, { body: 'b-edited' });
+
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    const bodies = postedBodies();
+    expect(bodies.some(b => b.body === 'a-edited')).toBe(true);
+    expect(bodies.some(b => b.body === 'b-edited')).toBe(true);
+  });
+});
+
 describe('useNotesStore — Planner + NoteView shared state', () => {
   beforeEach(() => resetStore());
 

@@ -68,11 +68,25 @@ interface NotesState {
   resetAllNotes: () => void;
 }
 
-// ── 모듈 레벨 debounce (리렌더 불필요) ─────────────────────────────
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingSyncNote: Note | null = null;
+// ── 노트별 body debounce (리렌더 불필요) ───────────────────────────
+// 단일 pending 슬롯은 노트 전환·탭 종료 시 이전 노트 sync 유실 → id별 Map 사용
+const pendingBodySync = new Map<string, Note>();
+const bodySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let lastFailedNote: Note | null = null;
 const BODY_SYNC_MS = 600;
+
+function clearBodySyncTimer(noteId: string) {
+  const t = bodySyncTimers.get(noteId);
+  if (t) {
+    clearTimeout(t);
+    bodySyncTimers.delete(noteId);
+  }
+}
+
+function clearAllBodySyncTimers() {
+  for (const t of bodySyncTimers.values()) clearTimeout(t);
+  bodySyncTimers.clear();
+}
 
 function resolveFolderId(opts?: CreateNoteOpts): string | null {
   if (opts?.folderId !== undefined) return opts.folderId;
@@ -138,25 +152,21 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const flushPendingSync = () => {
-    if (syncTimer) {
-      clearTimeout(syncTimer);
-      syncTimer = null;
-    }
-    if (pendingSyncNote) {
-      const note = pendingSyncNote;
-      pendingSyncNote = null;
-      void syncNoteToDB(note);
-    }
+    clearAllBodySyncTimers();
+    const pending = [...pendingBodySync.values()];
+    pendingBodySync.clear();
+    for (const note of pending) void syncNoteToDB(note);
   };
 
   const scheduleBodySync = (note: Note) => {
-    pendingSyncNote = note;
-    if (syncTimer) clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => {
-      syncTimer = null;
-      pendingSyncNote = null;
-      void syncNoteToDB(note);
-    }, BODY_SYNC_MS);
+    pendingBodySync.set(note.id, note);
+    clearBodySyncTimer(note.id);
+    bodySyncTimers.set(note.id, setTimeout(() => {
+      bodySyncTimers.delete(note.id);
+      const latest = pendingBodySync.get(note.id);
+      pendingBodySync.delete(note.id);
+      if (latest) void syncNoteToDB(latest);
+    }, BODY_SYNC_MS));
   };
 
   return {
@@ -380,11 +390,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     resetAllNotes: () => {
-      if (syncTimer) {
-        clearTimeout(syncTimer);
-        syncTimer = null;
-      }
-      pendingSyncNote = null;
+      clearAllBodySyncTimers();
+      pendingBodySync.clear();
       lastFailedNote = null;
       clearNotesStorage();
       const notes = createDefaultWelcomeNotes();
