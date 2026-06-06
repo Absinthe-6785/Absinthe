@@ -109,6 +109,30 @@ export function formatImageTitle(caption?: string, width?: number): string | und
   return title || undefined;
 }
 
+/** 이미지 URL 유효성 (data URL 또는 http/https) */
+export function isValidImageUrl(url: string): boolean {
+  const t = url.trim();
+  if (!t) return false;
+  if (/^data:image\//i.test(t)) return true;
+  try {
+    const u = new URL(t);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** URL에서 alt 후보 추출 (파일명) */
+export function imageAltFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    const base = path.split('/').pop() ?? '';
+    return base.replace(/\.[^.]+$/, '') || 'image';
+  } catch {
+    return 'image';
+  }
+}
+
 // ── ID 생성 ──────────────────────────────────────────────────────────
 
 let _idCounter = 0;
@@ -673,5 +697,10 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   if (newType === 'todo')                   base.checked = base.checked ?? false;
   if (newType === 'toggle')                 base.collapsed = base.collapsed ?? false;
   if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = '💡';
+  if (newType === 'image') {
+    base.src = base.src ?? '';
+    base.alt = base.alt ?? '';
+    base.content = '';
+  }
   return base;
 }

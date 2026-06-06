@@ -12,7 +12,22 @@ import {
   formatImageTitle,
   convertBlock,
   isTextBlockType,
+  isValidImageUrl,
+  imageAltFromUrl,
 } from './blockUtils';
+
+describe('isValidImageUrl / imageAltFromUrl', () => {
+  it('accepts https and data URLs', () => {
+    expect(isValidImageUrl('https://example.com/a.png')).toBe(true);
+    expect(isValidImageUrl('data:image/png;base64,abc')).toBe(true);
+    expect(isValidImageUrl('ftp://x.com/a.png')).toBe(false);
+    expect(isValidImageUrl('not-a-url')).toBe(false);
+  });
+
+  it('extracts alt from URL path', () => {
+    expect(imageAltFromUrl('https://cdn.example.com/photos/sunset.jpg')).toBe('sunset');
+  });
+});
 
 describe('parseImageTitle / formatImageTitle', () => {
   it('parses caption and width', () => {
@@ -75,6 +90,18 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocks[0].caption).toBe('caption');
     expect(blocks[0].width).toBe(300);
     expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips image caption without width', () => {
+    const md = '![fig](https://example.com/a.png "My caption")';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].caption).toBe('My caption');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips empty image placeholder', () => {
+    const md = '![]()';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
   it('roundtrips toggle with children', () => {

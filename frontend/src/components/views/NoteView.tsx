@@ -62,10 +62,10 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 ) {
   const {
     blocks, handleBlockChange, undo, redo,
-    insertImage, setActiveBlockId, externalFocusId, clearExternalFocus,
+    insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
   } = useBlockEditor(body, onBodyChange);
 
-  useImperativeHandle(ref, () => ({ insertImage }), [insertImage]);
+  useImperativeHandle(ref, () => ({ insertImage, insertEmptyImageBlock }), [insertImage, insertEmptyImageBlock]);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
   // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
@@ -394,7 +394,6 @@ export const NoteView = () => {
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const imageInputRef  = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -506,19 +505,17 @@ export const NoteView = () => {
     saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
   }, [viewMode]);
 
-  const handleImageInsert = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file || !activeNote) return;
-    const reader = new FileReader();
-    reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
+  const insertEmptyImageBlockAtCursor = useCallback(() => {
+    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    blockEditorRef.current.insertEmptyImageBlock();
+  }, [viewMode]);
 
-  // ── 이미지 드래그&드롭 ─────────────────────────────────────────
+  // ── 이미지 드래그&드롭 (에디터 영역 — 이미지 블록 위는 제외) ─────
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
     if (!activeNote || viewMode !== 'edit') return;
+    if ((e.target as HTMLElement).closest('.be-image-block')) return;
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     files.forEach(file => {
       const reader = new FileReader();
@@ -787,7 +784,6 @@ export const NoteView = () => {
   return (
     <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
       <style>{CSS}</style>
-      <input ref={imageInputRef}  type="file" accept="image/*"  style={{ display: 'none' }} onChange={handleImageInsert}/>
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
       {/* ── 포커스 모드 오버레이 ── */}
@@ -1110,7 +1106,7 @@ export const NoteView = () => {
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
-                    <button onClick={() => imageInputRef.current?.click()} className="btbtn" title="Insert image at cursor">
+                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="Insert image block at cursor">
                       <ImageIcon size={13}/>
                     </button>
                     {isSyncing && (

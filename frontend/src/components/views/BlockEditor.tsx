@@ -33,6 +33,8 @@ import {
   BLOCK_TYPE_MENU, filterBlockMenu,
   blocksToMarkdown, markdownToBlocks,
   convertBlock,
+  isValidImageUrl,
+  imageAltFromUrl,
 } from './blockUtils';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
@@ -1293,7 +1295,7 @@ function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockProps) {
   );
 }
 
-// ── ImageBlock: 업로드 / URL / 캡션 편집 ─────────────────────────────
+// ── ImageBlock: 업로드 / 드롭 / URL / 리사이즈 / 캡션 ─────────────────
 const imgBtnStyle = (c: BlockEditorColors, danger = false): CSSProperties => ({
   background: danger ? `${c.danger}15` : c.card,
   border: `1px solid ${danger ? c.danger + '50' : c.border}`,
@@ -1312,9 +1314,16 @@ interface ImageBlockProps {
 function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const zoneRef = useRef<HTMLElement>(null);
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
+  const [urlError, setUrlError] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [resizingW, setResizingW] = useState<number | null>(null);
+  const [captionDraft, setCaptionDraft] = useState(block.caption ?? '');
+
+  useEffect(() => { setCaptionDraft(block.caption ?? ''); }, [block.caption]);
 
   const imgStyle = (width?: number): CSSProperties => ({
     maxWidth: '100%',
@@ -1325,12 +1334,79 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
     margin: '0 auto',
   });
 
+  const applyFile = useCallback((f: File) => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const src = ev.target?.result as string;
+      onChange({ src, alt: block.alt || f.name.replace(/\.[^.]+$/, '') });
+      setUrlError('');
+      setShowUrl(false);
+      setUrlDraft('');
+    };
+    reader.readAsDataURL(f);
+  }, [block.alt, onChange]);
+
+  const applyUrl = useCallback((raw: string) => {
+    const url = raw.trim();
+    if (!isValidImageUrl(url)) {
+      setUrlError('http(s) 또는 data:image URL을 입력하세요');
+      return;
+    }
+    setUrlError('');
+    onChange({ src: url, alt: block.alt || imageAltFromUrl(url) });
+    setShowUrl(false);
+    setUrlDraft('');
+  }, [block.alt, onChange]);
+
+  const handleFilesDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const f = Array.from(e.dataTransfer.files).find(x => x.type.startsWith('image/'));
+    if (f) applyFile(f);
+  }, [applyFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
+  }, []);
+
+  // 클립보드 이미지 붙여넣기
+  useEffect(() => {
+    if (readOnly) return;
+    const el = zoneRef.current;
+    if (!el) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const f = item.getAsFile();
+          if (f) applyFile(f);
+          return;
+        }
+      }
+    };
+    el.addEventListener('paste', onPaste);
+    return () => el.removeEventListener('paste', onPaste);
+  }, [readOnly, applyFile, block.src]);
+
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const img = wrapRef.current?.querySelector('img');
     const startW = block.width ?? img?.clientWidth ?? 300;
     resizeRef.current = { startX: e.clientX, startW };
+    setResizingW(startW);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -1338,21 +1414,35 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
     if (!resizeRef.current) return;
     const delta = e.clientX - resizeRef.current.startX;
     const next = Math.max(80, Math.min(900, Math.round(resizeRef.current.startW + delta)));
+    setResizingW(next);
     onChange({ width: next });
   };
 
-  const endResize = () => { resizeRef.current = null; };
+  const endResize = () => { resizeRef.current = null; setResizingW(null); };
 
-  const loadFile = (f: File) => {
-    const reader = new FileReader();
-    reader.onload = ev => onChange({ src: ev.target?.result as string, alt: block.alt || f.name.replace(/\.[^.]+$/, '') });
-    reader.readAsDataURL(f);
-  };
+  const saveCaption = useCallback(() => {
+    const trimmed = captionDraft.trim();
+    if (trimmed !== (block.caption ?? '')) onChange({ caption: trimmed });
+  }, [captionDraft, block.caption, onChange]);
+
+  const dropZoneStyle = (active: boolean): CSSProperties => ({
+    border: `2px dashed ${active ? c.accent : c.border}`,
+    borderRadius: 10,
+    padding: block.src ? '12px' : '22px 16px',
+    textAlign: 'center',
+    background: active ? c.accentBg : c.card,
+    transition: 'border-color .15s, background .15s',
+  });
+
+  const hiddenFile = (
+    <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
+      onChange={e => { const f = e.target.files?.[0]; if (f) applyFile(f); e.target.value = ''; }}/>
+  );
 
   // ── readOnly(프리뷰) ──
   if (readOnly) {
     return (
-      <figure style={{ margin:'8px 0', textAlign:'center' }}>
+      <figure className="be-image-block" style={{ margin:'8px 0', textAlign:'center' }}>
         {block.src
           ? <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
           : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
@@ -1363,36 +1453,50 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
     );
   }
 
-  const hiddenFile = (
-    <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
-      onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }}/>
-  );
-
   // ── 편집: src 없음 → 업로더 ──
   if (!block.src) {
     return (
-      <div onClick={e => e.stopPropagation()} style={{ margin:'8px 0' }}>
+      <div
+        ref={zoneRef}
+        className="be-image-block"
+        tabIndex={0}
+        onClick={e => e.stopPropagation()}
+        style={{ margin:'8px 0', outline:'none' }}
+      >
         <div
-          onDragOver={e => e.preventDefault()}
-          onDrop={e => { e.preventDefault(); const f = Array.from(e.dataTransfer.files).find(x => x.type.startsWith('image/')); if (f) loadFile(f); }}
-          style={{ border:`2px dashed ${c.border}`, borderRadius:10, padding:'22px 16px', textAlign:'center', background:c.card }}>
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleFilesDrop}
+          style={dropZoneStyle(isDragOver)}
+        >
           <div style={{ marginBottom:10, color:c.textFaint }}><ImageIcon size={22}/></div>
           <div style={{ display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap' }}>
-            <button onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 업로드</button>
-            <button onClick={() => setShowUrl(v => !v)} style={imgBtnStyle(c)}>URL 입력</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 업로드</button>
+            <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>URL 입력</button>
           </div>
           {showUrl && (
-            <div style={{ display:'flex', gap:6, marginTop:10, justifyContent:'center' }}>
-              <input value={urlDraft} autoFocus
-                onChange={e => setUrlDraft(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && urlDraft.trim()) onChange({ src: urlDraft.trim() }); }}
-                placeholder="https://image-url..."
-                style={{ flex:1, maxWidth:320, background:c.input, border:`1px solid ${c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
-              <button onClick={() => { if (urlDraft.trim()) onChange({ src: urlDraft.trim() }); }} style={imgBtnStyle(c)}>추가</button>
+            <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10, alignItems:'center' }}>
+              <div style={{ display:'flex', gap:6, justifyContent:'center', width:'100%', maxWidth:360 }}>
+                <input value={urlDraft} autoFocus
+                  onChange={e => { setUrlDraft(e.target.value); setUrlError(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyUrl(urlDraft); } }}
+                  placeholder="https://example.com/image.png"
+                  style={{ flex:1, background:c.input, border:`1px solid ${urlError ? c.danger : c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
+                <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>추가</button>
+              </div>
+              {urlError && <span style={{ fontSize:11, color:c.danger }}>{urlError}</span>}
             </div>
           )}
-          <div style={{ fontSize:10, color:c.textFaint, marginTop:8 }}>이미지를 끌어다 놓을 수도 있어요</div>
+          <div style={{ fontSize:10, color:c.textFaint, marginTop:8 }}>
+            드래그&드롭 · 붙여넣기(Ctrl+V) 지원
+          </div>
         </div>
+        <input value={captionDraft}
+          onChange={e => setCaptionDraft(e.target.value)}
+          onBlur={saveCaption}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveCaption(); (e.target as HTMLInputElement).blur(); } }}
+          placeholder="캡션 (선택)"
+          style={{ display:'block', margin:'10px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
         {hiddenFile}
       </div>
     );
@@ -1400,8 +1504,26 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
 
   // ── 편집: src 있음 → 이미지 + 리사이즈 + 교체/삭제 + 캡션 ──
   return (
-    <figure onClick={e => e.stopPropagation()} style={{ margin:'8px 0', textAlign:'center' }}>
-      <div ref={wrapRef} style={{ position:'relative', display:'inline-block', maxWidth:'100%' }}>
+    <figure
+      ref={zoneRef}
+      className="be-image-block"
+      tabIndex={0}
+      onClick={e => e.stopPropagation()}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleFilesDrop}
+      style={{ margin:'8px 0', textAlign:'center', outline:'none' }}
+    >
+      <div
+        ref={wrapRef}
+        style={{
+          position:'relative', display:'inline-block', maxWidth:'100%',
+          ...dropZoneStyle(isDragOver),
+          padding: isDragOver ? 8 : 0,
+          border: isDragOver ? `2px dashed ${c.accent}` : 'none',
+          background: isDragOver ? c.accentBg : 'transparent',
+        }}
+      >
         <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
         <div
           role="separator"
@@ -1416,14 +1538,38 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
             border:`2px solid ${c.card}`, touchAction:'none',
           }}
         />
+        {resizingW != null && (
+          <span style={{
+            position:'absolute', top:-22, right:0, fontSize:10, fontWeight:700,
+            color:c.accent, background:c.card, border:`1px solid ${c.border}`,
+            borderRadius:4, padding:'1px 6px',
+          }}>{resizingW}px</span>
+        )}
       </div>
-      <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:6 }}>
-        <button onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>교체</button>
-        <button onClick={() => onChange({ src: '' })} style={imgBtnStyle(c, true)}>삭제</button>
+      <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:8, flexWrap:'wrap' }}>
+        <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 교체</button>
+        <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>URL 교체</button>
+        <button type="button" onClick={() => onChange({ src: '', width: undefined })} style={imgBtnStyle(c, true)}>삭제</button>
       </div>
-      <input value={block.caption ?? ''} onChange={e => onChange({ caption: e.target.value })}
-        placeholder="캡션 (선택)"
-        style={{ display:'block', margin:'8px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
+      {showUrl && (
+        <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:8, alignItems:'center' }}>
+          <div style={{ display:'flex', gap:6, justifyContent:'center', width:'100%', maxWidth:360 }}>
+            <input value={urlDraft} autoFocus
+              onChange={e => { setUrlDraft(e.target.value); setUrlError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyUrl(urlDraft); } }}
+              placeholder="https://example.com/image.png"
+              style={{ flex:1, background:c.input, border:`1px solid ${urlError ? c.danger : c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
+            <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>적용</button>
+          </div>
+          {urlError && <span style={{ fontSize:11, color:c.danger }}>{urlError}</span>}
+        </div>
+      )}
+      <input value={captionDraft}
+        onChange={e => setCaptionDraft(e.target.value)}
+        onBlur={saveCaption}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveCaption(); (e.target as HTMLInputElement).blur(); } }}
+        placeholder="캡션 (선택) — Enter 또는 포커스 해제 시 저장"
+        style={{ display:'block', margin:'10px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
       {hiddenFile}
     </figure>
   );
@@ -1875,7 +2021,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
       if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned };
       if (type === 'code')  return { ...b, type, content: '', code: b.code || cleaned };
-      if (type === 'image') return { ...b, type, content: '' };
+      if (type === 'image') return { ...b, type, content: '', src: '', alt: '', caption: undefined, width: undefined };
       return { ...b, type, content: cleaned };
     }));
 
@@ -2267,7 +2413,9 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
 
 /** NoteView에서 ref로 호출하는 BlockEditor API */
 export interface BlockEditorHandle {
-  insertImage: (src: string, alt: string) => void;
+  /** src가 있으면 채워진 이미지 블록, 없으면 빈 블록(업로드/URL UI) */
+  insertImage: (src?: string, alt?: string) => void;
+  insertEmptyImageBlock: () => void;
 }
 
 // ── NoteView 연동 어댑터 훅 ──────────────────────────────────────────
@@ -2354,18 +2502,20 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     activeBlockIdRef.current = id;
   }, []);
 
-  const insertImage = useCallback((src: string, alt: string) => {
+  const insertImage = useCallback((src: string = '', alt: string = '') => {
     const { blocks: next, imageId } = insertImageAfter(blocks, activeBlockIdRef.current, src, alt);
     handleBlockChange(next);
     activeBlockIdRef.current = imageId;
     setExternalFocusId(imageId);
   }, [blocks, handleBlockChange]);
 
+  const insertEmptyImageBlock = useCallback(() => insertImage('', ''), [insertImage]);
+
   const clearExternalFocus = useCallback(() => setExternalFocusId(null), []);
 
   return {
     blocks, handleBlockChange, undo, redo,
-    insertImage, setActiveBlockId, externalFocusId, clearExternalFocus,
+    insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
   };
 }
 
