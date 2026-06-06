@@ -179,6 +179,14 @@ interface SlashMenuState {
   anchorX:  number;
 }
 
+// ── 위키링크 자동완성 상태 타입 ──────────────────────────────────────
+interface WikiMenuState {
+  blockId:  string;
+  query:    string;     // '[[' 이후 입력된 검색어
+  anchorY:  number;
+  anchorX:  number;
+}
+
 // ── 색상 팔레트 (NoteView의 c 객체와 동일 구조) ─────────────────────
 export interface BlockEditorColors {
   bg:         string;
@@ -209,6 +217,8 @@ interface BlockEditorProps {
   colors:       BlockEditorColors;
   readOnly?:    boolean;
   searchQuery?: string;
+  /** 위키링크 [[ 자동완성 후보 (노트 제목 목록) */
+  wikiTargets?: string[];
 }
 
 interface BlockMenuState { blockId: string; anchorY: number; anchorX: number; }
@@ -252,7 +262,7 @@ interface SingleBlockProps {
   colors: BlockEditorColors; selected: boolean;
   onSelect: (id: string) => void; onOpenMenu: (s: BlockMenuState) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
-  searchQuery: string; depth: number;
+  searchQuery: string; depth: number; wikiTargets: string[];
   // Phase 2: 편집 콜백
   onSplitBlock:    (id: string, before: string, after: string) => void;
   onMergeWithPrev: (id: string, selfContent: string) => void;
@@ -265,6 +275,10 @@ interface SingleBlockProps {
   // Phase 3: 슬래시 커맨드
   onSlashOpen:  (state: SlashMenuState) => void;
   onSlashClose: () => void;
+  // 위키링크 자동완성
+  onWikiOpen:   (state: WikiMenuState) => void;
+  onWikiClose:  () => void;
+  isMenuOpen:   boolean;   // 이 블록을 대상으로 슬래시/위키 메뉴가 열려있는지
   // Toggle Step 1
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2
@@ -275,10 +289,11 @@ interface SingleBlockProps {
 
 const SingleBlock = React.memo(function SingleBlock({
   block, blocks, onChange, colors: c, selected,
-  onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth,
+  onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth, wikiTargets,
   onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
   dragState, startDrag, getDragProps,
   onSlashOpen, onSlashClose,
+  onWikiOpen, onWikiClose, isMenuOpen,
   onToggleAddChild,
   onToggleEnter,
   onTableChange,
@@ -359,13 +374,15 @@ const SingleBlock = React.memo(function SingleBlock({
     toggleOpen, inline,
     onToggleCollapse: handleToggleCollapse,
     onToggleTodo: handleToggleTodo,
-    blocks, onChange, searchQuery, depth,
+    blocks, onChange, searchQuery, depth, wikiTargets,
     readOnly, onSelect, onOpenMenu, onAddBelow,
     // Phase 2
     onSplitBlock, onMergeWithPrev, onContentChange,
     editableRef,
     // Phase 3
     onSlashOpen, onSlashClose,
+    // 위키링크 자동완성
+    onWikiOpen, onWikiClose, isMenuOpen,
     // Toggle Step 1
     onToggleAddChild,
     // Toggle Step 2
@@ -409,6 +426,7 @@ interface RCtx {
   onToggleTodo: () => void;
   blocks: Block[]; onChange: (b: Block[]) => void;
   searchQuery: string; depth: number; readOnly: boolean;
+  wikiTargets: string[];
   onSelect: (id: string) => void;
   onOpenMenu: (s: BlockMenuState) => void;
   onAddBelow: (id: string) => void;
@@ -420,6 +438,10 @@ interface RCtx {
   // Phase 3
   onSlashOpen:  (state: SlashMenuState) => void;
   onSlashClose: () => void;
+  // 위키링크 자동완성
+  onWikiOpen:   (state: WikiMenuState) => void;
+  onWikiClose:  () => void;
+  isMenuOpen:   boolean;
   // Toggle Step 1: 빈 자식 영역 클릭 → 자식 블록 생성
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2: 헤더 Enter → 첫 자식 블록 생성 & 포커스
@@ -444,6 +466,10 @@ interface EditableBlockProps {
   // Phase 3: 슬래시 커맨드
   onSlashOpen:  (state: SlashMenuState) => void;
   onSlashClose: () => void;
+  // 위키링크 자동완성
+  onWikiOpen:   (state: WikiMenuState) => void;
+  onWikiClose:  () => void;
+  isMenuOpen:   boolean;
   // Toggle Step 2: Enter 동작을 완전히 대체하는 콜백 (toggle 헤더 전용)
   onEnterOverride?: (currentContent: string) => void;
 }
@@ -453,6 +479,7 @@ function EditableBlock({
   style, className, editableRef,
   onSplitBlock, onMergeWithPrev, onContentChange, tag = 'p',
   onSlashOpen, onSlashClose,
+  onWikiOpen, onWikiClose, isMenuOpen,
   onEnterOverride,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
@@ -477,9 +504,21 @@ function EditableBlock({
     lastContent.current = text;
     onContentChange(block.id, text);
 
-    // ── 슬래시 커맨드 감지 ─────────────────────────────────────────
     const offset  = getCaretOffset(el);
     const before  = text.slice(0, offset);
+
+    // ── 위키링크 [[ 자동완성 감지 ─────────────────────────────────
+    // 캐럿 앞에서 닫히지 않은 '[[' 이후 텍스트를 쿼리로 사용
+    const wikiMatch = before.match(/\[\[([^\]\n]*)$/);
+    if (wikiMatch) {
+      const rect = el.getBoundingClientRect();
+      onWikiOpen({ blockId: block.id, query: wikiMatch[1], anchorY: rect.bottom, anchorX: rect.left });
+      onSlashClose();
+      return;
+    }
+    onWikiClose();
+
+    // ── 슬래시 커맨드 감지 ─────────────────────────────────────────
     const slashIdx = before.lastIndexOf('/');
 
     if (slashIdx !== -1) {
@@ -501,10 +540,18 @@ function EditableBlock({
       }
     }
     onSlashClose();
-  }, [block.id, onContentChange, onSlashOpen, onSlashClose]);
+  }, [block.id, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
     const el = e.currentTarget;
+
+    // ── 슬래시/위키 메뉴가 열려있으면 탐색/선택은 메뉴에 위임 ───────
+    // (블록 분리/병합보다 우선 — 메뉴의 window 리스너가 Enter/방향키 처리)
+    if (isMenuOpen) {
+      if (e.key === 'Enter')                              { e.preventDefault(); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown')   { e.preventDefault(); return; }
+      if (e.key === 'Escape')                             { onSlashClose(); onWikiClose(); return; }
+    }
 
     // ── Enter: 블록 분리 (또는 toggle 헤더 override) ──────────────
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -534,11 +581,12 @@ function EditableBlock({
       }
     }
 
-    // ── Escape: 슬래시 메뉴 닫기 ─────────────────────────────────
+    // ── Escape: 슬래시/위키 메뉴 닫기 ────────────────────────────
     if (e.key === 'Escape') {
       onSlashClose();
+      onWikiClose();
     }
-  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onEnterOverride]);
+  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen]);
 
   const handleFocus = useCallback(() => {
     // contentEditable 최초 포커스 시 innerText를 block.content로 초기화
@@ -975,12 +1023,13 @@ function TableBlock({ block, colors: c, readOnly, inline, onTableChange }: Table
 
 function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
   const { inline, editableRef, onSplitBlock, onMergeWithPrev, onContentChange, readOnly,
-          onSlashOpen, onSlashClose } = ctx;
+          onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, isMenuOpen } = ctx;
 
   /** 편집 가능한 텍스트 블록 공통 props */
   const sharedEditProps = {
     editableRef, onSplitBlock, onMergeWithPrev, onContentChange,
     onSlashOpen, onSlashClose,
+    onWikiOpen, onWikiClose, isMenuOpen,
   };
   const ep = (tag: EditableBlockProps['tag'], style: CSSProperties, placeholder?: string) =>
     !readOnly ? (
@@ -1094,6 +1143,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   blocks={block.children}
                   onChange={children => ctx.onChange(updateBlockById(ctx.blocks, block.id, b => ({ ...b, children })))}
                   colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
+                  wikiTargets={ctx.wikiTargets}
                   // Toggle Step 3: 자식 → 부모 탈출 콜백
                   onEscapeToParentBelow={() => {
                     // toggle 바로 아래에 새 paragraph 삽입 + 포커스
@@ -1219,12 +1269,14 @@ interface BlockEditorInnerProps {
   blocks: Block[]; onChange: (b: Block[]) => void;
   colors: BlockEditorColors; readOnly: boolean;
   searchQuery: string; depth: number;
+  wikiTargets: string[];
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
   onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
+  wikiTargets,
   onEscapeToParentBelow, onEscapeToParentHeader,
 }: BlockEditorInnerProps) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -1232,6 +1284,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
   // Phase 3: 슬래시 커맨드
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
+  // 위키링크 자동완성
+  const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
   // Phase 3: 드래그&드롭
   const { dragState, startDrag, getDragProps } = useDragDrop(blocks, onChange);
 
@@ -1392,6 +1446,26 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setFocusCmd({ blockId, offset: 'end' });
   }, [slashMenu, blocks, onChange]);
 
+  // ── 위키링크 선택 → 포커스된 contentEditable에 직접 [[제목]] 삽입 ──
+  // 상태 round-trip 대신 DOM을 직접 조작해 캐럿 위치를 정확히 유지한다.
+  const handleWikiSelect = useCallback((title: string) => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el.isContentEditable) {
+      const text  = el.innerText.replace(/\n$/, '');
+      const caret = getCaretOffset(el);
+      const before = text.slice(0, caret);
+      const idx = before.lastIndexOf('[[');
+      if (idx >= 0) {
+        const ins     = `[[${title}]]`;
+        const newText = text.slice(0, idx) + ins + text.slice(caret);
+        el.innerText = newText;
+        setCaretOffset(el, idx + ins.length);
+        if (wikiMenu) handleContentChange(wikiMenu.blockId, getElText(el));
+      }
+    }
+    setWikiMenu(null);
+  }, [wikiMenu, handleContentChange]);
+
   // focusCmd 소비 후 리셋
   useEffect(() => {
     if (focusCmd) {
@@ -1409,7 +1483,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             colors={c} selected={selected === block.id}
             onSelect={setSelected} onOpenMenu={setBlockMenu}
             onAddBelow={handleAddBelow} readOnly={readOnly}
-            searchQuery={searchQuery} depth={depth}
+            searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
             onSplitBlock={handleSplitBlock}
             onMergeWithPrev={handleMergeWithPrev}
             onContentChange={handleContentChange}
@@ -1419,6 +1493,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             getDragProps={getDragProps}
             onSlashOpen={setSlashMenu}
             onSlashClose={() => setSlashMenu(null)}
+            onWikiOpen={setWikiMenu}
+            onWikiClose={() => setWikiMenu(null)}
+            isMenuOpen={slashMenu?.blockId === block.id || wikiMenu?.blockId === block.id}
             onToggleAddChild={handleToggleAddChild}
             onToggleEnter={handleToggleEnter}
             onTableChange={handleTableChange}
@@ -1445,6 +1522,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           colors={c}
           onSelect={handleSlashSelect}
           onClose={() => setSlashMenu(null)}
+        />
+      )}
+      {/* 위키링크 자동완성 메뉴 */}
+      {wikiMenu && (
+        <WikiMenu
+          query={wikiMenu.query}
+          targets={wikiTargets}
+          anchorY={wikiMenu.anchorY}
+          anchorX={wikiMenu.anchorX}
+          colors={c}
+          onSelect={handleWikiSelect}
+          onClose={() => setWikiMenu(null)}
         />
       )}
     </>
@@ -1606,8 +1695,82 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
   );
 }
 
+// ── 위키링크 자동완성 메뉴 ──────────────────────────────────────────
+interface WikiMenuProps {
+  query: string; targets: string[]; anchorY: number; anchorX: number;
+  colors: BlockEditorColors;
+  onSelect: (title: string) => void;
+  onClose: () => void;
+}
+
+export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect, onClose }: WikiMenuProps) {
+  const [cursor, setCursor] = useState(0);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const items = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const list = q ? targets.filter(t => t.toLowerCase().includes(q)) : targets;
+    return list.slice(0, 8);
+  }, [query, targets]);
+
+  useEffect(() => { setCursor(0); }, [query]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(v => Math.min(v + 1, items.length - 1)); }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setCursor(v => Math.max(v - 1, 0)); }
+      if (e.key === 'Enter')     { if (items[cursor]) { e.preventDefault(); onSelect(items[cursor]); } }
+      if (e.key === 'Escape')    { onClose(); }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [items, cursor, onSelect, onClose]);
+
+  useEffect(() => {
+    const el = menuRef.current?.querySelector(`[data-idx="${cursor}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
+
+  const top  = Math.min(anchorY + 8, window.innerHeight - 300);
+  const left = Math.min(anchorX,     window.innerWidth  - 240);
+
+  return (
+    <div ref={menuRef} style={{
+      position: 'fixed', top, left, zIndex: 400,
+      background: c.card, border: `1px solid ${c.border}`,
+      borderRadius: 12, boxShadow: '0 8px 32px #00000030',
+      width: 230, maxHeight: 300, overflowY: 'auto', padding: '6px 0',
+    }}>
+      <div style={{ padding: '3px 12px 6px', fontSize: 10, color: c.textFaint, borderBottom: `1px solid ${c.border}`, marginBottom: 4, fontWeight: 700, letterSpacing: 1 }}>
+        노트 링크
+      </div>
+      {items.length === 0 && (
+        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>
+          {query ? '일치하는 노트 없음' : '노트 없음'}
+        </div>
+      )}
+      {items.map((title, idx) => {
+        const active = cursor === idx;
+        return (
+          <button key={title + idx} data-idx={idx}
+            onMouseDown={e => { e.preventDefault(); onSelect(title); }}
+            onMouseEnter={() => setCursor(idx)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '7px 12px', background: active ? c.accentBg : 'none',
+              border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ fontSize: 11, color: c.textFaint, flexShrink: 0 }}>📄</span>
+            <span style={{ fontSize: 13, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {title}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
-export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '' }: BlockEditorProps) {
+export function BlockEditor({ blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [] }: BlockEditorProps) {
   return (
     <>
       <style>{`
@@ -1624,6 +1787,7 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
       <BlockEditorInner
         blocks={blocks} onChange={onChange} colors={colors}
         readOnly={readOnly} searchQuery={searchQuery} depth={0}
+        wikiTargets={wikiTargets}
       />
       {!readOnly && (
         <div style={{ minHeight:80, cursor:'text', paddingLeft:52 }}
@@ -1644,25 +1808,83 @@ export function BlockEditor({ blocks, onChange, colors, readOnly = false, search
 }
 
 // ── NoteView 연동 어댑터 훅 ──────────────────────────────────────────
+/**
+ * useBlockEditor — body(마크다운) ↔ Block[] 양방향 바인딩 + undo/redo
+ *
+ * undo/redo는 마크다운 스냅샷 스택으로 관리한다.
+ *  - 빠른 연속 입력은 COALESCE_MS 윈도우로 묶어 하나의 undo 스텝으로 만든다.
+ *  - 외부에서 body가 바뀌면(예: 이미지 append) 블록을 다시 파싱하고 히스토리에 기록.
+ */
+const COALESCE_MS = 500;
+const HISTORY_LIMIT = 200;
+
 export function useBlockEditor(body: string, onBodyChange: (md: string) => void) {
   const [blocks, setBlocks] = useState<Block[]>(() => markdownToBlocks(body));
   const prevBodyRef = useRef(body);
 
+  // 히스토리: past/future는 마크다운 스냅샷 스택, lastMd는 현재 직렬화 값
+  const historyRef = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
+  const lastMdRef  = useRef(body);
+  const lastSnapTimeRef = useRef(0);
+
   useEffect(() => {
     if (body !== prevBodyRef.current) {
+      // 외부 변경(append 등) — 현재 상태를 히스토리에 적재 후 교체
+      if (body !== lastMdRef.current) {
+        historyRef.current.past.push(lastMdRef.current);
+        if (historyRef.current.past.length > HISTORY_LIMIT) historyRef.current.past.shift();
+        historyRef.current.future = [];
+        lastSnapTimeRef.current = Date.now();
+      }
       prevBodyRef.current = body;
+      lastMdRef.current = body;
       setBlocks(markdownToBlocks(body));
     }
   }, [body]);
 
   const handleBlockChange = useCallback((newBlocks: Block[]) => {
-    setBlocks(newBlocks);
     const md = blocksToMarkdown(newBlocks);
+    if (md !== lastMdRef.current) {
+      const now = Date.now();
+      // 직전 상태를 히스토리에 적재 (연속 입력은 COALESCE_MS 동안 묶음)
+      if (now - lastSnapTimeRef.current > COALESCE_MS) {
+        historyRef.current.past.push(lastMdRef.current);
+        if (historyRef.current.past.length > HISTORY_LIMIT) historyRef.current.past.shift();
+        historyRef.current.future = [];
+        lastSnapTimeRef.current = now;
+      }
+    }
+    setBlocks(newBlocks);
+    lastMdRef.current = md;
     prevBodyRef.current = md;
     onBodyChange(md);
   }, [onBodyChange]);
 
-  return { blocks, handleBlockChange };
+  const applyMd = useCallback((md: string) => {
+    lastMdRef.current = md;
+    prevBodyRef.current = md;
+    lastSnapTimeRef.current = Date.now();
+    setBlocks(markdownToBlocks(md));
+    onBodyChange(md);
+  }, [onBodyChange]);
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.past.length === 0) return;
+    const prev = h.past.pop() as string;
+    h.future.push(lastMdRef.current);
+    applyMd(prev);
+  }, [applyMd]);
+
+  const redo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.future.length === 0) return;
+    const next = h.future.pop() as string;
+    h.past.push(lastMdRef.current);
+    applyMd(next);
+  }, [applyMd]);
+
+  return { blocks, handleBlockChange, undo, redo };
 }
 
 declare global {

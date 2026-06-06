@@ -56,9 +56,25 @@ interface NoteBlockEditorProps {
   colors: BlockEditorColors;
   readOnly: boolean;
   searchQuery: string;
+  wikiTargets: string[];
 }
-const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery }: NoteBlockEditorProps) => {
-  const { blocks, handleBlockChange } = useBlockEditor(body, onBodyChange);
+const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery, wikiTargets }: NoteBlockEditorProps) => {
+  const { blocks, handleBlockChange, undo, redo } = useBlockEditor(body, onBodyChange);
+
+  // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
+  // capture + stopImmediatePropagation으로 NoteView 전역 단축키(textarea용)와 충돌 방지.
+  useEffect(() => {
+    if (readOnly) return;
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey)              { e.preventDefault(); e.stopImmediatePropagation(); undo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); redo(); }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [undo, redo, readOnly]);
+
   return (
     <BlockEditor
       blocks={blocks}
@@ -66,6 +82,7 @@ const NoteBlockEditor = ({ body, onBodyChange, colors, readOnly, searchQuery }: 
       colors={colors}
       readOnly={readOnly}
       searchQuery={searchQuery}
+      wikiTargets={wikiTargets}
     />
   );
 };
@@ -473,6 +490,11 @@ export const NoteView = () => {
   // → 다른 노트 body가 바뀌어도 현재 노트 뷰가 불필요하게 재파싱되지 않음
   const noteTitles = useMemo(
     () => notes.map(n => ({ id: n.id, title: n.title, deletedAt: n.deletedAt })),
+    [notes]
+  );
+  // 위키링크 [[ 자동완성 후보 — 삭제되지 않은 노트의 제목
+  const wikiTargets = useMemo(
+    () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [notes]
   );
   const parsedBody = useMemo(
@@ -1360,6 +1382,7 @@ export const NoteView = () => {
                           colors={blockColors}
                           readOnly={false}
                           searchQuery={searchQuery}
+                          wikiTargets={wikiTargets}
                         />
                       </div>
                     )
