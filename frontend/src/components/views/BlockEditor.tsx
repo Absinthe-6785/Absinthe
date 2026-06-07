@@ -53,6 +53,14 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { slashDisplayLabel, slashShortcutFor, resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { BLOCK_TINT_OPTIONS, blockTintStyle, type BlockTint } from './blockColors';
+import { applyPasteAtBlock } from './blockPaste';
+import {
+  exitEmptyListBlock,
+  isListType,
+  listSplitExtras,
+  numberedMarker,
+  renumberNumberedLists,
+} from './listBlocks';
 import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
   moveBlockIntoToggle, moveBlockOutOfToggle,
@@ -465,6 +473,7 @@ interface SingleBlockProps {
   onChromeLeave?: () => void;
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
+  onPasteAt?: (id: string, start: number, end: number, text: string) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
@@ -509,6 +518,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onChromeLeave === next.onChromeLeave
     && prev.onIndentBlock === next.onIndentBlock
     && prev.onOutdentBlock === next.onOutdentBlock
+    && prev.onPasteAt === next.onPasteAt
     && prev.getRootBlocks === next.getRootBlocks
     && prev.onRootChange === next.onRootChange
     && prev.searchQueryFor === next.searchQueryFor;
@@ -534,6 +544,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onChromeLeave,
   onIndentBlock,
   onOutdentBlock,
+  onPasteAt,
   getRootBlocks,
   onRootChange,
   searchQueryFor,
@@ -653,6 +664,7 @@ const SingleBlock = React.memo(function SingleBlock({
     onConvertBlock,
     onIndentBlock,
     onOutdentBlock,
+    onPasteAt,
     getRootBlocks: getRootBlocks ?? getBlocks,
     onRootChange: onRootChange ?? onChange,
     searchQueryFor,
@@ -697,21 +709,15 @@ const SingleBlock = React.memo(function SingleBlock({
   const tintStyle = blockTintStyle(block.tint);
   const blockShellStyle: CSSProperties = {
     position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
-    borderRadius: 6,
-    padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
+    borderRadius: 0,
+    padding: '1px 0',
     outline: 'none',
     border: 'none',
-    borderLeft: (isActive || selected)
-      ? `3px solid ${c.accent}`
-      : tintStyle.borderLeft ?? '3px solid transparent',
-    transition: 'border-color .12s, background .12s',
+    borderLeft: tintStyle.borderLeft,
+    transition: 'background .12s',
     opacity: isDragging ? 0.4 : 1,
     userSelect: dragState ? 'none' : undefined,
-    background: isActive
-      ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
-      : selected
-        ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
-        : tintStyle.background,
+    background: tintStyle.background ?? 'transparent',
   };
 
   const blockShellClass = `be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`;
@@ -840,6 +846,7 @@ interface RCtx {
   onConvertBlock: (id: string, type: BlockType) => void;
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
+  onPasteAt?: (id: string, start: number, end: number, text: string) => void;
   getRootBlocks: () => Block[];
   onRootChange: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
@@ -875,6 +882,7 @@ interface EditableBlockProps {
   onConvertBlock?: (id: string, type: BlockType) => void;
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
+  onPasteAt?: (id: string, start: number, end: number, text: string) => void;
 }
 
 function EditableBlock({
@@ -888,6 +896,7 @@ function EditableBlock({
   onConvertBlock,
   onIndentBlock,
   onOutdentBlock,
+  onPasteAt,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -1170,11 +1179,19 @@ function EditableBlock({
   }, [paintLive]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
-    // 서식 없이 순수 텍스트만 붙여넣기
     e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
-  }, []);
+    const raw = e.clipboardData.getData('text/plain');
+    if (!raw) return;
+    if (!onPasteAt) {
+      document.execCommand('insertText', false, raw);
+      return;
+    }
+    const el = e.currentTarget;
+    const sel = getSelectionOffsets(el);
+    const start = sel?.start ?? getCaretOffset(el);
+    const end = sel?.end ?? start;
+    onPasteAt(block.id, start, end, raw);
+  }, [block.id, onPasteAt]);
 
   // Ctrl/Cmd+클릭으로 클릭 위치의 [[제목]] 따라가기 (일반 클릭은 캐럿 배치 유지)
   const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
@@ -2083,6 +2100,7 @@ function toggleSharedEditProps(block: Block, ctx: RCtx) {
     onConvertBlock: ctx.onConvertBlock,
     onIndentBlock: ctx.onIndentBlock,
     onOutdentBlock: ctx.onOutdentBlock,
+    onPasteAt: ctx.onPasteAt,
   };
 }
 
@@ -2177,6 +2195,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     onConvertBlock: ctx.onConvertBlock,
     onIndentBlock: ctx.onIndentBlock,
     onOutdentBlock: ctx.onOutdentBlock,
+    onPasteAt: ctx.onPasteAt,
   };
   const ep = (tag: EditableBlockProps['tag'], style: CSSProperties, placeholder?: string) =>
     !readOnly ? (
@@ -2225,7 +2244,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     case 'numbered':
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
-          <span style={{ color:c.accent, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:700 }}>1.</span>
+          <span style={{ color:c.textMuted, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:500 }}>{numberedMarker(block)}.</span>
           {readOnly
             ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
@@ -2422,7 +2441,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }), [onChange]);
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [blockMenu, setBlockMenu] = useState<BlockMenuState | null>(null);
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
   // Phase 3: 슬래시 커맨드
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
@@ -2462,10 +2480,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const controlsVisibleFor = useCallback((blockId: string) =>
     pinnedControlsId === blockId
     || handleMenu?.blockId === blockId
-    || chromeHoverId === blockId
-    || activeBlockId === blockId
-    || selected === blockId,
-  [pinnedControlsId, handleMenu, chromeHoverId, activeBlockId, selected]);
+    || chromeHoverId === blockId,
+  [pinnedControlsId, handleMenu, chromeHoverId]);
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
@@ -2522,7 +2538,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   const handleConvert = useCallback((id: string, newType: BlockType) => {
     onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
-    setBlockMenu(null);
     setHandleMenu(null);
     setPinnedControlsId(null);
     setFocusCmd({ blockId: id, offset: 'end' });
@@ -2599,18 +2614,29 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     }
 
     const cur = bs[idx];
+
+    if (isListType(cur.type) && before === '' && after === '') {
+      const next = exitEmptyListBlock(bs, id);
+      onChange(next);
+      setFocusCmd({ blockId: id, offset: 'start' });
+      setSelected(id);
+      return;
+    }
+
     const updatedCur: Block = { ...cur, content: before };
     const newType: BlockType = ['heading1','heading2','heading3'].includes(cur.type)
       ? 'paragraph' : cur.type;
     const newBlock: Block = makeBlock(newType, {
       content: after,
-      indent:  cur.indent,
+      indent: cur.indent,
       checked: false,
+      ...(isListType(newType) ? listSplitExtras(cur, newType) : {}),
     });
 
-    const next = [...bs];
+    let next = [...bs];
     next[idx] = updatedCur;
     next.splice(idx + 1, 0, newBlock);
+    next = renumberNumberedLists(next);
     onChange(next);
 
     setFocusCmd({ blockId: newBlock.id, offset: 'start' });
@@ -2652,6 +2678,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   // ── Phase 2: 블록 content 변경 ───────────────────────────────────
   const handleContentChange = useCallback((id: string, content: string) => {
     onChange(updateBlockById(blocksRef.current, id, b => ({ ...b, content })));
+  }, [onChange]);
+
+  const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
+    const result = applyPasteAtBlock(blocksRef.current, id, start, end, text);
+    if (!result) return;
+    onChange(result.blocks);
+    setSlashMenu(null);
+    setWikiMenu(null);
+    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
+    setSelected(result.focusBlockId);
   }, [onChange]);
 
   // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
@@ -2797,7 +2833,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             key={block.id} block={block}
             colors={c} selected={selected === block.id}
             activeBlockId={activeBlockId}
-            onSelect={setSelected} onOpenMenu={setBlockMenu}
+            onSelect={setSelected} onOpenMenu={setHandleMenu}
             onAddBelow={handleAddBelow} readOnly={readOnly}
             searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
             headingIndex={headingIndexById[block.id]}
@@ -2827,6 +2863,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onChromeLeave={handleChromeLeave}
             onIndentBlock={handleIndentBlock}
             onOutdentBlock={handleOutdentBlock}
+            onPasteAt={handlePasteAt}
             getRootBlocks={getRootBlocks}
             onRootChange={onRootChange}
             searchQueryFor={searchQueryFor}
@@ -2845,7 +2882,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         />
       )}
       {handleMenu && renderBlockMenu(handleMenu, () => { setHandleMenu(null); setPinnedControlsId(null); })}
-      {blockMenu && renderBlockMenu(blockMenu, () => setBlockMenu(null))}
       {/* Phase 3: 슬래시 커맨드 메뉴 */}
       {slashMenu && (
         <SlashMenu
@@ -2983,7 +3019,7 @@ function BlockHandleMenu({
                     border:'none', cursor:'pointer', textAlign:'left',
                   }}>
                   <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent }}>{blockIcon(item.type)}</span>
-                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{item.label}</span>
+                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{slashDisplayLabel(item.type)}</span>
                 </button>
               );
             })}
@@ -3066,6 +3102,14 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
   const flatItems = useMemo(() => Object.values(grouped).flat(), [grouped]);
 
   useEffect(() => { setCursor(0); }, [query]);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [onClose]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -3496,8 +3540,6 @@ export const BlockEditor = React.memo(function BlockEditor({
           transition: opacity .12s, visibility .12s;
         }
         .be-block:hover > .be-handles,
-        .be-block.be-block-active > .be-handles,
-        .be-block.be-block-selected > .be-handles,
         .be-block.be-controls-visible > .be-handles,
         .be-handles:hover {
           opacity: 1 !important;
@@ -3538,15 +3580,15 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-handle-btn:hover .be-grip-dot { opacity: 0.85; }
         .be-block-active { scroll-margin: 80px; }
-        .be-block:hover:not(.be-block-active):not(.be-block-selected) {
-          background: var(--be-block-hover-bg, rgba(139,92,246,0.015));
-        }
         .be-document {
           max-width: var(--be-doc-width, 720px);
           margin: 0 auto;
           font-family: var(--be-font-family, system-ui, sans-serif);
           font-size: var(--be-font-size, 16px);
           color: var(--be-text, inherit);
+        }
+        .be-document-edit {
+          padding-left: 40px;
         }
         .be-editable[contenteditable]:empty::before {
           content: none;
@@ -3564,9 +3606,9 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-toggle-wrap { margin: 2px 0; }
         .be-toggle-header-block { margin-left: 0 !important; }
         .be-toggle-children {
-          margin-left: 22px;
-          padding: 6px 0 4px 12px;
-          border-left: 2px solid var(--be-border, #E4E4E7);
+          margin-left: 20px;
+          padding: 2px 0 2px 8px;
+          border-left: none;
         }
         .be-toggle-empty {
           color: var(--be-placeholder-color, #aaa);
@@ -3633,7 +3675,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
       `}</style>
       <div
-        className="be-editor-root be-document"
+        className={`be-editor-root be-document${readOnly ? '' : ' be-document-edit'}`}
         style={{
           '--be-accent': colors.accent,
           '--be-accent-bg': colors.accentBg,
