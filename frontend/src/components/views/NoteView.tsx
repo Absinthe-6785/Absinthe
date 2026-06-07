@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
-  Search, Plus, Trash2, FolderPlus, Eye, Edit3,
+  Search, Plus, Trash2, FolderPlus, Eye,
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronRight, GitFork, Upload, Keyboard,
@@ -19,7 +19,7 @@ import {
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
-import { BlockEditorPreview, useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
+import { useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -409,8 +409,8 @@ export const NoteView = () => {
       switch (e.key) {
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
-        case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'edit' : 'preview'); break;
-        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
+        case 'e': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : (v === 'preview' ? 'edit' : 'preview')); break;
+        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
       }
@@ -456,7 +456,7 @@ export const NoteView = () => {
       return;
     }
     // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
-    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles')) return;
+    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-turn-into-menu, .be-slash-menu')) return;
     if (e.detail === 2) setViewMode('edit');
   }, [navigateToWiki]);
 
@@ -526,7 +526,6 @@ export const NoteView = () => {
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'edit'    as const, icon: <Edit3 size={11}/>,   label: 'Edit' },
     { key: 'preview' as const, icon: <Eye size={11}/>,     label: 'Read' },
     { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
   ], []);
@@ -920,11 +919,22 @@ export const NoteView = () => {
                   </span>
                 ) : null
               )}
-              {/* View Mode Toggle */}
+              {/* View: Live Preview 기본 · Read / Graph 보조 */}
               <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
-                {VIEW_MODES.map(({ key, icon, label }) => (
-                  <button key={key} onClick={() => setViewMode(key)} className="btbtn"
-                    style={{ padding: '3px 7px', borderRadius: 5, background: viewMode === key ? c.card : 'none', color: viewMode === key ? c.accent : c.textMuted }}>
+                {VIEW_MODES.map(({ key, icon }) => (
+                  <button
+                    key={key}
+                    title={key === 'preview' ? '읽기 모드 (Ctrl+E)' : '그래프 (Ctrl+G)'}
+                    onClick={() => {
+                      if (key === 'preview') setViewMode(v => v === 'preview' ? 'edit' : 'preview');
+                      else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
+                    }}
+                    className="btbtn"
+                    style={{
+                      padding: '3px 7px', borderRadius: 5,
+                      background: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.card : 'none',
+                      color: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.accent : c.textMuted,
+                    }}>
                     {icon}
                   </button>
                 ))}
@@ -959,16 +969,18 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
               </div>
             ) : (
               <>
                 {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
                 {!isTrash && viewMode === 'edit' && (
                   <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
-                      입력으로 블록 추가 · 드래그로 순서 변경 · Ctrl+클릭으로 [[링크]] 이동
+                      블록 추가 ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
                     </span>
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
@@ -991,7 +1003,7 @@ export const NoteView = () => {
                       <ImageIcon size={22}/> Drop image to insert
                     </div>
                   )}
-                  {viewMode === 'edit' && (
+                  {viewMode !== 'graph' && (
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
@@ -1000,32 +1012,27 @@ export const NoteView = () => {
                         <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                       </div>
                     ) : (
-                      <div style={{ minHeight: '100%', padding: '24px 0 80px' }}>
+                      <div
+                        onClick={viewMode === 'preview' ? handleBlockPreviewClick : undefined}
+                        style={{ minHeight: '100%', padding: '24px 0 80px' }}>
+                        {viewMode === 'preview' && (
+                          <div style={{ maxWidth: 860, margin: '0 auto 8px', padding: '0 16px', fontSize: 11, color: c.textMuted }}>
+                            읽기 모드 — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> 로 편집
+                          </div>
+                        )}
                         <NoteBlockEditor
                           ref={blockEditorRef}
                           key={activeNote.id}
                           body={activeNote.body}
                           onBodyChange={handleActiveBodyChange}
                           colors={blockColors}
-                          readOnly={false}
+                          readOnly={viewMode === 'preview'}
                           searchQuery={searchQuery}
                           wikiTargets={wikiTargets}
                           onWikiNavigate={navigateToWiki}
                         />
                       </div>
                     )
-                  )}
-                  {viewMode === 'preview' && (
-                    <div onClick={handleBlockPreviewClick} style={{ minHeight: '100%', padding: '24px 16px 80px', maxWidth: 900, margin: '0 auto' }}>
-                      <BlockEditorPreview
-                        key={`${activeNote.id}-preview-${katexReady}`}
-                        body={activeNote.body}
-                        colors={blockColors}
-                        searchQuery={searchQuery}
-                        wikiTargets={wikiTargets}
-                        onWikiNavigate={navigateToWiki}
-                      />
-                    </div>
                   )}
                 </div>
               </>
@@ -1035,7 +1042,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>

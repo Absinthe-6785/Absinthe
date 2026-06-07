@@ -610,13 +610,52 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'table',      label: '표',          desc: '테이블',                  icon: '⊞',  keywords: ['table', 'grid', '표', '테이블'],                          group: 'media' },
 ];
 
-/** 슬래시 커맨드 쿼리 필터링 */
+/** 슬래시 메뉴 상단 고정 (쿼리 없을 때 우선 표시) */
+export const SLASH_PINNED_TYPES: BlockType[] = [
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'todo', 'toggle', 'callout', 'bullet', 'code',
+];
+
+/** 블록 hover ⋮⋮ → Turn Into 빠른 변환 */
+export const TURN_INTO_TYPES: BlockType[] = [
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'todo', 'toggle', 'callout', 'code',
+];
+
+const SLASH_ALIASES: Record<string, string[]> = {
+  heading: ['heading1', 'heading2', 'heading3'],
+  h:       ['heading1', 'heading2', 'heading3'],
+  title:   ['heading1', 'heading2', 'heading3'],
+  list:    ['bullet', 'numbered', 'todo'],
+  task:    ['todo'],
+  checkbox:['todo'],
+  collapse:['toggle'],
+  fold:    ['toggle'],
+  note:    ['callout'],
+  info:    ['callout'],
+  snippet: ['code'],
+};
+
+/** 슬래시 커맨드 쿼리 필터링 — 영문 alias + pinned 순서 */
 export function filterBlockMenu(query: string): BlockTypeMeta[] {
   const q = query.toLowerCase().trim();
-  if (!q) return BLOCK_TYPE_MENU;
+  if (!q) {
+    const pinned = SLASH_PINNED_TYPES
+      .map(t => BLOCK_TYPE_MENU.find(m => m.type === t))
+      .filter((m): m is BlockTypeMeta => m != null);
+    const rest = BLOCK_TYPE_MENU.filter(m => !SLASH_PINNED_TYPES.includes(m.type));
+    return [...pinned, ...rest];
+  }
+
+  const aliasTypes = SLASH_ALIASES[q] ?? [];
   return BLOCK_TYPE_MENU.filter(m =>
-    m.label.includes(q) ||
-    m.keywords.some(k => k.includes(q))
+    m.type.includes(q) ||
+    m.label.toLowerCase().includes(q) ||
+    m.desc.toLowerCase().includes(q) ||
+    m.keywords.some(k => k.includes(q) || q.includes(k)) ||
+    aliasTypes.includes(m.type) ||
+    (q === 'heading' && m.type.startsWith('heading')) ||
+    (q.startsWith('h') && /^h[123]?$/.test(q) && m.type.startsWith('heading'))
   );
 }
 
