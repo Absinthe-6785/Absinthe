@@ -19,7 +19,12 @@ import {
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
-import { useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
+import {
+  BlockEditor,
+  useBlockEditor,
+  type BlockEditorColors,
+  type BlockEditorHandle,
+} from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
