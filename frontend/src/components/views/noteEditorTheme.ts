@@ -1,5 +1,6 @@
 import type { AppSettings } from '../../types';
 import type { BlockEditorColors } from './BlockEditor';
+import { tokensForMode } from '../../theme/tokens';
 
 export const NOTE_FONT_OPTIONS = [
   { id: 'system', label: 'System', value: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
@@ -9,6 +10,8 @@ export const NOTE_FONT_OPTIONS = [
 ] as const;
 
 export const NOTE_DOCUMENT_MAX_WIDTH = 720;
+
+/** Radius — aligned with global design tokens */
 export const NOTE_RADIUS_BTN = 8;
 export const NOTE_RADIUS_CARD = 12;
 export const NOTE_RADIUS_MODAL = 16;
@@ -40,31 +43,37 @@ export interface NoteChromeColors {
   green: string;
 }
 
-/** Purple-forward note chrome — primary #8B5CF6, off-white surfaces */
+/** Note chrome derived from Absinthe Design System tokens */
 export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
-  const base: NoteChromeColors = dark
-    ? {
-        wrap: '#121214', sidebar: '#1B1B1F', sideBdr: '#2e2e33', notelist: '#16161a',
-        editor: '#1B1B1F', toolbar: '#1B1B1F', toolBdr: '#2e2e33',
-        card: '#1B1B1F', cardHov: '#252529', cardAct: '#2a2240', cardActBdr: '#8B5CF6',
-        text: '#F4F4F5', textMuted: '#A1A1AA', textFaint: '#71717A',
-        accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.14)',
-        input: '#252529', inputBdr: '#3f3f46',
-        badge: 'rgba(139,92,246,0.2)', badgeTxt: '#A78BFA',
-        tag: 'rgba(139,92,246,0.14)', tagTxt: '#A78BFA',
-        danger: '#f87171', green: '#4ade80',
-      }
-    : {
-        wrap: '#F7F7F8', sidebar: '#F0F0F2', sideBdr: '#E4E4E7', notelist: '#ECECEF',
-        editor: '#FFFFFF', toolbar: '#F7F7F8', toolBdr: '#E4E4E7',
-        card: '#FFFFFF', cardHov: '#F4F4F5', cardAct: 'rgba(139,92,246,0.06)', cardActBdr: '#8B5CF6',
-        text: '#18181B', textMuted: '#71717A', textFaint: '#A1A1AA',
-        accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.08)',
-        input: '#FAFAFA', inputBdr: '#E4E4E7',
-        badge: 'rgba(139,92,246,0.1)', badgeTxt: '#7C3AED',
-        tag: 'rgba(139,92,246,0.08)', tagTxt: '#7C3AED',
-        danger: '#dc2626', green: '#15803d',
-      };
+  const t = tokensForMode(dark ? 'dark' : 'light');
+  const c = t.colors;
+
+  const base: NoteChromeColors = {
+    wrap: c.background,
+    sidebar: c.sidebar,
+    sideBdr: c.border,
+    notelist: dark ? '#16161A' : c.surfaceAlt,
+    editor: c.surface,
+    toolbar: c.surface,
+    toolBdr: c.border,
+    card: c.surface,
+    cardHov: c.surfaceAlt,
+    cardAct: dark ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.06)',
+    cardActBdr: c.primary,
+    text: c.text,
+    textMuted: c.muted,
+    textFaint: dark ? '#71717A' : '#A8A29E',
+    accent: c.primary,
+    accentBg: c.accentBg,
+    input: c.input,
+    inputBdr: c.inputBorder,
+    badge: dark ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)',
+    badgeTxt: dark ? '#A78BFA' : '#7C3AED',
+    tag: c.accentBg,
+    tagTxt: dark ? '#A78BFA' : '#7C3AED',
+    danger: c.danger,
+    green: c.success,
+  };
 
   let result = { ...base };
   const textOverride = settings.notesTextColor?.trim();
@@ -103,6 +112,7 @@ export function buildBlockEditorColors(
   dark: boolean,
   settings: AppSettings,
 ): BlockEditorColors {
+  const t = tokensForMode(dark ? 'dark' : 'light');
   const fontFamily = resolveNoteFontFamily(settings);
   const fontSize = resolveNoteFontSize(settings);
   const accent = chrome.accent;
@@ -131,7 +141,7 @@ export function buildBlockEditorColors(
     blockFocusBorder: dark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)',
     blockSelectedBg: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)',
     blockHoverBg: dark ? 'rgba(139,92,246,0.015)' : 'rgba(139,92,246,0.015)',
-    toolbarActiveFg: '#FFFFFF',
+    toolbarActiveFg: t.colors.primaryForeground,
     radiusBtn: NOTE_RADIUS_BTN,
     radiusCard: NOTE_RADIUS_CARD,
     radiusModal: NOTE_RADIUS_MODAL,
@@ -141,7 +151,7 @@ export function buildBlockEditorColors(
     fontFamily,
     fontSize,
     documentMaxWidth: NOTE_DOCUMENT_MAX_WIDTH,
-    menuShadow: dark ? '0 8px 32px rgba(0,0,0,0.55)' : '0 8px 24px rgba(0,0,0,0.1)',
+    menuShadow: t.shadow.menu,
     isDark: dark,
   };
 }

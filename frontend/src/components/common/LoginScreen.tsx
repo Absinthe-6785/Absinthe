@@ -30,17 +30,17 @@ export const LoginScreen = ({ darkMode }: LoginScreenProps) => {
   };
 
   const bg = darkMode ? 'bg-[#18181A] text-gray-100' : 'bg-[#F1F3F5] text-gray-800';
-  const card = darkMode ? 'bg-[#2C2C2E]' : 'bg-white';
+  const card = darkMode ? 'bg-surface' : 'bg-white';
   const input = darkMode
-    ? 'bg-[#3A3A3C] text-gray-100 placeholder-gray-500'
+    ? 'bg-surface-alt text-gray-100 placeholder-gray-500'
     : 'bg-gray-50 text-gray-800 placeholder-gray-400';
 
   return (
     <div className={`h-screen flex items-center justify-center font-body p-4 ${bg}`}>
       <div className={`w-full max-w-sm rounded-[32px] p-8 shadow-2xl ${card}`}>
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-[#FACC15] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Calendar size={28} className="text-[#1C1C1E]" strokeWidth={2.5} />
+          <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Calendar size={28} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
           <h1 className="font-heading text-2xl font-bold">My Planner</h1>
           <p className={`text-sm mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -55,7 +55,7 @@ export const LoginScreen = ({ darkMode }: LoginScreenProps) => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${input}`}
+            className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${input}`}
           />
           <input
             type="password"
@@ -63,13 +63,13 @@ export const LoginScreen = ({ darkMode }: LoginScreenProps) => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-medium ${input}`}
+            className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${input}`}
           />
           {error && <p className="text-red-500 text-sm font-semibold text-center">{error}</p>}
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+            className="w-full bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 size={20} className="animate-spin" />}
             {isSignUp ? 'Sign Up' : 'Sign In'}

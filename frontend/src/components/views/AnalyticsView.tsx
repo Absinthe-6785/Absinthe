@@ -261,17 +261,17 @@ export const AnalyticsView = ({
           <p className={`text-sm lg:text-base font-medium mt-1 ${theme.textMuted}`}>{analyticsStart} ~ {analyticsEnd}</p>
         </div>
         <div className="flex flex-col items-start lg:items-end gap-3 w-full lg:w-auto">
-          <div className={`flex p-1.5 rounded-2xl shadow-inner w-full lg:w-auto overflow-x-auto ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-[#E5E7EB]'}`}>
+          <div className={`flex p-1.5 rounded-2xl shadow-inner w-full lg:w-auto overflow-x-auto ${appSettings.darkMode ? 'bg-surface' : 'bg-[#E5E7EB]'}`}>
             {[['daily','Today'],['weekly','Weekly'],['monthly','Monthly']].map(([val, label]) => (
               <button key={val} onClick={() => setTimeRange(val)}
                 className={`px-4 lg:px-5 py-2 rounded-xl text-xs lg:text-sm font-bold transition-all whitespace-nowrap
-                  ${timeRange === val ? 'bg-[#1C1C1E] text-white shadow-sm' : `${theme.textMuted} hover:text-current`}`}>
+                  ${timeRange === val ? 'bg-primary text-primary-foreground shadow-sm' : `${theme.textMuted} hover:text-current`}`}>
                 {label}
               </button>
             ))}
             <button onClick={() => setTimeRange('custom')}
               className={`px-4 lg:px-5 py-2 rounded-xl text-xs lg:text-sm font-bold transition-all flex items-center gap-1.5 whitespace-nowrap
-                ${timeRange === 'custom' ? 'bg-[#1C1C1E] text-white shadow-sm' : `${theme.textMuted} hover:text-current`}`}>
+                ${timeRange === 'custom' ? 'bg-primary text-primary-foreground shadow-sm' : `${theme.textMuted} hover:text-current`}`}>
               <CalendarDays size={16}/> Custom
             </button>
           </div>
@@ -301,7 +301,7 @@ export const AnalyticsView = ({
               </h2>
               <div className="grid grid-cols-2 gap-2.5">
                 {/* 운동 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Workout</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.workoutDays}</span>
@@ -311,7 +311,7 @@ export const AnalyticsView = ({
                   {weeklyReview.streak > 1 && <span className="text-[10px] font-bold text-orange-400">🔥 {weeklyReview.streak}-day streak</span>}
                 </div>
                 {/* 루틴 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Routine</span>
                   {weeklyReview.routineRate !== null ? (
                     <>
@@ -327,7 +327,7 @@ export const AnalyticsView = ({
                   ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>No data</span>}
                 </div>
                 {/* 공부 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Study</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.studyHrs}</span>
@@ -336,7 +336,7 @@ export const AnalyticsView = ({
                   {weeklyReview.studyHrs > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>avg {Math.round(weeklyReview.studyHrs / weeklyReview.daysElapsed * 10) / 10}h/day</span>}
                 </div>
                 {/* Top Focus */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Top Focus</span>
                   {weeklyReview.topCat ? (
                     <>
@@ -534,8 +534,8 @@ export const AnalyticsView = ({
                       ${done
                         ? 'bg-green-500/20 border border-green-500/40'
                         : isToday
-                          ? `border-2 border-[#FACC15]/60 ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-50'}`
-                          : `border border-transparent ${appSettings.darkMode ? 'bg-[#2C2C2E]/60' : 'bg-gray-50'}`}`}>
+                          ? `border-2 border-primary/60 ${appSettings.darkMode ? 'bg-surface' : 'bg-gray-50'}`
+                          : `border border-transparent ${appSettings.darkMode ? 'bg-surface/60' : 'bg-gray-50'}`}`}>
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors
                       ${done ? 'bg-green-500 text-white shadow-sm' : appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
                       {done
@@ -543,7 +543,7 @@ export const AnalyticsView = ({
                         : <span className={`text-[10px] font-bold ${theme.textMuted}`}>{idx + 1}</span>}
                     </div>
                     <span className={`text-[10px] font-bold leading-none
-                      ${done ? 'text-green-400' : isToday ? 'text-[#FACC15]' : theme.textMuted}`}>
+                      ${done ? 'text-green-400' : isToday ? 'text-primary' : theme.textMuted}`}>
                       {day}
                     </span>
                   </button>
@@ -557,7 +557,7 @@ export const AnalyticsView = ({
 
           {/* 루틴 달성률 */}
           <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col transition-colors ${theme.card}`}>
-            <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2"><Calendar size={18} className="text-[#FACC15]"/> Routine Success</h2>
+            <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2"><Calendar size={18} className="text-primary"/> Routine Success</h2>
             <div className="flex-1 overflow-y-auto space-y-5 pr-1">
               <div>
                 <div className="flex justify-between items-end mb-2">
@@ -568,7 +568,7 @@ export const AnalyticsView = ({
                   }
                 </div>
                 <div className={`w-full h-3 rounded-full overflow-hidden ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                  <div className={`h-full rounded-full transition-all duration-1000 ${routineCompletionRate >= 80 ? 'bg-[#FACC15]' : routineCompletionRate > 0 ? 'bg-yellow-400' : 'bg-gray-400'}`}
+                  <div className={`h-full rounded-full transition-all duration-1000 ${routineCompletionRate >= 80 ? 'bg-primary' : routineCompletionRate > 0 ? 'bg-yellow-400' : 'bg-gray-400'}`}
                     style={{ width: `${routineCompletionRate}%` }}/>
                 </div>
               </div>
@@ -579,9 +579,9 @@ export const AnalyticsView = ({
             <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col transition-colors ${theme.card}`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-heading text-base font-bold flex items-center gap-2">
-                  <Clock size={18} className="text-[#FACC15]"/> Today's Detail
+                  <Clock size={18} className="text-primary"/> Today's Detail
                 </h2>
-                <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-[#FACC15]/10 text-[#FACC15]' : 'bg-yellow-50 text-yellow-700'}`}>
+                <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-primary/10 text-primary' : 'bg-yellow-50 text-yellow-700'}`}>
                   {dailyStats.totalHrs}h total
                 </span>
               </div>
@@ -592,7 +592,7 @@ export const AnalyticsView = ({
                   {dailyStats.items.map((item, i) => {
                     const meta = CATEGORY_META[item.cat];
                     return (
-                      <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-50'}`}>
+                      <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl ${appSettings.darkMode ? 'bg-surface' : 'bg-gray-50'}`}>
                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white ${meta?.color ?? 'bg-gray-500'}`}>
                           {meta?.icon ?? <Activity size={14}/>}
                         </div>
@@ -614,9 +614,9 @@ export const AnalyticsView = ({
         <div className={`w-full lg:flex-[6.5] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card}`}>
           <div className="flex justify-between items-center mb-6">
             <h2 className="font-heading text-lg lg:text-xl font-bold flex items-center gap-2">
-              <CalendarDays size={22} className="text-[#FACC15]"/>{t('weeklyTimetable')}
+              <CalendarDays size={22} className="text-primary"/>{t('weeklyTimetable')}
             </h2>
-            <button onClick={() => openWeeklyModal()} className="text-sm bg-[#1C1C1E] text-[#FACC15] px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform">
+            <button onClick={() => openWeeklyModal()} className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform">
               <Plus size={16} strokeWidth={3}/> Add
             </button>
           </div>
@@ -624,8 +624,8 @@ export const AnalyticsView = ({
             const HOURS = Array.from({ length: 24 }, (_, i) => i);
             const ROW_H = 48;
             return (
-          <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-[#3A3A3C]/30' : 'bg-gray-50/50'}`}>
-            <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+          <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+            <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
               <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
               {DAYS_OF_WEEK.map(day => (
                 <div key={day} className={`flex-1 flex items-center justify-center border-r last:border-r-0 ${theme.border}`}>
@@ -634,7 +634,7 @@ export const AnalyticsView = ({
               ))}
             </div>
             <div className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
-              <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+              <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
                 {HOURS.map(h => (
                   <div key={h} className={`border-b flex items-start justify-center pt-1 ${theme.border}`} style={{ height: `${ROW_H}px` }}>
                     <span className={`text-[9px] lg:text-[10px] font-medium tabular-nums ${theme.textMuted}`}>{String(h).padStart(2,'0')}:00</span>
@@ -684,12 +684,12 @@ export const AnalyticsView = ({
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('activityTitle')}</label>
                 <input type="text" value={newWeeklySch.title} onChange={e => setNewWeeklySch({ ...newWeeklySch, title: e.target.value })}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-semibold ${theme.input}`} placeholder={t('activityPh')}/>
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`} placeholder={t('activityPh')}/>
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('dayOfWeek')}</label>
                 <select value={newWeeklySch.day} onChange={e => setNewWeeklySch({ ...newWeeklySch, day: parseInt(e.target.value) })}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-[#FACC15] text-base font-semibold ${theme.input}`}>
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`}>
                   {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
                 </select>
               </div>
@@ -721,7 +721,7 @@ export const AnalyticsView = ({
                 {editingWeeklyId && (
                   <button onClick={() => deleteWeeklySchedule(editingWeeklyId)} className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-2xl p-4 hover:bg-red-500/20 transition-colors">{t('delete')}</button>
                 )}
-                <button onClick={saveWeeklySchedule} className={`bg-[#1C1C1E] text-[#FACC15] font-bold text-lg rounded-2xl p-4 transition-transform active:scale-[0.98] ${editingWeeklyId ? 'flex-[2]' : 'w-full'}`}>
+                <button onClick={saveWeeklySchedule} className={`bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 transition-transform active:scale-[0.98] ${editingWeeklyId ? 'flex-[2]' : 'w-full'}`}>
                   Save
                 </button>
               </div>

@@ -243,11 +243,11 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥤 {t('proteinTracker')}</h2>
       </div>
-      <div className={`flex rounded-2xl p-1 gap-1 shrink-0 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-100'}`}>
+      <div className="flex rounded-2xl p-1 gap-1 shrink-0 bg-surface-alt">
         {([['goal', t('proteinProfile')], ['sources', t('proteinSources')], ['log', t('proteinLog')]] as const).map(([v, label]) => (
           <button key={v} onClick={() => setTab(v)}
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
-              ${tab === v ? 'bg-[#1C1C1E] text-[#FACC15] shadow-sm' : theme.textMuted}`}>
+              ${tab === v ? 'bg-primary text-primary-foreground shadow-sm' : theme.textMuted}`}>
             {label}
           </button>
         ))}
@@ -256,7 +256,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       {/* 탭 콘텐츠 — min-h로 높이 고정하여 탭 전환 시 레이아웃 흔들림 방지 */}
       {tab === 'goal' && (
         <div className="flex flex-col gap-3 h-[320px] overflow-y-auto">
-          <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+          <div className={`rounded-2xl p-3 flex justify-between items-center border-2 border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
             <div>
               <p className={`text-xs font-semibold ml-1 mb-0.5 ${theme.textMuted}`}>{t('bodyWeight')}</p>
               <div className="flex items-end gap-1">
@@ -286,20 +286,20 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
               {ACT_OPTS.map(({ v, label }) => (
                 <button key={v} onClick={() => setProfAct(v)}
                   className={`py-2 rounded-xl text-xs font-semibold transition-all
-                    ${profAct === v ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md' : `${theme.input} ${theme.textMuted}`}`}>
+                    ${profAct === v ? 'bg-primary text-primary-foreground shadow-md' : `${theme.input} ${theme.textMuted}`}`}>
                   {label}
                 </button>
               ))}
             </div>
           </div>
           {wNum > 0 && (
-            <div className={`rounded-2xl p-3 flex items-center justify-between ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+            <div className="rounded-2xl p-3 flex items-center justify-between bg-surface-alt">
               <p className={`text-xs font-bold ${theme.textMuted}`}>{t('dailyProtein')}</p>
-              <p className="text-2xl font-black text-[#FACC15] tabular-nums">{calcTarget}g</p>
+              <p className="text-2xl font-black text-primary tabular-nums">{calcTarget}g</p>
             </div>
           )}
           <button onClick={handleSaveProfile}
-            className="w-full bg-[#1C1C1E] text-[#FACC15] font-bold py-3.5 rounded-2xl hover:bg-gray-800 transition-colors">
+            className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-2xl hover:bg-gray-800 transition-colors">
             {t('saveGoal')}
           </button>
         </div>
@@ -339,7 +339,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                               setEditSrcCat((src.category || 'Other') as Category);
                               setEditSrcType(src.source_type);
                               setEditSrcVal(String(src.source_type === 'fixed' ? src.protein_per_serving : src.protein_per_100g));
-                            }} className={`p-1.5 rounded-full transition-colors ${editSrcId === src.id ? 'bg-[#FACC15]/20 text-[#FACC15]' : 'hover:bg-gray-500/20 text-gray-400'}`}>
+                            }} className={`p-1.5 rounded-full transition-colors ${editSrcId === src.id ? 'bg-primary/20 text-primary' : 'hover:bg-gray-500/20 text-gray-400'}`}>
                               <Pencil size={13}/>
                             </button>
                             <button onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors">
@@ -352,14 +352,14 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                             <input type="text" value={editSrcName} onChange={e => setEditSrcName(e.target.value)}
                               className="w-full bg-transparent text-sm font-semibold outline-none pt-2"/>
                             <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as Category)}
-                              className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-[#2C2C2E]' : 'text-gray-700 bg-gray-100'}`}>
+                              className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'}`}>
                               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                             <div className="flex gap-2">
                               {(['fixed', 'per100g'] as const).map(v => (
                                 <button key={v} onClick={() => setEditSrcType(v)}
                                   className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all
-                                    ${editSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                                    ${editSrcType === v ? 'bg-primary text-primary-foreground' : `${darkMode ? 'bg-surface' : 'bg-gray-200'} ${theme.textMuted}`}`}>
                                   {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
                                 </button>
                               ))}
@@ -374,7 +374,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                               <button onClick={() => setEditSrcId(null)}
                                 className={`py-1.5 px-3 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
                               <button onClick={handleUpdateSource}
-                                className="py-1.5 px-3 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('save')}</button>
+                                className="py-1.5 px-3 rounded-xl text-xs font-bold bg-primary text-primary-foreground">{t('save')}</button>
                             </div>
                           </div>
                         )}
@@ -388,24 +388,24 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           {/* 하단 고정: 추가 폼 or + Add 버튼 */}
           <div className="shrink-0 pt-2">
             {showAddSource ? (
-              <div className={`rounded-2xl p-4 flex flex-col gap-3 border-2 border-[#FACC15]/40 ${theme.input}`}>
+              <div className={`rounded-2xl p-4 flex flex-col gap-3 border-2 border-primary/40 ${theme.input}`}>
                 <input autoFocus type="text" value={newSrcName} placeholder={t('proteinSourceName')}
                   onChange={e => setNewSrcName(e.target.value)}
                   className="w-full bg-transparent text-sm font-semibold outline-none"/>
                 <select value={newSrcCat} onChange={e => setNewSrcCat(e.target.value as Category)}
-                  className={`w-full bg-transparent text-sm font-semibold outline-none ${darkMode ? 'text-gray-300 bg-[#2C2C2E]' : 'text-gray-700 bg-gray-100'} rounded-xl px-2 py-1.5`}>
+                  className={`w-full bg-transparent text-sm font-semibold outline-none ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'} rounded-xl px-2 py-1.5`}>
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <div className="flex gap-2">
                   {(['fixed', 'per100g'] as const).map(v => (
                     <button key={v} onClick={() => setNewSrcType(v)}
                       className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
-                        ${newSrcType === v ? 'bg-[#1C1C1E] text-[#FACC15]' : `${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                        ${newSrcType === v ? 'bg-primary text-primary-foreground' : `${darkMode ? 'bg-surface' : 'bg-gray-200'} ${theme.textMuted}`}`}>
                       {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
                     </button>
                   ))}
                 </div>
-                <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'}`}>
+                <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-surface' : 'bg-gray-100'}`}>
                   <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
                     onChange={e => setNewSrcVal(e.target.value)}
                     className="w-16 bg-transparent text-lg font-bold outline-none"/>
@@ -415,13 +415,13 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                   <button onClick={() => { setShowAddSource(false); setNewSrcName(''); setNewSrcVal(''); }}
                     className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${theme.input}`}>{t('cancel')}</button>
                   <button onClick={handleAddSource}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#1C1C1E] text-[#FACC15]">{t('add')}</button>
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-primary text-primary-foreground">{t('add')}</button>
                 </div>
               </div>
             ) : (
               <button onClick={() => setShowAddSource(true)}
                 className={`w-full py-3 rounded-2xl text-sm font-bold border-2 border-dashed transition-colors
-                  ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+                  ${darkMode ? 'border-gray-700 text-gray-400 hover:border-primary hover:text-primary' : 'border-gray-300 text-gray-400 hover:border-primary hover:text-primary'}`}>
                 + {t('add')}
               </button>
             )}
@@ -433,26 +433,26 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
         <div className="flex flex-col min-h-[320px] h-[320px] gap-0">
           {/* 진행률 바 */}
           {dailyTarget > 0 ? (
-            <div className={`rounded-2xl p-3.5 shrink-0 mb-2.5 ${darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+            <div className="rounded-2xl p-3.5 shrink-0 mb-2.5 bg-surface-alt">
               <div className="flex justify-between items-baseline mb-1.5">
-                <span className="text-2xl font-black text-[#FACC15] tabular-nums">{totalIntake}g</span>
+                <span className="text-2xl font-black text-primary tabular-nums">{totalIntake}g</span>
                 <span className={`text-xs font-bold ${theme.textMuted}`}>/ {dailyTarget}g</span>
               </div>
-              <div className={`h-2 rounded-full overflow-hidden ${darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-200'}`}>
-                <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-[#FACC15]'}`} style={{ width: `${pct}%` }}/>
+              <div className={`h-2 rounded-full overflow-hidden ${darkMode ? 'bg-surface' : 'bg-gray-200'}`}>
+                <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-primary'}`} style={{ width: `${pct}%` }}/>
               </div>
               <p className={`text-xs font-bold mt-1 text-right ${pct >= 100 ? 'text-green-500' : theme.textMuted}`}>{pct}%</p>
             </div>
           ) : (
             <button onClick={() => setTab('goal')}
               className={`text-xs text-center py-3 rounded-2xl font-bold border-2 border-dashed mb-2.5 transition-colors shrink-0
-                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]' : 'border-gray-300 text-gray-400 hover:border-[#FACC15] hover:text-[#FACC15]'}`}>
+                ${darkMode ? 'border-gray-700 text-gray-400 hover:border-primary hover:text-primary' : 'border-gray-300 text-gray-400 hover:border-primary hover:text-primary'}`}>
               {t('saveGoal')} →
             </button>
           )}
 
           {/* 소스 선택 입력 폼 */}
-          <div className={`rounded-2xl p-3 flex flex-col gap-2 border-2 border-transparent focus-within:border-[#FACC15]/40 transition-colors shrink-0 mb-2.5 ${theme.input}`}>
+          <div className={`rounded-2xl p-3 flex flex-col gap-2 border-2 border-transparent focus-within:border-primary/40 transition-colors shrink-0 mb-2.5 ${theme.input}`}>
             <select value={selectedSrc} onChange={e => { setSelectedSrc(e.target.value); setIntakeAmt(''); setCustomNote(''); setCustomProtein(''); }}
               className={`w-full bg-transparent text-sm font-semibold outline-none ${!selectedSrc ? theme.textMuted : ''}`}>
               <option value="">{t('addIntakeLabel')}</option>
@@ -486,7 +486,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                     className="w-16 bg-transparent text-lg font-bold outline-none"/>
                   <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>{t('gProtein')}</span>
                   <button onClick={handleLogCustom} disabled={!customProtein || parseFloat(customProtein) <= 0}
-                    className="bg-[#1C1C1E] text-[#FACC15] text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
+                    className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
                     {t('add')}
                   </button>
                 </div>
@@ -517,14 +517,14 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                 )}
                 <button onClick={handleLogIntake}
                   disabled={!intakeAmt || parseFloat(intakeAmt) <= 0}
-                  className="bg-[#1C1C1E] text-[#FACC15] text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
+                  className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all">
                   {t('add')}
                 </button>
               </div>
             )}
 
             {sources.length === 0 && selectedSrc === '' && (
-              <button onClick={() => setTab('sources')} className={`text-xs font-bold ${theme.textMuted} hover:text-[#FACC15] transition-colors text-left`}>
+              <button onClick={() => setTab('sources')} className={`text-xs font-bold ${theme.textMuted} hover:text-primary transition-colors text-left`}>
                 {t('addSourceFirst')}
               </button>
             )}
@@ -1123,7 +1123,7 @@ export const HealthView = ({
               onClick={() => setMobileHealthTab(tab)}
               className={`flex-1 py-2.5 rounded-2xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
-                  ? 'bg-[#1C1C1E] text-[#FACC15]'
+                  ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
               {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'workout' ? t('tabWorkout') : '🥤 Protein'}
             </button>
@@ -1132,7 +1132,7 @@ export const HealthView = ({
         <div className={`lg:h-[40%] min-h-0 max-h-[280px] lg:max-h-none rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">{t('workoutBlocks')}</h2>
-            <button onClick={() => openBlockModal()} className="bg-[#1C1C1E] text-[#FACC15] px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
+            <button onClick={() => openBlockModal()} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
           {/* 태그별 그룹 + 필터 */}
           {(() => {
@@ -1149,7 +1149,7 @@ export const HealthView = ({
 
             const BlockCard = ({ b }: { b: ExerciseBlock }) => (
               <div onClick={() => handleAddWorkoutToToday(b)}
-                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-[#FACC15] active:border-[#FACC15] cursor-pointer transition-colors ${theme.input}`}>
+                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}>
                 <div className="flex items-center gap-2">
                   <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
                   <span className="truncate max-w-[110px]">{b.name}</span>
@@ -1295,14 +1295,14 @@ export const HealthView = ({
                     if (v) handleAddSessionBreak(v);
                     e.target.value = '';
                   }}
-                  className={`text-xs font-bold px-3 py-2 rounded-xl outline-none cursor-pointer border ${appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-300 border-gray-700' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                  className={`text-xs font-bold px-3 py-2 rounded-xl outline-none cursor-pointer border ${appSettings.darkMode ? 'bg-surface text-gray-300 border-gray-700' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
                   <option value="">{t('addSession')}</option>
                   {SESSION_KEYS.map(k => (
                     <option key={k} value={k}>{t(k)}</option>
                   ))}
                 </select>
                 <select onChange={handleLoadRoutine}
-                  className="bg-[#1C1C1E] text-[#FACC15] font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
+                  className="bg-primary text-primary-foreground font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
                   <option value="__load__">{t('loadRoutine')}</option>
                   {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>{t('loadDay').replace('{n}', String(i + 1))}</option>)}
                 </select>
@@ -1334,7 +1334,7 @@ export const HealthView = ({
                     )}
                     <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
                     <span className={`text-[11px] font-black tracking-widest px-3 py-1 rounded-full shrink-0
-                      ${appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-400' : 'bg-gray-100 text-gray-400'}`}>
+                      ${appSettings.darkMode ? 'bg-surface text-gray-400' : 'bg-gray-100 text-gray-400'}`}>
                       {w.exercise_blocks?.name}
                     </span>
                     <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
@@ -1364,7 +1364,7 @@ export const HealthView = ({
                 onTouchEnd={handleDragEnd}
                 className={`border rounded-3xl p-5 relative group shadow-sm transition-all duration-150 ${theme.border} ${
                   dragOverIndex === wIdx && dragIndex !== wIdx
-                    ? appSettings.darkMode ? 'border-[#FACC15] bg-[#FACC15]/5 scale-[1.01]' : 'border-[#FACC15] bg-yellow-50/50 scale-[1.01]'
+                    ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
                     : ''
                 } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}>
                 {!isWorkoutLocked && (
@@ -1434,10 +1434,10 @@ export const HealthView = ({
                         <button
                           onClick={() => toggleWeightUnit(w.block_id)}
                           className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
-                            ${appSettings.darkMode ? 'bg-[#3A3A3C] hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                          <span className={getUnit(w.block_id) === 'kg' ? 'text-[#FACC15]' : theme.textMuted}>kg</span>
+                            ${appSettings.darkMode ? 'bg-surface-alt hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                          <span className={getUnit(w.block_id) === 'kg' ? 'text-primary' : theme.textMuted}>kg</span>
                           <span className={`mx-0.5 ${theme.textMuted}`}>/</span>
-                          <span className={getUnit(w.block_id) === 'lbs' ? 'text-[#FACC15]' : theme.textMuted}>lbs</span>
+                          <span className={getUnit(w.block_id) === 'lbs' ? 'text-primary' : theme.textMuted}>lbs</span>
                         </button>
                       </div>
                     )}
@@ -1542,7 +1542,7 @@ export const HealthView = ({
                 {!isWorkoutLocked && (
                   <div className="mt-3 flex gap-2">
                     <button onClick={() => handleAddSet(wIdx)}
-                      className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-[#FACC15] text-[#1C1C1E] active:scale-[0.98] transition-all">
+                      className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-primary text-primary-foreground active:scale-[0.98] transition-all">
                       {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
                     </button>
                     {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
@@ -1582,12 +1582,12 @@ export const HealthView = ({
                     className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all
                       ${copied
                         ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')
-                        : (appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                        : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
                       }`}>
                     {copied ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}
                   </button>
                   <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#1C1C1E] text-[#FACC15] font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all">
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all">
                     <Pencil size={14}/> {t('editBtn')}
                   </button>
                 </div>
@@ -1596,12 +1596,12 @@ export const HealthView = ({
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
                 disabled={isSaving}
-            className={`w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
+            className={`w-full bg-primary text-primary-foreground font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
                 {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
               </button>
             )}
             {/* ── 날짜별 메모 ── */}
-            <div className={`mt-3 rounded-2xl p-3 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+            <div className={`mt-3 rounded-2xl p-3 ${appSettings.bg-surface-alt}`}>
               <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>📝 MEMO</p>
               <textarea
                 value={workoutMemo}
@@ -1648,11 +1648,11 @@ export const HealthView = ({
                         onClick={() => setSelectedDate(new Date(year, month, day))}
                         className={`flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition-colors shrink-0 w-11
                           ${isSelected
-                            ? 'bg-[#FACC15] text-[#1C1C1E]'
+                            ? 'bg-primary text-primary-foreground'
                             : isTodayCell
-                              ? `ring-2 ring-[#FACC15] ${theme.input}`
+                              ? `ring-2 ring-primary ${theme.input}`
                               : theme.input}`}>
-                        <span className={`text-[10px] font-bold ${isSelected ? 'text-[#1C1C1E]' : theme.textMuted}`}>
+                        <span className={`text-[10px] font-bold ${isSelected ? 'text-primary-foreground' : theme.textMuted}`}>
                           {DAY_LABELS[dow]}
                         </span>
                         <span className="text-sm font-bold">{day}</span>
@@ -1694,8 +1694,8 @@ export const HealthView = ({
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card} lg:w-[160px] lg:shrink-0`}>
             {/* 제목과 저장 버튼 — 세로 배치로 여유 확보 */}
             <div className="flex flex-col gap-2.5 mb-3">
-              <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-[#FACC15]"/> {t('inbody')}</h2>
-              <button onClick={handleSaveInbody} className="w-full text-xs font-bold bg-[#1C1C1E] text-[#FACC15] px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
+              <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-primary"/> {t('inbody')}</h2>
+              <button onClick={handleSaveInbody} className="w-full text-xs font-bold bg-primary text-primary-foreground px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors">{t('save')}</button>
             </div>
             {/* 모바일: 가로 3열 / 데스크탑: 세로 3행 */}
             <div className="flex gap-3 lg:flex-col lg:gap-2">
@@ -1704,7 +1704,7 @@ export const HealthView = ({
                 { label: t('inbodySMM'),    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
                 { label: t('inbodyPBF'),    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
               ].map(({ label, field, unit, color }) => (
-                <div key={field} className={`flex-1 lg:flex-none rounded-2xl p-2.5 border-2 border-transparent focus-within:border-[#FACC15] transition-colors ${theme.input}`}>
+                <div key={field} className={`flex-1 lg:flex-none rounded-2xl p-2.5 border-2 border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
                   <p className={`text-[10px] font-bold mb-1 ${color}`}>{label}</p>
                   <div className="flex items-end gap-0.5">
                     <input type="number" inputMode="decimal" min="0" step="0.1"
@@ -1774,8 +1774,8 @@ export const HealthView = ({
                     <button key={mode} onClick={() => setNewBlock({ ...newBlock, cardio_mode: mode })}
                       className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all
                         ${(newBlock.cardio_mode ?? 'both') === mode
-                          ? 'bg-[#1C1C1E] text-[#FACC15]'
-                          : `${appSettings.darkMode ? 'bg-[#2C2C2E]' : 'bg-gray-100'} ${theme.textMuted}`}`}>
+                          ? 'bg-primary text-primary-foreground'
+                          : `${appSettings.darkMode ? 'bg-surface' : 'bg-gray-100'} ${theme.textMuted}`}`}>
                       {mode === 'time' ? t('cardioTime') : mode === 'distance' ? t('cardioDistance') : t('cardioBoth')}
                     </button>
                   ))}
@@ -1820,7 +1820,7 @@ export const HealthView = ({
             </div>
             <p className={`text-[11px] mb-4 ${theme.textMuted}`}>{t('tapBlockHint')}</p>
 
-            <button onClick={handleSaveBlock} className="w-full bg-[#1C1C1E] text-[#FACC15] p-4 rounded-2xl font-bold text-lg hover:bg-gray-800 transition-colors">
+            <button onClick={handleSaveBlock} className="w-full bg-primary text-primary-foreground p-4 rounded-2xl font-bold text-lg hover:bg-gray-800 transition-colors">
               {editingBlock ? 'Save Changes' : 'Create'}
             </button>
           </div>
@@ -1854,7 +1854,7 @@ export const HealthView = ({
 
               {/* 선택된 순서 미리보기 — 드래그로 재정렬 */}
               {tempRoutineBlocks.length > 0 && (
-                <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.darkMode ? 'bg-[#1C1C1E]' : 'bg-gray-50'}`}>
+                <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.bg-surface-alt}`}>
                   <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
@@ -1907,7 +1907,7 @@ export const HealthView = ({
                           className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg cursor-grab active:cursor-grabbing select-none transition-all
                             ${isDraggingThis ? 'opacity-40 scale-95' : ''}
                             ${isDragOver ? 'ring-2 ring-[#1C1C1E] scale-105' : ''}
-                            bg-[#FACC15] text-[#1C1C1E]`}>
+                            bg-primary text-primary-foreground`}>
                           <span className="opacity-60 text-[10px]">{idx + 1}</span>
                           {b.name}
                           <GripVertical size={11} className="opacity-40 ml-0.5"/>
@@ -1937,7 +1937,7 @@ export const HealthView = ({
                                 : `border-transparent ${theme.input} hover:border-blue-400/50`}`}>
                             {b.name}
                             {sel && (
-                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#1C1C1E] text-[#FACC15] text-[10px] font-black rounded-full flex items-center justify-center">
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-primary text-primary-foreground text-[10px] font-black rounded-full flex items-center justify-center">
                                 {selIdx + 1}
                               </span>
                             )}
@@ -1949,7 +1949,7 @@ export const HealthView = ({
                 ))}
               </div>
 
-              <button onClick={handleSaveRoutine} className="mt-5 shrink-0 w-full bg-[#1C1C1E] text-[#FACC15] font-bold text-lg p-4 rounded-2xl hover:bg-gray-800 transition-colors">
+              <button onClick={handleSaveRoutine} className="mt-5 shrink-0 w-full bg-primary text-primary-foreground font-bold text-lg p-4 rounded-2xl hover:bg-gray-800 transition-colors">
                 {t('saveRoutine')}
               </button>
             </div>

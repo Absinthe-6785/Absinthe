@@ -323,22 +323,22 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   // ── 색상 팔레트 ────────────────────────────────────────────────────
   const colors = useMemo(() => ({
-    bg:       dark ? '#18181A' : '#F3F4F6',
-    edge:     dark ? '#6B7280' : '#9CA3AF',
-    node:     dark ? '#2C2C2E' : '#FFFFFF',
-    nodeB:    dark ? '#4B5563' : '#E5E7EB',
-    txt:      dark ? '#D1D5DB' : '#374151',
-    act:      dark ? '#FACC15' : '#2563EB',
-    hovBg:    dark ? '#FACC1422' : '#DBEAFE88',
-    toolbar:  dark ? '#1F1F21EE' : '#FFFFFFEE',
-    toolbarB: dark ? '#374151' : '#E5E7EB',
-    toolTxt:  dark ? '#9CA3AF' : '#6B7280',
-    searchBg: dark ? '#27272A' : '#FFFFFF',
-    searchB:  dark ? '#4B5563' : '#D1D5DB',
-    searchTxt:dark ? '#F3F4F6' : '#111827',
-    dimEdge:  dark ? '#374151' : '#D1D5DB',
-    dimNode:  dark ? '#27272A' : '#F9FAFB',
-    dimTxt:   dark ? '#4B5563' : '#9CA3AF',
+    bg:       dark ? '#0E0E10' : '#F5F0E8',
+    edge:     dark ? '#52525B' : '#A8A29E',
+    node:     dark ? '#1B1B1F' : '#FAF7F2',
+    nodeB:    dark ? '#2E2E33' : '#E7E0D5',
+    txt:      dark ? '#F4F4F5' : '#1C1917',
+    act:      '#8B5CF6',
+    hovBg:    dark ? 'rgba(139,92,246,0.14)' : 'rgba(139,92,246,0.10)',
+    toolbar:  dark ? '#1B1B1FEE' : '#FAF7F2EE',
+    toolbarB: dark ? '#2E2E33' : '#E7E0D5',
+    toolTxt:  dark ? '#A1A1AA' : '#78716C',
+    searchBg: dark ? '#252529' : '#FAF7F2',
+    searchB:  dark ? '#3F3F46' : '#E7E0D5',
+    searchTxt:dark ? '#F4F4F5' : '#1C1917',
+    dimEdge:  dark ? '#3F3F46' : '#D6D0C4',
+    dimNode:  dark ? '#16161A' : '#EDE8DF',
+    dimTxt:   dark ? '#71717A' : '#A8A29E',
   }), [dark]);
 
   // ── 렌더 데이터 준비 ──────────────────────────────────────────────

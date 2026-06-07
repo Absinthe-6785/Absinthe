@@ -9,7 +9,8 @@ import { useNow } from '../hooks/useNow';
 import { useToast } from '../hooks/useToast';
 import { useDailyData } from '../hooks/useDaily';
 import { useStaticData } from '../hooks/useStatic';
-import { Theme, ThemeColor, ViewProps } from '../types';
+import { ThemeColor, ViewProps } from '../types';
+import { buildThemeClasses } from '../theme';
 import { Sidebar, TabId } from './common/Sidebar';
 
 import { PlannerView } from './views/PlannerView';
@@ -21,7 +22,7 @@ import { RecipeView } from './views/RecipeView';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
-  { id: 'gold',   bg: 'bg-[#FACC15]',  text: 'text-[#1C1C1E]', border: 'border-[#FACC15]' },
+  { id: 'gold',   bg: 'bg-primary',  text: 'text-primary-foreground', border: 'border-primary' },
   { id: 'blue',   bg: 'bg-blue-500',   text: 'text-white',      border: 'border-blue-500'   },
   { id: 'green',  bg: 'bg-green-500',  text: 'text-white',      border: 'border-green-500'  },
   { id: 'purple', bg: 'bg-purple-500', text: 'text-white',      border: 'border-purple-500' },
@@ -71,14 +72,8 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutate: mutateStatic,
   } = useStaticData(monthStart, monthEnd, showToast);
 
-  // ── 5. Theme ──────────────────────────────────────────────────────
-  const theme: Theme = useMemo(() => ({
-    card:      appSettings.darkMode ? 'bg-[#2C2C2E] text-gray-100 shadow-lg' : 'bg-[#FAFAF8] text-[#1C1C1E] shadow-sm',
-    input:     appSettings.darkMode ? 'bg-[#3A3A3C] text-gray-100 placeholder-gray-500' : 'bg-[#F2F0EA] text-[#1C1C1E] placeholder-[#9C9888]',
-    border:    appSettings.darkMode ? 'border-gray-700' : 'border-[#E8E5DE]',
-    textMuted: appSettings.darkMode ? 'text-gray-400'  : 'text-[#6B6860]',
-    hoverBg:   appSettings.darkMode ? 'hover:bg-[#3A3A3C]' : 'hover:bg-[#F0EDE5]',
-  }), [appSettings.darkMode]);
+  // ── 5. Theme — Absinthe Design System tokens via CSS variables ───
+  const theme = useMemo(() => buildThemeClasses(), []);
 
   // ── 6. user — useMemo로 안정화 ────────────────────────────────────
   // 개선 전: const user = { ... } — 매 렌더마다 새 객체 생성 → globalProps useMemo deps
@@ -118,9 +113,7 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   return (
     <div
-      className={`flex flex-col lg:flex-row h-[100dvh] font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden ${
-        appSettings.darkMode ? 'bg-[#18181A]' : 'bg-[#F5F4F0]'
-      }`}
+      className="flex flex-col lg:flex-row h-[100dvh] font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden bg-background"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <Sidebar
@@ -144,7 +137,7 @@ export function AppContent({ authUser }: { authUser: User }) {
       {toast && (
         <div
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-[999] animate-in slide-in-from-bottom-5 font-semibold text-sm flex items-center gap-2 ${
-            toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-[#1C1C1E] text-[#FACC15]'
+            toast.type === 'error' ? 'bg-danger text-white' : 'bg-surface-alt text-primary'
           }`}
         >
           {toast.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
@@ -154,7 +147,7 @@ export function AppContent({ authUser }: { authUser: User }) {
 
       {/* Fix 9: 모든 탭에서 로딩 인디케이터 표시 */}
       {isDailyLoading && (
-        <div className="fixed top-6 right-6 bg-[#1C1C1E] p-3 rounded-full shadow-lg z-[999] text-[#FACC15]">
+        <div className="fixed top-6 right-6 bg-surface-alt p-3 rounded-absinthe-full shadow-absinthe-lg z-[999] text-primary">
           <Loader2 size={20} className="animate-spin" />
         </div>
       )}
