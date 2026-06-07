@@ -90,6 +90,15 @@ describe('indentBlock / outdentBlock', () => {
     expect(next![0].indent).toBe(1);
   });
 
+  it('Tab on bullet after bullet increases indent without toggle nesting', () => {
+    const a = makeBlock('bullet', { id: 'a', content: 'A', indent: 0 });
+    const b = makeBlock('bullet', { id: 'b', content: 'B', indent: 0 });
+    const next = indentBlock([a, b], 'b');
+    expect(next).toHaveLength(2);
+    expect(next![0].type).toBe('bullet');
+    expect(next![1].indent).toBe(1);
+  });
+
   it('Shift+Tab exits toggle child', () => {
     const child = makeBlock('paragraph', { id: 'c1', content: 'c' });
     const toggle = makeBlock('toggle', { id: 't1', content: 'T', children: [child] });
@@ -123,5 +132,14 @@ describe('applyDragDrop', () => {
     const next = applyDragDrop(blocks, 'p1', 't1', 'inside');
     expect(next![0].children[0].id).toBe('p1');
     expect(next).toHaveLength(1);
+  });
+
+  it('cross-level drag moves toggle child to root after sibling', () => {
+    const child = makeBlock('paragraph', { id: 'b', content: 'B' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'A', children: [child] });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const next = applyDragDrop([toggle, c], 'b', 'c', 'after');
+    expect(next!.map(x => x.id)).toEqual(['t', 'c', 'b']);
+    expect(next![0].children).toHaveLength(0);
   });
 });

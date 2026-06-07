@@ -9,6 +9,8 @@ import {
   type Block,
   type BlockType,
 } from './blockUtils';
+import { indentListBlock, outdentListBlock } from './listIndent';
+import { applyHierarchyDragDrop } from './dragHierarchy';
 
 const LIST_TYPES: BlockType[] = ['bullet', 'numbered', 'todo'];
 
@@ -89,7 +91,7 @@ export function findParentId(
   return undefined;
 }
 
-function isDescendantOf(blocks: Block[], ancestorId: string, descendantId: string): boolean {
+export function isDescendantOf(blocks: Block[], ancestorId: string, descendantId: string): boolean {
   const ancestor = findBlockById(blocks, ancestorId);
   if (!ancestor) return false;
   return findBlockById([ancestor], descendantId) !== null && ancestorId !== descendantId;
@@ -164,6 +166,10 @@ export function indentBlock(blocks: Block[], blockId: string): Block[] | null {
 
   const cur = siblings[idx];
 
+  if (isListBlockType(cur.type)) {
+    return indentListBlock(blocks, blockId);
+  }
+
   if (idx > 0) {
     const prev = siblings[idx - 1];
     if (isNestableInToggle(cur.type) && (prev.type === 'toggle' || isNestableInToggle(prev.type))) {
@@ -172,14 +178,16 @@ export function indentBlock(blocks: Block[], blockId: string): Block[] | null {
     }
   }
 
-  if (isListBlockType(cur.type)) {
-    return updateBlockById(blocks, blockId, b => ({ ...b, indent: (b.indent ?? 0) + 1 }));
-  }
   return null;
 }
 
 /** Shift+Tab: exit toggle or decrease list indent. */
 export function outdentBlock(blocks: Block[], blockId: string): Block[] | null {
+  const block = findBlockById(blocks, blockId);
+  if (block && isListBlockType(block.type) && (block.indent ?? 0) > 0) {
+    return outdentListBlock(blocks, blockId);
+  }
+
   const parentId = findParentId(blocks, blockId);
   if (parentId === undefined) return null;
 
@@ -190,38 +198,15 @@ export function outdentBlock(blocks: Block[], blockId: string): Block[] | null {
     }
   }
 
-  const block = findBlockById(blocks, blockId);
-  if (block && isListBlockType(block.type) && (block.indent ?? 0) > 0) {
-    return updateBlockById(blocks, blockId, b => ({ ...b, indent: Math.max(0, (b.indent ?? 0) - 1) }));
-  }
   return null;
 }
 
-/** Reorder sibling or nest into toggle when dropping inside. */
+/** Reorder or nest blocks across hierarchy levels. */
 export function applyDragDrop(
   blocks: Block[],
   dragId: string,
   overId: string,
   position: 'before' | 'after' | 'inside',
 ): Block[] | null {
-  if (dragId === overId) return null;
-
-  if (position === 'inside') {
-    return moveBlockIntoToggle(blocks, dragId, overId);
-  }
-
-  const { tree, block } = extractBlockFromTree(blocks, dragId);
-  if (!block) return null;
-
-  const flat = tree;
-  const toIdx = flat.findIndex(b => b.id === overId);
-  if (toIdx < 0) {
-    // search in nested for overId at same level only - drag is per-level
-    return null;
-  }
-
-  const insertAt = position === 'before' ? toIdx : toIdx + 1;
-  const next = [...flat];
-  next.splice(insertAt, 0, block);
-  return next;
+  return applyHierarchyDragDrop(blocks, dragId, overId, position);
 }

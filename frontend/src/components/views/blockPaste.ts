@@ -1,15 +1,13 @@
 import { splitBlockContent } from './blockContent';
-import { isListType, renumberNumberedLists } from './listBlocks';
+import { isListType, renumberNumberedListsDeep } from './listBlocks';
+import {
+  htmlToPlainText,
+  normalizePasteText,
+  prepareStructuredPasteText,
+} from './pasteStructure';
 import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from './blockUtils';
 
-export function normalizePasteText(raw: string): string {
-  return raw
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\t/g, '  ')
-    .replace(/\n+$/, '');
-}
+export { normalizePasteText, htmlToPlainText } from './pasteStructure';
 
 const BARE_URL_RE = /^https?:\/\/\S+$/i;
 
@@ -17,46 +15,13 @@ export function isBareUrl(text: string): boolean {
   return BARE_URL_RE.test(text.trim());
 }
 
-/** Prefer text/plain; fall back to stripped HTML from rich clipboard payloads. */
+/** Prefer structured plain/HTML (tables, articles); fall back to stripped HTML. */
 export function extractClipboardText(clipboard: Pick<DataTransfer, 'getData'>): string {
-  const plain = clipboard.getData('text/plain');
-  if (plain) return plain;
+  const structured = prepareStructuredPasteText(clipboard);
+  if (structured) return structured;
   const html = clipboard.getData('text/html');
   if (html) return htmlToPlainText(html);
   return '';
-}
-
-const HTML_BLOCK_TAGS = new Set([
-  'P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR', 'BLOCKQUOTE', 'PRE',
-]);
-
-/** Convert clipboard HTML to plain text with line breaks preserved. */
-export function htmlToPlainText(html: string): string {
-  if (typeof DOMParser === 'undefined') {
-    return normalizePasteText(
-      html
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/(p|div|li|h[1-6]|tr|blockquote|pre)>/gi, '\n')
-        .replace(/<[^>]+>/g, ''),
-    );
-  }
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-
-  const walk = (node: Node): string => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
-    const tag = node.nodeName.toUpperCase();
-    if (tag === 'BR') return '\n';
-    let out = '';
-    node.childNodes.forEach(child => { out += walk(child); });
-    if (HTML_BLOCK_TAGS.has(tag)) out += '\n';
-    return out;
-  };
-
-  const root = doc.body;
-  root.querySelectorAll('br').forEach(br => {
-    br.replaceWith(doc.createTextNode('\n'));
-  });
-  return normalizePasteText(walk(root));
 }
 
 export interface PasteContext {
@@ -166,7 +131,7 @@ export function applyPasteAtBlock(
   ];
 
   return {
-    blocks: renumberNumberedLists(next),
+    blocks: renumberNumberedListsDeep(next),
     focusBlockId,
     focusOffset,
   };

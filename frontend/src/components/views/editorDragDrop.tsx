@@ -3,7 +3,7 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import type { Block } from './blockUtils';
-import { applyDragDrop } from './blockTree';
+import { applyHierarchyDragDrop } from './dragHierarchy';
 
 export interface DragState {
   draggingId: string;
@@ -82,14 +82,14 @@ export function BlockGripIcon() {
 }
 
 export function useDragDrop(
-  blocks: Block[],
+  getBlocks: () => Block[],
   onReorder: (newBlocks: Block[]) => void,
 ): UseDragDropResult {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   dragStateRef.current = dragState;
-  const blocksRef = useRef(blocks);
-  blocksRef.current = blocks;
+  const getBlocksRef = useRef(getBlocks);
+  getBlocksRef.current = getBlocks;
 
   const bindGripPointer = useCallback((id: string, e: React.PointerEvent, onClick?: () => void) => {
     e.preventDefault();
@@ -116,7 +116,8 @@ export function useDragDrop(
         const blockType = blockEl.getAttribute('data-block-type');
         const rect = blockEl.getBoundingClientRect();
         let overPos: 'before' | 'after' | 'inside';
-        if (blockType === 'toggle' && ev.clientY > rect.top + rect.height * 0.35) {
+        const collapsedToggle = blockEl.getAttribute('data-toggle-collapsed') === 'true';
+        if (blockType === 'toggle' && (collapsedToggle || ev.clientY > rect.top + rect.height * 0.35)) {
           overPos = 'inside';
         } else {
           overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
@@ -144,9 +145,13 @@ export function useDragDrop(
         onClick?.();
       } else {
         const st = dragStateRef.current;
-        const bs = blocksRef.current;
         if (st?.overId && st.overPos && st.draggingId === id) {
-          const next = applyDragDrop(bs, st.draggingId, st.overId, st.overPos);
+          const next = applyHierarchyDragDrop(
+            getBlocksRef.current(),
+            st.draggingId,
+            st.overId,
+            st.overPos,
+          );
           if (next) onReorder(next);
         }
         setDragState(null);
