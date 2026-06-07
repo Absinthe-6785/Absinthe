@@ -68,3 +68,12 @@ export function blockLayoutIndentPx(block: Block, depth: number): number {
   const listPx = isListType(block.type) ? (block.indent ?? 0) * LIST_INDENT_PX : 0;
   return depthPx + listPx;
 }
+
+/** Renumber numbered lists at every nesting level in the tree. */
+export function renumberNumberedListsDeep(blocks: Block[]): Block[] {
+  return renumberNumberedLists(blocks).map(b =>
+  b.children.length > 0
+    ? { ...b, children: renumberNumberedListsDeep(b.children) }
+    : b,
+  );
+}

@@ -95,6 +95,8 @@ function useBlocksCtx(): BlocksCtxValue {
   return ctx;
 }
 
+const DragCtx = React.createContext<import('./editorDragDrop').UseDragDropResult | null>(null);
+
 // ── 슬래시 커맨드 상태 타입 ──────────────────────────────────────────
 interface SlashMenuState {
   blockId:  string;
@@ -524,6 +526,7 @@ const SingleBlock = React.memo(function SingleBlock({
     ...getDragProps(block.id),
     'data-be-heading': headingIndex,
     'data-block-type': block.type,
+    ...(block.type === 'toggle' ? { 'data-toggle-collapsed': String(!toggleOpen) } : {}),
     onContextMenu: readOnly ? undefined : (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -572,7 +575,7 @@ const SingleBlock = React.memo(function SingleBlock({
     const toggleDropActive = dragState?.overId === block.id && dragState?.overPos === 'inside';
     return (
       <div
-        className={`be-toggle-wrap${toggleDropActive ? ' be-toggle-drop-active' : ''}`}
+        className={`be-toggle-wrap${!toggleOpen ? ' be-toggle-collapsed' : ''}${toggleDropActive ? ' be-toggle-drop-active' : ''}`}
         style={{ '--be-toggle-depth': depth } as CSSProperties}
       >
         <div
@@ -2286,8 +2289,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
   // 위키링크 자동완성
   const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
-  // Phase 3: 드래그&드롭
-  const { dragState, bindGripPointer, getDragProps } = useDragDrop(blocks, onChange);
+  // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
+  const parentDrag = useContext(DragCtx);
+  const localDrag = useDragDrop(getRootBlocks, onRootChange);
+  const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
   const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
   const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
   const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
@@ -2663,8 +2668,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     return m;
   }, [blocks, depth]);
 
-  return (
-  <BlocksCtx.Provider value={blocksCtx}>
+  const editorBody = (
     <>
       <div
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}`}
@@ -2748,7 +2752,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         />
       )}
     </>
-  </BlocksCtx.Provider>
+  );
+
+  return (
+    <BlocksCtx.Provider value={blocksCtx}>
+      {depth === 0 ? (
+        <DragCtx.Provider value={localDrag}>{editorBody}</DragCtx.Provider>
+      ) : (
+        editorBody
+      )}
+    </BlocksCtx.Provider>
   );
 }
 
@@ -3364,6 +3377,12 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-toggle-wrap.be-toggle-drop-active > .be-toggle-children,
         .be-toggle-children.be-toggle-drop-active {
           border-left-color: var(--be-accent, #8B5CF6);
+          background: var(--be-accent-bg, rgba(139,92,246,0.08));
+        }
+        .be-toggle-wrap.be-toggle-collapsed.be-toggle-drop-active > .be-toggle-header-block {
+          border-radius: 6px;
+          outline: 2px dashed var(--be-accent, #8B5CF6);
+          outline-offset: 2px;
           background: var(--be-accent-bg, rgba(139,92,246,0.08));
         }
         .be-toggle-empty {
