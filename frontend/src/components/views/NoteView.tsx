@@ -27,10 +27,11 @@ import {
   type BlockEditorHandle,
 } from './BlockEditor';
 import {
-  buildObsidianChrome,
+  buildNoteChrome,
   buildBlockEditorColors,
   NOTE_FONT_OPTIONS,
   NOTE_DOCUMENT_MAX_WIDTH,
+  NOTE_RADIUS_CARD,
 } from './noteEditorTheme';
 
 
@@ -475,7 +476,7 @@ export const NoteView = () => {
 
   // ── Obsidian-style 색상 + 사용자 글자/강조색 ─────────────────────
   const c = useMemo(
-    () => buildObsidianChrome(dark, appSettings),
+    () => buildNoteChrome(dark, appSettings),
     [dark, appSettings.notesTextColor, appSettings.notesAccentColor],
   );
 
@@ -979,7 +980,7 @@ export const NoteView = () => {
                           position: 'absolute', top: '100%', right: 0, paddingTop: 6, zIndex: 50,
                         }}>
                         <div style={{
-                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 10,
+                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: NOTE_RADIUS_CARD,
                           padding: '12px 14px', width: 240, boxShadow: '0 8px 28px #00000020',
                         }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: c.textMuted, marginBottom: 10 }}>편집기 모양</div>
@@ -1028,7 +1029,7 @@ export const NoteView = () => {
                             </button>
                           </div>
                           <div style={{ fontSize: 10, color: c.textFaint, marginTop: 10 }}>
-                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px (Obsidian 스타일)
+                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px
                           </div>
                         </div>
                         </div>

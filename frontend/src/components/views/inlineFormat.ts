@@ -25,6 +25,27 @@ function hasClosingMarker(text: string, end: number, marker: string): boolean {
   return text.slice(end, end + len) === marker;
 }
 
+/** 선택 구간이 해당 인라인 마크다운으로 감싸져 있는지 */
+export function selectionHasFormat(
+  text: string,
+  start: number,
+  end: number,
+  before: string,
+  after: string,
+): boolean {
+  if (hasOpeningMarker(text, start, before) && hasClosingMarker(text, end, after)) return true;
+  const selected = text.slice(start, end);
+  const bLen = before.length;
+  const aLen = after.length;
+  return (
+    selected.length >= bLen + aLen
+    && selected.startsWith(before)
+    && selected.endsWith(after)
+    && hasOpeningMarker(selected, bLen, before)
+    && hasClosingMarker(selected, selected.length - aLen, after)
+  );
+}
+
 /** 선택 구간에 인라인 마크다운을 적용하거나 해제 */
 export function toggleMarkdownWrap(
   text: string,

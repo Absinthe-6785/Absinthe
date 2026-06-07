@@ -37,7 +37,7 @@ import {
   imageAltFromUrl,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
-import { toggleMarkdownWrap } from './inlineFormat';
+import { selectionHasFormat, toggleMarkdownWrap } from './inlineFormat';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
 
@@ -251,6 +251,12 @@ export interface BlockEditorColors {
   selection:  string;
   blockFocusBg?: string;
   blockFocusBorder?: string;
+  blockSelectedBg?: string;
+  blockHoverBg?: string;
+  toolbarActiveFg?: string;
+  radiusBtn?: number;
+  radiusCard?: number;
+  radiusModal?: number;
   searchHlBg?: string;
   searchHlColor?: string;
   linkColor?: string;
@@ -677,15 +683,23 @@ const SingleBlock = React.memo(function SingleBlock({
       data-be-heading={headingIndex}
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
-        borderRadius:6, padding: isActive ? '4px 8px 4px 10px' : '1px 0',
-        outline: selected ? `2px solid ${c.accent}` : 'none',
-        outlineOffset:2, transition:'outline .1s, background .12s, box-shadow .12s',
+        borderRadius: 6,
+        padding: (isActive || selected) ? '4px 8px 4px 12px' : '1px 0',
+        outline: 'none',
+        border: isActive
+          ? `1px solid ${c.blockFocusBorder ?? 'rgba(139,92,246,0.25)'}`
+          : '1px solid transparent',
+        transition: 'border-color .12s, background .12s, box-shadow .12s',
         opacity: isDragging ? 0.4 : 1,
         userSelect: dragState ? 'none' : undefined,
-        background: isActive ? (c.blockFocusBg ?? c.selection) : undefined,
-        boxShadow: isActive ? `inset 2px 0 0 ${c.blockFocusBorder ?? c.border}` : undefined,
+        background: isActive
+          ? (c.blockFocusBg ?? c.selection)
+          : selected
+            ? (c.blockSelectedBg ?? c.selection)
+            : undefined,
+        boxShadow: selected ? `inset 3px 0 0 ${c.accent}` : undefined,
       }}
-      className={`be-block${isActive ? ' be-block-active' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
+      className={`be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}
       onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
@@ -698,7 +712,7 @@ const SingleBlock = React.memo(function SingleBlock({
 }, singleBlockPropsEqual);
 
 const hBtn = (c: BlockEditorColors): CSSProperties => ({
-  background:c.card, border:`1px solid ${c.border}`, borderRadius:5,
+  background:c.card, border:`1px solid ${c.border}`, borderRadius: c.radiusBtn ?? 8,
   padding:'3px 4px', cursor:'pointer', color:c.textMuted,
   display:'flex', alignItems:'center', lineHeight:1,
 });
@@ -2232,6 +2246,11 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     || chromeHoverId === blockId,
   [pinnedControlsId, turnIntoMenu, chromeHoverId]);
 
+  const getBlockType = useCallback(
+    (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
+    [],
+  );
+
   useEffect(() => {
     if (!pinnedControlsId && !turnIntoMenu) return;
     const onDown = (e: MouseEvent) => {
@@ -2527,6 +2546,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           searchQuery={searchQuery}
           onContentChange={handleContentChange}
           onConvertBlock={handleConvert}
+          getBlockType={getBlockType}
         />
       )}
       {turnIntoMenu && (
@@ -2623,7 +2643,7 @@ function BlockContextMenu({ anchorY, anchorX, colors: c, onClose, onDelete, onMo
     <div ref={menuRef} style={{
       position:'fixed', top, left, zIndex:300,
       background:c.card, border:`1px solid ${c.border}`,
-      borderRadius:10, boxShadow:'0 8px 32px #00000025',
+      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
       minWidth:200, overflow:'hidden', padding:'6px 0',
     }}>
       {sec('이동')}
@@ -2700,7 +2720,7 @@ function TurnIntoMenu({
       style={{
       position:'fixed', top, left, zIndex:400,
       background:c.card, border:`1px solid ${c.border}`,
-      borderRadius:10, boxShadow:'0 8px 28px #00000028',
+      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
       width:196, overflow:'hidden', padding:'6px 0',
     }}>
       <div style={{ padding:'4px 12px 8px', fontSize:10, fontWeight:700, color:c.textFaint, letterSpacing:0.8, textTransform:'uppercase' }}>
@@ -2779,7 +2799,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
     <div ref={menuRef} className="be-slash-menu" style={{
       position:'fixed', top, left, zIndex:400,
       background:c.card, border:`1px solid ${c.border}`,
-      borderRadius:12, boxShadow:'0 8px 32px #00000030',
+      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
       width:248, maxHeight:360, overflowY:'auto', padding:'6px 0',
     }}>
       <div style={{ padding:'6px 12px 8px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
@@ -2868,7 +2888,7 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
     <div ref={menuRef} style={{
       position: 'fixed', top, left, zIndex: 400,
       background: c.card, border: `1px solid ${c.border}`,
-      borderRadius: 12, boxShadow: '0 8px 32px #00000030',
+      borderRadius: c.radiusModal ?? 16, boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
       width: 230, maxHeight: 300, overflowY: 'auto', padding: '6px 0',
     }}>
       <div style={{ padding: '3px 12px 6px', fontSize: 10, color: c.textFaint, borderBottom: `1px solid ${c.border}`, marginBottom: 4, fontWeight: 700, letterSpacing: 1 }}>
@@ -2903,8 +2923,9 @@ const noopBlockChange = () => {};
 
 // ── 툴바 툴팁 ─────────────────────────────────────────────────────────
 function ToolbarTip({
-  label, hint, children, colors: c,
-}: { label: string; hint?: string; children: ReactNode; colors: BlockEditorColors }) {
+  label, hint, children, colors: c, radius,
+}: { label: string; hint?: string; children: ReactNode; colors: BlockEditorColors; radius?: number }) {
+  const tipRadius = radius ?? c.radiusBtn ?? 8;
   const [show, setShow] = useState(false);
   return (
     <div
@@ -2916,9 +2937,9 @@ function ToolbarTip({
       {show && (
         <div style={{
           position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
-          background: c.card, border: `1px solid ${c.border}`, borderRadius: 6,
+          background: c.card, border: `1px solid ${c.border}`, borderRadius: tipRadius,
           padding: '4px 8px', whiteSpace: 'nowrap', zIndex: 500,
-          boxShadow: '0 4px 16px #00000022', pointerEvents: 'none',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.08)', pointerEvents: 'none',
         }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: c.text }}>{label}</div>
           {hint && <div style={{ fontSize: 10, color: c.textMuted, marginTop: 1 }}>{hint}</div>}
@@ -2935,10 +2956,27 @@ interface SelectionToolbarProps {
   searchQuery: string;
   onContentChange: (blockId: string, content: string) => void;
   onConvertBlock: (blockId: string, type: BlockType) => void;
+  getBlockType: (blockId: string) => BlockType | undefined;
 }
 
-function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock }: SelectionToolbarProps) {
+interface ToolbarFormatState {
+  bold: boolean;
+  italic: boolean;
+  code: boolean;
+  wiki: boolean;
+  tag: boolean;
+  heading: BlockType | null;
+}
+
+const EMPTY_FORMATS: ToolbarFormatState = {
+  bold: false, italic: false, code: false, wiki: false, tag: false, heading: null,
+};
+
+function SelectionToolbar({
+  colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock, getBlockType,
+}: SelectionToolbarProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [formats, setFormats] = useState<ToolbarFormatState>(EMPTY_FORMATS);
   const blockIdRef = useRef<string | null>(null);
   const editableRef = useRef<HTMLElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
@@ -2951,6 +2989,7 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
         blockIdRef.current = null;
         editableRef.current = null;
         savedRangeRef.current = null;
+        setFormats(EMPTY_FORMATS);
         return;
       }
       const range = sel.getRangeAt(0);
@@ -2962,12 +3001,35 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
         blockIdRef.current = null;
         editableRef.current = null;
         savedRangeRef.current = null;
+        setFormats(EMPTY_FORMATS);
         return;
       }
       const blockEl = host.closest('.be-block') as HTMLElement | null;
-      blockIdRef.current = blockEl?.getAttribute('data-drag-id') ?? null;
+      const blockId = blockEl?.getAttribute('data-drag-id') ?? null;
+      blockIdRef.current = blockId;
       editableRef.current = host;
       savedRangeRef.current = range.cloneRange();
+
+      const text = getElText(host);
+      const offsets = getPlainSelectionOffsets(host);
+      const blockType = blockId ? getBlockType(blockId) : undefined;
+      if (offsets) {
+        const { start, end } = offsets;
+        const selected = text.slice(start, end);
+        setFormats({
+          bold: selectionHasFormat(text, start, end, '**', '**'),
+          italic: selectionHasFormat(text, start, end, '*', '*'),
+          code: selectionHasFormat(text, start, end, '`', '`'),
+          wiki: selectionHasFormat(text, start, end, '[[', ']]'),
+          tag: text[start] === '#' && end > start && !selected.includes(' '),
+          heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3'
+            ? blockType
+            : null,
+        });
+      } else {
+        setFormats(EMPTY_FORMATS);
+      }
+
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
         setPos(null);
@@ -2977,7 +3039,7 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
     };
     document.addEventListener('selectionchange', update);
     return () => document.removeEventListener('selectionchange', update);
-  }, []);
+  }, [getBlockType]);
 
   const applyFormat = useCallback((before: string, after: string) => {
     const blockId = blockIdRef.current;
@@ -3005,19 +3067,33 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
 
   if (!pos) return null;
 
-  const btn = (icon: ReactNode, label: string, hint: string | undefined, fn: () => void) => (
-    <ToolbarTip label={label} hint={hint} colors={c}>
+  const activeFg = c.toolbarActiveFg ?? '#FFFFFF';
+  const btnRadius = c.radiusBtn ?? 8;
+
+  const iconBtn = (icon: ReactNode, label: string, hint: string | undefined, active: boolean, fn: () => void) => (
+    <ToolbarTip label={label} hint={hint} colors={c} radius={btnRadius}>
       <button
         type="button"
         aria-label={label}
+        aria-pressed={active}
         onMouseDown={e => { e.preventDefault(); fn(); }}
         style={{
-          display:'flex', alignItems:'center', justifyContent:'center',
-          width:28, height:28, border:'none', borderRadius:6,
-          background:'transparent', color:c.text, cursor:'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 32, height: 32,
+          border: 'none', borderRadius: btnRadius, cursor: 'pointer',
+          background: active ? c.accent : 'transparent',
+          color: active ? activeFg : c.textMuted,
+          transition: 'background .12s, color .12s',
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+        onMouseEnter={e => {
+          if (active) return;
+          (e.currentTarget as HTMLButtonElement).style.background = c.cardHov;
+          (e.currentTarget as HTMLButtonElement).style.color = c.text;
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLButtonElement).style.background = active ? c.accent : 'transparent';
+          (e.currentTarget as HTMLButtonElement).style.color = active ? activeFg : c.textMuted;
+        }}
       >
         {icon}
       </button>
@@ -3035,23 +3111,23 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
       style={{
         position:'fixed', top: Math.max(8, pos.top), left: pos.left,
         transform:'translateX(-50%)', zIndex:400,
-        display:'flex', alignItems:'center', gap:2,
-        padding:'4px 6px', borderRadius:8,
+        display:'flex', alignItems:'center', gap:3, flexWrap:'nowrap',
+        padding:'5px 8px', borderRadius: c.radiusCard ?? 12,
         background:c.card, border:`1px solid ${c.border}`,
-        boxShadow:'0 4px 20px #00000028',
+        boxShadow:'0 4px 12px rgba(0,0,0,0.08)',
       }}
       onMouseDown={e => e.preventDefault()}
     >
-      {btn(<Bold size={14}/>, '굵게', 'Ctrl+B', () => applyFormat('**', '**'))}
-      {btn(<Italic size={14}/>, '기울임', 'Ctrl+I', () => applyFormat('*', '*'))}
-      {btn(<Code2 size={14}/>, '코드', 'Ctrl+`', () => applyFormat('`', '`'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 2px' }}/>
-      {btn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', () => convertHeading('heading1'))}
-      {btn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', () => convertHeading('heading2'))}
-      {btn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', () => convertHeading('heading3'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 2px' }}/>
-      {btn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키링크', 'Ctrl+Shift+K', () => applyFormat('[[', ']]'))}
-      {btn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', () => applyFormat('#', ''))}
+      {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
+      {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
+      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
+      {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
+      {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
+      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
+      {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
   );
 }
@@ -3079,6 +3155,9 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-block:hover .be-grip, .be-grip-pinned { cursor: grab; }
         .be-grip:active { cursor: grabbing; }
         .be-block-active { scroll-margin: 80px; }
+        .be-block:hover:not(.be-block-active):not(.be-block-selected) {
+          background: var(--be-block-hover-bg, rgba(139,92,246,0.015));
+        }
         .be-document {
           max-width: var(--be-doc-width, 720px);
           margin: 0 auto;
@@ -3103,8 +3182,8 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-wiki-chip {
           display: inline;
-          color: var(--be-link, var(--be-accent, #7f6df2));
-          background: var(--be-accent-bg, #7f6df218);
+          color: var(--be-link, var(--be-accent, #8B5CF6));
+          background: var(--be-accent-bg, rgba(139,92,246,0.08));
           border-radius: 4px;
           padding: 0 2px;
         }
@@ -3112,8 +3191,8 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-wiki-chip-broken { opacity: 0.75; font-style: italic; }
         .be-tag-chip {
           display: inline;
-          color: var(--be-accent, #6366f1);
-          background: var(--be-accent-bg, #eef2ff);
+          color: var(--be-accent, #8B5CF6);
+          background: var(--be-accent-bg, rgba(139,92,246,0.08));
           border-radius: 999px;
           padding: 0 6px;
           font-size: 0.92em;
@@ -3121,7 +3200,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-live-code {
           background: var(--be-code-bg, #f1f5f9);
-          color: var(--be-accent, #6366f1);
+          color: var(--be-accent, #8B5CF6);
           padding: 1px 5px;
           border-radius: 4px;
           font-size: 0.88em;
@@ -3129,7 +3208,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-live-mark {
           background: var(--be-accent-bg, #eef2ff);
-          color: var(--be-accent, #6366f1);
+          color: var(--be-accent, #8B5CF6);
           border-radius: 3px;
           padding: 0 2px;
         }
@@ -3163,6 +3242,7 @@ export const BlockEditor = React.memo(function BlockEditor({
           '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
           '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
           '--be-search-hl-color': colors.searchHlColor ?? colors.text,
+          '--be-block-hover-bg': colors.blockHoverBg ?? 'rgba(139,92,246,0.015)',
         } as CSSProperties}
       >
       <BlockEditorInner
