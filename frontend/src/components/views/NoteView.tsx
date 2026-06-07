@@ -31,6 +31,7 @@ import {
   buildBlockEditorColors,
   NOTE_FONT_OPTIONS,
   NOTE_DOCUMENT_MAX_WIDTH,
+  NOTE_RADIUS_CARD,
 } from './noteEditorTheme';
 
 
@@ -973,7 +974,7 @@ export const NoteView = () => {
                       {showAppearance && (
                         <div style={{
                           position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50,
-                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 10,
+                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: NOTE_RADIUS_CARD,
                           padding: '12px 14px', width: 240, boxShadow: '0 8px 28px #00000020',
                         }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: c.textMuted, marginBottom: 10 }}>편집기 모양</div>

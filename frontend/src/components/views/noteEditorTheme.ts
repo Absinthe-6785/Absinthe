@@ -9,6 +9,9 @@ export const NOTE_FONT_OPTIONS = [
 ] as const;
 
 export const NOTE_DOCUMENT_MAX_WIDTH = 720;
+export const NOTE_RADIUS_BTN = 8;
+export const NOTE_RADIUS_CARD = 12;
+export const NOTE_RADIUS_MODAL = 16;
 
 export interface NoteChromeColors {
   wrap: string;
@@ -127,7 +130,11 @@ export function buildBlockEditorColors(
     blockFocusBg: dark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.04)',
     blockFocusBorder: dark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)',
     blockSelectedBg: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)',
+    blockHoverBg: dark ? 'rgba(139,92,246,0.04)' : 'rgba(139,92,246,0.015)',
     toolbarActiveFg: '#FFFFFF',
+    radiusBtn: NOTE_RADIUS_BTN,
+    radiusCard: NOTE_RADIUS_CARD,
+    radiusModal: NOTE_RADIUS_MODAL,
     searchHlBg: dark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.12)',
     searchHlColor: dark ? '#E9E0FF' : '#5B21B6',
     linkColor: accent,
