@@ -34,6 +34,7 @@ import {
   NOTE_DOCUMENT_MAX_WIDTH,
   NOTE_RADIUS_CARD,
 } from './noteEditorTheme';
+import { type EditorMode, toggleEditReading } from './editorMode';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -147,7 +148,7 @@ export const NoteView = () => {
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('edit');
+  const [viewMode, setViewMode] = useState<EditorMode>('edit');
 
   const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
     const id = storeCreateNote({
@@ -434,7 +435,7 @@ export const NoteView = () => {
       switch (e.key) {
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
-        case 'e': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : (v === 'preview' ? 'edit' : 'preview')); break;
+        case 'e': e.preventDefault(); setViewMode(v => toggleEditReading(v)); break;
         case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
@@ -446,30 +447,30 @@ export const NoteView = () => {
   }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
 
   // 위키링크 따라가기 — 있으면 이동, 없으면 [[제목]] 노트 자동 생성
-  const navigateToWiki = useCallback((title: string, opts?: { preferPreview?: boolean }) => {
+  const navigateToWiki = useCallback((title: string, opts?: { preferReading?: boolean }) => {
     const trimmed = title.trim();
     if (!trimmed) return;
     const found = findNoteByTitle(trimmed, notes);
     if (found) {
       setActiveNoteId(found.id);
-      if (opts?.preferPreview) setViewMode('preview');
+      if (opts?.preferReading) setViewMode('reading');
       return;
     }
     createNote({ title: trimmed, body: '' });
   }, [notes, setActiveNoteId, setViewMode, createNote]);
 
-  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/preview 공통.
+  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/reading 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
     const el = document.querySelector(`[data-be-heading="${headingIdx}"]`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // 블록 readOnly 프리뷰용 클릭 위임 — be-wikilink / be-tag data 속성 처리
-  const handleBlockPreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // Reading mode click delegation — be-wikilink / be-tag data attributes
+  const handleReadingModeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     const wl = target.closest('.be-wikilink') as HTMLElement | null;
     if (wl?.dataset.wiki) {
-      navigateToWiki(wl.dataset.wiki, { preferPreview: true });
+      navigateToWiki(wl.dataset.wiki, { preferReading: true });
       return;
     }
     const tg = target.closest('.be-tag') as HTMLElement | null;
@@ -511,7 +512,7 @@ export const NoteView = () => {
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'preview' as const, icon: <Eye size={11}/>,     label: 'Read' },
+    { key: 'reading' as const, icon: <Eye size={11}/>,     label: 'Read' },
     { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
   ], []);
   const RIGHT_PANELS = useMemo(() => [
@@ -630,7 +631,7 @@ export const NoteView = () => {
             {[
               ['Ctrl + N',         'New Note'],
               ['Ctrl + D',         'Duplicate Note'],
-              ['Ctrl + E',         'Toggle Preview'],
+              ['Ctrl + E',         'Toggle Reading Mode'],
               ['Ctrl + G',         'Toggle Graph View'],
               ['Ctrl + F',         'Focus Mode'],
               ['Ctrl + /',         'Show Shortcuts'],
@@ -642,7 +643,7 @@ export const NoteView = () => {
               ['/',                'Slash command — insert block'],
               ['[[...]]',          'Wiki link autocomplete'],
               ['Ctrl + Click',     'Follow wiki link (edit mode)'],
-              ['Click [[link]]',   'Follow link · create if missing (preview)'],
+              ['Click [[link]]',   'Follow link · create if missing (reading mode)'],
               ['#tag in search',   'Filter notes by tag'],
               ['↑ ↓ Enter',        'Navigate menus'],
               ['Esc',              'Close / cancel'],
@@ -904,21 +905,21 @@ export const NoteView = () => {
                   </span>
                 ) : null
               )}
-              {/* View: Live Preview 기본 · Read / Graph 보조 */}
+              {/* View: edit default · Reading / Graph secondary */}
               <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
                 {VIEW_MODES.map(({ key, icon }) => (
                   <button
                     key={key}
-                    title={key === 'preview' ? '읽기 모드 (Ctrl+E)' : '그래프 (Ctrl+G)'}
+                    title={key === 'reading' ? 'Reading mode (Ctrl+E)' : 'Graph (Ctrl+G)'}
                     onClick={() => {
-                      if (key === 'preview') setViewMode(v => v === 'preview' ? 'edit' : 'preview');
+                      if (key === 'reading') setViewMode(v => toggleEditReading(v));
                       else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
                     }}
                     className="btbtn"
                     style={{
                       padding: '3px 7px', borderRadius: 5,
-                      background: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.card : 'none',
-                      color: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.accent : c.textMuted,
+                      background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
+                      color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
                     }}>
                     {icon}
                   </button>
@@ -1098,11 +1099,11 @@ export const NoteView = () => {
                       </div>
                     ) : (
                       <div
-                        onClick={viewMode === 'preview' ? handleBlockPreviewClick : undefined}
+                        onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
                         style={{ minHeight: '100%', padding: '24px 0 80px' }}>
-                        {viewMode === 'preview' && (
-                          <div style={{ maxWidth: 860, margin: '0 auto 8px', padding: '0 16px', fontSize: 11, color: c.textMuted }}>
-                            읽기 모드 — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> 로 편집
+                        {viewMode === 'reading' && (
+                          <div style={{ maxWidth: 720, margin: '0 auto 8px', padding: '0 16px', fontSize: 11, color: c.textMuted }}>
+                            Reading mode — double-click or <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> to edit
                           </div>
                         )}
                         <NoteBlockEditor
@@ -1111,7 +1112,7 @@ export const NoteView = () => {
                           body={activeNote.body}
                           onBodyChange={handleActiveBodyChange}
                           colors={blockColors}
-                          readOnly={viewMode === 'preview'}
+                          readOnly={viewMode === 'reading'}
                           searchQuery={editorSearchQuery}
                           searchScope={searchScope}
                           searchMatchIndex={searchMatchIdx}
