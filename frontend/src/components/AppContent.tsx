@@ -4,6 +4,7 @@ import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store/useAppStore';
+import { useNotesStore } from '../store/useNotesStore';
 import { useNow } from '../hooks/useNow';
 import { useToast } from '../hooks/useToast';
 import { useDailyData } from '../hooks/useDaily';
@@ -29,7 +30,8 @@ const THEME_COLORS: ThemeColor[] = [
 ];
 
 export function AppContent({ authUser }: { authUser: User }) {
-  const { appSettings, updateSetting, fetchNotes, fetchFolders } = useAppStore();
+  const { appSettings, updateSetting } = useAppStore();
+  const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
   const [activeTab, setActiveTab] = useState<TabId>('planner');
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
@@ -41,9 +43,8 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
   useEffect(() => {
-    fetchNotes();
-    fetchFolders();
-  }, [fetchNotes, fetchFolders]); // zustand actions은 참조가 안정적이므로 deps에 안전하게 포함
+    hydrateFromDB();
+  }, [hydrateFromDB]);
 
   // ── 3. Toast — useToast 훅으로 분리 ──────────────────────────────
   // 개선 전: toast state + useRef 타이머가 AppContent에 인라인

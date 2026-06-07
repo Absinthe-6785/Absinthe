@@ -4,7 +4,7 @@ import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
 import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, FileText, ChevronLeft, ChevronRight, FolderPlus, Folder, FolderOpen, RotateCcw, AlertTriangle } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { useAppStore } from '../../store/useAppStore';
+import { useNotesStore } from '../../store/useNotesStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
@@ -31,11 +31,7 @@ export const PlannerView = ({
     notes, folders, activeNoteId, activeFolderId,
     createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
     setActiveNoteId, createFolder, renameFolder, deleteFolder, setActiveFolderId,
-    fetchFolders,
-  } = useAppStore();
-
-  // 폴더 로드
-  useEffect(() => { fetchFolders(); }, [fetchFolders]);
+  } = useNotesStore();
 
   // 현재 폴더/휴지통 기준 필터링
   const visibleNotes = useMemo(() => {
@@ -596,7 +592,7 @@ export const PlannerView = ({
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <button onClick={() => activeFolderId !== 'trash' && createNote()}
+              <button onClick={() => activeFolderId !== 'trash' && createNote({ folderContext: activeFolderId })}
                 className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
             </div>
           )}

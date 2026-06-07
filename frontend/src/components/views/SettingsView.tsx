@@ -17,6 +17,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
+import { useNotesStore } from '../../store/useNotesStore';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -26,6 +27,7 @@ export const SettingsView = ({
   // ✅ DRY: useConfirm으로 3줄 → 1줄
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const { t } = useTranslation();
+  const resetAllNotes = useNotesStore(s => s.resetAllNotes);
 
   // ── CSV 내보내기 상태 ──────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -59,6 +61,7 @@ export const SettingsView = ({
     try {
       const res = await authFetch(`${API_URL}/api/reset`, { method: 'DELETE' });
       if (res.ok) {
+        resetAllNotes();
         showToast(t('resetSuccess'));
         mutateDaily();
         mutateStatic();
