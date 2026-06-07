@@ -157,6 +157,15 @@ export function makeBlock(type: BlockType, partial: Partial<Block> = {}): Block 
   };
 }
 
+/** Deep-clone a block subtree with fresh ids. */
+export function cloneBlockTree(block: Block): Block {
+  return {
+    ...block,
+    id: genBlockId(),
+    children: block.children.map(cloneBlockTree),
+  };
+}
+
 // ── 마크다운 → 블록 배열 파서 ────────────────────────────────────────
 /**
  * 기존 noteUtils.ts의 parseMarkdown이 HTML을 반환하는 것과 달리

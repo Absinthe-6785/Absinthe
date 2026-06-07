@@ -5,6 +5,7 @@ import {
   findBlockById,
   insertBlockAfter,
   updateBlockById,
+  convertBlock,
   type Block,
   type BlockType,
 } from './blockUtils';
@@ -106,7 +107,22 @@ export function moveBlockOutOfToggle(blocks: Block[], blockId: string): Block[] 
   return insertBlockAfter(tree, parentId, block);
 }
 
-/** Tab: nest into previous sibling toggle, or increase list indent. */
+/** Prepare previous sibling to accept a nested child (convert to toggle if needed). */
+function ensureParentToggle(blocks: Block[], parentId: string): Block[] {
+  const parent = findBlockById(blocks, parentId);
+  if (!parent) return blocks;
+  if (parent.type === 'toggle') {
+    return updateBlockById(blocks, parentId, t => ({ ...t, collapsed: false }));
+  }
+  if (!isNestableInToggle(parent.type)) return blocks;
+  return updateBlockById(blocks, parentId, b => ({
+    ...convertBlock(b, 'toggle'),
+    collapsed: false,
+    children: b.children ?? [],
+  }));
+}
+
+/** Tab: nest under previous sibling (outliner style), or increase list indent. */
 export function indentBlock(blocks: Block[], blockId: string): Block[] | null {
   const parentId = findParentId(blocks, blockId);
   const siblings = parentId === null || parentId === undefined
@@ -117,11 +133,16 @@ export function indentBlock(blocks: Block[], blockId: string): Block[] | null {
   const idx = siblings.findIndex(b => b.id === blockId);
   if (idx < 0) return null;
 
-  if (idx > 0 && siblings[idx - 1].type === 'toggle') {
-    return moveBlockIntoToggle(blocks, blockId, siblings[idx - 1].id);
+  const cur = siblings[idx];
+
+  if (idx > 0) {
+    const prev = siblings[idx - 1];
+    if (isNestableInToggle(cur.type) && (prev.type === 'toggle' || isNestableInToggle(prev.type))) {
+      const prepared = ensureParentToggle(blocks, prev.id);
+      return moveBlockIntoToggle(prepared, blockId, prev.id);
+    }
   }
 
-  const cur = siblings[idx];
   if (isListBlockType(cur.type)) {
     return updateBlockById(blocks, blockId, b => ({ ...b, indent: (b.indent ?? 0) + 1 }));
   }

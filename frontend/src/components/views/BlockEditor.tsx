@@ -18,7 +18,7 @@ import React, {
   type ReactNode, type CSSProperties,
 } from 'react';
 import {
-  ChevronRight, Plus,
+  ChevronRight, Plus, Copy,
   Heading1, Heading2, Heading3,
   List, ListOrdered, CheckSquare, Code2,
   Image as ImageIcon, Minus, Table2, Quote, Zap, Type,
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import {
   type Block, type BlockType,
-  makeBlock,
+  makeBlock, cloneBlockTree,
   updateBlockById, insertBlockAfter, deleteBlockById,
   findBlockById, flattenBlockIds, insertImageAfter,
   isTextBlockType,
@@ -126,6 +126,25 @@ function useDragDrop(
       }
 
       const els = document.elementsFromPoint(ev.clientX, ev.clientY);
+      const blockEl = els.find(
+        el => el.classList.contains('be-block') &&
+              el.getAttribute('data-drag-id') !== id,
+      ) as HTMLElement | undefined;
+
+      if (blockEl) {
+        const overId   = blockEl.getAttribute('data-drag-id') ?? '';
+        const blockType = blockEl.getAttribute('data-block-type');
+        const rect     = blockEl.getBoundingClientRect();
+        let overPos: 'before' | 'after' | 'inside';
+        if (blockType === 'toggle' && ev.clientY > rect.top + rect.height * 0.35) {
+          overPos = 'inside';
+        } else {
+          overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        }
+        setDragState(s => s?.draggingId === id ? { ...s, overId, overPos } : s);
+        return;
+      }
+
       const toggleDropEl = els.find(
         el => el.classList.contains('be-toggle-drop') &&
               el.getAttribute('data-toggle-id') !== id,
@@ -137,26 +156,7 @@ function useDragDrop(
         return;
       }
 
-      const blockEl = els.find(
-        el => el.classList.contains('be-block') &&
-              el.getAttribute('data-drag-id') !== id
-      ) as HTMLElement | undefined;
-
-      if (!blockEl) {
-        setDragState(s => s?.draggingId === id ? { ...s, overId: null, overPos: null } : s);
-        return;
-      }
-
-      const overId   = blockEl.getAttribute('data-drag-id') ?? '';
-      const blockType = blockEl.getAttribute('data-block-type');
-      const rect     = blockEl.getBoundingClientRect();
-      let overPos: 'before' | 'after' | 'inside';
-      if (blockType === 'toggle' && ev.clientY > rect.top + rect.height * 0.35) {
-        overPos = 'inside';
-      } else {
-        overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-      }
-      setDragState(s => s?.draggingId === id ? { ...s, overId, overPos } : null);
+      setDragState(s => s?.draggingId === id ? { ...s, overId: null, overPos: null } : s);
     };
 
     const onUp = () => {
@@ -586,6 +586,7 @@ const SingleBlock = React.memo(function SingleBlock({
     boxShadow: `0 0 6px ${c.accent}88`,
   };
 
+  const handleGutter = depth > 0 ? 34 : 38;
   const handles = !readOnly && (
     <div
       className="be-handles"
@@ -593,16 +594,9 @@ const SingleBlock = React.memo(function SingleBlock({
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position:'absolute', left:-(HANDLE_HIT_PX * 2 + 6), top:'50%', transform:'translateY(-50%)',
-        display:'flex', flexDirection:'row', alignItems:'center', gap:2,
+        position:'absolute', left:-handleGutter, top:'50%', transform:'translateY(-50%)',
+        display:'flex', flexDirection:'row', alignItems:'center',
       }}>
-      <button
-        type="button"
-        className="be-add-btn be-handle-btn"
-        onClick={e => { e.stopPropagation(); onAddBelow(block.id); }}
-        title="아래에 블록 추가">
-        <Plus size={16} strokeWidth={2.25}/>
-      </button>
       <button
         type="button"
         className={`be-grip be-handle-btn${controlsVisible ? ' be-grip-pinned' : ''}`}
@@ -614,7 +608,7 @@ const SingleBlock = React.memo(function SingleBlock({
             onOpenTurnInto({ blockId: block.id, anchorY: rect.top, anchorX: rect.right + 2 });
           });
         }}
-        title="드래그: 이동 · 클릭: Turn Into">
+        title="드래그: 이동 · 클릭: 메뉴">
         <BlockGripIcon />
       </button>
     </div>
@@ -2061,29 +2055,18 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       );
     case 'toggle':
       return (
-        <div className="be-toggle" style={{
-          background: c.toggleBg,
-          borderRadius: 10,
-          border: `1px solid ${c.border}`,
-          margin: '6px 0',
-          overflow: 'hidden',
-          transition: 'box-shadow .15s',
-          boxShadow: ctx.toggleOpen ? `0 1px 0 ${c.accent}22 inset` : 'none',
-        }}>
-          <div style={{
-            display:'flex', gap:8, alignItems:'flex-start', padding:'8px 12px',
-            borderBottom: ctx.toggleOpen ? `1px solid ${c.border}` : 'none',
-          }}>
+        <div className="be-toggle" style={{ margin:'2px 0', overflow:'visible' }}>
+          <div style={{ display:'flex', gap:6, alignItems:'flex-start', padding:'2px 0' }}>
             <button
               type="button"
               aria-label={ctx.toggleOpen ? '접기' : '펼치기'}
               style={{
-                color:c.accent, background:'none', border:'none', padding:0,
+                color:c.textMuted, background:'none', border:'none', padding:0,
                 transition:'transform .18s', transform: ctx.toggleOpen ? 'rotate(90deg)' : 'rotate(0deg)',
                 marginTop:3, flexShrink:0, cursor:'pointer', display:'flex',
               }}
               onClick={e => { e.stopPropagation(); ctx.onToggleCollapse(); }}>
-              <ChevronRight size={16}/>
+              <ChevronRight size={15}/>
             </button>
             {readOnly
               ? <span style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
@@ -2099,7 +2082,10 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             <div
               className="be-toggle-drop"
               data-toggle-id={block.id}
-              style={{ padding:'8px 12px 10px 36px', background: `${c.bg}88` }}
+              style={{
+                marginLeft: 20, paddingTop: 4, paddingBottom: 2,
+                borderTop: `1px solid ${c.border}`,
+              }}
             >
               {block.children.length > 0 ? (
                 <BlockEditorInner
@@ -2290,7 +2276,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
   // Phase 3: 드래그&드롭
   const { dragState, bindGripPointer, getDragProps } = useDragDrop(blocks, onChange);
-  const [turnIntoMenu, setTurnIntoMenu] = useState<TurnIntoMenuState | null>(null);
+  const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
   const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
   const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
   const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2321,9 +2307,11 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   const controlsVisibleFor = useCallback((blockId: string) =>
     pinnedControlsId === blockId
-    || turnIntoMenu?.blockId === blockId
-    || chromeHoverId === blockId,
-  [pinnedControlsId, turnIntoMenu, chromeHoverId]);
+    || handleMenu?.blockId === blockId
+    || chromeHoverId === blockId
+    || activeBlockId === blockId
+    || selected === blockId,
+  [pinnedControlsId, handleMenu, chromeHoverId, activeBlockId, selected]);
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
@@ -2331,16 +2319,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   );
 
   useEffect(() => {
-    if (!pinnedControlsId && !turnIntoMenu) return;
+    if (!pinnedControlsId && !handleMenu) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('.be-handles, .be-turn-into-menu')) return;
+      if (t.closest('.be-handles, .be-block-handle-menu')) return;
       setPinnedControlsId(null);
-      setTurnIntoMenu(null);
+      setHandleMenu(null);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [pinnedControlsId, turnIntoMenu]);
+  }, [pinnedControlsId, handleMenu]);
 
   const handleAddBelow = useCallback((id: string) => {
     const nb = makeBlock('paragraph');
@@ -2369,9 +2357,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const handleConvert = useCallback((id: string, newType: BlockType) => {
     onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
     setBlockMenu(null);
-    setTurnIntoMenu(null);
+    setHandleMenu(null);
     setPinnedControlsId(null);
     setFocusCmd({ blockId: id, offset: 'end' });
+  }, [onChange]);
+
+  const handleDuplicate = useCallback((id: string) => {
+    const block = findBlockById(blocksRef.current, id);
+    if (!block) return;
+    const copy = cloneBlockTree(block);
+    onChange(insertBlockAfter(blocksRef.current, id, copy));
+    setFocusCmd({ blockId: copy.id, offset: 'start' });
+    setSelected(copy.id);
   }, [onChange]);
 
   // ── Phase 2: 블록 분리 (Enter) ───────────────────────────────────
@@ -2583,7 +2580,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   return (
   <BlocksCtx.Provider value={blocksCtx}>
     <>
-      <div className="be-editor-root" style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 44), position:'relative' }}>
+      <div
+        className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}`}
+        style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? 36 : 0), position:'relative' }}
+      >
         {blocks.map(block => (
           <SingleBlock
             key={block.id} block={block}
@@ -2601,7 +2601,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             dragState={dragState}
             bindGripPointer={bindGripPointer}
             getDragProps={getDragProps}
-            onOpenTurnInto={setTurnIntoMenu}
+            onOpenTurnInto={setHandleMenu}
             onConvertBlock={handleConvert}
             onSlashOpen={setSlashMenu}
             onSlashClose={() => setSlashMenu(null)}
@@ -2635,28 +2635,38 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           getBlockType={getBlockType}
         />
       )}
-      {turnIntoMenu && (
-        <TurnIntoMenu
-          blockId={turnIntoMenu.blockId}
-          currentType={findBlockById(blocksRef.current, turnIntoMenu.blockId)?.type ?? 'paragraph'}
-          anchorY={turnIntoMenu.anchorY}
-          anchorX={turnIntoMenu.anchorX}
+      {handleMenu && (
+        <BlockHandleMenu
+          blockId={handleMenu.blockId}
+          currentType={findBlockById(blocksRef.current, handleMenu.blockId)?.type ?? 'paragraph'}
+          anchorY={handleMenu.anchorY}
+          anchorX={handleMenu.anchorX}
           colors={c}
-          onSelect={type => handleConvert(turnIntoMenu.blockId, type)}
-          onClose={() => { setTurnIntoMenu(null); setPinnedControlsId(null); }}
+          onAddBelow={() => { handleAddBelow(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
+          onDuplicate={() => { handleDuplicate(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
+          onSelect={type => handleConvert(handleMenu.blockId, type)}
+          onDelete={() => { handleDelete(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
+          onMoveUp={() => { handleMove(handleMenu.blockId, 'up'); setHandleMenu(null); setPinnedControlsId(null); }}
+          onMoveDown={() => { handleMove(handleMenu.blockId, 'down'); setHandleMenu(null); setPinnedControlsId(null); }}
+          onClose={() => { setHandleMenu(null); setPinnedControlsId(null); }}
           onChromeEnter={handleChromeEnter}
           onChromeLeave={handleChromeLeave}
         />
       )}
       {blockMenu && (
-        <BlockContextMenu
-          blockId={blockMenu.blockId} anchorY={blockMenu.anchorY} anchorX={blockMenu.anchorX}
+        <BlockHandleMenu
+          blockId={blockMenu.blockId}
+          currentType={findBlockById(blocksRef.current, blockMenu.blockId)?.type ?? 'paragraph'}
+          anchorY={blockMenu.anchorY}
+          anchorX={blockMenu.anchorX}
           colors={c}
-          onClose={() => setBlockMenu(null)}
+          onAddBelow={() => { handleAddBelow(blockMenu.blockId); setBlockMenu(null); }}
+          onDuplicate={() => { handleDuplicate(blockMenu.blockId); setBlockMenu(null); }}
+          onSelect={type => handleConvert(blockMenu.blockId, type)}
           onDelete={() => { handleDelete(blockMenu.blockId); setBlockMenu(null); }}
           onMoveUp={() => { handleMove(blockMenu.blockId, 'up'); setBlockMenu(null); }}
           onMoveDown={() => { handleMove(blockMenu.blockId, 'down'); setBlockMenu(null); }}
-          onConvert={type => handleConvert(blockMenu.blockId, type)}
+          onClose={() => setBlockMenu(null)}
         />
       )}
       {/* Phase 3: 슬래시 커맨드 메뉴 */}
@@ -2687,95 +2697,31 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   );
 }
 
-// ── 블록 컨텍스트 메뉴 ──────────────────────────────────────────────
-interface BlockContextMenuProps {
-  blockId: string; anchorY: number; anchorX: number;
-  colors: BlockEditorColors;
-  onClose: () => void; onDelete: () => void;
-  onMoveUp: () => void; onMoveDown: () => void;
-  onConvert: (type: BlockType) => void;
-}
-
-function BlockContextMenu({ anchorY, anchorX, colors: c, onClose, onDelete, onMoveUp, onMoveDown, onConvert }: BlockContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
-
-  const top  = Math.min(anchorY, window.innerHeight - 440);
-  const left = Math.min(anchorX, window.innerWidth  - 220);
-
-  const mi = (icon: ReactNode, label: string, fn: () => void, danger = false) => (
-    <button onClick={fn} style={{
-      display:'flex', alignItems:'center', gap:8, width:'100%',
-      padding:'7px 12px', background:'none', border:'none',
-      cursor:'pointer', fontSize:13, color: danger ? c.danger : c.text, textAlign:'left',
-    }}
-    onMouseEnter={e => (e.currentTarget.style.background = c.cardHov)}
-    onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-      {icon}{label}
-    </button>
-  );
-  const sec = (label: string) => (
-    <div style={{ padding:'5px 12px 2px', fontSize:9, fontWeight:700, color:c.textFaint, letterSpacing:1, textTransform:'uppercase' }}>
-      {label}
-    </div>
-  );
-
-  return (
-    <div ref={menuRef} style={{
-      position:'fixed', top, left, zIndex:300,
-      background:c.card, border:`1px solid ${c.border}`,
-      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
-      minWidth:200, overflow:'hidden', padding:'6px 0',
-    }}>
-      {sec('이동')}
-      {mi(<ArrowUp size={12}/>,   '위로 이동',   onMoveUp)}
-      {mi(<ArrowDown size={12}/>, '아래로 이동', onMoveDown)}
-      {sec('블록 변환')}
-      <div style={{ maxHeight:220, overflowY:'auto' }}>
-        {BLOCK_TYPE_MENU.map(m => (
-          <button key={m.type} onClick={() => onConvert(m.type)} style={{
-            display:'flex', alignItems:'center', gap:8, width:'100%',
-            padding:'6px 12px', background:'none', border:'none',
-            cursor:'pointer', fontSize:12, color:c.text, textAlign:'left',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.background = c.cardHov)}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-            <span style={{ width:18, fontSize:13, textAlign:'center', flexShrink:0 }}>{m.icon}</span>
-            <span style={{ flex:1 }}>{m.label}</span>
-            <span style={{ color:c.textFaint, fontSize:11 }}>{m.desc}</span>
-          </button>
-        ))}
-      </div>
-      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-      {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
-    </div>
-  );
-}
-
-// ── Turn Into 메뉴 (블록 hover ⋮⋮) ────────────────────────────────────
-interface TurnIntoMenuProps {
+// ── 블록 핸들 메뉴 (⋮⋮ 클릭) ─────────────────────────────────────────
+interface BlockHandleMenuProps {
   blockId: string;
   currentType: BlockType;
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
+  onAddBelow: () => void;
+  onDuplicate: () => void;
   onSelect: (type: BlockType) => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onClose: () => void;
   onChromeEnter?: (id: string) => void;
   onChromeLeave?: () => void;
 }
 
-function TurnIntoMenu({
-  blockId, currentType, anchorY, anchorX, colors: c, onSelect, onClose,
+function BlockHandleMenu({
+  blockId, currentType, anchorY, anchorX, colors: c,
+  onAddBelow, onDuplicate, onSelect, onDelete, onMoveUp, onMoveDown, onClose,
   onChromeEnter, onChromeLeave,
-}: TurnIntoMenuProps) {
+}: BlockHandleMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const items = useMemo(
+  const turnIntoItems = useMemo(
     () => TURN_INTO_TYPES.map(t => BLOCK_TYPE_MENU.find(m => m.type === t)).filter((m): m is NonNullable<typeof m> => m != null),
     [],
   );
@@ -2794,46 +2740,73 @@ function TurnIntoMenu({
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const top  = Math.min(anchorY, window.innerHeight - 320);
-  const left = Math.min(anchorX, window.innerWidth  - 210);
+  const top  = Math.min(anchorY, window.innerHeight - 420);
+  const left = Math.min(anchorX, window.innerWidth  - 220);
+
+  const mi = (icon: ReactNode, label: string, fn: () => void, danger = false) => (
+    <button type="button" onClick={fn} style={{
+      display:'flex', alignItems:'center', gap:8, width:'100%',
+      padding:'7px 12px', background:'none', border:'none',
+      cursor:'pointer', fontSize:13, color: danger ? c.danger : c.text, textAlign:'left',
+    }}
+    onMouseEnter={e => (e.currentTarget.style.background = c.cardHov)}
+    onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+      {icon}{label}
+    </button>
+  );
+  const sec = (label: string) => (
+    <div style={{ padding:'5px 12px 2px', fontSize:9, fontWeight:700, color:c.textFaint, letterSpacing:1, textTransform:'uppercase' }}>
+      {label}
+    </div>
+  );
 
   return (
     <div
       ref={menuRef}
-      className="be-turn-into-menu"
+      className="be-block-handle-menu"
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-      position:'fixed', top, left, zIndex:400,
-      background:c.card, border:`1px solid ${c.border}`,
-      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
-      width:196, overflow:'hidden', padding:'6px 0',
-    }}>
-      <div style={{ padding:'4px 12px 8px', fontSize:10, fontWeight:700, color:c.textFaint, letterSpacing:0.8, textTransform:'uppercase' }}>
-        Turn Into
+        position:'fixed', top, left, zIndex:400,
+        background:c.card, border:`1px solid ${c.border}`,
+        borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
+        minWidth:196, maxWidth:220, overflow:'hidden', padding:'6px 0',
+      }}
+    >
+      {mi(<Plus size={13}/>, '아래에 블록 추가', onAddBelow)}
+      {mi(<Copy size={13}/>, '복제', onDuplicate)}
+      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+      {sec('Turn Into')}
+      <div style={{ maxHeight:200, overflowY:'auto' }}>
+        {turnIntoItems.map(item => {
+          const active = item.type === currentType;
+          return (
+            <button
+              key={item.type}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
+              style={{
+                display:'flex', alignItems:'center', gap:10, width:'100%',
+                padding:'6px 12px', background: active ? c.accentBg : 'none',
+                border:'none', cursor:'pointer', textAlign:'left',
+              }}
+              onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
+              onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+            >
+              <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent, flexShrink:0 }}>
+                {blockIcon(item.type)}
+              </span>
+              <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{item.label}</span>
+            </button>
+          );
+        })}
       </div>
-      {items.map(item => {
-        const active = item.type === currentType;
-        return (
-          <button
-            key={item.type}
-            type="button"
-            onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
-            style={{
-              display:'flex', alignItems:'center', gap:10, width:'100%',
-              padding:'7px 12px', background: active ? c.accentBg : 'none',
-              border:'none', cursor:'pointer', textAlign:'left',
-            }}
-            onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
-            onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-          >
-            <span style={{ width:24, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent, flexShrink:0 }}>
-              {blockIcon(item.type)}
-            </span>
-            <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{item.label}</span>
-          </button>
-        );
-      })}
+      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+      {sec('이동')}
+      {mi(<ArrowUp size={12}/>, '위로 이동', onMoveUp)}
+      {mi(<ArrowDown size={12}/>, '아래로 이동', onMoveDown)}
+      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+      {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
     </div>
   );
 }
@@ -3257,15 +3230,27 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-block::before {
           content: '';
           position: absolute;
-          left: -80px;
-          top: -8px;
-          bottom: -8px;
-          width: 80px;
+          left: -44px;
+          top: -4px;
+          bottom: -4px;
+          width: 44px;
         }
-        .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
+        .be-editor-nested .be-block::before { left: -40px; width: 40px; }
+        .be-handles {
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          transition: opacity .12s, visibility .12s;
+        }
         .be-block:hover .be-handles,
+        .be-block.be-block-active .be-handles,
+        .be-block.be-block-selected .be-handles,
         .be-block.be-controls-visible .be-handles,
-        .be-handles:hover { opacity: 1 !important; pointer-events: auto !important; }
+        .be-handles:hover {
+          opacity: 1 !important;
+          visibility: visible !important;
+          pointer-events: auto !important;
+        }
         .be-handle-btn {
           width: 32px;
           height: 32px;
@@ -3279,7 +3264,6 @@ export const BlockEditor = React.memo(function BlockEditor({
           padding: 0;
           transition: opacity .12s, background .12s, color .12s;
         }
-        .be-add-btn { cursor: pointer; }
         .be-grip { cursor: grab; touch-action: none; }
         .be-grip:active { cursor: grabbing; }
         .be-grip-icon {
@@ -3364,8 +3348,8 @@ export const BlockEditor = React.memo(function BlockEditor({
           border-radius: 2px;
         }
         .be-selection-toolbar button:active { transform: scale(0.94); }
-        .be-turn-into-menu { margin-left: -4px; }
-        .be-turn-into-menu::before {
+        .be-block-handle-menu { margin-left: -4px; }
+        .be-block-handle-menu::before {
           content: '';
           position: absolute;
           right: 100%;
@@ -3373,6 +3357,7 @@ export const BlockEditor = React.memo(function BlockEditor({
           bottom: 0;
           width: 16px;
         }
+        .be-toggle .be-block { margin-left: 0 !important; }
       `}</style>
       <div
         className="be-editor-root be-document"
@@ -3402,7 +3387,7 @@ export const BlockEditor = React.memo(function BlockEditor({
       />
       </div>
       {!readOnly && (
-        <div style={{ minHeight:80, cursor:'text', paddingLeft:44 }}
+        <div style={{ minHeight:80, cursor:'text' }}
           onClick={() => {
             const last = blocks[blocks.length - 1];
             if (!last || last.type !== 'paragraph' || last.content)
