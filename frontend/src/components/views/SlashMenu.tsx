@@ -2,8 +2,9 @@
  * SlashMenu.tsx — Slash command popup (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { filterBlockMenu, type BlockType } from './blockUtils';
+import type { BlockType } from './blockUtils';
 import { slashDisplayLabel, slashShortcutFor } from './slashCommands';
+import { buildSlashPalette } from './slashPalette';
 import type { BlockEditorColors } from './editorTypes';
 
 export interface SlashMenuProps {
@@ -17,16 +18,19 @@ export interface SlashMenuProps {
 
 export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClose }: SlashMenuProps) {
   const [cursor, setCursor] = useState(0);
-  const items = useMemo(() => filterBlockMenu(query), [query]);
+  const palette = useMemo(() => buildSlashPalette(query), [query]);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const grouped = useMemo(() => {
-    const g: Record<string, typeof items> = {};
-    items.forEach(item => { (g[item.group] ??= []).push(item); });
+    const g: Record<string, typeof palette.items> = {};
+    palette.items.forEach(item => { (g[item.group] ??= []).push(item); });
     return g;
-  }, [items]);
+  }, [palette.items]);
 
-  const flatItems = useMemo(() => Object.values(grouped).flat(), [grouped]);
+  const flatItems = useMemo(
+    () => [...palette.recent, ...Object.values(grouped).flat()],
+    [palette.recent, grouped],
+  );
 
   useEffect(() => { setCursor(0); }, [query]);
 
@@ -79,8 +83,55 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · todo · toggle · bullet · code …'}
         </div>
       </div>
-      {items.length === 0 && (
-        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>결과 없음</div>
+      {flatItems.length === 0 && (
+        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>No results</div>
+      )}
+      {palette.recent.length > 0 && (
+        <div>
+          <div style={{
+            padding: '4px 12px 2px', fontSize: 9, color: c.textFaint, fontWeight: 700,
+            letterSpacing: 1, textTransform: 'uppercase',
+          }}>
+            Recent
+          </div>
+          {palette.recent.map((item, idx) => {
+            const active = cursor === idx;
+            const shortcut = slashShortcutFor(item.type);
+            return (
+              <button
+                key={`recent-${item.type}`}
+                data-idx={idx}
+                type="button"
+                onClick={() => onSelect(item.type)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '7px 12px', background: active ? c.accentBg : 'none',
+                  border: 'none', cursor: 'pointer', textAlign: 'left',
+                }}
+                onMouseEnter={() => setCursor(idx)}
+              >
+                <span style={{
+                  width: 28, height: 28, borderRadius: 6, background: c.toolbar,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14, flexShrink: 0, color: c.accent,
+                }}>
+                  {item.icon}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{slashDisplayLabel(item.type)}</div>
+                  <div style={{ fontSize: 11, color: c.textMuted }}>{item.desc}</div>
+                </span>
+                {shortcut && (
+                  <span style={{
+                    fontSize: 10, color: c.textFaint, fontFamily: 'ui-monospace, monospace', flexShrink: 0,
+                  }}>
+                    /{shortcut}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
       {Object.entries(grouped).map(([group, gItems]) => (
         <div key={group}>
@@ -93,7 +144,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
             </div>
           )}
           {gItems.map(item => {
-            const idx = flatItems.indexOf(item);
+            const idx = flatItems.findIndex(f => f.type === item.type);
             const active = cursor === idx;
             const shortcut = slashShortcutFor(item.type);
             return (

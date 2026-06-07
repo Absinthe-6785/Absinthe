@@ -17,24 +17,19 @@ import React, {
   useState, useRef, useCallback, useMemo, useEffect, useContext,
   type ReactNode, type CSSProperties,
 } from 'react';
-import {
-  ChevronRight, Plus, Copy, Indent, Outdent, Link2, Palette,
-  Trash2, ArrowUp, ArrowDown, Bold, Italic, Hash,
-} from 'lucide-react';
+import { ChevronRight, Code2 } from 'lucide-react';
 import {
   type Block, type BlockType,
   makeBlock, cloneBlockTree,
   updateBlockById, insertBlockAfter, deleteBlockById,
   findBlockById, flattenBlockIds, insertImageAfter,
   isTextBlockType,
-  BLOCK_TYPE_MENU, TURN_INTO_TYPES,
   blocksToMarkdown, markdownToBlocks,
   convertBlock,
   isValidImageUrl,
   imageAltFromUrl,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
-import { selectionHasFormat, toggleMarkdownWrap } from './inlineFormat';
 import {
   readBlockText,
   getCaretOffset,
@@ -47,9 +42,9 @@ import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
-import { slashDisplayLabel, resolveSlashCommand } from './slashCommands';
+import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
-import { BLOCK_TINT_OPTIONS, blockTintStyle, type BlockTint } from './blockColors';
+import { blockTintStyle } from './blockColors';
 import { applyPasteAtBlock, extractClipboardText } from './blockPaste';
 import {
   blockLayoutIndentPx,
@@ -69,9 +64,14 @@ import {
   BlockGripIcon,
   type DragState,
 } from './editorDragDrop';
-import { blockIcon } from './blockIcons';
 import { SlashMenu } from './SlashMenu';
+import { recordSlashUsage } from './slashRecent';
 import type { BlockEditorColors, TurnIntoMenuState } from './editorTypes';
+import { readingRootClass, EDITOR_READING_STYLES } from './editorReading';
+import { BlockContextMenu } from './BlockContextMenu';
+import { SelectionToolbar } from './SelectionToolbar';
+import { paintEditableLive } from './editableLive';
+import { applyWrapToBlockSelection } from './toolbarFormat';
 
 export type { BlockEditorColors } from './editorTypes';
 
@@ -182,83 +182,6 @@ function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = 
   html = html.replace(/\u0000M(\d+)\u0000/g, (_m, i: string) => math[Number(i)]);
 
   return <span dangerouslySetInnerHTML={{ __html: html }}/>;
-}
-
-/** 편집 중 Live Preview — 마크다운 문자는 유지하고 시각만 포맷 (캐럿 offset 보존) */
-function liveInlineHtml(text: string, c: BlockEditorColors, wikiTargets: string[] = [], searchQuery = ''): string {
-  if (!text) return '';
-  const wikiSet = new Set(wikiTargets.map(normalizeWikiTitle));
-  const esc = (s: string) =>
-    s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const escAttr = (s: string) => s.replace(/"/g, '&quot;');
-
-  const math: string[] = [];
-  let work = text.replace(/\$([^$\n]+)\$/g, (_m, expr: string) => {
-    math.push(`<code class="be-live-code">${esc(expr)}</code>`);
-    return `\u0000M${math.length - 1}\u0000`;
-  });
-
-  // pre-wrap on contentEditable renders \n in text nodes; <br> breaks caret offsets
-  let html = esc(work)
-    .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
-      const broken = wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(t));
-      const cls = broken ? 'be-wiki-chip be-wiki-chip-broken' : 'be-wiki-chip';
-      return `<span class="${cls}" data-wiki="${escAttr(t)}"><span class="be-bracket">[[</span>${esc(t)}<span class="be-bracket">]]</span></span>`;
-    })
-    .replace(/(^|\s)(#[\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
-      `${sp}<span class="be-tag-chip" data-tag="${escAttr(tag.slice(1))}">${tag}</span>`)
-    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em><span class="be-mark">***</span>$1<span class="be-mark">***</span></em></strong>')
-    .replace(/\*\*(.+?)\*\*/g,     '<strong><span class="be-mark">**</span>$1<span class="be-mark">**</span></strong>')
-    .replace(/\*(.+?)\*/g,         '<em><span class="be-mark">*</span>$1<span class="be-mark">*</span></em>')
-    .replace(/~~(.+?)~~/g,         '<del><span class="be-mark">~~</span>$1<span class="be-mark">~~</span></del>')
-    .replace(/==(.+?)==/g,         `<mark class="be-live-mark"><span class="be-mark">==</span>$1<span class="be-mark">==</span></mark>`)
-    .replace(/`([^`]+)`/g,         `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`);
-
-  if (searchQuery.trim()) {
-    const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    html = html.replace(new RegExp(`(${q})`, 'gi'), '<mark class="be-search-hl">$1</mark>');
-  }
-
-  html = html.replace(/\u0000M(\d+)\u0000/g, (_m, i: string) => math[Number(i)]);
-  return html;
-}
-
-function getPlainSelectionOffsets(el: HTMLElement): { start: number; end: number } | null {
-  return getSelectionOffsets(el);
-}
-
-function applyWrapToBlockSelection(
-  el: HTMLElement,
-  blockText: string,
-  before: string,
-  after: string,
-  onText: (text: string) => void,
-  afterApply?: (el: HTMLElement, text: string, selection: { start: number; end: number }) => void,
-): boolean {
-  const sel = getPlainSelectionOffsets(el);
-  if (!sel) return false;
-  const result = toggleMarkdownWrap(blockText, sel.start, sel.end, before, after);
-  onText(result.text);
-  if (afterApply) afterApply(el, result.text, { start: result.selStart, end: result.selEnd });
-  else {
-    el.innerText = result.text;
-    setSelectionOffsets(el, result.selStart, result.selEnd);
-  }
-  return true;
-}
-
-function paintEditableLive(
-  el: HTMLElement,
-  text: string,
-  c: BlockEditorColors,
-  wikiTargets: string[],
-  searchQuery: string,
-  caretOffset?: number,
-  selection?: { start: number; end: number },
-) {
-  el.innerHTML = liveInlineHtml(text, c, wikiTargets, searchQuery);
-  if (selection) setSelectionOffsets(el, selection.start, selection.end);
-  else if (caretOffset != null) setCaretOffset(el, caretOffset);
 }
 
 // ── SingleBlock ───────────────────────────────────────────────────────
@@ -2411,7 +2334,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const id = state.blockId;
     const root = getRootBlocks();
     return (
-      <BlockHandleMenu
+      <BlockContextMenu
         blockId={id}
         currentType={findBlockById(blocksRef.current, id)?.type ?? 'paragraph'}
         anchorY={state.anchorY}
@@ -2624,6 +2547,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       return { ...b, type, content: cleaned };
     }));
 
+    recordSlashUsage(type);
     setSlashMenu(null);
     // 타입 변환 후 해당 블록 포커스 (끝)
     setFocusCmd({ blockId, offset: 'end' });
@@ -2765,175 +2689,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   );
 }
 
-// ── 블록 핸들 메뉴 (⋮⋮ 클릭) ─────────────────────────────────────────
-interface BlockHandleMenuProps {
-  blockId: string;
-  currentType: BlockType;
-  anchorY: number;
-  anchorX: number;
-  colors: BlockEditorColors;
-  onAddAbove: () => void;
-  onAddBelow: () => void;
-  onDuplicate: () => void;
-  onIndent: () => void;
-  onOutdent: () => void;
-  onMoveIntoToggle: () => void;
-  onMoveOutOfToggle: () => void;
-  canMoveIntoToggle: boolean;
-  canMoveOutOfToggle: boolean;
-  onSetTint: (tint: BlockTint) => void;
-  onCopyLink: () => void;
-  onSelect: (type: BlockType) => void;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onClose: () => void;
-  onChromeEnter?: (id: string) => void;
-  onChromeLeave?: () => void;
-}
-
-function BlockHandleMenu({
-  blockId, currentType, anchorY, anchorX, colors: c,
-  onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
-  onMoveIntoToggle, onMoveOutOfToggle, canMoveIntoToggle, canMoveOutOfToggle,
-  onSetTint, onCopyLink,
-  onSelect, onDelete, onMoveUp, onMoveDown, onClose,
-  onChromeEnter, onChromeLeave,
-}: BlockHandleMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [submenu, setSubmenu] = useState<'turn' | 'color' | null>(null);
-  const turnIntoItems = useMemo(
-    () => TURN_INTO_TYPES.map(t => BLOCK_TYPE_MENU.find(m => m.type === t)).filter((m): m is NonNullable<typeof m> => m != null),
-    [],
-  );
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
-
-  const top  = Math.min(anchorY, window.innerHeight - 480);
-  const left = Math.min(anchorX, window.innerWidth  - 240);
-
-  const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
-    <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
-      display:'flex', alignItems:'center', gap:8, width:'100%',
-      padding:'7px 12px', background:'none', border:'none',
-      cursor: disabled ? 'default' : 'pointer', fontSize:13,
-      color: disabled ? c.textFaint : danger ? c.danger : c.text,
-      textAlign:'left', opacity: disabled ? 0.45 : 1,
-    }}
-    onMouseEnter={e => (e.currentTarget.style.background = c.cardHov)}
-    onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-      {icon}{label}
-    </button>
-  );
-  const sec = (label: string) => (
-    <div style={{ padding:'5px 12px 2px', fontSize:9, fontWeight:700, color:c.textFaint, letterSpacing:1, textTransform:'uppercase' }}>
-      {label}
-    </div>
-  );
-
-  return (
-    <div
-      ref={menuRef}
-      className="be-block-handle-menu"
-      onMouseEnter={() => onChromeEnter?.(blockId)}
-      onMouseLeave={() => onChromeLeave?.()}
-      style={{
-        position:'fixed', top, left, zIndex:400,
-        background:c.card, border:`1px solid ${c.border}`,
-        borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-        minWidth:210, maxWidth:240, overflow:'hidden', padding:'6px 0',
-      }}
-    >
-      {submenu === 'turn' ? (
-        <>
-          <button type="button" onClick={() => setSubmenu(null)} style={{
-            display:'flex', alignItems:'center', gap:6, width:'100%', padding:'6px 12px',
-            background:'none', border:'none', cursor:'pointer', fontSize:12, color:c.textMuted, textAlign:'left',
-          }}>← 전환</button>
-          <div style={{ maxHeight:240, overflowY:'auto' }}>
-            {turnIntoItems.map(item => {
-              const active = item.type === currentType;
-              return (
-                <button key={item.type} type="button"
-                  onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
-                  style={{
-                    display:'flex', alignItems:'center', gap:10, width:'100%',
-                    padding:'6px 12px', background: active ? c.accentBg : 'none',
-                    border:'none', cursor:'pointer', textAlign:'left',
-                  }}>
-                  <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent }}>{blockIcon(item.type)}</span>
-                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{slashDisplayLabel(item.type)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      ) : submenu === 'color' ? (
-        <>
-          <button type="button" onClick={() => setSubmenu(null)} style={{
-            display:'flex', alignItems:'center', gap:6, width:'100%', padding:'6px 12px',
-            background:'none', border:'none', cursor:'pointer', fontSize:12, color:c.textMuted, textAlign:'left',
-          }}>← 색상</button>
-          {BLOCK_TINT_OPTIONS.map(opt => (
-            <button key={opt.id} type="button" onClick={() => onSetTint(opt.id)}
-              style={{
-                display:'flex', alignItems:'center', gap:10, width:'100%', padding:'6px 12px',
-                background:'none', border:'none', cursor:'pointer', textAlign:'left',
-              }}>
-              <span style={{ width:16, height:16, borderRadius:4, background:opt.bg, border:`2px solid ${opt.border}` }}/>
-              <span style={{ fontSize:13, color:c.text }}>{opt.label}</span>
-            </button>
-          ))}
-        </>
-      ) : (
-        <>
-          {sec('블록')}
-          {mi(<Plus size={13}/>, '위에 블록 추가', onAddAbove)}
-          {mi(<Plus size={13}/>, '아래에 블록 추가', onAddBelow)}
-          {mi(<Copy size={13}/>, '복제', onDuplicate)}
-          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-          <button type="button" onClick={() => setSubmenu('turn')} style={{
-            display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%',
-            padding:'7px 12px', background:'none', border:'none', cursor:'pointer', fontSize:13, color:c.text,
-          }}>
-            <span>전환</span><span style={{ color:c.textFaint }}>›</span>
-          </button>
-          <button type="button" onClick={() => setSubmenu('color')} style={{
-            display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%',
-            padding:'7px 12px', background:'none', border:'none', cursor:'pointer', fontSize:13, color:c.text,
-          }}>
-            <span style={{ display:'flex', alignItems:'center', gap:8 }}><Palette size={13}/>색상</span>
-            <span style={{ color:c.textFaint }}>›</span>
-          </button>
-          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-          {sec('구조')}
-          {mi(<Indent size={13}/>, '들여쓰기', onIndent)}
-          {mi(<Outdent size={13}/>, '내어쓰기', onOutdent)}
-          {mi(<Indent size={13}/>, '토글 안으로 이동', onMoveIntoToggle, false, !canMoveIntoToggle)}
-          {mi(<Outdent size={13}/>, '토글 밖으로 이동', onMoveOutOfToggle, false, !canMoveOutOfToggle)}
-          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-          {mi(<Link2 size={13}/>, '블록 링크 복사', onCopyLink)}
-          {mi(<ArrowUp size={12}/>, '위로 이동', onMoveUp)}
-          {mi(<ArrowDown size={12}/>, '아래로 이동', onMoveDown)}
-          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-          {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── 위키링크 자동완성 메뉴 ──────────────────────────────────────────
 interface WikiMenuProps {
@@ -3011,251 +2766,6 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
 
 const noopBlockChange = () => {};
 
-// ── 툴바 툴팁 ─────────────────────────────────────────────────────────
-function ToolbarTip({
-  label, hint, children, colors: c, radius,
-}: { label: string; hint?: string; children: ReactNode; colors: BlockEditorColors; radius?: number }) {
-  const tipRadius = radius ?? c.radiusBtn ?? 8;
-  const [show, setShow] = useState(false);
-  return (
-    <div
-      style={{ position: 'relative', display: 'flex' }}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
-      {children}
-      {show && (
-        <div style={{
-          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
-          background: c.card, border: `1px solid ${c.border}`, borderRadius: tipRadius,
-          padding: '4px 8px', whiteSpace: 'nowrap', zIndex: 500,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.08)', pointerEvents: 'none',
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: c.text }}>{label}</div>
-          {hint && <div style={{ fontSize: 10, color: c.textMuted, marginTop: 1 }}>{hint}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── 선택 텍스트 포맷 툴바 ─────────────────────────────────────────────
-interface SelectionToolbarProps {
-  colors: BlockEditorColors;
-  wikiTargets: string[];
-  searchQuery: string;
-  activeBlockId: string | null;
-  onContentChange: (blockId: string, content: string) => void;
-  onConvertBlock: (blockId: string, type: BlockType) => void;
-  getBlockType: (blockId: string) => BlockType | undefined;
-}
-
-interface ToolbarFormatState {
-  bold: boolean;
-  italic: boolean;
-  code: boolean;
-  wiki: boolean;
-  tag: boolean;
-  heading: BlockType | null;
-}
-
-const EMPTY_FORMATS: ToolbarFormatState = {
-  bold: false, italic: false, code: false, wiki: false, tag: false, heading: null,
-};
-
-function deriveToolbarFormats(
-  host: HTMLElement,
-  blockId: string | null,
-  activeBlockId: string | null,
-  getBlockType: (id: string) => BlockType | undefined,
-): ToolbarFormatState {
-  if (!blockId || blockId !== activeBlockId) return EMPTY_FORMATS;
-  const text = getElText(host);
-  const offsets = getPlainSelectionOffsets(host);
-  if (!offsets) return EMPTY_FORMATS;
-  const { start, end } = offsets;
-  const selected = text.slice(start, end);
-  const blockType = getBlockType(blockId);
-  return {
-    bold: selectionHasFormat(text, start, end, '**', '**'),
-    italic: selectionHasFormat(text, start, end, '*', '*'),
-    code: selectionHasFormat(text, start, end, '`', '`'),
-    wiki: selectionHasFormat(text, start, end, '[[', ']]'),
-    tag: text[start] === '#' && end > start && !selected.includes(' '),
-    heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3'
-      ? blockType
-      : null,
-  };
-}
-
-function SelectionToolbar({
-  colors: c, wikiTargets, searchQuery, activeBlockId, onContentChange, onConvertBlock, getBlockType,
-}: SelectionToolbarProps) {
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [formats, setFormats] = useState<ToolbarFormatState>(EMPTY_FORMATS);
-  const blockIdRef = useRef<string | null>(null);
-  const editableRef = useRef<HTMLElement | null>(null);
-  const savedRangeRef = useRef<Range | null>(null);
-
-  useEffect(() => {
-    const update = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-        setPos(null);
-        blockIdRef.current = null;
-        editableRef.current = null;
-        savedRangeRef.current = null;
-        setFormats(EMPTY_FORMATS);
-        return;
-      }
-      const range = sel.getRangeAt(0);
-      const node = range.commonAncestorContainer;
-      const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node as HTMLElement)
-        ?.closest('[contenteditable="true"]') as HTMLElement | null;
-      if (!host?.closest('.be-editor-root')) {
-        setPos(null);
-        blockIdRef.current = null;
-        editableRef.current = null;
-        savedRangeRef.current = null;
-        setFormats(EMPTY_FORMATS);
-        return;
-      }
-      const blockEl = host.closest('.be-block') as HTMLElement | null;
-      const blockId = blockEl?.getAttribute('data-drag-id') ?? null;
-      if (!blockId || blockId !== activeBlockId) {
-        setPos(null);
-        blockIdRef.current = null;
-        editableRef.current = null;
-        savedRangeRef.current = null;
-        setFormats(EMPTY_FORMATS);
-        return;
-      }
-      blockIdRef.current = blockId;
-      editableRef.current = host;
-      savedRangeRef.current = range.cloneRange();
-
-      setFormats(deriveToolbarFormats(host, blockId, activeBlockId, getBlockType));
-
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        setPos(null);
-        return;
-      }
-      setPos({ top: rect.top - 46, left: rect.left + rect.width / 2 });
-    };
-    document.addEventListener('selectionchange', update);
-    document.addEventListener('keyup', update);
-    return () => {
-      document.removeEventListener('selectionchange', update);
-      document.removeEventListener('keyup', update);
-    };
-  }, [getBlockType, activeBlockId]);
-
-  const applyFormat = useCallback((before: string, after: string) => {
-    const blockId = blockIdRef.current;
-    const el = editableRef.current;
-    if (!el || !blockId || blockId !== activeBlockId) return;
-
-    const blockText = getElText(el);
-
-    el.focus();
-    const sel = window.getSelection();
-    if (savedRangeRef.current && sel) {
-      try {
-        sel.removeAllRanges();
-        sel.addRange(savedRangeRef.current.cloneRange());
-      } catch {
-        // stale range — fall through with current selection
-      }
-    }
-
-    applyWrapToBlockSelection(el, blockText, before, after, (text) => {
-      onContentChange(blockId, text);
-    }, (target, text, selection) => {
-      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
-      requestAnimationFrame(() => {
-        setFormats(deriveToolbarFormats(target, blockId, activeBlockId, getBlockType));
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-        }
-      });
-    });
-  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId]);
-
-  if (!pos) return null;
-
-  const activeFg = c.toolbarActiveFg ?? '#FFFFFF';
-  const btnRadius = c.radiusBtn ?? 8;
-
-  const iconBtn = (icon: ReactNode, label: string, hint: string | undefined, active: boolean, fn: () => void) => (
-    <ToolbarTip label={label} hint={hint} colors={c} radius={btnRadius}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={active}
-        onMouseDown={e => { e.preventDefault(); fn(); }}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: 32, height: 32,
-          border: active ? `2px solid ${c.accent}` : '2px solid transparent',
-          borderRadius: btnRadius, cursor: 'pointer',
-          background: active ? c.accent : 'transparent',
-          color: active ? activeFg : c.textMuted,
-          boxShadow: active ? `0 0 0 2px ${c.accentBg}` : 'none',
-          transition: 'background .12s, color .12s, box-shadow .12s',
-        }}
-        onMouseEnter={e => {
-          if (active) return;
-          (e.currentTarget as HTMLButtonElement).style.background = c.cardHov;
-          (e.currentTarget as HTMLButtonElement).style.color = c.text;
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLButtonElement).style.background = active ? c.accent : 'transparent';
-          (e.currentTarget as HTMLButtonElement).style.color = active ? activeFg : c.textMuted;
-        }}
-      >
-        {icon}
-      </button>
-    </ToolbarTip>
-  );
-
-  const convertHeading = (type: BlockType) => {
-    const blockId = blockIdRef.current;
-    if (blockId) onConvertBlock(blockId, type);
-  };
-
-  return (
-    <div
-      className="be-selection-toolbar"
-      style={{
-        position:'fixed', top: Math.max(8, pos.top), left: pos.left,
-        transform:'translateX(-50%)', zIndex:400,
-        display:'flex', alignItems:'center', gap:3, flexWrap:'nowrap',
-        padding:'5px 8px', borderRadius: c.radiusCard ?? 12,
-        background:c.card, border:`1px solid ${c.border}`,
-        boxShadow:'0 4px 12px rgba(0,0,0,0.08)',
-      }}
-      onMouseDown={e => e.preventDefault()}
-    >
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>서식</span>
-      {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
-      {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
-      {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>제목</span>
-      {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
-      {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
-      {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>링크</span>
-      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>태그</span>
-      {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
-    </div>
-  );
-}
 
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
 export const BlockEditor = React.memo(function BlockEditor({
@@ -3455,9 +2965,10 @@ export const BlockEditor = React.memo(function BlockEditor({
           bottom: 0;
           width: 16px;
         }
+        ${EDITOR_READING_STYLES}
       `}</style>
       <div
-        className={`be-editor-root be-document${readOnly ? '' : ' be-document-edit'}`}
+        className={`be-editor-root ${readingRootClass(readOnly)}${readOnly ? '' : ' be-document-edit'}`}
         style={{
           '--be-accent': colors.accent,
           '--be-accent-bg': colors.accentBg,
@@ -3507,7 +3018,7 @@ export const BlockEditor = React.memo(function BlockEditor({
   );
 });
 
-/** readOnly 프리뷰 — undo/history 없이 body → Block[] 1회 파싱만 수행 */
+/** readOnly reading view — undo/history 없이 body → Block[] 1회 파싱만 수행 */
 export const BlockEditorPreview = React.memo(function BlockEditorPreview({
   body, colors, searchQuery = '', wikiTargets = [], onWikiNavigate,
 }: Pick<BlockEditorProps, 'colors' | 'searchQuery' | 'wikiTargets' | 'onWikiNavigate'> & { body: string }) {
