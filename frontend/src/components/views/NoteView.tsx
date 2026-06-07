@@ -692,8 +692,8 @@ export const NoteView = () => {
                 <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>Note</span>
                 <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
                 <div style={{ flex: 1 }}/>
-                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Shortcuts"><Keyboard size={11}/></button>
-                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Collapse">
+                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="단축키 (Ctrl+/)"><Keyboard size={11}/></button>
+                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="사이드바 접기">
                   <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
                 </button>
               </div>
@@ -787,7 +787,7 @@ export const NoteView = () => {
             {activeTag && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
-              title="Sort">
+              title="정렬">
               {sortOrder === 'updated' ? '⏱' : sortOrder === 'title' ? 'Az' : '📅'}
             </button>
             {showSortMenu && (
@@ -801,17 +801,17 @@ export const NoteView = () => {
               </div>
             )}
             {!isTrash && (
-              <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files">
+              <button onClick={() => importInputRef.current?.click()} className="btbtn" title="마크다운(.md) 가져오기">
                 <Upload size={11}/>
               </button>
             )}
             {!isTrash && (
-              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${activeNoteCount} notes as .md`}>
+              <button onClick={exportAllNotes} className="btbtn" title={`전체 노트 ${activeNoteCount}개 내보내기 (.md)`}>
                 <Save size={11}/>
               </button>
             )}
             {!isTrash && (
-              <button onClick={() => createNote()} style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => createNote()} title="새 노트 (Ctrl+N)" style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
                 <Plus size={12}/>
               </button>
             )}
@@ -878,7 +878,7 @@ export const NoteView = () => {
               {/* Cloud sync status */}
               {!isTrash && (
                 syncError ? (
-                  <button type="button" onClick={retrySync} className="btbtn" title="Retry cloud sync"
+                  <button type="button" onClick={retrySync} className="btbtn" title="클라우드 동기화 재시도"
                     style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
                     <AlertTriangle size={10}/> {syncError}
                   </button>
@@ -915,28 +915,28 @@ export const NoteView = () => {
               </div>
               {/* Star */}
               {!isTrash && (
-                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
+                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? '즐겨찾기 해제' : '즐겨찾기'}>
                   <Star size={13} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
                 </button>
               )}
               {/* Duplicate */}
               {!isTrash && (
-                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title="Duplicate (Ctrl+D)">
+                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title="노트 복제 (Ctrl+D)">
                   <span style={{ fontSize: 11 }}>⎘</span>
                 </button>
               )}
               {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
+              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="우측 패널 (목차·링크·태그)"
                 style={{ color: showRightPanel ? c.accent : c.textMuted }}>
                 <AlignLeft size={12}/>
               </button>
               {/* Export */}
-              <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
+              <button onClick={() => exportNote(activeNote)} className="btbtn" title="이 노트 내보내기 (.md)">
                 <Save size={12}/>
               </button>
               {isTrash
-                ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={12}/></button>
-                : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
+                ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }} title="휴지통에서 복원"><RotateCcw size={12}/></button>
+                : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn" title="휴지통으로 이동"><Trash2 size={12}/></button>
               }
             </div>
 
@@ -956,7 +956,7 @@ export const NoteView = () => {
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
                     </span>
-                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
+                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title="마크다운(.md) 가져오기" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
                     <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="커서 위치에 이미지 블록 삽입">

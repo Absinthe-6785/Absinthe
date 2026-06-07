@@ -15,6 +15,10 @@ import {
   isValidImageUrl,
   imageAltFromUrl,
   filterBlockMenu,
+  isHeadingBlockType,
+  isListBlockType,
+  getNumberedListIndex,
+  renumberNumberedBlocks,
 } from './blockUtils';
 
 describe('isValidImageUrl / imageAltFromUrl', () => {
@@ -179,6 +183,30 @@ describe('block helpers', () => {
     expect(isTextBlockType('paragraph')).toBe(true);
     expect(isTextBlockType('image')).toBe(false);
     expect(isTextBlockType('code')).toBe(false);
+  });
+});
+
+describe('list and heading helpers', () => {
+  it('identifies heading and list block types', () => {
+    expect(isHeadingBlockType('heading1')).toBe(true);
+    expect(isHeadingBlockType('paragraph')).toBe(false);
+    expect(isListBlockType('bullet')).toBe(true);
+    expect(isListBlockType('numbered')).toBe(true);
+    expect(isListBlockType('todo')).toBe(true);
+    expect(isListBlockType('paragraph')).toBe(false);
+  });
+
+  it('renumbers numbered lists per indent level', () => {
+    const blocks = [
+      makeBlock('numbered', { content: 'first', indent: 0 }),
+      makeBlock('numbered', { content: 'second', indent: 0 }),
+      makeBlock('numbered', { content: 'nested', indent: 1 }),
+      makeBlock('numbered', { content: 'third', indent: 0 }),
+    ];
+    const next = renumberNumberedBlocks(blocks);
+    expect(next.map(b => b.listIndex)).toEqual([1, 2, 1, 3]);
+    expect(getNumberedListIndex(next, next[1].id)).toBe(2);
+    expect(getNumberedListIndex(next, next[2].id)).toBe(1);
   });
 });
 

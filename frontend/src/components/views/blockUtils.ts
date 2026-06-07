@@ -496,6 +496,44 @@ export function blocksToMarkdown(blocks: Block[]): string {
 
 // ── 블록 조작 헬퍼 ───────────────────────────────────────────────────
 
+const HEADING_BLOCK_TYPES: BlockType[] = ['heading1', 'heading2', 'heading3'];
+const LIST_BLOCK_TYPES: BlockType[] = ['bullet', 'numbered', 'todo'];
+
+export function isHeadingBlockType(type: BlockType): boolean {
+  return HEADING_BLOCK_TYPES.includes(type);
+}
+
+export function isListBlockType(type: BlockType): boolean {
+  return LIST_BLOCK_TYPES.includes(type);
+}
+
+/** 같은 들여쓰기 번호 목록의 표시 순번 (1-based) */
+export function getNumberedListIndex(blocks: Block[], blockId: string): number {
+  const target = blocks.find(b => b.id === blockId);
+  if (!target || target.type !== 'numbered') return 1;
+  const indent = target.indent ?? 0;
+  let n = 0;
+  for (const b of blocks) {
+    if (b.type === 'numbered' && (b.indent ?? 0) === indent) {
+      n++;
+      if (b.id === blockId) return b.listIndex ?? n;
+    }
+  }
+  return 1;
+}
+
+/** 번호 목록 listIndex 재계산 */
+export function renumberNumberedBlocks(blocks: Block[]): Block[] {
+  const counters = new Map<number, number>();
+  return blocks.map(b => {
+    if (b.type !== 'numbered') return b;
+    const indent = b.indent ?? 0;
+    const next = (counters.get(indent) ?? 0) + 1;
+    counters.set(indent, next);
+    return { ...b, listIndex: next };
+  });
+}
+
 /** 블록 배열의 특정 id 블록을 업데이트 (중첩 포함) */
 export function updateBlockById(
   blocks: Block[],

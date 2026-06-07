@@ -40,7 +40,17 @@ export interface NoteChromeColors {
   green: string;
 }
 
-/** Purple-forward note chrome — primary #8B5CF6, off-white surfaces */
+/** Absinthe Purple design tokens */
+export const ABSINTHE_PURPLE = {
+  primary: '#8B5CF6',
+  hover: '#A78BFA',
+  surface: '#FFFFFF',
+  background: '#F7F7F8',
+  text: '#18181B',
+  muted: '#71717A',
+} as const;
+
+/** Purple-forward note chrome — Absinthe Purple palette */
 export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
   const base: NoteChromeColors = dark
     ? {

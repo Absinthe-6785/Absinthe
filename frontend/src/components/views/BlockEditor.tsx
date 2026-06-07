@@ -35,6 +35,10 @@ import {
   convertBlock,
   isValidImageUrl,
   imageAltFromUrl,
+  isHeadingBlockType,
+  isListBlockType,
+  renumberNumberedBlocks,
+  getNumberedListIndex,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
 import { selectionHasFormat, splitMarkdownAt, toggleMarkdownWrap } from './inlineFormat';
@@ -636,21 +640,17 @@ const SingleBlock = React.memo(function SingleBlock({
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position:'absolute', left:-40, top:'50%', transform:'translateY(-50%)',
-        display:'flex', flexDirection:'column', alignItems:'center', gap:3,
-        paddingRight: 8,
+        position:'absolute', left:-36, top:'50%', transform:'translateY(-50%)',
+        display:'flex', flexDirection:'column', alignItems:'center', gap:4,
       }}>
       <button
         type="button"
-        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center' }}
-        onClick={e => { e.stopPropagation(); onAddBelow(block.id); }}
-        title="아래에 블록 추가">
-        <Plus size={14}/>
-      </button>
-      <button
-        type="button"
         className={`be-grip${controlsVisible ? ' be-grip-pinned' : ''}`}
-        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center', cursor: 'grab', touchAction: 'none', padding: 0, letterSpacing: -1, fontSize: 11, fontWeight: 700, lineHeight: 1 }}
+        style={{
+          background:'transparent', border:'none', cursor:'grab', touchAction:'none',
+          padding:'2px 4px', letterSpacing:-2, fontSize:12, fontWeight:700, lineHeight:1,
+          color:c.textMuted, borderRadius:4,
+        }}
         onPointerDown={e => {
           const gripEl = e.currentTarget as HTMLElement;
           bindGripPointer(block.id, e, () => {
@@ -659,14 +659,31 @@ const SingleBlock = React.memo(function SingleBlock({
             onOpenTurnInto({ blockId: block.id, anchorY: rect.top, anchorX: rect.right + 2 });
           });
         }}
-        title="클릭: Turn Into 고정 · 드래그: 이동">
+        title="드래그: 이동 · 클릭: Turn Into">
         ⋮⋮
+      </button>
+      <button
+        type="button"
+        className="be-add-btn"
+        style={{
+          background:'transparent', border:'none', cursor:'pointer',
+          width:24, height:24, display:'flex', alignItems:'center', justifyContent:'center',
+          color:c.textMuted, borderRadius:4,
+        }}
+        onClick={e => { e.stopPropagation(); onAddBelow(block.id); }}
+        title="아래에 블록 추가">
+        <Plus size={13}/>
       </button>
     </div>
   );
 
+  const numberedIndex = useMemo(() => {
+    if (block.type !== 'numbered') return 1;
+    return getNumberedListIndex(getBlocks(), block.id);
+  }, [block.id, block.type, block.indent, getBlocks]);
+
   const inner = renderInner(block, c, {
-    toggleOpen, inline,
+    toggleOpen, inline, numberedIndex,
     onToggleCollapse: handleToggleCollapse,
     onToggleTodo: handleToggleTodo,
     getBlocks, onChange, searchQuery, depth, wikiTargets,
@@ -716,20 +733,18 @@ const SingleBlock = React.memo(function SingleBlock({
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
         borderRadius: 6,
-        padding: (isActive || selected) ? '4px 8px 4px 12px' : '1px 0',
+        padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
         outline: 'none',
-        border: isActive
-          ? `1px solid ${c.blockFocusBorder ?? 'rgba(139,92,246,0.25)'}`
-          : '1px solid transparent',
-        transition: 'border-color .12s, background .12s, box-shadow .12s',
+        border: 'none',
+        borderLeft: (isActive || selected) ? `3px solid ${c.accent}` : '3px solid transparent',
+        transition: 'border-color .12s, background .12s',
         opacity: isDragging ? 0.4 : 1,
         userSelect: dragState ? 'none' : undefined,
         background: isActive
-          ? (c.blockFocusBg ?? c.selection)
+          ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
           : selected
-            ? (c.blockSelectedBg ?? c.selection)
+            ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
             : undefined,
-        boxShadow: selected ? `inset 3px 0 0 ${c.accent}` : undefined,
       }}
       className={`be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
       onMouseEnter={() => onChromeEnter?.(block.id)}
@@ -753,6 +768,7 @@ const hBtn = (c: BlockEditorColors): CSSProperties => ({
 interface RCtx {
   toggleOpen: boolean;
   inline: (s: string) => ReactNode;
+  numberedIndex?: number;
   onToggleCollapse: () => void;
   onToggleTodo: () => void;
   getBlocks: () => Block[]; onChange: (b: Block[]) => void;
@@ -2012,7 +2028,9 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     case 'numbered':
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
-          <span style={{ color:c.accent, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:700 }}>1.</span>
+          <span style={{ color:c.accent, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:700 }}>
+            {ctx.numberedIndex ?? block.listIndex ?? 1}.
+          </span>
           {readOnly
             ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
@@ -2360,19 +2378,30 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     }
 
     const cur = bs[idx];
+
+    // 제목: 줄 맨 앞 Enter → 빈 문단을 위에 삽입 (빈 제목 블록 방지)
+    if (isHeadingBlockType(cur.type) && before.trim() === '') {
+      const newBlock = makeBlock('paragraph', { content: '', indent: cur.indent });
+      const next = [...bs];
+      next.splice(idx, 0, newBlock);
+      onChange(renumberNumberedBlocks(next));
+      setFocusCmd({ blockId: newBlock.id, offset: 'start' });
+      setSelected(newBlock.id);
+      return;
+    }
+
     const updatedCur: Block = { ...cur, content: before };
-    const newType: BlockType = ['heading1','heading2','heading3'].includes(cur.type)
-      ? 'paragraph' : cur.type;
+    const newType: BlockType = isHeadingBlockType(cur.type) ? 'paragraph' : cur.type;
     const newBlock: Block = makeBlock(newType, {
       content: after,
       indent:  cur.indent,
-      checked: false,
+      checked: isListBlockType(cur.type) ? false : cur.checked,
     });
 
     const next = [...bs];
     next[idx] = updatedCur;
     next.splice(idx + 1, 0, newBlock);
-    onChange(next);
+    onChange(renumberNumberedBlocks(next));
 
     setFocusCmd({ blockId: newBlock.id, offset: 'start' });
     setSelected(newBlock.id);
@@ -3167,14 +3196,21 @@ function SelectionToolbar({
     if (blockId) onConvertBlock(blockId, type);
   };
 
+  const toolbarSep = () => (
+    <span style={{
+      width: 1, height: 20, background: c.border,
+      margin: '0 3px', flexShrink: 0, alignSelf: 'center',
+    }}/>
+  );
+
   return (
     <div
       className="be-selection-toolbar"
       style={{
         position:'fixed', top: Math.max(8, pos.top), left: pos.left,
         transform:'translateX(-50%)', zIndex:400,
-        display:'flex', alignItems:'center', gap:3, flexWrap:'nowrap',
-        padding:'5px 8px', borderRadius: c.radiusCard ?? 12,
+        display:'flex', alignItems:'center', gap:2, flexWrap:'nowrap',
+        padding:'5px 10px', borderRadius: c.radiusCard ?? 12,
         background:c.card, border:`1px solid ${c.border}`,
         boxShadow:'0 4px 12px rgba(0,0,0,0.08)',
       }}
@@ -3182,12 +3218,13 @@ function SelectionToolbar({
     >
       {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
       {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {toolbarSep()}
       {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      {toolbarSep()}
       {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
       {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
       {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      {toolbarSep()}
       {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
       {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
@@ -3205,15 +3242,20 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-block::before {
           content: '';
           position: absolute;
-          left: -60px;
+          left: -56px;
           top: -6px;
           bottom: -6px;
-          width: 60px;
+          width: 56px;
         }
         .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
         .be-block:hover .be-handles,
         .be-block.be-controls-visible .be-handles,
         .be-handles:hover { opacity: 1 !important; pointer-events: auto !important; }
+        .be-grip, .be-add-btn { opacity: 0.55; transition: opacity .12s, background .12s, color .12s; }
+        .be-block:hover .be-grip, .be-block:hover .be-add-btn,
+        .be-controls-visible .be-grip, .be-controls-visible .be-add-btn,
+        .be-grip:hover, .be-add-btn:hover { opacity: 1; }
+        .be-grip:hover, .be-add-btn:hover { background: var(--be-accent-bg, rgba(139,92,246,0.08)); color: var(--be-accent, #8B5CF6); }
         .be-block:hover .be-grip, .be-grip-pinned { cursor: grab; }
         .be-grip:active { cursor: grabbing; }
         .be-block-active { scroll-margin: 80px; }

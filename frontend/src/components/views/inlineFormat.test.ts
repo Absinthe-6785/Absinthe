@@ -65,6 +65,15 @@ describe('selectionHasFormat', () => {
 });
 
 describe('splitMarkdownAt', () => {
+  it('splits bold phrase in Korean sentence', () => {
+    const text = '오늘 공부할 내용은 **EJU 일본사**와 영어이다';
+    const splitAt = text.indexOf('일본사');
+    expect(splitMarkdownAt(text, splitAt)).toEqual({
+      before: '오늘 공부할 내용은 **EJU** ',
+      after: '**일본사**와 영어이다',
+    });
+  });
+
   it('closes and reopens bold across split', () => {
     expect(splitMarkdownAt('**hello**', 5)).toEqual({
       before: '**hel**',
@@ -79,10 +88,10 @@ describe('splitMarkdownAt', () => {
     });
   });
 
-  it('leaves plain text unchanged', () => {
+  it('keeps trailing space on the before side for plain text', () => {
     expect(splitMarkdownAt('hello world', 5)).toEqual({
-      before: 'hello',
-      after: ' world',
+      before: 'hello ',
+      after: 'world',
     });
   });
 });

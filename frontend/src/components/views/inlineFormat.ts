@@ -83,8 +83,19 @@ export function scanEmphasisState(text: string, upto: number): { bold: boolean; 
 
 /** Enter 분리 시 열린 인라인 마커를 닫고 다음 블록에 다시 연다 */
 export function splitMarkdownAt(text: string, offset: number): { before: string; after: string } {
-  const before = text.slice(0, offset);
-  const after = text.slice(offset);
+  let before = text.slice(0, offset);
+  let after = text.slice(offset);
+
+  // 공백은 마커 밖으로 밀어 **EJU** | **일본사** 형태 유지
+  const trailing = before.match(/[ \t]+$/u)?.[0] ?? '';
+  if (trailing) {
+    before = before.slice(0, before.length - trailing.length);
+    after = trailing + after;
+  }
+
+  const leading = after.match(/^[ \t]+/u)?.[0] ?? '';
+  if (leading) after = after.slice(leading.length);
+
   const state = scanEmphasisState(before, before.length);
   let b = before;
   let a = after;
@@ -96,6 +107,7 @@ export function splitMarkdownAt(text: string, offset: number): { before: string;
     b += '*';
     a = '*' + a;
   }
+  if (leading) b += leading;
   return { before: b, after: a };
 }
 
