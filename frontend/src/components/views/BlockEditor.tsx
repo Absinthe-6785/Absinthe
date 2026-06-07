@@ -1071,27 +1071,43 @@ function EditableBlock({
       return;
     }
 
-    // ── Backspace: 줄바꿈·블록 경계 처리 ───────────────────────────
-    if (e.key === 'Backspace') {
-      const text = getElText(el);
-      const offset = getCaretOffset(el);
-      if (offset === 0) {
+    // ── Backspace / Delete: 선택 영역·줄바꿈·블록 경계 처리 ────────
+    // liveInlineHtml 포맷 DOM에서는 브라우저 기본 삭제가 선택 영역에 실패할 수 있음
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const selection = getSelectionOffsets(el);
+      if (selection) {
         e.preventDefault();
         onSlashClose();
         onWikiClose();
-        onMergeWithPrev(block.id, text);
+        const text = getElText(el);
+        const next = text.slice(0, selection.start) + text.slice(selection.end);
+        lastContent.current = next;
+        onContentChange(block.id, next);
+        paintEditableLive(el, next, c, wikiTargets, searchQuery, selection.start);
         return;
       }
-      if (text[offset - 1] === '\n') {
-        e.preventDefault();
-        onSlashClose();
-        onWikiClose();
-        const deleted = deleteBeforeCaret(text, offset);
-        if (!deleted) return;
-        lastContent.current = deleted.text;
-        onContentChange(block.id, deleted.text);
-        paintEditableLive(el, deleted.text, c, wikiTargets, searchQuery, deleted.caret);
-        return;
+
+      if (e.key === 'Backspace') {
+        const text = getElText(el);
+        const offset = getCaretOffset(el);
+        if (offset === 0) {
+          e.preventDefault();
+          onSlashClose();
+          onWikiClose();
+          onMergeWithPrev(block.id, text);
+          return;
+        }
+        if (text[offset - 1] === '\n') {
+          e.preventDefault();
+          onSlashClose();
+          onWikiClose();
+          const deleted = deleteBeforeCaret(text, offset);
+          if (!deleted) return;
+          lastContent.current = deleted.text;
+          onContentChange(block.id, deleted.text);
+          paintEditableLive(el, deleted.text, c, wikiTargets, searchQuery, deleted.caret);
+          return;
+        }
       }
     }
 

@@ -5,7 +5,10 @@ import {
   readBlockText,
   getCaretOffset,
   setCaretOffset,
+  setSelectionOffsets,
+  getSelectionOffsets,
   deleteBeforeCaret,
+  deleteTextRange,
   nodePlainLength,
 } from './editableDom';
 import { insertNewlineInBlock } from './blockContent';
@@ -116,6 +119,26 @@ describe('insertNewlineInBlock / deleteBeforeCaret', () => {
 
   it('returns null at offset 0', () => {
     expect(deleteBeforeCaret('hello', 0)).toBeNull();
+  });
+
+  it('deleteTextRange removes selected span', () => {
+    expect(deleteTextRange('hello world', 2, 5)).toEqual({ text: 'he world', caret: 2 });
+  });
+
+  it('deleteTextRange returns null for collapsed range', () => {
+    expect(deleteTextRange('hello', 3, 3)).toBeNull();
+  });
+});
+
+describe('selection offsets with formatted html', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('maps selection across inline markup to plain offsets', () => {
+    const el = mount('<strong>hel</strong>lo');
+    setSelectionOffsets(el, 1, 4);
+    expect(getSelectionOffsets(el)).toEqual({ start: 1, end: 4 });
   });
 });
 

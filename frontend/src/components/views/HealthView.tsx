@@ -1601,7 +1601,7 @@ export const HealthView = ({
               </button>
             )}
             {/* ── 날짜별 메모 ── */}
-            <div className={`mt-3 rounded-2xl p-3 ${appSettings.bg-surface-alt}`}>
+            <div className="mt-3 rounded-2xl p-3 bg-surface-alt">
               <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>📝 MEMO</p>
               <textarea
                 value={workoutMemo}
@@ -1854,7 +1854,7 @@ export const HealthView = ({
 
               {/* 선택된 순서 미리보기 — 드래그로 재정렬 */}
               {tempRoutineBlocks.length > 0 && (
-                <div className={`mb-4 p-3 rounded-2xl shrink-0 ${appSettings.bg-surface-alt}`}>
+                <div className="mb-4 p-3 rounded-2xl shrink-0 bg-surface-alt">
                   <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {

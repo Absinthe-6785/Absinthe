@@ -203,3 +203,13 @@ export function deleteBeforeCaret(text: string, offset: number): { text: string;
   if (offset <= 0) return null;
   return { text: text.slice(0, offset - 1) + text.slice(offset), caret: offset - 1 };
 }
+
+/** Delete a plain-text range (non-collapsed selection). */
+export function deleteTextRange(
+  text: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } | null {
+  if (start >= end) return null;
+  return { text: text.slice(0, start) + text.slice(end), caret: start };
+}
