@@ -1,5 +1,5 @@
 import type { AppSettings } from '../../types';
-import type { BlockEditorColors } from './BlockEditor';
+import type { BlockEditorColors } from './editorTypes';
 import { tokensForMode } from '../../theme/tokens';
 
 export const NOTE_FONT_OPTIONS = [
