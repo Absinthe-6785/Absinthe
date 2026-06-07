@@ -61,6 +61,12 @@ export interface WeeklySchedule {
 export interface AppSettings {
   darkMode: boolean; defaultCategory: string; defaultColor: string;
   language: 'en' | 'ko' | 'ja';
+  /** Notes editor typography (Obsidian-style) */
+  notesFontFamily?: 'system' | 'inter' | 'serif' | 'mono';
+  notesFontSize?: number;
+  /** Optional hex overrides — empty uses theme default */
+  notesTextColor?: string;
+  notesAccentColor?: string;
 }
 export interface HealthRoutine { id: string; day_name: string; blocks: string[]; }
 export interface Theme {

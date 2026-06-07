@@ -248,6 +248,14 @@ export interface BlockEditorColors {
   toggleBg:   string;
   quoteBdr:   string;
   selection:  string;
+  blockFocusBg?: string;
+  blockFocusBorder?: string;
+  searchHlBg?: string;
+  searchHlColor?: string;
+  linkColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  documentMaxWidth?: number;
 }
 
 // ── Props ────────────────────────────────────────────────────────────
@@ -457,12 +465,15 @@ interface SingleBlockProps {
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
   activeBlockId?: string | null;
+  controlsVisible?: boolean;
+  onToggleControlsPin?: (id: string) => void;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
   return prev.block === next.block
     && prev.selected === next.selected
     && prev.activeBlockId === next.activeBlockId
+    && prev.controlsVisible === next.controlsVisible
     && prev.readOnly === next.readOnly
     && prev.searchQuery === next.searchQuery
     && prev.depth === next.depth
@@ -491,7 +502,8 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onToggleEnter === next.onToggleEnter
     && prev.onTableChange === next.onTableChange
     && prev.onNavigateBlock === next.onNavigateBlock
-    && prev.onActiveBlockChange === next.onActiveBlockChange;
+    && prev.onActiveBlockChange === next.onActiveBlockChange
+    && prev.onToggleControlsPin === next.onToggleControlsPin;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -508,6 +520,8 @@ const SingleBlock = React.memo(function SingleBlock({
   onNavigateBlock,
   onActiveBlockChange,
   activeBlockId,
+  controlsVisible,
+  onToggleControlsPin,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -572,11 +586,14 @@ const SingleBlock = React.memo(function SingleBlock({
   };
 
   const handles = !readOnly && (
-    <div className="be-handles" style={{
-      position:'absolute', left:-38, top:'50%', transform:'translateY(-50%)',
-      display:'flex', flexDirection:'column', alignItems:'center', gap:3,
-      opacity:0, transition:'opacity .12s', pointerEvents:'none',
-    }}>
+    <div
+      className="be-handles"
+      onMouseDown={e => e.stopPropagation()}
+      style={{
+        position:'absolute', left:-40, top:'50%', transform:'translateY(-50%)',
+        display:'flex', flexDirection:'column', alignItems:'center', gap:3,
+        paddingRight: 8,
+      }}>
       <button
         type="button"
         style={hBtn(c)}
@@ -586,16 +603,17 @@ const SingleBlock = React.memo(function SingleBlock({
       </button>
       <button
         type="button"
-        className="be-grip"
+        className={`be-grip${controlsVisible ? ' be-grip-pinned' : ''}`}
         style={{ ...hBtn(c), cursor: 'grab', touchAction: 'none', padding: '4px 3px', letterSpacing: -1, fontSize: 10, fontWeight: 700, lineHeight: 1 }}
         onPointerDown={e => {
           const gripEl = e.currentTarget as HTMLElement;
           bindGripPointer(block.id, e, () => {
+            onToggleControlsPin?.(block.id);
             const rect = gripEl.getBoundingClientRect();
-            onOpenTurnInto({ blockId: block.id, anchorY: rect.top, anchorX: rect.right + 4 });
+            onOpenTurnInto({ blockId: block.id, anchorY: rect.top, anchorX: rect.right + 2 });
           });
         }}
-        title="클릭: Turn Into · 드래그: 이동">
+        title="클릭: Turn Into 고정 · 드래그: 이동">
         ⋮⋮
       </button>
     </div>
@@ -656,10 +674,10 @@ const SingleBlock = React.memo(function SingleBlock({
         outlineOffset:2, transition:'outline .1s, background .12s, box-shadow .12s',
         opacity: isDragging ? 0.4 : 1,
         userSelect: dragState ? 'none' : undefined,
-        background: isActive ? c.selection : undefined,
-        boxShadow: isActive ? `inset 3px 0 0 ${c.accent}` : undefined,
+        background: isActive ? (c.blockFocusBg ?? c.selection) : undefined,
+        boxShadow: isActive ? `inset 2px 0 0 ${c.blockFocusBorder ?? c.border}` : undefined,
       }}
-      className={`be-block${isActive ? ' be-block-active' : ''}`}
+      className={`be-block${isActive ? ' be-block-active' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
       onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
       {handles}
@@ -2170,6 +2188,27 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   // Phase 3: 드래그&드롭
   const { dragState, bindGripPointer, getDragProps } = useDragDrop(blocks, onChange);
   const [turnIntoMenu, setTurnIntoMenu] = useState<TurnIntoMenuState | null>(null);
+  const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
+
+  const handleToggleControlsPin = useCallback((id: string) => {
+    setPinnedControlsId(prev => (prev === id ? null : id));
+  }, []);
+
+  const controlsVisibleFor = useCallback((blockId: string) =>
+    pinnedControlsId === blockId || turnIntoMenu?.blockId === blockId,
+  [pinnedControlsId, turnIntoMenu]);
+
+  useEffect(() => {
+    if (!pinnedControlsId && !turnIntoMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('.be-handles, .be-turn-into-menu')) return;
+      setPinnedControlsId(null);
+      setTurnIntoMenu(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pinnedControlsId, turnIntoMenu]);
 
   const handleAddBelow = useCallback((id: string) => {
     const nb = makeBlock('paragraph');
@@ -2199,6 +2238,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
     setBlockMenu(null);
     setTurnIntoMenu(null);
+    setPinnedControlsId(null);
     setFocusCmd({ blockId: id, offset: 'end' });
   }, [onChange]);
 
@@ -2439,6 +2479,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onTableChange={handleTableChange}
             onNavigateBlock={handleNavigateBlock}
             onActiveBlockChange={handleActiveBlockChange}
+            controlsVisible={controlsVisibleFor(block.id)}
+            onToggleControlsPin={handleToggleControlsPin}
           />
         ))}
       </div>
@@ -2448,6 +2490,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           wikiTargets={wikiTargets}
           searchQuery={searchQuery}
           onContentChange={handleContentChange}
+          onConvertBlock={handleConvert}
         />
       )}
       {turnIntoMenu && (
@@ -2458,7 +2501,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorX={turnIntoMenu.anchorX}
           colors={c}
           onSelect={type => handleConvert(turnIntoMenu.blockId, type)}
-          onClose={() => setTurnIntoMenu(null)}
+          onClose={() => { setTurnIntoMenu(null); setPinnedControlsId(null); }}
         />
       )}
       {blockMenu && (
@@ -2810,15 +2853,43 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
 
 const noopBlockChange = () => {};
 
+// ── 툴바 툴팁 ─────────────────────────────────────────────────────────
+function ToolbarTip({
+  label, hint, children, colors: c,
+}: { label: string; hint?: string; children: ReactNode; colors: BlockEditorColors }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div
+      style={{ position: 'relative', display: 'flex' }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
+          background: c.card, border: `1px solid ${c.border}`, borderRadius: 6,
+          padding: '4px 8px', whiteSpace: 'nowrap', zIndex: 500,
+          boxShadow: '0 4px 16px #00000022', pointerEvents: 'none',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: c.text }}>{label}</div>
+          {hint && <div style={{ fontSize: 10, color: c.textMuted, marginTop: 1 }}>{hint}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 선택 텍스트 포맷 툴바 ─────────────────────────────────────────────
 interface SelectionToolbarProps {
   colors: BlockEditorColors;
   wikiTargets: string[];
   searchQuery: string;
   onContentChange: (blockId: string, content: string) => void;
+  onConvertBlock: (blockId: string, type: BlockType) => void;
 }
 
-function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange }: SelectionToolbarProps) {
+function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock }: SelectionToolbarProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const blockIdRef = useRef<string | null>(null);
 
@@ -2865,23 +2936,29 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
 
   if (!pos) return null;
 
-  const btn = (icon: ReactNode, label: string, fn: () => void) => (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onMouseDown={e => { e.preventDefault(); fn(); }}
-      style={{
-        display:'flex', alignItems:'center', justifyContent:'center',
-        width:28, height:28, border:'none', borderRadius:6,
-        background:'transparent', color:c.text, cursor:'pointer',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-    >
-      {icon}
-    </button>
+  const btn = (icon: ReactNode, label: string, hint: string | undefined, fn: () => void) => (
+    <ToolbarTip label={label} hint={hint} colors={c}>
+      <button
+        type="button"
+        aria-label={label}
+        onMouseDown={e => { e.preventDefault(); fn(); }}
+        style={{
+          display:'flex', alignItems:'center', justifyContent:'center',
+          width:28, height:28, border:'none', borderRadius:6,
+          background:'transparent', color:c.text, cursor:'pointer',
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+      >
+        {icon}
+      </button>
+    </ToolbarTip>
   );
+
+  const convertHeading = (type: BlockType) => {
+    const blockId = blockIdRef.current;
+    if (blockId) onConvertBlock(blockId, type);
+  };
 
   return (
     <div
@@ -2896,11 +2973,16 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
       }}
       onMouseDown={e => e.preventDefault()}
     >
-      {btn(<Bold size={14}/>, 'Bold', () => applyFormat('**', '**'))}
-      {btn(<Italic size={14}/>, 'Italic', () => applyFormat('*', '*'))}
-      {btn(<Code2 size={14}/>, 'Code', () => applyFormat('`', '`'))}
-      {btn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, 'Wiki link', () => applyFormat('[[', ']]'))}
-      {btn(<Hash size={14}/>, 'Tag', () => applyFormat('#', ''))}
+      {btn(<Bold size={14}/>, '굵게', 'Ctrl+B', () => applyFormat('**', '**'))}
+      {btn(<Italic size={14}/>, '기울임', 'Ctrl+I', () => applyFormat('*', '*'))}
+      {btn(<Code2 size={14}/>, '코드', 'Ctrl+`', () => applyFormat('`', '`'))}
+      <span style={{ width:1, height:18, background:c.border, margin:'0 2px' }}/>
+      {btn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', () => convertHeading('heading1'))}
+      {btn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', () => convertHeading('heading2'))}
+      {btn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', () => convertHeading('heading3'))}
+      <span style={{ width:1, height:18, background:c.border, margin:'0 2px' }}/>
+      {btn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키링크', 'Ctrl+Shift+K', () => applyFormat('[[', ']]'))}
+      {btn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', () => applyFormat('#', ''))}
     </div>
   );
 }
@@ -2913,10 +2995,20 @@ export const BlockEditor = React.memo(function BlockEditor({
   return (
     <>
       <style>{`
-        .be-block:hover .be-handles { opacity: 1 !important; pointer-events: auto !important; }
-        .be-block:hover .be-grip { cursor: grab; }
+        .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
+        .be-block:hover .be-handles,
+        .be-block.be-controls-visible .be-handles,
+        .be-handles:hover { opacity: 1 !important; pointer-events: auto !important; }
+        .be-block:hover .be-grip, .be-grip-pinned { cursor: grab; }
         .be-grip:active { cursor: grabbing; }
         .be-block-active { scroll-margin: 80px; }
+        .be-document {
+          max-width: var(--be-doc-width, 720px);
+          margin: 0 auto;
+          font-family: var(--be-font-family, system-ui, sans-serif);
+          font-size: var(--be-font-size, 16px);
+          color: var(--be-text, inherit);
+        }
         [contenteditable]:empty::before {
           content: attr(data-placeholder);
           color: var(--be-placeholder-color, #aaa);
@@ -2934,8 +3026,8 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-wiki-chip {
           display: inline;
-          color: var(--be-accent, #6366f1);
-          background: var(--be-accent-bg, #eef2ff);
+          color: var(--be-link, var(--be-accent, #7f6df2));
+          background: var(--be-accent-bg, #7f6df218);
           border-radius: 4px;
           padding: 0 2px;
         }
@@ -2964,16 +3056,28 @@ export const BlockEditor = React.memo(function BlockEditor({
           border-radius: 3px;
           padding: 0 2px;
         }
-        .be-search-hl { background: #fbbf24; color: #000; border-radius: 2px; }
+        .be-search-hl {
+          background: var(--be-search-hl-bg, #e8e4ff);
+          color: var(--be-search-hl-color, inherit);
+          border-radius: 2px;
+        }
         .be-selection-toolbar button:active { transform: scale(0.94); }
+        .be-turn-into-menu { margin-left: -4px; }
       `}</style>
       <div
-        className="be-editor-root"
+        className="be-editor-root be-document"
         style={{
           '--be-accent': colors.accent,
           '--be-accent-bg': colors.accentBg,
+          '--be-link': colors.linkColor ?? colors.accent,
           '--be-code-bg': colors.codeBg,
           '--be-placeholder-color': colors.textFaint,
+          '--be-text': colors.text,
+          '--be-doc-width': colors.documentMaxWidth ? `${colors.documentMaxWidth}px` : '720px',
+          '--be-font-family': colors.fontFamily ?? 'system-ui, sans-serif',
+          '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
+          '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
+          '--be-search-hl-color': colors.searchHlColor ?? colors.text,
         } as CSSProperties}
       >
       <BlockEditorInner
