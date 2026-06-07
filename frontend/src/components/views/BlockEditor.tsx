@@ -37,18 +37,18 @@ import {
   imageAltFromUrl,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
-import { selectionHasFormat, splitMarkdownAt, toggleMarkdownWrap } from './inlineFormat';
+import { selectionHasFormat, toggleMarkdownWrap } from './inlineFormat';
 import {
-  domToPlainText,
+  readBlockText,
   getCaretOffset,
   getSelectionOffsets,
   setCaretOffset,
   setSelectionOffsets,
-  insertNewlineAtCaret,
   deleteBeforeCaret,
 } from './editableDom';
+import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 
-const getElText = domToPlainText;
+const getElText = readBlockText;
 
 // ── 전역 포커스 레지스트리 ────────────────────────────────────────────
 // BlockEditorInner → SingleBlock 간 포커스 명령 전달
@@ -367,8 +367,9 @@ function getPlainSelectionOffsets(el: HTMLElement): { start: number; end: number
   return getSelectionOffsets(el);
 }
 
-function applyWrapToSelection(
+function applyWrapToBlockSelection(
   el: HTMLElement,
+  blockText: string,
   before: string,
   after: string,
   onText: (text: string) => void,
@@ -376,8 +377,7 @@ function applyWrapToSelection(
 ): boolean {
   const sel = getPlainSelectionOffsets(el);
   if (!sel) return false;
-  const text = getElText(el);
-  const result = toggleMarkdownWrap(text, sel.start, sel.end, before, after);
+  const result = toggleMarkdownWrap(blockText, sel.start, sel.end, before, after);
   onText(result.text);
   if (afterApply) afterApply(el, result.text, { start: result.selStart, end: result.selEnd });
   else {
@@ -844,7 +844,8 @@ function EditableBlock({
   const applyInlineFormat = useCallback((before: string, after: string) => {
     const el = editableRef.current;
     if (!el) return;
-    applyWrapToSelection(el, before, after, (text) => {
+    const blockText = lastContent.current;
+    applyWrapToBlockSelection(el, blockText, before, after, (text) => {
       lastContent.current = text;
       onContentChange(block.id, text);
     }, (target, text, selection) => {
@@ -904,33 +905,32 @@ function EditableBlock({
       if (e.key === 'Escape')                             { onSlashClose(); onWikiClose(); return; }
     }
 
-    // ── Shift+Enter: 블록 내 줄바꿈 ───────────────────────────────
+    // ── Shift+Enter: 블록 내 줄바꿈 (현재 block.content만 수정) ───
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       onSlashClose();
       onWikiClose();
       const text = getElText(el);
       const offset = getCaretOffset(el);
-      const { text: next, caret } = insertNewlineAtCaret(el, text, offset);
+      const { content: next, caret } = insertNewlineInBlock(text, offset);
       lastContent.current = next;
       onContentChange(block.id, next);
       paintEditableLive(el, next, c, wikiTargets, searchQuery, caret);
       return;
     }
 
-    // ── Enter: 블록 분리 (또는 toggle 헤더 override) ──────────────
+    // ── Enter: 현재 블록만 분리 (또는 toggle 헤더 override) ───────
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onSlashClose();
       onWikiClose();
-      // Toggle Step 2: toggle 헤더일 때는 자식 블록 생성으로 대체
       if (onEnterOverride) {
         onEnterOverride(getElText(el));
         return;
       }
-      const text   = lastContent.current;
+      const text = getElText(el);
       const offset = getCaretOffset(el);
-      const { before, after } = splitMarkdownAt(text, offset);
+      const { before, after } = splitBlockContent(text, offset);
       onSplitBlock(block.id, before, after);
       return;
     }
@@ -985,8 +985,14 @@ function EditableBlock({
   }, [block.content, editableRef, block.id, onActiveBlockChange, c, wikiTargets, searchQuery]);
 
   const handleBlur = useCallback((e: React.FocusEvent<HTMLElement>) => {
-    paintLive(e.currentTarget, false);
-  }, [paintLive]);
+    const el = e.currentTarget;
+    const text = getElText(el);
+    if (text !== lastContent.current) {
+      lastContent.current = text;
+      onContentChange(block.id, text);
+    }
+    paintEditableLive(el, lastContent.current, c, wikiTargets, searchQuery);
+  }, [block.id, onContentChange, c, wikiTargets, searchQuery]);
 
   const handleCompositionStart = useCallback(() => {
     composingRef.current = true;
@@ -2533,6 +2539,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           colors={c}
           wikiTargets={wikiTargets}
           searchQuery={searchQuery}
+          activeBlockId={activeBlockId}
           onContentChange={handleContentChange}
           onConvertBlock={handleConvert}
           getBlockType={getBlockType}
@@ -2943,6 +2950,7 @@ interface SelectionToolbarProps {
   colors: BlockEditorColors;
   wikiTargets: string[];
   searchQuery: string;
+  activeBlockId: string | null;
   onContentChange: (blockId: string, content: string) => void;
   onConvertBlock: (blockId: string, type: BlockType) => void;
   getBlockType: (blockId: string) => BlockType | undefined;
@@ -2964,9 +2972,10 @@ const EMPTY_FORMATS: ToolbarFormatState = {
 function deriveToolbarFormats(
   host: HTMLElement,
   blockId: string | null,
+  activeBlockId: string | null,
   getBlockType: (id: string) => BlockType | undefined,
 ): ToolbarFormatState {
-  if (!blockId) return EMPTY_FORMATS;
+  if (!blockId || blockId !== activeBlockId) return EMPTY_FORMATS;
   const text = getElText(host);
   const offsets = getPlainSelectionOffsets(host);
   if (!offsets) return EMPTY_FORMATS;
@@ -2986,7 +2995,7 @@ function deriveToolbarFormats(
 }
 
 function SelectionToolbar({
-  colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock, getBlockType,
+  colors: c, wikiTargets, searchQuery, activeBlockId, onContentChange, onConvertBlock, getBlockType,
 }: SelectionToolbarProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [formats, setFormats] = useState<ToolbarFormatState>(EMPTY_FORMATS);
@@ -3019,11 +3028,19 @@ function SelectionToolbar({
       }
       const blockEl = host.closest('.be-block') as HTMLElement | null;
       const blockId = blockEl?.getAttribute('data-drag-id') ?? null;
+      if (!blockId || blockId !== activeBlockId) {
+        setPos(null);
+        blockIdRef.current = null;
+        editableRef.current = null;
+        savedRangeRef.current = null;
+        setFormats(EMPTY_FORMATS);
+        return;
+      }
       blockIdRef.current = blockId;
       editableRef.current = host;
       savedRangeRef.current = range.cloneRange();
 
-      setFormats(deriveToolbarFormats(host, blockId, getBlockType));
+      setFormats(deriveToolbarFormats(host, blockId, activeBlockId, getBlockType));
 
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
@@ -3038,12 +3055,14 @@ function SelectionToolbar({
       document.removeEventListener('selectionchange', update);
       document.removeEventListener('keyup', update);
     };
-  }, [getBlockType]);
+  }, [getBlockType, activeBlockId]);
 
   const applyFormat = useCallback((before: string, after: string) => {
     const blockId = blockIdRef.current;
     const el = editableRef.current;
-    if (!el || !blockId) return;
+    if (!el || !blockId || blockId !== activeBlockId) return;
+
+    const blockText = getElText(el);
 
     el.focus();
     const sel = window.getSelection();
@@ -3056,19 +3075,19 @@ function SelectionToolbar({
       }
     }
 
-    applyWrapToSelection(el, before, after, (text) => {
+    applyWrapToBlockSelection(el, blockText, before, after, (text) => {
       onContentChange(blockId, text);
     }, (target, text, selection) => {
       paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
       requestAnimationFrame(() => {
-        setFormats(deriveToolbarFormats(target, blockId, getBlockType));
+        setFormats(deriveToolbarFormats(target, blockId, activeBlockId, getBlockType));
         const sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
           savedRangeRef.current = sel.getRangeAt(0).cloneRange();
         }
       });
     });
-  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType]);
+  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId]);
 
   if (!pos) return null;
 

@@ -11,7 +11,7 @@ export function nodePlainLength(node: Node): number {
   return len;
 }
 
-/** DOM subtree → markdown/plain string (trailing browser newline stripped). */
+/** DOM subtree → markdown/plain string for a single block. */
 export function domToPlainText(el: HTMLElement): string {
   let out = '';
   const walk = (node: Node) => {
@@ -20,7 +20,14 @@ export function domToPlainText(el: HTMLElement): string {
     else for (const child of node.childNodes) walk(child);
   };
   for (const child of el.childNodes) walk(child);
-  return out.replace(/\n$/, '');
+  return out;
+}
+
+/** Normalize browser phantom newline on empty contenteditables. */
+export function readBlockText(el: HTMLElement): string {
+  const raw = domToPlainText(el);
+  if (raw === '\n' && el.childNodes.length <= 1) return '';
+  return raw;
 }
 
 function offsetAtPoint(root: HTMLElement, container: Node, nodeOffset: number): number {
@@ -190,12 +197,6 @@ export function setSelectionOffsets(el: HTMLElement, start: number, end: number)
   sel.addRange(range);
 }
 
-/** Insert newline at caret; returns updated plain text and caret position. */
-export function insertNewlineAtCaret(el: HTMLElement, text: string, offset: number): { text: string; caret: number } {
-  const caret = Math.max(0, Math.min(offset, text.length));
-  const next = text.slice(0, caret) + '\n' + text.slice(caret);
-  return { text: next, caret: caret + 1 };
-}
 
 /** Delete one char before caret; returns null if nothing to delete. */
 export function deleteBeforeCaret(text: string, offset: number): { text: string; caret: number } | null {

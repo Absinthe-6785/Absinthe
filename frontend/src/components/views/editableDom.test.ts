@@ -2,12 +2,13 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
   domToPlainText,
+  readBlockText,
   getCaretOffset,
   setCaretOffset,
-  insertNewlineAtCaret,
   deleteBeforeCaret,
   nodePlainLength,
 } from './editableDom';
+import { insertNewlineInBlock } from './blockContent';
 
 function mount(html: string, style?: Partial<CSSStyleDeclaration>): HTMLElement {
   const el = document.createElement('div');
@@ -72,29 +73,30 @@ describe('caret offsets with newlines', () => {
     }
   });
 
-  it('does not leave last char on wrong line after newline insert', () => {
-    const text = 'hello';
-    const { text: next, caret } = insertNewlineAtCaret(mount(''), text, 5);
-    expect(next).toBe('hello\n');
-    expect(caret).toBe(6);
-    el = mount('hello\n'); // pre-wrap text node (preferred DOM)
-    selectAt(el, caret);
+  it('preserves trailing newline in block text', () => {
+    el = mount('hello\n');
+    expect(domToPlainText(el)).toBe('hello\n');
+    selectAt(el, 6);
     expect(getCaretOffset(el)).toBe(6);
-    expect(domToPlainText(el)).toBe('hello'); // trailing \n stripped like getElText
   });
 });
 
-describe('insertNewlineAtCaret / deleteBeforeCaret', () => {
+describe('insertNewlineInBlock / deleteBeforeCaret', () => {
   it('inserts at end without stealing last character', () => {
-    const { text, caret } = insertNewlineAtCaret(document.createElement('div'), 'abc', 3);
-    expect(text).toBe('abc\n');
+    const { content, caret } = insertNewlineInBlock('abc', 3);
+    expect(content).toBe('abc\n');
     expect(caret).toBe(4);
   });
 
   it('inserts in middle', () => {
-    const { text, caret } = insertNewlineAtCaret(document.createElement('div'), 'abcdef', 3);
-    expect(text).toBe('abc\ndef');
+    const { content, caret } = insertNewlineInBlock('abcdef', 3);
+    expect(content).toBe('abc\ndef');
     expect(caret).toBe(4);
+  });
+
+  it('readBlockText keeps intentional trailing newline', () => {
+    const el = mount('hello\n');
+    expect(readBlockText(el)).toBe('hello\n');
   });
 
   it('deletes newlines one at a time from the end', () => {
