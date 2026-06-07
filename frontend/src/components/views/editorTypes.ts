@@ -46,3 +46,17 @@ export interface TurnIntoMenuState {
   anchorY: number;
   anchorX: number;
 }
+
+export interface SlashMenuState {
+  blockId: string;
+  query: string;
+  anchorY: number;
+  anchorX: number;
+}
+
+export interface WikiMenuState {
+  blockId: string;
+  query: string;
+  anchorY: number;
+  anchorX: number;
+}
