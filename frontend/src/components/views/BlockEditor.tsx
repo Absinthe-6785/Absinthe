@@ -152,6 +152,18 @@ interface UseDragDropResult {
 }
 
 const DRAG_THRESHOLD_PX = 6;
+const HANDLE_HIT_PX = 32;
+
+/** Notion-style 6-dot drag grip (⠿) */
+function BlockGripIcon() {
+  return (
+    <span className="be-grip-icon" aria-hidden>
+      {Array.from({ length: 6 }, (_, i) => (
+        <span key={i} className="be-grip-dot" />
+      ))}
+    </span>
+  );
+}
 
 function useDragDrop(
   blocks: Block[],
@@ -636,21 +648,19 @@ const SingleBlock = React.memo(function SingleBlock({
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position:'absolute', left:-40, top:'50%', transform:'translateY(-50%)',
-        display:'flex', flexDirection:'column', alignItems:'center', gap:3,
-        paddingRight: 8,
+        position:'absolute', left:-(HANDLE_HIT_PX * 2 + 6), top:'50%', transform:'translateY(-50%)',
+        display:'flex', flexDirection:'row', alignItems:'center', gap:2,
       }}>
       <button
         type="button"
-        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center' }}
+        className="be-add-btn be-handle-btn"
         onClick={e => { e.stopPropagation(); onAddBelow(block.id); }}
         title="아래에 블록 추가">
-        <Plus size={14}/>
+        <Plus size={16} strokeWidth={2.25}/>
       </button>
       <button
         type="button"
-        className={`be-grip${controlsVisible ? ' be-grip-pinned' : ''}`}
-        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center', cursor: 'grab', touchAction: 'none', padding: 0, letterSpacing: -1, fontSize: 11, fontWeight: 700, lineHeight: 1 }}
+        className={`be-grip be-handle-btn${controlsVisible ? ' be-grip-pinned' : ''}`}
         onPointerDown={e => {
           const gripEl = e.currentTarget as HTMLElement;
           bindGripPointer(block.id, e, () => {
@@ -659,8 +669,8 @@ const SingleBlock = React.memo(function SingleBlock({
             onOpenTurnInto({ blockId: block.id, anchorY: rect.top, anchorX: rect.right + 2 });
           });
         }}
-        title="클릭: Turn Into 고정 · 드래그: 이동">
-        ⋮⋮
+        title="드래그: 이동 · 클릭: Turn Into">
+        <BlockGripIcon />
       </button>
     </div>
   );
@@ -716,20 +726,18 @@ const SingleBlock = React.memo(function SingleBlock({
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
         borderRadius: 6,
-        padding: (isActive || selected) ? '4px 8px 4px 12px' : '1px 0',
+        padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
         outline: 'none',
-        border: isActive
-          ? `1px solid ${c.blockFocusBorder ?? 'rgba(139,92,246,0.25)'}`
-          : '1px solid transparent',
-        transition: 'border-color .12s, background .12s, box-shadow .12s',
+        border: 'none',
+        borderLeft: (isActive || selected) ? `3px solid ${c.accent}` : '3px solid transparent',
+        transition: 'border-color .12s, background .12s',
         opacity: isDragging ? 0.4 : 1,
         userSelect: dragState ? 'none' : undefined,
         background: isActive
-          ? (c.blockFocusBg ?? c.selection)
+          ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
           : selected
-            ? (c.blockSelectedBg ?? c.selection)
+            ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
             : undefined,
-        boxShadow: selected ? `inset 3px 0 0 ${c.accent}` : undefined,
       }}
       className={`be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
       onMouseEnter={() => onChromeEnter?.(block.id)}
@@ -3205,17 +3213,49 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-block::before {
           content: '';
           position: absolute;
-          left: -60px;
-          top: -6px;
-          bottom: -6px;
-          width: 60px;
+          left: -80px;
+          top: -8px;
+          bottom: -8px;
+          width: 80px;
         }
         .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
         .be-block:hover .be-handles,
         .be-block.be-controls-visible .be-handles,
         .be-handles:hover { opacity: 1 !important; pointer-events: auto !important; }
-        .be-block:hover .be-grip, .be-grip-pinned { cursor: grab; }
+        .be-handle-btn {
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--be-text-muted, #71717A);
+          padding: 0;
+          transition: opacity .12s, background .12s, color .12s;
+        }
+        .be-add-btn { cursor: pointer; }
+        .be-grip { cursor: grab; touch-action: none; }
         .be-grip:active { cursor: grabbing; }
+        .be-grip-icon {
+          display: grid;
+          grid-template-columns: repeat(2, 4px);
+          gap: 3px 4px;
+        }
+        .be-grip-dot {
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: currentColor;
+          opacity: 0.45;
+        }
+        .be-handle-btn:hover,
+        .be-controls-visible .be-handle-btn {
+          background: var(--be-accent-bg, rgba(139,92,246,0.08));
+          color: var(--be-accent, #8B5CF6);
+        }
+        .be-handle-btn:hover .be-grip-dot { opacity: 0.85; }
         .be-block-active { scroll-margin: 80px; }
         .be-block:hover:not(.be-block-active):not(.be-block-selected) {
           background: var(--be-block-hover-bg, rgba(139,92,246,0.015));
