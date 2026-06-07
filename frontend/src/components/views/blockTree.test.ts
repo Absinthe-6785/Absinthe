@@ -57,6 +57,33 @@ describe('indentBlock / outdentBlock', () => {
     expect(next![0].children[0].id).toBe('p1');
   });
 
+  it('Tab nests under previous paragraph by converting it to toggle', () => {
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock('paragraph', { id: 'b', content: 'B' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const outer = makeBlock('toggle', { id: 't1', content: 'Toggle', children: [a, b, c] });
+
+    const next = indentBlock([outer], 'b');
+    expect(next).not.toBeNull();
+    const nestedA = next![0].children[0];
+    expect(nestedA.type).toBe('toggle');
+    expect(nestedA.content).toBe('A');
+    expect(nestedA.children[0].id).toBe('b');
+    expect(next![0].children.map(x => x.id)).toEqual(['a', 'c']);
+  });
+
+  it('Tab on flat list nests B under A (outliner)', () => {
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock('paragraph', { id: 'b', content: 'B' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+
+    const next = indentBlock([a, b, c], 'b');
+    expect(next).not.toBeNull();
+    expect(next![0].type).toBe('toggle');
+    expect(next![0].children[0].id).toBe('b');
+    expect(next!.map(x => x.id)).toEqual(['a', 'c']);
+  });
+
   it('Tab increases list indent when no toggle above', () => {
     const bullet = makeBlock('bullet', { id: 'b1', content: 'item', indent: 0 });
     const next = indentBlock([bullet], 'b1');

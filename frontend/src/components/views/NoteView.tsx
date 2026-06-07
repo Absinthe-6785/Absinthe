@@ -470,7 +470,7 @@ export const NoteView = () => {
       return;
     }
     // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
-    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-turn-into-menu, .be-slash-menu')) return;
+    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-block-handle-menu, .be-slash-menu')) return;
     if (e.detail === 2) setViewMode('edit');
   }, [navigateToWiki]);
 
