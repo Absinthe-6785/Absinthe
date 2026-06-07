@@ -22,7 +22,7 @@ import {
   Heading1, Heading2, Heading3,
   List, ListOrdered, CheckSquare, Code2,
   Image as ImageIcon, Minus, Table2, Quote, Zap, Type,
-  Trash2, ArrowUp, ArrowDown,
+  Trash2, ArrowUp, ArrowDown, Bold, Italic, Hash,
 } from 'lucide-react';
 import {
   type Block, type BlockType,
@@ -312,6 +312,93 @@ function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = 
   return <span dangerouslySetInnerHTML={{ __html: html }}/>;
 }
 
+/** 편집 중 Live Preview — 마크다운 문자는 유지하고 시각만 포맷 (캐럿 offset 보존) */
+function liveInlineHtml(text: string, c: BlockEditorColors, wikiTargets: string[] = [], searchQuery = ''): string {
+  if (!text) return '';
+  const wikiSet = new Set(wikiTargets.map(normalizeWikiTitle));
+  const esc = (s: string) =>
+    s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const escAttr = (s: string) => s.replace(/"/g, '&quot;');
+
+  const math: string[] = [];
+  let work = text.replace(/\$([^$\n]+)\$/g, (_m, expr: string) => {
+    math.push(`<code class="be-live-code">${esc(expr)}</code>`);
+    return `\u0000M${math.length - 1}\u0000`;
+  });
+
+  let html = esc(work)
+    .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
+      const broken = wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(t));
+      const cls = broken ? 'be-wiki-chip be-wiki-chip-broken' : 'be-wiki-chip';
+      return `<span class="${cls}" data-wiki="${escAttr(t)}"><span class="be-bracket">[[</span>${esc(t)}<span class="be-bracket">]]</span></span>`;
+    })
+    .replace(/(^|\s)(#[\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
+      `${sp}<span class="be-tag-chip" data-tag="${escAttr(tag.slice(1))}">${tag}</span>`)
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em><span class="be-mark">***</span>$1<span class="be-mark">***</span></em></strong>')
+    .replace(/\*\*(.+?)\*\*/g,     '<strong><span class="be-mark">**</span>$1<span class="be-mark">**</span></strong>')
+    .replace(/\*(.+?)\*/g,         '<em><span class="be-mark">*</span>$1<span class="be-mark">*</span></em>')
+    .replace(/~~(.+?)~~/g,         '<del><span class="be-mark">~~</span>$1<span class="be-mark">~~</span></del>')
+    .replace(/==(.+?)==/g,         `<mark class="be-live-mark"><span class="be-mark">==</span>$1<span class="be-mark">==</span></mark>`)
+    .replace(/`([^`]+)`/g,         `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`);
+
+  if (searchQuery.trim()) {
+    const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    html = html.replace(new RegExp(`(${q})`, 'gi'), '<mark class="be-search-hl">$1</mark>');
+  }
+
+  html = html.replace(/\u0000M(\d+)\u0000/g, (_m, i: string) => math[Number(i)]);
+  return html;
+}
+
+function getPlainSelectionOffsets(el: HTMLElement): { start: number; end: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return null;
+  const preStart = range.cloneRange();
+  preStart.selectNodeContents(el);
+  preStart.setEnd(range.startContainer, range.startOffset);
+  const preEnd = range.cloneRange();
+  preEnd.selectNodeContents(el);
+  preEnd.setEnd(range.endContainer, range.endOffset);
+  const start = preStart.toString().length;
+  const end = preEnd.toString().length;
+  return start === end ? null : { start, end };
+}
+
+function applyWrapToSelection(
+  el: HTMLElement,
+  before: string,
+  after: string,
+  onText: (text: string) => void,
+  afterApply?: (el: HTMLElement, text: string, newOffset: number) => void,
+): boolean {
+  const sel = getPlainSelectionOffsets(el);
+  if (!sel) return false;
+  const text = getElText(el);
+  const wrapped = text.slice(0, sel.start) + before + text.slice(sel.start, sel.end) + after + text.slice(sel.end);
+  onText(wrapped);
+  const newOffset = sel.end + before.length + after.length;
+  if (afterApply) afterApply(el, wrapped, newOffset);
+  else {
+    el.innerText = wrapped;
+    setCaretOffset(el, newOffset);
+  }
+  return true;
+}
+
+function paintEditableLive(
+  el: HTMLElement,
+  text: string,
+  c: BlockEditorColors,
+  wikiTargets: string[],
+  searchQuery: string,
+  caretOffset?: number,
+) {
+  el.innerHTML = liveInlineHtml(text, c, wikiTargets, searchQuery);
+  if (caretOffset != null) setCaretOffset(el, caretOffset);
+}
+
 // ── SingleBlock ───────────────────────────────────────────────────────
 interface SingleBlockProps {
   block: Block;
@@ -345,11 +432,13 @@ interface SingleBlockProps {
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
+  activeBlockId?: string | null;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
   return prev.block === next.block
     && prev.selected === next.selected
+    && prev.activeBlockId === next.activeBlockId
     && prev.readOnly === next.readOnly
     && prev.searchQuery === next.searchQuery
     && prev.depth === next.depth
@@ -391,6 +480,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onTableChange,
   onNavigateBlock,
   onActiveBlockChange,
+  activeBlockId,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -445,6 +535,7 @@ const SingleBlock = React.memo(function SingleBlock({
   const isDragging   = dragState?.draggingId === block.id;
   const isOverBefore = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'before';
   const isOverAfter  = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'after';
+  const isActive     = activeBlockId === block.id;
 
   const dropLineStyle: CSSProperties = {
     position: 'absolute', left: 0, right: 0, height: 2,
@@ -521,13 +612,15 @@ const SingleBlock = React.memo(function SingleBlock({
       data-be-heading={headingIndex}
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
-        borderRadius:6, padding:'1px 0',
+        borderRadius:6, padding: isActive ? '4px 8px 4px 10px' : '1px 0',
         outline: selected ? `2px solid ${c.accent}` : 'none',
-        outlineOffset:2, transition:'outline .1s',
+        outlineOffset:2, transition:'outline .1s, background .12s, box-shadow .12s',
         opacity: isDragging ? 0.4 : 1,
         userSelect: dragState ? 'none' : undefined,
+        background: isActive ? c.selection : undefined,
+        boxShadow: isActive ? `inset 3px 0 0 ${c.accent}` : undefined,
       }}
-      className="be-block"
+      className={`be-block${isActive ? ' be-block-active' : ''}`}
       onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
       {handles}
@@ -603,6 +696,8 @@ interface EditableBlockProps {
   onEnterOverride?: (currentContent: string) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
+  wikiTargets?: string[];
+  searchQuery?: string;
 }
 
 function EditableBlock({
@@ -612,8 +707,17 @@ function EditableBlock({
   onSlashOpen, onSlashClose,
   onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
   onEnterOverride, onNavigateBlock, onActiveBlockChange,
+  wikiTargets = [], searchQuery = '',
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
+  const composingRef = useRef(false);
+  const liveRafRef = useRef<number | null>(null);
+
+  const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
+    const plain = getElText(el);
+    const caret = restoreCaret ? getCaretOffset(el) : undefined;
+    paintEditableLive(el, plain, c, wikiTargets, searchQuery, caret);
+  }, [c, wikiTargets, searchQuery]);
 
   // contentEditable DOM 동기화 (외부 content 변경 시)
   const lastContent = useRef(block.content);
@@ -621,19 +725,37 @@ function EditableBlock({
     const el = editableRef.current;
     if (!el) return;
     if (block.content !== lastContent.current) {
-      // 포커스 중이 아닐 때만 DOM 덮어쓰기 (편집 중 충돌 방지)
       if (document.activeElement !== el) {
-        el.innerText = block.content;
+        paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
         lastContent.current = block.content;
       }
     }
-  }, [block.content, editableRef]);
+  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
+
+  useEffect(() => {
+    const el = editableRef.current;
+    if (!el || el.innerHTML) return;
+    paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+    lastContent.current = block.content;
+  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
+
+  useEffect(() => () => {
+    if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
+  }, []);
 
   const handleInput = useCallback((e: React.FormEvent<HTMLElement>) => {
     const el   = e.currentTarget;
     const text = getElText(el);
     lastContent.current = text;
     onContentChange(block.id, text);
+
+    if (!composingRef.current) {
+      if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
+      liveRafRef.current = requestAnimationFrame(() => {
+        liveRafRef.current = null;
+        paintLive(el, true);
+      });
+    }
 
     const offset  = getCaretOffset(el);
     const before  = text.slice(0, offset);
@@ -671,7 +793,7 @@ function EditableBlock({
       }
     }
     onSlashClose();
-  }, [block.id, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose]);
+  }, [block.id, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, paintLive]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
     const el = e.currentTarget;
@@ -731,12 +853,24 @@ function EditableBlock({
 
   const handleFocus = useCallback(() => {
     onActiveBlockChange?.(block.id);
-    // contentEditable 최초 포커스 시 innerText를 block.content로 초기화
     const el = editableRef.current;
-    if (el && el.innerText.replace(/\n$/, '') !== block.content) {
-      el.innerText = block.content;
+    if (el && getElText(el) !== block.content) {
+      paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
     }
-  }, [block.content, editableRef, block.id, onActiveBlockChange]);
+  }, [block.content, editableRef, block.id, onActiveBlockChange, c, wikiTargets, searchQuery]);
+
+  const handleBlur = useCallback((e: React.FocusEvent<HTMLElement>) => {
+    paintLive(e.currentTarget, false);
+  }, [paintLive]);
+
+  const handleCompositionStart = useCallback(() => {
+    composingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLElement>) => {
+    composingRef.current = false;
+    paintLive(e.currentTarget, true);
+  }, [paintLive]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     // 서식 없이 순수 텍스트만 붙여넣기
@@ -777,10 +911,12 @@ function EditableBlock({
       onInput={handleInput}
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
+      onBlur={handleBlur}
+      onCompositionStart={handleCompositionStart}
+      onCompositionEnd={handleCompositionEnd}
       onPaste={handlePaste}
       onClick={handleClick}
       data-placeholder={placeholder}
-      dangerouslySetInnerHTML={{ __html: block.content }}
     />
   );
 }
@@ -1643,6 +1779,8 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     onNavigateBlock: ctx.onNavigateBlock,
     onActiveBlockChange: ctx.onActiveBlockChange,
     onWikiNavigate: ctx.onWikiNavigate,
+    wikiTargets: ctx.wikiTargets,
+    searchQuery: ctx.searchQuery,
   };
   const ep = (tag: EditableBlockProps['tag'], style: CSSProperties, placeholder?: string) =>
     !readOnly ? (
@@ -1732,13 +1870,30 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       );
     case 'toggle':
       return (
-        <div style={{ background: ctx.toggleOpen ? ctx.toggleOpen && c.toggleBg : 'transparent', borderRadius:8, transition:'background .15s' }}>
-          <div style={{ display:'flex', gap:6, alignItems:'flex-start', padding:'6px 8px', borderRadius:8 }}>
-            <span
-              style={{ color:c.accent, transition:'transform .18s', transform: ctx.toggleOpen ? 'rotate(90deg)' : 'rotate(0deg)', marginTop:3, flexShrink:0, cursor:'pointer' }}
+        <div className="be-toggle" style={{
+          background: c.toggleBg,
+          borderRadius: 10,
+          border: `1px solid ${c.border}`,
+          margin: '6px 0',
+          overflow: 'hidden',
+          transition: 'box-shadow .15s',
+          boxShadow: ctx.toggleOpen ? `0 1px 0 ${c.accent}22 inset` : 'none',
+        }}>
+          <div style={{
+            display:'flex', gap:8, alignItems:'flex-start', padding:'8px 12px',
+            borderBottom: ctx.toggleOpen ? `1px solid ${c.border}` : 'none',
+          }}>
+            <button
+              type="button"
+              aria-label={ctx.toggleOpen ? '접기' : '펼치기'}
+              style={{
+                color:c.accent, background:'none', border:'none', padding:0,
+                transition:'transform .18s', transform: ctx.toggleOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                marginTop:3, flexShrink:0, cursor:'pointer', display:'flex',
+              }}
               onClick={e => { e.stopPropagation(); ctx.onToggleCollapse(); }}>
-              <ChevronRight size={15}/>
-            </span>
+              <ChevronRight size={16}/>
+            </button>
             {readOnly
               ? <span style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
                   {block.content ? inline(block.content) : <span style={{ color:c.textFaint }}>토글 제목…</span>}
@@ -1750,7 +1905,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             }
           </div>
           {ctx.toggleOpen && (
-            <div style={{ paddingLeft:28, paddingBottom:8 }}>
+            <div style={{ padding:'8px 12px 10px 36px', background: `${c.bg}88` }}>
               {block.children.length > 0 ? (
                 <BlockEditorInner
                   blocks={block.children}
@@ -1818,9 +1973,19 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             placeholder="인용 텍스트…" {...sharedEditProps}/>;
     case 'callout':
       return (
-        <div style={{ background:c.calloutBg, borderRadius:8, padding:'10px 14px',
-          display:'flex', gap:10, alignItems:'flex-start', margin:'4px 0', border:`1px solid ${c.border}` }}>
-          <span style={{ fontSize:18, flexShrink:0, lineHeight:'24px' }}>{block.calloutIcon ?? '💡'}</span>
+        <div className="be-callout" style={{
+          background: `linear-gradient(135deg, ${c.calloutBg} 0%, ${c.card} 100%)`,
+          borderRadius: 10, padding:'12px 14px',
+          display:'flex', gap:12, alignItems:'flex-start', margin:'6px 0',
+          border:`1px solid ${c.border}`,
+          borderLeft: `4px solid ${c.accent}`,
+          boxShadow: `0 1px 3px ${c.border}44`,
+        }}>
+          <span style={{
+            fontSize:20, flexShrink:0, lineHeight:'26px',
+            width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center',
+            background: c.accentBg, borderRadius:8,
+          }}>{block.calloutIcon ?? '💡'}</span>
           {readOnly
             ? <span style={{ fontSize:14, lineHeight:1.7, color:c.text }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
@@ -1888,6 +2053,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const handleActiveBlockChange = useCallback((id: string | null) => {
+    setActiveBlockId(id);
+    onActiveBlockChange?.(id);
+  }, [onActiveBlockChange]);
 
   const blocksCtx = useMemo<BlocksCtxValue>(() => ({
     getBlocks: () => blocksRef.current,
@@ -2058,23 +2229,23 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const targetBlock = findBlockById(bs, targetId);
     if (!targetBlock) return;
     setSelected(targetId);
-    onActiveBlockChange?.(targetId);
+    handleActiveBlockChange(targetId);
     setFocusCmd({
       blockId: targetId,
       offset: isTextBlockType(targetBlock.type)
         ? (dir === 'up' ? 'end' : 'start')
         : 'start',
     });
-  }, [onActiveBlockChange]);
+  }, [handleActiveBlockChange]);
 
   // 외부 포커스 요청 (이미지 삽입 직후 등)
   useEffect(() => {
     if (!externalFocusId) return;
     setSelected(externalFocusId);
-    onActiveBlockChange?.(externalFocusId);
+    handleActiveBlockChange(externalFocusId);
     setFocusCmd({ blockId: externalFocusId, offset: 'start' });
     onExternalFocusConsumed?.();
-  }, [externalFocusId, onActiveBlockChange, onExternalFocusConsumed]);
+  }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed]);
 
   const handleSlashSelect = useCallback((type: BlockType) => {
     if (!slashMenu) return;
@@ -2110,13 +2281,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       if (idx >= 0) {
         const ins     = `[[${title}]]`;
         const newText = text.slice(0, idx) + ins + text.slice(caret);
-        el.innerText = newText;
-        setCaretOffset(el, idx + ins.length);
+        paintEditableLive(el, newText, c, wikiTargets, searchQuery, idx + ins.length);
         if (wikiMenu) handleContentChange(wikiMenu.blockId, getElText(el));
       }
     }
     setWikiMenu(null);
-  }, [wikiMenu, handleContentChange]);
+  }, [wikiMenu, handleContentChange, c, wikiTargets, searchQuery]);
 
   // focusCmd 소비 후 리셋
   useEffect(() => {
@@ -2141,11 +2311,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   return (
   <BlocksCtx.Provider value={blocksCtx}>
     <>
-      <div style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 52), position:'relative' }}>
+      <div className="be-editor-root" style={{ paddingLeft: depth > 0 ? 0 : (readOnly ? 0 : 52), position:'relative' }}>
         {blocks.map(block => (
           <SingleBlock
             key={block.id} block={block}
             colors={c} selected={selected === block.id}
+            activeBlockId={activeBlockId}
             onSelect={setSelected} onOpenMenu={setBlockMenu}
             onAddBelow={handleAddBelow} readOnly={readOnly}
             searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
@@ -2167,10 +2338,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onToggleEnter={handleToggleEnter}
             onTableChange={handleTableChange}
             onNavigateBlock={handleNavigateBlock}
-            onActiveBlockChange={onActiveBlockChange}
+            onActiveBlockChange={handleActiveBlockChange}
           />
         ))}
       </div>
+      {!readOnly && (
+        <SelectionToolbar
+          colors={c}
+          wikiTargets={wikiTargets}
+          searchQuery={searchQuery}
+          onContentChange={handleContentChange}
+        />
+      )}
       {blockMenu && (
         <BlockContextMenu
           blockId={blockMenu.blockId} anchorY={blockMenu.anchorY} anchorX={blockMenu.anchorX}
@@ -2441,6 +2620,101 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
 
 const noopBlockChange = () => {};
 
+// ── 선택 텍스트 포맷 툴바 ─────────────────────────────────────────────
+interface SelectionToolbarProps {
+  colors: BlockEditorColors;
+  wikiTargets: string[];
+  searchQuery: string;
+  onContentChange: (blockId: string, content: string) => void;
+}
+
+function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange }: SelectionToolbarProps) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const blockIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setPos(null);
+        blockIdRef.current = null;
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const node = range.commonAncestorContainer;
+      const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node as HTMLElement)
+        ?.closest('[contenteditable="true"]') as HTMLElement | null;
+      if (!host?.closest('.be-editor-root')) {
+        setPos(null);
+        blockIdRef.current = null;
+        return;
+      }
+      const blockEl = host.closest('.be-block') as HTMLElement | null;
+      blockIdRef.current = blockEl?.getAttribute('data-drag-id') ?? null;
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        setPos(null);
+        return;
+      }
+      setPos({ top: rect.top - 46, left: rect.left + rect.width / 2 });
+    };
+    document.addEventListener('selectionchange', update);
+    return () => document.removeEventListener('selectionchange', update);
+  }, []);
+
+  const applyFormat = useCallback((before: string, after: string) => {
+    const el = document.activeElement as HTMLElement | null;
+    const blockId = blockIdRef.current;
+    if (!el?.isContentEditable || !blockId) return;
+    applyWrapToSelection(el, before, after, (text) => {
+      onContentChange(blockId, text);
+    }, (target, text, offset) => {
+      paintEditableLive(target, text, c, wikiTargets, searchQuery, offset);
+    });
+  }, [c, wikiTargets, searchQuery, onContentChange]);
+
+  if (!pos) return null;
+
+  const btn = (icon: ReactNode, label: string, fn: () => void) => (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onMouseDown={e => { e.preventDefault(); fn(); }}
+      style={{
+        display:'flex', alignItems:'center', justifyContent:'center',
+        width:28, height:28, border:'none', borderRadius:6,
+        background:'transparent', color:c.text, cursor:'pointer',
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+    >
+      {icon}
+    </button>
+  );
+
+  return (
+    <div
+      className="be-selection-toolbar"
+      style={{
+        position:'fixed', top: Math.max(8, pos.top), left: pos.left,
+        transform:'translateX(-50%)', zIndex:400,
+        display:'flex', alignItems:'center', gap:2,
+        padding:'4px 6px', borderRadius:8,
+        background:c.card, border:`1px solid ${c.border}`,
+        boxShadow:'0 4px 20px #00000028',
+      }}
+      onMouseDown={e => e.preventDefault()}
+    >
+      {btn(<Bold size={14}/>, 'Bold', () => applyFormat('**', '**'))}
+      {btn(<Italic size={14}/>, 'Italic', () => applyFormat('*', '*'))}
+      {btn(<Code2 size={14}/>, 'Code', () => applyFormat('`', '`'))}
+      {btn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, 'Wiki link', () => applyFormat('[[', ']]'))}
+      {btn(<Hash size={14}/>, 'Tag', () => applyFormat('#', ''))}
+    </div>
+  );
+}
+
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
 export const BlockEditor = React.memo(function BlockEditor({
   blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate,
@@ -2450,6 +2724,7 @@ export const BlockEditor = React.memo(function BlockEditor({
     <>
       <style>{`
         .be-block:hover .be-handles { opacity: 1 !important; pointer-events: auto !important; }
+        .be-block-active { scroll-margin: 80px; }
         [contenteditable]:empty::before {
           content: attr(data-placeholder);
           color: var(--be-placeholder-color, #aaa);
@@ -2458,7 +2733,57 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         [contenteditable] { position: relative; }
         [contenteditable]:focus { outline: none; }
+        .be-mark {
+          opacity: 0.35;
+          font-size: 0.82em;
+          font-weight: 400;
+          user-select: none;
+          pointer-events: none;
+        }
+        .be-wiki-chip {
+          display: inline;
+          color: var(--be-accent, #6366f1);
+          background: var(--be-accent-bg, #eef2ff);
+          border-radius: 4px;
+          padding: 0 2px;
+        }
+        .be-wiki-chip .be-bracket { opacity: 0.4; font-size: 0.85em; }
+        .be-wiki-chip-broken { opacity: 0.75; font-style: italic; }
+        .be-tag-chip {
+          display: inline;
+          color: var(--be-accent, #6366f1);
+          background: var(--be-accent-bg, #eef2ff);
+          border-radius: 999px;
+          padding: 0 6px;
+          font-size: 0.92em;
+          font-weight: 500;
+        }
+        .be-live-code {
+          background: var(--be-code-bg, #f1f5f9);
+          color: var(--be-accent, #6366f1);
+          padding: 1px 5px;
+          border-radius: 4px;
+          font-size: 0.88em;
+          font-family: ui-monospace, monospace;
+        }
+        .be-live-mark {
+          background: var(--be-accent-bg, #eef2ff);
+          color: var(--be-accent, #6366f1);
+          border-radius: 3px;
+          padding: 0 2px;
+        }
+        .be-search-hl { background: #fbbf24; color: #000; border-radius: 2px; }
+        .be-selection-toolbar button:active { transform: scale(0.94); }
       `}</style>
+      <div
+        className="be-editor-root"
+        style={{
+          '--be-accent': colors.accent,
+          '--be-accent-bg': colors.accentBg,
+          '--be-code-bg': colors.codeBg,
+          '--be-placeholder-color': colors.textFaint,
+        } as CSSProperties}
+      >
       <BlockEditorInner
         blocks={blocks} onChange={onChange} colors={colors}
         readOnly={readOnly} searchQuery={searchQuery} depth={0}
@@ -2468,6 +2793,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         externalFocusId={externalFocusId}
         onExternalFocusConsumed={onExternalFocusConsumed}
       />
+      </div>
       {!readOnly && (
         <div style={{ minHeight:80, cursor:'text', paddingLeft:52 }}
           onClick={() => {

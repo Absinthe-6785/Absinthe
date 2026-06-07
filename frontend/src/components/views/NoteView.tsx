@@ -129,7 +129,7 @@ export const NoteView = () => {
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('edit');
 
   const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
     const id = storeCreateNote({
