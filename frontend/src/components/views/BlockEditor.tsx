@@ -18,7 +18,7 @@ import React, {
   type ReactNode, type CSSProperties,
 } from 'react';
 import {
-  ChevronRight, Plus, Copy,
+  ChevronRight, Plus, Copy, Indent, Outdent,
   Heading1, Heading2, Heading3,
   List, ListOrdered, CheckSquare, Code2,
   Image as ImageIcon, Minus, Table2, Quote, Zap, Type,
@@ -49,6 +49,7 @@ import {
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
 import { applyDragDrop, indentBlock, outdentBlock } from './blockTree';
+import { blockPlaceholder } from './blockPlaceholders';
 
 const getElText = readBlockText;
 
@@ -248,6 +249,8 @@ export interface BlockEditorColors {
   fontFamily?: string;
   fontSize?: number;
   documentMaxWidth?: number;
+  menuShadow?: string;
+  isDark?: boolean;
 }
 
 // ── Props ────────────────────────────────────────────────────────────
@@ -325,7 +328,7 @@ function renderInlineMarkdown(text: string, c: BlockEditorColors, searchQuery = 
 
   if (searchQuery.trim()) {
     const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    html = html.replace(new RegExp(`(${q})`, 'gi'), '<mark style="background:#fbbf24;color:#000">$1</mark>');
+    html = html.replace(new RegExp(`(${q})`, 'gi'), '<mark class="be-search-hl">$1</mark>');
   }
 
   // 2. 수식 복원 (검색 하이라이트가 katex HTML을 건드리지 않도록 마지막에)
@@ -662,31 +665,43 @@ const SingleBlock = React.memo(function SingleBlock({
     </div>
   ) : inner;
 
-  return (
-    <div
-      {...getDragProps(block.id)}
-      data-be-heading={headingIndex}
-      data-block-type={block.type}
-      style={{
-        position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
-        borderRadius: 6,
-        padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
-        outline: 'none',
-        border: 'none',
-        borderLeft: (isActive || selected) ? `3px solid ${c.accent}` : '3px solid transparent',
-        transition: 'border-color .12s, background .12s',
-        opacity: isDragging ? 0.4 : 1,
-        userSelect: dragState ? 'none' : undefined,
-        background: isActive
-          ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
-          : selected
-            ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
-            : undefined,
-      }}
-      className={`be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
-      onMouseEnter={() => onChromeEnter?.(block.id)}
-      onMouseLeave={() => onChromeLeave?.()}
-      onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
+  const openBlockMenu = useCallback((clientX: number, clientY: number) => {
+    onToggleControlsPin?.(block.id);
+    onOpenTurnInto({ blockId: block.id, anchorY: clientY, anchorX: clientX });
+  }, [block.id, onOpenTurnInto, onToggleControlsPin]);
+
+  const blockShellProps = {
+    ...getDragProps(block.id),
+    'data-be-heading': headingIndex,
+    'data-block-type': block.type,
+    onContextMenu: readOnly ? undefined : (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openBlockMenu(e.clientX, e.clientY);
+    },
+  } as const;
+
+  const blockShellStyle: CSSProperties = {
+    position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
+    borderRadius: 6,
+    padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
+    outline: 'none',
+    border: 'none',
+    borderLeft: (isActive || selected) ? `3px solid ${c.accent}` : '3px solid transparent',
+    transition: 'border-color .12s, background .12s',
+    opacity: isDragging ? 0.4 : 1,
+    userSelect: dragState ? 'none' : undefined,
+    background: isActive
+      ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
+      : selected
+        ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
+        : undefined,
+  };
+
+  const blockShellClass = `be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`;
+
+  const dropIndicators = (
+    <>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
       {isOverInside && (
         <div style={{
@@ -695,9 +710,72 @@ const SingleBlock = React.memo(function SingleBlock({
           background: `${c.accent}11`,
         }}/>
       )}
+      {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
+    </>
+  );
+
+  if (block.type === 'toggle') {
+    const toggleChildren = renderToggleChildren(block, c, {
+      toggleOpen, inline,
+      onToggleCollapse: handleToggleCollapse,
+      onToggleTodo: handleToggleTodo,
+      getBlocks, onChange, searchQuery, depth, wikiTargets,
+      readOnly, onSelect, onOpenMenu, onAddBelow,
+      onSplitBlock, onMergeWithPrev, onContentChange,
+      editableRef,
+      onSlashOpen, onSlashClose,
+      onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
+      onToggleAddChild, onToggleEnter, onTableChange,
+      onNavigateBlock, onActiveBlockChange, onConvertBlock,
+      onIndentBlock, onOutdentBlock,
+      getRootBlocks: getRootBlocks ?? getBlocks,
+      onRootChange: onRootChange ?? onChange,
+    });
+    return (
+      <div className="be-toggle-wrap">
+        <div
+          {...blockShellProps}
+          style={blockShellStyle}
+          className={`${blockShellClass} be-toggle-header-block`}
+          onMouseEnter={() => onChromeEnter?.(block.id)}
+          onMouseLeave={() => onChromeLeave?.()}
+          onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}
+        >
+          {dropIndicators}
+          {handles}
+          {renderToggleHeader(block, c, {
+            toggleOpen, inline,
+            onToggleCollapse: handleToggleCollapse,
+            onToggleTodo: handleToggleTodo,
+            getBlocks, onChange, searchQuery, depth, wikiTargets,
+            readOnly, onSelect, onOpenMenu, onAddBelow,
+            onSplitBlock, onMergeWithPrev, onContentChange,
+            editableRef,
+            onSlashOpen, onSlashClose,
+            onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
+            onToggleAddChild, onToggleEnter, onTableChange,
+            onNavigateBlock, onActiveBlockChange, onConvertBlock,
+            onIndentBlock, onOutdentBlock,
+            getRootBlocks: getRootBlocks ?? getBlocks,
+            onRootChange: onRootChange ?? onChange,
+          })}
+        </div>
+        {toggleOpen && toggleChildren}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      {...blockShellProps}
+      style={blockShellStyle}
+      className={blockShellClass}
+      onMouseEnter={() => onChromeEnter?.(block.id)}
+      onMouseLeave={() => onChromeLeave?.()}
+      onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
+      {dropIndicators}
       {handles}
       {body}
-      {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
     </div>
   );
 }, singleBlockPropsEqual);
@@ -781,7 +859,7 @@ interface EditableBlockProps {
 }
 
 function EditableBlock({
-  block, colors: c, placeholder = '텍스트 입력…',
+  block, colors: c, placeholder = blockPlaceholder(block.type),
   style, className, editableRef,
   onSplitBlock, onMergeWithPrev, onContentChange, tag = 'p',
   onSlashOpen, onSlashClose,
@@ -942,6 +1020,8 @@ function EditableBlock({
       if (e.key === 'Escape')                             { onSlashClose(); onWikiClose(); return; }
     }
 
+    if (composingRef.current && e.key === 'Enter') return;
+
     // ── Shift+Enter: 블록 내 줄바꿈 (현재 block.content만 수정) ───
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -1083,7 +1163,7 @@ function EditableBlock({
       ref={(el: HTMLElement | null) => { editableRef.current = el; }}
       contentEditable
       suppressContentEditableWarning
-      className={className}
+      className={`be-editable${className ? ` ${className}` : ''}`}
       style={{
         outline: 'none',
         whiteSpace: 'pre-wrap',
@@ -1949,6 +2029,102 @@ function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   );
 }
 
+function toggleSharedEditProps(block: Block, ctx: RCtx) {
+  return {
+    editableRef: ctx.editableRef,
+    onSplitBlock: ctx.onSplitBlock,
+    onMergeWithPrev: ctx.onMergeWithPrev,
+    onContentChange: ctx.onContentChange,
+    onSlashOpen: ctx.onSlashOpen,
+    onSlashClose: ctx.onSlashClose,
+    onWikiOpen: ctx.onWikiOpen,
+    onWikiClose: ctx.onWikiClose,
+    isMenuOpen: ctx.isMenuOpen,
+    onNavigateBlock: ctx.onNavigateBlock,
+    onActiveBlockChange: ctx.onActiveBlockChange,
+    onWikiNavigate: ctx.onWikiNavigate,
+    wikiTargets: ctx.wikiTargets,
+    searchQuery: ctx.searchQuery,
+    onConvertBlock: ctx.onConvertBlock,
+    onIndentBlock: ctx.onIndentBlock,
+    onOutdentBlock: ctx.onOutdentBlock,
+  };
+}
+
+function renderToggleHeader(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
+  const { inline, readOnly } = ctx;
+  const sharedEditProps = toggleSharedEditProps(block, ctx);
+  return (
+    <div style={{ display:'flex', gap:6, alignItems:'flex-start', padding:'2px 0' }}>
+      <button
+        type="button"
+        aria-label={ctx.toggleOpen ? '접기' : '펼치기'}
+        style={{
+          color:c.textMuted, background:'none', border:'none', padding:0,
+          transition:'transform .18s', transform: ctx.toggleOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+          marginTop:3, flexShrink:0, cursor:'pointer', display:'flex',
+        }}
+        onClick={e => { e.stopPropagation(); ctx.onToggleCollapse(); }}>
+        <ChevronRight size={15}/>
+      </button>
+      {readOnly
+        ? <span style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
+            {block.content ? inline(block.content) : <span style={{ color:c.textFaint }}>{blockPlaceholder('toggle')}</span>}
+          </span>
+        : <EditableBlock block={block} colors={c} tag="span"
+            style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6, flex:1, display:'block' }}
+            placeholder={blockPlaceholder('toggle')} {...sharedEditProps}
+            onEnterOverride={currentContent => ctx.onToggleEnter(block.id, currentContent)}/>
+      }
+    </div>
+  );
+}
+
+function renderToggleChildren(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
+  return (
+    <div
+      className="be-toggle-children be-toggle-drop"
+      data-toggle-id={block.id}
+    >
+      {block.children.length > 0 ? (
+        <BlockEditorInner
+          blocks={block.children}
+          onChange={children => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, children })))}
+          colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
+          wikiTargets={ctx.wikiTargets}
+          onWikiNavigate={ctx.onWikiNavigate}
+          onActiveBlockChange={ctx.onActiveBlockChange}
+          externalFocusId={undefined}
+          getRootBlocks={ctx.getRootBlocks}
+          onRootChange={ctx.onRootChange}
+          onEscapeToParentBelow={() => {
+            const newBlock = makeBlock('paragraph');
+            ctx.onChange(insertBlockAfter(ctx.getBlocks(), block.id, newBlock));
+            requestAnimationFrame(() => {
+              const h = focusRegistry.get(newBlock.id);
+              if (h) h({ blockId: newBlock.id, offset: 'start' });
+            });
+          }}
+          onEscapeToParentHeader={() => {
+            const h = focusRegistry.get(block.id);
+            if (h) h({ blockId: block.id, offset: 'end' });
+          }}
+        />
+      ) : !ctx.readOnly && (
+        <div
+          className="be-toggle-empty"
+          role="button"
+          tabIndex={0}
+          onClick={e => { e.stopPropagation(); ctx.onToggleAddChild(block.id); }}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ctx.onToggleAddChild(block.id); } }}
+        >
+          내용 추가…
+        </div>
+      )}
+    </div>
+  );
+}
+
 function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
   const { inline, editableRef, onSplitBlock, onMergeWithPrev, onContentChange, readOnly,
           onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, isMenuOpen } = ctx;
@@ -1985,20 +2161,20 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
       ) : (
         <EditableBlock block={block} colors={c} tag="p"
           style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text, minHeight:26 }}
-          placeholder="텍스트 입력…" {...sharedEditProps}/>
+          {...sharedEditProps}/>
       );
     case 'heading1':
       return readOnly
         ? <h1 style={{ fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text }}>{inline(block.content)}</h1>
-        : ep('h1', { fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text }, '제목 1');
+        : ep('h1', { fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text });
     case 'heading2':
       return readOnly
         ? <h2 style={{ fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text }}>{inline(block.content)}</h2>
-        : ep('h2', { fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text }, '제목 2');
+        : ep('h2', { fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text });
     case 'heading3':
       return readOnly
         ? <h3 style={{ fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }}>{inline(block.content)}</h3>
-        : ep('h3', { fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }, '제목 3');
+        : ep('h3', { fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text });
     case 'bullet':
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
@@ -2007,7 +2183,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1, display:'block' }}
-                placeholder="목록 항목…" {...sharedEditProps}/>
+                {...sharedEditProps}/>
           }
         </div>
       );
@@ -2019,7 +2195,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1, display:'block' }}
-                placeholder="번호 항목…" {...sharedEditProps}/>
+                {...sharedEditProps}/>
           }
         </div>
       );
@@ -2049,101 +2225,12 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   textDecoration: block.checked ? 'line-through' : 'none',
                   opacity: block.checked ? .6 : 1, transition:'all .15s',
                 }}
-                placeholder="할 일 항목…" {...sharedEditProps}/>
+                {...sharedEditProps}/>
           }
         </div>
       );
     case 'toggle':
-      return (
-        <div className="be-toggle" style={{ margin:'2px 0', overflow:'visible' }}>
-          <div style={{ display:'flex', gap:6, alignItems:'flex-start', padding:'2px 0' }}>
-            <button
-              type="button"
-              aria-label={ctx.toggleOpen ? '접기' : '펼치기'}
-              style={{
-                color:c.textMuted, background:'none', border:'none', padding:0,
-                transition:'transform .18s', transform: ctx.toggleOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                marginTop:3, flexShrink:0, cursor:'pointer', display:'flex',
-              }}
-              onClick={e => { e.stopPropagation(); ctx.onToggleCollapse(); }}>
-              <ChevronRight size={15}/>
-            </button>
-            {readOnly
-              ? <span style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
-                  {block.content ? inline(block.content) : <span style={{ color:c.textFaint }}>토글 제목…</span>}
-                </span>
-              : <EditableBlock block={block} colors={c} tag="span"
-                  style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6, flex:1, display:'block' }}
-                  placeholder="토글 제목…" {...sharedEditProps}
-                  onEnterOverride={currentContent => ctx.onToggleEnter(block.id, currentContent)}/>
-            }
-          </div>
-          {ctx.toggleOpen && (
-            <div
-              className="be-toggle-drop"
-              data-toggle-id={block.id}
-              style={{
-                marginLeft: 20, paddingTop: 4, paddingBottom: 2,
-                borderTop: `1px solid ${c.border}`,
-              }}
-            >
-              {block.children.length > 0 ? (
-                <BlockEditorInner
-                  blocks={block.children}
-                  onChange={children => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, children })))}
-                  colors={c} readOnly={ctx.readOnly} searchQuery={ctx.searchQuery} depth={ctx.depth + 1}
-                  wikiTargets={ctx.wikiTargets}
-                  onWikiNavigate={ctx.onWikiNavigate}
-                  onActiveBlockChange={ctx.onActiveBlockChange}
-                  externalFocusId={undefined}
-                  getRootBlocks={ctx.getRootBlocks}
-                  onRootChange={ctx.onRootChange}
-                  // Toggle Step 3: 자식 → 부모 탈출 콜백
-                  onEscapeToParentBelow={() => {
-                    // toggle 바로 아래에 새 paragraph 삽입 + 포커스
-                    const newBlock = makeBlock('paragraph');
-                    ctx.onChange(insertBlockAfter(ctx.getBlocks(), block.id, newBlock));
-                    requestAnimationFrame(() => {
-                      const h = focusRegistry.get(newBlock.id);
-                      if (h) h({ blockId: newBlock.id, offset: 'start' });
-                    });
-                  }}
-                  onEscapeToParentHeader={() => {
-                    // toggle 헤더 EditableBlock으로 포커스 복귀 (끝 위치)
-                    const h = focusRegistry.get(block.id);
-                    if (h) h({ blockId: block.id, offset: 'end' });
-                  }}
-                />
-              ) : !ctx.readOnly && (
-                // Toggle Step 1: 빈 영역 클릭 → 자식 블록 자동 생성
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={e => { e.stopPropagation(); ctx.onToggleAddChild(block.id); }}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ctx.onToggleAddChild(block.id); } }}
-                  style={{
-                    color: c.textFaint, fontSize:13, fontStyle:'italic',
-                    padding:'4px 6px', borderRadius:6, cursor:'text',
-                    border:`1px dashed transparent`,
-                    transition:'border-color .15s, background .15s',
-                    userSelect:'none',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = c.border;
-                    (e.currentTarget as HTMLElement).style.background  = c.cardHov;
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = 'transparent';
-                    (e.currentTarget as HTMLElement).style.background  = 'transparent';
-                  }}
-                >
-                  클릭해서 내용 추가…
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      );
+      return null;
     case 'quote':
       return readOnly
         ? <blockquote style={{ borderLeft:`3px solid ${c.quoteBdr}`, marginLeft:0, paddingLeft:16,
@@ -2153,7 +2240,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
         : <EditableBlock block={block} colors={c} tag="blockquote"
             style={{ borderLeft:`3px solid ${c.quoteBdr}`, marginLeft:0, paddingLeft:16,
               color:c.textMuted, fontStyle:'italic', fontSize:15, lineHeight:1.7, margin:'4px 0' }}
-            placeholder="인용 텍스트…" {...sharedEditProps}/>;
+            {...sharedEditProps}/>;
     case 'callout':
       return (
         <div className="be-callout" style={{
@@ -2173,7 +2260,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             ? <span style={{ fontSize:14, lineHeight:1.7, color:c.text }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ fontSize:14, lineHeight:1.7, color:c.text, flex:1, display:'block' }}
-                placeholder="콜아웃 텍스트…" {...sharedEditProps}/>
+                {...sharedEditProps}/>
           }
         </div>
       );
@@ -2333,6 +2420,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const handleAddBelow = useCallback((id: string) => {
     const nb = makeBlock('paragraph');
     onChange(insertBlockAfter(blocksRef.current, id, nb));
+    setFocusCmd({ blockId: nb.id, offset: 'start' });
+    setSelected(nb.id);
+  }, [onChange]);
+
+  const handleAddAbove = useCallback((id: string) => {
+    const nb = makeBlock('paragraph');
+    const bs = blocksRef.current;
+    const idx = bs.findIndex(b => b.id === id);
+    if (idx < 0) return;
+    const next = [...bs];
+    next.splice(idx, 0, nb);
+    onChange(next);
     setFocusCmd({ blockId: nb.id, offset: 'start' });
     setSelected(nb.id);
   }, [onChange]);
@@ -2642,8 +2741,11 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorY={handleMenu.anchorY}
           anchorX={handleMenu.anchorX}
           colors={c}
+          onAddAbove={() => { handleAddAbove(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
           onAddBelow={() => { handleAddBelow(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
           onDuplicate={() => { handleDuplicate(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
+          onIndent={() => { handleIndentBlock(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
+          onOutdent={() => { handleOutdentBlock(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
           onSelect={type => handleConvert(handleMenu.blockId, type)}
           onDelete={() => { handleDelete(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
           onMoveUp={() => { handleMove(handleMenu.blockId, 'up'); setHandleMenu(null); setPinnedControlsId(null); }}
@@ -2660,8 +2762,11 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorY={blockMenu.anchorY}
           anchorX={blockMenu.anchorX}
           colors={c}
+          onAddAbove={() => { handleAddAbove(blockMenu.blockId); setBlockMenu(null); }}
           onAddBelow={() => { handleAddBelow(blockMenu.blockId); setBlockMenu(null); }}
           onDuplicate={() => { handleDuplicate(blockMenu.blockId); setBlockMenu(null); }}
+          onIndent={() => { handleIndentBlock(blockMenu.blockId); setBlockMenu(null); }}
+          onOutdent={() => { handleOutdentBlock(blockMenu.blockId); setBlockMenu(null); }}
           onSelect={type => handleConvert(blockMenu.blockId, type)}
           onDelete={() => { handleDelete(blockMenu.blockId); setBlockMenu(null); }}
           onMoveUp={() => { handleMove(blockMenu.blockId, 'up'); setBlockMenu(null); }}
@@ -2704,8 +2809,11 @@ interface BlockHandleMenuProps {
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
+  onAddAbove: () => void;
   onAddBelow: () => void;
   onDuplicate: () => void;
+  onIndent: () => void;
+  onOutdent: () => void;
   onSelect: (type: BlockType) => void;
   onDelete: () => void;
   onMoveUp: () => void;
@@ -2717,7 +2825,8 @@ interface BlockHandleMenuProps {
 
 function BlockHandleMenu({
   blockId, currentType, anchorY, anchorX, colors: c,
-  onAddBelow, onDuplicate, onSelect, onDelete, onMoveUp, onMoveDown, onClose,
+  onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
+  onSelect, onDelete, onMoveUp, onMoveDown, onClose,
   onChromeEnter, onChromeLeave,
 }: BlockHandleMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -2769,12 +2878,17 @@ function BlockHandleMenu({
       style={{
         position:'fixed', top, left, zIndex:400,
         background:c.card, border:`1px solid ${c.border}`,
-        borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
+        borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
         minWidth:196, maxWidth:220, overflow:'hidden', padding:'6px 0',
       }}
     >
+      {mi(<Plus size={13}/>, '위에 블록 추가', onAddAbove)}
       {mi(<Plus size={13}/>, '아래에 블록 추가', onAddBelow)}
       {mi(<Copy size={13}/>, '복제', onDuplicate)}
+      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+      {sec('구조')}
+      {mi(<Indent size={13}/>, '들여쓰기', onIndent)}
+      {mi(<Outdent size={13}/>, '내어쓰기', onOutdent)}
       <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
       {sec('Turn Into')}
       <div style={{ maxHeight:200, overflowY:'auto' }}>
@@ -2858,15 +2972,21 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
     <div ref={menuRef} className="be-slash-menu" style={{
       position:'fixed', top, left, zIndex:400,
       background:c.card, border:`1px solid ${c.border}`,
-      borderRadius: c.radiusModal ?? 16, boxShadow:'0 8px 24px rgba(0,0,0,0.1)',
+      borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
       width:248, maxHeight:360, overflowY:'auto', padding:'6px 0',
     }}>
       <div style={{ padding:'6px 12px 8px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
-        <div style={{ fontSize:10, color:c.textFaint, fontWeight:700, letterSpacing:0.8, marginBottom:4 }}>
-          {query ? `"${query}" 검색` : '블록 추가'}
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+          <span style={{
+            fontSize:11, fontWeight:700, color:c.accent, background:c.accentBg,
+            borderRadius:4, padding:'2px 6px', fontFamily:'ui-monospace, monospace',
+          }}>/</span>
+          <span style={{ fontSize:10, color:c.textFaint, fontWeight:700, letterSpacing:0.8 }}>
+            {query ? `"${query}"` : '블록 명령'}
+          </span>
         </div>
         <div style={{ fontSize:11, color:c.textMuted }}>
-          {query ? 'Enter로 선택 · ↑↓ 이동' : 'heading · todo · toggle · callout …'}
+          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · todo · toggle · bullet · code …'}
         </div>
       </div>
       {items.length === 0 && <div style={{ padding:12, color:c.textFaint, fontSize:13, textAlign:'center' }}>결과 없음</div>}
@@ -3242,10 +3362,10 @@ export const BlockEditor = React.memo(function BlockEditor({
           pointer-events: none;
           transition: opacity .12s, visibility .12s;
         }
-        .be-block:hover .be-handles,
-        .be-block.be-block-active .be-handles,
-        .be-block.be-block-selected .be-handles,
-        .be-block.be-controls-visible .be-handles,
+        .be-block:hover > .be-handles,
+        .be-block.be-block-active > .be-handles,
+        .be-block.be-block-selected > .be-handles,
+        .be-block.be-controls-visible > .be-handles,
         .be-handles:hover {
           opacity: 1 !important;
           visibility: visible !important;
@@ -3295,14 +3415,35 @@ export const BlockEditor = React.memo(function BlockEditor({
           font-size: var(--be-font-size, 16px);
           color: var(--be-text, inherit);
         }
-        [contenteditable]:empty::before {
-          content: attr(data-placeholder);
+        .be-editable[contenteditable]:empty::before {
+          content: none;
           color: var(--be-placeholder-color, #aaa);
           pointer-events: none;
           position: absolute;
+          left: 0;
+        }
+        .be-block-active .be-editable[contenteditable]:empty::before,
+        .be-editable[contenteditable]:empty:focus::before {
+          content: attr(data-placeholder);
         }
         [contenteditable] { position: relative; }
         [contenteditable]:focus { outline: none; }
+        .be-toggle-wrap { margin: 2px 0; }
+        .be-toggle-header-block { margin-left: 0 !important; }
+        .be-toggle-children {
+          margin-left: 22px;
+          padding: 6px 0 4px 12px;
+          border-left: 2px solid var(--be-border, #E4E4E7);
+        }
+        .be-toggle-empty {
+          color: var(--be-placeholder-color, #aaa);
+          font-size: 13px;
+          padding: 4px 2px;
+          cursor: text;
+          user-select: none;
+        }
+        .be-toggle-empty:hover { opacity: 0.85; }
+        .be-toggle .be-block { margin-left: 0 !important; }
         .be-mark {
           opacity: 0.35;
           font-size: 0.82em;
@@ -3357,7 +3498,6 @@ export const BlockEditor = React.memo(function BlockEditor({
           bottom: 0;
           width: 16px;
         }
-        .be-toggle .be-block { margin-left: 0 !important; }
       `}</style>
       <div
         className="be-editor-root be-document"
@@ -3374,6 +3514,9 @@ export const BlockEditor = React.memo(function BlockEditor({
           '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
           '--be-search-hl-color': colors.searchHlColor ?? colors.text,
           '--be-block-hover-bg': colors.blockHoverBg ?? 'rgba(139,92,246,0.015)',
+          '--be-border': colors.border,
+          '--be-text-muted': colors.textMuted,
+          '--be-menu-shadow': colors.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
         } as CSSProperties}
       >
       <BlockEditorInner
