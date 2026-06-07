@@ -13,6 +13,7 @@ import {
   deriveToolbarFormats, applyWrapToBlockSelection,
   EMPTY_FORMATS, type ToolbarFormatState,
 } from './toolbarFormat';
+import { saveSelectionRange } from './selectionState';
 
 export interface SelectionToolbarProps {
   colors: BlockEditorColors;
@@ -95,7 +96,7 @@ export function SelectionToolbar({
       }
       blockIdRef.current = blockId;
       editableRef.current = host;
-      savedRangeRef.current = range.cloneRange();
+      savedRangeRef.current = saveSelectionRange() ?? range.cloneRange();
 
       setFormats(deriveToolbarFormats(host, blockId, activeBlockId, getBlockType));
 
@@ -138,10 +139,7 @@ export function SelectionToolbar({
       paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
       requestAnimationFrame(() => {
         setFormats(deriveToolbarFormats(target, blockId, activeBlockId, getBlockType));
-        const s = window.getSelection();
-        if (s && s.rangeCount > 0) {
-          savedRangeRef.current = s.getRangeAt(0).cloneRange();
-        }
+        savedRangeRef.current = saveSelectionRange();
       });
     });
   }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId]);
