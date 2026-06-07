@@ -38,83 +38,17 @@ import {
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
 import { selectionHasFormat, splitMarkdownAt, toggleMarkdownWrap } from './inlineFormat';
+import {
+  domToPlainText,
+  getCaretOffset,
+  getSelectionOffsets,
+  setCaretOffset,
+  setSelectionOffsets,
+  insertNewlineAtCaret,
+  deleteBeforeCaret,
+} from './editableDom';
 
-// ── 커서 유틸리티 ────────────────────────────────────────────────────
-
-/** contentEditable 요소 내 텍스트 오프셋으로 캐럿 복원 */
-function setCaretOffset(el: HTMLElement, offset: number) {
-  const range = document.createRange();
-  const sel   = window.getSelection();
-  if (!sel) return;
-
-  // 텍스트 노드를 순서대로 탐색
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let remaining = offset;
-  let node: Node | null = null;
-
-  while ((node = walker.nextNode())) {
-    const len = (node.textContent ?? '').length;
-    if (remaining <= len) {
-      range.setStart(node, remaining);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      return;
-    }
-    remaining -= len;
-  }
-
-  // offset이 전체 길이를 초과하면 맨 끝에 위치
-  range.selectNodeContents(el);
-  range.collapse(false);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-function resolveTextOffset(el: HTMLElement, offset: number): { node: Node; offset: number } | null {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let remaining = offset;
-  let node: Node | null = null;
-  while ((node = walker.nextNode())) {
-    const len = (node.textContent ?? '').length;
-    if (remaining <= len) return { node, offset: remaining };
-    remaining -= len;
-  }
-  return null;
-}
-
-/** contentEditable 요소 내 텍스트 구간 선택 */
-function setSelectionOffsets(el: HTMLElement, start: number, end: number) {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const s = resolveTextOffset(el, start);
-  const e = resolveTextOffset(el, end);
-  if (!s || !e) {
-    setCaretOffset(el, end);
-    return;
-  }
-  const range = document.createRange();
-  range.setStart(s.node, s.offset);
-  range.setEnd(e.node, e.offset);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-/** contentEditable 요소 내 현재 캐럿 오프셋 반환 */
-function getCaretOffset(el: HTMLElement): number {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return 0;
-  const range = sel.getRangeAt(0);
-  const pre   = range.cloneRange();
-  pre.selectNodeContents(el);
-  pre.setEnd(range.startContainer, range.startOffset);
-  return pre.toString().length;
-}
-
-/** contentEditable 요소의 현재 텍스트 내용 반환 */
-function getElText(el: HTMLElement): string {
-  return el.innerText.replace(/\n$/, ''); // 브라우저가 붙이는 trailing \n 제거
-}
+const getElText = domToPlainText;
 
 // ── 전역 포커스 레지스트리 ────────────────────────────────────────────
 // BlockEditorInner → SingleBlock 간 포커스 명령 전달
@@ -404,8 +338,8 @@ function liveInlineHtml(text: string, c: BlockEditorColors, wikiTargets: string[
     return `\u0000M${math.length - 1}\u0000`;
   });
 
+  // pre-wrap on contentEditable renders \n in text nodes; <br> breaks caret offsets
   let html = esc(work)
-    .replace(/\n/g, '<br>')
     .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
       const broken = wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(t));
       const cls = broken ? 'be-wiki-chip be-wiki-chip-broken' : 'be-wiki-chip';
@@ -430,19 +364,7 @@ function liveInlineHtml(text: string, c: BlockEditorColors, wikiTargets: string[
 }
 
 function getPlainSelectionOffsets(el: HTMLElement): { start: number; end: number } | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0);
-  if (!el.contains(range.startContainer)) return null;
-  const preStart = range.cloneRange();
-  preStart.selectNodeContents(el);
-  preStart.setEnd(range.startContainer, range.startOffset);
-  const preEnd = range.cloneRange();
-  preEnd.selectNodeContents(el);
-  preEnd.setEnd(range.endContainer, range.endOffset);
-  const start = preStart.toString().length;
-  const end = preEnd.toString().length;
-  return start === end ? null : { start, end };
+  return getSelectionOffsets(el);
 }
 
 function applyWrapToSelection(
@@ -987,12 +909,12 @@ function EditableBlock({
       e.preventDefault();
       onSlashClose();
       onWikiClose();
-      const text = lastContent.current;
+      const text = getElText(el);
       const offset = getCaretOffset(el);
-      const next = text.slice(0, offset) + '\n' + text.slice(offset);
+      const { text: next, caret } = insertNewlineAtCaret(el, text, offset);
       lastContent.current = next;
       onContentChange(block.id, next);
-      paintEditableLive(el, next, c, wikiTargets, searchQuery, offset + 1);
+      paintEditableLive(el, next, c, wikiTargets, searchQuery, caret);
       return;
     }
 
@@ -1013,13 +935,26 @@ function EditableBlock({
       return;
     }
 
-    // ── Backspace: 커서가 맨 앞 → 이전 블록과 병합 ───────────────
+    // ── Backspace: 줄바꿈·블록 경계 처리 ───────────────────────────
     if (e.key === 'Backspace') {
+      const text = getElText(el);
       const offset = getCaretOffset(el);
       if (offset === 0) {
         e.preventDefault();
         onSlashClose();
-        onMergeWithPrev(block.id, getElText(el));
+        onWikiClose();
+        onMergeWithPrev(block.id, text);
+        return;
+      }
+      if (text[offset - 1] === '\n') {
+        e.preventDefault();
+        onSlashClose();
+        onWikiClose();
+        const deleted = deleteBeforeCaret(text, offset);
+        if (!deleted) return;
+        lastContent.current = deleted.text;
+        onContentChange(block.id, deleted.text);
+        paintEditableLive(el, deleted.text, c, wikiTargets, searchQuery, deleted.caret);
         return;
       }
     }
