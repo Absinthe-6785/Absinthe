@@ -18,6 +18,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultCategory: 'Study',
   defaultColor: 'gold',
   language: 'en',
+  notesFontFamily: 'system',
+  notesFontSize: 16,
+  notesTextColor: '',
+  notesAccentColor: '',
 };
 
 export const useAppStore = create<StoreState>()(
@@ -50,7 +54,7 @@ export const useAppStore = create<StoreState>()(
     {
       name: 'planner-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 4,
+      version: 5,
       partialize: s => ({ appSettings: s.appSettings, weightUnits: s.weightUnits }),
       migrate: (persisted: unknown, fromVersion: number) => {
         const s = persisted as Partial<StoreState>;
@@ -59,7 +63,14 @@ export const useAppStore = create<StoreState>()(
         }
         return {
           ...s,
-          appSettings: { ...DEFAULT_SETTINGS, ...(s.appSettings ?? {}) },
+          appSettings: {
+            ...DEFAULT_SETTINGS,
+            ...(s.appSettings ?? {}),
+            notesFontFamily: (s.appSettings as AppSettings)?.notesFontFamily ?? 'system',
+            notesFontSize: (s.appSettings as AppSettings)?.notesFontSize ?? 16,
+            notesTextColor: (s.appSettings as AppSettings)?.notesTextColor ?? '',
+            notesAccentColor: (s.appSettings as AppSettings)?.notesAccentColor ?? '',
+          },
           weightUnits: s.weightUnits ?? {},
         } as StoreState;
       },

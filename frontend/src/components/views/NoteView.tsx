@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
-  Search, Plus, Trash2, FolderPlus, Eye,
+  Search, Plus, Trash2, FolderPlus, Eye, Type,
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronRight, GitFork, Upload, Keyboard,
@@ -18,6 +18,7 @@ import {
   normalizeNoteFolderId,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
+import type { AppSettings } from '../../types';
 import { NoteGraphView } from './NoteGraphView';
 import {
   BlockEditor,
@@ -25,6 +26,12 @@ import {
   type BlockEditorColors,
   type BlockEditorHandle,
 } from './BlockEditor';
+import {
+  buildObsidianChrome,
+  buildBlockEditorColors,
+  NOTE_FONT_OPTIONS,
+  NOTE_DOCUMENT_MAX_WIDTH,
+} from './noteEditorTheme';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -106,7 +113,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 export const NoteView = () => {
   const katexReady = useKaTeX();
 
-  const { appSettings } = useAppStore();
+  const { appSettings, updateSetting } = useAppStore();
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -210,6 +217,7 @@ export const NoteView = () => {
   const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
+  const [showAppearance, setShowAppearance] = useState(false);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -465,56 +473,16 @@ export const NoteView = () => {
     if (e.detail === 2) setViewMode('edit');
   }, [navigateToWiki]);
 
-  // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
-  const c = useMemo(() => ({
-    wrap:      dark ? '#18181A' : '#F5F4F0',
-    sidebar:   dark ? '#1C1C1E' : '#FAFAF8',
-    sideBdr:   dark ? '#2A2A2C' : '#E8E5DE',
-    notelist:  dark ? '#141416' : '#F2F0EA',
-    editor:    dark ? '#18181A' : '#FAFAF8',
-    toolbar:   dark ? '#1C1C1E' : '#F0EDE5',
-    toolBdr:   dark ? '#222'    : '#E2DDD5',
-    card:      dark ? '#2C2C2E' : '#FFFFFF',
-    cardHov:   dark ? '#323234' : '#F0EDE5',
-    cardAct:   dark ? '#3A3A3C' : '#FFF8E1',
-    cardActBdr:dark ? '#FACC15' : '#D4A000',
-    text:      dark ? '#E8E6E0' : '#1C1C1E',
-    textMuted: dark ? '#6B7280' : '#6B6860',
-    textFaint: dark ? '#3A3A3C' : '#C8C4B8',
-    accent:    dark ? '#FACC15' : '#B8860B',
-    accentBg:  dark ? '#FACC1520' : '#FFF8DC',
-    input:     dark ? '#2C2C2E' : '#F5F3EC',
-    inputBdr:  dark ? '#3A3A3C' : '#DDD9CF',
-    badge:     dark ? '#FACC1520' : '#FFF3CD',
-    badgeTxt:  dark ? '#FACC15'   : '#92660A',
-    tag:       dark ? '#8B5CF620' : '#F5F0E8',
-    tagTxt:    dark ? '#A78BFA'   : '#7A6544',
-    danger:    dark ? '#F87171'   : '#DC2626',
-    green:     dark ? '#4ADE80'   : '#15803D',
-  }), [dark]);
+  // ── Obsidian-style 색상 + 사용자 글자/강조색 ─────────────────────
+  const c = useMemo(
+    () => buildObsidianChrome(dark, appSettings),
+    [dark, appSettings.notesTextColor, appSettings.notesAccentColor],
+  );
 
-  // ── 블록 에디터 색상 팔레트 (c → BlockEditorColors 매핑) ──────────
-  const blockColors = useMemo<BlockEditorColors>(() => ({
-    bg:         c.editor,
-    text:       c.text,
-    textMuted:  c.textMuted,
-    textFaint:  c.textFaint,
-    accent:     c.accent,
-    accentBg:   c.accentBg,
-    border:     c.sideBdr,
-    card:       c.card,
-    cardHov:    c.cardHov,
-    input:      c.input,
-    inputBdr:   c.inputBdr,
-    toolbar:    c.toolbar,
-    danger:     c.danger,
-    green:      c.green,
-    codeBg:     dark ? '#1C1C1E' : '#F5F2EA',
-    calloutBg:  c.accentBg,
-    toggleBg:   dark ? '#FACC1510' : '#FFF8E1',
-    quoteBdr:   c.textFaint,
-    selection:  c.accentBg,
-  }), [c, dark]);
+  const blockColors = useMemo(
+    () => buildBlockEditorColors(c, dark, appSettings),
+    [c, dark, appSettings.notesFontFamily, appSettings.notesFontSize, appSettings.notesTextColor, appSettings.notesAccentColor],
+  );
 
   // 매 렌더마다 filter() 반복 방지
   const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
@@ -552,7 +520,7 @@ export const NoteView = () => {
     .bempty{height:10px}
     .bbold{font-weight:700}
     .bital{font-style:italic;color:${c.textMuted}}
-    .bhl{background:${dark ? '#FACC1530' : '#FFF3A3'};color:${dark ? '#FACC15' : '#7A5500'};padding:1px 4px;border-radius:3px}
+    .bhl{background:${dark ? '#3d3860' : '#e8e4ff'};color:${c.text};padding:1px 4px;border-radius:3px}
     .bcode{font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;background:${dark ? '#2C2C2E' : '#F0EDE5'};color:${dark ? '#A8FF78' : '#5C3A1E'};padding:2px 6px;border-radius:4px}
     .bpre{background:${dark ? '#1C1C1E' : '#F5F2EA'};border:1px solid ${c.sideBdr};border-radius:10px;padding:18px 20px;margin:12px 0;overflow-x:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;color:${dark ? '#A8FF78' : '#3D2B1A'};white-space:pre;line-height:1.6}
     .bul-group,.bol-group{margin:6px 0 6px 4px;padding:0;list-style:none}
@@ -568,7 +536,7 @@ export const NoteView = () => {
     td{padding:9px 14px;border:1px solid ${c.sideBdr};color:${c.text};font-size:13px}
     tr:nth-child(even) td{background:${dark ? '#1E1E20' : '#FAF8F3'}}
     tr:hover td{background:${c.cardHov}}
-    .bwl{color:${dark ? '#FACC15' : '#92660A'};cursor:pointer;border-bottom:1px solid ${dark ? '#FACC1560' : '#D4A00060'};padding-bottom:1px;font-weight:500}
+    .bwl{color:${c.accent};cursor:pointer;border-bottom:1px solid ${c.accent}55;padding-bottom:1px;font-weight:500}
     .bwl:hover{opacity:.75}
     .bwlm{color:${c.danger};border-bottom:1px dashed ${c.danger}50;padding-bottom:1px}
     .bwtag{color:${c.tagTxt};background:${c.tag};border-radius:4px;padding:1px 7px;font-size:12px;cursor:pointer;font-weight:500}
@@ -606,7 +574,7 @@ export const NoteView = () => {
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .bshl{background:${dark ? '#FACC1550' : '#FFE88A'};color:${dark ? '#FACC15' : '#7A5500'};border-radius:2px;padding:0 2px}
+    .bshl{background:${dark ? '#3d3860' : '#e8e4ff'};color:${c.text};border-radius:2px;padding:0 2px}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
@@ -870,7 +838,7 @@ export const NoteView = () => {
                 onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNote(n); } }}
                 tabIndex={0}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                  {n.starred && <Star size={9} color={dark ? '#FACC15' : '#F59E0B'} fill={dark ? '#FACC15' : '#F59E0B'} style={{ flexShrink: 0 }}/>}
+                  {n.starred && <Star size={9} color={c.accent} fill={c.accent} style={{ flexShrink: 0 }}/>}
                   <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                     dangerouslySetInnerHTML={{ __html: hlTitle }}/>
                 </div>
@@ -947,7 +915,7 @@ export const NoteView = () => {
               {/* Star */}
               {!isTrash && (
                 <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
-                  <Star size={13} color={activeNote.starred ? (dark ? '#FACC15' : '#B8860B') : c.textMuted} fill={activeNote.starred ? (dark ? '#FACC15' : '#B8860B') : 'none'}/>
+                  <Star size={13} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
                 </button>
               )}
               {/* Duplicate */}
@@ -990,9 +958,75 @@ export const NoteView = () => {
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
-                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="Insert image block at cursor">
+                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="커서 위치에 이미지 블록 삽입">
                       <ImageIcon size={13}/>
                     </button>
+                    <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowAppearance(v => !v)}
+                        className="btbtn"
+                        title="글꼴·색상 설정"
+                        style={{ color: showAppearance ? c.accent : c.textMuted }}>
+                        <Type size={13}/>
+                      </button>
+                      {showAppearance && (
+                        <div style={{
+                          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50,
+                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 10,
+                          padding: '12px 14px', width: 240, boxShadow: '0 8px 28px #00000020',
+                        }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: c.textMuted, marginBottom: 10 }}>편집기 모양</div>
+                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>글꼴</label>
+                          <select
+                            value={appSettings.notesFontFamily ?? 'system'}
+                            onChange={e => updateSetting('notesFontFamily', e.target.value as AppSettings['notesFontFamily'])}
+                            style={{ width: '100%', marginBottom: 10, background: c.input, border: `1px solid ${c.inputBdr}`, color: c.text, borderRadius: 6, padding: '5px 8px', fontSize: 12 }}>
+                            {NOTE_FONT_OPTIONS.map(o => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
+                            ))}
+                          </select>
+                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>
+                            글자 크기 ({appSettings.notesFontSize ?? 16}px)
+                          </label>
+                          <input
+                            type="range" min={12} max={22} step={1}
+                            value={appSettings.notesFontSize ?? 16}
+                            onChange={e => updateSetting('notesFontSize', Number(e.target.value))}
+                            style={{ width: '100%', marginBottom: 10 }}
+                          />
+                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>본문 색상</label>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                            <input
+                              type="color"
+                              value={appSettings.notesTextColor?.trim() || (dark ? '#dcddde' : '#2e3338')}
+                              onChange={e => updateSetting('notesTextColor', e.target.value)}
+                              style={{ width: 36, height: 28, padding: 0, border: 'none', background: 'none' }}
+                            />
+                            <button type="button" className="btbtn" style={{ fontSize: 10 }}
+                              onClick={() => updateSetting('notesTextColor', '')}>
+                              기본값
+                            </button>
+                          </div>
+                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>링크·강조 색</label>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              type="color"
+                              value={appSettings.notesAccentColor?.trim() || (dark ? '#7f6df2' : '#7c3aed')}
+                              onChange={e => updateSetting('notesAccentColor', e.target.value)}
+                              style={{ width: 36, height: 28, padding: 0, border: 'none', background: 'none' }}
+                            />
+                            <button type="button" className="btbtn" style={{ fontSize: 10 }}
+                              onClick={() => updateSetting('notesAccentColor', '')}>
+                              기본값
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 10, color: c.textFaint, marginTop: 10 }}>
+                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px (Obsidian 스타일)
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
