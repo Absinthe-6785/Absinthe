@@ -22,6 +22,8 @@ export interface BlockContextMenuProps {
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
+  /** When > 1, shows multi-select header and simplified actions */
+  selectionCount?: number;
   onAddAbove: () => void;
   onAddBelow: () => void;
   onDuplicate: () => void;
@@ -43,7 +45,7 @@ export interface BlockContextMenuProps {
 }
 
 export function BlockContextMenu({
-  blockId, currentType, anchorY, anchorX, colors: c,
+  blockId, currentType, anchorY, anchorX, colors: c, selectionCount,
   onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
   onMoveIntoToggle, onMoveOutOfToggle, canMoveIntoToggle, canMoveOutOfToggle,
   onSetTint, onCopyLink,
@@ -146,6 +148,15 @@ export function BlockContextMenu({
               <span style={{ fontSize:13, color:c.text }}>{TINT_LABELS[opt.id] ?? opt.label}</span>
             </button>
           ))}
+        </>
+      ) : selectionCount && selectionCount > 1 ? (
+        <>
+          <div style={{ padding:'8px 12px 6px', fontSize:12, fontWeight:600, color:c.textMuted }}>
+            {selectionCount} blocks selected
+          </div>
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {mi(<Copy size={13}/>, CONTEXT_MENU.duplicate, onDuplicate)}
+          {mi(<Trash2 size={12}/>, CONTEXT_MENU.delete, onDelete, true)}
         </>
       ) : (
         <>

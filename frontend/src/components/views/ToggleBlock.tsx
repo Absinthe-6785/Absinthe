@@ -17,7 +17,7 @@ export interface ToggleBlockProps {
   handles: ReactNode;
   onChromeEnter?: () => void;
   onChromeLeave?: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   renderNested: ToggleNestedRenderer;
 }
 

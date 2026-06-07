@@ -16,4 +16,19 @@ describe('editorChrome', () => {
   it('controls visible class', () => {
     expect(blockShellClassName(false, false, true)).toContain('be-controls-visible');
   });
+
+  it('selected without active', () => {
+    expect(blockShellClassName(false, true, false)).toContain('be-block-selected');
+    expect(blockShellClassName(false, true, false)).not.toContain('be-block-active');
+  });
+
+  it('dragging class via extra', () => {
+    expect(blockShellClassName(false, false, false, 'be-dragging')).toContain('be-dragging');
+  });
+
+  it('active and selected together', () => {
+    const cls = blockShellClassName(true, true, false);
+    expect(cls).toContain('be-block-active');
+    expect(cls).toContain('be-block-selected');
+  });
 });

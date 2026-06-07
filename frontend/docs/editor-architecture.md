@@ -1,4 +1,4 @@
-# Editor Architecture (Sprint F-3A / F-3B)
+# Editor Architecture (Sprint F-3A / F-3B / F-4)
 
 ## Design principle
 
@@ -55,7 +55,7 @@
 
 ## Line-count target
 
-| Metric | F-3A | F-3B |
-|--------|------|------|
-| `BlockEditor.tsx` | ~2300 | ~1126 (orchestration only) |
-| Tests | 272 | 311 |
+| Metric | F-3A | F-3B | F-4 |
+|--------|------|------|-----|
+| `BlockEditor.tsx` | ~2300 | ~1126 | ~1180 |
+| Tests | 272 | 311 | 332 |
