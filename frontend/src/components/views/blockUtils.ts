@@ -71,6 +71,7 @@ export interface Block {
   src?:  string;
   alt?:  string;
   caption?: string;
+  width?: number;          // 표시 너비(px) — 마크다운 title에 |w:N 으로 직렬화
 
   // table
   tableHeaders?: string[];
@@ -81,6 +82,59 @@ export interface Block {
 
   // math
   math?: string;           // LaTeX 표현식
+  mathBlock?: boolean;     // true → $$...$$ 블록, false/undefined → $...$ 인라인
+
+  // numbered list — 원본 번호 보존 (2., 3. 등)
+  listIndex?: number;
+}
+
+/** contentEditable로 편집되는 텍스트 계열 블록 */
+export const TEXT_BLOCK_TYPES = new Set<BlockType>([
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'bullet', 'numbered', 'todo', 'quote', 'callout',
+]);
+
+export function isTextBlockType(type: BlockType): boolean {
+  return TEXT_BLOCK_TYPES.has(type);
+}
+
+/** 마크다운 image title에서 캡션·너비 파싱 ("caption|w:400") */
+export function parseImageTitle(raw: string): { caption?: string; width?: number } {
+  const widthMatch = raw.match(/\|w:(\d+)/);
+  const width = widthMatch ? Number(widthMatch[1]) : undefined;
+  const caption = raw.replace(/\|w:\d+/, '').trim() || undefined;
+  return { caption, width };
+}
+
+/** 마크다운 image title 직렬화 */
+export function formatImageTitle(caption?: string, width?: number): string | undefined {
+  let title = caption ?? '';
+  if (width != null) title = title ? `${title}|w:${width}` : `|w:${width}`;
+  return title || undefined;
+}
+
+/** 이미지 URL 유효성 (data URL 또는 http/https) */
+export function isValidImageUrl(url: string): boolean {
+  const t = url.trim();
+  if (!t) return false;
+  if (/^data:image\//i.test(t)) return true;
+  try {
+    const u = new URL(t);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** URL에서 alt 후보 추출 (파일명) */
+export function imageAltFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    const base = path.split('/').pop() ?? '';
+    return base.replace(/\.[^.]+$/, '') || 'image';
+  } catch {
+    return 'image';
+  }
 }
 
 // ── ID 생성 ──────────────────────────────────────────────────────────
@@ -144,7 +198,7 @@ export function markdownToBlocks(md: string): Block[] {
       i++;
     }
     i++;
-    return makeBlock('math', { math: mathLines.join('\n') });
+    return makeBlock('math', { math: mathLines.join('\n'), mathBlock: true });
   };
 
   // ── 테이블 ───────────────────────────────────────────────────────
@@ -204,7 +258,16 @@ export function markdownToBlocks(md: string): Block[] {
   const tryImage = (line: string): Block | null => {
     const m = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (!m) return null;
-    return makeBlock('image', { alt: m[1], src: m[2] });
+    // src 에 마크다운 title 문법으로 캡션/너비 포함 가능: src "caption|w:400"
+    let src = m[2];
+    let caption: string | undefined;
+    let width: number | undefined;
+    const titleMatch = src.match(/^(\S.*?)\s+"([^"]*)"$/);
+    if (titleMatch) {
+      src = titleMatch[1];
+      ({ caption, width } = parseImageTitle(titleMatch[2]));
+    }
+    return makeBlock('image', { alt: m[1], src, ...(caption !== undefined ? { caption } : {}), ...(width !== undefined ? { width } : {}) });
   };
 
   // ── 번호 목록 연속 처리 ──────────────────────────────────────────
@@ -212,9 +275,10 @@ export function markdownToBlocks(md: string): Block[] {
     if (!/^\s*\d+\. /.test(lines[i])) return null;
     const result: Block[] = [];
     while (i < lines.length && /^\s*\d+\. /.test(lines[i])) {
-      const indent = Math.floor((lines[i].match(/^(\s*)/)?.[1].length ?? 0) / 2);
-      const content = lines[i].replace(/^\s*\d+\. /, '');
-      result.push(makeBlock('numbered', { content, indent }));
+      const m = lines[i].match(/^(\s*)(\d+)\. (.+)$/);
+      if (!m) break;
+      const indent = Math.floor(m[1].length / 2);
+      result.push(makeBlock('numbered', { content: m[3], indent, listIndex: Number(m[2]) }));
       i++;
     }
     return result;
@@ -244,12 +308,9 @@ export function markdownToBlocks(md: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // 빈 줄
+    // 빈 줄 — 빈 paragraph로 보존 (연속 빈 줄도 각각 유지)
     if (!line.trim()) {
-      // 연속 빈 줄은 하나로 합침
-      if (blocks.length > 0 && blocks[blocks.length - 1].type !== 'paragraph' || blocks.length === 0) {
-        blocks.push(makeBlock('paragraph', { content: '' }));
-      }
+      blocks.push(makeBlock('paragraph', { content: '' }));
       i++;
       continue;
     }
@@ -308,10 +369,10 @@ export function markdownToBlocks(md: string): Block[] {
       i++; continue;
     }
 
-    // 인라인 수식 $...$
+    // 인라인 수식 $...$ (단일 줄)
     if (/^\$[^$].+[^$]\$$/.test(line.trim()) || /^\$\$.+\$\$$/.test(line.trim())) {
       const expr = line.trim().replace(/^\$\$?/, '').replace(/\$\$?$/, '');
-      blocks.push(makeBlock('math', { math: expr }));
+      blocks.push(makeBlock('math', { math: expr, mathBlock: false }));
       i++; continue;
     }
 
@@ -356,7 +417,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
       }
       case 'numbered': {
         const pad = '  '.repeat(block.indent);
-        lines.push(`${pad}1. ${block.content}`);
+        lines.push(`${pad}${block.listIndex ?? 1}. ${block.content}`);
         break;
       }
       case 'todo': {
@@ -391,10 +452,13 @@ export function blocksToMarkdown(blocks: Block[]): string {
         lines.push('```');
         break;
 
-      case 'image':
-        lines.push(`![${block.alt ?? ''}](${block.src ?? ''})`);
-        if (block.caption) lines.push(block.caption);
+      case 'image': {
+        // 캡션·너비는 title에 직렬화: ![alt](src "caption|w:400")
+        const title = formatImageTitle(block.caption, block.width);
+        const cap = title ? ` "${title.replace(/"/g, '')}"` : '';
+        lines.push(`![${block.alt ?? ''}](${block.src ?? ''}${cap})`);
         break;
+      }
 
       case 'divider':
         lines.push('---');
@@ -404,7 +468,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
         const headers = block.tableHeaders ?? [];
         if (headers.length > 0) {
           lines.push(`| ${headers.join(' | ')} |`);
-          lines.push(`| ${headers.map(() => '-------').join(' | ')} |`);
+          lines.push(`| ${headers.map(() => '---').join(' | ')} |`);
           (block.tableRows ?? []).forEach(row =>
             lines.push(`| ${row.join(' | ')} |`)
           );
@@ -413,7 +477,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
       }
 
       case 'math':
-        if ((block.math ?? '').includes('\n')) {
+        if (block.mathBlock || (block.math ?? '').includes('\n')) {
           lines.push('$$');
           lines.push(block.math ?? '');
           lines.push('$$');
@@ -445,6 +509,20 @@ export function updateBlockById(
     }
     return b;
   });
+}
+
+/** afterId 뒤(없으면 끝)에 이미지 블록 삽입 */
+export function insertImageAfter(
+  blocks: Block[],
+  afterId: string | null,
+  src: string,
+  alt: string,
+): { blocks: Block[]; imageId: string } {
+  const img = makeBlock('image', { src, alt });
+  if (!afterId) return { blocks: [...blocks, img], imageId: img.id };
+  const result = insertBlockAfter(blocks, afterId, img);
+  const inserted = flattenBlockIds(result).includes(img.id);
+  return inserted ? { blocks: result, imageId: img.id } : { blocks: [...blocks, img], imageId: img.id };
 }
 
 /** 특정 id 블록 뒤에 새 블록 삽입 */
@@ -532,13 +610,52 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'table',      label: '표',          desc: '테이블',                  icon: '⊞',  keywords: ['table', 'grid', '표', '테이블'],                          group: 'media' },
 ];
 
-/** 슬래시 커맨드 쿼리 필터링 */
+/** 슬래시 메뉴 상단 고정 (쿼리 없을 때 우선 표시) */
+export const SLASH_PINNED_TYPES: BlockType[] = [
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'todo', 'toggle', 'callout', 'bullet', 'code',
+];
+
+/** 블록 hover ⋮⋮ → Turn Into 빠른 변환 */
+export const TURN_INTO_TYPES: BlockType[] = [
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'todo', 'toggle', 'callout', 'code',
+];
+
+const SLASH_ALIASES: Record<string, string[]> = {
+  heading: ['heading1', 'heading2', 'heading3'],
+  h:       ['heading1', 'heading2', 'heading3'],
+  title:   ['heading1', 'heading2', 'heading3'],
+  list:    ['bullet', 'numbered', 'todo'],
+  task:    ['todo'],
+  checkbox:['todo'],
+  collapse:['toggle'],
+  fold:    ['toggle'],
+  note:    ['callout'],
+  info:    ['callout'],
+  snippet: ['code'],
+};
+
+/** 슬래시 커맨드 쿼리 필터링 — 영문 alias + pinned 순서 */
 export function filterBlockMenu(query: string): BlockTypeMeta[] {
   const q = query.toLowerCase().trim();
-  if (!q) return BLOCK_TYPE_MENU;
+  if (!q) {
+    const pinned = SLASH_PINNED_TYPES
+      .map(t => BLOCK_TYPE_MENU.find(m => m.type === t))
+      .filter((m): m is BlockTypeMeta => m != null);
+    const rest = BLOCK_TYPE_MENU.filter(m => !SLASH_PINNED_TYPES.includes(m.type));
+    return [...pinned, ...rest];
+  }
+
+  const aliasTypes = SLASH_ALIASES[q] ?? [];
   return BLOCK_TYPE_MENU.filter(m =>
-    m.label.includes(q) ||
-    m.keywords.some(k => k.includes(q))
+    m.type.includes(q) ||
+    m.label.toLowerCase().includes(q) ||
+    m.desc.toLowerCase().includes(q) ||
+    m.keywords.some(k => k.includes(q) || q.includes(k)) ||
+    aliasTypes.includes(m.type) ||
+    (q === 'heading' && m.type.startsWith('heading')) ||
+    (q.startsWith('h') && /^h[123]?$/.test(q) && m.type.startsWith('heading'))
   );
 }
 
@@ -617,8 +734,14 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   const base: Block = { ...block, type: newType };
   // 타입별 기본값 초기화
   if (newType === 'code' && !base.code)     base.code = base.content;
+  if (newType === 'math' && !base.math)     base.math = base.content;
   if (newType === 'todo')                   base.checked = base.checked ?? false;
   if (newType === 'toggle')                 base.collapsed = base.collapsed ?? false;
   if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = '💡';
+  if (newType === 'image') {
+    base.src = base.src ?? '';
+    base.alt = base.alt ?? '';
+    base.content = '';
+  }
   return base;
 }

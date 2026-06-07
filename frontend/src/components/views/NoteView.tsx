@@ -1,25 +1,25 @@
-import { useState, useMemo, useCallback, useRef, useEffect, ReactNode } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
-  Search, Plus, Trash2, FolderPlus, Bold, Italic, Code, List, ListOrdered,
-  Heading1, Heading2, Heading3, Table, CheckSquare, Eye, Edit3,
-  RotateCcw, Hash, Quote, AlertTriangle, Star,
+  Search, Plus, Trash2, FolderPlus, Eye,
+  RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
-  ChevronDown, ChevronRight, GitFork, Maximize2, Minimize2, Upload, Keyboard,
+  ChevronDown, ChevronRight, GitFork, Upload, Keyboard,
 } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useAppStore } from '../../store/useAppStore';
-import { authFetch } from '../../lib/supabase';
-import { API_URL } from '../../lib/config';
+import { useNotesStore } from '../../store/useNotesStore';
 import {
-  NV_NOTES_KEY, NV_FOLDERS_KEY, NV_ACTIVE_KEY,
-  nvLoadNotes, nvLoadFolders, nvSaveNotes, nvSaveFolders,
   highlightText,
-  parseMarkdown, extractTOC, extractTags, extractLinks,
+  extractTOC, extractTags, extractLinks,
   extractLinkContexts,
+  findNoteByTitle, findWikiLinkInText,
+  parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
+  normalizeNoteFolderId,
 } from './noteUtils';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { NoteGraphView } from './NoteGraphView';
+import { useBlockEditor, type BlockEditorColors, type BlockEditorHandle } from './BlockEditor';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -44,184 +44,118 @@ function useKaTeX(): boolean {
   return ready;
 }
 
-interface ToolbarItem { icon: ReactNode; label: string; fn: () => void; }
+// ── 블록 에디터 어댑터 ────────────────────────────────────────────────
+// useBlockEditor 훅은 조건부로 호출할 수 없으므로 별도 컴포넌트로 분리한다.
+// 부모에서 key={note.id}로 마운트해 노트 전환 시 블록 상태가 초기화되도록 한다.
+interface NoteBlockEditorProps {
+  body: string;
+  onBodyChange: (md: string) => void;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  searchQuery: string;
+  wikiTargets: string[];
+  onWikiNavigate?: (title: string) => void;
+}
+const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
+  { body, onBodyChange, colors, readOnly, searchQuery, wikiTargets, onWikiNavigate },
+  ref,
+) {
+  const {
+    blocks, handleBlockChange, undo, redo,
+    insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
+  } = useBlockEditor(body, onBodyChange);
+
+  useImperativeHandle(ref, () => ({ insertImage, insertEmptyImageBlock }), [insertImage, insertEmptyImageBlock]);
+
+  // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
+  // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
+  useEffect(() => {
+    if (readOnly) return;
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey)              { e.preventDefault(); e.stopImmediatePropagation(); undo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); redo(); }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [undo, redo, readOnly]);
+
+  return (
+    <BlockEditor
+      blocks={blocks}
+      onChange={handleBlockChange}
+      colors={colors}
+      readOnly={readOnly}
+      searchQuery={searchQuery}
+      wikiTargets={wikiTargets}
+      onWikiNavigate={onWikiNavigate}
+      onActiveBlockChange={setActiveBlockId}
+      externalFocusId={externalFocusId}
+      onExternalFocusConsumed={clearExternalFocus}
+    />
+  );
+});
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
   const katexReady = useKaTeX();
 
-  // ── 전역 스토어 — appSettings(darkMode)만 참조 ────────────────────
-  // 설계 의도: NoteView는 PlannerView(Memo)와 완전히 독립된 노트 시스템.
-  //   - 노트/폴더 상태는 NoteView 전용 localStorage 키(NV_NOTES_KEY 등)에서 관리.
-  //   - useAppStore의 notes/folders는 PlannerView Memo 전용이며 NoteView와 공유하지 않음.
-  //   - 두 상태가 충돌하지 않는 이유: 키가 다르고(NV_NOTES_KEY vs planner-notes-v2)
-  //     DB 엔드포인트(/api/notes)는 upsert 방식이므로 각자 독립적으로 sync.
-  //   - 향후 통합이 필요하다면 useAppStore의 notes를 제거하고 NoteView 쪽으로 일원화 권장.
   const { appSettings } = useAppStore();
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
-  // ── DB sync 헬퍼 (fire-and-forget, 실패해도 localStorage 유지) ───
-  const syncNoteToDB = useCallback(async (note: Note) => {
-    try {
-      await authFetch(`${API_URL}/api/notes`, {
-        method: 'POST',
-        body: JSON.stringify({
-          id: note.id, title: note.title, body: note.body,
-          updated_at: note.updatedAt, folder_id: note.folderId,
-          deleted_at: note.deletedAt,
-        }),
-      });
-    } catch { /**/ }
-  }, []);
+  const notes = useNotesStore(s => s.notes);
+  const folders = useNotesStore(s => s.folders);
+  const activeNoteId = useNotesStore(s => s.activeNoteId);
+  const isSyncing = useNotesStore(s => s.isSyncing);
+  const savedAt = useNotesStore(s => s.savedAt);
+  const syncError = useNotesStore(s => s.syncError);
+  const setActiveNoteId = useNotesStore(s => s.setActiveNoteId);
+  const storeCreateNote = useNotesStore(s => s.createNote);
+  const updateNote = useNotesStore(s => s.updateNote);
+  const toggleStar = useNotesStore(s => s.toggleStar);
+  const storeDuplicateNote = useNotesStore(s => s.duplicateNote);
+  const moveNoteToTrash = useNotesStore(s => s.moveNoteToTrash);
+  const restoreNote = useNotesStore(s => s.restoreNote);
+  const permanentDeleteNote = useNotesStore(s => s.permanentDeleteNote);
+  const storeCreateFolder = useNotesStore(s => s.createFolder);
+  const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
+  const importNote = useNotesStore(s => s.importNote);
+  const flushPendingSync = useNotesStore(s => s.flushPendingSync);
+  const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
+  const retrySync = useNotesStore(s => s.retrySync);
 
-  const removeNoteFromDB = useCallback(async (id: string) => {
-    try { await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' }); } catch { /**/ }
-  }, []);
+  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
-  const syncFolderToDB = useCallback(async (folder: NoteFolder) => {
-    try {
-      await authFetch(`${API_URL}/api/note_folders`, {
-        method: 'POST',
-        body: JSON.stringify({ id: folder.id, name: folder.name, created_at: folder.createdAt }),
-      });
-    } catch { /**/ }
-  }, []);
-
-  const removeFolderFromDB = useCallback(async (id: string) => {
-    try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
-  }, []);
-
-  // ── NoteView 전용 독립 상태 (PlannerView Memo와 완전 분리) ───────
-  const [notes,   setNotes]   = useState<Note[]>(() => { const n = nvLoadNotes(); return Array.isArray(n) ? n : []; });
-  const [folders, setFolders] = useState<NoteFolder[]>(nvLoadFolders);
-  const [activeNoteId,   setActiveNoteIdRaw]   = useState<string | null>(() => {
-    try { return localStorage.getItem(NV_ACTIVE_KEY) || nvLoadNotes()[0]?.id || null; } catch { return null; }
-  });
-  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash'>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  const setActiveNoteId = useCallback((id: string | null) => {
-    setActiveNoteIdRaw(id);
-    try { localStorage.setItem(NV_ACTIVE_KEY, id ?? ''); } catch { /**/ }
-  }, []);
-
-  // ── 최초 마운트 시 DB에서 노트/폴더 로드 ────────────────────────
-  useEffect(() => {
-    const load = async () => {
-      setIsSyncing(true);
-      try {
-        // 폴더 먼저
-        const fRes = await authFetch(`${API_URL}/api/note_folders`);
-        if (fRes.ok) {
-          const raw = await fRes.json();
-          const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
-            id: f.id, name: f.name, createdAt: f.created_at,
-          }));
-          if (dbFolders.length > 0) {
-            setFolders(dbFolders);
-            nvSaveFolders(dbFolders);
-          }
-        }
-        // 노트
-        const nRes = await authFetch(`${API_URL}/api/notes`);
-        if (nRes.ok) {
-          const raw = await nRes.json();
-          const localNotes = nvLoadNotes();
-          const dbNotes: Note[] = raw.map((n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean }) => {
-            const local = localNotes.find(l => l.id === n.id);
-            // 충돌 해결: updatedAt이 더 최신인 쪽을 우선
-            const localIsNewer = local && local.updatedAt > n.updated_at;
-            return {
-              id: n.id,
-              title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
-              body:      localIsNewer ? (local.body  ?? '') : (n.body  ?? ''),
-              updatedAt: localIsNewer ? local.updatedAt     : n.updated_at,
-              folderId:  n.folder_id  != null ? n.folder_id  : (local?.folderId  ?? null),
-              deletedAt: n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null),
-              // starred: 로컬이 더 최신이면 로컬, 아니면 DB 값 사용 (양쪽 모두 보존)
-              starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
-            };
-          });
-          // 로컬에만 있는 노트(DB에 없는 것) → DB에 업로드 (실패해도 계속 진행)
-          const dbIds = new Set(raw.map((n: { id: string }) => n.id));
-          const localOnly = localNotes.filter(l => !dbIds.has(l.id) && !l.deletedAt);
-          if (localOnly.length > 0) {
-            await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
-          }
-          // 30일 지난 휴지통 자동 제거
-          const MONTH = 30 * 24 * 60 * 60 * 1000;
-          const valid = dbNotes.filter(n => !n.deletedAt || Date.now() - n.deletedAt < MONTH);
-          if (dbNotes.length > 0) {  // DB에 노트가 있으면 항상 setNotes (valid가 0이어도)
-            setNotes(valid);
-            nvSaveNotes(valid);
-            // activeNoteId가 유효한지 확인
-            setActiveNoteIdRaw(prev => {
-              const stillValid = valid.some(n => n.id === prev && !n.deletedAt);
-              const next = stillValid ? prev : (valid.find(n => !n.deletedAt)?.id ?? null);
-              try { localStorage.setItem(NV_ACTIVE_KEY, next ?? ''); } catch { /**/ }
-              return next;
-            });
-          } else if (dbNotes.length === 0) {
-            // DB 완전히 비어있으면 localStorage 노트를 DB에 업로드
-            const local = nvLoadNotes();
-            await Promise.allSettled(local.map(note => syncNoteToDB(note)));
-          }
-        }
-      } catch { /**/ } finally {
-        setIsSyncing(false);
-      }
-    };
-    load();
-  }, []); // intentional: run once on mount only
-
-  // ── UI 전용 상태만 로컬로 유지 ──────────────────────────────────
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('edit');
 
-  const [viewMode,       setViewMode]       = useState<'edit' | 'preview' | 'graph'>('preview');
-
-  const createNote = useCallback(() => {
-    const id = `note-${Date.now()}`;
-    const folderId = (activeFolderId === null || activeFolderId === 'trash') ? null : activeFolderId;
-    const note: Note = { id, title: '', body: '', updatedAt: Date.now(), folderId, deletedAt: null, starred: false };
-    setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
-    setActiveNoteId(id);
+  const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
+    const id = storeCreateNote({
+      title: initial?.title,
+      body: initial?.body,
+      folderId: initial?.folderId,
+      folderContext: initial?.folderId !== undefined ? undefined : activeFolderId,
+    });
     setViewMode('edit');
     setTimeout(() => titleInputRef.current?.focus(), 50);
-    syncNoteToDB(note);
     return id;
-  }, [activeFolderId, setActiveNoteId, setViewMode, syncNoteToDB]);
+  }, [activeFolderId, storeCreateNote]);
 
-  // debounce ref — body 타이핑 중 과도한 DB 요청 방지
-  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const duplicateNote = useCallback((note: Note) => {
+    storeDuplicateNote(note);
+  }, [storeDuplicateNote]);
 
-  const updateNote = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      // body 변경은 600ms debounce, 나머지(title, folderId, starred)는 즉시 sync
-      const updatedNote = updated.find(n => n.id === id);
-      if (updatedNote) {
-        if ('body' in patch) {
-          if (syncTimer.current) clearTimeout(syncTimer.current);
-          syncTimer.current = setTimeout(() => syncNoteToDB(updatedNote), 600);
-        } else {
-          syncNoteToDB(updatedNote);
-        }
-      }
-      return updated;
-    });
-  }, [syncNoteToDB]);
+  const createFolder = useCallback((name: string) => {
+    const id = storeCreateFolder(name);
+    setActiveFolderId(id);
+  }, [storeCreateFolder]);
 
-  const toggleStar = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, starred: !n.starred } : n);
-      nvSaveNotes(updated);
-      const note = updated.find(n => n.id === id);
-      if (note) syncNoteToDB(note);
-      return updated;
-    });
-  }, [syncNoteToDB]);
+  const deleteFolder = useCallback((id: string) => {
+    storeDeleteFolder(id);
+    setActiveFolderId(prev => (prev === id ? null : prev));
+  }, [storeDeleteFolder]);
 
   const exportNote = useCallback((note: Note) => {
     const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
@@ -257,140 +191,28 @@ export const NoteView = () => {
     });
   }, [notes]);
 
-  const createFolder = useCallback((name: string) => {
-    const folder: NoteFolder = { id: `folder-${Date.now()}`, name, createdAt: Date.now() };
-    setFolders(prev => { const u = [...prev, folder]; nvSaveFolders(u); return u; });
-    setActiveFolderId(folder.id);
-    syncFolderToDB(folder);
-  }, [syncFolderToDB]);
-
-  const duplicateNote = useCallback((note: Note) => {
-    const id = `note-${Date.now()}`;
-    const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
-    setNotes(prev => { const u = [copy, ...prev]; nvSaveNotes(u); return u; });
-    setActiveNoteId(id);
-    syncNoteToDB(copy);
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const moveNoteToTrash = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      const nextActive = updated.find(n => !n.deletedAt)?.id ?? null;
-      setActiveNoteId(nextActive);
-      const trashed = updated.find(n => n.id === id);
-      if (trashed) syncNoteToDB(trashed);
-      return updated;
-    });
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const restoreNote = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n);
-      nvSaveNotes(updated);
-      const restored = updated.find(n => n.id === id);
-      if (restored) syncNoteToDB(restored);
-      return updated;
-    });
-    setActiveNoteId(id);
-  }, [setActiveNoteId, syncNoteToDB]);
-
-  const permanentDeleteNote = useCallback((id: string) => {
-    // 단일 setNotes 호출로 이중 렌더 제거
-    setNotes(prev => {
-      const updated = prev.filter(n => n.id !== id);
-      nvSaveNotes(updated);
-      const next = updated.find(n => !n.deletedAt)?.id ?? null;
-      setActiveNoteId(next);
-      return updated;
-    });
-    removeNoteFromDB(id);
-  }, [setActiveNoteId, removeNoteFromDB]);
-
-  const deleteFolder = useCallback((id: string) => {
-    setNotes(prev => {
-      const affected = new Set(prev.filter(n => n.folderId === id).map(n => n.id));
-      const updated = prev.map(n => affected.has(n.id) ? { ...n, folderId: null } : n);
-      nvSaveNotes(updated);
-      // 이 폴더에 속했던 노트들만 DB 반영 (전체 folderId=null 노트 재sync 방지)
-      updated.filter(n => affected.has(n.id)).forEach(n => syncNoteToDB(n));
-      return updated;
-    });
-    setFolders(prev => {
-      const updated = prev.filter(f => f.id !== id);
-      nvSaveFolders(updated);
-      return updated;
-    });
-    setActiveFolderId(prev => prev === id ? null : prev);
-    removeFolderFromDB(id);
-  }, [syncNoteToDB, removeFolderFromDB]);
-
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
   const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'stats'>('toc');
-  const [savedAt,        setSavedAt]        = useState<Date | null>(null);
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
   const [sortOrder,      setSortOrder]      = useState<'updated' | 'title' | 'created'>('updated');
   const [showSortMenu,   setShowSortMenu]   = useState(false);
   const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
-  // [[ 자동완성
-  const [acQuery,  setAcQuery]  = useState('');
-  const [acIndex,  setAcIndex]  = useState(0);
-  const [acVisible,setAcVisible]= useState(false);
-  const [acPos,    setAcPos]    = useState({ top: 0, left: 0 });
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
-  // ── 표 편집 모달 ─────────────────────────────────────────────────
-  const [showTableModal, setShowTableModal] = useState(false);
-  const [tableRows,   setTableRows]   = useState(3);
-  const [tableCols,   setTableCols]   = useState(3);
-  const [tableHeaders, setTableHeaders] = useState<string[]>(['Col 1', 'Col 2', 'Col 3']);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const textareaRef    = useRef<HTMLTextAreaElement>(null);
-  const imageInputRef  = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Undo / Redo 히스토리 (노트별 독립 스택) ─────────────────────
-  type Snapshot = { body: string; cursor: number };
-  const historyRef    = useRef<Record<string, Snapshot[]>>({});
-  const historyIdxRef = useRef<Record<string, number>>({});
-  const skipHistoryRef = useRef(false);
-
-  // noteUpdate를 먼저 선언 (applySnapshot이 참조하므로)
+  const blockEditorRef = useRef<BlockEditorHandle>(null);
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
     updateNote(id, patch);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => setSavedAt(new Date()), 600);
   }, [updateNote]);
-
-  const pushHistory = useCallback((noteId: string, body: string, cursor: number) => {
-    if (skipHistoryRef.current) return;
-    const stack = historyRef.current[noteId] ?? [];
-    const idx   = historyIdxRef.current[noteId] ?? -1;
-    const trimmed = stack.slice(0, idx + 1);
-    trimmed.push({ body, cursor });
-    if (trimmed.length > 200) trimmed.shift();
-    historyRef.current[noteId]    = trimmed;
-    historyIdxRef.current[noteId] = trimmed.length - 1;
-  }, []);
-
-  const applySnapshot = useCallback((noteId: string, snap: Snapshot) => {
-    skipHistoryRef.current = true;
-    noteUpdate(noteId, { body: snap.body });
-    skipHistoryRef.current = false;
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (ta) { ta.focus(); ta.setSelectionRange(snap.cursor, snap.cursor); }
-    });
-  }, [noteUpdate]);
 
   // ── 필터링 ──────────────────────────────────────────────────────
   const visibleNotes = useMemo(() => {
@@ -400,10 +222,19 @@ export const NoteView = () => {
       activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
       activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
                                      safeNotes.filter(n => !n.deletedAt);
-    if (activeTag)          list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
+    if (activeTag) list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(n => (n.title ?? '').toLowerCase().includes(q) || (n.body ?? '').toLowerCase().includes(q));
+      const parsed = parseNoteSearchQuery(searchQuery);
+      if (parsed.mode === 'tag') {
+        list = list.filter(n => noteMatchesTagSearch(n.body ?? '', parsed.value));
+      } else {
+        const q = parsed.value.toLowerCase();
+        list = list.filter(n =>
+          (n.title ?? '').toLowerCase().includes(q) ||
+          (n.body ?? '').toLowerCase().includes(q) ||
+          extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q))
+        );
+      }
     }
     // 정렬
     list = [...list].sort((a, b) => {
@@ -418,6 +249,11 @@ export const NoteView = () => {
   const activeNote = useMemo(
     () => notes.find(n => n.id === activeNoteId) ?? null,
     [notes, activeNoteId]
+  );
+
+  const handleActiveBodyChange = useCallback(
+    (md: string) => { if (activeNoteId) noteUpdate(activeNoteId, { body: md }); },
+    [activeNoteId, noteUpdate],
   );
 
   const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
@@ -445,21 +281,18 @@ export const NoteView = () => {
     return result;
   }, [toc, tocCollapsed]);
 
-  // parsedBody: notes 전체 대신 noteTitles(위키링크 해결용 최소 슬라이스)만 dep에 포함
-  // → 다른 노트 body가 바뀌어도 현재 노트 뷰가 불필요하게 재파싱되지 않음
-  const noteTitles = useMemo(
-    () => notes.map(n => ({ id: n.id, title: n.title, deletedAt: n.deletedAt })),
+  // 위키링크 [[ 자동완성 후보 — 삭제되지 않은 노트의 제목
+  const wikiTargets = useMemo(
+    () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [notes]
   );
-  const parsedBody = useMemo(
-    () => activeNote ? parseMarkdown(activeNote.body, notes) : '',
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeNote?.body, noteTitles, katexReady]
-  );
-
   const backlinks = useMemo(() =>
-    activeNote
-      ? notes.filter(n => n.id !== activeNote.id && !n.deletedAt && (n.body ?? '').includes(`[[${activeNote.title ?? ''}]]`))
+    activeNote && (activeNote.title ?? '').trim()
+      ? notes.filter(n =>
+          n.id !== activeNote.id &&
+          !n.deletedAt &&
+          noteReferencesTitle(n.body ?? '', activeNote.title ?? '')
+        )
       : [],
     [notes, activeNote?.id, activeNote?.title]
   );
@@ -492,55 +325,30 @@ export const NoteView = () => {
     setNewFolderName(''); setShowFolderForm(false);
   }, [newFolderName, createFolder]);
 
-  // ── 텍스트 삽입 ─────────────────────────────────────────────────
-  const insert = useCallback((before: string, after = '') => {
-    const ta = textareaRef.current; if (!ta || !activeNote) return;
-    const s = ta.selectionStart, e = ta.selectionEnd;
-    const sel = activeNote.body.substring(s, e);
-    noteUpdate(activeNote.id, { body: activeNote.body.substring(0, s) + before + sel + after + activeNote.body.substring(e) });
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(s + before.length, s + before.length + sel.length); }, 0);
-  }, [activeNote, noteUpdate]);
+  // 포커스된 블록 뒤에 이미지 삽입 (edit 모드 BlockEditor ref 경유)
+  const insertImageAtCursor = useCallback((name: string, src: string) => {
+    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    blockEditorRef.current.insertImage(src, name);
+  }, [viewMode]);
 
-  const handleImageInsert = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => insert(`![${file.name.replace(/\.[^.]+$/, '')}](${ev.target?.result as string})`);
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
+  const insertEmptyImageBlockAtCursor = useCallback(() => {
+    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    blockEditorRef.current.insertEmptyImageBlock();
+  }, [viewMode]);
 
-  // ── 이미지 드래그&드롭 ─────────────────────────────────────────
+  // ── 이미지 드래그&드롭 (에디터 영역 — 이미지 블록 위는 제외) ─────
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (!activeNote || viewMode !== 'edit') return;
+    if ((e.target as HTMLElement).closest('.be-image-block')) return;
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     files.forEach(file => {
       const reader = new FileReader();
-      reader.onload = ev => {
-        const src = ev.target?.result as string;
-        const name = file.name.replace(/\.[^.]+$/, '');
-        const ta = textareaRef.current;
-        if (!ta || !activeNote) return;
-        const pos = ta.selectionStart ?? activeNote.body.length;
-        const before = activeNote.body.slice(0, pos);
-        const after  = activeNote.body.slice(pos);
-        noteUpdate(activeNote.id, { body: `${before}![${name}](${src})${after}` });
-      };
+      reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
       reader.readAsDataURL(file);
     });
-  }, [activeNote, noteUpdate]);
-
-  // ── 표 삽입 헬퍼 ──────────────────────────────────────────────
-  const insertTable = useCallback(() => {
-    const hdrs = tableHeaders.slice(0, tableCols);
-    const header = `| ${hdrs.join(' | ')} |`;
-    const divider = `| ${hdrs.map(() => '-------').join(' | ')} |`;
-    const rows = Array.from({ length: tableRows }, (_, r) =>
-      `| ${hdrs.map((_, c) => `r${r+1}c${c+1}`).join(' | ')} |`
-    );
-    insert(`\n${header}\n${divider}\n${rows.join('\n')}\n`);
-    setShowTableModal(false);
-  }, [tableCols, tableRows, tableHeaders, insert]);
+  }, [activeNote, viewMode, insertImageAtCursor]);
 
   // ── .md 파일 Import ─────────────────────────────────────────────
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -551,182 +359,60 @@ export const NoteView = () => {
         const body = ev.target?.result as string;
         const title = file.name.replace(/\.md$/i, '');
         const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const note: Note = { id, title, body, updatedAt: Date.now(), folderId: activeFolderId === 'trash' ? null : activeFolderId, deletedAt: null, starred: false };
-        setNotes(prev => { const u = [note, ...prev]; nvSaveNotes(u); return u; });
-        setActiveNoteId(id);
+        importNote({
+          id, title, body, updatedAt: Date.now(),
+          folderId: normalizeNoteFolderId(activeFolderId),
+          deletedAt: null, starred: false,
+        });
       };
       reader.readAsText(file);
     });
     e.target.value = '';
   };
 
-  // ── [[ 자동완성 ─────────────────────────────────────────────────
-  const acCandidates = useMemo(() => {
-    if (!acQuery) return [];
-    const q = acQuery.toLowerCase();
-    return notes.filter(n => !n.deletedAt && (n.title ?? '').toLowerCase().includes(q)).slice(0, 8);
-  }, [notes, acQuery]);
-
-  // ── [[ 자동완성 캐럿 좌표 계산 (mirror-div 방식) ────────────────
-  // textarea와 동일한 스타일의 숨겨진 div를 이용해 캐럿의 실제 픽셀 위치를 구한다.
-  // 외부 라이브러리 없이 scroll offset까지 정확히 반영.
-  const getCaretPixelPos = useCallback((ta: HTMLTextAreaElement, index: number): { top: number; left: number } => {
-    const MIRROR_STYLE: Partial<CSSStyleDeclaration> = {
-      position:   'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap',
-      wordBreak:  'break-word', overflow:  'hidden',
-      // textarea 스타일과 동일하게
-      fontSize:   '15px', lineHeight: '1.9', fontFamily: 'inherit',
-      padding:    '40px 60px', border: 'none',
-      boxSizing:  'border-box',
-    };
-
-    const mirror = document.createElement('div');
-    Object.assign(mirror.style, MIRROR_STYLE);
-    mirror.style.width = ta.offsetWidth + 'px';
-
-    // 캐럿 앞 텍스트 + 마커 span
-    const before  = document.createTextNode(ta.value.slice(0, index));
-    const marker  = document.createElement('span');
-    marker.textContent = '\u200b'; // 제로-너비 공백 — 위치 기준점
-    mirror.appendChild(before);
-    mirror.appendChild(marker);
-    ta.parentElement!.appendChild(mirror);
-
-    const taRect  = ta.getBoundingClientRect();
-    const mRect   = marker.getBoundingClientRect();
-    const result  = {
-      top:  mRect.top  - taRect.top  + ta.scrollTop  + marker.offsetHeight,
-      left: mRect.left - taRect.left + ta.scrollLeft,
-    };
-
-    ta.parentElement!.removeChild(mirror);
-    return result;
-  }, []);
-
-  const handleEditorChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!activeNote) return;
-    const val = e.target.value;
-    const cursor = e.target.selectionStart;
-    pushHistory(activeNote.id, val, cursor);
-    noteUpdate(activeNote.id, { body: val });
-    // [[ 감지
-    const pos = e.target.selectionStart;
-    const before = val.slice(0, pos);
-    const match = before.match(/\[\[([^\]\n]*)$/);
-    if (match) {
-      setAcQuery(match[1]);
-      setAcIndex(0);
-      setAcVisible(true);
-      // 캐럿 실제 픽셀 위치 계산
-      const coords = getCaretPixelPos(e.target, pos);
-      setAcPos({ top: coords.top + 4, left: coords.left });
-    } else {
-      setAcVisible(false);
-    }
-  }, [activeNote, pushHistory, noteUpdate]);
-
-  const applyAutoComplete = (title: string) => {
-    const ta = textareaRef.current; if (!ta || !activeNote) return;
-    const pos = ta.selectionStart;
-    const body = activeNote.body;
-    const before = body.slice(0, pos);
-    const match = before.match(/\[\[([^\]\n]*)$/);
-    if (!match) return;
-    const start = pos - match[0].length;
-    const newBody = body.slice(0, start) + `[[${title}]]` + body.slice(pos);
-    noteUpdate(activeNote.id, { body: newBody });
-    setAcVisible(false);
-    setTimeout(() => {
-      const newPos = start + title.length + 4;
-      ta.focus(); ta.setSelectionRange(newPos, newPos);
-    }, 0);
-  };
-
-  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (acVisible) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setAcIndex(i => Math.min(i + 1, acCandidates.length - 1)); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); setAcIndex(i => Math.max(i - 1, 0)); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        if (acCandidates[acIndex]) { e.preventDefault(); applyAutoComplete(acCandidates[acIndex].title); return; }
-      }
-      if (e.key === 'Escape') { setAcVisible(false); return; }
-    }
-  };
-
-  // ── 노트 전환 시 히스토리 초기 스냅샷 등록 ─────────────────────
-  useEffect(() => {
-    if (!activeNote) return;
-    const id = activeNote.id;
-    // 해당 노트의 히스토리가 아직 없으면 초기 스냅샷 등록
-    if (!historyRef.current[id] || historyRef.current[id].length === 0) {
-      historyRef.current[id] = [{ body: activeNote.body, cursor: 0 }];
-      historyIdxRef.current[id] = 0;
-    }
-  // activeNote?.id만 dep — body 변경 시마다 스냅샷을 재등록하지 않기 위해 의도적으로 id만 사용
-  }, [activeNote?.id]);
-
   // ── 전역 단축키 — ref 패턴으로 핸들러를 한 번만 등록 ─────────────
   // 가변 값은 ref에 저장해 stale closure 없이 항상 최신 값 읽기
   const shortcutRef = useRef({
-    showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot,
+    showSortMenu, viewMode, activeNote, createNote, duplicateNote,
+  });
+  const syncShortcutRef = useRef({
+    flushPendingSync,
+    syncNoteToDB,
+    getActiveNote: () => null as Note | null,
   });
   useEffect(() => {
-    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote, insert, applySnapshot };
+    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote };
+    syncShortcutRef.current = {
+      flushPendingSync,
+      syncNoteToDB,
+      getActiveNote: () => useNotesStore.getState().notes.find(n => n.id === activeNoteId) ?? null,
+    };
   });
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const { showSortMenu: sm, viewMode: vm, activeNote: an, createNote: cn,
-              duplicateNote: dn, insert: ins, applySnapshot: snap } = shortcutRef.current;
+      const { showSortMenu: sm, activeNote: an, createNote: cn, duplicateNote: dn } = shortcutRef.current;
       const mod = e.ctrlKey || e.metaKey;
       if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
       if (!mod) return;
 
-      // ── Undo (Ctrl+Z) ────────────────────────────────────────
-      if (e.key === 'z' && !e.shiftKey && vm === 'edit' && an) {
-        e.preventDefault();
-        const stack = historyRef.current[an.id];
-        const idx   = historyIdxRef.current[an.id] ?? -1;
-        if (stack && idx > 0) {
-          const next = idx - 1;
-          historyIdxRef.current[an.id] = next;
-          snap(an.id, stack[next]);
-        }
-        return;
-      }
-      // ── Redo (Ctrl+Y 또는 Ctrl+Shift+Z) ─────────────────────
-      if ((e.key === 'y' || (e.key === 'z' && e.shiftKey)) && vm === 'edit' && an) {
-        e.preventDefault();
-        const stack = historyRef.current[an.id];
-        const idx   = historyIdxRef.current[an.id] ?? -1;
-        if (stack && idx < stack.length - 1) {
-          const next = idx + 1;
-          historyIdxRef.current[an.id] = next;
-          snap(an.id, stack[next]);
-        }
-        return;
-      }
-      // ── Save (Ctrl+S) — 즉시 저장 표시 ─────────────────────
+      // ── Save (Ctrl+S) — debounce flush + 즉시 cloud sync ─────
       if (e.key === 's') {
         e.preventDefault();
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        setSavedAt(new Date());
+        const { flushPendingSync: flush, syncNoteToDB: sync, getActiveNote } = syncShortcutRef.current;
+        flush();
+        const note = getActiveNote();
+        if (note) void sync(note);
         return;
       }
 
       switch (e.key) {
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
-        case 'e': e.preventDefault(); setViewMode(v => v === 'preview' ? 'edit' : 'preview'); break;
-        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'preview' : 'graph'); break;
+        case 'e': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : (v === 'preview' ? 'edit' : 'preview')); break;
+        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
         case 'f': e.preventDefault(); setFocusMode(v => !v); break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
-        case 'b': if (vm === 'edit') { e.preventDefault(); ins('**', '**'); } break;
-        case 'i': if (vm === 'edit') { e.preventDefault(); ins('*', '*'); } break;
-        case '`': if (vm === 'edit') { e.preventDefault(); ins('`', '`'); } break;
-        case '1': if (vm === 'edit') { e.preventDefault(); ins('# '); } break;
-        case '2': if (vm === 'edit') { e.preventDefault(); ins('## '); } break;
-        case '3': if (vm === 'edit') { e.preventDefault(); ins('### '); } break;
       }
     };
     window.addEventListener('keydown', handler);
@@ -734,47 +420,45 @@ export const NoteView = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
 
-  const TOOLBAR = useMemo<(ToolbarItem | null)[]>(() => [
-    { icon: <Heading1 size={13}/>, label: 'H1 (Ctrl+1)', fn: () => insert('# ') },
-    { icon: <Heading2 size={13}/>, label: 'H2 (Ctrl+2)', fn: () => insert('## ') },
-    { icon: <Heading3 size={13}/>, label: 'H3 (Ctrl+3)', fn: () => insert('### ') },
-    null,
-    { icon: <Bold size={13}/>,        label: 'Bold (Ctrl+B)',   fn: () => insert('**', '**') },
-    { icon: <Italic size={13}/>,      label: 'Italic (Ctrl+I)', fn: () => insert('*', '*') },
-    { icon: <Code size={13}/>,        label: 'Inline Code',     fn: () => insert('`', '`') },
-    { icon: <Hash size={13}/>,        label: 'Highlight',       fn: () => insert('==', '==') },
-    null,
-    { icon: <List size={13}/>,        label: 'Bullet List',   fn: () => insert('- ') },
-    { icon: <ListOrdered size={13}/>, label: 'Numbered List', fn: () => insert('1. ') },
-    { icon: <CheckSquare size={13}/>, label: 'Checkbox',      fn: () => insert('- [ ] ') },
-    {
-      icon: <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>▶</span>,
-      label: 'Toggle Block',
-      fn: () => insert('> Toggle Title\n  '),
-    },
-    null,
-    { icon: <Table size={13}/>, label: 'Insert Table',     fn: () => { setTableHeaders(Array.from({ length: tableCols }, (_, i) => `Col ${i+1}`)); setShowTableModal(true); } },
-    { icon: <Link size={13}/>,  label: 'Wiki Link', fn: () => insert('[[', ']]') },
-    { icon: <Tag size={13}/>,   label: 'Tag',       fn: () => insert('#') },
-    null,
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∑</span>, label: 'Inline Math ($…$)',   fn: () => insert('$', '$') },
-    { icon: <span style={{ fontSize: 11, fontFamily: 'serif', fontStyle: 'italic', fontWeight: 700 }}>∫</span>, label: 'Block Math ($$…$$)', fn: () => insert('$$\n', '\n$$') },
-    null,
-    { icon: <ImageIcon size={13}/>, label: 'Insert Image', fn: () => imageInputRef.current?.click() },
-    { icon: <Upload size={13}/>,    label: 'Import .md',   fn: () => importInputRef.current?.click() },
-    { icon: <Save size={13}/>,      label: 'Export All',   fn: () => exportAllNotes() },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [insert, exportAllNotes, tableCols, setTableHeaders, setShowTableModal]);
+  // 위키링크 따라가기 — 있으면 이동, 없으면 [[제목]] 노트 자동 생성
+  const navigateToWiki = useCallback((title: string, opts?: { preferPreview?: boolean }) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const found = findNoteByTitle(trimmed, notes);
+    if (found) {
+      setActiveNoteId(found.id);
+      if (opts?.preferPreview) setViewMode('preview');
+      return;
+    }
+    createNote({ title: trimmed, body: '' });
+  }, [notes, setActiveNoteId, setViewMode, createNote]);
 
-  const handlePreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/preview 공통.
+  const scrollToHeading = useCallback((headingIdx: number) => {
+    const el = document.querySelector(`[data-be-heading="${headingIdx}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // 블록 readOnly 프리뷰용 클릭 위임 — be-wikilink / be-tag data 속성 처리
+  const handleBlockPreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    const wl = target.closest('.bwl') as HTMLElement | null;
-    if (wl?.dataset.id) { setActiveNoteId(wl.dataset.id); return; }
-    const wt = target.closest('.bwtag') as HTMLElement | null;
-    if (wt?.dataset.tag) { setActiveTag(prev => prev === wt.dataset.tag ? null : (wt.dataset.tag ?? null)); return; }
-    if (target.closest('.btoggle, .btsummary')) return;
+    const wl = target.closest('.be-wikilink') as HTMLElement | null;
+    if (wl?.dataset.wiki) {
+      navigateToWiki(wl.dataset.wiki, { preferPreview: true });
+      return;
+    }
+    const tg = target.closest('.be-tag') as HTMLElement | null;
+    if (tg?.dataset.tag) {
+      const tag = tg.dataset.tag;
+      setActiveFolderId(null);
+      setActiveTag(prev => prev === tag ? null : (tag ?? null));
+      setSearchQuery('');
+      return;
+    }
+    // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
+    if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-turn-into-menu, .be-slash-menu')) return;
     if (e.detail === 2) setViewMode('edit');
-  }, [setActiveNoteId]);
+  }, [navigateToWiki]);
 
   // ── 색상 테마 (dark 바뀔 때만 재생성) ──────────────────────────────
   const c = useMemo(() => ({
@@ -802,8 +486,30 @@ export const NoteView = () => {
     tagTxt:    dark ? '#A78BFA'   : '#7A6544',
     danger:    dark ? '#F87171'   : '#DC2626',
     green:     dark ? '#4ADE80'   : '#15803D',
-    textarea:  dark ? '#18181A'   : '#FAFAF8',
   }), [dark]);
+
+  // ── 블록 에디터 색상 팔레트 (c → BlockEditorColors 매핑) ──────────
+  const blockColors = useMemo<BlockEditorColors>(() => ({
+    bg:         c.editor,
+    text:       c.text,
+    textMuted:  c.textMuted,
+    textFaint:  c.textFaint,
+    accent:     c.accent,
+    accentBg:   c.accentBg,
+    border:     c.sideBdr,
+    card:       c.card,
+    cardHov:    c.cardHov,
+    input:      c.input,
+    inputBdr:   c.inputBdr,
+    toolbar:    c.toolbar,
+    danger:     c.danger,
+    green:      c.green,
+    codeBg:     dark ? '#1C1C1E' : '#F5F2EA',
+    calloutBg:  c.accentBg,
+    toggleBg:   dark ? '#FACC1510' : '#FFF8E1',
+    quoteBdr:   c.textFaint,
+    selection:  c.accentBg,
+  }), [c, dark]);
 
   // 매 렌더마다 filter() 반복 방지
   const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
@@ -820,7 +526,6 @@ export const NoteView = () => {
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'edit'    as const, icon: <Edit3 size={11}/>,   label: 'Edit' },
     { key: 'preview' as const, icon: <Eye size={11}/>,     label: 'Read' },
     { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
   ], []);
@@ -896,10 +601,7 @@ export const NoteView = () => {
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .wiki-textarea{width:100%;height:100%;background:${c.textarea};border:none;outline:none;resize:none;color:${c.text};font-size:15px;line-height:1.9;padding:40px 60px;font-family:inherit}
     .bshl{background:${dark ? '#FACC1550' : '#FFE88A'};color:${dark ? '#FACC15' : '#7A5500'};border-radius:2px;padding:0 2px}
-    .bac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-radius:5px;transition:background .1s;color:${c.text}}
-    .bac-item:hover,.bac-item.active{background:${c.accentBg};color:${c.accent}}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
@@ -923,15 +625,11 @@ export const NoteView = () => {
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
     .bicon-btn:hover .bicon-tooltip{opacity:1}
-    /* ── 표 편집 모달 ── */
-    .btable-modal-cell{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:5px;padding:4px 7px;font-size:12px;outline:none;width:100%}
-    .btable-modal-cell:focus{border-color:${c.accent}}
   `, [c]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
       <style>{CSS}</style>
-      <input ref={imageInputRef}  type="file" accept="image/*"  style={{ display: 'none' }} onChange={handleImageInsert}/>
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
       {/* ── 포커스 모드 오버레이 ── */}
@@ -953,18 +651,15 @@ export const NoteView = () => {
               ['Ctrl + /',         'Show Shortcuts'],
               [null, null],
               ['Ctrl + S',         'Save (instant)'],
-              ['Ctrl + Z',         'Undo'],
-              ['Ctrl + Y / ⇧+Z',  'Redo'],
+              ['Ctrl + Z',         'Undo (edit mode)'],
+              ['Ctrl + Y / ⇧+Z',  'Redo (edit mode)'],
               [null, null],
-              ['Ctrl + B',         'Bold'],
-              ['Ctrl + I',         'Italic'],
-              ['Ctrl + `',         'Inline Code'],
-              ['Ctrl + 1',         'Heading 1'],
-              ['Ctrl + 2',         'Heading 2'],
-              ['Ctrl + 3',         'Heading 3'],
-              [null, null],
+              ['/',                'Slash command — insert block'],
               ['[[...]]',          'Wiki link autocomplete'],
-              ['↑ ↓ Enter',        'Navigate autocomplete'],
+              ['Ctrl + Click',     'Follow wiki link (edit mode)'],
+              ['Click [[link]]',   'Follow link · create if missing (preview)'],
+              ['#tag in search',   'Filter notes by tag'],
+              ['↑ ↓ Enter',        'Navigate menus'],
               ['Esc',              'Close / cancel'],
             ].map(([key, desc], i) => (
               key === null
@@ -1030,7 +725,7 @@ export const NoteView = () => {
               </div>
               <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
                 <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
-                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
+                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search… (#tag)" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
               </div>
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
@@ -1088,7 +783,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1206,11 +901,40 @@ export const NoteView = () => {
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               )}
-              {/* View Mode Toggle */}
+              {/* Cloud sync status */}
+              {!isTrash && (
+                syncError ? (
+                  <button type="button" onClick={retrySync} className="btbtn" title="Retry cloud sync"
+                    style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
+                    <AlertTriangle size={10}/> {syncError}
+                  </button>
+                ) : isSyncing ? (
+                  <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
+                    syncing…
+                  </span>
+                ) : savedAt ? (
+                  <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                ) : null
+              )}
+              {/* View: Live Preview 기본 · Read / Graph 보조 */}
               <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
-                {VIEW_MODES.map(({ key, icon, label }) => (
-                  <button key={key} onClick={() => setViewMode(key)} className="btbtn"
-                    style={{ padding: '3px 7px', borderRadius: 5, background: viewMode === key ? c.card : 'none', color: viewMode === key ? c.accent : c.textMuted }}>
+                {VIEW_MODES.map(({ key, icon }) => (
+                  <button
+                    key={key}
+                    title={key === 'preview' ? '읽기 모드 (Ctrl+E)' : '그래프 (Ctrl+G)'}
+                    onClick={() => {
+                      if (key === 'preview') setViewMode(v => v === 'preview' ? 'edit' : 'preview');
+                      else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
+                    }}
+                    className="btbtn"
+                    style={{
+                      padding: '3px 7px', borderRadius: 5,
+                      background: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.card : 'none',
+                      color: (key === 'preview' ? viewMode === 'preview' : viewMode === 'graph') ? c.accent : c.textMuted,
+                    }}>
                     {icon}
                   </button>
                 ))}
@@ -1245,28 +969,25 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
               </div>
             ) : (
               <>
-                {/* Toolbar - edit 모드에서만 */}
+                {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
                 {!isTrash && viewMode === 'edit' && (
-                  <div style={{ padding: '2px 10px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
-                    {TOOLBAR.map((btn, i) =>
-                      btn === null
-                        ? <div key={i} style={{ width: 1, height: 13, background: c.sideBdr, margin: '0 2px' }}/>
-                        : <button key={i} className="btbtn" onClick={btn.fn} title={btn.label}>{btn.icon}</button>
-                    )}
-                    {isSyncing && (
-                      <span style={{ marginLeft: 'auto', fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/> syncing...
-                      </span>
-                    )}
-                    {!isSyncing && savedAt && (
-                      <span style={{ marginLeft: isSyncing ? 4 : 'auto', fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} saved
-                      </span>
-                    )}
+                  <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
+                      블록 추가 ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
+                    </span>
+                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
+                      <Upload size={13}/>
+                    </button>
+                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="Insert image block at cursor">
+                      <ImageIcon size={13}/>
+                    </button>
                   </div>
                 )}
 
@@ -1282,7 +1003,7 @@ export const NoteView = () => {
                       <ImageIcon size={22}/> Drop image to insert
                     </div>
                   )}
-                  {viewMode === 'edit' && (
+                  {viewMode !== 'graph' && (
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
@@ -1291,40 +1012,27 @@ export const NoteView = () => {
                         <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                       </div>
                     ) : (
-                      <div style={{ position: 'relative', height: '100%' }}>
-                        <textarea ref={textareaRef} className="wiki-textarea"
-                          value={activeNote.body}
-                          onChange={handleEditorChange}
-                          onKeyDown={handleEditorKeyDown}
-                          placeholder={'# Title\n\n#tag1 #tag2\n\nStart writing...\n\n> Toggle heading\n  Content inside toggle\n\nMath: $a^2+b^2=c^2$\n\nWiki link: [[Note Title]]'}/>
-                        {/* [[ 자동완성 드롭다운 */}
-                        {acVisible && acCandidates.length > 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            top:  acPos.top,
-                            left: Math.min(acPos.left, (textareaRef.current?.offsetWidth ?? 600) - 220),
-                            background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 8,
-                            boxShadow: '0 4px 20px #00000025', zIndex: 50, minWidth: 200, maxHeight: 220, overflowY: 'auto',
-                          }}>
-                            <div style={{ padding: '4px 10px 3px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}`, fontWeight: 700, letterSpacing: 1 }}>
-                              LINK TO NOTE
-                            </div>
-                            {acCandidates.map((n, i) => (
-                              <div key={n.id} className={`bac-item ${i === acIndex ? 'active' : ''}`}
-                                onMouseDown={e => { e.preventDefault(); applyAutoComplete(n.title); }}>
-                                <span style={{ fontSize: 10, color: c.textFaint, marginRight: 6 }}>📄</span>
-                                {n.title}
-                              </div>
-                            ))}
+                      <div
+                        onClick={viewMode === 'preview' ? handleBlockPreviewClick : undefined}
+                        style={{ minHeight: '100%', padding: '24px 0 80px' }}>
+                        {viewMode === 'preview' && (
+                          <div style={{ maxWidth: 860, margin: '0 auto 8px', padding: '0 16px', fontSize: 11, color: c.textMuted }}>
+                            읽기 모드 — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> 로 편집
                           </div>
                         )}
+                        <NoteBlockEditor
+                          ref={blockEditorRef}
+                          key={activeNote.id}
+                          body={activeNote.body}
+                          onBodyChange={handleActiveBodyChange}
+                          colors={blockColors}
+                          readOnly={viewMode === 'preview'}
+                          searchQuery={searchQuery}
+                          wikiTargets={wikiTargets}
+                          onWikiNavigate={navigateToWiki}
+                        />
                       </div>
                     )
-                  )}
-                  {viewMode === 'preview' && (
-                    <div
-                      onClick={handlePreviewClick}
-                      dangerouslySetInnerHTML={{ __html: parsedBody }}/>
                   )}
                 </div>
               </>
@@ -1334,7 +1042,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('preview'); }} dark={dark}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -1371,12 +1079,7 @@ export const NoteView = () => {
                   <div key={item.idx} className="btoc" style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
                     onClick={() => {
                       if (item.hasChildren) { toggleTocCollapse(item.idx); return; }
-                      const ta = textareaRef.current;
-                      if (ta && viewMode !== 'preview') {
-                        const pos = activeNote.body.split('\n').slice(0, item.line).join('\n').length;
-                        ta.focus(); ta.setSelectionRange(pos, pos);
-                        ta.scrollTop = (pos / activeNote.body.length) * ta.scrollHeight;
-                      }
+                      scrollToHeading(item.idx);
                     }}>
                     {item.hasChildren
                       ? (tocCollapsed[item.idx]
@@ -1389,11 +1092,7 @@ export const NoteView = () => {
                       onClick={e => {
                         if (item.hasChildren) return; // 이미 처리됨
                         e.stopPropagation();
-                        const ta = textareaRef.current;
-                        if (ta && viewMode !== 'preview') {
-                          const pos = activeNote.body.split('\n').slice(0, item.line).join('\n').length;
-                          ta.focus(); ta.setSelectionRange(pos, pos);
-                        }
+                        scrollToHeading(item.idx);
                       }}>
                       {item.text}
                     </span>
@@ -1440,8 +1139,8 @@ export const NoteView = () => {
                     </div>
                     {/* 발췌 문단들 */}
                     {ctx.excerpts.map((excerpt, ei) => {
-                      // [[제목]] 부분을 강조 표시
-                      const target = `[[${activeNote!.title ?? ''}]]`;
+                      // [[제목]] 부분을 강조 표시 (대소문자 무시 매칭)
+                      const target = findWikiLinkInText(excerpt, activeNote!.title ?? '') ?? `[[${activeNote!.title ?? ''}]]`;
                       const parts  = excerpt.split(target);
                       return (
                         <div key={ei} style={{
@@ -1472,20 +1171,37 @@ export const NoteView = () => {
                   </div>
                 ))
               }
-              {/* ── Outgoing links ── */}
+              {/* ── Outgoing links (resolved + broken) ── */}
               {(() => {
                 const outLinks = extractLinks(activeNote.body);
-                const found = outLinks.map(t => notes.find(n => n.title === t && !n.deletedAt)).filter((n): n is Note => n !== undefined);
-                return found.length > 0 ? (
+                if (outLinks.length === 0) return null;
+                const resolved = outLinks.filter(t => findNoteByTitle(t, notes));
+                const broken   = outLinks.filter(t => !findNoteByTitle(t, notes));
+                return (
                   <>
                     <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 600, borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                      Outgoing {<span style={{ color: c.green }}>({found.length})</span>}
+                      Outgoing <span style={{ color: c.green }}>({resolved.length})</span>
+                      {broken.length > 0 && <span style={{ color: c.textFaint }}> · {broken.length} missing</span>}
                     </div>
-                    {found.map(n => (
-                      <div key={n.id} className="bbl" style={{ color: c.green }} onClick={() => setActiveNoteId(n.id)}>→ {n.title}</div>
-                    ))}
+                    {outLinks.map(title => {
+                      const found = findNoteByTitle(title, notes);
+                      if (found) {
+                        return (
+                          <div key={title} className="bbl" style={{ color: c.green }}
+                            onClick={() => setActiveNoteId(found.id)}>→ {title}</div>
+                        );
+                      }
+                      return (
+                        <div key={title} className="bbl"
+                          style={{ color: c.textMuted, fontStyle: 'italic' }}
+                          title="Click to create note"
+                          onClick={() => navigateToWiki(title)}>
+                          → {title} <span style={{ fontSize: 9, color: c.accent }}>+ create</span>
+                        </div>
+                      );
+                    })}
                   </>
-                ) : null;
+                );
               })()}
             </div>
           )}
@@ -1500,7 +1216,7 @@ export const NoteView = () => {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
                     {noteTags.map(t => (
                       <span key={t} className={`btpill ${activeTag === t ? 'active' : ''}`}
-                        onClick={() => setActiveTag(prev => prev === t ? null : t)}>#{t}</span>
+                        onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === t ? null : t); }}>#{t}</span>
                     ))}
                   </div>
                 )
@@ -1509,7 +1225,7 @@ export const NoteView = () => {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {allTags.map(([tag, count]) => (
                   <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                    onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                    onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                     #{tag} <span style={{ color: c.textMuted }}>{count}</span>
                   </span>
                 ))}
@@ -1564,7 +1280,7 @@ export const NoteView = () => {
                         return (
                           <span key={tag}
                             style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag === tag ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                            onClick={() => setActiveTag(prev => prev === tag ? null : tag)}>
+                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
                             #{tag}
                           </span>
                         );
@@ -1587,80 +1303,6 @@ export const NoteView = () => {
               </button>
             </div>
           )}
-        </div>
-      )}
-      {/* ── 표 삽입 모달 ── */}
-      {showTableModal && (
-        <div style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setShowTableModal(false)}>
-          <div style={{ background: c.card, borderRadius: 14, padding: '22px 24px', width: 360, boxShadow: '0 8px 32px #00000035' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 16, color: c.text, display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Table size={15} color={c.accent}/> Insert Table
-            </div>
-            {/* 행/열 수 */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Rows</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
-                  <button onClick={() => setTableRows(r => Math.max(1, r - 1))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableRows}</span>
-                  <button onClick={() => setTableRows(r => Math.min(20, r + 1))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
-                </div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: .5 }}>Columns</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: c.input, borderRadius: 8, padding: '6px 10px', border: `1px solid ${c.inputBdr}` }}>
-                  <button onClick={() => { const n = Math.max(1, tableCols - 1); setTableCols(n); setTableHeaders(h => h.slice(0, n).concat(Array.from({ length: Math.max(0, n - h.length) }, (_, i) => `Col ${h.length + i + 1}`))); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>−</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontWeight: 700, color: c.text }}>{tableCols}</span>
-                  <button onClick={() => { const n = Math.min(10, tableCols + 1); setTableCols(n); setTableHeaders(h => [...h, `Col ${n}`]); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>+</button>
-                </div>
-              </div>
-            </div>
-            {/* 헤더 이름 */}
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: .5 }}>Column Headers</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {tableHeaders.slice(0, tableCols).map((h, i) => (
-                  <input key={i} className="btable-modal-cell" style={{ width: `calc(${Math.floor(100 / Math.min(tableCols, 3))}% - 6px)` }}
-                    value={h} onChange={e => setTableHeaders(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}/>
-                ))}
-              </div>
-            </div>
-            {/* 미리보기 */}
-            <div style={{ background: c.input, borderRadius: 8, padding: '10px 12px', marginBottom: 16, overflowX: 'auto' }}>
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: .5 }}>Preview</div>
-              <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
-                <thead>
-                  <tr>{tableHeaders.slice(0, tableCols).map((h, i) => (
-                    <th key={i} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', background: c.toolbar, color: c.text, fontWeight: 600, textAlign: 'left' }}>{h || `Col ${i+1}`}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: Math.min(tableRows, 3) }).map((_, r) => (
-                    <tr key={r}>{tableHeaders.slice(0, tableCols).map((_, c2) => (
-                      <td key={c2} style={{ border: `1px solid ${c.sideBdr}`, padding: '4px 8px', color: c.textMuted }}>r{r+1}c{c2+1}</td>
-                    ))}</tr>
-                  ))}
-                  {tableRows > 3 && <tr><td colSpan={tableCols} style={{ padding: '4px 8px', color: c.textFaint, fontSize: 10, textAlign: 'center', border: `1px solid ${c.sideBdr}` }}>+{tableRows - 3} more rows</td></tr>}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setShowTableModal(false)}
-                style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 8, padding: '10px', color: c.textMuted, fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                Cancel
-              </button>
-              <button onClick={insertTable}
-                style={{ flex: 2, background: c.accent, border: 'none', borderRadius: 8, padding: '10px', color: dark ? '#0F0F11' : '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 700 }}>
-                Insert Table
-              </button>
-            </div>
-          </div>
         </div>
       )}
       {confirm && (

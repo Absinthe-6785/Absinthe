@@ -29,32 +29,111 @@ export interface NoteFolderBase {
   createdAt: number;
 }
 
-// ── localStorage 키 ──────────────────────────────────────────────────
-export const NV_NOTES_KEY   = 'noteview-notes-v1';
-export const NV_FOLDERS_KEY = 'noteview-folders-v1';
-export const NV_ACTIVE_KEY  = 'noteview-active-v1';
+export type Note = NoteBase;
+export type NoteFolder = NoteFolderBase;
 
-// ── localStorage helpers ─────────────────────────────────────────────
-export function nvLoadNotes(): NoteBase[] {
+// ── localStorage 키 (통합 v2) ────────────────────────────────────────
+export const NOTES_KEY   = 'notes-v2';
+export const FOLDERS_KEY = 'note-folders-v2';
+export const ACTIVE_KEY  = 'note-active-v2';
+const MIGRATION_FLAG     = 'notes-storage-migrated-v2';
+
+/** @deprecated use NOTES_KEY — NoteView legacy alias */
+export const NV_NOTES_KEY   = NOTES_KEY;
+/** @deprecated use FOLDERS_KEY */
+export const NV_FOLDERS_KEY = FOLDERS_KEY;
+/** @deprecated use ACTIVE_KEY */
+export const NV_ACTIVE_KEY  = ACTIVE_KEY;
+
+const LEGACY_NV_NOTES   = 'noteview-notes-v1';
+const LEGACY_NV_FOLDERS = 'noteview-folders-v1';
+const LEGACY_NV_ACTIVE  = 'noteview-active-v1';
+const LEGACY_PL_NOTES   = 'planner-notes-v2';
+const LEGACY_PL_FOLDERS = 'planner-note-folders';
+const LEGACY_PL_ACTIVE  = 'planner-active-note';
+const LEGACY_PL_NOTES_V1 = 'planner-notes';
+
+export function normalizeNote(n: Partial<NoteBase>): NoteBase {
+  return {
+    id: n.id ?? `note-${Date.now()}-${Math.random()}`,
+    title: n.title ?? '',
+    body: n.body ?? '',
+    updatedAt: n.updatedAt ?? Date.now(),
+    folderId: n.folderId ?? null,
+    deletedAt: n.deletedAt ?? null,
+    starred: n.starred ?? false,
+  };
+}
+
+function loadRawNotes(key: string): NoteBase[] | null {
   try {
-    const raw = localStorage.getItem(NV_NOTES_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // 배열 여부 확인 (손상된 데이터 방어)
-      const arr: NoteBase[] = Array.isArray(parsed) ? parsed : [];
-      // null/undefined 필드 정규화 (구버전 데이터 호환)
-      return arr.map(n => ({
-        ...n,
-        title: n.title ?? '',
-        body:  n.body  ?? '',
-        id:    n.id    ?? `note-${Date.now()}-${Math.random()}`,
-        updatedAt: n.updatedAt ?? Date.now(),
-        folderId:  n.folderId  ?? null,
-        deletedAt: n.deletedAt ?? null,
-        starred:   n.starred   ?? false,
-      }));
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map(n => normalizeNote(n));
+  } catch {
+    return null;
+  }
+}
+
+function loadRawFolders(key: string): NoteFolderBase[] | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as NoteFolderBase[] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** updatedAt 기준으로 노트 배열 병합 (id 중복 시 최신 우선) */
+export function mergeNoteArrays(...groups: NoteBase[][]): NoteBase[] {
+  const map = new Map<string, NoteBase>();
+  for (const group of groups) {
+    for (const n of group) {
+      const cur = map.get(n.id);
+      if (!cur || n.updatedAt > cur.updatedAt) map.set(n.id, n);
     }
-  } catch { /**/ }
+  }
+  return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** id 기준 폴더 병합 */
+export function mergeFolderArrays(...groups: NoteFolderBase[][]): NoteFolderBase[] {
+  const map = new Map<string, NoteFolderBase>();
+  for (const group of groups) {
+    for (const f of group) map.set(f.id, f);
+  }
+  return [...map.values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** 다른 탭 localStorage JSON → 현재 notes와 updatedAt 기준 병합 */
+export function mergeNotesFromStorageJson(local: NoteBase[], raw: string | null): NoteBase[] {
+  if (!raw) return local;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return local;
+    return mergeNoteArrays(local, parsed.map(n => normalizeNote(n)));
+  } catch {
+    return local;
+  }
+}
+
+/** 다른 탭 localStorage JSON → 현재 folders와 id 기준 병합 */
+export function mergeFoldersFromStorageJson(local: NoteFolderBase[], raw: string | null): NoteFolderBase[] {
+  if (!raw) return local;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return local;
+    return mergeFolderArrays(local, parsed as NoteFolderBase[]);
+  } catch {
+    return local;
+  }
+}
+
+function defaultSeedNotes(): NoteBase[] {
   return [{
     id: `note-${Date.now()}`,
     title: 'Welcome to Note',
@@ -66,24 +145,117 @@ export function nvLoadNotes(): NoteBase[] {
   }];
 }
 
-export function nvLoadFolders(): NoteFolderBase[] {
+/** noteview + planner legacy → notes-v2 일회 마이그레이션 */
+export function migrateLegacyStorageIfNeeded(): void {
+  if (localStorage.getItem(MIGRATION_FLAG)) return;
+  if (localStorage.getItem(NOTES_KEY)) {
+    localStorage.setItem(MIGRATION_FLAG, '1');
+    return;
+  }
+
+  const noteGroups: NoteBase[][] = [];
+  const nv = loadRawNotes(LEGACY_NV_NOTES);
+  const pl = loadRawNotes(LEGACY_PL_NOTES);
+  const plv1 = loadRawNotes(LEGACY_PL_NOTES_V1);
+  if (nv?.length) noteGroups.push(nv);
+  if (pl?.length) noteGroups.push(pl);
+  if (plv1?.length) noteGroups.push(plv1.map(n => ({ ...n, folderId: null, deletedAt: null })));
+
+  const mergedNotes = noteGroups.length > 0 ? mergeNoteArrays(...noteGroups) : defaultSeedNotes();
+  saveNotes(mergedNotes);
+
+  const folderGroups: NoteFolderBase[][] = [];
+  const nvF = loadRawFolders(LEGACY_NV_FOLDERS);
+  const plF = loadRawFolders(LEGACY_PL_FOLDERS);
+  if (nvF?.length) folderGroups.push(nvF);
+  if (plF?.length) folderGroups.push(plF);
+  if (folderGroups.length > 0) saveFolders(mergeFolderArrays(...folderGroups));
+
+  const active =
+    localStorage.getItem(LEGACY_NV_ACTIVE) ||
+    localStorage.getItem(LEGACY_PL_ACTIVE) ||
+    mergedNotes.find(n => !n.deletedAt)?.id ||
+    null;
+  if (active) {
+    try { localStorage.setItem(ACTIVE_KEY, active); } catch { /**/ }
+  }
+
+  localStorage.setItem(MIGRATION_FLAG, '1');
+}
+
+// ── localStorage helpers ─────────────────────────────────────────────
+export function loadNotes(): NoteBase[] {
+  migrateLegacyStorageIfNeeded();
+  return loadRawNotes(NOTES_KEY) ?? defaultSeedNotes();
+}
+
+export function loadFolders(): NoteFolderBase[] {
+  migrateLegacyStorageIfNeeded();
+  return loadRawFolders(FOLDERS_KEY) ?? [];
+}
+
+export function loadActiveNoteId(notes: NoteBase[]): string | null {
+  migrateLegacyStorageIfNeeded();
   try {
-    const raw = localStorage.getItem(NV_FOLDERS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed as NoteFolderBase[] : [];
-    }
+    const s = localStorage.getItem(ACTIVE_KEY);
+    if (s && notes.some(n => n.id === s)) return s;
   } catch { /**/ }
-  return [];
+  return notes.find(n => !n.deletedAt)?.id ?? null;
 }
 
-export function nvSaveNotes(notes: NoteBase[]): void {
-  try { localStorage.setItem(NV_NOTES_KEY, JSON.stringify(notes)); } catch { /**/ }
+export const LOCAL_NOTES_SAVE_ERROR =
+  'Local save failed — storage may be full. Export notes or free browser storage.';
+export const LOCAL_FOLDERS_SAVE_ERROR =
+  'Local folder save failed — storage may be full. Free browser storage.';
+
+export function saveNotes(notes: NoteBase[]): boolean {
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function nvSaveFolders(folders: NoteFolderBase[]): void {
-  try { localStorage.setItem(NV_FOLDERS_KEY, JSON.stringify(folders)); } catch { /**/ }
+export function saveFolders(folders: NoteFolderBase[]): boolean {
+  try {
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+export function saveActiveNoteId(id: string | null): void {
+  try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
+}
+
+/** Settings Reset 등 — notes localStorage 전부 제거 */
+export function clearNotesStorage(): void {
+  try {
+    localStorage.removeItem(NOTES_KEY);
+    localStorage.removeItem(FOLDERS_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
+  } catch { /**/ }
+}
+
+/** DB·로컬 초기화 후 기본 환영 노트 1개 생성 */
+export function createDefaultWelcomeNotes(): NoteBase[] {
+  const notes = defaultSeedNotes();
+  saveNotes(notes);
+  saveActiveNoteId(notes[0]?.id ?? null);
+  saveFolders([]);
+  return notes;
+}
+
+/** @deprecated use loadNotes */
+export const nvLoadNotes = loadNotes;
+/** @deprecated use loadFolders */
+export const nvLoadFolders = loadFolders;
+/** @deprecated use saveNotes */
+export const nvSaveNotes = saveNotes;
+/** @deprecated use saveFolders */
+export const nvSaveFolders = saveFolders;
 
 // ── 문자열 유틸 ──────────────────────────────────────────────────────
 export function escapeHtml(s: string): string {
@@ -256,7 +428,113 @@ export function extractTags(body: string): string[] {
 
 export function extractLinks(body: string): string[] {
   if (!body) return [];
-  return [...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1]);
+  return [...new Set([...(body.matchAll(/\[\[(.+?)\]\]/g))].map(m => m[1].trim()).filter(Boolean))];
+}
+
+/** 휴지통 보존 기간 (30일) */
+export const NOTE_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** 가상 폴더(trash/starred) → null, 실제 폴더 id 유지 */
+export function normalizeNoteFolderId(
+  folderId: string | null | 'trash' | 'starred' | undefined,
+): string | null {
+  if (folderId === null || folderId === undefined || folderId === 'trash' || folderId === 'starred') {
+    return null;
+  }
+  return folderId;
+}
+
+/**
+ * DB 로드 결과와 localStorage를 병합.
+ * DB에 없는 로컬 전용 노트는 업로드 성공 여부와 무관하게 UI에 유지한다.
+ */
+export function mergeDbAndLocalNotes(
+  dbNotes: NoteBase[],
+  localNotes: NoteBase[],
+  now = Date.now(),
+): NoteBase[] {
+  const dbIds = new Set(dbNotes.map(n => n.id));
+  const validFromDb = dbNotes.filter(
+    n => !n.deletedAt || now - n.deletedAt < NOTE_TRASH_RETENTION_MS,
+  );
+  const localOnly = localNotes.filter(l => !dbIds.has(l.id) && !l.deletedAt);
+  return [...localOnly, ...validFromDb].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** DB 응답에 없는 활성 로컬 노트 */
+export function getLocalOnlyNotes(dbNoteIds: Iterable<string>, localNotes: NoteBase[]): NoteBase[] {
+  const ids = new Set(dbNoteIds);
+  return localNotes.filter(l => !ids.has(l.id) && !l.deletedAt);
+}
+
+/** POST /api/notes upsert 페이로드 — NoteView·Planner 공통 */
+export function noteSyncPayload(note: NoteBase) {
+  return {
+    id: note.id,
+    title: note.title ?? '',
+    body: note.body ?? '',
+    updated_at: note.updatedAt,
+    folder_id: note.folderId ?? null,
+    deleted_at: note.deletedAt ?? null,
+    starred: note.starred ?? false,
+  };
+}
+
+/** 위키 제목 정규화 — 대소문자 무시 비교용 */
+export function normalizeWikiTitle(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+/** 제목으로 노트 찾기 (대소문자 무시, 삭제된 노트 제외) */
+export function findNoteByTitle(title: string, notes: NoteBase[]): NoteBase | undefined {
+  const key = normalizeWikiTitle(title);
+  if (!key) return undefined;
+  return notes.find(n => !n.deletedAt && normalizeWikiTitle(n.title ?? '') === key);
+}
+
+/** body에 [[targetTitle]] 링크가 있는지 (대소문자 무시) */
+export function noteReferencesTitle(body: string, targetTitle: string): boolean {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key || !body) return false;
+  return extractLinks(body).some(l => normalizeWikiTitle(l) === key);
+}
+
+/** body에서 targetTitle을 가리키는 실제 [[...]] 토큰 (하이라이트용) */
+export function findWikiLinkToken(body: string, targetTitle: string): string | null {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key) return null;
+  for (const link of extractLinks(body)) {
+    if (normalizeWikiTitle(link) === key) return `[[${link}]]`;
+  }
+  return null;
+}
+
+/** 텍스트 조각에서 targetTitle을 가리키는 [[...]] 토큰 (발췌 하이라이트용) */
+export function findWikiLinkInText(text: string, targetTitle: string): string | null {
+  const key = normalizeWikiTitle(targetTitle);
+  if (!key) return null;
+  const re = /\[\[(.+?)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (normalizeWikiTitle(m[1]) === key) return m[0];
+  }
+  return null;
+}
+
+/** 검색어 파싱 — #tag → 태그 검색, 그 외 텍스트 검색 */
+export function parseNoteSearchQuery(query: string): { mode: 'tag' | 'text'; value: string } {
+  const q = query.trim();
+  if (q.startsWith('#') && q.length > 1) {
+    return { mode: 'tag', value: q.slice(1).trim() };
+  }
+  return { mode: 'text', value: q };
+}
+
+/** 노트가 태그 검색어와 매칭되는지 (부분 일치, 대소문자 무시) */
+export function noteMatchesTagSearch(body: string, tagQuery: string): boolean {
+  const q = tagQuery.trim().toLowerCase();
+  if (!q) return true;
+  return extractTags(body).some(t => t.toLowerCase().includes(q));
 }
 
 // ── 백링크 컨텍스트 ──────────────────────────────────────────────────
@@ -289,19 +567,22 @@ export function extractLinkContexts(
 
   const MAX_EXCERPTS = opts.maxExcerpts ?? 2;
   const EXCERPT_MAX  = opts.excerptMax  ?? 140;
-  const pattern      = `[[${targetTitle}]]`;
+  const targetKey    = normalizeWikiTitle(targetTitle);
 
   const results: LinkContext[] = [];
 
   for (const note of allNotes) {
     if (note.deletedAt) continue;
     const body = note.body ?? '';
-    if (!body.includes(pattern)) continue;
+    if (!noteReferencesTitle(body, targetTitle)) continue;
+
+    const paragraphHasLink = (p: string) =>
+      extractLinks(p).some(l => normalizeWikiTitle(l) === targetKey);
 
     // 빈 줄(\n\n)로 문단 분리
     const paragraphs = body.split(/\n{2,}/);
     let excerpts = paragraphs
-      .filter(p => p.includes(pattern))
+      .filter(paragraphHasLink)
       .slice(0, MAX_EXCERPTS)
       .map(p => {
         // 마크다운 문법 기호 정리 (헤딩 # 제거, 줄 합치기)
@@ -317,7 +598,7 @@ export function extractLinkContexts(
     if (excerpts.length === 0) {
       excerpts = body
         .split('\n')
-        .filter(l => l.includes(pattern))
+        .filter(paragraphHasLink)
         .slice(0, MAX_EXCERPTS)
         .map(l => {
           const clean = l.replace(/^#{1,6}\s+/, '').trim();
