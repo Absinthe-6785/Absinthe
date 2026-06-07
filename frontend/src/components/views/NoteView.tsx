@@ -3,8 +3,9 @@ import {
   Search, Plus, Trash2, FolderPlus, Eye, Type,
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
-  ChevronDown, ChevronRight, GitFork, Upload, Keyboard,
+  ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
 } from 'lucide-react';
+import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useAppStore } from '../../store/useAppStore';
@@ -66,11 +67,13 @@ interface NoteBlockEditorProps {
   colors: BlockEditorColors;
   readOnly: boolean;
   searchQuery: string;
+  searchScope: EditorSearchScope;
+  searchMatchIndex: number;
   wikiTargets: string[];
   onWikiNavigate?: (title: string) => void;
 }
 const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
-  { body, onBodyChange, colors, readOnly, searchQuery, wikiTargets, onWikiNavigate },
+  { body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex, wikiTargets, onWikiNavigate },
   ref,
 ) {
   const {
@@ -101,6 +104,8 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
       colors={colors}
       readOnly={readOnly}
       searchQuery={searchQuery}
+      searchScope={searchScope}
+      searchMatchIndex={searchMatchIndex}
       wikiTargets={wikiTargets}
       onWikiNavigate={onWikiNavigate}
       onActiveBlockChange={setActiveBlockId}
@@ -206,6 +211,8 @@ export const NoteView = () => {
 
   // ── UI 상태 ─────────────────────────────────────────────────────
   const [searchQuery,    setSearchQuery]    = useState('');
+  const [searchScope,    setSearchScope]    = useState<EditorSearchScope>('document');
+  const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
@@ -269,6 +276,10 @@ export const NoteView = () => {
     (md: string) => { if (activeNoteId) noteUpdate(activeNoteId, { body: md }); },
     [activeNoteId, noteUpdate],
   );
+
+  useEffect(() => { setSearchMatchIdx(0); }, [searchQuery, activeNoteId, searchScope]);
+
+  const editorSearchQuery = searchScope === 'all' ? '' : searchQuery;
 
   const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
 
@@ -956,6 +967,33 @@ export const NoteView = () => {
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
                     </span>
+                    {searchQuery.trim() && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, flexWrap: 'wrap' }}>
+                        {(['block', 'document', 'all'] as const).map(scope => (
+                          <button key={scope} type="button" className="btbtn"
+                            onClick={() => setSearchScope(scope)}
+                            style={{
+                              fontSize: 10, padding: '2px 8px',
+                              background: searchScope === scope ? c.accentBg : c.card,
+                              color: searchScope === scope ? c.accent : c.textMuted,
+                              border: `1px solid ${searchScope === scope ? c.accent : c.toolBdr}`,
+                              borderRadius: 5, cursor: 'pointer',
+                            }}>
+                            {scope === 'block' ? '현재 블록' : scope === 'document' ? '현재 문서' : '전체 노트'}
+                          </button>
+                        ))}
+                        {searchScope !== 'all' && (
+                          <>
+                            <button type="button" className="btbtn" title="이전 (↑)"
+                              onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
+                              style={{ padding: '2px 5px' }}><ChevronUp size={12}/></button>
+                            <button type="button" className="btbtn" title="다음 (↓)"
+                              onClick={() => setSearchMatchIdx(i => i + 1)}
+                              style={{ padding: '2px 5px' }}><ChevronDown size={12}/></button>
+                          </>
+                        )}
+                      </div>
+                    )}
                     <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
@@ -1074,7 +1112,9 @@ export const NoteView = () => {
                           onBodyChange={handleActiveBodyChange}
                           colors={blockColors}
                           readOnly={viewMode === 'preview'}
-                          searchQuery={searchQuery}
+                          searchQuery={editorSearchQuery}
+                          searchScope={searchScope}
+                          searchMatchIndex={searchMatchIdx}
                           wikiTargets={wikiTargets}
                           onWikiNavigate={navigateToWiki}
                         />

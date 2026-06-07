@@ -4,6 +4,8 @@
  * Phase 1: 타입 정의 + 마크다운 ↔ 블록 배열 변환
  * React 의존성 없음 — 순수 TypeScript
  */
+import { slashCommandKeysMatching, resolveSlashCommand } from './slashCommands';
+import type { BlockTint } from './blockColors';
 
 // ── 블록 타입 정의 ─────────────────────────────────────────────────────
 
@@ -86,6 +88,9 @@ export interface Block {
 
   // numbered list — 원본 번호 보존 (2., 3. 등)
   listIndex?: number;
+
+  // editor chrome — optional block highlight tint
+  tint?: BlockTint;
 }
 
 /** contentEditable로 편집되는 텍스트 계열 블록 */
@@ -656,16 +661,35 @@ export function filterBlockMenu(query: string): BlockTypeMeta[] {
     return [...pinned, ...rest];
   }
 
+  const exact = resolveSlashCommand(q);
+  if (exact) {
+    const hit = BLOCK_TYPE_MENU.find(m => m.type === exact);
+    return hit ? [hit] : [];
+  }
+
   const aliasTypes = SLASH_ALIASES[q] ?? [];
-  return BLOCK_TYPE_MENU.filter(m =>
+  const slashKeys = slashCommandKeysMatching(q);
+  const slashTypes = slashKeys.map(k => resolveSlashCommand(k)).filter((t): t is BlockType => t != null);
+
+  const matched = BLOCK_TYPE_MENU.filter(m =>
     m.type.includes(q) ||
     m.label.toLowerCase().includes(q) ||
     m.desc.toLowerCase().includes(q) ||
-    m.keywords.some(k => k.includes(q) || q.includes(k)) ||
+    m.keywords.some(k => k.startsWith(q) || k.includes(q) || q.includes(k)) ||
     aliasTypes.includes(m.type) ||
+    slashTypes.includes(m.type) ||
     (q === 'heading' && m.type.startsWith('heading')) ||
     (q.startsWith('h') && /^h[123]?$/.test(q) && m.type.startsWith('heading'))
   );
+
+  // prefix queries like "to" → Todo, Toggle
+  if (matched.length === 0 && q.length >= 2) {
+    return BLOCK_TYPE_MENU.filter(m =>
+      m.keywords.some(k => k.startsWith(q)) ||
+      slashTypes.includes(m.type),
+    );
+  }
+  return matched;
 }
 
 // ── 인라인 마크다운 파서 (렌더링용) ──────────────────────────────────

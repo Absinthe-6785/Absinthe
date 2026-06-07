@@ -18,7 +18,7 @@ import React, {
   type ReactNode, type CSSProperties,
 } from 'react';
 import {
-  ChevronRight, Plus, Copy, Indent, Outdent,
+  ChevronRight, Plus, Copy, Indent, Outdent, Link2, Palette,
   Heading1, Heading2, Heading3,
   List, ListOrdered, CheckSquare, Code2,
   Image as ImageIcon, Minus, Table2, Quote, Zap, Type,
@@ -50,6 +50,13 @@ import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
 import { applyDragDrop, indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
+import { slashDisplayLabel, slashShortcutFor, resolveSlashCommand } from './slashCommands';
+import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
+import { BLOCK_TINT_OPTIONS, blockTintStyle, type BlockTint } from './blockColors';
+import {
+  canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
+  moveBlockIntoToggle, moveBlockOutOfToggle,
+} from './blockTree';
 
 const getElText = readBlockText;
 
@@ -260,6 +267,8 @@ interface BlockEditorProps {
   colors:       BlockEditorColors;
   readOnly?:    boolean;
   searchQuery?: string;
+  searchScope?: EditorSearchScope;
+  searchMatchIndex?: number;
   /** 위키링크 [[ 자동완성 후보 (노트 제목 목록) */
   wikiTargets?: string[];
   /** edit 모드 Ctrl/Cmd+클릭으로 [[제목]] 따라가기 */
@@ -458,6 +467,7 @@ interface SingleBlockProps {
   onOutdentBlock?: (id: string) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
+  searchQueryFor: (blockId: string) => string;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
@@ -500,7 +510,8 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onIndentBlock === next.onIndentBlock
     && prev.onOutdentBlock === next.onOutdentBlock
     && prev.getRootBlocks === next.getRootBlocks
-    && prev.onRootChange === next.onRootChange;
+    && prev.onRootChange === next.onRootChange
+    && prev.searchQueryFor === next.searchQueryFor;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -525,6 +536,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onOutdentBlock,
   getRootBlocks,
   onRootChange,
+  searchQueryFor,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -643,6 +655,7 @@ const SingleBlock = React.memo(function SingleBlock({
     onOutdentBlock,
     getRootBlocks: getRootBlocks ?? getBlocks,
     onRootChange: onRootChange ?? onChange,
+    searchQueryFor,
   });
 
   const shellKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -681,13 +694,16 @@ const SingleBlock = React.memo(function SingleBlock({
     },
   } as const;
 
+  const tintStyle = blockTintStyle(block.tint);
   const blockShellStyle: CSSProperties = {
     position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
     borderRadius: 6,
     padding: (isActive || selected) ? '4px 8px 4px 10px' : '1px 0 1px 3px',
     outline: 'none',
     border: 'none',
-    borderLeft: (isActive || selected) ? `3px solid ${c.accent}` : '3px solid transparent',
+    borderLeft: (isActive || selected)
+      ? `3px solid ${c.accent}`
+      : tintStyle.borderLeft ?? '3px solid transparent',
     transition: 'border-color .12s, background .12s',
     opacity: isDragging ? 0.4 : 1,
     userSelect: dragState ? 'none' : undefined,
@@ -695,7 +711,7 @@ const SingleBlock = React.memo(function SingleBlock({
       ? (c.blockFocusBg ?? 'rgba(139,92,246,0.04)')
       : selected
         ? (c.blockSelectedBg ?? 'rgba(139,92,246,0.03)')
-        : undefined,
+        : tintStyle.background,
   };
 
   const blockShellClass = `be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}`;
@@ -730,6 +746,7 @@ const SingleBlock = React.memo(function SingleBlock({
       onIndentBlock, onOutdentBlock,
       getRootBlocks: getRootBlocks ?? getBlocks,
       onRootChange: onRootChange ?? onChange,
+      searchQueryFor,
     });
     return (
       <div className="be-toggle-wrap">
@@ -758,6 +775,7 @@ const SingleBlock = React.memo(function SingleBlock({
             onIndentBlock, onOutdentBlock,
             getRootBlocks: getRootBlocks ?? getBlocks,
             onRootChange: onRootChange ?? onChange,
+            searchQueryFor,
           })}
         </div>
         {toggleOpen && toggleChildren}
@@ -824,6 +842,7 @@ interface RCtx {
   onOutdentBlock?: (id: string) => void;
   getRootBlocks: () => Block[];
   onRootChange: (b: Block[]) => void;
+  searchQueryFor: (blockId: string) => string;
 }
 
 // ── EditableBlock: contentEditable 인라인 편집기 ─────────────────────
@@ -2044,7 +2063,7 @@ function toggleSharedEditProps(block: Block, ctx: RCtx) {
     onActiveBlockChange: ctx.onActiveBlockChange,
     onWikiNavigate: ctx.onWikiNavigate,
     wikiTargets: ctx.wikiTargets,
-    searchQuery: ctx.searchQuery,
+    searchQuery: ctx.searchQueryFor(block.id),
     onConvertBlock: ctx.onConvertBlock,
     onIndentBlock: ctx.onIndentBlock,
     onOutdentBlock: ctx.onOutdentBlock,
@@ -2138,7 +2157,7 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     onActiveBlockChange: ctx.onActiveBlockChange,
     onWikiNavigate: ctx.onWikiNavigate,
     wikiTargets: ctx.wikiTargets,
-    searchQuery: ctx.searchQuery,
+    searchQuery: ctx.searchQueryFor(block.id),
     onConvertBlock: ctx.onConvertBlock,
     onIndentBlock: ctx.onIndentBlock,
     onOutdentBlock: ctx.onOutdentBlock,
@@ -2316,6 +2335,8 @@ interface BlockEditorInnerProps {
   onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
+  searchScope?: EditorSearchScope;
+  searchMatchIndex?: number;
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
@@ -2323,6 +2344,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   externalFocusId, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
+  searchScope = 'document', searchMatchIndex = 0,
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -2343,11 +2365,40 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (next) onRootChange(next);
   }, [getRootBlocks, onRootChange]);
 
+  const handleMoveIntoPrevToggle = useCallback((blockId: string) => {
+    const root = getRootBlocks();
+    const toggleId = getPreviousSiblingToggleId(root, blockId);
+    if (!toggleId) return;
+    const next = moveBlockIntoToggle(root, blockId, toggleId);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
+
+  const handleMoveOutOfToggleBlock = useCallback((blockId: string) => {
+    const next = moveBlockOutOfToggle(getRootBlocks(), blockId);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
+
+  const handleCopyBlockLink = useCallback((blockId: string) => {
+    void navigator.clipboard?.writeText(`#block-${blockId}`);
+  }, []);
+
+  const handleSetTint = useCallback((blockId: string, tint: BlockTint) => {
+    onRootChange(updateBlockById(getRootBlocks(), blockId, b => ({
+      ...b,
+      tint: tint === 'default' ? undefined : tint,
+    })));
+  }, [getRootBlocks, onRootChange]);
+
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const handleActiveBlockChange = useCallback((id: string | null) => {
     setActiveBlockId(id);
     onActiveBlockChange?.(id);
   }, [onActiveBlockChange]);
+
+  const searchQueryFor = useCallback((blockId: string) => {
+    if (!searchQuery.trim()) return '';
+    return shouldHighlightBlock(searchScope, blockId, activeBlockId) ? searchQuery : '';
+  }, [searchQuery, searchScope, activeBlockId]);
 
   const blocksCtx = useMemo<BlocksCtxValue>(() => ({
     getBlocks: () => blocksRef.current,
@@ -2469,6 +2520,48 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setFocusCmd({ blockId: copy.id, offset: 'start' });
     setSelected(copy.id);
   }, [onChange]);
+
+  useEffect(() => {
+    if (!searchQuery.trim() || searchScope === 'all') return;
+    const matches = collectEditorSearchMatches(getRootBlocks(), searchQuery);
+    if (!matches.length) return;
+    const m = matches[searchMatchIndex % matches.length];
+    setSelected(m.blockId);
+    handleActiveBlockChange(m.blockId);
+    setFocusCmd({ blockId: m.blockId, offset: m.offset });
+  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange]);
+
+  const renderBlockMenu = (state: BlockMenuState, onDone: () => void) => {
+    const id = state.blockId;
+    const root = getRootBlocks();
+    return (
+      <BlockHandleMenu
+        blockId={id}
+        currentType={findBlockById(blocksRef.current, id)?.type ?? 'paragraph'}
+        anchorY={state.anchorY}
+        anchorX={state.anchorX}
+        colors={c}
+        onAddAbove={() => { handleAddAbove(id); onDone(); }}
+        onAddBelow={() => { handleAddBelow(id); onDone(); }}
+        onDuplicate={() => { handleDuplicate(id); onDone(); }}
+        onIndent={() => { handleIndentBlock(id); onDone(); }}
+        onOutdent={() => { handleOutdentBlock(id); onDone(); }}
+        onMoveIntoToggle={() => { handleMoveIntoPrevToggle(id); onDone(); }}
+        onMoveOutOfToggle={() => { handleMoveOutOfToggleBlock(id); onDone(); }}
+        canMoveIntoToggle={canMoveIntoPreviousToggle(root, id)}
+        canMoveOutOfToggle={isInsideToggle(root, id)}
+        onSetTint={tint => { handleSetTint(id, tint); onDone(); }}
+        onCopyLink={() => { handleCopyBlockLink(id); onDone(); }}
+        onSelect={type => handleConvert(id, type)}
+        onDelete={() => { handleDelete(id); onDone(); }}
+        onMoveUp={() => { handleMove(id, 'up'); onDone(); }}
+        onMoveDown={() => { handleMove(id, 'down'); onDone(); }}
+        onClose={onDone}
+        onChromeEnter={handleChromeEnter}
+        onChromeLeave={handleChromeLeave}
+      />
+    );
+  };
 
   // ── Phase 2: 블록 분리 (Enter) ───────────────────────────────────
   const handleSplitBlock = useCallback((id: string, before: string, after: string) => {
@@ -2720,6 +2813,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onOutdentBlock={handleOutdentBlock}
             getRootBlocks={getRootBlocks}
             onRootChange={onRootChange}
+            searchQueryFor={searchQueryFor}
           />
         ))}
       </div>
@@ -2734,46 +2828,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           getBlockType={getBlockType}
         />
       )}
-      {handleMenu && (
-        <BlockHandleMenu
-          blockId={handleMenu.blockId}
-          currentType={findBlockById(blocksRef.current, handleMenu.blockId)?.type ?? 'paragraph'}
-          anchorY={handleMenu.anchorY}
-          anchorX={handleMenu.anchorX}
-          colors={c}
-          onAddAbove={() => { handleAddAbove(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onAddBelow={() => { handleAddBelow(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onDuplicate={() => { handleDuplicate(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onIndent={() => { handleIndentBlock(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onOutdent={() => { handleOutdentBlock(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onSelect={type => handleConvert(handleMenu.blockId, type)}
-          onDelete={() => { handleDelete(handleMenu.blockId); setHandleMenu(null); setPinnedControlsId(null); }}
-          onMoveUp={() => { handleMove(handleMenu.blockId, 'up'); setHandleMenu(null); setPinnedControlsId(null); }}
-          onMoveDown={() => { handleMove(handleMenu.blockId, 'down'); setHandleMenu(null); setPinnedControlsId(null); }}
-          onClose={() => { setHandleMenu(null); setPinnedControlsId(null); }}
-          onChromeEnter={handleChromeEnter}
-          onChromeLeave={handleChromeLeave}
-        />
-      )}
-      {blockMenu && (
-        <BlockHandleMenu
-          blockId={blockMenu.blockId}
-          currentType={findBlockById(blocksRef.current, blockMenu.blockId)?.type ?? 'paragraph'}
-          anchorY={blockMenu.anchorY}
-          anchorX={blockMenu.anchorX}
-          colors={c}
-          onAddAbove={() => { handleAddAbove(blockMenu.blockId); setBlockMenu(null); }}
-          onAddBelow={() => { handleAddBelow(blockMenu.blockId); setBlockMenu(null); }}
-          onDuplicate={() => { handleDuplicate(blockMenu.blockId); setBlockMenu(null); }}
-          onIndent={() => { handleIndentBlock(blockMenu.blockId); setBlockMenu(null); }}
-          onOutdent={() => { handleOutdentBlock(blockMenu.blockId); setBlockMenu(null); }}
-          onSelect={type => handleConvert(blockMenu.blockId, type)}
-          onDelete={() => { handleDelete(blockMenu.blockId); setBlockMenu(null); }}
-          onMoveUp={() => { handleMove(blockMenu.blockId, 'up'); setBlockMenu(null); }}
-          onMoveDown={() => { handleMove(blockMenu.blockId, 'down'); setBlockMenu(null); }}
-          onClose={() => setBlockMenu(null)}
-        />
-      )}
+      {handleMenu && renderBlockMenu(handleMenu, () => { setHandleMenu(null); setPinnedControlsId(null); })}
+      {blockMenu && renderBlockMenu(blockMenu, () => setBlockMenu(null))}
       {/* Phase 3: 슬래시 커맨드 메뉴 */}
       {slashMenu && (
         <SlashMenu
@@ -2814,6 +2870,12 @@ interface BlockHandleMenuProps {
   onDuplicate: () => void;
   onIndent: () => void;
   onOutdent: () => void;
+  onMoveIntoToggle: () => void;
+  onMoveOutOfToggle: () => void;
+  canMoveIntoToggle: boolean;
+  canMoveOutOfToggle: boolean;
+  onSetTint: (tint: BlockTint) => void;
+  onCopyLink: () => void;
   onSelect: (type: BlockType) => void;
   onDelete: () => void;
   onMoveUp: () => void;
@@ -2826,10 +2888,13 @@ interface BlockHandleMenuProps {
 function BlockHandleMenu({
   blockId, currentType, anchorY, anchorX, colors: c,
   onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
+  onMoveIntoToggle, onMoveOutOfToggle, canMoveIntoToggle, canMoveOutOfToggle,
+  onSetTint, onCopyLink,
   onSelect, onDelete, onMoveUp, onMoveDown, onClose,
   onChromeEnter, onChromeLeave,
 }: BlockHandleMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [submenu, setSubmenu] = useState<'turn' | 'color' | null>(null);
   const turnIntoItems = useMemo(
     () => TURN_INTO_TYPES.map(t => BLOCK_TYPE_MENU.find(m => m.type === t)).filter((m): m is NonNullable<typeof m> => m != null),
     [],
@@ -2849,14 +2914,16 @@ function BlockHandleMenu({
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const top  = Math.min(anchorY, window.innerHeight - 420);
-  const left = Math.min(anchorX, window.innerWidth  - 220);
+  const top  = Math.min(anchorY, window.innerHeight - 480);
+  const left = Math.min(anchorX, window.innerWidth  - 240);
 
-  const mi = (icon: ReactNode, label: string, fn: () => void, danger = false) => (
-    <button type="button" onClick={fn} style={{
+  const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
+    <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
       display:'flex', alignItems:'center', gap:8, width:'100%',
       padding:'7px 12px', background:'none', border:'none',
-      cursor:'pointer', fontSize:13, color: danger ? c.danger : c.text, textAlign:'left',
+      cursor: disabled ? 'default' : 'pointer', fontSize:13,
+      color: disabled ? c.textFaint : danger ? c.danger : c.text,
+      textAlign:'left', opacity: disabled ? 0.45 : 1,
     }}
     onMouseEnter={e => (e.currentTarget.style.background = c.cardHov)}
     onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
@@ -2879,48 +2946,84 @@ function BlockHandleMenu({
         position:'fixed', top, left, zIndex:400,
         background:c.card, border:`1px solid ${c.border}`,
         borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-        minWidth:196, maxWidth:220, overflow:'hidden', padding:'6px 0',
+        minWidth:210, maxWidth:240, overflow:'hidden', padding:'6px 0',
       }}
     >
-      {mi(<Plus size={13}/>, '위에 블록 추가', onAddAbove)}
-      {mi(<Plus size={13}/>, '아래에 블록 추가', onAddBelow)}
-      {mi(<Copy size={13}/>, '복제', onDuplicate)}
-      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-      {sec('구조')}
-      {mi(<Indent size={13}/>, '들여쓰기', onIndent)}
-      {mi(<Outdent size={13}/>, '내어쓰기', onOutdent)}
-      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-      {sec('Turn Into')}
-      <div style={{ maxHeight:200, overflowY:'auto' }}>
-        {turnIntoItems.map(item => {
-          const active = item.type === currentType;
-          return (
-            <button
-              key={item.type}
-              type="button"
-              onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
+      {submenu === 'turn' ? (
+        <>
+          <button type="button" onClick={() => setSubmenu(null)} style={{
+            display:'flex', alignItems:'center', gap:6, width:'100%', padding:'6px 12px',
+            background:'none', border:'none', cursor:'pointer', fontSize:12, color:c.textMuted, textAlign:'left',
+          }}>← 전환</button>
+          <div style={{ maxHeight:240, overflowY:'auto' }}>
+            {turnIntoItems.map(item => {
+              const active = item.type === currentType;
+              return (
+                <button key={item.type} type="button"
+                  onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
+                  style={{
+                    display:'flex', alignItems:'center', gap:10, width:'100%',
+                    padding:'6px 12px', background: active ? c.accentBg : 'none',
+                    border:'none', cursor:'pointer', textAlign:'left',
+                  }}>
+                  <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent }}>{blockIcon(item.type)}</span>
+                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : submenu === 'color' ? (
+        <>
+          <button type="button" onClick={() => setSubmenu(null)} style={{
+            display:'flex', alignItems:'center', gap:6, width:'100%', padding:'6px 12px',
+            background:'none', border:'none', cursor:'pointer', fontSize:12, color:c.textMuted, textAlign:'left',
+          }}>← 색상</button>
+          {BLOCK_TINT_OPTIONS.map(opt => (
+            <button key={opt.id} type="button" onClick={() => onSetTint(opt.id)}
               style={{
-                display:'flex', alignItems:'center', gap:10, width:'100%',
-                padding:'6px 12px', background: active ? c.accentBg : 'none',
-                border:'none', cursor:'pointer', textAlign:'left',
-              }}
-              onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = c.cardHov; }}
-              onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-            >
-              <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent, flexShrink:0 }}>
-                {blockIcon(item.type)}
-              </span>
-              <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{item.label}</span>
+                display:'flex', alignItems:'center', gap:10, width:'100%', padding:'6px 12px',
+                background:'none', border:'none', cursor:'pointer', textAlign:'left',
+              }}>
+              <span style={{ width:16, height:16, borderRadius:4, background:opt.bg, border:`2px solid ${opt.border}` }}/>
+              <span style={{ fontSize:13, color:c.text }}>{opt.label}</span>
             </button>
-          );
-        })}
-      </div>
-      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-      {sec('이동')}
-      {mi(<ArrowUp size={12}/>, '위로 이동', onMoveUp)}
-      {mi(<ArrowDown size={12}/>, '아래로 이동', onMoveDown)}
-      <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
-      {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
+          ))}
+        </>
+      ) : (
+        <>
+          {sec('블록')}
+          {mi(<Plus size={13}/>, '위에 블록 추가', onAddAbove)}
+          {mi(<Plus size={13}/>, '아래에 블록 추가', onAddBelow)}
+          {mi(<Copy size={13}/>, '복제', onDuplicate)}
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          <button type="button" onClick={() => setSubmenu('turn')} style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%',
+            padding:'7px 12px', background:'none', border:'none', cursor:'pointer', fontSize:13, color:c.text,
+          }}>
+            <span>전환</span><span style={{ color:c.textFaint }}>›</span>
+          </button>
+          <button type="button" onClick={() => setSubmenu('color')} style={{
+            display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%',
+            padding:'7px 12px', background:'none', border:'none', cursor:'pointer', fontSize:13, color:c.text,
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}><Palette size={13}/>색상</span>
+            <span style={{ color:c.textFaint }}>›</span>
+          </button>
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {sec('구조')}
+          {mi(<Indent size={13}/>, '들여쓰기', onIndent)}
+          {mi(<Outdent size={13}/>, '내어쓰기', onOutdent)}
+          {mi(<Indent size={13}/>, '토글 안으로 이동', onMoveIntoToggle, false, !canMoveIntoToggle)}
+          {mi(<Outdent size={13}/>, '토글 밖으로 이동', onMoveOutOfToggle, false, !canMoveOutOfToggle)}
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {mi(<Link2 size={13}/>, '블록 링크 복사', onCopyLink)}
+          {mi(<ArrowUp size={12}/>, '위로 이동', onMoveUp)}
+          {mi(<ArrowDown size={12}/>, '아래로 이동', onMoveDown)}
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
+        </>
+      )}
     </div>
   );
 }
@@ -3000,6 +3103,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           {gItems.map(item => {
             const idx = flatItems.indexOf(item);
             const active = cursor === idx;
+            const shortcut = slashShortcutFor(item.type);
             return (
               <button key={item.type} data-idx={idx} type="button" onClick={() => onSelect(item.type)}
                 style={{ display:'flex', alignItems:'center', gap:10, width:'100%',
@@ -3011,10 +3115,15 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
                   fontSize:14, flexShrink:0, color:c.accent }}>
                   {item.icon}
                 </span>
-                <span>
-                  <div style={{ fontSize:13, fontWeight:600, color:c.text }}>{item.label}</div>
+                <span style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:c.text }}>{slashDisplayLabel(item.type)}</div>
                   <div style={{ fontSize:11, color:c.textMuted }}>{item.desc}</div>
                 </span>
+                {shortcut && (
+                  <span style={{ fontSize:10, color:c.textFaint, fontFamily:'ui-monospace, monospace', flexShrink:0 }}>
+                    /{shortcut}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -3287,10 +3396,12 @@ function SelectionToolbar({
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: 32, height: 32,
-          border: 'none', borderRadius: btnRadius, cursor: 'pointer',
+          border: active ? `2px solid ${c.accent}` : '2px solid transparent',
+          borderRadius: btnRadius, cursor: 'pointer',
           background: active ? c.accent : 'transparent',
           color: active ? activeFg : c.textMuted,
-          transition: 'background .12s, color .12s',
+          boxShadow: active ? `0 0 0 2px ${c.accentBg}` : 'none',
+          transition: 'background .12s, color .12s, box-shadow .12s',
         }}
         onMouseEnter={e => {
           if (active) return;
@@ -3325,15 +3436,20 @@ function SelectionToolbar({
       }}
       onMouseDown={e => e.preventDefault()}
     >
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>서식</span>
       {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
       {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
       {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>제목</span>
       {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
       {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
       {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
-      <span style={{ width:1, height:18, background:c.border, margin:'0 1px', flexShrink:0 }}/>
+      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>링크</span>
       {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
+      <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>태그</span>
       {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
   );
@@ -3341,7 +3457,8 @@ function SelectionToolbar({
 
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
 export const BlockEditor = React.memo(function BlockEditor({
-  blocks, onChange, colors, readOnly = false, searchQuery = '', wikiTargets = [], onWikiNavigate,
+  blocks, onChange, colors, readOnly = false, searchQuery = '', searchScope = 'document',
+  searchMatchIndex = 0, wikiTargets = [], onWikiNavigate,
   onActiveBlockChange, externalFocusId, onExternalFocusConsumed,
 }: BlockEditorProps) {
   return (
@@ -3522,6 +3639,7 @@ export const BlockEditor = React.memo(function BlockEditor({
       <BlockEditorInner
         blocks={blocks} onChange={onChange} colors={colors}
         readOnly={readOnly} searchQuery={searchQuery} depth={0}
+        searchScope={searchScope} searchMatchIndex={searchMatchIndex}
         wikiTargets={wikiTargets}
         onWikiNavigate={onWikiNavigate}
         onActiveBlockChange={onActiveBlockChange}
