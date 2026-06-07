@@ -27,7 +27,7 @@ import {
   type BlockEditorHandle,
 } from './BlockEditor';
 import {
-  buildObsidianChrome,
+  buildNoteChrome,
   buildBlockEditorColors,
   NOTE_FONT_OPTIONS,
   NOTE_DOCUMENT_MAX_WIDTH,
@@ -475,7 +475,7 @@ export const NoteView = () => {
 
   // ── Obsidian-style 색상 + 사용자 글자/강조색 ─────────────────────
   const c = useMemo(
-    () => buildObsidianChrome(dark, appSettings),
+    () => buildNoteChrome(dark, appSettings),
     [dark, appSettings.notesTextColor, appSettings.notesAccentColor],
   );
 
@@ -1022,7 +1022,7 @@ export const NoteView = () => {
                             </button>
                           </div>
                           <div style={{ fontSize: 10, color: c.textFaint, marginTop: 10 }}>
-                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px (Obsidian 스타일)
+                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px
                           </div>
                         </div>
                       )}
