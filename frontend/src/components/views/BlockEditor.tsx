@@ -53,8 +53,9 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { slashDisplayLabel, slashShortcutFor, resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { BLOCK_TINT_OPTIONS, blockTintStyle, type BlockTint } from './blockColors';
-import { applyPasteAtBlock } from './blockPaste';
+import { applyPasteAtBlock, extractClipboardText } from './blockPaste';
 import {
+  blockLayoutIndentPx,
   exitEmptyListBlock,
   isListType,
   listSplitExtras,
@@ -105,6 +106,54 @@ interface UseDragDropResult {
 
 const DRAG_THRESHOLD_PX = 6;
 const HANDLE_HIT_PX = 32;
+
+/** Indent-aware drop target line (Notion-style). */
+function DropInsertIndicator({
+  position,
+  indentLeft,
+  accent,
+}: {
+  position: 'before' | 'after';
+  indentLeft: number;
+  accent: string;
+}) {
+  const edge = position === 'before' ? { top: -1 } : { bottom: -1 };
+  const dotEdge = position === 'before' ? { top: -5 } : { bottom: -5 };
+  return (
+    <>
+      <div
+        className="be-drop-line"
+        style={{
+          position: 'absolute',
+          left: indentLeft,
+          right: 0,
+          height: 2,
+          background: accent,
+          borderRadius: 1,
+          zIndex: 10,
+          pointerEvents: 'none',
+          boxShadow: `0 0 8px ${accent}66`,
+          ...edge,
+        }}
+      />
+      <div
+        className="be-drop-dot"
+        style={{
+          position: 'absolute',
+          left: Math.max(0, indentLeft - 4),
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: accent,
+          zIndex: 11,
+          pointerEvents: 'none',
+          boxShadow: `0 0 6px ${accent}88`,
+          ...dotEdge,
+        }}
+      />
+    </>
+  );
+}
 
 /** Notion-style 6-dot drag grip (⠿) */
 function BlockGripIcon() {
@@ -553,6 +602,10 @@ const SingleBlock = React.memo(function SingleBlock({
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
   const shellRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    setToggleOpen(!block.collapsed);
+  }, [block.collapsed]);
+
   const handleToggleTodo = useCallback(() => {
     const blocks = getBlocks();
     onChange(updateBlockById(blocks, block.id, b => ({ ...b, checked: !b.checked })));
@@ -604,13 +657,7 @@ const SingleBlock = React.memo(function SingleBlock({
   const isOverAfter  = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'after';
   const isOverInside = !isDragging && block.type === 'toggle' && dragState?.overId === block.id && dragState?.overPos === 'inside';
   const isActive     = activeBlockId === block.id;
-
-  const dropLineStyle: CSSProperties = {
-    position: 'absolute', left: 0, right: 0, height: 2,
-    background: c.accent, borderRadius: 1, zIndex: 10,
-    pointerEvents: 'none',
-    boxShadow: `0 0 6px ${c.accent}88`,
-  };
+  const layoutIndent = blockLayoutIndentPx(block, depth);
 
   const handleGutter = depth > 0 ? 34 : 38;
   const handles = !readOnly && (
@@ -708,7 +755,7 @@ const SingleBlock = React.memo(function SingleBlock({
 
   const tintStyle = blockTintStyle(block.tint);
   const blockShellStyle: CSSProperties = {
-    position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
+    position:'relative', marginLeft: layoutIndent,
     borderRadius: 0,
     padding: '1px 0',
     outline: 'none',
@@ -724,38 +771,32 @@ const SingleBlock = React.memo(function SingleBlock({
 
   const dropIndicators = (
     <>
-      {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
-      {isOverInside && (
-        <div style={{
-          position: 'absolute', inset: 2, borderRadius: 8, zIndex: 9,
-          border: `2px dashed ${c.accent}`, pointerEvents: 'none',
-          background: `${c.accent}11`,
-        }}/>
+      {isOverBefore && (
+        <DropInsertIndicator position="before" indentLeft={layoutIndent} accent={c.accent} />
       )}
-      {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
+      {isOverInside && (
+        <div
+          className="be-drop-inside"
+          style={{
+            position: 'absolute', inset: 2, borderRadius: 8, zIndex: 9,
+            border: `2px dashed ${c.accent}`, pointerEvents: 'none',
+            background: `${c.accent}14`,
+          }}
+        />
+      )}
+      {isOverAfter && (
+        <DropInsertIndicator position="after" indentLeft={layoutIndent} accent={c.accent} />
+      )}
     </>
   );
 
   if (block.type === 'toggle') {
-    const toggleChildren = renderToggleChildren(block, c, {
-      toggleOpen, inline,
-      onToggleCollapse: handleToggleCollapse,
-      onToggleTodo: handleToggleTodo,
-      getBlocks, onChange, searchQuery, depth, wikiTargets,
-      readOnly, onSelect, onOpenMenu, onAddBelow,
-      onSplitBlock, onMergeWithPrev, onContentChange,
-      editableRef,
-      onSlashOpen, onSlashClose,
-      onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
-      onToggleAddChild, onToggleEnter, onTableChange,
-      onNavigateBlock, onActiveBlockChange, onConvertBlock,
-      onIndentBlock, onOutdentBlock,
-      getRootBlocks: getRootBlocks ?? getBlocks,
-      onRootChange: onRootChange ?? onChange,
-      searchQueryFor,
-    });
+    const toggleDropActive = dragState?.overId === block.id && dragState?.overPos === 'inside';
     return (
-      <div className="be-toggle-wrap">
+      <div
+        className={`be-toggle-wrap${toggleDropActive ? ' be-toggle-drop-active' : ''}`}
+        style={{ '--be-toggle-depth': depth } as CSSProperties}
+      >
         <div
           {...blockShellProps}
           style={blockShellStyle}
@@ -784,7 +825,23 @@ const SingleBlock = React.memo(function SingleBlock({
             searchQueryFor,
           })}
         </div>
-        {toggleOpen && toggleChildren}
+        {toggleOpen && renderToggleChildren(block, c, {
+          toggleOpen, inline,
+          onToggleCollapse: handleToggleCollapse,
+          onToggleTodo: handleToggleTodo,
+          getBlocks, onChange, searchQuery, depth, wikiTargets,
+          readOnly, onSelect, onOpenMenu, onAddBelow,
+          onSplitBlock, onMergeWithPrev, onContentChange,
+          editableRef,
+          onSlashOpen, onSlashClose,
+          onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
+          onToggleAddChild, onToggleEnter, onTableChange,
+          onNavigateBlock, onActiveBlockChange, onConvertBlock,
+          onIndentBlock, onOutdentBlock,
+          getRootBlocks: getRootBlocks ?? getBlocks,
+          onRootChange: onRootChange ?? onChange,
+          searchQueryFor,
+        }, toggleDropActive)}
       </div>
     );
   }
@@ -1180,7 +1237,7 @@ function EditableBlock({
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     e.preventDefault();
-    const raw = e.clipboardData.getData('text/plain');
+    const raw = extractClipboardText(e.clipboardData);
     if (!raw) return;
     if (!onPasteAt) {
       document.execCommand('insertText', false, raw);
@@ -2133,11 +2190,17 @@ function renderToggleHeader(block: Block, c: BlockEditorColors, ctx: RCtx): Reac
   );
 }
 
-function renderToggleChildren(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
+function renderToggleChildren(
+  block: Block,
+  c: BlockEditorColors,
+  ctx: RCtx,
+  toggleDropActive = false,
+): ReactNode {
   return (
     <div
-      className="be-toggle-children be-toggle-drop"
+      className={`be-toggle-children be-toggle-drop${toggleDropActive ? ' be-toggle-drop-active' : ''}`}
       data-toggle-id={block.id}
+      style={{ '--be-toggle-depth': ctx.depth + 1 } as CSSProperties}
     >
       {block.children.length > 0 ? (
         <BlockEditorInner
@@ -2681,7 +2744,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [onChange]);
 
   const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
-    const result = applyPasteAtBlock(blocksRef.current, id, start, end, text);
+    const cur = findBlockById(blocksRef.current, id);
+    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
+    const result = applyPasteAtBlock(blocksRef.current, id, start, end, text, context);
     if (!result) return;
     onChange(result.blocks);
     setSlashMenu(null);
@@ -3579,7 +3644,22 @@ export const BlockEditor = React.memo(function BlockEditor({
           color: var(--be-accent, #8B5CF6);
         }
         .be-handle-btn:hover .be-grip-dot { opacity: 0.85; }
-        .be-block-active { scroll-margin: 80px; }
+        .be-block-active {
+          scroll-margin: 80px;
+          background: var(--be-block-active-bg, transparent);
+        }
+        .be-block-active:not(.be-toggle-header-block)::before {
+          content: '';
+          position: absolute;
+          left: -10px;
+          top: 3px;
+          bottom: 3px;
+          width: 2px;
+          border-radius: 2px;
+          background: var(--be-accent, #8B5CF6);
+          opacity: 0.55;
+          pointer-events: none;
+        }
         .be-document {
           max-width: var(--be-doc-width, 720px);
           margin: 0 auto;
@@ -3603,22 +3683,41 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         [contenteditable] { position: relative; }
         [contenteditable]:focus { outline: none; }
-        .be-toggle-wrap { margin: 2px 0; }
+        .be-toggle-wrap {
+          margin: 4px 0;
+          position: relative;
+        }
         .be-toggle-header-block { margin-left: 0 !important; }
         .be-toggle-children {
-          margin-left: 20px;
-          padding: 2px 0 2px 8px;
-          border-left: none;
+          margin-left: 10px;
+          margin-top: 2px;
+          padding: 4px 0 6px 14px;
+          border-left: 2px solid var(--be-toggle-rail, rgba(139,92,246,0.18));
+          border-radius: 0 0 0 6px;
+          background: var(--be-toggle-bg, transparent);
+          transition: border-color .15s, background .15s;
+        }
+        .be-toggle-wrap.be-toggle-drop-active > .be-toggle-children,
+        .be-toggle-children.be-toggle-drop-active {
+          border-left-color: var(--be-accent, #8B5CF6);
+          background: var(--be-accent-bg, rgba(139,92,246,0.08));
         }
         .be-toggle-empty {
           color: var(--be-placeholder-color, #aaa);
           font-size: 13px;
-          padding: 4px 2px;
+          padding: 6px 4px;
           cursor: text;
           user-select: none;
+          border-radius: 4px;
         }
-        .be-toggle-empty:hover { opacity: 0.85; }
-        .be-toggle .be-block { margin-left: 0 !important; }
+        .be-toggle-empty:hover { opacity: 0.85; background: var(--be-accent-bg, rgba(139,92,246,0.06)); }
+        .be-toggle-wrap .be-block { margin-left: 0 !important; }
+        .be-drop-line { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
+        .be-drop-dot { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
+        @keyframes be-drop-pulse {
+          from { opacity: 0.75; }
+          to { opacity: 1; }
+        }
         .be-mark {
           opacity: 0.35;
           font-size: 0.82em;
@@ -3689,6 +3788,9 @@ export const BlockEditor = React.memo(function BlockEditor({
           '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
           '--be-search-hl-color': colors.searchHlColor ?? colors.text,
           '--be-block-hover-bg': colors.blockHoverBg ?? 'rgba(139,92,246,0.015)',
+          '--be-block-active-bg': colors.blockFocusBg ?? 'transparent',
+          '--be-toggle-bg': colors.toggleBg ?? 'transparent',
+          '--be-toggle-rail': colors.isDark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.16)',
           '--be-border': colors.border,
           '--be-text-muted': colors.textMuted,
           '--be-menu-shadow': colors.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',

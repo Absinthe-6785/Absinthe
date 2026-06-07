@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from './blockUtils';
 import {
+  blockLayoutIndentPx,
   exitEmptyListBlock,
   isListType,
   listSplitExtras,
@@ -41,5 +42,11 @@ describe('listBlocks', () => {
 
   it('numberedMarker uses listIndex', () => {
     expect(numberedMarker(makeBlock('numbered', { listIndex: 4 }))).toBe(4);
+  });
+
+  it('blockLayoutIndentPx combines depth and list indent', () => {
+    const b = makeBlock('bullet', { indent: 2 });
+    expect(blockLayoutIndentPx(b, 0)).toBe(48);
+    expect(blockLayoutIndentPx(b, 1)).toBe(68);
   });
 });

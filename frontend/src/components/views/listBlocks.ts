@@ -58,3 +58,13 @@ export function renumberNumberedLists(blocks: Block[]): Block[] {
 export function numberedMarker(block: Block, fallback = 1): number {
   return block.listIndex ?? fallback;
 }
+
+const LIST_INDENT_PX = 24;
+const DEPTH_INDENT_PX = 20;
+
+/** Horizontal offset for list indent + nested editor depth. */
+export function blockLayoutIndentPx(block: Block, depth: number): number {
+  const depthPx = depth > 0 ? depth * DEPTH_INDENT_PX : 0;
+  const listPx = isListType(block.type) ? (block.indent ?? 0) * LIST_INDENT_PX : 0;
+  return depthPx + listPx;
+}
