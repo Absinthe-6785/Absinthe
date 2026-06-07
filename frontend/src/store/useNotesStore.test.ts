@@ -30,7 +30,7 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
-const { useNotesStore } = await import('./useNotesStore');
+const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
   return { ok: true, status: 200, json: async () => data };
@@ -442,6 +442,25 @@ describe('useNotesStore — delete failure & local save errors', () => {
     expect(useNotesStore.getState().syncError).toBe(LOCAL_FOLDERS_SAVE_ERROR);
 
     setItem.mockRestore();
+  });
+});
+
+describe('useNotesStore — multi-tab storage merge', () => {
+  beforeEach(() => resetStore());
+
+  it('applyStorageMerge updates notes from peer tab by updatedAt', () => {
+    useNotesStore.setState({
+      notes: [{ id: '1', title: 'A', body: 'tab-a', updatedAt: 100, folderId: null, deletedAt: null }],
+      activeNoteId: '1',
+    });
+
+    applyStorageMerge(
+      NOTES_KEY,
+      JSON.stringify([{ id: '1', title: 'A', body: 'tab-b', updatedAt: 200, folderId: null, deletedAt: null }]),
+    );
+
+    expect(useNotesStore.getState().notes[0].body).toBe('tab-b');
+    expect(JSON.parse(storage.get(NOTES_KEY)!).find((n: NoteBase) => n.id === '1').body).toBe('tab-b');
   });
 });
 
