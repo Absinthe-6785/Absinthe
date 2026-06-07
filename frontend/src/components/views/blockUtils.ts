@@ -627,13 +627,13 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
 /** 슬래시 메뉴 상단 고정 (쿼리 없을 때 우선 표시) */
 export const SLASH_PINNED_TYPES: BlockType[] = [
   'paragraph', 'heading1', 'heading2', 'heading3',
-  'todo', 'toggle', 'callout', 'bullet', 'code',
+  'todo', 'toggle', 'bullet', 'numbered', 'code',
 ];
 
 /** 블록 hover ⋮⋮ → Turn Into 빠른 변환 */
 export const TURN_INTO_TYPES: BlockType[] = [
   'paragraph', 'heading1', 'heading2', 'heading3',
-  'todo', 'toggle', 'callout', 'code',
+  'todo', 'toggle', 'bullet', 'numbered', 'callout', 'code',
 ];
 
 const SLASH_ALIASES: Record<string, string[]> = {
