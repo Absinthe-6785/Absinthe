@@ -1241,8 +1241,8 @@ export const NoteView = () => {
                               {part}
                               {pi < parts.length - 1 && (
                                 <mark style={{
-                                  background: dark ? '#FACC1433' : '#DBEAFE',
-                                  color: dark ? '#FACC14' : '#1D4ED8',
+                                  background: c.accentBg,
+                                  color: c.accent,
                                   borderRadius: 3,
                                   padding: '0 2px',
                                   fontWeight: 600,
