@@ -176,17 +176,17 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
   // ── 렌더 ──────────────────────────────────────────────────────────
   return (
-    <div className={`flex-1 overflow-hidden flex flex-col h-full rounded-none lg:rounded-[32px] lg:ml-3 ${dark ? 'bg-[#1C1C1E]' : 'bg-[#F5F4F0]'}`}>
+    <div className="flex-1 overflow-hidden flex flex-col h-full rounded-none lg:rounded-[32px] lg:ml-3 bg-background">
 
       {/* 헤더 */}
       <div className={`flex items-center justify-between px-5 pt-5 pb-3 shrink-0`}>
         <h1 className="font-heading text-2xl font-black tracking-tight flex items-center gap-2">
-          <BookMarked size={22} className="text-[#FACC15]"/>
+          <BookMarked size={22} className="text-primary"/>
           {t('recipes')}
         </h1>
         <button
           onClick={openNew}
-          className="flex items-center gap-1.5 bg-[#FACC15] text-[#1C1C1E] px-4 py-2 rounded-2xl text-sm font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
+          className="flex items-center gap-1.5 bg-primary text-primary-foreground px-4 py-2 rounded-2xl text-sm font-bold shadow-sm hover:scale-105 transition-transform active:scale-95">
           <Plus size={15}/>{t('newRecipe')}
         </button>
       </div>
@@ -207,21 +207,21 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
             <button key={cat} onClick={() => setActiveCategory(cat)}
               className={`shrink-0 px-3 py-1 rounded-xl text-xs font-bold transition-all ${
                 activeCategory === cat
-                  ? 'bg-[#1C1C1E] text-[#FACC15]'
-                  : `${dark ? 'bg-[#2C2C2E] text-gray-400' : 'bg-white text-gray-500'}`
+                  ? 'bg-primary text-primary-foreground'
+                  : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
               }`}>{cat}</button>
           ))}
           <button onClick={() => setShowStarredOnly(p => !p)}
             className={`shrink-0 flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold transition-all ${
-              showStarredOnly ? 'bg-yellow-400 text-[#1C1C1E]' : `${dark ? 'bg-[#2C2C2E] text-gray-400' : 'bg-white text-gray-500'}`
+              showStarredOnly ? 'bg-yellow-400 text-primary-foreground' : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
             }`}>
             <Star size={11} fill={showStarredOnly ? '#1C1C1E' : 'none'}/>{t('recipeStarred')}
           </button>
-          <div className={`shrink-0 flex items-center gap-1 p-1 rounded-xl ${dark ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+          <div className={`shrink-0 flex items-center gap-1 p-1 rounded-xl ${dark ? 'bg-surface' : 'bg-white'}`}>
             {(['newest', 'oldest', 'title'] as const).map(s => (
               <button key={s} onClick={() => setSortOrder(s)}
                 className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
-                  sortOrder === s ? 'bg-[#1C1C1E] text-[#FACC15]' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
+                  sortOrder === s ? 'bg-primary text-primary-foreground' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
                 }`}>
                 {s === 'newest' ? '↓ New' : s === 'oldest' ? '↑ Old' : 'A-Z'}
               </button>
@@ -245,7 +245,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
           return (
             <div key={recipe.id}
-              className={`rounded-3xl border shadow-sm overflow-hidden transition-all ${theme.border} ${dark ? 'bg-[#2C2C2E]' : 'bg-white'}`}>
+              className={`rounded-3xl border shadow-sm overflow-hidden transition-all ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}>
 
               {/* 카드 헤더 */}
               <div className="flex items-center gap-3 p-4 cursor-pointer"
@@ -262,7 +262,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={e => { e.stopPropagation(); handleToggleStar(recipe); }}
                     className="p-1.5 rounded-xl hover:bg-yellow-400/20 transition-colors">
-                    <Star size={14} fill={recipe.starred ? '#FACC15' : 'none'} color={recipe.starred ? '#FACC15' : undefined} className={recipe.starred ? '' : theme.textMuted}/>
+                    <Star size={14} fill={recipe.starred ? '#8B5CF6' : 'none'} color={recipe.starred ? '#8B5CF6' : undefined} className={recipe.starred ? '' : theme.textMuted}/>
                   </button>
                   <button onClick={e => { e.stopPropagation(); openEdit(recipe); }}
                     className={`p-1.5 rounded-xl transition-colors ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
@@ -286,7 +286,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                       <ul className="space-y-1">
                         {ingredients.map((ing, i) => (
                           <li key={i} className="flex items-start gap-2 text-sm">
-                            <span className="text-[#FACC15] font-bold shrink-0 mt-0.5">·</span>
+                            <span className="text-primary font-bold shrink-0 mt-0.5">·</span>
                             <span>{ing}</span>
                           </li>
                         ))}
@@ -301,7 +301,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                       <ol className="space-y-2">
                         {steps.map((step, i) => (
                           <li key={i} className="flex items-start gap-3 text-sm">
-                            <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${dark ? 'bg-[#3A3A3C] text-[#FACC15]' : 'bg-[#F0EDE5] text-[#1C1C1E]'}`}>{i + 1}</span>
+                            <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${dark ? 'bg-surface-alt text-primary' : 'bg-[#F0EDE5] text-primary-foreground'}`}>{i + 1}</span>
                             <span className="leading-relaxed">{step}</span>
                           </li>
                         ))}
@@ -328,7 +328,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
         <div className="fixed inset-0 bg-black/60 flex items-end lg:items-center justify-center z-[100] backdrop-blur-sm"
           onClick={() => { setShowForm(false); setEditingId(null); }}>
           <div
-            className={`w-full lg:max-w-lg rounded-t-[32px] lg:rounded-[32px] p-6 shadow-2xl max-h-[90vh] overflow-y-auto ${dark ? 'bg-[#1C1C1E]' : 'bg-white'}`}
+            className="w-full lg:max-w-lg rounded-t-[32px] lg:rounded-[32px] p-6 shadow-2xl max-h-[90vh] overflow-y-auto bg-surface"
             onClick={e => e.stopPropagation()}>
 
             <div className="flex items-center justify-between mb-5">
@@ -345,7 +345,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                 <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('title')} *</label>
                 <input ref={titleRef} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
                   placeholder={t('recipeName')}
-                  className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+                  className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary ${theme.input}`}/>
               </div>
 
               {/* 카테고리 */}
@@ -356,8 +356,8 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                     <button key={cat} onClick={() => setForm(f => ({ ...f, category: cat }))}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                         form.category === cat
-                          ? 'bg-[#1C1C1E] text-[#FACC15]'
-                          : `${dark ? 'bg-[#2C2C2E] text-gray-400' : 'bg-gray-100 text-gray-500'}`
+                          ? 'bg-primary text-primary-foreground'
+                          : `${dark ? 'bg-surface text-gray-400' : 'bg-gray-100 text-gray-500'}`
                       }`}>{cat}</button>
                   ))}
                 </div>
@@ -369,7 +369,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                 <textarea value={form.ingredients} onChange={e => setForm(f => ({ ...f, ingredients: e.target.value }))}
                   placeholder={"200g chicken breast\n1 tbsp olive oil\n2 cloves garlic"}
                   rows={4}
-                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}/>
               </div>
 
               {/* 조리 순서 */}
@@ -378,7 +378,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                 <textarea value={form.steps} onChange={e => setForm(f => ({ ...f, steps: e.target.value }))}
                   placeholder={"Preheat oven to 200°C\nSeason chicken with salt and pepper\nBake for 25 minutes"}
                   rows={5}
-                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}/>
               </div>
 
               {/* 메모 */}
@@ -387,22 +387,22 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
                 <textarea value={form.memo} onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
                   placeholder={t('recipeTips')}
                   rows={2}
-                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#FACC15] ${theme.input}`}/>
+                  className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}/>
               </div>
 
               {/* 즐겨찾기 */}
               <button onClick={() => setForm(f => ({ ...f, starred: !f.starred }))}
                 className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-semibold transition-all ${
-                  form.starred ? 'bg-yellow-400/20 text-yellow-500' : `${dark ? 'bg-[#2C2C2E]' : 'bg-gray-100'} ${theme.textMuted}`
+                  form.starred ? 'bg-yellow-400/20 text-yellow-500' : `${dark ? 'bg-surface' : 'bg-gray-100'} ${theme.textMuted}`
                 }`}>
-                <Star size={14} fill={form.starred ? '#FACC15' : 'none'} color={form.starred ? '#FACC15' : undefined}/>
+                <Star size={14} fill={form.starred ? '#8B5CF6' : 'none'} color={form.starred ? '#8B5CF6' : undefined}/>
                 {form.starred ? t('recipeStarred') : t('addStarred')}
               </button>
             </div>
 
             {/* 저장 버튼 */}
             <button onClick={handleSave}
-              className="w-full mt-6 py-3.5 rounded-2xl font-bold text-sm bg-[#FACC15] text-[#1C1C1E] hover:scale-[1.02] transition-transform active:scale-[0.98] flex items-center justify-center gap-2">
+              className="w-full mt-6 py-3.5 rounded-2xl font-bold text-sm bg-primary text-primary-foreground hover:scale-[1.02] transition-transform active:scale-[0.98] flex items-center justify-center gap-2">
               <Check size={16}/> {editingId ? t('updateRecipe') : t('saveRecipe')}
             </button>
           </div>

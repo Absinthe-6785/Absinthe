@@ -25,9 +25,7 @@ export const Sidebar = ({
   const t = getTranslator((appSettings.language ?? 'en') as 'en' | 'ko' | 'ja');
   return (
   <div
-    className={`w-full lg:w-[72px] rounded-none lg:rounded-[32px] flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 ${
-      appSettings.darkMode ? 'bg-zinc-900' : 'bg-[#1C1C1E]'
-    }`}
+    className="w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
   >
     {/* ── 주요 탭 ── */}
     <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
@@ -44,15 +42,15 @@ export const Sidebar = ({
             key={tab}
             aria-label={label}
             onClick={() => setActiveTab(tab)}
-            className={`relative flex flex-col items-center justify-center gap-0.5 rounded-2xl transition-all
+            className={`relative flex flex-col items-center justify-center gap-0.5 rounded-absinthe-lg transition-all
               px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full
               ${isActive
-                ? 'bg-[#FACC15] text-[#1C1C1E]'
-                : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-gray-200'
+                ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
+                : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
               }`}
           >
             <Icon size={20} strokeWidth={2.5} />
-            <span className={`text-[9px] font-bold leading-none mt-0.5 ${isActive ? 'text-[#1C1C1E]' : 'text-gray-500'}`}>
+            <span className={`text-[9px] font-bold leading-none mt-0.5 ${isActive ? 'text-primary-foreground' : 'text-sidebar-muted'}`}>
               {label}
             </span>
 
@@ -66,14 +64,14 @@ export const Sidebar = ({
       <button
         aria-label="Toggle Dark Mode"
         onClick={() => updateSetting('darkMode', !appSettings.darkMode)}
-        className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-gray-200 transition-colors"
+        className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-foreground transition-colors"
       >
         {appSettings.darkMode ? (
-          <Sun size={20} strokeWidth={2.5} className="text-[#FACC15]" />
+          <Sun size={20} strokeWidth={2.5} className="text-primary" />
         ) : (
           <Moon size={20} strokeWidth={2.5} />
         )}
-        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">
+        <span className="text-[9px] font-bold leading-none text-sidebar-muted mt-0.5">
           {appSettings.darkMode ? t('light') : t('dark')}
         </span>
       </button>
@@ -81,14 +79,14 @@ export const Sidebar = ({
       <button
         aria-label={t('settings')}
         onClick={() => setActiveTab('settings')}
-        className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl transition-all ${
+        className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg transition-all ${
           activeTab === 'settings'
-            ? 'bg-[#FACC15] text-[#1C1C1E]'
-            : 'text-gray-400 hover:bg-[#2A2A2A] hover:text-gray-200'
+            ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
+            : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
         }`}
       >
         <Settings size={20} strokeWidth={2.5} />
-        <span className={`text-[9px] font-bold leading-none mt-0.5 ${activeTab === 'settings' ? 'text-[#1C1C1E]' : 'text-gray-500'}`}>
+        <span className={`text-[9px] font-bold leading-none mt-0.5 ${activeTab === 'settings' ? 'text-primary-foreground' : 'text-sidebar-muted'}`}>
           Settings
         </span>
       </button>
@@ -97,10 +95,10 @@ export const Sidebar = ({
         aria-label={t('signOut')}
         onClick={handleSignOut}
         title={`Sign out (${userName})`}
-        className="flex flex-col items-center justify-center gap-0.5 text-gray-400 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-2xl hover:bg-[#2A2A2A] hover:text-red-400 transition-colors"
+        className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-danger transition-colors"
       >
         <LogOut size={20} strokeWidth={2.5} />
-        <span className="text-[9px] font-bold leading-none text-gray-500 mt-0.5">{t('out')}</span>
+        <span className="text-[9px] font-bold leading-none text-sidebar-muted mt-0.5">{t('out')}</span>
       </button>
     </div>
   </div>

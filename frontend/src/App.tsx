@@ -8,7 +8,6 @@ import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { useAppStore } from './store/useAppStore';
 import { LoginScreen } from './components/views/LoginScreen';
 import { AppContent } from './components/AppContent';
 
@@ -24,22 +23,17 @@ const GlobalStyle = () => (
 export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const { appSettings } = useAppStore();
 
   useEffect(() => {
-    // 초기 세션 확인
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         setAuthUser(session?.user ?? null);
       })
-      .catch(() => {
-        // 네트워크 오류 등으로 세션 조회 실패 시에도 로딩 해제
-      })
+      .catch(() => {})
       .finally(() => {
         setAuthLoading(false);
       });
 
-    // 이후 auth 상태 변화 구독
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setAuthUser(session?.user ?? null);
     });
@@ -49,8 +43,8 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className={`h-screen flex items-center justify-center ${appSettings.darkMode ? 'bg-[#18181A]' : 'bg-[#F1F3F5]'}`}>
-        <Loader2 size={32} className="animate-spin text-[#FACC15]" />
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 size={32} className="animate-spin text-primary" />
       </div>
     );
   }
@@ -59,7 +53,7 @@ export default function App() {
     <>
       <GlobalStyle />
       {!authUser
-        ? <LoginScreen darkMode={appSettings.darkMode} />
+        ? <LoginScreen />
         : <AppContent authUser={authUser} />
       }
     </>

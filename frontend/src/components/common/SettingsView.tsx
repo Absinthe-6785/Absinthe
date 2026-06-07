@@ -53,7 +53,7 @@ export const SettingsView = ({
           {/* Planner Defaults */}
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
             <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
-              <Settings size={20} className="text-[#FACC15]" /> Planner Defaults
+              <Settings size={20} className="text-primary" /> Planner Defaults
             </h2>
             <div className="space-y-8">
               <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 lg:gap-0">
@@ -68,7 +68,7 @@ export const SettingsView = ({
                       onClick={() => updateSetting('defaultCategory', cat)}
                       className={`px-4 lg:px-5 py-2 lg:py-2.5 rounded-xl text-sm font-bold transition-all ${
                         appSettings.defaultCategory === cat
-                          ? 'bg-[#1C1C1E] text-[#FACC15] shadow-md'
+                          ? 'bg-primary text-primary-foreground shadow-md'
                           : 'text-gray-500 hover:text-current'
                       }`}
                     >
@@ -93,7 +93,7 @@ export const SettingsView = ({
                         color === 'green'  ? 'bg-green-500'  :
                         color === 'purple' ? 'bg-purple-500' :
                         color === 'pink'   ? 'bg-pink-500'   :
-                        color === 'gray'   ? 'bg-gray-500'   : 'bg-[#FACC15]'
+                        color === 'gray'   ? 'bg-gray-500'   : 'bg-primary'
                       } ${
                         appSettings.defaultColor === color
                           ? `ring-4 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-300 ring-offset-[#2C2C2E]' : 'ring-gray-500'} scale-110`
