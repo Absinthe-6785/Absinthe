@@ -14,6 +14,7 @@ import {
   isTextBlockType,
   isValidImageUrl,
   imageAltFromUrl,
+  filterBlockMenu,
 } from './blockUtils';
 
 describe('isValidImageUrl / imageAltFromUrl', () => {
@@ -178,5 +179,24 @@ describe('block helpers', () => {
     expect(isTextBlockType('paragraph')).toBe(true);
     expect(isTextBlockType('image')).toBe(false);
     expect(isTextBlockType('code')).toBe(false);
+  });
+});
+
+describe('filterBlockMenu', () => {
+  it('pins common types first when query is empty', () => {
+    const types = filterBlockMenu('').map(m => m.type);
+    expect(types.slice(0, 5)).toEqual(['paragraph', 'heading1', 'heading2', 'heading3', 'todo']);
+  });
+
+  it('filters by english alias heading', () => {
+    const types = filterBlockMenu('heading').map(m => m.type);
+    expect(types).toContain('heading1');
+    expect(types).toContain('heading2');
+    expect(types.some(t => t === 'todo')).toBe(false);
+  });
+
+  it('filters toggle and callout by keyword', () => {
+    expect(filterBlockMenu('toggle').some(m => m.type === 'toggle')).toBe(true);
+    expect(filterBlockMenu('callout').some(m => m.type === 'callout')).toBe(true);
   });
 });
