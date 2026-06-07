@@ -301,7 +301,7 @@ export const AnalyticsView = ({
               </h2>
               <div className="grid grid-cols-2 gap-2.5">
                 {/* 운동 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Workout</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.workoutDays}</span>
@@ -311,7 +311,7 @@ export const AnalyticsView = ({
                   {weeklyReview.streak > 1 && <span className="text-[10px] font-bold text-orange-400">🔥 {weeklyReview.streak}-day streak</span>}
                 </div>
                 {/* 루틴 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Routine</span>
                   {weeklyReview.routineRate !== null ? (
                     <>
@@ -327,7 +327,7 @@ export const AnalyticsView = ({
                   ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>No data</span>}
                 </div>
                 {/* 공부 */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Study</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.studyHrs}</span>
@@ -336,7 +336,7 @@ export const AnalyticsView = ({
                   {weeklyReview.studyHrs > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>avg {Math.round(weeklyReview.studyHrs / weeklyReview.daysElapsed * 10) / 10}h/day</span>}
                 </div>
                 {/* Top Focus */}
-                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 ${appSettings.bg-surface-alt}`}>
+                <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
                   <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Top Focus</span>
                   {weeklyReview.topCat ? (
                     <>
