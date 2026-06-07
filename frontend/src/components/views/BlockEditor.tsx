@@ -37,6 +37,7 @@ import {
   imageAltFromUrl,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
+import { toggleMarkdownWrap } from './inlineFormat';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
 
@@ -406,13 +407,12 @@ function applyWrapToSelection(
   const sel = getPlainSelectionOffsets(el);
   if (!sel) return false;
   const text = getElText(el);
-  const wrapped = text.slice(0, sel.start) + before + text.slice(sel.start, sel.end) + after + text.slice(sel.end);
-  onText(wrapped);
-  const newOffset = sel.end + before.length + after.length;
-  if (afterApply) afterApply(el, wrapped, newOffset);
+  const { text: next, caret } = toggleMarkdownWrap(text, sel.start, sel.end, before, after);
+  onText(next);
+  if (afterApply) afterApply(el, next, caret);
   else {
-    el.innerText = wrapped;
-    setCaretOffset(el, newOffset);
+    el.innerText = next;
+    setCaretOffset(el, caret);
   }
   return true;
 }
@@ -467,6 +467,8 @@ interface SingleBlockProps {
   activeBlockId?: string | null;
   controlsVisible?: boolean;
   onToggleControlsPin?: (id: string) => void;
+  onChromeEnter?: (id: string) => void;
+  onChromeLeave?: () => void;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
@@ -503,7 +505,9 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onTableChange === next.onTableChange
     && prev.onNavigateBlock === next.onNavigateBlock
     && prev.onActiveBlockChange === next.onActiveBlockChange
-    && prev.onToggleControlsPin === next.onToggleControlsPin;
+    && prev.onToggleControlsPin === next.onToggleControlsPin
+    && prev.onChromeEnter === next.onChromeEnter
+    && prev.onChromeLeave === next.onChromeLeave;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -522,6 +526,8 @@ const SingleBlock = React.memo(function SingleBlock({
   activeBlockId,
   controlsVisible,
   onToggleControlsPin,
+  onChromeEnter,
+  onChromeLeave,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -589,6 +595,8 @@ const SingleBlock = React.memo(function SingleBlock({
     <div
       className="be-handles"
       onMouseDown={e => e.stopPropagation()}
+      onMouseEnter={() => onChromeEnter?.(block.id)}
+      onMouseLeave={() => onChromeLeave?.()}
       style={{
         position:'absolute', left:-40, top:'50%', transform:'translateY(-50%)',
         display:'flex', flexDirection:'column', alignItems:'center', gap:3,
@@ -678,6 +686,8 @@ const SingleBlock = React.memo(function SingleBlock({
         boxShadow: isActive ? `inset 2px 0 0 ${c.blockFocusBorder ?? c.border}` : undefined,
       }}
       className={`be-block${isActive ? ' be-block-active' : ''}${controlsVisible ? ' be-controls-visible' : ''}`}
+      onMouseEnter={() => onChromeEnter?.(block.id)}
+      onMouseLeave={() => onChromeLeave?.()}
       onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
       {handles}
@@ -2189,14 +2199,38 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const { dragState, bindGripPointer, getDragProps } = useDragDrop(blocks, onChange);
   const [turnIntoMenu, setTurnIntoMenu] = useState<TurnIntoMenuState | null>(null);
   const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
+  const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
+  const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleToggleControlsPin = useCallback((id: string) => {
     setPinnedControlsId(prev => (prev === id ? null : id));
   }, []);
 
+  const handleChromeEnter = useCallback((id: string) => {
+    if (chromeLeaveTimer.current) {
+      clearTimeout(chromeLeaveTimer.current);
+      chromeLeaveTimer.current = null;
+    }
+    setChromeHoverId(id);
+  }, []);
+
+  const handleChromeLeave = useCallback(() => {
+    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
+    chromeLeaveTimer.current = setTimeout(() => {
+      setChromeHoverId(null);
+      chromeLeaveTimer.current = null;
+    }, 180);
+  }, []);
+
+  useEffect(() => () => {
+    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
+  }, []);
+
   const controlsVisibleFor = useCallback((blockId: string) =>
-    pinnedControlsId === blockId || turnIntoMenu?.blockId === blockId,
-  [pinnedControlsId, turnIntoMenu]);
+    pinnedControlsId === blockId
+    || turnIntoMenu?.blockId === blockId
+    || chromeHoverId === blockId,
+  [pinnedControlsId, turnIntoMenu, chromeHoverId]);
 
   useEffect(() => {
     if (!pinnedControlsId && !turnIntoMenu) return;
@@ -2481,6 +2515,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onActiveBlockChange={handleActiveBlockChange}
             controlsVisible={controlsVisibleFor(block.id)}
             onToggleControlsPin={handleToggleControlsPin}
+            onChromeEnter={handleChromeEnter}
+            onChromeLeave={handleChromeLeave}
           />
         ))}
       </div>
@@ -2502,6 +2538,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           colors={c}
           onSelect={type => handleConvert(turnIntoMenu.blockId, type)}
           onClose={() => { setTurnIntoMenu(null); setPinnedControlsId(null); }}
+          onChromeEnter={handleChromeEnter}
+          onChromeLeave={handleChromeLeave}
         />
       )}
       {blockMenu && (
@@ -2622,9 +2660,14 @@ interface TurnIntoMenuProps {
   colors: BlockEditorColors;
   onSelect: (type: BlockType) => void;
   onClose: () => void;
+  onChromeEnter?: (id: string) => void;
+  onChromeLeave?: () => void;
 }
 
-function TurnIntoMenu({ currentType, anchorY, anchorX, colors: c, onSelect, onClose }: TurnIntoMenuProps) {
+function TurnIntoMenu({
+  blockId, currentType, anchorY, anchorX, colors: c, onSelect, onClose,
+  onChromeEnter, onChromeLeave,
+}: TurnIntoMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const items = useMemo(
     () => TURN_INTO_TYPES.map(t => BLOCK_TYPE_MENU.find(m => m.type === t)).filter((m): m is NonNullable<typeof m> => m != null),
@@ -2649,7 +2692,12 @@ function TurnIntoMenu({ currentType, anchorY, anchorX, colors: c, onSelect, onCl
   const left = Math.min(anchorX, window.innerWidth  - 210);
 
   return (
-    <div ref={menuRef} className="be-turn-into-menu" style={{
+    <div
+      ref={menuRef}
+      className="be-turn-into-menu"
+      onMouseEnter={() => onChromeEnter?.(blockId)}
+      onMouseLeave={() => onChromeLeave?.()}
+      style={{
       position:'fixed', top, left, zIndex:400,
       background:c.card, border:`1px solid ${c.border}`,
       borderRadius:10, boxShadow:'0 8px 28px #00000028',
@@ -2892,6 +2940,8 @@ interface SelectionToolbarProps {
 function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock }: SelectionToolbarProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const blockIdRef = useRef<string | null>(null);
+  const editableRef = useRef<HTMLElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
 
   useEffect(() => {
     const update = () => {
@@ -2899,6 +2949,8 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         setPos(null);
         blockIdRef.current = null;
+        editableRef.current = null;
+        savedRangeRef.current = null;
         return;
       }
       const range = sel.getRangeAt(0);
@@ -2908,10 +2960,14 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
       if (!host?.closest('.be-editor-root')) {
         setPos(null);
         blockIdRef.current = null;
+        editableRef.current = null;
+        savedRangeRef.current = null;
         return;
       }
       const blockEl = host.closest('.be-block') as HTMLElement | null;
       blockIdRef.current = blockEl?.getAttribute('data-drag-id') ?? null;
+      editableRef.current = host;
+      savedRangeRef.current = range.cloneRange();
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
         setPos(null);
@@ -2924,13 +2980,26 @@ function SelectionToolbar({ colors: c, wikiTargets, searchQuery, onContentChange
   }, []);
 
   const applyFormat = useCallback((before: string, after: string) => {
-    const el = document.activeElement as HTMLElement | null;
     const blockId = blockIdRef.current;
-    if (!el?.isContentEditable || !blockId) return;
+    const el = editableRef.current;
+    if (!el || !blockId) return;
+
+    el.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      try {
+        sel.removeAllRanges();
+        sel.addRange(savedRangeRef.current.cloneRange());
+      } catch {
+        // stale range — fall through with current selection
+      }
+    }
+
     applyWrapToSelection(el, before, after, (text) => {
       onContentChange(blockId, text);
     }, (target, text, offset) => {
       paintEditableLive(target, text, c, wikiTargets, searchQuery, offset);
+      savedRangeRef.current = null;
     });
   }, [c, wikiTargets, searchQuery, onContentChange]);
 
@@ -2995,6 +3064,14 @@ export const BlockEditor = React.memo(function BlockEditor({
   return (
     <>
       <style>{`
+        .be-block::before {
+          content: '';
+          position: absolute;
+          left: -52px;
+          top: -4px;
+          bottom: -4px;
+          width: 52px;
+        }
         .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
         .be-block:hover .be-handles,
         .be-block.be-controls-visible .be-handles,
@@ -3063,6 +3140,14 @@ export const BlockEditor = React.memo(function BlockEditor({
         }
         .be-selection-toolbar button:active { transform: scale(0.94); }
         .be-turn-into-menu { margin-left: -4px; }
+        .be-turn-into-menu::before {
+          content: '';
+          position: absolute;
+          right: 100%;
+          top: 0;
+          bottom: 0;
+          width: 16px;
+        }
       `}</style>
       <div
         className="be-editor-root be-document"

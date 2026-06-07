@@ -961,7 +961,11 @@ export const NoteView = () => {
                     <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="커서 위치에 이미지 블록 삽입">
                       <ImageIcon size={13}/>
                     </button>
-                    <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                    <div
+                      style={{ position: 'relative', marginLeft: 'auto' }}
+                      onMouseLeave={e => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) setShowAppearance(false);
+                      }}>
                       <button
                         type="button"
                         onClick={() => setShowAppearance(v => !v)}
@@ -972,7 +976,9 @@ export const NoteView = () => {
                       </button>
                       {showAppearance && (
                         <div style={{
-                          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50,
+                          position: 'absolute', top: '100%', right: 0, paddingTop: 6, zIndex: 50,
+                        }}>
+                        <div style={{
                           background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 10,
                           padding: '12px 14px', width: 240, boxShadow: '0 8px 28px #00000020',
                         }}>
@@ -1024,6 +1030,7 @@ export const NoteView = () => {
                           <div style={{ fontSize: 10, color: c.textFaint, marginTop: 10 }}>
                             문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px (Obsidian 스타일)
                           </div>
+                        </div>
                         </div>
                       )}
                     </div>
