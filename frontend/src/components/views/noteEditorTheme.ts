@@ -137,7 +137,7 @@ export function buildBlockEditorColors(
     toggleBg: dark ? '#262626' : '#f5f5f3',
     quoteBdr: dark ? '#555555' : '#d0d0cc',
     selection: dark ? 'rgba(255,255,255,0.04)' : 'rgba(139,92,246,0.04)',
-    blockFocusBg: 'transparent',
+    blockFocusBg: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.04)',
     blockFocusBorder: 'transparent',
     blockSelectedBg: 'transparent',
     blockHoverBg: 'transparent',

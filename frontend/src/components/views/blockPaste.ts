@@ -1,13 +1,101 @@
 import { splitBlockContent } from './blockContent';
-import { renumberNumberedLists } from './listBlocks';
-import { makeBlock, markdownToBlocks, updateBlockById, type Block } from './blockUtils';
+import { isListType, renumberNumberedLists } from './listBlocks';
+import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from './blockUtils';
 
 export function normalizePasteText(raw: string): string {
   return raw
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/\u00a0/g, ' ')
+    .replace(/\t/g, '  ')
     .replace(/\n+$/, '');
+}
+
+const BARE_URL_RE = /^https?:\/\/\S+$/i;
+
+export function isBareUrl(text: string): boolean {
+  return BARE_URL_RE.test(text.trim());
+}
+
+/** Prefer text/plain; fall back to stripped HTML from rich clipboard payloads. */
+export function extractClipboardText(clipboard: Pick<DataTransfer, 'getData'>): string {
+  const plain = clipboard.getData('text/plain');
+  if (plain) return plain;
+  const html = clipboard.getData('text/html');
+  if (html) return htmlToPlainText(html);
+  return '';
+}
+
+const HTML_BLOCK_TAGS = new Set([
+  'P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR', 'BLOCKQUOTE', 'PRE',
+]);
+
+/** Convert clipboard HTML to plain text with line breaks preserved. */
+export function htmlToPlainText(html: string): string {
+  if (typeof DOMParser === 'undefined') {
+    return normalizePasteText(
+      html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|div|li|h[1-6]|tr|blockquote|pre)>/gi, '\n')
+        .replace(/<[^>]+>/g, ''),
+    );
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  const walk = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+    const tag = node.nodeName.toUpperCase();
+    if (tag === 'BR') return '\n';
+    let out = '';
+    node.childNodes.forEach(child => { out += walk(child); });
+    if (HTML_BLOCK_TAGS.has(tag)) out += '\n';
+    return out;
+  };
+
+  const root = doc.body;
+  root.querySelectorAll('br').forEach(br => {
+    br.replaceWith(doc.createTextNode('\n'));
+  });
+  return normalizePasteText(walk(root));
+}
+
+export interface PasteContext {
+  blockType: BlockType;
+  indent?: number;
+}
+
+/** When pasting plain lines into a list item, inherit list type + indent. */
+export function adaptPastedBlocks(blocks: Block[], context: PasteContext): Block[] {
+  if (!isListType(context.blockType)) return blocks;
+  const indent = context.indent ?? 0;
+  const structured = blocks.some(b =>
+    b.type !== 'paragraph'
+    || /^#{1,3}\s/.test(b.content)
+    || /^>!?\s/.test(b.content)
+    || /^```/.test(b.content),
+  );
+  if (structured) return blocks;
+  return blocks.map(b => makeBlock(context.blockType, {
+    content: b.content,
+    indent,
+    checked: false,
+  }));
+}
+
+export function smartInlineMerge(
+  before: string,
+  selected: string,
+  pasted: string,
+  after: string,
+): { content: string; focusOffset: number } {
+  const trimmed = pasted.trim();
+  if (selected && isBareUrl(trimmed)) {
+    const link = `[${selected}](${trimmed})`;
+    const content = before + link + after;
+    return { content, focusOffset: before.length + link.length };
+  }
+  const content = before + pasted + after;
+  return { content, focusOffset: before.length + pasted.length };
 }
 
 export interface PasteResult {
@@ -25,6 +113,7 @@ export function applyPasteAtBlock(
   start: number,
   end: number,
   raw: string,
+  context?: PasteContext,
 ): PasteResult | null {
   const pasted = normalizePasteText(raw);
   if (!pasted) return null;
@@ -34,19 +123,21 @@ export function applyPasteAtBlock(
   const cur = blocks[idx];
   const before = cur.content.slice(0, start);
   const after = cur.content.slice(end);
+  const selected = cur.content.slice(start, end);
 
   if (!pasted.includes('\n')) {
-    const content = before + pasted + after;
+    const { content, focusOffset } = smartInlineMerge(before, selected, pasted, after);
     const next = updateBlockById(blocks, blockId, b => ({ ...b, content }));
     return {
       blocks: next,
       focusBlockId: blockId,
-      focusOffset: start + pasted.length,
+      focusOffset,
     };
   }
 
-  const pastedBlocks = markdownToBlocks(pasted);
+  let pastedBlocks = markdownToBlocks(pasted);
   if (pastedBlocks.length === 0) return null;
+  if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
 
   let replacement: Block[];
   let focusBlockId: string;
