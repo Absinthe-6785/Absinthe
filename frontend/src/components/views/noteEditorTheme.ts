@@ -37,29 +37,29 @@ export interface NoteChromeColors {
   green: string;
 }
 
-/** Obsidian-inspired neutrals + violet accent (no yellow focus) */
-export function buildObsidianChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
+/** Purple-forward note chrome — primary #8B5CF6, off-white surfaces */
+export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
   const base: NoteChromeColors = dark
     ? {
-        wrap: '#1e1e1e', sidebar: '#262626', sideBdr: '#333333', notelist: '#1a1a1a',
-        editor: '#1e1e1e', toolbar: '#262626', toolBdr: '#3a3a3a',
-        card: '#2a2a2a', cardHov: '#333333', cardAct: '#2d2b3f', cardActBdr: '#7f6df2',
-        text: '#dcddde', textMuted: '#999999', textFaint: '#666666',
-        accent: '#7f6df2', accentBg: '#7f6df218',
-        input: '#2a2a2a', inputBdr: '#404040',
-        badge: '#7f6df220', badgeTxt: '#a89bfa',
-        tag: '#7f6df218', tagTxt: '#a89bfa',
-        danger: '#e06c75', green: '#7fd99a',
+        wrap: '#18181B', sidebar: '#1f1f23', sideBdr: '#2e2e33', notelist: '#1a1a1e',
+        editor: '#1f1f23', toolbar: '#27272a', toolBdr: '#3f3f46',
+        card: '#27272a', cardHov: '#323238', cardAct: '#2e2640', cardActBdr: '#8B5CF6',
+        text: '#fafafa', textMuted: '#a1a1aa', textFaint: '#71717A',
+        accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.14)',
+        input: '#27272a', inputBdr: '#3f3f46',
+        badge: 'rgba(139,92,246,0.2)', badgeTxt: '#A78BFA',
+        tag: 'rgba(139,92,246,0.14)', tagTxt: '#A78BFA',
+        danger: '#f87171', green: '#4ade80',
       }
     : {
-        wrap: '#f7f7f5', sidebar: '#f2f2f0', sideBdr: '#e3e3e0', notelist: '#ececea',
-        editor: '#ffffff', toolbar: '#f5f5f3', toolBdr: '#e0e0dc',
-        card: '#ffffff', cardHov: '#f0f0ee', cardAct: '#f3f1ff', cardActBdr: '#7c3aed',
-        text: '#2e3338', textMuted: '#5c6370', textFaint: '#a0a4ab',
-        accent: '#7c3aed', accentBg: '#7c3aed14',
-        input: '#fafafa', inputBdr: '#d8d8d4',
-        badge: '#7c3aed14', badgeTxt: '#6d28d9',
-        tag: '#7c3aed12', tagTxt: '#6d28d9',
+        wrap: '#F7F7F8', sidebar: '#F0F0F2', sideBdr: '#E4E4E7', notelist: '#ECECEF',
+        editor: '#FFFFFF', toolbar: '#F7F7F8', toolBdr: '#E4E4E7',
+        card: '#FFFFFF', cardHov: '#F4F4F5', cardAct: 'rgba(139,92,246,0.06)', cardActBdr: '#8B5CF6',
+        text: '#18181B', textMuted: '#71717A', textFaint: '#A1A1AA',
+        accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.08)',
+        input: '#FAFAFA', inputBdr: '#E4E4E7',
+        badge: 'rgba(139,92,246,0.1)', badgeTxt: '#7C3AED',
+        tag: 'rgba(139,92,246,0.08)', tagTxt: '#7C3AED',
         danger: '#dc2626', green: '#15803d',
       };
 
@@ -81,6 +81,9 @@ export function buildObsidianChrome(dark: boolean, settings: AppSettings): NoteC
   }
   return result;
 }
+
+/** @deprecated Use buildNoteChrome */
+export const buildObsidianChrome = buildNoteChrome;
 
 export function resolveNoteFontFamily(settings: AppSettings): string {
   const id = settings.notesFontFamily ?? 'system';
@@ -120,11 +123,13 @@ export function buildBlockEditorColors(
     calloutBg: dark ? '#2a2838' : '#f6f4ff',
     toggleBg: dark ? '#262626' : '#f5f5f3',
     quoteBdr: dark ? '#555555' : '#d0d0cc',
-    selection: dark ? '#ffffff08' : '#00000006',
-    blockFocusBg: dark ? '#ffffff06' : '#00000004',
-    blockFocusBorder: dark ? '#555555' : '#d8d8d4',
-    searchHlBg: dark ? '#3d3860' : '#e8e4ff',
-    searchHlColor: dark ? '#e2e0f0' : '#3b3566',
+    selection: dark ? 'rgba(255,255,255,0.04)' : 'rgba(139,92,246,0.04)',
+    blockFocusBg: dark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.04)',
+    blockFocusBorder: dark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)',
+    blockSelectedBg: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)',
+    toolbarActiveFg: '#FFFFFF',
+    searchHlBg: dark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.12)',
+    searchHlColor: dark ? '#E9E0FF' : '#5B21B6',
     linkColor: accent,
     fontFamily,
     fontSize,
