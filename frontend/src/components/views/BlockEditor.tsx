@@ -37,7 +37,7 @@ import {
   imageAltFromUrl,
 } from './blockUtils';
 import { normalizeWikiTitle } from './noteUtils';
-import { selectionHasFormat, toggleMarkdownWrap } from './inlineFormat';
+import { selectionHasFormat, splitMarkdownAt, toggleMarkdownWrap } from './inlineFormat';
 
 // ── 커서 유틸리티 ────────────────────────────────────────────────────
 
@@ -67,6 +67,35 @@ function setCaretOffset(el: HTMLElement, offset: number) {
   // offset이 전체 길이를 초과하면 맨 끝에 위치
   range.selectNodeContents(el);
   range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function resolveTextOffset(el: HTMLElement, offset: number): { node: Node; offset: number } | null {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node: Node | null = null;
+  while ((node = walker.nextNode())) {
+    const len = (node.textContent ?? '').length;
+    if (remaining <= len) return { node, offset: remaining };
+    remaining -= len;
+  }
+  return null;
+}
+
+/** contentEditable 요소 내 텍스트 구간 선택 */
+function setSelectionOffsets(el: HTMLElement, start: number, end: number) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const s = resolveTextOffset(el, start);
+  const e = resolveTextOffset(el, end);
+  if (!s || !e) {
+    setCaretOffset(el, end);
+    return;
+  }
+  const range = document.createRange();
+  range.setStart(s.node, s.offset);
+  range.setEnd(e.node, e.offset);
   sel.removeAllRanges();
   sel.addRange(range);
 }
@@ -364,6 +393,7 @@ function liveInlineHtml(text: string, c: BlockEditorColors, wikiTargets: string[
   });
 
   let html = esc(work)
+    .replace(/\n/g, '<br>')
     .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
       const broken = wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(t));
       const cls = broken ? 'be-wiki-chip be-wiki-chip-broken' : 'be-wiki-chip';
@@ -408,17 +438,17 @@ function applyWrapToSelection(
   before: string,
   after: string,
   onText: (text: string) => void,
-  afterApply?: (el: HTMLElement, text: string, newOffset: number) => void,
+  afterApply?: (el: HTMLElement, text: string, selection: { start: number; end: number }) => void,
 ): boolean {
   const sel = getPlainSelectionOffsets(el);
   if (!sel) return false;
   const text = getElText(el);
-  const { text: next, caret } = toggleMarkdownWrap(text, sel.start, sel.end, before, after);
-  onText(next);
-  if (afterApply) afterApply(el, next, caret);
+  const result = toggleMarkdownWrap(text, sel.start, sel.end, before, after);
+  onText(result.text);
+  if (afterApply) afterApply(el, result.text, { start: result.selStart, end: result.selEnd });
   else {
-    el.innerText = next;
-    setCaretOffset(el, caret);
+    el.innerText = result.text;
+    setSelectionOffsets(el, result.selStart, result.selEnd);
   }
   return true;
 }
@@ -430,9 +460,11 @@ function paintEditableLive(
   wikiTargets: string[],
   searchQuery: string,
   caretOffset?: number,
+  selection?: { start: number; end: number },
 ) {
   el.innerHTML = liveInlineHtml(text, c, wikiTargets, searchQuery);
-  if (caretOffset != null) setCaretOffset(el, caretOffset);
+  if (selection) setSelectionOffsets(el, selection.start, selection.end);
+  else if (caretOffset != null) setCaretOffset(el, caretOffset);
 }
 
 // ── SingleBlock ───────────────────────────────────────────────────────
@@ -610,15 +642,15 @@ const SingleBlock = React.memo(function SingleBlock({
       }}>
       <button
         type="button"
-        style={hBtn(c)}
+        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center' }}
         onClick={e => { e.stopPropagation(); onAddBelow(block.id); }}
         title="아래에 블록 추가">
-        <Plus size={13}/>
+        <Plus size={14}/>
       </button>
       <button
         type="button"
         className={`be-grip${controlsVisible ? ' be-grip-pinned' : ''}`}
-        style={{ ...hBtn(c), cursor: 'grab', touchAction: 'none', padding: '4px 3px', letterSpacing: -1, fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+        style={{ ...hBtn(c), width: 28, height: 28, justifyContent: 'center', cursor: 'grab', touchAction: 'none', padding: 0, letterSpacing: -1, fontSize: 11, fontWeight: 700, lineHeight: 1 }}
         onPointerDown={e => {
           const gripEl = e.currentTarget as HTMLElement;
           bindGripPointer(block.id, e, () => {
@@ -885,8 +917,8 @@ function EditableBlock({
     applyWrapToSelection(el, before, after, (text) => {
       lastContent.current = text;
       onContentChange(block.id, text);
-    }, (target, text, offset) => {
-      paintEditableLive(target, text, c, wikiTargets, searchQuery, offset);
+    }, (target, text, selection) => {
+      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
     });
   }, [block.id, onContentChange, c, wikiTargets, searchQuery, editableRef]);
 
@@ -942,19 +974,33 @@ function EditableBlock({
       if (e.key === 'Escape')                             { onSlashClose(); onWikiClose(); return; }
     }
 
+    // ── Shift+Enter: 블록 내 줄바꿈 ───────────────────────────────
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      onSlashClose();
+      onWikiClose();
+      const text = lastContent.current;
+      const offset = getCaretOffset(el);
+      const next = text.slice(0, offset) + '\n' + text.slice(offset);
+      lastContent.current = next;
+      onContentChange(block.id, next);
+      paintEditableLive(el, next, c, wikiTargets, searchQuery, offset + 1);
+      return;
+    }
+
     // ── Enter: 블록 분리 (또는 toggle 헤더 override) ──────────────
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onSlashClose();
+      onWikiClose();
       // Toggle Step 2: toggle 헤더일 때는 자식 블록 생성으로 대체
       if (onEnterOverride) {
         onEnterOverride(getElText(el));
         return;
       }
-      const text   = getElText(el);
+      const text   = lastContent.current;
       const offset = getCaretOffset(el);
-      const before = text.slice(0, offset);
-      const after  = text.slice(offset);
+      const { before, after } = splitMarkdownAt(text, offset);
       onSplitBlock(block.id, before, after);
       return;
     }
@@ -985,7 +1031,7 @@ function EditableBlock({
       onSlashClose();
       onWikiClose();
     }
-  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock]);
+  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock, c, wikiTargets, searchQuery, onContentChange]);
 
   const handleFocus = useCallback(() => {
     onActiveBlockChange?.(block.id);
@@ -2972,6 +3018,30 @@ const EMPTY_FORMATS: ToolbarFormatState = {
   bold: false, italic: false, code: false, wiki: false, tag: false, heading: null,
 };
 
+function deriveToolbarFormats(
+  host: HTMLElement,
+  blockId: string | null,
+  getBlockType: (id: string) => BlockType | undefined,
+): ToolbarFormatState {
+  if (!blockId) return EMPTY_FORMATS;
+  const text = getElText(host);
+  const offsets = getPlainSelectionOffsets(host);
+  if (!offsets) return EMPTY_FORMATS;
+  const { start, end } = offsets;
+  const selected = text.slice(start, end);
+  const blockType = getBlockType(blockId);
+  return {
+    bold: selectionHasFormat(text, start, end, '**', '**'),
+    italic: selectionHasFormat(text, start, end, '*', '*'),
+    code: selectionHasFormat(text, start, end, '`', '`'),
+    wiki: selectionHasFormat(text, start, end, '[[', ']]'),
+    tag: text[start] === '#' && end > start && !selected.includes(' '),
+    heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3'
+      ? blockType
+      : null,
+  };
+}
+
 function SelectionToolbar({
   colors: c, wikiTargets, searchQuery, onContentChange, onConvertBlock, getBlockType,
 }: SelectionToolbarProps) {
@@ -3010,25 +3080,7 @@ function SelectionToolbar({
       editableRef.current = host;
       savedRangeRef.current = range.cloneRange();
 
-      const text = getElText(host);
-      const offsets = getPlainSelectionOffsets(host);
-      const blockType = blockId ? getBlockType(blockId) : undefined;
-      if (offsets) {
-        const { start, end } = offsets;
-        const selected = text.slice(start, end);
-        setFormats({
-          bold: selectionHasFormat(text, start, end, '**', '**'),
-          italic: selectionHasFormat(text, start, end, '*', '*'),
-          code: selectionHasFormat(text, start, end, '`', '`'),
-          wiki: selectionHasFormat(text, start, end, '[[', ']]'),
-          tag: text[start] === '#' && end > start && !selected.includes(' '),
-          heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3'
-            ? blockType
-            : null,
-        });
-      } else {
-        setFormats(EMPTY_FORMATS);
-      }
+      setFormats(deriveToolbarFormats(host, blockId, getBlockType));
 
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
@@ -3038,7 +3090,11 @@ function SelectionToolbar({
       setPos({ top: rect.top - 46, left: rect.left + rect.width / 2 });
     };
     document.addEventListener('selectionchange', update);
-    return () => document.removeEventListener('selectionchange', update);
+    document.addEventListener('keyup', update);
+    return () => {
+      document.removeEventListener('selectionchange', update);
+      document.removeEventListener('keyup', update);
+    };
   }, [getBlockType]);
 
   const applyFormat = useCallback((before: string, after: string) => {
@@ -3059,11 +3115,17 @@ function SelectionToolbar({
 
     applyWrapToSelection(el, before, after, (text) => {
       onContentChange(blockId, text);
-    }, (target, text, offset) => {
-      paintEditableLive(target, text, c, wikiTargets, searchQuery, offset);
-      savedRangeRef.current = null;
+    }, (target, text, selection) => {
+      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
+      requestAnimationFrame(() => {
+        setFormats(deriveToolbarFormats(target, blockId, getBlockType));
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+        }
+      });
     });
-  }, [c, wikiTargets, searchQuery, onContentChange]);
+  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType]);
 
   if (!pos) return null;
 
@@ -3143,10 +3205,10 @@ export const BlockEditor = React.memo(function BlockEditor({
         .be-block::before {
           content: '';
           position: absolute;
-          left: -52px;
-          top: -4px;
-          bottom: -4px;
-          width: 52px;
+          left: -60px;
+          top: -6px;
+          bottom: -6px;
+          width: 60px;
         }
         .be-handles { opacity: 0; pointer-events: none; transition: opacity .12s; }
         .be-block:hover .be-handles,
