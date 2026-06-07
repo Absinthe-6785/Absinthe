@@ -94,7 +94,7 @@ export function setCaretOffset(el: HTMLElement, offset: number) {
       remaining -= len;
     } else if (node.nodeName === 'BR') {
       const parent = node.parentNode ?? el;
-      const idx = Array.from(parent.childNodes).indexOf(node);
+      const idx = Array.from(parent.childNodes).indexOf(node as ChildNode);
       if (remaining === 0) {
         range.setStart(parent, idx);
         range.collapse(true);
@@ -141,7 +141,7 @@ function resolveTextOffset(el: HTMLElement, offset: number): { node: Node; offse
     }
     if (node.nodeName === 'BR') {
       const parent = node.parentNode ?? el;
-      const idx = Array.from(parent.childNodes).indexOf(node);
+      const idx = Array.from(parent.childNodes).indexOf(node as ChildNode);
       if (remaining === 0) return { node: parent, offset: idx };
       if (remaining === 1) return { node: parent, offset: idx + 1 };
       remaining -= 1;

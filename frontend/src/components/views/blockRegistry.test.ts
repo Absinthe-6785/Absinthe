@@ -78,6 +78,12 @@ describe('blockRegistry', () => {
     expect(node).toBeTruthy();
   });
 
+  it('renderBlockContent coerces unknown type to paragraph', () => {
+    const block = { ...makeBlock('paragraph'), type: 'plus' as never, content: 'safe' };
+    const node = renderBlockContent(block, c, minimalCtx({ readOnly: true }));
+    expect(node).toBeTruthy();
+  });
+
   it('registerBlockRenderer stores custom renderer', () => {
     registerBlockRenderer('callout', () => 'custom-callout');
     expect(getBlockRenderer('callout')!(makeBlock('callout'), c, minimalCtx())).toBe('custom-callout');

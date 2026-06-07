@@ -16,7 +16,7 @@ export interface ImageBlockProps {
 export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const zoneRef = useRef<HTMLElement>(null);
+  const zoneRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');

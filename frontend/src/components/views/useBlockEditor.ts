@@ -8,6 +8,7 @@ import {
   markdownToBlocks,
   insertImageAfter,
 } from './blockUtils';
+import { loadValidatedBlocks } from './documentRecovery';
 
 const COALESCE_MS = 500;
 const HISTORY_LIMIT = 200;
@@ -19,7 +20,7 @@ export interface BlockEditorHandle {
 }
 
 export function useBlockEditor(body: string, onBodyChange: (md: string) => void) {
-  const [blocks, setBlocks] = useState<Block[]>(() => markdownToBlocks(body));
+  const [blocks, setBlocks] = useState<Block[]>(() => loadValidatedBlocks(body, markdownToBlocks));
   const prevBodyRef = useRef(body);
 
   const historyRef = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -36,7 +37,7 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
       }
       prevBodyRef.current = body;
       lastMdRef.current = body;
-      setBlocks(markdownToBlocks(body));
+      setBlocks(loadValidatedBlocks(body, markdownToBlocks));
     }
   }, [body]);
 
@@ -61,7 +62,7 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     lastMdRef.current = md;
     prevBodyRef.current = md;
     lastSnapTimeRef.current = Date.now();
-    setBlocks(markdownToBlocks(md));
+    setBlocks(loadValidatedBlocks(md, markdownToBlocks));
     onBodyChange(md);
   }, [onBodyChange]);
 

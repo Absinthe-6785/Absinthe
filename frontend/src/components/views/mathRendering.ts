@@ -2,9 +2,7 @@
 
 declare global {
   interface Window {
-    katex?: {
-      renderToString: (expr: string, opts: { displayMode: boolean; throwOnError: boolean }) => string;
-    };
+    katex?: { renderToString: (expr: string, opts?: object) => string };
   }
 }
 

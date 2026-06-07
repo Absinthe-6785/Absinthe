@@ -58,6 +58,8 @@ import type {
   SlashMenuState, WikiMenuState,
 } from './editorTypes';
 import { renderBlockContent } from './blockRegistry';
+import { SafeBlockRenderer } from './SafeBlockRenderer';
+import { loadValidatedBlocks } from './documentRecovery';
 import { ToggleBlock } from './ToggleBlock';
 import type { ToggleNestedRenderer } from './toggleRender';
 import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from './blockSelection';
@@ -186,7 +188,6 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.dragState === next.dragState
     && prev.colors === next.colors
     && prev.wikiTargets === next.wikiTargets
-    && prev.onSelect === next.onSelect
     && prev.onAddBelow === next.onAddBelow
     && prev.onSplitBlock === next.onSplitBlock
     && prev.onMergeWithPrev === next.onMergeWithPrev
@@ -307,7 +308,7 @@ const SingleBlock = React.memo(function SingleBlock({
       blockId={block.id}
       depth={depth}
       readOnly={readOnly}
-      controlsVisible={controlsVisible}
+      controlsVisible={controlsVisible ?? false}
       onChromeEnter={onChromeEnter}
       onChromeLeave={onChromeLeave}
       onToggleControlsPin={onToggleControlsPin}
@@ -340,7 +341,11 @@ const SingleBlock = React.memo(function SingleBlock({
     searchQueryFor,
   };
 
-  const inner = renderBlockContent(block, c, renderCtx);
+  const inner = (
+    <SafeBlockRenderer block={block} colors={c}>
+      {renderBlockContent(block, c, renderCtx)}
+    </SafeBlockRenderer>
+  );
 
   const shellKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ArrowUp')   { e.preventDefault(); onNavigateBlock(block.id, 'up'); }
@@ -394,7 +399,7 @@ const SingleBlock = React.memo(function SingleBlock({
   };
 
   const blockShellClass = blockShellClassName(
-    isActive, isSelected, controlsVisible, isDragging ? 'be-dragging' : undefined,
+    isActive, isSelected, controlsVisible ?? false, isDragging ? 'be-dragging' : undefined,
   );
 
   const dropIndicators = (
@@ -1218,7 +1223,7 @@ export const BlockEditor = React.memo(function BlockEditor({
 export const BlockEditorPreview = React.memo(function BlockEditorPreview({
   body, colors, searchQuery = '', wikiTargets = [], onWikiNavigate,
 }: Pick<BlockEditorProps, 'colors' | 'searchQuery' | 'wikiTargets' | 'onWikiNavigate'> & { body: string }) {
-  const blocks = useMemo(() => markdownToBlocks(body), [body]);
+  const blocks = useMemo(() => loadValidatedBlocks(body, markdownToBlocks), [body]);
   return (
     <BlockEditor
       blocks={blocks}

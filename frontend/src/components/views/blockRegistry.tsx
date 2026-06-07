@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { Block, BlockType } from './blockUtils';
+import { sanitizeBlockType } from './blockTypeGuards';
 import { updateBlockById } from './blockUtils';
 import { numberedMarker } from './listBlocks';
 import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
@@ -191,10 +192,12 @@ export function renderBlockContent(
   colors: BlockEditorColors,
   ctx: BlockRenderContext,
 ): ReactNode {
-  const renderer = registry.get(block.type);
-  if (renderer) return renderer(block, colors, ctx);
-  if (TEXT_TYPES.has(block.type)) return renderTextBlock(block, colors, ctx);
-  return <p style={{ color:colors.text, fontSize:15, lineHeight:1.7 }}>{block.content}</p>;
+  const type = sanitizeBlockType(block.type);
+  const safeBlock = type === block.type ? block : { ...block, type };
+  const renderer = registry.get(type);
+  if (renderer) return renderer(safeBlock, colors, ctx);
+  if (TEXT_TYPES.has(type)) return renderTextBlock(safeBlock, colors, ctx);
+  return <p style={{ color:colors.text, fontSize:15, lineHeight:1.7 }}>{safeBlock.content}</p>;
 }
 
 registerBlockRenderer('code', (block, c, ctx) => (

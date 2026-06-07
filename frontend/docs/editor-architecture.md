@@ -1,4 +1,4 @@
-# Editor Architecture (Sprint F-3A / F-3B / F-4)
+# Editor Architecture (Sprint F-3A / F-3B / F-4 / F-5.0)
 
 ## Design principle
 
@@ -24,7 +24,11 @@
 | `ToggleBlock.tsx` | Toggle shell (header + children) | `<ToggleBlock />` | `toggleRender` |
 | `toggleRender.tsx` | Toggle header/children helpers | `renderToggleHeader`, `renderToggleChildren` | `EditableBlock` |
 | `EditableBlock.tsx` | contentEditable input, shortcuts, slash/wiki triggers | `<EditableBlock />` | `editableLive`, `wikiNavigation`, `toolbarFormat` |
-| `useBlockEditor.ts` | body ↔ blocks, undo/redo, image insert | `useBlockEditor`, `BlockEditorHandle` | `blockUtils` |
+| `useBlockEditor.ts` | body ↔ blocks, undo/redo, image insert | `useBlockEditor`, `BlockEditorHandle` | `blockUtils`, `documentRecovery` |
+| `blockTypeGuards.ts` | Runtime block type validation (F-5B) | `sanitizeBlockType`, `isKnownBlockType` | `blockUtils` |
+| `documentRecovery.ts` | Repair corrupt block trees on load (F-5E) | `validateDocument`, `loadValidatedBlocks` | `blockTypeGuards` |
+| `SafeBlockRenderer.tsx` | Per-block error boundary (F-5A) | `<SafeBlockRenderer>` | `UnsupportedBlock` |
+| `UnsupportedBlock.tsx` | Fallback UI for broken blocks | `<UnsupportedBlock>` | `editorTypes` |
 | `editableRender.ts` | Pure inline HTML (readOnly + live) | `renderInlineMarkdown`, `liveInlineHtml` | `noteUtils` |
 | `editableLive.ts` | DOM paint + caret restore | `paintEditableLive` | `editableRender`, `selectionOffsets` |
 | `editableDom.ts` | Plain text read, delete helpers | `readBlockText`, `deleteBeforeCaret` | `selectionOffsets` (re-export shim) |
@@ -44,6 +48,15 @@
 | `blockPaste.ts` + `pasteStructure.ts` | Paste intelligence | `applyPasteAtBlock` | **frozen** |
 | `listIndent.ts` + `blockTree.ts` + `dragHierarchy.ts` | Outliner hierarchy | **frozen** | — |
 
+## Multi-block selection (F-4A)
+
+- State at root `BlockEditorInner`: `selectedBlockIds: Set<string>`, `anchorBlockId`, `activeBlockId`
+- `SelectionCtx` propagates click handlers to nested toggle children
+- `blockSelection.ts` — same-parent shift range, ctrl/cmd additive
+- `multiBlockOps.ts` — delete / duplicate selected
+- `multiBlockDrag.ts` + `editorDragDrop.tsx` — group drag (incl. into toggle)
+- v1 ops: Delete, Duplicate, Drag only
+
 ## Toggle nested rendering
 
 `ToggleBlock` receives `renderNested: (toggleBlock) => ReactNode` from `BlockEditorInner`. It **must not** import `BlockEditor` or `BlockEditorInner` — avoids circular dependencies for F-3C.
@@ -53,9 +66,18 @@
 - `editableDom.ts` re-exports `selectionOffsets` for backward-compatible imports.
 - `BlockEditor.tsx` re-exports `useBlockEditor` and `BlockEditorHandle` from `useBlockEditor.ts`.
 
+## Renderer resilience (F-5.0)
+
+- **F-5A** — `SafeBlockRenderer` wraps each block in `SingleBlock`; one render crash shows `UnsupportedBlock` without blanking the document.
+- **F-5B** — `sanitizeBlockType()` in `renderBlockContent` coerces unknown `block.type` to `paragraph`.
+- **F-5E** — `loadValidatedBlocks()` in `useBlockEditor` / `BlockEditorPreview` repairs missing ids, invalid types, null children, and broken tables on parse.
+- **CI** — `npm run typecheck` (`tsc --noEmit -p tsconfig.editor.json`) runs in GitHub Actions alongside tests; scoped to the block-editor subsystem until app-wide types are cleaned up.
+
+Deferred: paste normalization (F-5C), AI parser (F-5D), diagnostics (F-5F), restore-as-paragraph UI.
+
 ## Line-count target
 
-| Metric | F-3A | F-3B | F-4 |
-|--------|------|------|-----|
-| `BlockEditor.tsx` | ~2300 | ~1126 | ~1180 |
-| Tests | 272 | 311 | 332 |
+| Metric | F-3A | F-3B | F-4 | F-5.0 |
+|--------|------|------|-----|-------|
+| `BlockEditor.tsx` | ~2300 | ~1126 | ~1180 | ~1240 |
+| Tests | 272 | 311 | 332 | 350+ |
