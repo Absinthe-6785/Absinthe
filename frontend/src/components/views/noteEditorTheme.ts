@@ -44,12 +44,12 @@ export interface NoteChromeColors {
 export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
   const base: NoteChromeColors = dark
     ? {
-        wrap: '#18181B', sidebar: '#1f1f23', sideBdr: '#2e2e33', notelist: '#1a1a1e',
-        editor: '#1f1f23', toolbar: '#27272a', toolBdr: '#3f3f46',
-        card: '#27272a', cardHov: '#323238', cardAct: '#2e2640', cardActBdr: '#8B5CF6',
-        text: '#fafafa', textMuted: '#a1a1aa', textFaint: '#71717A',
+        wrap: '#121214', sidebar: '#1B1B1F', sideBdr: '#2e2e33', notelist: '#16161a',
+        editor: '#1B1B1F', toolbar: '#1B1B1F', toolBdr: '#2e2e33',
+        card: '#1B1B1F', cardHov: '#252529', cardAct: '#2a2240', cardActBdr: '#8B5CF6',
+        text: '#F4F4F5', textMuted: '#A1A1AA', textFaint: '#71717A',
         accent: '#8B5CF6', accentBg: 'rgba(139,92,246,0.14)',
-        input: '#27272a', inputBdr: '#3f3f46',
+        input: '#252529', inputBdr: '#3f3f46',
         badge: 'rgba(139,92,246,0.2)', badgeTxt: '#A78BFA',
         tag: 'rgba(139,92,246,0.14)', tagTxt: '#A78BFA',
         danger: '#f87171', green: '#4ade80',
@@ -130,7 +130,7 @@ export function buildBlockEditorColors(
     blockFocusBg: dark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.04)',
     blockFocusBorder: dark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)',
     blockSelectedBg: dark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)',
-    blockHoverBg: dark ? 'rgba(139,92,246,0.04)' : 'rgba(139,92,246,0.015)',
+    blockHoverBg: dark ? 'rgba(139,92,246,0.015)' : 'rgba(139,92,246,0.015)',
     toolbarActiveFg: '#FFFFFF',
     radiusBtn: NOTE_RADIUS_BTN,
     radiusCard: NOTE_RADIUS_CARD,

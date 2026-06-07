@@ -20,6 +20,35 @@ export function isNestableInToggle(type: BlockType): boolean {
   return type !== 'image' && type !== 'divider' && type !== 'table';
 }
 
+function getSiblings(blocks: Block[], blockId: string): Block[] | null {
+  const parentId = findParentId(blocks, blockId);
+  if (parentId === undefined) return null;
+  return parentId === null ? blocks : findBlockById(blocks, parentId)?.children ?? null;
+}
+
+export function isInsideToggle(blocks: Block[], blockId: string): boolean {
+  const parentId = findParentId(blocks, blockId);
+  if (!parentId) return false;
+  const parent = findBlockById(blocks, parentId);
+  return parent?.type === 'toggle';
+}
+
+export function getPreviousSiblingToggleId(blocks: Block[], blockId: string): string | null {
+  const siblings = getSiblings(blocks, blockId);
+  if (!siblings) return null;
+  const idx = siblings.findIndex(b => b.id === blockId);
+  if (idx <= 0) return null;
+  const prev = siblings[idx - 1];
+  return prev.type === 'toggle' ? prev.id : null;
+}
+
+export function canMoveIntoPreviousToggle(blocks: Block[], blockId: string): boolean {
+  const toggleId = getPreviousSiblingToggleId(blocks, blockId);
+  if (!toggleId) return false;
+  const block = findBlockById(blocks, blockId);
+  return !!block && isNestableInToggle(block.type);
+}
+
 /** Remove a block anywhere in the tree. */
 export function extractBlockFromTree(
   blocks: Block[],
