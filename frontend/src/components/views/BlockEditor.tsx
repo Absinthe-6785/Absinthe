@@ -19,9 +19,6 @@ import React, {
 } from 'react';
 import {
   ChevronRight, Plus, Copy, Indent, Outdent, Link2, Palette,
-  Heading1, Heading2, Heading3,
-  List, ListOrdered, CheckSquare, Code2,
-  Image as ImageIcon, Minus, Table2, Quote, Zap, Type,
   Trash2, ArrowUp, ArrowDown, Bold, Italic, Hash,
 } from 'lucide-react';
 import {
@@ -30,7 +27,7 @@ import {
   updateBlockById, insertBlockAfter, deleteBlockById,
   findBlockById, flattenBlockIds, insertImageAfter,
   isTextBlockType,
-  BLOCK_TYPE_MENU, filterBlockMenu, TURN_INTO_TYPES,
+  BLOCK_TYPE_MENU, TURN_INTO_TYPES,
   blocksToMarkdown, markdownToBlocks,
   convertBlock,
   isValidImageUrl,
@@ -48,9 +45,9 @@ import {
 } from './editableDom';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
-import { applyDragDrop, indentBlock, outdentBlock } from './blockTree';
+import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
-import { slashDisplayLabel, slashShortcutFor, resolveSlashCommand } from './slashCommands';
+import { slashDisplayLabel, resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { BLOCK_TINT_OPTIONS, blockTintStyle, type BlockTint } from './blockColors';
 import { applyPasteAtBlock, extractClipboardText } from './blockPaste';
@@ -66,6 +63,17 @@ import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
   moveBlockIntoToggle, moveBlockOutOfToggle,
 } from './blockTree';
+import {
+  useDragDrop,
+  DropInsertIndicator,
+  BlockGripIcon,
+  type DragState,
+} from './editorDragDrop';
+import { blockIcon } from './blockIcons';
+import { SlashMenu } from './SlashMenu';
+import type { BlockEditorColors, TurnIntoMenuState } from './editorTypes';
+
+export type { BlockEditorColors } from './editorTypes';
 
 const getElText = readBlockText;
 
@@ -87,175 +95,6 @@ function useBlocksCtx(): BlocksCtxValue {
   return ctx;
 }
 
-// ── 드래그&드롭 훅 ────────────────────────────────────────────────────
-interface DragState {
-  draggingId:  string;           // 드래그 중인 블록 id
-  overId:      string | null;    // 현재 hover 블록 id
-  overPos:     'before' | 'after' | 'inside' | null; // 삽입 위치
-}
-
-interface UseDragDropResult {
-  dragState:    DragState | null;
-  /** ⋮⋮ 클릭 → onClick, 6px+ 이동 → 드래그 */
-  bindGripPointer: (id: string, e: React.PointerEvent, onClick?: () => void) => void;
-  getDragProps: (id: string) => {
-    onPointerEnter: (e: React.PointerEvent) => void;
-    'data-drag-id': string;
-  };
-}
-
-const DRAG_THRESHOLD_PX = 6;
-const HANDLE_HIT_PX = 32;
-
-/** Indent-aware drop target line (Notion-style). */
-function DropInsertIndicator({
-  position,
-  indentLeft,
-  accent,
-}: {
-  position: 'before' | 'after';
-  indentLeft: number;
-  accent: string;
-}) {
-  const edge = position === 'before' ? { top: -1 } : { bottom: -1 };
-  const dotEdge = position === 'before' ? { top: -5 } : { bottom: -5 };
-  return (
-    <>
-      <div
-        className="be-drop-line"
-        style={{
-          position: 'absolute',
-          left: indentLeft,
-          right: 0,
-          height: 2,
-          background: accent,
-          borderRadius: 1,
-          zIndex: 10,
-          pointerEvents: 'none',
-          boxShadow: `0 0 8px ${accent}66`,
-          ...edge,
-        }}
-      />
-      <div
-        className="be-drop-dot"
-        style={{
-          position: 'absolute',
-          left: Math.max(0, indentLeft - 4),
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: accent,
-          zIndex: 11,
-          pointerEvents: 'none',
-          boxShadow: `0 0 6px ${accent}88`,
-          ...dotEdge,
-        }}
-      />
-    </>
-  );
-}
-
-/** Notion-style 6-dot drag grip (⠿) */
-function BlockGripIcon() {
-  return (
-    <span className="be-grip-icon" aria-hidden>
-      {Array.from({ length: 6 }, (_, i) => (
-        <span key={i} className="be-grip-dot" />
-      ))}
-    </span>
-  );
-}
-
-function useDragDrop(
-  blocks: Block[],
-  onReorder: (newBlocks: Block[]) => void,
-): UseDragDropResult {
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const dragStateRef = useRef<DragState | null>(null);
-  dragStateRef.current = dragState;
-  const blocksRef = useRef(blocks);
-  blocksRef.current = blocks;
-
-  const bindGripPointer = useCallback((id: string, e: React.PointerEvent, onClick?: () => void) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let dragging = false;
-
-    const onMove = (ev: PointerEvent) => {
-      if (!dragging) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
-        dragging = true;
-        setDragState({ draggingId: id, overId: null, overPos: null });
-      }
-
-      const els = document.elementsFromPoint(ev.clientX, ev.clientY);
-      const blockEl = els.find(
-        el => el.classList.contains('be-block') &&
-              el.getAttribute('data-drag-id') !== id,
-      ) as HTMLElement | undefined;
-
-      if (blockEl) {
-        const overId   = blockEl.getAttribute('data-drag-id') ?? '';
-        const blockType = blockEl.getAttribute('data-block-type');
-        const rect     = blockEl.getBoundingClientRect();
-        let overPos: 'before' | 'after' | 'inside';
-        if (blockType === 'toggle' && ev.clientY > rect.top + rect.height * 0.35) {
-          overPos = 'inside';
-        } else {
-          overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-        }
-        setDragState(s => s?.draggingId === id ? { ...s, overId, overPos } : s);
-        return;
-      }
-
-      const toggleDropEl = els.find(
-        el => el.classList.contains('be-toggle-drop') &&
-              el.getAttribute('data-toggle-id') !== id,
-      ) as HTMLElement | undefined;
-
-      if (toggleDropEl) {
-        const toggleId = toggleDropEl.getAttribute('data-toggle-id') ?? '';
-        setDragState(s => s?.draggingId === id ? { ...s, overId: toggleId, overPos: 'inside' } : s);
-        return;
-      }
-
-      setDragState(s => s?.draggingId === id ? { ...s, overId: null, overPos: null } : s);
-    };
-
-    const onUp = () => {
-      if (!dragging) {
-        onClick?.();
-      } else {
-        const st = dragStateRef.current;
-        const bs = blocksRef.current;
-        if (st?.overId && st.overPos && st.draggingId === id) {
-          const next = applyDragDrop(bs, st.draggingId, st.overId, st.overPos);
-          if (next) onReorder(next);
-        }
-        setDragState(null);
-      }
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup',   onUp);
-    };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup',   onUp);
-  }, [onReorder]);
-
-  const getDragProps = useCallback((id: string) => ({
-    onPointerEnter: (_e: React.PointerEvent) => {
-      if (dragStateRef.current?.draggingId) {
-        // handled via pointermove on window
-      }
-    },
-    'data-drag-id': id,
-  }), []);
-
-  return { dragState, bindGripPointer, getDragProps };
-}
-
 // ── 슬래시 커맨드 상태 타입 ──────────────────────────────────────────
 interface SlashMenuState {
   blockId:  string;
@@ -270,51 +109,6 @@ interface WikiMenuState {
   query:    string;     // '[[' 이후 입력된 검색어
   anchorY:  number;
   anchorX:  number;
-}
-
-interface TurnIntoMenuState {
-  blockId:  string;
-  anchorY:  number;
-  anchorX:  number;
-}
-
-// ── 색상 팔레트 (NoteView의 c 객체와 동일 구조) ─────────────────────
-export interface BlockEditorColors {
-  bg:         string;
-  text:       string;
-  textMuted:  string;
-  textFaint:  string;
-  accent:     string;
-  accentBg:   string;
-  border:     string;
-  card:       string;
-  cardHov:    string;
-  input:      string;
-  inputBdr:   string;
-  toolbar:    string;
-  danger:     string;
-  green:      string;
-  codeBg:     string;
-  calloutBg:  string;
-  toggleBg:   string;
-  quoteBdr:   string;
-  selection:  string;
-  blockFocusBg?: string;
-  blockFocusBorder?: string;
-  blockSelectedBg?: string;
-  blockHoverBg?: string;
-  toolbarActiveFg?: string;
-  radiusBtn?: number;
-  radiusCard?: number;
-  radiusModal?: number;
-  searchHlBg?: string;
-  searchHlColor?: string;
-  linkColor?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  documentMaxWidth?: number;
-  menuShadow?: string;
-  isDark?: boolean;
 }
 
 // ── Props ────────────────────────────────────────────────────────────
@@ -335,21 +129,6 @@ interface BlockEditorProps {
   /** 외부에서 특정 블록으로 포커스 이동 요청 */
   externalFocusId?: string | null;
   onExternalFocusConsumed?: () => void;
-}
-
-interface BlockMenuState { blockId: string; anchorY: number; anchorX: number; }
-
-// ── 블록 타입 → 아이콘 ───────────────────────────────────────────────
-function blockIcon(type: BlockType): ReactNode {
-  const s = 12;
-  const map: Partial<Record<BlockType, ReactNode>> = {
-    heading1: <Heading1 size={s}/>, heading2: <Heading2 size={s}/>, heading3: <Heading3 size={s}/>,
-    bullet: <List size={s}/>, numbered: <ListOrdered size={s}/>, todo: <CheckSquare size={s}/>,
-    code: <Code2 size={s}/>, image: <ImageIcon size={s}/>, divider: <Minus size={s}/>,
-    table: <Table2 size={s}/>, quote: <Quote size={s}/>, callout: <Zap size={s}/>,
-    toggle: <ChevronRight size={s}/>, math: <span style={{fontSize:11,fontWeight:700}}>∑</span>,
-  };
-  return map[type] ?? <Type size={s}/>;
 }
 
 // ── 인라인 마크다운 렌더러 (readOnly 렌더 전용) ──────────────────────
@@ -484,7 +263,7 @@ function paintEditableLive(
 interface SingleBlockProps {
   block: Block;
   colors: BlockEditorColors; selected: boolean;
-  onSelect: (id: string) => void; onOpenMenu: (s: BlockMenuState) => void;
+  onSelect: (id: string) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
   searchQuery: string; depth: number; wikiTargets: string[];
   headingIndex?: number;   // 최상위 헤딩 순번 (TOC 점프 타겟용), 헤딩이 아니면 undefined
@@ -543,7 +322,6 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.colors === next.colors
     && prev.wikiTargets === next.wikiTargets
     && prev.onSelect === next.onSelect
-    && prev.onOpenMenu === next.onOpenMenu
     && prev.onAddBelow === next.onAddBelow
     && prev.onSplitBlock === next.onSplitBlock
     && prev.onMergeWithPrev === next.onMergeWithPrev
@@ -575,7 +353,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
 
 const SingleBlock = React.memo(function SingleBlock({
   block, colors: c, selected,
-  onSelect, onOpenMenu, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
+  onSelect, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
   onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
   dragState, bindGripPointer, getDragProps,
   onOpenTurnInto, onConvertBlock,
@@ -692,7 +470,7 @@ const SingleBlock = React.memo(function SingleBlock({
     onToggleCollapse: handleToggleCollapse,
     onToggleTodo: handleToggleTodo,
     getBlocks, onChange, searchQuery, depth, wikiTargets,
-    readOnly, onSelect, onOpenMenu, onAddBelow,
+    readOnly, onSelect, onAddBelow,
     // Phase 2
     onSplitBlock, onMergeWithPrev, onContentChange,
     editableRef,
@@ -812,7 +590,7 @@ const SingleBlock = React.memo(function SingleBlock({
             onToggleCollapse: handleToggleCollapse,
             onToggleTodo: handleToggleTodo,
             getBlocks, onChange, searchQuery, depth, wikiTargets,
-            readOnly, onSelect, onOpenMenu, onAddBelow,
+            readOnly, onSelect, onAddBelow,
             onSplitBlock, onMergeWithPrev, onContentChange,
             editableRef,
             onSlashOpen, onSlashClose,
@@ -830,7 +608,7 @@ const SingleBlock = React.memo(function SingleBlock({
           onToggleCollapse: handleToggleCollapse,
           onToggleTodo: handleToggleTodo,
           getBlocks, onChange, searchQuery, depth, wikiTargets,
-          readOnly, onSelect, onOpenMenu, onAddBelow,
+          readOnly, onSelect, onAddBelow,
           onSplitBlock, onMergeWithPrev, onContentChange,
           editableRef,
           onSlashOpen, onSlashClose,
@@ -877,7 +655,6 @@ interface RCtx {
   searchQuery: string; depth: number; readOnly: boolean;
   wikiTargets: string[];
   onSelect: (id: string) => void;
-  onOpenMenu: (s: BlockMenuState) => void;
   onAddBelow: (id: string) => void;
   // Phase 2
   onSplitBlock:    (id: string, before: string, after: string) => void;
@@ -2625,7 +2402,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setFocusCmd({ blockId: m.blockId, offset: m.offset });
   }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange]);
 
-  const renderBlockMenu = (state: BlockMenuState, onDone: () => void) => {
+  const renderBlockMenu = (state: TurnIntoMenuState, onDone: () => void) => {
     const id = state.blockId;
     const root = getRootBlocks();
     return (
@@ -2898,7 +2675,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             key={block.id} block={block}
             colors={c} selected={selected === block.id}
             activeBlockId={activeBlockId}
-            onSelect={setSelected} onOpenMenu={setHandleMenu}
+            onSelect={setSelected}
             onAddBelow={handleAddBelow} readOnly={readOnly}
             searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
             headingIndex={headingIndexById[block.id]}
@@ -3141,119 +2918,6 @@ function BlockHandleMenu({
           {mi(<Trash2 size={12}/>, '삭제', onDelete, true)}
         </>
       )}
-    </div>
-  );
-}
-
-// ── 슬래시 커맨드 메뉴 ──────────────────────────────────────────────
-interface SlashMenuProps {
-  query: string; anchorY: number; anchorX: number;
-  colors: BlockEditorColors;
-  onSelect: (type: BlockType) => void;
-  onClose: () => void;
-}
-
-export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClose }: SlashMenuProps) {
-  const [cursor, setCursor] = useState(0);
-  const items   = useMemo(() => filterBlockMenu(query), [query]);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const grouped = useMemo(() => {
-    const g: Record<string, typeof items> = {};
-    items.forEach(item => { (g[item.group] ??= []).push(item); });
-    return g;
-  }, [items]);
-
-  const flatItems = useMemo(() => Object.values(grouped).flat(), [grouped]);
-
-  useEffect(() => { setCursor(0); }, [query]);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown')  { e.preventDefault(); setCursor(v => Math.min(v + 1, flatItems.length - 1)); }
-      if (e.key === 'ArrowUp')    { e.preventDefault(); setCursor(v => Math.max(v - 1, 0)); }
-      if (e.key === 'Enter')      { e.preventDefault(); if (flatItems[cursor]) onSelect(flatItems[cursor].type); }
-      if (e.key === 'Escape')     { onClose(); }
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [flatItems, cursor, onSelect, onClose]);
-
-  useEffect(() => {
-    const el = menuRef.current?.querySelector(`[data-idx="${cursor}"]`) as HTMLElement | null;
-    el?.scrollIntoView({ block:'nearest' });
-  }, [cursor]);
-
-  const groupLabels: Record<string, string> = { text:'텍스트', list:'목록', media:'미디어', embed:'임베드' };
-  const top  = Math.min(anchorY + 8, window.innerHeight - 380);
-  const left = Math.min(anchorX,     window.innerWidth  - 260);
-
-  return (
-    <div ref={menuRef} className="be-slash-menu" style={{
-      position:'fixed', top, left, zIndex:400,
-      background:c.card, border:`1px solid ${c.border}`,
-      borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-      width:248, maxHeight:360, overflowY:'auto', padding:'6px 0',
-    }}>
-      <div style={{ padding:'6px 12px 8px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-          <span style={{
-            fontSize:11, fontWeight:700, color:c.accent, background:c.accentBg,
-            borderRadius:4, padding:'2px 6px', fontFamily:'ui-monospace, monospace',
-          }}>/</span>
-          <span style={{ fontSize:10, color:c.textFaint, fontWeight:700, letterSpacing:0.8 }}>
-            {query ? `"${query}"` : '블록 명령'}
-          </span>
-        </div>
-        <div style={{ fontSize:11, color:c.textMuted }}>
-          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · todo · toggle · bullet · code …'}
-        </div>
-      </div>
-      {items.length === 0 && <div style={{ padding:12, color:c.textFaint, fontSize:13, textAlign:'center' }}>결과 없음</div>}
-      {Object.entries(grouped).map(([group, gItems]) => (
-        <div key={group}>
-          {!query && (
-            <div style={{ padding:'4px 12px 2px', fontSize:9, color:c.textFaint, fontWeight:700, letterSpacing:1, textTransform:'uppercase' }}>
-              {groupLabels[group] ?? group}
-            </div>
-          )}
-          {gItems.map(item => {
-            const idx = flatItems.indexOf(item);
-            const active = cursor === idx;
-            const shortcut = slashShortcutFor(item.type);
-            return (
-              <button key={item.type} data-idx={idx} type="button" onClick={() => onSelect(item.type)}
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%',
-                  padding:'7px 12px', background: active ? c.accentBg : 'none',
-                  border:'none', cursor:'pointer', textAlign:'left' }}
-                onMouseEnter={() => setCursor(idx)}>
-                <span style={{ width:28, height:28, borderRadius:6, background:c.toolbar,
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:14, flexShrink:0, color:c.accent }}>
-                  {item.icon}
-                </span>
-                <span style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:c.text }}>{slashDisplayLabel(item.type)}</div>
-                  <div style={{ fontSize:11, color:c.textMuted }}>{item.desc}</div>
-                </span>
-                {shortcut && (
-                  <span style={{ fontSize:10, color:c.textFaint, fontFamily:'ui-monospace, monospace', flexShrink:0 }}>
-                    /{shortcut}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      ))}
     </div>
   );
 }
@@ -3787,7 +3451,6 @@ export const BlockEditor = React.memo(function BlockEditor({
           '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
           '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
           '--be-search-hl-color': colors.searchHlColor ?? colors.text,
-          '--be-block-hover-bg': colors.blockHoverBg ?? 'rgba(139,92,246,0.015)',
           '--be-block-active-bg': colors.blockFocusBg ?? 'transparent',
           '--be-toggle-bg': colors.toggleBg ?? 'transparent',
           '--be-toggle-rail': colors.isDark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.16)',
