@@ -47,6 +47,7 @@ import {
   deleteBeforeCaret,
 } from './editableDom';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
+import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
 
 const getElText = readBlockText;
 
@@ -2296,15 +2297,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const idx = bs.findIndex(b => b.id === id);
     if (idx < 0) return;
 
-    // Toggle Step 3: 마지막 자식이 빈 paragraph + Enter → 부모 toggle 아래로 탈출
-    const isLast    = idx === bs.length - 1;
-    const isEmpty   = before === '' && after === '';
-    const isPara    = bs[idx].type === 'paragraph';
-    if (isLast && isEmpty && isPara && onEscapeToParentBelow) {
-      // 빈 자식 블록 삭제 후 부모에 탈출 신호
-      const cleaned = bs.filter(b => b.id !== id);
-      onChange(cleaned.length > 0 ? cleaned : []);
-      onEscapeToParentBelow();
+    if (onEscapeToParentBelow) {
+      const result = applyToggleChildEnter(bs, id, before, after, true);
+      if (result.action === 'escape_below') {
+        onChange(result.children);
+        onEscapeToParentBelow();
+        return;
+      }
+      onChange(result.children);
+      setFocusCmd({ blockId: result.focusBlockId, offset: 'start' });
+      setSelected(result.focusBlockId);
       return;
     }
 
@@ -2381,17 +2383,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   // ── Toggle Step 2: 헤더 Enter → 자식 블록 생성 & 포커스 ──────────
   const handleToggleEnter = useCallback((toggleBlockId: string, currentContent: string) => {
-    const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => {
-      // 헤더 content를 currentContent로 업데이트 (캐럿 위치 이후 텍스트 있을 경우 대비)
-      const updated: Block = { ...b, content: currentContent, collapsed: false };
-      // 자식이 이미 있으면 맨 앞에 삽입, 없으면 새로 생성
-      return { ...updated, children: [newChild, ...b.children] };
-    }));
-    // 새 자식으로 포커스
+    const toggle = findBlockById(blocksRef.current, toggleBlockId);
+    if (!toggle) return;
+    const { children, focusBlockId } = applyToggleHeaderEnter(toggle.children);
+    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
+      ...b,
+      content: currentContent,
+      collapsed: false,
+      children,
+    })));
     requestAnimationFrame(() => {
-      const handler = focusRegistry.get(newChild.id);
-      if (handler) handler({ blockId: newChild.id, offset: 'start' });
+      const handler = focusRegistry.get(focusBlockId);
+      if (handler) handler({ blockId: focusBlockId, offset: 'start' });
     });
   }, [onChange]);
 
