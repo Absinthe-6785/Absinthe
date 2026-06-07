@@ -48,6 +48,7 @@ import {
 } from './editableDom';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
+import { applyDragDrop, indentBlock, outdentBlock } from './blockTree';
 
 const getElText = readBlockText;
 
@@ -73,7 +74,7 @@ function useBlocksCtx(): BlocksCtxValue {
 interface DragState {
   draggingId:  string;           // 드래그 중인 블록 id
   overId:      string | null;    // 현재 hover 블록 id
-  overPos:     'before' | 'after' | null; // 삽입 위치
+  overPos:     'before' | 'after' | 'inside' | null; // 삽입 위치
 }
 
 interface UseDragDropResult {
@@ -125,6 +126,17 @@ function useDragDrop(
       }
 
       const els = document.elementsFromPoint(ev.clientX, ev.clientY);
+      const toggleDropEl = els.find(
+        el => el.classList.contains('be-toggle-drop') &&
+              el.getAttribute('data-toggle-id') !== id,
+      ) as HTMLElement | undefined;
+
+      if (toggleDropEl) {
+        const toggleId = toggleDropEl.getAttribute('data-toggle-id') ?? '';
+        setDragState(s => s?.draggingId === id ? { ...s, overId: toggleId, overPos: 'inside' } : s);
+        return;
+      }
+
       const blockEl = els.find(
         el => el.classList.contains('be-block') &&
               el.getAttribute('data-drag-id') !== id
@@ -136,8 +148,14 @@ function useDragDrop(
       }
 
       const overId   = blockEl.getAttribute('data-drag-id') ?? '';
+      const blockType = blockEl.getAttribute('data-block-type');
       const rect     = blockEl.getBoundingClientRect();
-      const overPos: 'before' | 'after' = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      let overPos: 'before' | 'after' | 'inside';
+      if (blockType === 'toggle' && ev.clientY > rect.top + rect.height * 0.35) {
+        overPos = 'inside';
+      } else {
+        overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      }
       setDragState(s => s?.draggingId === id ? { ...s, overId, overPos } : null);
     };
 
@@ -148,17 +166,8 @@ function useDragDrop(
         const st = dragStateRef.current;
         const bs = blocksRef.current;
         if (st?.overId && st.overPos && st.draggingId === id) {
-          const from = bs.findIndex(b => b.id === st.draggingId);
-          const to   = bs.findIndex(b => b.id === st.overId);
-          if (from >= 0 && to >= 0 && from !== to) {
-            const next = [...bs];
-            const [moved] = next.splice(from, 1);
-            const insertAt = st.overPos === 'before'
-              ? (to > from ? to - 1 : to)
-              : (to > from ? to     : to + 1);
-            next.splice(Math.max(0, insertAt), 0, moved);
-            onReorder(next);
-          }
+          const next = applyDragDrop(bs, st.draggingId, st.overId, st.overPos);
+          if (next) onReorder(next);
         }
         setDragState(null);
       }
@@ -442,6 +451,10 @@ interface SingleBlockProps {
   onToggleControlsPin?: (id: string) => void;
   onChromeEnter?: (id: string) => void;
   onChromeLeave?: () => void;
+  onIndentBlock?: (id: string) => void;
+  onOutdentBlock?: (id: string) => void;
+  getRootBlocks?: () => Block[];
+  onRootChange?: (b: Block[]) => void;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
@@ -480,7 +493,11 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onActiveBlockChange === next.onActiveBlockChange
     && prev.onToggleControlsPin === next.onToggleControlsPin
     && prev.onChromeEnter === next.onChromeEnter
-    && prev.onChromeLeave === next.onChromeLeave;
+    && prev.onChromeLeave === next.onChromeLeave
+    && prev.onIndentBlock === next.onIndentBlock
+    && prev.onOutdentBlock === next.onOutdentBlock
+    && prev.getRootBlocks === next.getRootBlocks
+    && prev.onRootChange === next.onRootChange;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -501,6 +518,10 @@ const SingleBlock = React.memo(function SingleBlock({
   onToggleControlsPin,
   onChromeEnter,
   onChromeLeave,
+  onIndentBlock,
+  onOutdentBlock,
+  getRootBlocks,
+  onRootChange,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -555,6 +576,7 @@ const SingleBlock = React.memo(function SingleBlock({
   const isDragging   = dragState?.draggingId === block.id;
   const isOverBefore = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'before';
   const isOverAfter  = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'after';
+  const isOverInside = !isDragging && block.type === 'toggle' && dragState?.overId === block.id && dragState?.overPos === 'inside';
   const isActive     = activeBlockId === block.id;
 
   const dropLineStyle: CSSProperties = {
@@ -620,6 +642,10 @@ const SingleBlock = React.memo(function SingleBlock({
     onNavigateBlock,
     onActiveBlockChange,
     onConvertBlock,
+    onIndentBlock,
+    onOutdentBlock,
+    getRootBlocks: getRootBlocks ?? getBlocks,
+    onRootChange: onRootChange ?? onChange,
   });
 
   const shellKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -646,6 +672,7 @@ const SingleBlock = React.memo(function SingleBlock({
     <div
       {...getDragProps(block.id)}
       data-be-heading={headingIndex}
+      data-block-type={block.type}
       style={{
         position:'relative', marginLeft: depth > 0 ? depth * 20 : 0,
         borderRadius: 6,
@@ -667,6 +694,13 @@ const SingleBlock = React.memo(function SingleBlock({
       onMouseLeave={() => onChromeLeave?.()}
       onClick={() => { onSelect(block.id); onActiveBlockChange?.(block.id); }}>
       {isOverBefore && <div style={{ ...dropLineStyle, top: -1 }}/>}
+      {isOverInside && (
+        <div style={{
+          position: 'absolute', inset: 2, borderRadius: 8, zIndex: 9,
+          border: `2px dashed ${c.accent}`, pointerEvents: 'none',
+          background: `${c.accent}11`,
+        }}/>
+      )}
       {handles}
       {body}
       {isOverAfter  && <div style={{ ...dropLineStyle, bottom: -1 }}/>}
@@ -714,6 +748,10 @@ interface RCtx {
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
   onConvertBlock: (id: string, type: BlockType) => void;
+  onIndentBlock?: (id: string) => void;
+  onOutdentBlock?: (id: string) => void;
+  getRootBlocks: () => Block[];
+  onRootChange: (b: Block[]) => void;
 }
 
 // ── EditableBlock: contentEditable 인라인 편집기 ─────────────────────
@@ -744,6 +782,8 @@ interface EditableBlockProps {
   wikiTargets?: string[];
   searchQuery?: string;
   onConvertBlock?: (id: string, type: BlockType) => void;
+  onIndentBlock?: (id: string) => void;
+  onOutdentBlock?: (id: string) => void;
 }
 
 function EditableBlock({
@@ -755,6 +795,8 @@ function EditableBlock({
   onEnterOverride, onNavigateBlock, onActiveBlockChange,
   wikiTargets = [], searchQuery = '',
   onConvertBlock,
+  onIndentBlock,
+  onOutdentBlock,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -960,6 +1002,20 @@ function EditableBlock({
       }
     }
 
+    // ── Tab / Shift+Tab: 들여쓰기·내어쓰기 (토글 중첩·목록) ───────
+    if (e.key === 'Tab' && !mod && !isMenuOpen) {
+      if (e.shiftKey) {
+        if (onOutdentBlock) {
+          e.preventDefault();
+          onOutdentBlock(block.id);
+        }
+      } else if (onIndentBlock) {
+        e.preventDefault();
+        onIndentBlock(block.id);
+      }
+      return;
+    }
+
     // ── ↑/↓: 블록 경계에서 이웃 블록으로 이동 ───────────────────
     if (e.key === 'ArrowUp') {
       const offset = getCaretOffset(el);
@@ -975,7 +1031,7 @@ function EditableBlock({
       onSlashClose();
       onWikiClose();
     }
-  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock, c, wikiTargets, searchQuery, onContentChange]);
+  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock, c, wikiTargets, searchQuery, onContentChange, onIndentBlock, onOutdentBlock]);
 
   const handleFocus = useCallback(() => {
     onActiveBlockChange?.(block.id);
@@ -1914,6 +1970,8 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
     wikiTargets: ctx.wikiTargets,
     searchQuery: ctx.searchQuery,
     onConvertBlock: ctx.onConvertBlock,
+    onIndentBlock: ctx.onIndentBlock,
+    onOutdentBlock: ctx.onOutdentBlock,
   };
   const ep = (tag: EditableBlockProps['tag'], style: CSSProperties, placeholder?: string) =>
     !readOnly ? (
@@ -2038,7 +2096,11 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
             }
           </div>
           {ctx.toggleOpen && (
-            <div style={{ padding:'8px 12px 10px 36px', background: `${c.bg}88` }}>
+            <div
+              className="be-toggle-drop"
+              data-toggle-id={block.id}
+              style={{ padding:'8px 12px 10px 36px', background: `${c.bg}88` }}
+            >
               {block.children.length > 0 ? (
                 <BlockEditorInner
                   blocks={block.children}
@@ -2048,6 +2110,8 @@ function renderInner(block: Block, c: BlockEditorColors, ctx: RCtx): ReactNode {
                   onWikiNavigate={ctx.onWikiNavigate}
                   onActiveBlockChange={ctx.onActiveBlockChange}
                   externalFocusId={undefined}
+                  getRootBlocks={ctx.getRootBlocks}
+                  onRootChange={ctx.onRootChange}
                   // Toggle Step 3: 자식 → 부모 탈출 콜백
                   onEscapeToParentBelow={() => {
                     // toggle 바로 아래에 새 paragraph 삽입 + 포커스
@@ -2177,15 +2241,34 @@ interface BlockEditorInnerProps {
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
   onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
+  getRootBlocks?: () => Block[];
+  onRootChange?: (b: Block[]) => void;
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
   externalFocusId, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader,
+  getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  const getRootBlocks = useCallback(
+    () => (getRootBlocksProp ? getRootBlocksProp() : blocksRef.current),
+    [getRootBlocksProp],
+  );
+  const onRootChange = onRootChangeProp ?? onChange;
+
+  const handleIndentBlock = useCallback((blockId: string) => {
+    const next = indentBlock(getRootBlocks(), blockId);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
+
+  const handleOutdentBlock = useCallback((blockId: string) => {
+    const next = outdentBlock(getRootBlocks(), blockId);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
 
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const handleActiveBlockChange = useCallback((id: string | null) => {
@@ -2534,6 +2617,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onToggleControlsPin={handleToggleControlsPin}
             onChromeEnter={handleChromeEnter}
             onChromeLeave={handleChromeLeave}
+            onIndentBlock={handleIndentBlock}
+            onOutdentBlock={handleOutdentBlock}
+            getRootBlocks={getRootBlocks}
+            onRootChange={onRootChange}
           />
         ))}
       </div>
