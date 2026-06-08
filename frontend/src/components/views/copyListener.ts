@@ -4,7 +4,8 @@
  * Semantic copy must run in all builds. Dev diagnostics are separate.
  */
 import { handleEditorCopyEvent } from './blockCopy';
-import { verifyCopyClipboardSync, scheduleAsyncClipboardVerification } from './copyClipboardVerification';
+import { scheduleBrowserClipboardCapture } from './browserClipboardCapture';
+import { verifyCopyClipboardSync } from './copyClipboardVerification';
 import type { CopyTraceReport } from './copyDiagnostics';
 import { setLastCopyTraceReport } from './copyTraceStore';
 import type { Block } from './blockUtils';
@@ -25,7 +26,7 @@ export function installEditorCopyListener(opts: EditorCopyListenerOptions): () =
     );
     setLastCopyTraceReport(report);
     verifyCopyClipboardSync(e, report);
-    scheduleAsyncClipboardVerification(report);
+    scheduleBrowserClipboardCapture(e, report);
     opts.onReport?.(report);
   };
 
