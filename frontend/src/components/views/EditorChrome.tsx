@@ -16,6 +16,28 @@ export function blockShellClassName(
   return `be-block${isActive ? ' be-block-active' : ''}${selected ? ' be-block-selected' : ''}${controlsVisible ? ' be-controls-visible' : ''}${extra ? ` ${extra}` : ''}`;
 }
 
+export interface BlockGutterProps {
+  blockId: string;
+  readOnly: boolean;
+  onPointerDown?: (blockId: string, e: React.PointerEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
+}
+
+/** Dedicated gutter column — drag strip is always pointer-hittable (UX-2B fix). */
+export function BlockGutter({ blockId, readOnly, onPointerDown, children }: BlockGutterProps) {
+  if (readOnly) return null;
+  return (
+    <div className="be-gutter" data-gutter-block-id={blockId}>
+      <div
+        className="be-gutter-strip"
+        aria-hidden
+        onPointerDown={onPointerDown ? e => onPointerDown(blockId, e) : undefined}
+      />
+      {children}
+    </div>
+  );
+}
+
 export interface BlockHandlesProps {
   blockId: string;
   depth: number;
@@ -35,16 +57,15 @@ export function BlockHandles({
 }: BlockHandlesProps) {
   if (!shouldShowBlockChrome(readOnly)) return null;
 
-  const handleGutter = depth > 0 ? 34 : 38;
+  void depth;
 
   return (
     <div
       className="be-handles"
-      onMouseDown={e => e.stopPropagation()}
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position: 'absolute', left: -handleGutter, top: '50%', transform: 'translateY(-50%)',
+        position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
         display: 'flex', flexDirection: 'row', alignItems: 'center',
       }}
     >
@@ -52,6 +73,7 @@ export function BlockHandles({
         type="button"
         className={`be-grip be-handle-btn${controlsVisible ? ' be-grip-pinned' : ''}`}
         onPointerDown={e => {
+          e.stopPropagation();
           const gripEl = e.currentTarget as HTMLElement;
           bindGripPointer(blockId, e, () => {
             onToggleControlsPin?.(blockId);
