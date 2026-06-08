@@ -37,7 +37,7 @@ function blockBodyHtml(block: Block): string {
     }
     case 'toggle': {
       const openAttr = block.collapsed ? '' : ' open';
-      const childHtml = block.children.map(blockBodyHtml).join('');
+      const childHtml = blocksToCopyHtml(block.children);
       const body = childHtml ? `<div class="btbody">${childHtml}</div>` : '';
       return `<details class="btoggle"${openAttr}><summary class="btsummary">${escapeHtml(block.content)}</summary>${body}</details>`;
     }
@@ -110,6 +110,11 @@ function listGroupToHtml(blocks: Block[], ordered: boolean): string {
 
   const render = (items: Block[], depth: number): string => {
     if (!items.length) return '';
+    const minIndent = Math.min(...items.map(i => i.indent ?? 0));
+    if (minIndent > depth) {
+      const inner = render(items, minIndent);
+      return `<${tag}><li>${inner}</li></${tag}>`;
+    }
     let html = `<${tag}>`;
     let j = 0;
     while (j < items.length) {
