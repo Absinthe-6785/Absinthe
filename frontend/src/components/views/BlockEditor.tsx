@@ -94,6 +94,12 @@ import {
   type FocusCmd,
 } from './selectionState';
 import { BlockGutter, BlockHandles, blockShellClassName, EditorChromeStyles } from './EditorChrome';
+import {
+  focusNearestEditable,
+  isFirstEmptyRootParagraph,
+  shouldHandleDocumentFocus,
+  type DocumentFocusAction,
+} from './documentFocus';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
@@ -192,6 +198,7 @@ interface SingleBlockProps {
   onRootChange?: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
   renderToggleNested: ToggleNestedRenderer;
+  showPersistentPlaceholder?: (blockId: string) => boolean;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
@@ -238,7 +245,8 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.getRootBlocks === next.getRootBlocks
     && prev.onRootChange === next.onRootChange
     && prev.searchQueryFor === next.searchQueryFor
-    && prev.renderToggleNested === next.renderToggleNested;
+    && prev.renderToggleNested === next.renderToggleNested
+    && prev.showPersistentPlaceholder === next.showPersistentPlaceholder;
 }
 
 const SingleBlock = React.memo(function SingleBlock({
@@ -268,6 +276,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onRootChange,
   searchQueryFor,
   renderToggleNested,
+  showPersistentPlaceholder,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -374,6 +383,7 @@ const SingleBlock = React.memo(function SingleBlock({
     getRootBlocks: getRootBlocks ?? getBlocks,
     onRootChange: onRootChange ?? onChange,
     searchQueryFor,
+    showPersistentPlaceholder,
   };
 
   const inner = (
@@ -535,6 +545,9 @@ interface BlockEditorInnerProps {
   onRootChange?: (b: Block[]) => void;
   searchScope?: EditorSearchScope;
   searchMatchIndex?: number;
+  documentFocusApiRef?: React.MutableRefObject<{
+    handlePointerDown: (e: React.PointerEvent) => void;
+  } | null>;
 }
 
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
@@ -543,6 +556,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   onEscapeToParentBelow, onEscapeToParentHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
   searchScope = 'document', searchMatchIndex = 0,
+  documentFocusApiRef,
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -698,6 +712,44 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setAnchorBlockId(anchorId);
     handleActiveBlockChange(id);
   }, [readOnly, getRootBlocks, anchorBlockId, handleActiveBlockChange]);
+
+  const showPersistentPlaceholder = useCallback((blockId: string) => {
+    if (depth !== 0 || readOnly) return false;
+    return isFirstEmptyRootParagraph(getRootBlocks(), blockId);
+  }, [depth, readOnly, getRootBlocks]);
+
+  const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
+    if (action.kind === 'append') {
+      flushSync(() => {
+        onRootChange([...getRootBlocks(), action.block]);
+      });
+      selectBlock(action.block.id);
+      handleActiveBlockChange(action.block.id);
+      const focus = { blockId: action.block.id, offset: 'start' as const };
+      setFocusCmd(focus);
+      requestAnimationFrame(() => dispatchFocusCommand(focus));
+      return;
+    }
+    selectBlock(action.blockId);
+    handleActiveBlockChange(action.blockId);
+    setFocusCmd({ blockId: action.blockId, offset: action.offset });
+  }, [getRootBlocks, onRootChange, selectBlock, handleActiveBlockChange]);
+
+  const handleDocumentFocusPointerDown = useCallback((e: React.PointerEvent) => {
+    if (readOnly || depth !== 0) return;
+    if (e.button !== 0) return;
+    if (!shouldHandleDocumentFocus(e.target)) return;
+    const root = editorRootRef.current;
+    if (!root) return;
+    applyDocumentFocusAction(focusNearestEditable(e.clientY, getRootBlocks(), root));
+    e.preventDefault();
+  }, [readOnly, depth, getRootBlocks, applyDocumentFocusAction]);
+
+  useEffect(() => {
+    if (!documentFocusApiRef) return;
+    documentFocusApiRef.current = { handlePointerDown: handleDocumentFocusPointerDown };
+    return () => { documentFocusApiRef.current = null; };
+  }, [documentFocusApiRef, handleDocumentFocusPointerDown]);
 
   const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly || depth !== 0) return;
@@ -1214,13 +1266,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         ref={depth === 0 ? editorRootRef : undefined}
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? 36 : 0), position:'relative' }}
-        onMouseDown={depth === 0 && !readOnly ? e => {
-          const t = e.target as HTMLElement;
-          if (!t.closest('.be-block')) {
-            setSelectedBlockIds(emptySelection());
-            setAnchorBlockId(null);
-          }
-        } : undefined}
+        onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
       >
         {blocks.map(block => (
           <SingleBlock
@@ -1265,8 +1311,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onRootChange={onRootChange}
             searchQueryFor={searchQueryFor}
             renderToggleNested={renderToggleNested}
+            showPersistentPlaceholder={showPersistentPlaceholder}
           />
         ))}
+        {depth === 0 && !readOnly && (
+          <div className="be-document-bottom-strip" aria-hidden />
+        )}
       </div>
       {!readOnly && (
         <SelectionToolbar
@@ -1330,11 +1380,20 @@ export const BlockEditor = React.memo(function BlockEditor({
   searchMatchIndex = 0, wikiTargets = [], onWikiNavigate,
   onActiveBlockChange, externalFocusId, onExternalFocusConsumed,
 }: BlockEditorProps) {
+  const documentFocusApiRef = useRef<{
+    handlePointerDown: (e: React.PointerEvent) => void;
+  } | null>(null);
+
   return (
     <>
       <EditorChromeStyles />
       <div
         className={`be-editor-root ${readingRootClass(readOnly)}${readOnly ? '' : ' be-document-edit'}`}
+        onPointerDown={!readOnly ? e => {
+          if (e.target === e.currentTarget) {
+            documentFocusApiRef.current?.handlePointerDown(e);
+          }
+        } : undefined}
         style={{
           '--be-accent': colors.accent,
           '--be-accent-bg': colors.accentBg,
@@ -1368,22 +1427,9 @@ export const BlockEditor = React.memo(function BlockEditor({
         onActiveBlockChange={onActiveBlockChange}
         externalFocusId={externalFocusId}
         onExternalFocusConsumed={onExternalFocusConsumed}
+        documentFocusApiRef={documentFocusApiRef}
       />
       </div>
-      {!readOnly && (
-        <div style={{ minHeight:80, cursor:'text' }}
-          onClick={() => {
-            const last = blocks[blocks.length - 1];
-            if (!last || last.type !== 'paragraph' || last.content)
-              onChange([...blocks, makeBlock('paragraph')]);
-          }}>
-          {blocks.length === 0 && (
-            <p style={{ color:colors.textFaint, fontSize:15, margin:0, fontStyle:'italic' }}>
-              여기를 클릭해 작성 시작…
-            </p>
-          )}
-        </div>
-      )}
     </>
   );
 });

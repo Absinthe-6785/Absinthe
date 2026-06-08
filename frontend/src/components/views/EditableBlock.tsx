@@ -50,6 +50,7 @@ export interface EditableBlockProps {
   onOutdentBlock?: (id: string) => void;
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
   onPasteBlocksAt?: (id: string, start: number, end: number, blocks: import('./blockUtils').Block[]) => void;
+  persistentPlaceholder?: boolean;
 }
 
 export function EditableBlock({
@@ -65,6 +66,7 @@ export function EditableBlock({
   onOutdentBlock,
   onPasteAt,
   onPasteBlocksAt,
+  persistentPlaceholder = false,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -339,7 +341,7 @@ export function EditableBlock({
       ref={(el: HTMLElement | null) => { editableRef.current = el; }}
       contentEditable
       suppressContentEditableWarning
-      className={`be-editable${className ? ` ${className}` : ''}`}
+      className={`be-editable${persistentPlaceholder ? ' be-persistent-placeholder' : ''}${className ? ` ${className}` : ''}`}
       style={{
         outline: 'none',
         whiteSpace: 'pre-wrap',

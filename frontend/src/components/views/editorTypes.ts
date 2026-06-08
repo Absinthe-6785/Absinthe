@@ -102,4 +102,5 @@ export interface BlockRenderContext {
   getRootBlocks: () => Block[];
   onRootChange: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
+  showPersistentPlaceholder?: (blockId: string) => boolean;
 }

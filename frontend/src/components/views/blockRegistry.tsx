@@ -84,6 +84,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
       ) : (
         <EditableBlock block={block} colors={c} tag="p"
           style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text, minHeight:26 }}
+          persistentPlaceholder={ctx.showPersistentPlaceholder?.(block.id)}
           {...editProps}/>
       );
     case 'heading1':

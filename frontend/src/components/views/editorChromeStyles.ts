@@ -161,9 +161,18 @@ export const EDITOR_CHROME_STYLES = `
     position: absolute;
     left: 0;
   }
+  .be-editable.be-persistent-placeholder[contenteditable]:empty::before {
+    content: attr(data-placeholder);
+    opacity: 0.55;
+  }
   .be-block-active .be-editable[contenteditable]:empty::before,
   .be-editable[contenteditable]:empty:focus::before {
     content: attr(data-placeholder);
+    opacity: 1;
+  }
+  .be-document-bottom-strip {
+    min-height: 80px;
+    cursor: text;
   }
   [contenteditable] { position: relative; }
   [contenteditable]:focus { outline: none; }
