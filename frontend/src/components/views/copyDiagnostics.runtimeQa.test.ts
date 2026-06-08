@@ -75,6 +75,38 @@ function makeClipboardEvent(browserHtml?: string, browserPlain?: string): Clipbo
   });
 }
 
+function focusReadingBlock(
+  blockId: string,
+  blockType: string,
+  text: string,
+  selectStart?: number,
+  selectEnd?: number,
+): void {
+  const wrap = document.createElement('div');
+  wrap.className = 'be-toggle-wrap';
+  const el = document.createElement('span');
+  el.className = 'be-block-text';
+  el.setAttribute('data-block-id', blockId);
+  el.setAttribute('data-block-type', blockType);
+  el.textContent = text;
+  wrap.appendChild(el);
+  const children = document.createElement('div');
+  children.className = 'be-toggle-children';
+  children.setAttribute('data-toggle-id', blockId);
+  wrap.appendChild(children);
+  document.body.appendChild(wrap);
+  const range = document.createRange();
+  if (selectStart != null && selectEnd != null && el.firstChild) {
+    range.setStart(el.firstChild, selectStart);
+    range.setEnd(el.firstChild, selectEnd);
+  } else {
+    range.selectNodeContents(el);
+  }
+  const sel = window.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function focusEditable(
   blockId: string,
   blockType: string,
@@ -129,7 +161,6 @@ function runRuntimeCopy(opts: {
     getRootBlocks: () => opts.blocks,
     getSelectedIds: () => opts.selectedIds,
     onCopy: (e) => {
-      if (opts.readOnly) return null;
       const report = handleEditorCopyEvent(e, opts.blocks, opts.selectedIds);
       if (report) {
         tracePath = report.path;
@@ -183,9 +214,7 @@ function runRuntimeCopy(opts: {
   warnSpy.mockRestore();
   document.body.innerHTML = '';
 
-  const pathLabel = !captureHandlerRegistered
-    ? 'handler-not-registered-readonly'
-    : (tracePath ?? 'no-trace');
+  const pathLabel = tracePath ?? (!captureHandlerRegistered ? 'handler-not-registered' : 'no-trace');
 
   const result: RuntimeQaResult = {
     gesture: opts.gesture,
@@ -232,23 +261,21 @@ describe('runtime QA — EJU failing reproduction gestures', () => {
     vi.unstubAllEnvs();
   });
 
-  it('GESTURE A: reading/preview mode Ctrl+C (matches flattened paste)', () => {
+  it('GESTURE A: reading/preview mode Ctrl+C (semantic toggle copy)', () => {
     const result = runRuntimeCopy({
       gesture: 'Preview/reading mode — select visible EJU text, Ctrl+C',
       readOnly: true,
       blocks: ejuBlocks,
       selectedIds: new Set(),
-      browserHtml: EJU_DOM_CLIPBOARD_HTML,
-      browserPlain: 'Grammar Module\nParticles\nは vs が',
       setup: () => {
-        focusEditable(grammarToggle.id, 'toggle', 'Grammar Module', 0, 6);
+        focusReadingBlock(grammarToggle.id, 'toggle', 'Grammar Module', 0, 6);
       },
     });
 
-    expect(result.handlerRegistered).toBe(false);
-    expect(result.path).toBe('handler-not-registered-readonly');
-    expect(result.preventedDefault).toBe(false);
-    expect(result.htmlClassification).toBe('dom-be-toggle');
+    expect(result.handlerRegistered).toBe(true);
+    expect(result.path).toBe('editable-toggle-header');
+    expect(result.preventedDefault).toBe(true);
+    expect(result.htmlClassification).toBe('semantic-details');
   });
 
   it('GESTURE B: edit mode partial selection inside toggle bullet', () => {
@@ -307,8 +334,7 @@ describe('runtime QA — EJU failing reproduction gestures', () => {
         readOnly: true,
         blocks: ejuBlocks,
         selectedIds: new Set(),
-        browserHtml: EJU_DOM_CLIPBOARD_HTML,
-        setup: () => focusEditable(grammarToggle.id, 'toggle', 'Grammar Module'),
+        setup: () => focusReadingBlock(grammarToggle.id, 'toggle', 'Grammar Module'),
       }),
       runRuntimeCopy({
         gesture: 'B partial bullet',
@@ -320,22 +346,18 @@ describe('runtime QA — EJU failing reproduction gestures', () => {
       }),
     ];
 
-    const bugPaths = failing.filter(r =>
-      !r.preventedDefault && r.htmlClassification === 'dom-be-toggle',
-    );
+    const fixedReading = failing.find(r => r.gesture === 'A preview reading')!;
+    const stillPartial = failing.find(r => r.gesture === 'B partial bullet')!;
 
     // eslint-disable-next-line no-console
-    console.info('\n========== FAILING GESTURE VERDICT ==========');
+    console.info('\n========== GESTURE VERDICT (UX-3A.2) ==========');
     // eslint-disable-next-line no-console
-    console.info(bugPaths.map(r => ({
-      gesture: r.gesture,
-      path: r.path,
-      readOnly: r.readOnly,
-      handlerRegistered: r.handlerRegistered,
-    })));
+    console.info({ fixedReading, stillPartial });
 
-    expect(bugPaths.length).toBeGreaterThanOrEqual(2);
-    expect(bugPaths.some(r => r.path === 'handler-not-registered-readonly')).toBe(true);
-    expect(bugPaths.some(r => r.path === 'editable-partial-fallback')).toBe(true);
+    expect(fixedReading.path).toBe('editable-toggle-header');
+    expect(fixedReading.preventedDefault).toBe(true);
+    expect(fixedReading.htmlClassification).toBe('semantic-details');
+    expect(stillPartial.path).toBe('editable-partial-fallback');
+    expect(stillPartial.preventedDefault).toBe(false);
   });
 });

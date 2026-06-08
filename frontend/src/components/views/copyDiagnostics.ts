@@ -144,7 +144,7 @@ export function installCopyDiagnostics(opts: CopyDiagnosticsOptions): () => void
     console.warn('[UX-3A copy:capture]', {
       readOnly: opts.readOnly,
       depth: opts.depth,
-      handlerRegistered: !opts.readOnly && opts.depth === 0,
+      handlerRegistered: opts.depth === 0,
       selectedBlockIds: [...opts.getSelectedIds()],
       activeBlockId: blockId,
       activeTag: active?.tagName ?? null,
@@ -153,9 +153,6 @@ export function installCopyDiagnostics(opts: CopyDiagnosticsOptions): () => void
       defaultPreventedAtCapture: e.defaultPrevented,
     });
 
-    if (opts.readOnly) {
-      console.warn('[UX-3A copy:capture] semantic handler NOT registered — readOnly mode');
-    }
     if (opts.depth !== 0) {
       console.warn('[UX-3A copy:capture] semantic handler NOT registered — nested editor depth');
     }

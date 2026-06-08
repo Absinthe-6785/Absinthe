@@ -144,21 +144,42 @@ describe('copy path investigation', () => {
     document.body.removeChild(el);
   });
 
-  it('readOnly: handler not invoked — preview QA uses browser DOM copy', () => {
-    // BlockEditor skips handleEditorCopyEvent when readOnly=true.
-    // Simulate: no handler call → clipboard empty in mock.
+  it('readOnly: toggle header selection uses semantic copy (UX-3A.2)', () => {
+    const el = document.createElement('span');
+    el.className = 'be-block-text';
+    el.setAttribute('data-block-id', grammarToggle.id);
+    el.setAttribute('data-block-type', 'toggle');
+    el.textContent = 'Grammar Module';
+    const wrap = document.createElement('div');
+    wrap.className = 'be-toggle-wrap';
+    wrap.appendChild(el);
+    const children = document.createElement('div');
+    children.className = 'be-toggle-children';
+    children.setAttribute('data-toggle-id', grammarToggle.id);
+    wrap.appendChild(children);
+    document.body.appendChild(wrap);
+
+    const range = document.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.setEnd(el.firstChild!, 6);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
     const { e, data, prevented } = mockCopyEvent();
-    const report = null; // readOnly → runCopy returns null
+    const report = handleEditorCopyEvent(e, ejuBlocks, new Set())!;
 
     // eslint-disable-next-line no-console
-    console.info('\n=== PATH: readOnly (no semantic handler) ===', {
-      report,
-      note: 'In reading/preview mode, copy listener is not registered; browser writes DOM HTML.',
+    console.info('\n=== PATH: readOnly toggle copy ===', {
+      path: report.path,
+      prevented: report.preventedDefault,
+      htmlClassification: report.htmlClassification,
     });
 
-    expect(report).toBeNull();
-    expect(prevented()).toBe(false);
-    expect(data['text/html']).toBeUndefined();
+    expect(report.path).toBe('editable-toggle-header');
+    expect(prevented()).toBe(true);
+    expect(classifyClipboardHtml(data['text/html'])).toBe('semantic-details');
+    document.body.innerHTML = '';
   });
 
   it('compare expected semantic HTML vs DOM-shaped HTML for grammar toggle', () => {

@@ -1157,10 +1157,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   useEffect(() => {
     if (depth !== 0) return;
 
-    const runCopy = (e: ClipboardEvent) => {
-      if (readOnly) return null;
-      return handleEditorCopyEvent(e, getRootBlocks(), selectedBlockIdsRef.current);
-    };
+    const runCopy = (e: ClipboardEvent) =>
+      handleEditorCopyEvent(e, getRootBlocks(), selectedBlockIdsRef.current);
 
     const uninstallDiag = installCopyDiagnostics({
       readOnly,

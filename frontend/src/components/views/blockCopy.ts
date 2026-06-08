@@ -4,6 +4,7 @@
  * Serializes blocks to HTML/plain for copy so paste reuses UX-3A HTML parsers.
  */
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
+import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block } from './blockUtils';
 import { readBlockText } from './editableDom';
 import { getSelectionOffsets } from './selectionOffsets';
@@ -313,7 +314,51 @@ export function handleEditorCopyEvent(
     }, clipboard, true);
   }
 
-  if (!active?.classList.contains('be-editable')) {
+  const resolved = resolveCopySelection(rootBlocks);
+
+  if (resolved.kind === 'toggle-subtree') {
+    const block = findBlockById(rootBlocks, resolved.blockId);
+    if (!block) return null;
+    const expected = expectedSemanticPayload([block]);
+    e.preventDefault();
+    applySemanticCopy([block], clipboard);
+    return traceAfter({
+      path: 'editable-toggle-header',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId: resolved.blockId,
+      activeBlockType: 'toggle',
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 1,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
+  }
+
+  if (resolved.kind === 'multi-block') {
+    const blocks = collectBlocksForCopy(rootBlocks, resolved.blockIds);
+    if (!blocks.length) return null;
+    const expected = expectedSemanticPayload(blocks);
+    e.preventDefault();
+    applySemanticCopy(blocks, clipboard);
+    return traceAfter({
+      path: 'multi-select',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: blocks.length,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
+  }
+
+  if (resolved.kind === 'not-focused') {
     return traceAfter({
       path: 'editable-not-focused',
       preventedDefault: false,
@@ -329,10 +374,9 @@ export function handleEditorCopyEvent(
     }, clipboard, false);
   }
 
-  const blockId = active.getAttribute('data-block-id');
-  if (!blockId) {
+  if (resolved.kind === 'partial-fallback') {
     return traceAfter({
-      path: 'editable-no-block-id',
+      path: 'editable-partial-fallback',
       preventedDefault: false,
       selectedBlockIds,
       activeBlockId,
@@ -346,10 +390,8 @@ export function handleEditorCopyEvent(
     }, clipboard, false);
   }
 
-  const sel = getSelectionOffsets(active);
-  const text = readBlockText(active);
-  const start = sel?.start ?? 0;
-  const end = sel?.end ?? text.length;
+  const { ctx } = resolved;
+  const { activeBlockId: blockId, activeBlockType: blockType, start, end, textLength } = ctx;
   const block = findBlockById(rootBlocks, blockId);
 
   if (!trySemanticCopyFromBlock(rootBlocks, blockId, start, end, clipboard)) {
@@ -358,10 +400,10 @@ export function handleEditorCopyEvent(
       preventedDefault: false,
       selectedBlockIds,
       activeBlockId: blockId,
-      activeBlockType,
+      activeBlockType: blockType,
       selectionStart: start,
       selectionEnd: end,
-      selectionLength: text.length,
+      selectionLength: textLength,
       blocksCopied: 0,
       expectedHtml: null,
       expectedPlain: null,
@@ -375,10 +417,10 @@ export function handleEditorCopyEvent(
     preventedDefault: true,
     selectedBlockIds,
     activeBlockId: blockId,
-    activeBlockType,
+    activeBlockType: blockType,
     selectionStart: start,
     selectionEnd: end,
-    selectionLength: text.length,
+    selectionLength: textLength,
     blocksCopied: 1,
     expectedHtml: expected.html,
     expectedPlain: expected.plain,
