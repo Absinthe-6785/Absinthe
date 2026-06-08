@@ -2,7 +2,18 @@
 
 **Branch:** `cursor/sprint-ux2-ai-paste-selection-aafa`  
 **Base:** `cursor/editor-next-aafa` (synced with `main` @ F-3B+F-4+F-5.0+UX-1)  
-**Status:** Planning only — **do not implement until approved**
+**Status:** UX-2A **approved & in progress** (separate PR). UX-2B **approved** (separate PR after 2A).
+
+### Approved decisions (2026-06)
+
+| Topic | Decision |
+|-------|----------|
+| HTML vs plain | When `text/html` exists → **HTML first** → on failure → `text/plain` fallback |
+| Table sandwich | Required regression fixture: H1 + P + table + P + UL → order preserved |
+| Unknown HTML (`details`, callout divs) | **Paragraph fallback** — no callout detection in v1 |
+| Headings | **H1–H4** only in mapping; H4/H5/H6 → `heading3` (no `heading4` block type) |
+| UX-2B gutter | **Dedicated `<div class="be-gutter">`** + `<div class="be-content">` — not `::before` |
+| PR split | UX-2A and UX-2B in **separate PRs** (data pipeline vs UI events) |
 
 ---
 
@@ -114,7 +125,7 @@ Sequential walker over `document.body` children (depth-first for lists):
 | HTML | Block type |
 |------|------------|
 | `h1`–`h3` | `heading1`–`heading3` |
-| `h4`–`h6` | `heading3` (fallback) or paragraph with bold — **decision in impl** |
+| `h4`–`h6` | `heading3` (app has no `heading4` type) |
 | `p`, bare `div` text | `paragraph` |
 | `ul` / `ol` | `bullet` / `numbered` (+ nested `indent`) |
 | `li` with checkbox patterns | `todo` |
@@ -137,11 +148,9 @@ export function clipboardToBlocks(
 
 Decision tree:
 
-1. If `text/html` has multiple block-level siblings (or article wrapper with mixed types) → `htmlDocumentToBlocks(html)`
-2. Else if `text/plain` is multiline markdown → `markdownToBlocks(plain)`
-3. Else if TSV only (no conflicting html) → table via existing `tsvToMarkdownTable`
-4. Else fallback → `htmlArticleToMarkdown` → `markdownToBlocks`
-5. Always `validateDocument` before return
+1. If `text/html` present and has block structure → `htmlDocumentToBlocks(html)` (**HTML first**)
+2. On HTML failure or no structure → `text/plain` fallback (`markdownToBlocks` / TSV)
+3. Always `validateDocument` before return
 
 ### Integration point (minimal touch to frozen files)
 
@@ -243,9 +252,9 @@ BlockEditorInner (depth === 0)
 
 **Missing:** pointer drag through gutter to select a range (marquee by block rows).
 
-### Gutter hit area
+### Gutter hit area (approved)
 
-`.be-block::before` — 44px wide left pseudo-element (see `editorChromeStyles.ts`). Currently no `pointer-events`; clicks pass through to content or miss.
+Use explicit DOM: `<div class="be-gutter" />` + `<div class="be-content" />` — **not** `.be-block::before`. Easier hit-testing and debugging alongside row click / Delete / drag / selection.
 
 ---
 
@@ -355,12 +364,12 @@ Phase 2 — UX-2B (P1)
 
 ---
 
-# Open decisions (need approval)
+# Resolved decisions
 
-1. **H4–H6 mapping:** downgrade to `heading3` vs new heading types?
-2. **HTML callout divs** (ChatGPT styled boxes): paragraph fallback vs `callout` detection?
-3. **Gutter width:** keep 44px `::before` vs dedicated `.be-gutter` element?
-4. **Unfreeze `pasteStructure.ts`:** delegate only vs inline deprecation?
+1. **H4–H6:** map to `heading3`.
+2. **Callout divs:** paragraph fallback only in v1.
+3. **Gutter:** dedicated `.be-gutter` element.
+4. **`pasteStructure.ts`:** leave frozen; new path via `pasteOrchestrator` + minimal hooks in `blockPaste.ts`.
 
 ---
 

@@ -6,8 +6,10 @@ import {
   prepareStructuredPasteText,
 } from './pasteStructure';
 import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from './blockUtils';
+import { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
 export { normalizePasteText, htmlToPlainText } from './pasteStructure';
+export { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
 const BARE_URL_RE = /^https?:\/\/\S+$/i;
 
@@ -122,6 +124,60 @@ export function applyPasteAtBlock(
     ];
     focusBlockId = last.id;
     focusOffset = last.content.length;
+  }
+
+  const next = [
+    ...blocks.slice(0, idx),
+    ...replacement,
+    ...blocks.slice(idx + 1),
+  ];
+
+  return {
+    blocks: renumberNumberedListsDeep(next),
+    focusBlockId,
+    focusOffset,
+  };
+}
+
+/** Insert pre-parsed blocks at a block offset (UX-2A HTML / document paste). */
+export function applyPasteBlocksAt(
+  blocks: Block[],
+  blockId: string,
+  start: number,
+  end: number,
+  pastedBlocksIn: Block[],
+  context?: PasteContext,
+): PasteResult | null {
+  if (pastedBlocksIn.length === 0) return null;
+
+  const idx = blocks.findIndex(b => b.id === blockId);
+  if (idx < 0) return null;
+  const cur = blocks[idx];
+  const before = cur.content.slice(0, start);
+  const after = cur.content.slice(end);
+
+  let pastedBlocks = pastedBlocksIn.map(b => ({ ...b }));
+  if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
+
+  let replacement: Block[];
+  let focusBlockId: string;
+  let focusOffset: number;
+
+  if (pastedBlocks.length === 1) {
+    const pb = pastedBlocks[0];
+    const content = before + (pb.content ?? '') + after;
+    replacement = [{ ...pb, id: cur.id, content }];
+    focusBlockId = cur.id;
+    focusOffset = before.length + (pb.content ?? '').length;
+  } else {
+    const last = pastedBlocks[pastedBlocks.length - 1];
+    replacement = [
+      { ...pastedBlocks[0], id: cur.id, content: before + (pastedBlocks[0].content ?? '') },
+      ...pastedBlocks.slice(1, -1),
+      { ...last, content: (last.content ?? '') + after },
+    ];
+    focusBlockId = last.id;
+    focusOffset = (last.content ?? '').length;
   }
 
   const next = [
