@@ -44,7 +44,7 @@ describe('Enter / Shift+Enter regression', () => {
   });
 
   it('toggle header Enter appends child', () => {
-    const { children, focusBlockId } = applyToggleHeaderEnter([]);
+    const { children, focusBlockId } = applyToggleHeaderEnter([], '', '');
     expect(children).toHaveLength(1);
     expect(focusBlockId).toBe(children[0].id);
   });

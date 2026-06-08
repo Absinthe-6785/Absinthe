@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { makeBlock, markdownToBlocks, type Block } from './blockUtils';
 import {
   applySemanticCopy,
   blocksToCopyHtml,
   collectBlocksForCopy,
+  handleEditorCopyEvent,
   trySemanticCopyFromBlock,
 } from './blockCopy';
+import { classifyClipboardPayloadVariant } from './copyClipboardVerification';
+import { classifyClipboardHtml } from './copyDiagnostics';
 import { clipboardToBlocks } from './pasteOrchestrator';
 
 type TreeShape = { type: string; content?: string; checked?: boolean; collapsed?: boolean; indent?: number; children?: TreeShape[] };
@@ -212,5 +215,111 @@ describe('blockCopy semantic round-trip', () => {
       b => b.type !== 'paragraph' || b.content.trim() !== '',
     );
     assertTreesEqual(original, roundTrip(original));
+  });
+});
+
+function mockCopyWithSelection(
+  blockId: string,
+  blockType: string,
+  text: string,
+  start: number,
+  end: number,
+) {
+  const el = document.createElement('span');
+  el.className = 'be-editable';
+  el.setAttribute('data-block-id', blockId);
+  el.setAttribute('data-block-type', blockType);
+  el.textContent = text;
+  document.body.appendChild(el);
+  el.focus();
+  const range = document.createRange();
+  range.setStart(el.firstChild!, start);
+  range.setEnd(el.firstChild!, end);
+  const sel = window.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  const data: Record<string, string> = {};
+  let prevented = false;
+  const clipboard = {
+    setData: (type: string, val: string) => { data[type] = val; },
+    getData: (type: string) => data[type] ?? '',
+  } as DataTransfer;
+  const e = {
+    clipboardData: clipboard,
+    preventDefault: () => { prevented = true; },
+  } as Pick<ClipboardEvent, 'clipboardData' | 'preventDefault'>;
+
+  return { e, data, prevented: () => prevented, cleanup: () => { document.body.innerHTML = ''; } };
+}
+
+describe('UX-3A.4 — toggle selection overrides partial text fallback', () => {
+  const grammarToggle = makeBlock('toggle', {
+    id: 'grammar',
+    content: 'Grammar Module',
+    children: [
+      makeBlock('heading2', { id: 'h2-particles', content: 'Particles' }),
+      makeBlock('bullet', { id: 'bullet-ha', content: 'は vs が' }),
+    ],
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('toggle selected + partial header text → semantic full toggle', () => {
+    const { e, data, prevented, cleanup } = mockCopyWithSelection(
+      grammarToggle.id, 'toggle', 'Grammar Module', 0, 7,
+    );
+    const report = handleEditorCopyEvent(e, [grammarToggle], new Set([grammarToggle.id]))!;
+    cleanup();
+
+    expect(report.path).not.toBe('single-gutter-partial-fallback');
+    expect(report.path).toBe('single-gutter-full-block');
+    expect(prevented()).toBe(true);
+    expect(classifyClipboardPayloadVariant(data['text/html'])).toBe('A-semantic-details-summary');
+    expect(classifyClipboardHtml(data['text/html'])).toBe('semantic-details');
+    const parsed = clipboardToBlocks({ getData: t => data[t] ?? '' })!;
+    expect(parsed[0].type).toBe('toggle');
+    expect(parsed[0].children).toHaveLength(2);
+  });
+
+  it('toggle selected + partial child text → semantic full toggle', () => {
+    const child = grammarToggle.children[0];
+    const { e, data, prevented, cleanup } = mockCopyWithSelection(
+      child.id, 'heading2', 'Particles', 0, 5,
+    );
+    const report = handleEditorCopyEvent(e, [grammarToggle], new Set([grammarToggle.id]))!;
+    cleanup();
+
+    expect(report.path).toBe('single-gutter-full-block');
+    expect(prevented()).toBe(true);
+    expect(classifyClipboardPayloadVariant(data['text/html'])).toBe('A-semantic-details-summary');
+    const parsed = clipboardToBlocks({ getData: t => data[t] ?? '' })!;
+    expect(parsed[0].type).toBe('toggle');
+    expect(parsed[0].content).toBe('Grammar Module');
+    expect(parsed[0].children[0].type).toBe('heading2');
+  });
+
+  it('paragraph selected + partial text → partial fallback unchanged', () => {
+    const para = makeBlock('paragraph', { id: 'p1', content: 'Hello world' });
+    const { e, prevented, cleanup } = mockCopyWithSelection('p1', 'paragraph', 'Hello world', 0, 5);
+    const report = handleEditorCopyEvent(e, [para], new Set(['p1']))!;
+    cleanup();
+
+    expect(report.path).toBe('single-gutter-partial-fallback');
+    expect(prevented()).toBe(false);
+    expect(report.blocksCopied).toBe(0);
+  });
+
+  it('bullet selected + partial text → partial fallback unchanged', () => {
+    const bullet = makeBlock('bullet', { id: 'b1', content: 'は vs が' });
+    const { e, prevented, cleanup } = mockCopyWithSelection('b1', 'bullet', 'は vs が', 0, 3);
+    const report = handleEditorCopyEvent(e, [bullet], new Set(['b1']))!;
+    cleanup();
+
+    expect(report.path).toBe('single-gutter-partial-fallback');
+    expect(prevented()).toBe(false);
+    expect(report.blocksCopied).toBe(0);
   });
 });
