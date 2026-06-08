@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { blockShellClassName } from './EditorChrome';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { blockShellClassName, BlockGutter } from './EditorChrome';
 import { shouldShowBlockChrome } from './editorReading';
 
 describe('editorChrome', () => {
@@ -30,5 +32,20 @@ describe('editorChrome', () => {
     const cls = blockShellClassName(true, true, false);
     expect(cls).toContain('be-block-active');
     expect(cls).toContain('be-block-selected');
+  });
+
+  it('BlockGutter renders dedicated gutter element', () => {
+    const html = renderToStaticMarkup(
+      createElement(BlockGutter, { blockId: 'x', readOnly: false }, 'child'),
+    );
+    expect(html).toContain('be-gutter');
+    expect(html).toContain('data-gutter-block-id="x"');
+  });
+
+  it('BlockGutter hidden in readOnly', () => {
+    const html = renderToStaticMarkup(
+      createElement(BlockGutter, { blockId: 'x', readOnly: true }, 'child'),
+    );
+    expect(html).toBe('');
   });
 });

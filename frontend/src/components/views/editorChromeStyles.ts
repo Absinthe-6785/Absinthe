@@ -4,25 +4,50 @@
 import { EDITOR_READING_STYLES } from './editorReading';
 
 export const EDITOR_CHROME_STYLES = `
-  .be-block::before {
-    content: '';
+  .be-gutter {
     position: absolute;
     left: -44px;
     top: -4px;
     bottom: -4px;
     width: 44px;
+    z-index: 2;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .12s, visibility .12s;
+    cursor: default;
+    touch-action: none;
   }
-  .be-editor-nested .be-block::before { left: -40px; width: 40px; }
+  .be-editor-nested .be-gutter { left: -40px; width: 40px; }
+  .be-block:hover > .be-gutter,
+  .be-block.be-block-active > .be-gutter,
+  .be-block.be-controls-visible > .be-gutter,
+  .be-block.be-block-selected > .be-gutter,
+  .be-block.be-dragging > .be-gutter,
+  .be-editor-root.be-gutter-dragging .be-gutter {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .be-editor-root.be-gutter-dragging {
+    user-select: none;
+    cursor: default;
+  }
+  .be-content {
+    position: relative;
+    min-width: 0;
+  }
   .be-handles {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity .12s, visibility .12s;
   }
-  .be-block:hover > .be-handles,
-  .be-block.be-block-active > .be-handles,
-  .be-block.be-controls-visible > .be-handles,
-  .be-block.be-dragging > .be-handles,
+  .be-block:hover > .be-gutter > .be-handles,
+  .be-block.be-block-active > .be-gutter > .be-handles,
+  .be-block.be-controls-visible > .be-gutter > .be-handles,
+  .be-block.be-dragging > .be-gutter > .be-handles,
+  .be-gutter:hover > .be-handles,
   .be-handles:hover {
     opacity: 1 !important;
     visibility: visible !important;
@@ -87,10 +112,10 @@ export const EDITOR_CHROME_STYLES = `
   .be-block-active.be-block-selected {
     background: var(--be-block-active-selected-bg, rgba(139,92,246,0.08));
   }
-  .be-block-active:not(.be-toggle-header-block)::before {
+  .be-block-active:not(.be-toggle-header-block) > .be-gutter::before {
     content: '';
     position: absolute;
-    left: -10px;
+    right: 6px;
     top: 3px;
     bottom: 3px;
     width: 2px;
@@ -99,7 +124,7 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 0.55;
     pointer-events: none;
   }
-  .be-block-active.be-block-selected:not(.be-toggle-header-block)::before {
+  .be-block-active.be-block-selected:not(.be-toggle-header-block) > .be-gutter::before {
     opacity: 0.7;
   }
   .be-block.be-dragging {

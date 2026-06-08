@@ -28,6 +28,26 @@ export interface BlockHandlesProps {
   onOpenTurnInto: (state: TurnIntoMenuState) => void;
 }
 
+export interface BlockGutterProps {
+  blockId: string;
+  readOnly: boolean;
+  onPointerDown?: (blockId: string, e: React.PointerEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
+}
+
+export function BlockGutter({ blockId, readOnly, onPointerDown, children }: BlockGutterProps) {
+  if (readOnly) return null;
+  return (
+    <div
+      className="be-gutter"
+      data-gutter-block-id={blockId}
+      onPointerDown={onPointerDown ? e => onPointerDown(blockId, e) : undefined}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function BlockHandles({
   blockId, depth, readOnly, controlsVisible,
   onChromeEnter, onChromeLeave, onToggleControlsPin,
@@ -35,16 +55,17 @@ export function BlockHandles({
 }: BlockHandlesProps) {
   if (!shouldShowBlockChrome(readOnly)) return null;
 
-  const handleGutter = depth > 0 ? 34 : 38;
+  void depth;
 
   return (
     <div
       className="be-handles"
       onMouseDown={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position: 'absolute', left: -handleGutter, top: '50%', transform: 'translateY(-50%)',
+        position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
         display: 'flex', flexDirection: 'row', alignItems: 'center',
       }}
     >
