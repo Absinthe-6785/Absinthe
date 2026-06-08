@@ -14,7 +14,7 @@ export interface ToggleBlockProps {
   blockShellStyle: CSSProperties;
   blockShellClass: string;
   dropIndicators: ReactNode;
-  gutterChrome: ReactNode;
+  handles: ReactNode;
   onChromeEnter?: () => void;
   onChromeLeave?: () => void;
   onSelect: (e: React.MouseEvent) => void;
@@ -32,7 +32,7 @@ export function ToggleBlock({
   blockShellStyle,
   blockShellClass,
   dropIndicators,
-  gutterChrome,
+  handles,
   onChromeEnter,
   onChromeLeave,
   onSelect,
@@ -49,12 +49,11 @@ export function ToggleBlock({
         className={`${blockShellClass} be-toggle-header-block`}
         onMouseEnter={onChromeEnter}
         onMouseLeave={onChromeLeave}
+        onMouseDown={onSelect}
       >
         {dropIndicators}
-        {gutterChrome}
-        <div className="be-content" onMouseDown={onSelect}>
-          {renderToggleHeader(block, c, ctx)}
-        </div>
+        {handles}
+        {renderToggleHeader(block, c, ctx)}
       </div>
       {toggleOpen && renderToggleChildren(block, ctx, renderNested, toggleDropActive)}
     </div>
