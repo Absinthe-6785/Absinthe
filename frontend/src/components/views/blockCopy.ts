@@ -275,7 +275,8 @@ export function handleEditorCopyEvent(
   if (selectedIds.size === 1) {
     const block = findBlockById(rootBlocks, [...selectedIds][0]);
     if (!block) return null;
-    if (active?.classList.contains('be-editable')) {
+    // UX-3A.4: gutter-selected toggle wins over partial text in any active .be-editable
+    if (block.type !== 'toggle' && active?.classList.contains('be-editable')) {
       const sel = getSelectionOffsets(active);
       const text = readBlockText(active);
       const start = sel?.start ?? 0;

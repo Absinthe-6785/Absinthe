@@ -297,20 +297,20 @@ describe('runtime QA — EJU failing reproduction gestures', () => {
     expect(result.htmlClassification).toBe('dom-be-toggle');
   });
 
-  it('GESTURE C: edit mode gutter-select toggle but partial header text', () => {
+  it('GESTURE C: edit mode gutter-select toggle but partial header text (UX-3A.4 semantic)', () => {
     const result = runRuntimeCopy({
       gesture: 'Edit mode — gutter-select toggle + partial header selection, Ctrl+C',
       readOnly: false,
       blocks: ejuBlocks,
       selectedIds: new Set([grammarToggle.id]),
-      browserHtml: EJU_DOM_CLIPBOARD_HTML,
       setup: () => {
         focusEditable(grammarToggle.id, 'toggle', 'Grammar Module', 0, 7);
       },
     });
 
-    expect(result.path).toBe('single-gutter-partial-fallback');
-    expect(result.preventedDefault).toBe(false);
+    expect(result.path).toBe('single-gutter-full-block');
+    expect(result.preventedDefault).toBe(true);
+    expect(result.htmlClassification).toBe('semantic-details');
   });
 
   it('GESTURE D: edit mode gutter multi-select (should NOT reproduce bug)', () => {

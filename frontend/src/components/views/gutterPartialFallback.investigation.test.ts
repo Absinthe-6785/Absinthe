@@ -292,7 +292,7 @@ describe('single-gutter-partial-fallback exact condition', () => {
     expect(copy.clipboardHtmlPreview).toContain('btoggle');
   });
 
-  it('PATCH A/B — noop removeAllRanges on gutter → partial-fallback returns', () => {
+  it('UX-3A.4 — partial text survives gutter click but toggle selected → semantic copy', () => {
     ({ root } = mountEjuEditor(ejuBlocks));
     layoutToggleRects(grammarToggle.id, childIds);
 
@@ -324,22 +324,23 @@ describe('single-gutter-partial-fallback exact condition', () => {
     const copyWithClear = runCopy(ejuBlocks, new Set([grammarToggle.id]));
 
     // eslint-disable-next-line no-console
-    console.info('\n========== PATCH A/B: removeAllRanges on gutter selection ==========');
+    console.info('\n========== UX-3A.4: toggle overrides partial text at copy ==========');
     // eslint-disable-next-line no-console
     console.info(JSON.stringify({
       withoutClear: { afterGutter: afterGutter.domSelection, copy: copyWithoutClear },
       withClear: { afterGutter: afterClear.domSelection, copy: copyWithClear },
       verdict: {
-        removeAllRangesMakesCopyDeterministic: copyWithClear.path === 'single-gutter-full-block'
-          && copyWithoutClear.path === 'single-gutter-partial-fallback',
+        toggleSelectedIgnoresPartialText: copyWithoutClear.path === 'single-gutter-full-block'
+          && copyWithClear.path === 'single-gutter-full-block',
         browserSelectionSurvivesGutterWhenNoClear: afterGutter.domSelection.rangeCount > 0
           || afterGutter.domSelection.getSelectionOffsetsOnActive != null,
       },
     }, null, 2));
 
     expect(afterGutter.domSelection.wouldTriggerPartialFallback).toBe(true);
-    expect(copyWithoutClear.path).toBe('single-gutter-partial-fallback');
-    expect(copyWithoutClear.semanticSkippedReason).toContain('partial range');
+    expect(copyWithoutClear.path).toBe('single-gutter-full-block');
+    expect(copyWithoutClear.semanticSkippedReason).toBeNull();
+    expect(copyWithoutClear.clipboardHtmlPreview).toContain('btoggle');
     expect(afterClear.domSelection.wouldTriggerPartialFallback).toBe(false);
     expect(copyWithClear.path).toBe('single-gutter-full-block');
     expect(copyWithClear.clipboardHtmlPreview).toContain('btoggle');
@@ -348,7 +349,8 @@ describe('single-gutter-partial-fallback exact condition', () => {
   it('documents exact partial-fallback predicate', () => {
     const predicate = {
       branch: 'selectedIds.size === 1',
-      guard: 'activeElement.classList.contains("be-editable")',
+      toggleExclusion: 'block.type === "toggle" → skip partial guard (UX-3A.4)',
+      guard: 'block.type !== "toggle" && activeElement.classList.contains("be-editable")',
       condition: 'start !== 0 || end !== text.length',
       startEndSource: 'getSelectionOffsets(active) ?? { start: 0, end: readBlockText(active).length }',
       note: 'Collapsed caret (getSelectionOffsets returns null) counts as full-block → semantic copy proceeds',

@@ -371,7 +371,7 @@ describe('gutter-selected toggle → Ctrl+C (exact QA reproduction)', () => {
     expect(trace.semanticExecuted).toBe(true);
   });
 
-  it('FAILURE MODE — gutter selected but partial text selection retained at copy time', () => {
+  it('UX-3A.4 — gutter selected + partial text retained → semantic toggle copy', () => {
     ({ root } = mountEjuEditor(ejuBlocks));
     layoutToggleRects(grammarToggle.id, childIds);
 
@@ -386,18 +386,19 @@ describe('gutter-selected toggle → Ctrl+C (exact QA reproduction)', () => {
 
     // Simulate gutter select WITHOUT removeAllRanges (bypass gutter handler)
     const trace = traceGutterCopy(
-      'FAILURE MODE: selectedIds set + partial header selection at copy (no gutter clear)',
+      'UX-3A.4: selectedIds set + partial header selection at copy (no gutter clear)',
       ejuBlocks,
       new Set([grammarToggle.id]),
       grammarToggle,
     );
     dumpTrace(trace);
 
-    expect(trace.path).toBe('single-gutter-partial-fallback');
-    expect(trace.preventedDefault).toBe(false);
-    expect(trace.semanticExecuted).toBe(false);
-    expect(trace.blocksCopied).toBe(0);
-    expect(trace.htmlClassification).toBe('empty');
+    expect(trace.path).toBe('single-gutter-full-block');
+    expect(trace.preventedDefault).toBe(true);
+    expect(trace.semanticExecuted).toBe(true);
+    expect(trace.blocksCopied).toBe(1);
+    expect(trace.htmlClassification).toBe('semantic-details');
+    expect(trace.clipboardHtml).toContain('btoggle');
   });
 
   it('FAILURE MODE — gutter click while focus in child h2 inside toggle', () => {
@@ -434,7 +435,7 @@ describe('gutter-selected toggle → Ctrl+C (exact QA reproduction)', () => {
     expect(trace.collectBlocksForCopy[0]?.type).toBe('toggle');
   });
 
-  it('FAILURE MODE — grip/handle click selects block but keeps partial text selection', () => {
+  it('UX-3A.4 — grip click + partial text + toggle selected → semantic copy', () => {
     ({ root } = mountEjuEditor(ejuBlocks));
 
     const headerEditable = document.querySelector(
@@ -454,17 +455,18 @@ describe('gutter-selected toggle → Ctrl+C (exact QA reproduction)', () => {
     });
 
     const trace = traceGutterCopy(
-      'FAILURE MODE: partial header + grip select (not gutter strip) → Ctrl+C',
+      'UX-3A.4: partial header + grip select (not gutter strip) → Ctrl+C',
       ejuBlocks,
       new Set([grammarToggle.id]),
       grammarToggle,
     );
     dumpTrace(trace);
 
-    expect(trace.path).toBe('single-gutter-partial-fallback');
-    expect(trace.preventedDefault).toBe(false);
-    expect(trace.semanticExecuted).toBe(false);
+    expect(trace.path).toBe('single-gutter-full-block');
+    expect(trace.preventedDefault).toBe(true);
+    expect(trace.semanticExecuted).toBe(true);
     expect(trace.collectBlocksForCopy[0]?.type).toBe('toggle');
+    expect(trace.clipboardHtml).toContain('btoggle');
   });
 
   it('FAILURE MODE — child block gutter (not toggle header gutter)', () => {
