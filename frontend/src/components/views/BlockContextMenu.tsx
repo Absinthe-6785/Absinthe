@@ -1,7 +1,8 @@
 /**
  * BlockContextMenu.tsx — Block grip context menu (extracted from BlockEditor)
  */
-import React, { useState, useRef, useMemo, useEffect, type ReactNode } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, type ReactNode } from 'react';
+import { computeFixedMenuPosition } from './menuViewport';
 import {
   Plus, Copy, Indent, Outdent, Link2, Palette,
   Trash2, ArrowUp, ArrowDown,
@@ -22,6 +23,8 @@ export interface BlockContextMenuProps {
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
+  /** When > 1, shows multi-select header and simplified actions */
+  selectionCount?: number;
   onAddAbove: () => void;
   onAddBelow: () => void;
   onDuplicate: () => void;
@@ -43,7 +46,7 @@ export interface BlockContextMenuProps {
 }
 
 export function BlockContextMenu({
-  blockId, currentType, anchorY, anchorX, colors: c,
+  blockId, currentType, anchorY, anchorX, colors: c, selectionCount,
   onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
   onMoveIntoToggle, onMoveOutOfToggle, canMoveIntoToggle, canMoveOutOfToggle,
   onSetTint, onCopyLink,
@@ -71,8 +74,14 @@ export function BlockContextMenu({
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const top  = Math.min(anchorY, window.innerHeight - 480);
-  const left = Math.min(anchorX, window.innerWidth  - 240);
+  const [menuPos, setMenuPos] = useState({ top: anchorY, left: anchorX });
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setMenuPos(computeFixedMenuPosition(anchorX, anchorY, width, height));
+  }, [anchorX, anchorY, submenu, selectionCount]);
 
   const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
     <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
@@ -100,7 +109,7 @@ export function BlockContextMenu({
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position:'fixed', top, left, zIndex:400,
+        position:'fixed', top: menuPos.top, left: menuPos.left, zIndex:400,
         background:c.card, border:`1px solid ${c.border}`,
         borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
         minWidth:210, maxWidth:240, overflow:'hidden', padding:'6px 0',
@@ -146,6 +155,15 @@ export function BlockContextMenu({
               <span style={{ fontSize:13, color:c.text }}>{TINT_LABELS[opt.id] ?? opt.label}</span>
             </button>
           ))}
+        </>
+      ) : selectionCount && selectionCount > 1 ? (
+        <>
+          <div style={{ padding:'8px 12px 6px', fontSize:12, fontWeight:600, color:c.textMuted }}>
+            {selectionCount} blocks selected
+          </div>
+          <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {mi(<Copy size={13}/>, CONTEXT_MENU.duplicate, onDuplicate)}
+          {mi(<Trash2 size={12}/>, CONTEXT_MENU.delete, onDelete, true)}
         </>
       ) : (
         <>

@@ -3,10 +3,12 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import type { Block } from './blockUtils';
+import { flattenBlockIds } from './blockUtils';
 import { applyHierarchyDragDrop } from './dragHierarchy';
+import { applyMultiBlockDragDrop } from './multiBlockDrag';
 
 export interface DragState {
-  draggingId: string;
+  draggingIds: string[];
   overId: string | null;
   overPos: 'before' | 'after' | 'inside' | null;
 }
@@ -18,6 +20,10 @@ export interface UseDragDropResult {
     onPointerEnter: (e: React.PointerEvent) => void;
     'data-drag-id': string;
   };
+}
+
+export interface UseDragDropOptions {
+  getSelectedIds?: () => string[];
 }
 
 const DRAG_THRESHOLD_PX = 6;
@@ -84,12 +90,24 @@ export function BlockGripIcon() {
 export function useDragDrop(
   getBlocks: () => Block[],
   onReorder: (newBlocks: Block[]) => void,
+  options: UseDragDropOptions = {},
 ): UseDragDropResult {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   dragStateRef.current = dragState;
   const getBlocksRef = useRef(getBlocks);
   getBlocksRef.current = getBlocks;
+  const getSelectedIdsRef = useRef(options.getSelectedIds);
+  getSelectedIdsRef.current = options.getSelectedIds;
+
+  const resolveDraggingIds = useCallback((id: string): string[] => {
+    const selected = getSelectedIdsRef.current?.() ?? [];
+    if (selected.includes(id) && selected.length > 1) {
+      const order = flattenBlockIds(getBlocksRef.current());
+      return order.filter(sid => selected.includes(sid));
+    }
+    return [id];
+  }, []);
 
   const bindGripPointer = useCallback((id: string, e: React.PointerEvent, onClick?: () => void) => {
     e.preventDefault();
@@ -97,18 +115,20 @@ export function useDragDrop(
     const startX = e.clientX;
     const startY = e.clientY;
     let dragging = false;
+    const draggingIds = resolveDraggingIds(id);
 
     const onMove = (ev: PointerEvent) => {
       if (!dragging) {
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
         dragging = true;
-        setDragState({ draggingId: id, overId: null, overPos: null });
+        setDragState({ draggingIds, overId: null, overPos: null });
       }
 
+      const primaryId = draggingIds[0];
       const els = document.elementsFromPoint(ev.clientX, ev.clientY);
       const blockEl = els.find(
         el => el.classList.contains('be-block') &&
-              el.getAttribute('data-drag-id') !== id,
+              !draggingIds.includes(el.getAttribute('data-drag-id') ?? ''),
       ) as HTMLElement | undefined;
 
       if (blockEl) {
@@ -122,22 +142,22 @@ export function useDragDrop(
         } else {
           overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
         }
-        setDragState(s => s?.draggingId === id ? { ...s, overId, overPos } : s);
+        setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId, overPos } : s);
         return;
       }
 
       const toggleDropEl = els.find(
         el => el.classList.contains('be-toggle-drop') &&
-              el.getAttribute('data-toggle-id') !== id,
+              !draggingIds.includes(el.getAttribute('data-toggle-id') ?? ''),
       ) as HTMLElement | undefined;
 
       if (toggleDropEl) {
         const toggleId = toggleDropEl.getAttribute('data-toggle-id') ?? '';
-        setDragState(s => s?.draggingId === id ? { ...s, overId: toggleId, overPos: 'inside' } : s);
+        setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId: toggleId, overPos: 'inside' } : s);
         return;
       }
 
-      setDragState(s => s?.draggingId === id ? { ...s, overId: null, overPos: null } : s);
+      setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId: null, overPos: null } : s);
     };
 
     const onUp = () => {
@@ -145,13 +165,11 @@ export function useDragDrop(
         onClick?.();
       } else {
         const st = dragStateRef.current;
-        if (st?.overId && st.overPos && st.draggingId === id) {
-          const next = applyHierarchyDragDrop(
-            getBlocksRef.current(),
-            st.draggingId,
-            st.overId,
-            st.overPos,
-          );
+        if (st?.overId && st.overPos && st.draggingIds.length) {
+          const root = getBlocksRef.current();
+          const next = st.draggingIds.length > 1
+            ? applyMultiBlockDragDrop(root, st.draggingIds, st.overId, st.overPos)
+            : applyHierarchyDragDrop(root, st.draggingIds[0], st.overId, st.overPos);
           if (next) onReorder(next);
         }
         setDragState(null);
@@ -162,7 +180,7 @@ export function useDragDrop(
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  }, [onReorder]);
+  }, [onReorder, resolveDraggingIds]);
 
   const getDragProps = useCallback((id: string) => ({
     onPointerEnter: (_e: React.PointerEvent) => {

@@ -1,23 +1,40 @@
-# Editor Architecture (Sprint F-3A)
+# Editor Architecture (Sprint F-3A / F-3B / F-4 / F-5.0)
 
 ## Design principle
 
-`BlockEditor.tsx` is **orchestration + block-type render dispatch only**. Business logic lives in dedicated modules.
+`BlockEditor.tsx` is **orchestration only** — menus, paste, indent, DnD wiring, and `SingleBlock` shell dispatch. Block-type rendering lives in dedicated modules registered via `blockRegistry.tsx`.
 
 ## Module ownership
 
 | Module | Responsibility | Public API | Depends on |
 |--------|----------------|------------|------------|
-| `BlockEditor.tsx` | Mount chrome, wire `BlockEditorInner`, preview wrapper | `<BlockEditor />`, `BlockEditorPreview` | Inner, chrome, reading |
+| `BlockEditor.tsx` | Mount chrome, wire `BlockEditorInner`, preview wrapper | `<BlockEditor />`, `BlockEditorPreview` | Inner, chrome, registry |
 | `BlockEditorInner` | Menu/slash/wiki state, paste, indent, DnD wiring | internal | `SingleBlock`, menus |
-| `SingleBlock` | Block shell, drop indicators, `renderInner` dispatch | internal | `EditorChrome`, `EditableBlock` |
+| `SingleBlock` | Block shell, drop indicators, registry dispatch | internal | `EditorChrome`, `blockRegistry` |
+| `blockRegistry.tsx` | Declarative block-type render dispatch | `renderBlockContent`, `registerBlockRenderer` | block components, `EditableBlock` |
+| `TableBlock.tsx` | Table cell edit, row/col ops, keyboard nav | `<TableBlock />` | `tableEditing`, `tableNavigation` |
+| `tableEditing.ts` | Pure row/col/cell mutations | `addTableRow`, `updateTableCell`, … | — |
+| `tableNavigation.ts` | Pure Tab/Enter navigation targets | `navigateTableCellTab`, … | — |
+| `MathBlock.tsx` | LaTeX edit/view toggle | `<MathBlock />` | `mathRendering` |
+| `mathRendering.ts` | KaTeX HTML render | `renderKatexHtml` | `window.katex` |
+| `CodeBlock.tsx` | Language label + code textarea | `<CodeBlock />` | `codeBlockUtils` |
+| `codeBlockUtils.ts` | Tab insert, draft sync guard | `insertTabAt`, `shouldSyncCodeDraft` | — |
+| `ImageBlock.tsx` | Image render, URL, caption, resize | `<ImageBlock />` | `imageBlockUtils` |
+| `imageBlockUtils.ts` | URL btn style, resize clamp | `clampImageWidth`, `imgBtnStyle` | `blockUtils` |
+| `ToggleBlock.tsx` | Toggle shell (header + children) | `<ToggleBlock />` | `toggleRender` |
+| `toggleRender.tsx` | Toggle header/children helpers | `renderToggleHeader`, `renderToggleChildren` | `EditableBlock` |
 | `EditableBlock.tsx` | contentEditable input, shortcuts, slash/wiki triggers | `<EditableBlock />` | `editableLive`, `wikiNavigation`, `toolbarFormat` |
-| `useBlockEditor.ts` | body ↔ blocks, undo/redo, image insert | `useBlockEditor`, `BlockEditorHandle` | `blockUtils` |
+| `useBlockEditor.ts` | body ↔ blocks, undo/redo, image insert | `useBlockEditor`, `BlockEditorHandle` | `blockUtils`, `documentRecovery` |
+| `blockTypeGuards.ts` | Runtime block type validation (F-5B) | `sanitizeBlockType`, `isKnownBlockType` | `blockUtils` |
+| `documentRecovery.ts` | Repair corrupt block trees on load (F-5E) | `validateDocument`, `loadValidatedBlocks` | `blockTypeGuards` |
+| `SafeBlockRenderer.tsx` | Per-block error boundary (F-5A) | `<SafeBlockRenderer>` | `UnsupportedBlock` |
+| `UnsupportedBlock.tsx` | Fallback UI for broken blocks | `<UnsupportedBlock>` | `editorTypes` |
 | `editableRender.ts` | Pure inline HTML (readOnly + live) | `renderInlineMarkdown`, `liveInlineHtml` | `noteUtils` |
 | `editableLive.ts` | DOM paint + caret restore | `paintEditableLive` | `editableRender`, `selectionOffsets` |
 | `editableDom.ts` | Plain text read, delete helpers | `readBlockText`, `deleteBeforeCaret` | `selectionOffsets` (re-export shim) |
 | `selectionOffsets.ts` | Caret/selection offset math | `get/setCaretOffset`, `get/setSelectionOffsets` | DOM |
 | `selectionState.ts` | Focus command registry, range save/restore | `registerFocusHandler`, `dispatchFocusCommand` | — |
+| `editorTypes.ts` | Shared editor types incl. `BlockRenderContext` | types | `blockUtils`, `selectionState` |
 | `WikiMenu.tsx` | Wiki autocomplete UI (Korean) | `<WikiMenu />` | `wikiSearch` |
 | `wikiSearch.ts` | Target filtering | `filterWikiTargets` | — |
 | `wikiNavigation.ts` | `[[` detect, insert, Ctrl+click resolve | `detectWikiQuery`, `insertWikiAtCaret` | `editableLive` |
@@ -31,16 +48,36 @@
 | `blockPaste.ts` + `pasteStructure.ts` | Paste intelligence | `applyPasteAtBlock` | **frozen** |
 | `listIndent.ts` + `blockTree.ts` + `dragHierarchy.ts` | Outliner hierarchy | **frozen** | — |
 
+## Multi-block selection (F-4A)
+
+- State at root `BlockEditorInner`: `selectedBlockIds: Set<string>`, `anchorBlockId`, `activeBlockId`
+- `SelectionCtx` propagates click handlers to nested toggle children
+- `blockSelection.ts` — same-parent shift range, ctrl/cmd additive
+- `multiBlockOps.ts` — delete / duplicate selected
+- `multiBlockDrag.ts` + `editorDragDrop.tsx` — group drag (incl. into toggle)
+- v1 ops: Delete, Duplicate, Drag only
+
+## Toggle nested rendering
+
+`ToggleBlock` receives `renderNested: (toggleBlock) => ReactNode` from `BlockEditorInner`. It **must not** import `BlockEditor` or `BlockEditorInner` — avoids circular dependencies for F-3C.
+
 ## Re-export shims
 
 - `editableDom.ts` re-exports `selectionOffsets` for backward-compatible imports.
 - `BlockEditor.tsx` re-exports `useBlockEditor` and `BlockEditorHandle` from `useBlockEditor.ts`.
 
-## Line-count target (F-3A)
+## Renderer resilience (F-5.0)
 
-| Metric | Before F-3A | After F-3A |
-|--------|-------------|------------|
-| `BlockEditor.tsx` | ~3150 | ~2300 (orchestration + block-type components) |
-| Tests | 250 | 260+ |
+- **F-5A** — `SafeBlockRenderer` wraps each block in `SingleBlock`; one render crash shows `UnsupportedBlock` without blanking the document.
+- **F-5B** — `sanitizeBlockType()` in `renderBlockContent` coerces unknown `block.type` to `paragraph`.
+- **F-5E** — `loadValidatedBlocks()` in `useBlockEditor` / `BlockEditorPreview` repairs missing ids, invalid types, null children, and broken tables on parse.
+- **CI** — `npm run typecheck` (`tsc --noEmit -p tsconfig.editor.json`) runs in GitHub Actions alongside tests; scoped to the block-editor subsystem until app-wide types are cleaned up.
 
-Table/Math/Code/Image blocks remain in `BlockEditor.tsx` until a future F-3B sprint.
+Deferred: paste normalization (F-5C), AI parser (F-5D), diagnostics (F-5F), restore-as-paragraph UI.
+
+## Line-count target
+
+| Metric | F-3A | F-3B | F-4 | F-5.0 |
+|--------|------|------|-----|-------|
+| `BlockEditor.tsx` | ~2300 | ~1126 | ~1180 | ~1240 |
+| Tests | 272 | 311 | 332 | 350+ |

@@ -1,0 +1,82 @@
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import type { Block } from './blockUtils';
+import type { BlockEditorColors } from './editorTypes';
+import { renderKatexHtml } from './mathRendering';
+
+export interface MathBlockProps {
+  block: Block;
+  colors: BlockEditorColors;
+  readOnly: boolean;
+  onChange: (math: string) => void;
+}
+
+export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockProps) {
+  const expr = block.math ?? '';
+  const [editing, setEditing] = useState(!readOnly && !expr.trim());
+  const [draft, setDraft] = useState(expr);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { if (!editing) setDraft(expr); }, [expr, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      const ta = taRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }
+  }, [editing]);
+
+  const rendered = useMemo(() => renderKatexHtml(expr), [expr]);
+  const draftRendered = useMemo(() => renderKatexHtml(draft), [draft]);
+
+  if (readOnly) {
+    return rendered
+      ? <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
+      : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
+          {expr.trim() ? expr : '수식 없음'}
+        </code>;
+  }
+
+  if (editing) {
+    return (
+      <div style={{ margin:'4px 0' }} onClick={e => e.stopPropagation()}>
+        <textarea
+          ref={taRef}
+          value={draft}
+          spellCheck={false}
+          placeholder="LaTeX 입력 (예: a^2 + b^2 = c^2)"
+          onChange={e => { setDraft(e.target.value); onChange(e.target.value); }}
+          onBlur={() => setEditing(false)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { e.preventDefault(); (e.currentTarget as HTMLTextAreaElement).blur(); }
+          }}
+          style={{
+            width:'100%', minHeight:54, resize:'vertical', boxSizing:'border-box',
+            background:c.codeBg, color:c.text, border:`1px solid ${c.accent}`,
+            borderRadius:8, padding:'10px 12px', outline:'none',
+            fontFamily:'monospace', fontSize:13, lineHeight:1.5,
+          }}
+        />
+        {draftRendered && (
+          <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto', borderTop:`1px dashed ${c.border}`, marginTop:6 }}
+            dangerouslySetInnerHTML={{ __html: draftRendered }}/>
+        )}
+        <div style={{ fontSize:10, color:c.textFaint, marginTop:3, textAlign:'right' }}>
+          KaTeX · Esc 또는 포커스 해제로 완료
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={e => { e.stopPropagation(); setEditing(true); }}
+      title="클릭해서 수식 편집"
+      style={{ cursor:'text', padding:'6px 0', borderRadius:6 }}>
+      {rendered
+        ? <div style={{ textAlign:'center', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
+        : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
+            {expr.trim() ? expr : '수식 입력 (클릭)'}
+          </code>}
+    </div>
+  );
+}
