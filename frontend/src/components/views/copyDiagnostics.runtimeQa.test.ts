@@ -4,8 +4,8 @@
  * Run: npm test -- copyDiagnostics.runtimeQa --disable-console-intercept
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleEditorCopyEvent } from './blockCopy';
 import { classifyClipboardHtml, installCopyDiagnostics } from './copyDiagnostics';
+import { installEditorCopyListener } from './copyListener';
 import { markdownToBlocks } from './blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
@@ -155,22 +155,22 @@ function runRuntimeCopy(opts: {
   let captureActiveType: string | null = null;
   let bubbleClassification = 'empty';
 
-  const uninstall = installCopyDiagnostics({
+  const uninstallCopy = installEditorCopyListener({
+    getRootBlocks: () => opts.blocks,
+    getSelectedIds: () => opts.selectedIds,
+  });
+
+  const uninstallDiag = installCopyDiagnostics({
     readOnly: opts.readOnly,
     depth: 0,
     getRootBlocks: () => opts.blocks,
     getSelectedIds: () => opts.selectedIds,
-    onCopy: (e) => {
-      const report = handleEditorCopyEvent(e, opts.blocks, opts.selectedIds);
-      if (report) {
-        tracePath = report.path;
-        prevented = report.preventedDefault;
-        captureActiveType = report.activeBlockType;
-        bubbleClassification = report.htmlClassification;
-      }
-      return report;
-    },
   });
+
+  const uninstall = () => {
+    uninstallCopy();
+    uninstallDiag();
+  };
 
   opts.setup?.();
 

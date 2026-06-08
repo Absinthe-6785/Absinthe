@@ -2,6 +2,7 @@
  * copyDiagnostics.ts — TEMPORARY UX-3A copy-path runtime trace (remove after QA)
  */
 import type { Block } from './blockUtils';
+import { getLastCopyTraceReport } from './copyTraceStore';
 import { readBlockText } from './editableDom';
 import { getSelectionOffsets } from './selectionOffsets';
 
@@ -121,13 +122,12 @@ export interface CopyDiagnosticsOptions {
   depth: number;
   getRootBlocks: () => Block[];
   getSelectedIds: () => Set<string>;
-  onCopy: (e: ClipboardEvent) => CopyTraceReport | null;
 }
 
 /**
- * Dev-only listeners:
- * - capture: always logs that copy fired (even when semantic handler not registered)
- * - bubble: logs clipboard after handler / browser default
+ * Dev-only listeners (logging only — handler is installEditorCopyListener):
+ * - capture: logs that copy fired
+ * - bubble: logs trace + clipboard after production handler
  */
 export function installCopyDiagnostics(opts: CopyDiagnosticsOptions): () => void {
   if (!import.meta.env.DEV) return () => {};
@@ -159,7 +159,7 @@ export function installCopyDiagnostics(opts: CopyDiagnosticsOptions): () => void
   };
 
   const onBubble = (e: ClipboardEvent) => {
-    const report = opts.onCopy(e);
+    const report = getLastCopyTraceReport();
     if (report) logCopyTrace(report);
     schedulePostCopyClipboardRead(report?.path ?? 'no-handler');
 

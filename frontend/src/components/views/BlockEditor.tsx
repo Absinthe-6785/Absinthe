@@ -33,8 +33,8 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { blockTintStyle, type BlockTint } from './blockColors';
-import { handleEditorCopyEvent } from './blockCopy';
 import { installCopyDiagnostics } from './copyDiagnostics';
+import { installEditorCopyListener } from './copyListener';
 import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
 import {
   blockLayoutIndentPx,
@@ -1157,18 +1157,22 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   useEffect(() => {
     if (depth !== 0) return;
 
-    const runCopy = (e: ClipboardEvent) =>
-      handleEditorCopyEvent(e, getRootBlocks(), selectedBlockIdsRef.current);
+    const uninstallCopy = installEditorCopyListener({
+      getRootBlocks,
+      getSelectedIds: () => selectedBlockIdsRef.current,
+    });
 
     const uninstallDiag = installCopyDiagnostics({
       readOnly,
       depth,
       getRootBlocks,
       getSelectedIds: () => selectedBlockIdsRef.current,
-      onCopy: runCopy,
     });
 
-    return uninstallDiag;
+    return () => {
+      uninstallCopy();
+      uninstallDiag();
+    };
   }, [readOnly, depth, getRootBlocks]);
 
   const editorBody = (
