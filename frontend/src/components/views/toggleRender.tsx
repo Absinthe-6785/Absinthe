@@ -58,7 +58,7 @@ export function renderToggleHeader(
         : <EditableBlock block={block} colors={c} tag="span"
             style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6, flex:1, display:'block' }}
             placeholder={blockPlaceholder('toggle')} {...sharedEditProps}
-            onEnterOverride={currentContent => ctx.onToggleEnter(block.id, currentContent)}/>
+            onEnterOverride={(before, after) => ctx.onToggleEnter(block.id, before, after)}/>
       }
     </div>
   );

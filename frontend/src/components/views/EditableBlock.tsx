@@ -40,7 +40,7 @@ export interface EditableBlockProps {
   onWikiClose: () => void;
   isMenuOpen: boolean;
   onWikiNavigate?: (title: string) => void;
-  onEnterOverride?: (currentContent: string) => void;
+  onEnterOverride?: (before: string, after: string) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
   wikiTargets?: string[];
@@ -203,7 +203,10 @@ export function EditableBlock({
       onSlashClose();
       onWikiClose();
       if (onEnterOverride) {
-        onEnterOverride(getElText(el));
+        const text = getElText(el);
+        const offset = getCaretOffset(el);
+        const { before, after } = splitBlockContent(text, offset);
+        onEnterOverride(before, after);
         return;
       }
       const text = getElText(el);

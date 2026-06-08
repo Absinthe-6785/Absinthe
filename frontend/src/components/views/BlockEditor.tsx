@@ -28,7 +28,11 @@ import {
   convertBlock,
 } from './blockUtils';
 import { readBlockText, setCaretOffset } from './editableDom';
-import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';
+import {
+  applyToggleChildEnter,
+  applyToggleChildMergeIntoHeader,
+  applyToggleHeaderEnter,
+} from './toggleNesting';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
@@ -179,7 +183,7 @@ interface SingleBlockProps {
   // Toggle Step 1
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2
-  onToggleEnter: (toggleBlockId: string, currentContent: string) => void;
+  onToggleEnter: (toggleBlockId: string, before: string, after: string) => void;
   // Table
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
@@ -540,7 +544,8 @@ interface BlockEditorInnerProps {
   onExternalFocusConsumed?: () => void;
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
-  onEscapeToParentHeader?: () => void;  // 첫 자식 Backspace → toggle 헤더로 포커스
+  onEscapeToParentHeader?: () => void;  // 빈 첫 자식 Backspace → toggle 헤더로 포커스
+  onMergeFirstChildIntoHeader?: (childId: string, childContent: string) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
   searchScope?: EditorSearchScope;
@@ -553,7 +558,7 @@ interface BlockEditorInnerProps {
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
   externalFocusId, onExternalFocusConsumed,
-  onEscapeToParentBelow, onEscapeToParentHeader,
+  onEscapeToParentBelow, onEscapeToParentHeader, onMergeFirstChildIntoHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
   searchScope = 'document', searchMatchIndex = 0,
   documentFocusApiRef,
@@ -1003,13 +1008,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const ids = flattenBlockIds(bs);
     const pos  = ids.indexOf(id);
 
-    // Toggle Step 3: 첫 번째 자식의 커서가 맨 앞 + 빈 내용 → 헤더로 탈출
-    if (pos === 0 && selfContent === '' && onEscapeToParentHeader) {
-      // 빈 첫 자식 삭제
-      const cleaned = bs.filter(b => b.id !== id);
-      onChange(cleaned.length > 0 ? cleaned : []);
-      onEscapeToParentHeader();
-      return;
+    // Toggle Step 3: 첫 번째 자식 Backspace@0 → 헤더 병합 또는 빈 자식 탈출
+    if (pos === 0 && onEscapeToParentHeader) {
+      if (selfContent === '') {
+        const cleaned = bs.filter(b => b.id !== id);
+        onChange(cleaned.length > 0 ? cleaned : []);
+        onEscapeToParentHeader();
+        return;
+      }
+      if (onMergeFirstChildIntoHeader) {
+        onMergeFirstChildIntoHeader(id, selfContent);
+        return;
+      }
     }
 
     if (pos <= 0) return;
@@ -1027,7 +1037,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
     setFocusCmd({ blockId: prevId, offset: mergeOffset });
     selectBlock(prevId);
-  }, [onChange, onEscapeToParentHeader, selectBlock]);
+  }, [onChange, onEscapeToParentHeader, onMergeFirstChildIntoHeader, selectBlock]);
 
   // ── Phase 2: 블록 content 변경 ───────────────────────────────────
   const handleContentChange = useCallback((id: string, content: string) => {
@@ -1090,13 +1100,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [onChange]);
 
   // ── Toggle Step 2: 헤더 Enter → 자식 블록 생성 & 포커스 ──────────
-  const handleToggleEnter = useCallback((toggleBlockId: string, currentContent: string) => {
+  const handleToggleEnter = useCallback((toggleBlockId: string, before: string, after: string) => {
     const toggle = findBlockById(blocksRef.current, toggleBlockId);
     if (!toggle) return;
-    const { children, focusBlockId } = applyToggleHeaderEnter(toggle.children);
+    const { headerContent, children, focusBlockId } = applyToggleHeaderEnter(
+      toggle.children,
+      before,
+      after,
+    );
     onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
       ...b,
-      content: currentContent,
+      content: headerContent,
       collapsed: false,
       children,
     })));
@@ -1227,6 +1241,27 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       onEscapeToParentHeader={() => {
         const h = getFocusHandler(toggleBlock.id);
         if (h) h({ blockId: toggleBlock.id, offset: 'end' });
+      }}
+      onMergeFirstChildIntoHeader={(childId, childContent) => {
+        const root = getRootBlocks();
+        const toggle = findBlockById(root, toggleBlock.id);
+        if (!toggle) return;
+        const result = applyToggleChildMergeIntoHeader(
+          toggle.content,
+          toggle.children,
+          childId,
+          childContent,
+        );
+        if (!result) return;
+        onChange(updateBlockById(root, toggleBlock.id, t => ({
+          ...t,
+          content: result.headerContent,
+          children: result.children,
+        })));
+        requestAnimationFrame(() => {
+          const h = getFocusHandler(toggleBlock.id);
+          if (h) h({ blockId: toggleBlock.id, offset: result.focusOffset });
+        });
       }}
     />
   ), [

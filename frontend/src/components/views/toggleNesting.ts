@@ -68,15 +68,53 @@ export function applyToggleChildEnter(
   return { action: 'split', children: next, focusBlockId: newBlock.id };
 }
 
-/** Enter on toggle header — append a new child at the end (same nesting level). */
-export function applyToggleHeaderEnter(children: Block[]): {
+export type ToggleHeaderEnterResult = {
+  headerContent: string;
   children: Block[];
   focusBlockId: string;
-} {
-  const newChild = makeBlock('paragraph');
+};
+
+/**
+ * Enter on toggle header — split title at caret or append empty child at end.
+ *
+ * Case B (caret at end, after === ''): keep title, append empty paragraph child.
+ * Case A/C (caret mid/start, after non-empty): title = before, prepend child with after.
+ * Case C (caret at start, after only): empty title, first child = full remainder text.
+ */
+export function applyToggleHeaderEnter(
+  children: Block[],
+  before: string,
+  after: string,
+): ToggleHeaderEnterResult {
+  if (after === '') {
+    const newChild = makeBlock('paragraph');
+    return {
+      headerContent: before,
+      children: [...children, newChild],
+      focusBlockId: newChild.id,
+    };
+  }
+
+  const newChild = makeBlock('paragraph', { content: after });
   return {
-    children: [...children, newChild],
+    headerContent: before,
+    children: [newChild, ...children],
     focusBlockId: newChild.id,
+  };
+}
+
+/** First toggle child Backspace@0 — merge child text into header, remove child. */
+export function applyToggleChildMergeIntoHeader(
+  headerContent: string,
+  children: Block[],
+  childId: string,
+  childContent: string,
+): { headerContent: string; children: Block[]; focusOffset: number } | null {
+  if (!children.length || children[0].id !== childId) return null;
+  return {
+    headerContent: headerContent + childContent,
+    children: children.slice(1),
+    focusOffset: headerContent.length,
   };
 }
 
