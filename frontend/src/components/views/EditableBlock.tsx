@@ -349,6 +349,7 @@ export function EditableBlock({
       onPaste={handlePaste}
       onClick={handleClick}
       data-block-id={block.id}
+      data-block-type={block.type}
       data-placeholder={placeholder}
     />
   );
