@@ -33,6 +33,7 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { blockTintStyle, type BlockTint } from './blockColors';
+import { handleEditorCopyEvent } from './blockCopy';
 import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
 import {
   blockLayoutIndentPx,
@@ -1151,6 +1152,15 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [readOnly, depth, handleDeleteSelected]);
+
+  useEffect(() => {
+    if (readOnly || depth !== 0) return;
+    const onCopy = (e: ClipboardEvent) => {
+      handleEditorCopyEvent(e, getRootBlocks(), selectedBlockIdsRef.current);
+    };
+    window.addEventListener('copy', onCopy);
+    return () => window.removeEventListener('copy', onCopy);
+  }, [readOnly, depth, getRootBlocks]);
 
   const editorBody = (
     <>
