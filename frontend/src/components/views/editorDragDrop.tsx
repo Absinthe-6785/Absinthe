@@ -3,9 +3,13 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import type { Block } from './blockUtils';
-import { flattenBlockIds } from './blockUtils';
+import { flattenBlockIds, type Block } from './blockUtils';
 import { applyHierarchyDragDrop } from './dragHierarchy';
 import { applyMultiBlockDragDrop } from './multiBlockDrag';
+import { minimalDragIds } from './dragSelection';
+import { renumberNumberedListsDeep } from './listBlocks';
+
+const DRAG_REJECT_MS = 420;
 
 export interface DragState {
   draggingIds: string[];
@@ -27,6 +31,33 @@ export interface UseDragDropOptions {
 }
 
 const DRAG_THRESHOLD_PX = 6;
+
+/** Apply drag mutation + deep numbered-list renumber (UX-4B.1). */
+export function commitDragDrop(
+  root: Block[],
+  draggingIds: string[],
+  overId: string,
+  overPos: 'before' | 'after' | 'inside',
+): Block[] | null {
+  const next = draggingIds.length > 1
+    ? applyMultiBlockDragDrop(root, draggingIds, overId, overPos)
+    : applyHierarchyDragDrop(root, draggingIds[0], overId, overPos);
+  return next ? renumberNumberedListsDeep(next) : null;
+}
+
+function pulseDragReject(ids: string[]) {
+  if (typeof document === 'undefined') return;
+  for (const id of ids) {
+    const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
+    grip?.classList.add('be-drag-rejected');
+  }
+  window.setTimeout(() => {
+    for (const id of ids) {
+      const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
+      grip?.classList.remove('be-drag-rejected');
+    }
+  }, DRAG_REJECT_MS);
+}
 
 /** Indent-aware drop target line (Notion-style). */
 export function DropInsertIndicator({
@@ -103,8 +134,7 @@ export function useDragDrop(
   const resolveDraggingIds = useCallback((id: string): string[] => {
     const selected = getSelectedIdsRef.current?.() ?? [];
     if (selected.includes(id) && selected.length > 1) {
-      const order = flattenBlockIds(getBlocksRef.current());
-      return order.filter(sid => selected.includes(sid));
+      return minimalDragIds(getBlocksRef.current(), selected);
     }
     return [id];
   }, []);
@@ -166,11 +196,14 @@ export function useDragDrop(
       } else {
         const st = dragStateRef.current;
         if (st?.overId && st.overPos && st.draggingIds.length) {
-          const root = getBlocksRef.current();
-          const next = st.draggingIds.length > 1
-            ? applyMultiBlockDragDrop(root, st.draggingIds, st.overId, st.overPos)
-            : applyHierarchyDragDrop(root, st.draggingIds[0], st.overId, st.overPos);
+          const next = commitDragDrop(
+            getBlocksRef.current(),
+            st.draggingIds,
+            st.overId,
+            st.overPos,
+          );
           if (next) onReorder(next);
+          else pulseDragReject(st.draggingIds);
         }
         setDragState(null);
       }

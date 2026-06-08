@@ -85,6 +85,17 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-grip { cursor: grab; touch-action: none; }
   .be-grip:active { cursor: grabbing; }
+  .be-grip.be-drag-rejected {
+    animation: be-drag-reject-shake .42s ease-in-out;
+    color: var(--be-danger, #ef4444);
+  }
+  @keyframes be-drag-reject-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+  }
   .be-grip-icon {
     display: grid;
     grid-template-columns: repeat(2, 3px);
