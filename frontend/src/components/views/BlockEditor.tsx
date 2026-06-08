@@ -719,6 +719,18 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [depth, readOnly, getRootBlocks]);
 
   const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
+    if (action.kind === 'toggle-footer') {
+      if (action.created) {
+        flushSync(() => {
+          onRootChange(action.blocks);
+        });
+      }
+      handleActiveBlockChange(action.focusBlockId);
+      const focus = { blockId: action.focusBlockId, offset: 'start' as const };
+      setFocusCmd(focus);
+      requestAnimationFrame(() => dispatchFocusCommand(focus));
+      return;
+    }
     if (action.kind === 'append') {
       flushSync(() => {
         onRootChange([...getRootBlocks(), action.block]);

@@ -91,7 +91,8 @@ describe('toggleFocusZones', () => {
     wrap.getBoundingClientRect = () => rect(0, 120);
     root.appendChild(wrap);
 
-    const hit = classifyToggleFooterZone(105, root);
+    const blocks = [makeBlock('toggle', { id: 'tog3', content: 'Open', collapsed: false })];
+    const hit = classifyToggleFooterZone(105, root, blocks);
     expect(hit.kind).toBe('footer-candidate');
     expect(hit.toggleId).toBe('tog3');
     expect(hit.insideWrapBelowChildren).toBe(true);

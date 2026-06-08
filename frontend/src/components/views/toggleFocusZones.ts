@@ -95,39 +95,71 @@ export function findCollapsedToggleZoneHit(
   return bestId;
 }
 
-/**
- * Classify expanded-toggle footer zone (investigation only — no insertion in UX-3C).
- * Detects chrome clicks immediately after the last child inside an open toggle wrap.
- */
-export function classifyToggleFooterZone(
+function footerZoneBounds(wrap: Element): { footerTop: number; footerBottom: number; childrenBottom: number } | null {
+  const children = wrap.querySelector('.be-toggle-children') as HTMLElement | null;
+  if (!children) return null;
+  const wrapRect = wrap.getBoundingClientRect();
+  const childrenRect = children.getBoundingClientRect();
+  return {
+    footerTop: childrenRect.bottom - EXPANDED_TOGGLE_FOOTER_SLACK_PX,
+    footerBottom: Math.max(wrapRect.bottom, childrenRect.bottom) + EXPANDED_TOGGLE_FOOTER_SLACK_PX,
+    childrenBottom: childrenRect.bottom,
+  };
+}
+
+/** Deepest expanded toggle whose footer slack zone contains clientY. */
+export function findExpandedToggleFooterHit(
   clientY: number,
   editorRoot: HTMLElement,
-): ToggleFooterZoneHit {
+  rootBlocks: Block[],
+): string | null {
   const wraps = editorRoot.querySelectorAll('.be-toggle-wrap:not(.be-toggle-collapsed)');
+  let bestId: string | null = null;
+  let bestDepth = -1;
 
   for (const wrap of wraps) {
     const header = wrap.querySelector('.be-toggle-header-block[data-drag-id]') as HTMLElement | null;
     const toggleId = header?.getAttribute('data-drag-id') ?? null;
     if (!toggleId) continue;
 
-    const children = wrap.querySelector('.be-toggle-children') as HTMLElement | null;
-    if (!children) continue;
+    const block = findBlockById(rootBlocks, toggleId);
+    if (!block || isCollapsedToggle(block)) continue;
 
-    const wrapRect = wrap.getBoundingClientRect();
-    const childrenRect = children.getBoundingClientRect();
-    const footerTop = childrenRect.bottom - EXPANDED_TOGGLE_FOOTER_SLACK_PX;
-    const footerBottom = Math.max(wrapRect.bottom, childrenRect.bottom) + EXPANDED_TOGGLE_FOOTER_SLACK_PX;
+    const bounds = footerZoneBounds(wrap);
+    if (!bounds) continue;
+    if (clientY < bounds.footerTop || clientY > bounds.footerBottom) continue;
 
-    if (clientY >= footerTop && clientY <= footerBottom) {
-      return {
-        kind: 'footer-candidate',
-        toggleId,
-        insideWrapBelowChildren: clientY > childrenRect.bottom,
-      };
+    const depth = toggleNestDepth(wrap);
+    if (depth > bestDepth) {
+      bestDepth = depth;
+      bestId = toggleId;
     }
   }
 
-  return { kind: 'none', toggleId: null, insideWrapBelowChildren: false };
+  return bestId;
+}
+
+/** Classify expanded-toggle footer zone for chrome clicks after last child. */
+export function classifyToggleFooterZone(
+  clientY: number,
+  editorRoot: HTMLElement,
+  rootBlocks: Block[] = [],
+): ToggleFooterZoneHit {
+  const toggleId = findExpandedToggleFooterHit(clientY, editorRoot, rootBlocks);
+  if (!toggleId) {
+    return { kind: 'none', toggleId: null, insideWrapBelowChildren: false };
+  }
+
+  const wrap = editorRoot.querySelector(
+    `.be-toggle-header-block[data-drag-id="${toggleId}"]`,
+  )?.closest('.be-toggle-wrap');
+  const bounds = wrap ? footerZoneBounds(wrap) : null;
+
+  return {
+    kind: 'footer-candidate',
+    toggleId,
+    insideWrapBelowChildren: bounds ? clientY > bounds.childrenBottom : true,
+  };
 }
 
 /** UX-3C feasibility verdict for expanded toggle footer insertion. */

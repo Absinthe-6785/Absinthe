@@ -3,6 +3,7 @@
  */
 import { makeBlock, type Block } from './blockUtils';
 import { isGutterDragStart } from './blockGutterSelection';
+import { resolveToggleFooterInsertion } from './toggleFooterInsertion';
 import {
   classifyToggleFooterZone,
   evaluateToggleFooterFeasibility,
@@ -13,12 +14,20 @@ export {
   classifyToggleFooterZone,
   evaluateToggleFooterFeasibility,
 } from './toggleFocusZones';
+export { insertToggleFooterParagraph, resolveToggleFooterInsertion } from './toggleFooterInsertion';
 
 export type FocusOffset = 'start' | 'end';
 
 export type DocumentFocusAction =
   | { kind: 'focus'; blockId: string; offset: FocusOffset }
-  | { kind: 'append'; block: Block };
+  | { kind: 'append'; block: Block }
+  | {
+    kind: 'toggle-footer';
+    toggleId: string;
+    focusBlockId: string;
+    blocks: Block[];
+    created: boolean;
+  };
 
 export interface BlockRowHit {
   blockId: string;
@@ -113,6 +122,17 @@ export function resolveDocumentFocus(
   const toggleFocus = resolveToggleAwareFocus(clientY, rootBlocks, editorRoot);
   if (toggleFocus) {
     return { kind: 'focus', blockId: toggleFocus.blockId, offset: toggleFocus.offset };
+  }
+
+  const footerInsertion = resolveToggleFooterInsertion(clientY, rootBlocks, editorRoot);
+  if (footerInsertion) {
+    return {
+      kind: 'toggle-footer',
+      toggleId: footerInsertion.toggleId,
+      focusBlockId: footerInsertion.focusBlockId,
+      blocks: footerInsertion.blocks,
+      created: footerInsertion.created,
+    };
   }
 
   const rootBlockIds = rootBlocks.map(b => b.id);

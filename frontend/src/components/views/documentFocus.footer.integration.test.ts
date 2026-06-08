@@ -1,16 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * UX-3C — toggle-aware document focus integration
+ * UX-3D — toggle footer insertion integration
  */
 import React, { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
-import {
-  classifyToggleFooterZone,
-  COLLAPSED_TOGGLE_ROW_EXTENSION_PX,
-} from './toggleFocusZones';
 import { resolveDocumentFocus } from './documentFocus';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { makeBlock, type Block } from './blockUtils';
@@ -99,21 +95,14 @@ function fireChromePointer(el: Element, clientY: number) {
   });
 }
 
-function selectedBlockId(): string | null {
-  const selected = document.querySelector('.be-block-selected[data-drag-id]') as HTMLElement | null;
-  if (selected) return selected.getAttribute('data-drag-id');
-  const active = document.querySelector('.be-block-active[data-drag-id]') as HTMLElement | null;
-  return active?.getAttribute('data-drag-id') ?? null;
-}
-
-function activeToggleHeaderId(): string | null {
+function activeEditableId(): string | null {
   const el = document.activeElement as HTMLElement | null;
-  if (el?.getAttribute('data-block-type') === 'toggle') return el.getAttribute('data-block-id');
-  const active = document.querySelector('.be-block-active .be-editable[data-block-type="toggle"]') as HTMLElement | null;
+  if (el?.getAttribute('data-block-id')) return el.getAttribute('data-block-id');
+  const active = document.querySelector('.be-block-active .be-editable') as HTMLElement | null;
   return active?.getAttribute('data-block-id') ?? null;
 }
 
-describe('document focus — toggle-aware (UX-3C)', () => {
+describe('document focus — toggle footer insertion (UX-3D)', () => {
   let mounted: MountResult | null = null;
 
   afterEach(() => {
@@ -124,105 +113,110 @@ describe('document focus — toggle-aware (UX-3C)', () => {
     mounted = null;
   });
 
-  it('Case 1 — collapsed toggle: click below row focuses toggle (no append)', async () => {
+  it('expanded toggle footer click inserts child paragraph', async () => {
     const toggle = makeBlock('toggle', {
-      id: 'grammar',
-      content: 'Grammar Module',
-      collapsed: true,
-      children: [makeBlock('paragraph', { id: 'c1', content: 'hidden child' })],
-    });
-    mounted = mountEditor([toggle]);
-    layoutToggle('grammar', 0, false);
-
-    const clickY = ROW_H - 4 + COLLAPSED_TOGGLE_ROW_EXTENSION_PX - 5;
-    fireChromePointer(mounted.editorRoot, clickY);
-
-    await vi.waitFor(() => {
-      expect(selectedBlockId() ?? activeToggleHeaderId()).toBe('grammar');
-    });
-    expect(mounted.getBlocks()).toHaveLength(1);
-    const action = resolveDocumentFocus(clickY, mounted.getBlocks(), mounted.editorRoot);
-    expect(action.kind).toBe('focus');
-    if (action.kind === 'focus') expect(action.blockId).toBe('grammar');
-  });
-
-  it('Case 2 — expanded toggle: click footer zone inserts child paragraph (UX-3D)', async () => {
-    const toggle = makeBlock('toggle', {
-      id: 'grammar',
-      content: 'Grammar Module',
+      id: 'econ',
+      content: 'Economics',
       collapsed: false,
       children: [
-        makeBlock('paragraph', { id: 'c1', content: 'child one' }),
-        makeBlock('paragraph', { id: 'c2', content: 'child two' }),
+        makeBlock('paragraph', { id: 'a', content: 'Child A' }),
+        makeBlock('paragraph', { id: 'b', content: 'Child B' }),
       ],
     });
     mounted = mountEditor([toggle]);
-    layoutToggle('grammar', 0, true, 2);
+    layoutToggle('econ', 0, true, 2);
 
-    const belowChildrenY = ROW_H * 3 + 20;
-    const footer = classifyToggleFooterZone(belowChildrenY, mounted.editorRoot, mounted.getBlocks());
-    expect(footer.kind).toBe('footer-candidate');
-
-    fireChromePointer(mounted.editorRoot, belowChildrenY);
+    const footerY = ROW_H * 3 + 10;
+    fireChromePointer(mounted.editorRoot, footerY);
 
     await vi.waitFor(() => {
       expect(mounted!.getBlocks()[0].children).toHaveLength(3);
     });
+    const third = mounted.getBlocks()[0].children[2];
+    expect(third.type).toBe('paragraph');
+    expect(third.content).toBe('');
+    await vi.waitFor(() => {
+      expect(activeEditableId()).toBe(third.id);
+    });
     expect(mounted.getBlocks()).toHaveLength(1);
-    expect(mounted.getBlocks()[0].children[2].type).toBe('paragraph');
-    expect(mounted.getBlocks()[0].children[2].content).toBe('');
+    expect(document.querySelectorAll('.be-block-selected')).toHaveLength(0);
   });
 
-  it('Case 3 — nested collapsed toggle: correct inner toggle focused', async () => {
-    const inner = makeBlock('toggle', { id: 'vocab', content: 'Vocab nest', collapsed: true });
+  it('existing empty trailing child is focused not duplicated', async () => {
+    const empty = makeBlock('paragraph', { id: 'empty', content: '' });
+    const toggle = makeBlock('toggle', {
+      id: 'econ',
+      content: 'Economics',
+      collapsed: false,
+      children: [
+        makeBlock('paragraph', { id: 'a', content: 'Child A' }),
+        makeBlock('paragraph', { id: 'b', content: 'Child B' }),
+        empty,
+      ],
+    });
+    mounted = mountEditor([toggle]);
+    layoutToggle('econ', 0, true, 3);
+
+    const footerY = ROW_H * 4 + 10;
+    fireChromePointer(mounted.editorRoot, footerY);
+
+    await vi.waitFor(() => {
+      expect(activeEditableId()).toBe('empty');
+    });
+    expect(mounted!.getBlocks()[0].children).toHaveLength(3);
+  });
+
+  it('outside footer zone preserves root append', async () => {
+    const toggle = makeBlock('toggle', {
+      id: 'econ',
+      content: 'Economics',
+      collapsed: false,
+      children: [makeBlock('paragraph', { id: 'a', content: 'Child A' })],
+    });
+    const para = makeBlock('paragraph', { id: 'root-p', content: 'After toggle' });
+    mounted = mountEditor([toggle, para]);
+    layoutToggle('econ', 0, true, 1);
+    layoutParagraph('root-p', ROW_H * 2);
+
+    const farBelowY = ROW_H * 5 + 40;
+    const action = resolveDocumentFocus(farBelowY, mounted.getBlocks(), mounted.editorRoot);
+    expect(action.kind).toBe('append');
+
+    const strip = mounted.editorRoot.querySelector('.be-document-bottom-strip') as HTMLElement;
+    fireChromePointer(strip, farBelowY);
+
+    await vi.waitFor(() => {
+      expect(mounted!.getBlocks()).toHaveLength(3);
+    });
+    expect(mounted.getBlocks()[2].type).toBe('paragraph');
+    expect(mounted.getBlocks()[0].children).toHaveLength(1);
+  });
+
+  it('nested expanded toggle receives footer child', async () => {
+    const inner = makeBlock('toggle', {
+      id: 'nested',
+      content: 'Nested',
+      collapsed: false,
+      children: [makeBlock('paragraph', { id: 'nc', content: 'nested child' })],
+    });
     const outer = makeBlock('toggle', {
-      id: 'grammar',
-      content: 'Grammar Module',
+      id: 'outer',
+      content: 'Outer',
       collapsed: false,
       children: [inner],
     });
     mounted = mountEditor([outer]);
-    layoutToggle('grammar', 0, true, 1);
-    layoutToggle('vocab', ROW_H, false);
+    layoutToggle('outer', 0, true, 2);
+    layoutToggle('nested', ROW_H, true, 1);
 
-    const clickY = ROW_H + ROW_H - 4 + 20;
-    fireChromePointer(mounted.editorRoot, clickY);
-
-    await vi.waitFor(() => {
-      expect(selectedBlockId() ?? activeToggleHeaderId()).toBe('vocab');
-    });
-  });
-
-  it('Case 4 — root paragraph behavior unchanged', async () => {
-    const blocks = [makeBlock('paragraph', { id: 'a', content: 'Hello' })];
-    mounted = mountEditor(blocks);
-    layoutParagraph('a', 0);
-
-    const strip = mounted.editorRoot.querySelector('.be-document-bottom-strip') as HTMLElement;
-    fireChromePointer(strip, ROW_H + 20);
+    const footerY = ROW_H * 2 + ROW_H + 10;
+    fireChromePointer(mounted.editorRoot, footerY);
 
     await vi.waitFor(() => {
-      expect(mounted!.getBlocks()).toHaveLength(2);
+      expect(mounted!.getBlocks()[0].children[0].children).toHaveLength(2);
     });
-    expect(mounted.getBlocks()[1].type).toBe('paragraph');
-  });
-
-  it('visual consistency — collapsed toggle focus matches selected block id', async () => {
-    const toggle = makeBlock('toggle', {
-      id: 'grammar',
-      content: 'Grammar Module',
-      collapsed: true,
-    });
-    mounted = mountEditor([toggle]);
-    layoutToggle('grammar', 0, false);
-
-    fireChromePointer(mounted.editorRoot, ROW_H);
-
-    await vi.waitFor(() => {
-      const selected = selectedBlockId();
-      const active = activeToggleHeaderId();
-      expect(selected).toBe('grammar');
-      expect(active).toBe('grammar');
-    });
+    const newChild = mounted.getBlocks()[0].children[0].children[1];
+    expect(newChild.type).toBe('paragraph');
+    expect(newChild.content).toBe('');
   });
 });
