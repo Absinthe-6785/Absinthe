@@ -63,6 +63,12 @@ import { loadValidatedBlocks } from './documentRecovery';
 import { ToggleBlock } from './ToggleBlock';
 import type { ToggleNestedRenderer } from './toggleRender';
 import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from './blockSelection';
+import {
+  beginGutterSelection,
+  hitTestBlockIdFromPoint,
+  isGutterDragStart,
+  updateGutterSelection,
+} from './blockGutterSelection';
 import { shouldDeleteSelectedBlocks } from './blockKeyboard';
 import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
@@ -75,7 +81,7 @@ import {
   dispatchFocusCommand, getFocusHandler, registerFocusHandler,
   type FocusCmd,
 } from './selectionState';
-import { BlockHandles, blockShellClassName, EditorChromeStyles } from './EditorChrome';
+import { BlockGutter, BlockHandles, blockShellClassName, EditorChromeStyles } from './EditorChrome';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
@@ -169,6 +175,7 @@ interface SingleBlockProps {
   onOutdentBlock?: (id: string) => void;
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
   onPasteBlocksAt?: (id: string, start: number, end: number, blocks: Block[]) => void;
+  onGutterPointerDown?: (id: string, e: React.PointerEvent<HTMLDivElement>) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
@@ -215,6 +222,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onOutdentBlock === next.onOutdentBlock
     && prev.onPasteAt === next.onPasteAt
     && prev.onPasteBlocksAt === next.onPasteBlocksAt
+    && prev.onGutterPointerDown === next.onGutterPointerDown
     && prev.getRootBlocks === next.getRootBlocks
     && prev.onRootChange === next.onRootChange
     && prev.searchQueryFor === next.searchQueryFor
@@ -243,6 +251,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onOutdentBlock,
   onPasteAt,
   onPasteBlocksAt,
+  onGutterPointerDown,
   getRootBlocks,
   onRootChange,
   searchQueryFor,
@@ -357,7 +366,7 @@ const SingleBlock = React.memo(function SingleBlock({
     if (e.key === 'ArrowDown') { e.preventDefault(); onNavigateBlock(block.id, 'down'); }
   }, [block.id, onNavigateBlock]);
 
-  const handleBlockShellMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleContentMouseDown = useCallback((e: React.MouseEvent) => {
     if (readOnly) return;
     const t = e.target as HTMLElement;
     if (t.closest('.be-handles, .be-block-handle-menu, .be-grip, button, input, label, a, table')) return;
@@ -368,6 +377,12 @@ const SingleBlock = React.memo(function SingleBlock({
     dispatchFocusCommand({ blockId: block.id, offset: 'end' });
   }, [readOnly, block.id, onBlockSelect, onActiveBlockChange]);
 
+  const gutterChrome = (
+    <BlockGutter blockId={block.id} readOnly={readOnly} onPointerDown={onGutterPointerDown}>
+      {handles}
+    </BlockGutter>
+  );
+
   // 토글은 내부 EditableBlock이 있으므로 shell 제외
   const SHELL_NAV_TYPES = new Set<BlockType>(['image', 'divider', 'code', 'math', 'table']);
   const needsShell = !readOnly && SHELL_NAV_TYPES.has(block.type);
@@ -376,7 +391,7 @@ const SingleBlock = React.memo(function SingleBlock({
       ref={shellRef}
       tabIndex={0}
       onKeyDown={shellKeyDown}
-      onMouseDown={handleBlockShellMouseDown}
+      onMouseDown={handleContentMouseDown}
       onFocus={() => { onBlockSelect(block.id, { shiftKey: false, metaKey: false, ctrlKey: false } as React.MouseEvent); onActiveBlockChange?.(block.id); }}
       style={{ outline: 'none', borderRadius: 6 }}
     >
@@ -454,10 +469,10 @@ const SingleBlock = React.memo(function SingleBlock({
         blockShellStyle={blockShellStyle}
         blockShellClass={blockShellClass}
         dropIndicators={dropIndicators}
-        handles={handles}
         onChromeEnter={() => onChromeEnter?.(block.id)}
         onChromeLeave={() => onChromeLeave?.()}
-        onSelect={handleBlockShellMouseDown}
+        onSelect={handleContentMouseDown}
+        gutterChrome={gutterChrome}
         renderNested={renderToggleNested}
       />
     );
@@ -469,11 +484,14 @@ const SingleBlock = React.memo(function SingleBlock({
       style={blockShellStyle}
       className={blockShellClass}
       onMouseEnter={() => onChromeEnter?.(block.id)}
-      onMouseLeave={() => onChromeLeave?.()}
-      onMouseDown={handleBlockShellMouseDown}>
+      onMouseLeave={() => onChromeLeave?.()}>
       {dropIndicators}
-      {handles}
-      {body}
+      {gutterChrome}
+      {needsShell ? (
+        <div className="be-content">{body}</div>
+      ) : (
+        <div className="be-content" onMouseDown={handleContentMouseDown}>{body}</div>
+      )}
     </div>
   );
 }, singleBlockPropsEqual);
@@ -583,6 +601,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
   const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
   const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const gutterDragCleanupRef = useRef<(() => void) | null>(null);
+  const [isGutterDragging, setIsGutterDragging] = useState(false);
 
   const handleToggleControlsPin = useCallback((id: string) => {
     setPinnedControlsId(prev => {
@@ -612,6 +633,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   useEffect(() => () => {
     if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
+    gutterDragCleanupRef.current?.();
   }, []);
 
   const controlsVisibleFor = useCallback((blockId: string) =>
@@ -655,6 +677,57 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setAnchorBlockId(anchorId);
     handleActiveBlockChange(id);
   }, [readOnly, getRootBlocks, anchorBlockId, handleActiveBlockChange]);
+
+  const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    if (readOnly || depth !== 0) return;
+    if (!isGutterDragStart(e.target)) return;
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+
+    gutterDragCleanupRef.current?.();
+
+    const root = editorRootRef.current;
+    root?.setPointerCapture(e.pointerId);
+    beginGutterSelection(blockId, e.pointerId);
+    setIsGutterDragging(true);
+
+    const anchorId = blockId;
+    const applyHover = (hoverId: string) => {
+      const selected = updateGutterSelection(getRootBlocks(), anchorId, hoverId);
+      setSelectedBlockIds(selected);
+      setAnchorBlockId(anchorId);
+      handleActiveBlockChange(hoverId);
+    };
+
+    applyHover(blockId);
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      const hoverId = hitTestBlockIdFromPoint(ev.clientX, ev.clientY, root);
+      if (hoverId) applyHover(hoverId);
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      root?.releasePointerCapture(ev.pointerId);
+      setIsGutterDragging(false);
+      cleanup();
+      gutterDragCleanupRef.current = null;
+    };
+    gutterDragCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, [readOnly, depth, getRootBlocks, handleActiveBlockChange]);
 
   const selectionCtx = useMemo<SelectionCtxValue>(() => ({
     selectedBlockIds,
@@ -1082,7 +1155,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const editorBody = (
     <>
       <div
-        className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}`}
+        ref={depth === 0 ? editorRootRef : undefined}
+        className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? 36 : 0), position:'relative' }}
         onMouseDown={depth === 0 && !readOnly ? e => {
           const t = e.target as HTMLElement;
@@ -1130,6 +1204,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onOutdentBlock={handleOutdentBlock}
             onPasteAt={handlePasteAt}
             onPasteBlocksAt={handlePasteBlocksAt}
+            onGutterPointerDown={depth === 0 && !readOnly ? handleGutterPointerDown : undefined}
             getRootBlocks={getRootBlocks}
             onRootChange={onRootChange}
             searchQueryFor={searchQueryFor}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { blockShellClassName } from './EditorChrome';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { blockShellClassName, BlockGutter } from './EditorChrome';
 import { shouldShowBlockChrome } from './editorReading';
 
 describe('editorChrome', () => {
@@ -30,5 +32,14 @@ describe('editorChrome', () => {
     const cls = blockShellClassName(true, true, false);
     expect(cls).toContain('be-block-active');
     expect(cls).toContain('be-block-selected');
+  });
+
+  it('BlockGutter renders dedicated strip element', () => {
+    const html = renderToStaticMarkup(
+      createElement(BlockGutter, { blockId: 'x', readOnly: false }, null),
+    );
+    expect(html).toContain('be-gutter');
+    expect(html).toContain('be-gutter-strip');
+    expect(html).toContain('data-gutter-block-id="x"');
   });
 });
