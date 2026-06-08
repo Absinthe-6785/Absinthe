@@ -91,7 +91,7 @@ describe('UX-3A.2 live clipboard verification — EJU production copy path', () 
     vi.restoreAllMocks();
   });
 
-  it('production path — sync clipboard matches blocksToCopyHtml (variant A)', () => {
+  it('production path — sync clipboard matches blocksToCopyHtml (variant A)', async () => {
     const expectedHtml = blocksToCopyHtml([grammarToggle]);
     const expectedPlain = blocksToMarkdown([grammarToggle]);
     const wrap = mountReadingEjuToggle(grammarToggle);
@@ -110,6 +110,7 @@ describe('UX-3A.2 live clipboard verification — EJU production copy path', () 
       cancelable: true,
     }));
 
+    await new Promise<void>(resolve => { setTimeout(resolve, 0); });
     const v = getLastCopyClipboardVerification()!;
 
     // eslint-disable-next-line no-console

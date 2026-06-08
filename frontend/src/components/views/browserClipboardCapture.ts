@@ -1,8 +1,8 @@
 /**
- * browserClipboardCapture.ts — OS clipboard vs handler clipboard (UX-3A QA)
- * Dumps every MIME type from navigator.clipboard.read() — no truncation.
+ * browserClipboardCapture.ts — Dev-only OS clipboard vs handler clipboard capture (UX-3A QA).
  */
 import type { CopyTraceReport } from './copyDiagnostics';
+import { isEditorQaEnabled } from './editorQa';
 import {
   classifyClipboardPayloadVariant,
   firstByteDifference,
@@ -181,6 +181,7 @@ function inferChromiumBehavior(
 }
 
 function dumpReport(r: BrowserClipboardReport): void {
+  if (!isEditorQaEnabled()) return;
   // eslint-disable-next-line no-console
   console.warn('[UX-3A copy:browser-clipboard]', {
     label: r.label,
@@ -244,6 +245,7 @@ export function scheduleBrowserClipboardCapture(
   report: CopyTraceReport | null,
   label = 'gutter-toggle-copy',
 ): void {
+  if (!isEditorQaEnabled()) return;
   const expectedHtml = report?.expectedHtml ?? '';
   const expectedPlain = report?.expectedPlain ?? '';
   const sync = captureSyncClipboard(e, report, label);

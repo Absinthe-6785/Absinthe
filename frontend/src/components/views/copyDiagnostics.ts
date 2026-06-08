@@ -1,7 +1,8 @@
 /**
- * copyDiagnostics.ts — TEMPORARY UX-3A copy-path runtime trace (remove after QA)
+ * copyDiagnostics.ts — Copy path types, HTML classification, and dev-only trace listeners.
  */
 import type { Block } from './blockUtils';
+import { isEditorQaEnabled } from './editorQa';
 import { getLastCopyTraceReport } from './copyTraceStore';
 import { readBlockText } from './editableDom';
 import { getSelectionOffsets } from './selectionOffsets';
@@ -61,7 +62,7 @@ function preview(text: string | null): string | null {
 }
 
 export function logCopyTrace(report: CopyTraceReport): void {
-  if (!import.meta.env.DEV) return;
+  if (!isEditorQaEnabled()) return;
 
   const semantic = report.expectedHtml != null
     && report.clipboardHtmlAfterHandler === report.expectedHtml;
@@ -87,7 +88,7 @@ export function logCopyTrace(report: CopyTraceReport): void {
 
 /** Read clipboard after browser default completes (dev QA only). */
 export function schedulePostCopyClipboardRead(label: string): void {
-  if (!import.meta.env.DEV || !navigator.clipboard?.read) return;
+  if (!isEditorQaEnabled() || !navigator.clipboard?.read) return;
 
   window.setTimeout(async () => {
     try {
@@ -130,7 +131,7 @@ export interface CopyDiagnosticsOptions {
  * - bubble: logs trace + clipboard after production handler
  */
 export function installCopyDiagnostics(opts: CopyDiagnosticsOptions): () => void {
-  if (!import.meta.env.DEV) return () => {};
+  if (!isEditorQaEnabled()) return () => {};
 
   const onCapture = (e: ClipboardEvent) => {
     const active = document.activeElement as HTMLElement | null;

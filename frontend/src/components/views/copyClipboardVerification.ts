@@ -1,9 +1,9 @@
 /**
- * copyClipboardVerification.ts — TEMPORARY live clipboard payload capture (UX-3A.2 QA)
- * Full dumps only — no truncation. Remove after QA confirms payload shape.
+ * copyClipboardVerification.ts — Dev-only live clipboard payload verification (UX-3A.2 QA).
  */
 import type { CopyTraceReport } from './copyDiagnostics';
 import { classifyClipboardHtml } from './copyDiagnostics';
+import { isEditorQaEnabled } from './editorQa';
 import { clipboardToBlocks } from './pasteOrchestrator';
 
 export type ClipboardPayloadVariant =
@@ -137,6 +137,7 @@ function buildVerification(
 }
 
 function dumpVerification(v: CopyClipboardVerification): void {
+  if (!isEditorQaEnabled()) return;
   // eslint-disable-next-line no-console
   console.warn('[UX-3A copy:clipboard-verify]', {
     label: v.label,
@@ -171,7 +172,8 @@ export function verifyCopyClipboardSync(
   e: ClipboardEvent,
   report: CopyTraceReport | null,
   label = 'production-copy',
-): CopyClipboardVerification {
+): CopyClipboardVerification | null {
+  if (!isEditorQaEnabled()) return null;
   const expectedHtml = report?.expectedHtml ?? '';
   const expectedPlain = report?.expectedPlain ?? '';
   const actualHtml = e.clipboardData?.getData('text/html') ?? '';
@@ -195,7 +197,7 @@ export function scheduleAsyncClipboardVerification(
   report: CopyTraceReport | null,
   label = 'production-copy-async',
 ): void {
-  if (!navigator.clipboard?.read) return;
+  if (!isEditorQaEnabled() || !navigator.clipboard?.read) return;
 
   window.setTimeout(async () => {
     try {
