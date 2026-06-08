@@ -7,6 +7,8 @@ import { applyHierarchyDragDrop } from './dragHierarchy';
 import { applyMultiBlockDragDrop } from './multiBlockDrag';
 import { minimalDragIds } from './dragSelection';
 import { renumberNumberedListsDeep } from './listBlocks';
+import { applyDragAutoscroll } from './dragAutoscroll';
+import { isDragOverUnchanged } from './dragOverState';
 
 const DRAG_REJECT_MS = 420;
 
@@ -27,6 +29,8 @@ export interface UseDragDropResult {
 
 export interface UseDragDropOptions {
   getSelectedIds?: () => string[];
+  /** Primary note scroll container (e.g. .editor-drop-zone). No global document scroll. */
+  getScrollContainer?: () => HTMLElement | null;
 }
 
 const DRAG_THRESHOLD_PX = 6;
@@ -56,6 +60,46 @@ function pulseDragReject(ids: string[]) {
       grip?.classList.remove('be-drag-rejected');
     }
   }, DRAG_REJECT_MS);
+}
+
+export function resolveDragOverFromPoint(
+  clientX: number,
+  clientY: number,
+  draggingIds: string[],
+): { overId: string; overPos: 'before' | 'after' | 'inside' } | null {
+  const els = document.elementsFromPoint(clientX, clientY);
+  const blockEl = els.find(
+    el => el.classList.contains('be-block') &&
+          !draggingIds.includes(el.getAttribute('data-drag-id') ?? ''),
+  ) as HTMLElement | undefined;
+
+  if (blockEl) {
+    const overId = blockEl.getAttribute('data-drag-id') ?? '';
+    const blockType = blockEl.getAttribute('data-block-type');
+    const rect = blockEl.getBoundingClientRect();
+    let overPos: 'before' | 'after' | 'inside';
+    const collapsedToggle = blockEl.getAttribute('data-toggle-collapsed') === 'true';
+    if (blockType === 'toggle' && (collapsedToggle || clientY > rect.top + rect.height * 0.35)) {
+      overPos = 'inside';
+    } else {
+      overPos = clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    }
+    return { overId, overPos };
+  }
+
+  const toggleDropEl = els.find(
+    el => el.classList.contains('be-toggle-drop') &&
+          !draggingIds.includes(el.getAttribute('data-toggle-id') ?? ''),
+  ) as HTMLElement | undefined;
+
+  if (toggleDropEl) {
+    return {
+      overId: toggleDropEl.getAttribute('data-toggle-id') ?? '',
+      overPos: 'inside',
+    };
+  }
+
+  return null;
 }
 
 /** Indent-aware drop target line (Notion-style). */
@@ -129,6 +173,8 @@ export function useDragDrop(
   getBlocksRef.current = getBlocks;
   const getSelectedIdsRef = useRef(options.getSelectedIds);
   getSelectedIdsRef.current = options.getSelectedIds;
+  const getScrollContainerRef = useRef(options.getScrollContainer);
+  getScrollContainerRef.current = options.getScrollContainer;
 
   const resolveDraggingIds = useCallback((id: string): string[] => {
     const selected = getSelectedIdsRef.current?.() ?? [];
@@ -144,55 +190,49 @@ export function useDragDrop(
     const startX = e.clientX;
     const startY = e.clientY;
     let dragging = false;
+    let cleanedUp = false;
     const draggingIds = resolveDraggingIds(id);
+    const primaryId = draggingIds[0];
+    const captureEl = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
 
-    const onMove = (ev: PointerEvent) => {
-      if (!dragging) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
-        dragging = true;
-        setDragState({ draggingIds, overId: null, overPos: null });
-      }
-
-      const primaryId = draggingIds[0];
-      const els = document.elementsFromPoint(ev.clientX, ev.clientY);
-      const blockEl = els.find(
-        el => el.classList.contains('be-block') &&
-              !draggingIds.includes(el.getAttribute('data-drag-id') ?? ''),
-      ) as HTMLElement | undefined;
-
-      if (blockEl) {
-        const overId = blockEl.getAttribute('data-drag-id') ?? '';
-        const blockType = blockEl.getAttribute('data-block-type');
-        const rect = blockEl.getBoundingClientRect();
-        let overPos: 'before' | 'after' | 'inside';
-        const collapsedToggle = blockEl.getAttribute('data-toggle-collapsed') === 'true';
-        if (blockType === 'toggle' && (collapsedToggle || ev.clientY > rect.top + rect.height * 0.35)) {
-          overPos = 'inside';
-        } else {
-          overPos = ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-        }
-        setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId, overPos } : s);
-        return;
-      }
-
-      const toggleDropEl = els.find(
-        el => el.classList.contains('be-toggle-drop') &&
-              !draggingIds.includes(el.getAttribute('data-toggle-id') ?? ''),
-      ) as HTMLElement | undefined;
-
-      if (toggleDropEl) {
-        const toggleId = toggleDropEl.getAttribute('data-toggle-id') ?? '';
-        setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId: toggleId, overPos: 'inside' } : s);
-        return;
-      }
-
-      setDragState(s => s?.draggingIds[0] === primaryId ? { ...s, overId: null, overPos: null } : s);
+    const updateOver = (overId: string | null, overPos: DragState['overPos']) => {
+      setDragState(s => {
+        if (!s || s.draggingIds[0] !== primaryId) return s;
+        if (isDragOverUnchanged(s, overId, overPos)) return s;
+        return { ...s, overId, overPos };
+      });
     };
 
-    const onUp = () => {
-      if (!dragging) {
-        onClick?.();
-      } else {
+    const beginDragging = () => {
+      dragging = true;
+      try {
+        captureEl.setPointerCapture(pointerId);
+      } catch {
+        // happy-dom / unsupported capture — window listeners still apply
+      }
+      setDragState({ draggingIds, overId: null, overPos: null });
+    };
+
+    const cleanup = (shouldCommit: boolean) => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+      window.removeEventListener('keydown', onKeyDown);
+      captureEl.removeEventListener('lostpointercapture', onLostCapture);
+
+      try {
+        if (captureEl.hasPointerCapture?.(pointerId)) {
+          captureEl.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // ignore
+      }
+
+      if (shouldCommit && dragging) {
         const st = dragStateRef.current;
         if (st?.overId && st.overPos && st.draggingIds.length) {
           const next = commitDragDrop(
@@ -204,14 +244,58 @@ export function useDragDrop(
           if (next) onReorder(next);
           else pulseDragReject(st.draggingIds);
         }
-        setDragState(null);
       }
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+
+      setDragState(null);
     };
 
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
+        beginDragging();
+      }
+
+      const scrollContainer = getScrollContainerRef.current?.();
+      if (scrollContainer) {
+        applyDragAutoscroll(scrollContainer, ev.clientY);
+      }
+
+      const hit = resolveDragOverFromPoint(ev.clientX, ev.clientY, draggingIds);
+      if (hit) {
+        updateOver(hit.overId, hit.overPos);
+      } else {
+        updateOver(null, null);
+      }
+    };
+
+    const onPointerEnd = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      const commit = ev.type === 'pointerup';
+      if (!dragging) {
+        if (commit) onClick?.();
+        cleanup(false);
+        return;
+      }
+      cleanup(commit);
+    };
+
+    const onLostCapture = () => {
+      cleanup(false);
+    };
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape' || !dragging) return;
+      ev.preventDefault();
+      cleanup(false);
+    };
+
+    captureEl.addEventListener('lostpointercapture', onLostCapture);
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+    window.addEventListener('keydown', onKeyDown);
   }, [onReorder, resolveDraggingIds]);
 
   const getDragProps = useCallback((id: string) => ({

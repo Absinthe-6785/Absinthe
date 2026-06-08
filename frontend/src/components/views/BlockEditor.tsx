@@ -630,6 +630,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const parentDrag = useContext(DragCtx);
   const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
     getSelectedIds: () => [...selectedBlockIdsRef.current],
+    getScrollContainer: () =>
+      editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
   } : undefined);
   const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
   const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
