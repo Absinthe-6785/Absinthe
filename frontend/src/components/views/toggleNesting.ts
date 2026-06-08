@@ -2,6 +2,12 @@
  * Toggle child nesting — Enter/split/escape logic scoped to toggle.children[].
  */
 import { makeBlock, type Block, type BlockType } from './blockUtils';
+import {
+  exitEmptyListBlock,
+  isListType,
+  listSplitExtras,
+  renumberNumberedLists,
+} from './listBlocks';
 
 export type ToggleChildEnterResult =
   | { action: 'split'; children: Block[]; focusBlockId: string }
@@ -29,6 +35,14 @@ export function applyToggleChildEnter(
   const isEmpty = before === '' && after === '';
   const isPara = isParagraphType(cur.type);
 
+  if (isListType(cur.type) && isEmpty) {
+    return {
+      action: 'split',
+      children: exitEmptyListBlock(children, blockId),
+      focusBlockId: blockId,
+    };
+  }
+
   if (allowEscapeBelow && isLast && isEmpty && isPara) {
     return {
       action: 'escape_below',
@@ -44,11 +58,13 @@ export function applyToggleChildEnter(
     content: after,
     indent: cur.indent,
     checked: false,
+    ...(isListType(newType) ? listSplitExtras(cur, newType) : {}),
   });
 
-  const next = [...children];
+  let next = [...children];
   next[idx] = updatedCur;
   next.splice(idx + 1, 0, newBlock);
+  next = renumberNumberedLists(next);
   return { action: 'split', children: next, focusBlockId: newBlock.id };
 }
 
