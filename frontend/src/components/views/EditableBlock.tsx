@@ -348,6 +348,7 @@ export function EditableBlock({
       onCompositionEnd={handleCompositionEnd}
       onPaste={handlePaste}
       onClick={handleClick}
+      data-block-id={block.id}
       data-placeholder={placeholder}
     />
   );
