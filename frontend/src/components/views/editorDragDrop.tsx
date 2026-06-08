@@ -2,7 +2,6 @@
  * editorDragDrop.tsx — Block editor drag-and-drop (extracted from BlockEditor)
  */
 import React, { useState, useRef, useCallback } from 'react';
-import type { Block } from './blockUtils';
 import { flattenBlockIds, type Block } from './blockUtils';
 import { applyHierarchyDragDrop } from './dragHierarchy';
 import { applyMultiBlockDragDrop } from './multiBlockDrag';
