@@ -1,7 +1,8 @@
 /**
  * BlockContextMenu.tsx — Block grip context menu (extracted from BlockEditor)
  */
-import React, { useState, useRef, useMemo, useEffect, type ReactNode } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, type ReactNode } from 'react';
+import { computeFixedMenuPosition } from './menuViewport';
 import {
   Plus, Copy, Indent, Outdent, Link2, Palette,
   Trash2, ArrowUp, ArrowDown,
@@ -73,8 +74,14 @@ export function BlockContextMenu({
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const top  = Math.min(anchorY, window.innerHeight - 480);
-  const left = Math.min(anchorX, window.innerWidth  - 240);
+  const [menuPos, setMenuPos] = useState({ top: anchorY, left: anchorX });
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setMenuPos(computeFixedMenuPosition(anchorX, anchorY, width, height));
+  }, [anchorX, anchorY, submenu, selectionCount]);
 
   const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
     <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
@@ -102,7 +109,7 @@ export function BlockContextMenu({
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position:'fixed', top, left, zIndex:400,
+        position:'fixed', top: menuPos.top, left: menuPos.left, zIndex:400,
         background:c.card, border:`1px solid ${c.border}`,
         borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
         minWidth:210, maxWidth:240, overflow:'hidden', padding:'6px 0',

@@ -44,11 +44,20 @@ Vercel dashboard: **Settings → Git → Production Branch**
 | **F-4** | Multi-select, group drag/duplicate/delete, toggle polish |
 | **F-5.0** | `SafeBlockRenderer`, `sanitizeBlockType`, `loadValidatedBlocks`, editor CI (typecheck + test + build) |
 
+### Sprint UX-1 (in progress on `cursor/sprint-ux1-block-keys-aafa`)
+
+| P0 | Status |
+|----|--------|
+| Delete / Backspace block delete | Done |
+| Context menu viewport flip | Done |
+| Whole-block click → focus | Done |
+
 ### Not included
 
 | Item | Status |
 |------|--------|
 | F-5.1 | Planned (see `frontend/docs/F-5.1-design.md`) |
+| UX-1 P1 | Transform menu, empty-doc click, divider polish |
 | F-5C Paste normalization | Deferred |
 | F-5D AI Paste parser | Deferred (P2) |
 | F-5F Diagnostics | Deferred |
