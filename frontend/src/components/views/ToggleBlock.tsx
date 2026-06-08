@@ -49,7 +49,7 @@ export function ToggleBlock({
         className={`${blockShellClass} be-toggle-header-block`}
         onMouseEnter={onChromeEnter}
         onMouseLeave={onChromeLeave}
-        onClick={onSelect}
+        onMouseDown={onSelect}
       >
         {dropIndicators}
         {handles}

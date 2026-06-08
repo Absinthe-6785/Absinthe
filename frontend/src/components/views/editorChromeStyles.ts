@@ -76,6 +76,10 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 0.35;
     pointer-events: none;
   }
+  .be-block {
+    cursor: text;
+    min-height: 28px;
+  }
   .be-block-active {
     scroll-margin: 80px;
     background: var(--be-block-active-bg, transparent);

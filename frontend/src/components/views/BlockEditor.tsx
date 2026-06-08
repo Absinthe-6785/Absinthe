@@ -63,6 +63,7 @@ import { loadValidatedBlocks } from './documentRecovery';
 import { ToggleBlock } from './ToggleBlock';
 import type { ToggleNestedRenderer } from './toggleRender';
 import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from './blockSelection';
+import { shouldDeleteSelectedBlocks } from './blockKeyboard';
 import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
@@ -352,6 +353,17 @@ const SingleBlock = React.memo(function SingleBlock({
     if (e.key === 'ArrowDown') { e.preventDefault(); onNavigateBlock(block.id, 'down'); }
   }, [block.id, onNavigateBlock]);
 
+  const handleBlockShellMouseDown = useCallback((e: React.MouseEvent) => {
+    if (readOnly) return;
+    const t = e.target as HTMLElement;
+    if (t.closest('.be-handles, .be-block-handle-menu, .be-grip, button, input, label, a, table')) return;
+    if (t.isContentEditable || t.closest('.be-editable, [contenteditable="true"]')) return;
+    e.preventDefault();
+    onBlockSelect(block.id, e);
+    onActiveBlockChange?.(block.id);
+    dispatchFocusCommand({ blockId: block.id, offset: 'end' });
+  }, [readOnly, block.id, onBlockSelect, onActiveBlockChange]);
+
   // 토글은 내부 EditableBlock이 있으므로 shell 제외
   const SHELL_NAV_TYPES = new Set<BlockType>(['image', 'divider', 'code', 'math', 'table']);
   const needsShell = !readOnly && SHELL_NAV_TYPES.has(block.type);
@@ -360,6 +372,7 @@ const SingleBlock = React.memo(function SingleBlock({
       ref={shellRef}
       tabIndex={0}
       onKeyDown={shellKeyDown}
+      onMouseDown={handleBlockShellMouseDown}
       onFocus={() => { onBlockSelect(block.id, { shiftKey: false, metaKey: false, ctrlKey: false } as React.MouseEvent); onActiveBlockChange?.(block.id); }}
       style={{ outline: 'none', borderRadius: 6 }}
     >
@@ -440,7 +453,7 @@ const SingleBlock = React.memo(function SingleBlock({
         handles={handles}
         onChromeEnter={() => onChromeEnter?.(block.id)}
         onChromeLeave={() => onChromeLeave?.()}
-        onSelect={e => { onBlockSelect(block.id, e); onActiveBlockChange?.(block.id); }}
+        onSelect={handleBlockShellMouseDown}
         renderNested={renderToggleNested}
       />
     );
@@ -453,7 +466,7 @@ const SingleBlock = React.memo(function SingleBlock({
       className={blockShellClass}
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}
-      onClick={e => { onBlockSelect(block.id, e); onActiveBlockChange?.(block.id); }}>
+      onMouseDown={handleBlockShellMouseDown}>
       {dropIndicators}
       {handles}
       {body}
@@ -568,7 +581,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleToggleControlsPin = useCallback((id: string) => {
-    setPinnedControlsId(prev => (prev === id ? null : id));
+    setPinnedControlsId(prev => {
+      if (prev !== id) {
+        setSelectedBlockIds(selectSingle(id));
+        setAnchorBlockId(id);
+      }
+      return prev === id ? null : id;
+    });
   }, []);
 
   const handleChromeEnter = useCallback((id: string) => {
@@ -1026,17 +1045,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   useEffect(() => {
     if (readOnly || depth !== 0) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (selectedBlockIdsRef.current.size <= 1) return;
-      const t = e.target as HTMLElement;
-      if (t.isContentEditable) return;
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
-        handleDeleteSelected();
-      }
       if (e.key === 'Escape') {
-        setSelectedBlockIds(emptySelection());
-        setAnchorBlockId(null);
+        if (selectedBlockIdsRef.current.size > 0) {
+          setSelectedBlockIds(emptySelection());
+          setAnchorBlockId(null);
+        }
+        return;
       }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!shouldDeleteSelectedBlocks(e, selectedBlockIdsRef.current)) return;
+      e.preventDefault();
+      handleDeleteSelected();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
