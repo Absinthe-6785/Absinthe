@@ -50,6 +50,7 @@ function sharedEditProps(block: Block, ctx: BlockRenderContext) {
     onIndentBlock: ctx.onIndentBlock,
     onOutdentBlock: ctx.onOutdentBlock,
     onPasteAt: ctx.onPasteAt,
+    onPasteBlocksAt: ctx.onPasteBlocksAt,
   };
 }
 
