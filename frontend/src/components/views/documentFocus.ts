@@ -3,6 +3,16 @@
  */
 import { makeBlock, type Block } from './blockUtils';
 import { isGutterDragStart } from './blockGutterSelection';
+import {
+  classifyToggleFooterZone,
+  evaluateToggleFooterFeasibility,
+  resolveToggleAwareFocus,
+} from './toggleFocusZones';
+
+export {
+  classifyToggleFooterZone,
+  evaluateToggleFooterFeasibility,
+} from './toggleFocusZones';
 
 export type FocusOffset = 'start' | 'end';
 
@@ -100,6 +110,11 @@ export function resolveDocumentFocus(
   rootBlocks: Block[],
   editorRoot: HTMLElement,
 ): DocumentFocusAction {
+  const toggleFocus = resolveToggleAwareFocus(clientY, rootBlocks, editorRoot);
+  if (toggleFocus) {
+    return { kind: 'focus', blockId: toggleFocus.blockId, offset: toggleFocus.offset };
+  }
+
   const rootBlockIds = rootBlocks.map(b => b.id);
   const { blockId, belowAll } = blockIdAtRow(clientY, editorRoot, rootBlockIds);
 
