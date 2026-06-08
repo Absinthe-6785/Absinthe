@@ -1,9 +1,9 @@
 /**
- * pastePipelineTrace.ts — Live paste pipeline instrumentation (QA)
- * Traces clipboardToBlocks → applyPasteBlocksAt → setState → render.
+ * pastePipelineTrace.ts — Dev-only paste pipeline instrumentation (QA).
  */
 import type { Block } from './blockUtils';
 import { blockShape } from './blockCopy.investigationHelpers';
+import { isEditorQaEnabled } from './editorQa';
 
 export interface BlockIdentityNode {
   id: string;
@@ -112,7 +112,7 @@ let activeTrace: PastePipelineTrace | null = null;
 let lastTrace: PastePipelineTrace | null = null;
 
 export function isPasteTraceActive(): boolean {
-  return activeTrace !== null;
+  return isEditorQaEnabled() && activeTrace !== null;
 }
 
 export function getLastPastePipelineTrace(): PastePipelineTrace | null {
@@ -120,6 +120,7 @@ export function getLastPastePipelineTrace(): PastePipelineTrace | null {
 }
 
 export function beginPastePipelineTrace(label: string): void {
+  if (!isEditorQaEnabled()) return;
   refCounter = 0;
   activeTrace = {
     label,
@@ -133,7 +134,7 @@ export function beginPastePipelineTrace(label: string): void {
 }
 
 export function traceClipboardToBlocks(blocks: Block[] | null): void {
-  if (!activeTrace || !blocks) return;
+  if (!isEditorQaEnabled() || !activeTrace || !blocks) return;
   const identity = identityTree(blocks);
   activeTrace.A_clipboardToBlocks = {
     tree: blockShape(blocks),
@@ -150,7 +151,7 @@ export function traceApplyPasteBlocksAtInput(
   caretEnd: number,
   pastedBlocks: Block[],
 ): void {
-  if (!activeTrace) return;
+  if (!isEditorQaEnabled() || !activeTrace) return;
   activeTrace.B_applyPasteBlocksAtInput = {
     targetBlockId,
     targetBlockType,
@@ -162,7 +163,7 @@ export function traceApplyPasteBlocksAtInput(
 }
 
 export function traceApplyPasteBlocksAtOutput(resultBlocks: Block[]): void {
-  if (!activeTrace || !activeTrace.A_clipboardToBlocks) return;
+  if (!isEditorQaEnabled() || !activeTrace || !activeTrace.A_clipboardToBlocks) return;
   const identity = identityTree(resultBlocks);
   const tree = blockShape(resultBlocks);
   const rootRef = activeTrace.A_clipboardToBlocks.clipboardRootRef;
@@ -179,7 +180,7 @@ export function traceApplyPasteBlocksAtOutput(resultBlocks: Block[]): void {
 }
 
 export function traceStateBeforeSetState(blocks: Block[]): void {
-  if (!activeTrace) return;
+  if (!isEditorQaEnabled() || !activeTrace) return;
   if (!activeTrace.D_stateUpdate) {
     activeTrace.D_stateUpdate = {
       beforeSetState: blockShape(blocks),
@@ -195,7 +196,7 @@ export function traceStateBeforeSetState(blocks: Block[]): void {
 }
 
 export function traceStateAfterSetStateCallback(blocks: Block[]): void {
-  if (!activeTrace?.D_stateUpdate) return;
+  if (!isEditorQaEnabled() || !activeTrace?.D_stateUpdate) return;
   activeTrace.D_stateUpdate.afterSetStateCallback = blockShape(blocks);
   activeTrace.D_stateUpdate.afterIdentity = identityTree(blocks);
   activeTrace.D_stateUpdate.firstDivergenceFromC = activeTrace.C_applyPasteBlocksAtOutput
@@ -207,7 +208,7 @@ export function traceRenderBlock(
   block: Block,
   renderedComponent: string,
 ): void {
-  if (!activeTrace) return;
+  if (!isEditorQaEnabled() || !activeTrace) return;
   const rootRef = activeTrace.A_clipboardToBlocks?.clipboardRootRef ?? null;
   const objectRef = refTag(block);
   activeTrace.E_render.push({
@@ -220,6 +221,7 @@ export function traceRenderBlock(
 }
 
 function dumpTrace(t: PastePipelineTrace): void {
+  if (!isEditorQaEnabled()) return;
   // eslint-disable-next-line no-console
   console.warn('[UX-3A paste:pipeline-trace]', {
     label: t.label,
@@ -243,7 +245,7 @@ function dumpTrace(t: PastePipelineTrace): void {
 }
 
 export function finishPastePipelineTrace(): PastePipelineTrace | null {
-  if (!activeTrace) return null;
+  if (!isEditorQaEnabled() || !activeTrace) return null;
   lastTrace = activeTrace;
   dumpTrace(activeTrace);
   const done = activeTrace;
