@@ -85,6 +85,17 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-grip { cursor: grab; touch-action: none; }
   .be-grip:active { cursor: grabbing; }
+  .be-grip.be-drag-rejected {
+    animation: be-drag-reject-shake .42s ease-in-out;
+    color: var(--be-danger, #ef4444);
+  }
+  @keyframes be-drag-reject-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+  }
   .be-grip-icon {
     display: grid;
     grid-template-columns: repeat(2, 3px);
@@ -161,9 +172,18 @@ export const EDITOR_CHROME_STYLES = `
     position: absolute;
     left: 0;
   }
+  .be-editable.be-persistent-placeholder[contenteditable]:empty::before {
+    content: attr(data-placeholder);
+    opacity: 0.55;
+  }
   .be-block-active .be-editable[contenteditable]:empty::before,
   .be-editable[contenteditable]:empty:focus::before {
     content: attr(data-placeholder);
+    opacity: 1;
+  }
+  .be-document-bottom-strip {
+    min-height: 80px;
+    cursor: text;
   }
   [contenteditable] { position: relative; }
   [contenteditable]:focus { outline: none; }

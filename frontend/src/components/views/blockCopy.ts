@@ -3,6 +3,8 @@
  *
  * Serializes blocks to HTML/plain for copy so paste reuses UX-3A HTML parsers.
  */
+import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
+import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block } from './blockUtils';
 import { readBlockText } from './editableDom';
 import { getSelectionOffsets } from './selectionOffsets';
@@ -198,50 +200,230 @@ export function trySemanticCopyFromBlock(
   return true;
 }
 
+function expectedSemanticPayload(blocks: Block[]): { html: string; plain: string } {
+  return {
+    html: blocksToCopyHtml(blocks),
+    plain: blocksToMarkdown(blocks),
+  };
+}
+
+function traceAfter(
+  report: Omit<CopyTraceReport, 'clipboardHtmlAfterHandler' | 'clipboardPlainAfterHandler' | 'htmlClassification'>,
+  clipboard: DataTransfer | null,
+  prevented: boolean,
+): CopyTraceReport {
+  const html = clipboard?.getData('text/html') ?? '';
+  const plain = clipboard?.getData('text/plain') ?? '';
+  return {
+    ...report,
+    preventedDefault: prevented,
+    clipboardHtmlAfterHandler: html || null,
+    clipboardPlainAfterHandler: plain || null,
+    htmlClassification: classifyClipboardHtml(html),
+  };
+}
+
 /** Root-level copy handler — semantic when possible, else browser default. */
 export function handleEditorCopyEvent(
   e: Pick<ClipboardEvent, 'clipboardData' | 'preventDefault'>,
   rootBlocks: Block[],
   selectedIds: Set<string>,
-): void {
+): CopyTraceReport | null {
   const clipboard = e.clipboardData;
-  if (!clipboard) return;
+  const selectedBlockIds = [...selectedIds];
+  const active = document.activeElement as HTMLElement | null;
+  const activeBlockId = active?.getAttribute('data-block-id') ?? null;
+  const activeBlockType = active?.getAttribute('data-block-type') ?? null;
+
+  if (!clipboard) {
+    return traceAfter({
+      path: 'skipped-no-clipboard',
+      preventedDefault: false,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 0,
+      expectedHtml: null,
+      expectedPlain: null,
+    }, null, false);
+  }
 
   if (selectedIds.size > 1) {
     const blocks = collectBlocksForCopy(rootBlocks, selectedIds);
-    if (!blocks.length) return;
+    if (!blocks.length) return null;
+    const expected = expectedSemanticPayload(blocks);
     e.preventDefault();
     applySemanticCopy(blocks, clipboard);
-    return;
+    return traceAfter({
+      path: 'multi-select',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: blocks.length,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
   }
 
   if (selectedIds.size === 1) {
     const block = findBlockById(rootBlocks, [...selectedIds][0]);
-    if (!block) return;
-    const active = document.activeElement as HTMLElement | null;
-    if (active?.classList.contains('be-editable')) {
+    if (!block) return null;
+    // UX-3A.4: gutter-selected toggle wins over partial text in any active .be-editable
+    if (block.type !== 'toggle' && active?.classList.contains('be-editable')) {
       const sel = getSelectionOffsets(active);
       const text = readBlockText(active);
       const start = sel?.start ?? 0;
       const end = sel?.end ?? text.length;
-      if (start !== 0 || end !== text.length) return;
+      if (start !== 0 || end !== text.length) {
+        return traceAfter({
+          path: 'single-gutter-partial-fallback',
+          preventedDefault: false,
+          selectedBlockIds,
+          activeBlockId,
+          activeBlockType,
+          selectionStart: start,
+          selectionEnd: end,
+          selectionLength: text.length,
+          blocksCopied: 0,
+          expectedHtml: null,
+          expectedPlain: null,
+        }, clipboard, false);
+      }
     }
+    const expected = expectedSemanticPayload([block]);
     e.preventDefault();
     applySemanticCopy([block], clipboard);
-    return;
+    return traceAfter({
+      path: 'single-gutter-full-block',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 1,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
   }
 
-  const active = document.activeElement as HTMLElement | null;
-  if (!active?.classList.contains('be-editable')) return;
+  const resolved = resolveCopySelection(rootBlocks);
 
-  const blockId = active.getAttribute('data-block-id');
-  if (!blockId) return;
+  if (resolved.kind === 'toggle-subtree') {
+    const block = findBlockById(rootBlocks, resolved.blockId);
+    if (!block) return null;
+    const expected = expectedSemanticPayload([block]);
+    e.preventDefault();
+    applySemanticCopy([block], clipboard);
+    return traceAfter({
+      path: 'editable-toggle-header',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId: resolved.blockId,
+      activeBlockType: 'toggle',
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 1,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
+  }
 
-  const sel = getSelectionOffsets(active);
-  const text = readBlockText(active);
-  const start = sel?.start ?? 0;
-  const end = sel?.end ?? text.length;
+  if (resolved.kind === 'multi-block') {
+    const blocks = collectBlocksForCopy(rootBlocks, resolved.blockIds);
+    if (!blocks.length) return null;
+    const expected = expectedSemanticPayload(blocks);
+    e.preventDefault();
+    applySemanticCopy(blocks, clipboard);
+    return traceAfter({
+      path: 'multi-select',
+      preventedDefault: true,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: blocks.length,
+      expectedHtml: expected.html,
+      expectedPlain: expected.plain,
+    }, clipboard, true);
+  }
 
-  if (!trySemanticCopyFromBlock(rootBlocks, blockId, start, end, clipboard)) return;
+  if (resolved.kind === 'not-focused') {
+    return traceAfter({
+      path: 'editable-not-focused',
+      preventedDefault: false,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 0,
+      expectedHtml: null,
+      expectedPlain: null,
+    }, clipboard, false);
+  }
+
+  if (resolved.kind === 'partial-fallback') {
+    return traceAfter({
+      path: 'editable-partial-fallback',
+      preventedDefault: false,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 0,
+      expectedHtml: null,
+      expectedPlain: null,
+    }, clipboard, false);
+  }
+
+  const { ctx } = resolved;
+  const { activeBlockId: blockId, activeBlockType: blockType, start, end, textLength } = ctx;
+  const block = findBlockById(rootBlocks, blockId);
+
+  if (!trySemanticCopyFromBlock(rootBlocks, blockId, start, end, clipboard)) {
+    return traceAfter({
+      path: 'editable-partial-fallback',
+      preventedDefault: false,
+      selectedBlockIds,
+      activeBlockId: blockId,
+      activeBlockType: blockType,
+      selectionStart: start,
+      selectionEnd: end,
+      selectionLength: textLength,
+      blocksCopied: 0,
+      expectedHtml: null,
+      expectedPlain: null,
+    }, clipboard, false);
+  }
+
   e.preventDefault();
+  const expected = expectedSemanticPayload(block ? [block] : []);
+  return traceAfter({
+    path: block?.type === 'toggle' ? 'editable-toggle-header' : 'editable-full-block',
+    preventedDefault: true,
+    selectedBlockIds,
+    activeBlockId: blockId,
+    activeBlockType: blockType,
+    selectionStart: start,
+    selectionEnd: end,
+    selectionLength: textLength,
+    blocksCopied: 1,
+    expectedHtml: expected.html,
+    expectedPlain: expected.plain,
+  }, clipboard, true);
 }

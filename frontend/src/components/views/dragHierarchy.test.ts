@@ -60,4 +60,35 @@ describe('applyHierarchyDragDrop', () => {
     expect(next![0].children[0].id).toBe('p');
     expect(next![0].collapsed).toBe(false);
   });
+
+  it('rejects non-nestable block types inside toggle (UX-4C.1)', () => {
+    const toggle = makeBlock('toggle', { id: 't', content: 'T', children: [] });
+    const image = makeBlock('image', { id: 'img', src: '/x.png', alt: 'x' });
+    const divider = makeBlock('divider', { id: 'div' });
+    const table = makeBlock('table', { id: 'tbl', tableHeaders: ['A'], tableRows: [['1']] });
+
+    expect(applyHierarchyDragDrop([toggle, image], 'img', 't', 'inside')).toBeNull();
+    expect(applyHierarchyDragDrop([toggle, divider], 'div', 't', 'inside')).toBeNull();
+    expect(applyHierarchyDragDrop([toggle, table], 'tbl', 't', 'inside')).toBeNull();
+  });
+
+  it('allows nestable paragraph inside toggle (UX-4C.1)', () => {
+    const toggle = makeBlock('toggle', { id: 't', content: 'T', children: [] });
+    const para = makeBlock('paragraph', { id: 'p', content: 'P' });
+    const next = applyHierarchyDragDrop([toggle, para], 'p', 't', 'inside');
+    expect(next![0].children[0].id).toBe('p');
+  });
+
+  it('preserves nested toggle subtree on inside drop (UX-4C.1)', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const innerToggle = makeBlock('toggle', { id: 'it', content: 'Inner', children: [child] });
+    const outer = makeBlock('toggle', { id: 'ot', content: 'Outer', children: [] });
+    const root = [outer, innerToggle];
+
+    const next = applyHierarchyDragDrop(root, 'it', 'ot', 'inside');
+    expect(next).not.toBeNull();
+    expect(next![0].children[0].id).toBe('it');
+    expect(next![0].children[0].children[0].id).toBe('c');
+    expect(next).toHaveLength(1);
+  });
 });

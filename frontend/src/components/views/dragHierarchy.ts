@@ -6,6 +6,7 @@ import {
   findParentId,
   insertIntoToggleChildren,
   isDescendantOf,
+  isNestableInToggle,
 } from './blockTree';
 import { findBlockById, updateBlockById, type Block } from './blockUtils';
 
@@ -57,6 +58,7 @@ export function applyHierarchyDragDrop(
   if (position === 'inside') {
     const target = findBlockById(tree, overId);
     if (!target || target.type !== 'toggle') return null;
+    if (!isNestableInToggle(block.type)) return null;
     return insertIntoToggleChildren(tree, overId, block);
   }
 
