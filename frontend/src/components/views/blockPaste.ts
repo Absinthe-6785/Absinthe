@@ -71,6 +71,53 @@ export interface PasteResult {
   focusOffset: number;
 }
 
+function focusOffsetForBlock(block: Block): number {
+  if (block.type === 'code') return (block.code ?? '').length;
+  return (block.content ?? '').length;
+}
+
+/** UX-3A: toggle header paste — inline paragraph merges header; else siblings after toggle. */
+function applyPasteAtToggleHeader(
+  blocks: Block[],
+  idx: number,
+  cur: Block,
+  before: string,
+  after: string,
+  pastedBlocks: Block[],
+): PasteResult {
+  const mergeInline = pastedBlocks.length === 1 && pastedBlocks[0].type === 'paragraph';
+
+  if (mergeInline) {
+    const pb = pastedBlocks[0];
+    const content = before + (pb.content ?? '') + after;
+    const updated = { ...cur, content, children: cur.children ?? [] };
+    const next = [
+      ...blocks.slice(0, idx),
+      updated,
+      ...blocks.slice(idx + 1),
+    ];
+    return {
+      blocks: renumberNumberedListsDeep(next),
+      focusBlockId: cur.id,
+      focusOffset: before.length + (pb.content ?? '').length,
+    };
+  }
+
+  const updatedToggle = { ...cur, content: before + after, children: cur.children ?? [] };
+  const last = pastedBlocks[pastedBlocks.length - 1];
+  const next = [
+    ...blocks.slice(0, idx),
+    updatedToggle,
+    ...pastedBlocks,
+    ...blocks.slice(idx + 1),
+  ];
+  return {
+    blocks: renumberNumberedListsDeep(next),
+    focusBlockId: last.id,
+    focusOffset: focusOffsetForBlock(last),
+  };
+}
+
 /**
  * Insert clipboard plain text at a block offset, splitting into multiple blocks when needed.
  */
@@ -105,6 +152,10 @@ export function applyPasteAtBlock(
   let pastedBlocks = markdownToBlocks(pasted);
   if (pastedBlocks.length === 0) return null;
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
+
+  if (cur.type === 'toggle') {
+    return applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+  }
 
   let replacement: Block[];
   let focusBlockId: string;
@@ -158,6 +209,10 @@ export function applyPasteBlocksAt(
 
   let pastedBlocks = pastedBlocksIn.map(b => ({ ...b }));
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
+
+  if (cur.type === 'toggle') {
+    return applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+  }
 
   let replacement: Block[];
   let focusBlockId: string;

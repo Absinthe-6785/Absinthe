@@ -51,13 +51,14 @@ export function renderToggleHeader(
         <ChevronRight size={15}/>
       </button>
       {readOnly
-        ? <span style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
+        ? <span className="be-block-text" data-block-id={block.id} data-block-type={block.type}
+            style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6 }}>
             {block.content ? inline(block.content) : <span style={{ color:c.textFaint }}>{blockPlaceholder('toggle')}</span>}
           </span>
         : <EditableBlock block={block} colors={c} tag="span"
             style={{ fontWeight:600, fontSize:15, color:c.text, lineHeight:1.6, flex:1, display:'block' }}
             placeholder={blockPlaceholder('toggle')} {...sharedEditProps}
-            onEnterOverride={currentContent => ctx.onToggleEnter(block.id, currentContent)}/>
+            onEnterOverride={(before, after) => ctx.onToggleEnter(block.id, before, after)}/>
       }
     </div>
   );

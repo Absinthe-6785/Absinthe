@@ -30,6 +30,15 @@ export function hasBlockRenderer(type: BlockType): boolean {
   return registry.has(type);
 }
 
+/** Reading-mode copy targets — same data attrs as EditableBlock for semantic copy. */
+function readingCopyProps(block: Block) {
+  return {
+    className: 'be-block-text',
+    'data-block-id': block.id,
+    'data-block-type': block.type,
+  } as const;
+}
+
 function sharedEditProps(block: Block, ctx: BlockRenderContext) {
   return {
     editableRef: ctx.editableRef,
@@ -66,7 +75,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
   switch (block.type) {
     case 'paragraph':
       return readOnly ? (
-        <p style={{ margin:'2px 0', lineHeight:1.75, fontSize:15,
+        <p {...readingCopyProps(block)} style={{ margin:'2px 0', lineHeight:1.75, fontSize:15,
           color: block.content ? c.text : c.textFaint, minHeight:26 }}>
           {block.content
             ? inline(block.content)
@@ -75,26 +84,27 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
       ) : (
         <EditableBlock block={block} colors={c} tag="p"
           style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text, minHeight:26 }}
+          persistentPlaceholder={ctx.showPersistentPlaceholder?.(block.id)}
           {...editProps}/>
       );
     case 'heading1':
       return readOnly
-        ? <h1 style={{ fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text }}>{inline(block.content)}</h1>
+        ? <h1 {...readingCopyProps(block)} style={{ fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text }}>{inline(block.content)}</h1>
         : ep('h1', { fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text });
     case 'heading2':
       return readOnly
-        ? <h2 style={{ fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text }}>{inline(block.content)}</h2>
+        ? <h2 {...readingCopyProps(block)} style={{ fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text }}>{inline(block.content)}</h2>
         : ep('h2', { fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text });
     case 'heading3':
       return readOnly
-        ? <h3 style={{ fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }}>{inline(block.content)}</h3>
+        ? <h3 {...readingCopyProps(block)} style={{ fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }}>{inline(block.content)}</h3>
         : ep('h3', { fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text });
     case 'bullet':
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
           <span style={{ color:c.accent, fontSize:18, lineHeight:'26px', flexShrink:0 }}>•</span>
           {readOnly
-            ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
+            ? <span {...readingCopyProps(block)} style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1, display:'block' }}
                 {...editProps}/>
@@ -106,7 +116,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
           <span style={{ color:c.textMuted, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:500 }}>{numberedMarker(block)}.</span>
           {readOnly
-            ? <span style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
+            ? <span {...readingCopyProps(block)} style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1 }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ lineHeight:1.7, fontSize:15, color:c.text, flex:1, display:'block' }}
                 {...editProps}/>
@@ -126,7 +136,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
             {block.checked && <span style={{ color:'#fff', fontSize:11 }}>✓</span>}
           </button>
           {readOnly
-            ? <span style={{
+            ? <span {...readingCopyProps(block)} style={{
                 lineHeight:1.7, fontSize:15, flex:1,
                 color: block.checked ? c.textMuted : c.text,
                 textDecoration: block.checked ? 'line-through' : 'none',
@@ -145,7 +155,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
       );
     case 'quote':
       return readOnly
-        ? <blockquote style={{ borderLeft:`3px solid ${c.quoteBdr}`, marginLeft:0, paddingLeft:16,
+        ? <blockquote {...readingCopyProps(block)} style={{ borderLeft:`3px solid ${c.quoteBdr}`, marginLeft:0, paddingLeft:16,
             color:c.textMuted, fontStyle:'italic', fontSize:15, lineHeight:1.7, margin:'4px 0' }}>
             {inline(block.content)}
           </blockquote>
@@ -169,7 +179,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
             background: c.accentBg, borderRadius:8,
           }}>{block.calloutIcon ?? '💡'}</span>
           {readOnly
-            ? <span style={{ fontSize:14, lineHeight:1.7, color:c.text }}>{inline(block.content)}</span>
+            ? <span {...readingCopyProps(block)} style={{ fontSize:14, lineHeight:1.7, color:c.text }}>{inline(block.content)}</span>
             : <EditableBlock block={block} colors={c} tag="span"
                 style={{ fontSize:14, lineHeight:1.7, color:c.text, flex:1, display:'block' }}
                 {...editProps}/>

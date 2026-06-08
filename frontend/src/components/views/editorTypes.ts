@@ -90,7 +90,7 @@ export interface BlockRenderContext {
   isMenuOpen: boolean;
   onWikiNavigate?: (title: string) => void;
   onToggleAddChild: (toggleBlockId: string) => void;
-  onToggleEnter: (toggleBlockId: string, currentContent: string) => void;
+  onToggleEnter: (toggleBlockId: string, before: string, after: string) => void;
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
@@ -102,4 +102,5 @@ export interface BlockRenderContext {
   getRootBlocks: () => Block[];
   onRootChange: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
+  showPersistentPlaceholder?: (blockId: string) => boolean;
 }
