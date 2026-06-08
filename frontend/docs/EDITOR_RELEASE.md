@@ -1,102 +1,72 @@
 # Editor Release Log
 
-Integration branch: **`cursor/editor-next-aafa`**  
-Stable app branch: **`main`**
+## Branch workflow
 
-Sprint work lands on `cursor/editor-next-aafa` first. Point **Vercel Production** at this branch until a release is promoted to `main`.
-
----
-
-## Production verification (2026-06-07)
-
-| Environment | Commit | Branch line | F-3B Plus fix |
-|-------------|--------|-------------|---------------|
-| **Production** | `8292b06` | `main` (F-3A) | **No** — inline `BlockEditor` table uses `<Plus>` without import |
-| **Preview (latest)** | `83c2e7d` | `cursor/sprint-f50-resilience-aafa` | **Yes** — `TableBlock.tsx` imports `Plus` |
-
-**Root cause of Plus crash for end users:** Production tracks `main`, not F-3B+.
-
-### How to re-check
-
-```bash
-# GitHub deployments (Vercel)
-gh api 'repos/Absinthe-6785/Absinthe/deployments?environment=Production&per_page=1' \
-  --jq '.[0] | {sha: .sha[0:8], at: .created_at}'
-
-# F-3B fix present?
-git merge-base --is-ancestor 071720b <production-sha> && echo "OK" || echo "Plus bug"
+```text
+feature/*  →  cursor/editor-next-aafa  →  main  →  Vercel Production
 ```
 
-Vercel dashboard: **Settings → Git → Production Branch**
+| Branch | Role |
+|--------|------|
+| **`feature/*` / `cursor/sprint-*-aafa`** | Individual sprint work |
+| **`cursor/editor-next-aafa`** | Editor integration & validation |
+| **`main`** | Stable release; **Vercel Production** tracks this |
+| **Preview** | Per-branch deploys from PRs |
+
+### Promotion checklist
+
+1. Merge feature PR → `cursor/editor-next-aafa`
+2. `cd frontend && npm run typecheck && npm test && npm run build`
+3. Open/update PR: `cursor/editor-next-aafa` → `main`
+4. After merge: confirm Vercel **Production Branch** = `main`
+5. Verify Production SHA ≥ `071720b` (F-3B Plus fix)
 
 ---
 
-## Editor Release — F-3B + F-4 + F-5.0 (editor-next)
+## Editor Release — promoted to main (2026-06-08)
 
-**Branch:** `cursor/editor-next-aafa`  
-**Tip:** see git log on that branch
-
-### Included
+**PR:** #46 `cursor/editor-next-aafa` → `main`  
+**Includes:** F-3B, F-4, F-5.0, UX-1 P0 (#47)
 
 | Sprint | Summary |
 |--------|---------|
-| **F-3B** | Block extraction (`TableBlock`, `CodeBlock`, …), `blockRegistry`, Plus import fix |
-| **F-4** | Multi-select, group drag/duplicate/delete, toggle polish |
-| **F-5.0** | `SafeBlockRenderer`, `sanitizeBlockType`, `loadValidatedBlocks`, editor CI (typecheck + test + build) |
+| **F-3B** | Block extraction, `TableBlock` Plus import fix |
+| **F-4** | Multi-select, group drag/duplicate/delete |
+| **F-5.0** | SafeBlockRenderer, document recovery, CI (typecheck + test + build) |
+| **UX-1 P0** | Block Delete/Backspace, menu viewport flip, row click focus |
 
-### Sprint UX-1 (in progress on `cursor/sprint-ux1-block-keys-aafa`)
-
-| P0 | Status |
-|----|--------|
-| Delete / Backspace block delete | Done |
-| Context menu viewport flip | Done |
-| Whole-block click → focus | Done |
+**Tests:** 378 passing  
+**Vercel Production:** `main` (set after merge)
 
 ### Not included
 
 | Item | Status |
 |------|--------|
-| F-5.1 | Planned (see `frontend/docs/F-5.1-design.md`) |
+| F-5.1 | Planned (`frontend/docs/F-5.1-design.md`) |
 | UX-1 P1 | Transform menu, empty-doc click, divider polish |
-| F-5C Paste normalization | Deferred |
-| F-5D AI Paste parser | Deferred (P2) |
-| F-5F Diagnostics | Deferred |
-| Restore-as-paragraph UI | Deferred |
+| F-5C / F-5D / F-5F | Deferred |
 
-### Deploy checklist
+---
 
-1. Merge or fast-forward `cursor/editor-next-aafa` to include latest sprint tip
-2. `cd frontend && npm run typecheck && npm test && npm run build`
-3. Vercel **Production Branch** → `cursor/editor-next-aafa`
-4. Confirm Production SHA contains `071720b` (F-3B) or later
-5. Manual: paste Gemini-style chronology table → edit mode → no blank page
-
-### CI gate (required before merge to editor-next)
+## Verification commands
 
 ```bash
-npm run typecheck   # tsconfig.editor.json
-npm test            # includes blockRenderSmoke + geminiChronologyPaste
-npm run build
+# Production commit
+gh api 'repos/Absinthe-6785/Absinthe/deployments?environment=Production&per_page=1' \
+  --jq '.[0] | {sha: .sha[0:8], at: .created_at}'
+
+# F-3B Plus fix on deployed SHA
+git merge-base --is-ancestor 071720b <production-sha> && echo "OK" || echo "Plus bug"
 ```
 
 ---
 
-## Promotion to main
-
-When editor-next is stable:
-
-1. Open PR: `cursor/editor-next-aafa` → `main`
-2. Update this file with promotion date + commit SHA
-3. Optionally move Vercel Production back to `main` after merge
-
----
-
-## Template (copy for next release)
+## Template (next release)
 
 ```markdown
 ## Editor Release — <name>
 
-**Branch:** cursor/editor-next-aafa @ `<sha>`
+**Branch:** cursor/editor-next-aafa @ `<sha>` → main
 
 ### Included
 - ✓ …
