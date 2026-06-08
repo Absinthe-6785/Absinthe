@@ -5,6 +5,7 @@
  * Unknown elements → paragraph fallback (no callout detection).
  */
 import { makeBlock, type Block } from './blockUtils';
+import { isDetailsToggleElement, toggleBlockFromDetails } from './htmlToggleParser';
 
 const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
   H1: 'heading1',
@@ -88,6 +89,16 @@ function appendBlocks(target: Block[], next: Block[]) {
   }
 }
 
+function walkNodes(nodes: Node[], out: Block[]): void {
+  nodes.forEach(n => walkNode(n, out));
+}
+
+function parseNodesToBlocks(nodes: Node[]): Block[] {
+  const out: Block[] = [];
+  walkNodes(nodes, out);
+  return out;
+}
+
 function walkNode(node: Node, out: Block[]): void {
   if (node.nodeType === Node.TEXT_NODE) {
     const t = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -164,12 +175,20 @@ function walkNode(node: Node, out: Block[]): void {
     return;
   }
 
+  if (isDetailsToggleElement(el)) {
+    const toggle = toggleBlockFromDetails(el, parseNodesToBlocks);
+    if (toggle) {
+      out.push(toggle);
+      return;
+    }
+  }
+
   if (isWrapperTag(tag) && hasElementChildren(el)) {
     el.childNodes.forEach(c => walkNode(c, out));
     return;
   }
 
-  // Unknown / details / callout divs → paragraph fallback
+  // Unknown / callout divs → paragraph fallback
   const fallback = inlineText(el);
   if (fallback) out.push(makeBlock('paragraph', { content: fallback }));
 }
@@ -190,5 +209,5 @@ export function htmlDocumentToBlocks(html: string): Block[] | null {
 /** True when HTML likely contains block-level document structure. */
 export function htmlHasBlockStructure(html: string): boolean {
   if (!/<[a-z]/i.test(html)) return false;
-  return /<(h[1-6]|p|table|ul|ol|blockquote|pre|hr|div|li)\b/i.test(html);
+  return /<(h[1-6]|p|table|ul|ol|blockquote|pre|hr|div|li|details)\b/i.test(html);
 }
