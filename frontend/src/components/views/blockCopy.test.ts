@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { makeBlock, type Block } from './blockUtils';
+import { makeBlock, markdownToBlocks, type Block } from './blockUtils';
 import {
   applySemanticCopy,
   blocksToCopyHtml,
@@ -20,6 +20,10 @@ function blockShape(blocks: Block[]): TreeShape[] {
     ...(b.type === 'bullet' || b.type === 'numbered' ? { indent: b.indent } : {}),
     children: b.children?.length ? blockShape(b.children) : undefined,
   }));
+}
+
+export function assertTreesEqual(a: Block[], b: Block[]): void {
+  expect(shapesEqual(blockShape(a), blockShape(b))).toBe(true);
 }
 
 function shapesEqual(a: TreeShape[], b: TreeShape[]): boolean {
@@ -141,5 +145,72 @@ describe('blockCopy semantic round-trip', () => {
     });
     expect(data['text/html']).toContain('<p>Hi</p>');
     expect(data['text/plain']).toBe('Hi');
+  });
+
+  it('isolated indented bullet does not emit empty ul', () => {
+    const html = blocksToCopyHtml([makeBlock('bullet', { content: 'nested', indent: 1 })]);
+    expect(html).not.toBe('<ul></ul>');
+    expect(html).toContain('nested');
+    assertTreesEqual(
+      [makeBlock('bullet', { content: 'nested', indent: 1 })],
+      roundTrip([makeBlock('bullet', { content: 'nested', indent: 1 })]),
+    );
+  });
+
+  it('EJU toggle subtree — tree equality after semantic copy round-trip', () => {
+    const original = [
+      makeBlock('toggle', {
+        content: 'Grammar Module',
+        children: [
+          makeBlock('heading2', { content: 'Particles' }),
+          makeBlock('bullet', { content: 'は vs が', indent: 0 }),
+          makeBlock('bullet', { content: 'を particle usage', indent: 0 }),
+          makeBlock('bullet', { content: 'nested bullet', indent: 1 }),
+          makeBlock('numbered', { content: 'Drill set A', indent: 0 }),
+          makeBlock('numbered', { content: 'Drill set B', indent: 0 }),
+          makeBlock('toggle', {
+            content: 'Vocab nest',
+            children: [
+              makeBlock('heading3', { content: 'Core kanji' }),
+              makeBlock('bullet', { content: '読む', indent: 0 }),
+              makeBlock('bullet', { content: '書く', indent: 0 }),
+            ],
+          }),
+        ],
+      }),
+    ];
+    assertTreesEqual(original, roundTrip(original));
+  });
+
+  it('full EJU note — tree equality after semantic copy round-trip', () => {
+    const EJU_NOTE_MD = `# EJU Study Timeline
+
+> Grammar Module
+  ## Particles
+  - は vs が
+  - を particle usage
+    - nested bullet
+  1. Drill set A
+  2. Drill set B
+  > Vocab nest
+    ### Core kanji
+    - 読む
+    - 書く
+
+> Reading Module
+  ## Comprehension
+  - Main idea questions
+  - Detail matching
+  1. Practice passage 1
+  2. Practice passage 2
+
+## Global review checklist
+- Redo wrong answers
+- Time yourself`;
+
+    const original = markdownToBlocks(EJU_NOTE_MD).filter(
+      b => b.type !== 'paragraph' || b.content.trim() !== '',
+    );
+    assertTreesEqual(original, roundTrip(original));
   });
 });
