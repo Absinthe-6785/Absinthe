@@ -45,4 +45,14 @@ describe('multiBlockDrag', () => {
     const next = applyMultiBlockDragDrop(blocks, ['b', 'd'], 'c', 'after');
     expect(flattenBlockIds(next!)).toEqual(['a', 'c', 'b', 'd']);
   });
+
+  it('rejects inside drop when any block is non-nestable (UX-4C.1)', () => {
+    const toggle = { ...makeBlock('toggle'), id: 't', children: [] };
+    const para = { ...makeBlock('paragraph'), id: 'p' };
+    const divider = { ...makeBlock('divider'), id: 'd' };
+    const blocks = [toggle, para, divider];
+
+    expect(applyMultiBlockDragDrop(blocks, ['p', 'd'], 't', 'inside')).toBeNull();
+    expect(applyMultiBlockDragDrop(blocks, ['d'], 't', 'inside')).toBeNull();
+  });
 });

@@ -6,6 +6,7 @@ import {
   findParentId,
   insertIntoToggleChildren,
   isDescendantOf,
+  isNestableInToggle,
 } from './blockTree';
 import { findBlockById, flattenBlockIds, updateBlockById, type Block } from './blockUtils';
 
@@ -68,9 +69,12 @@ export function applyMultiBlockDragDrop(
   if (position === 'inside') {
     const target = findBlockById(tree, overId);
     if (!target || target.type !== 'toggle') return null;
-    let result = tree;
     for (const block of extracted) {
       if (findBlockById([block], overId)) return null;
+      if (!isNestableInToggle(block.type)) return null;
+    }
+    let result = tree;
+    for (const block of extracted) {
       result = insertIntoToggleChildren(result, overId, block);
     }
     return result;
