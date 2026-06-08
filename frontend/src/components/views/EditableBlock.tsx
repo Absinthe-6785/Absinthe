@@ -14,6 +14,10 @@ import {
   extractClipboardText,
   isDocumentLevelPaste,
 } from './blockPaste';
+import {
+  beginPastePipelineTrace,
+  traceClipboardToBlocks,
+} from './pastePipelineTrace';
 import { detectWikiQuery, findWikiLinkAtOffset } from './wikiNavigation';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
 
@@ -303,6 +307,8 @@ export function EditableBlock({
 
     const docBlocks = clipboardToBlocks(e.clipboardData);
     if (docBlocks && isDocumentLevelPaste(e.clipboardData, docBlocks) && onPasteBlocksAt) {
+      beginPastePipelineTrace(`paste-at-${block.id}`);
+      traceClipboardToBlocks(docBlocks);
       onPasteBlocksAt(block.id, start, end, docBlocks);
       return;
     }

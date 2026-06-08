@@ -17,6 +17,7 @@ import React, {
   useState, useRef, useCallback, useMemo, useEffect, useContext,
   type ReactNode, type CSSProperties,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
   type Block, type BlockType,
   makeBlock, cloneBlockTree,
@@ -35,6 +36,15 @@ import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScop
 import { blockTintStyle, type BlockTint } from './blockColors';
 import { installCopyDiagnostics } from './copyDiagnostics';
 import { installEditorCopyListener } from './copyListener';
+import {
+  finishPastePipelineTrace,
+  isPasteTraceActive,
+  traceApplyPasteBlocksAtInput,
+  traceApplyPasteBlocksAtOutput,
+  traceRenderBlock,
+  traceStateAfterSetStateCallback,
+  traceStateBeforeSetState,
+} from './pastePipelineTrace';
 import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
 import {
   blockLayoutIndentPx,
@@ -317,6 +327,15 @@ const SingleBlock = React.memo(function SingleBlock({
   const isOverInside = !isDragging && block.type === 'toggle' && dragState?.overId === block.id && dragState?.overPos === 'inside';
   const isActive     = activeBlockId === block.id;
   const layoutIndent = blockLayoutIndentPx(block, depth);
+
+  if (isPasteTraceActive() && depth === 0) {
+    const rendered = block.type === 'toggle' ? 'ToggleBlock'
+      : block.type === 'heading1' || block.type === 'heading2' || block.type === 'heading3'
+        ? `EditableBlock/${block.type}`
+        : block.type === 'paragraph' ? 'EditableBlock/paragraph'
+          : `SingleBlock/${block.type}`;
+    traceRenderBlock(block, rendered);
+  }
 
   const handles = (
     <BlockHandles
@@ -966,9 +985,23 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   ) => {
     const cur = findBlockById(blocksRef.current, id);
     const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
+    traceApplyPasteBlocksAtInput(
+      id,
+      cur?.type ?? '(missing)',
+      start,
+      end,
+      pasted,
+    );
     const result = applyPasteBlocksAt(blocksRef.current, id, start, end, pasted, context);
-    if (!result) return;
-    onChange(result.blocks);
+    if (!result) {
+      finishPastePipelineTrace();
+      return;
+    }
+    traceApplyPasteBlocksAtOutput(result.blocks);
+    traceStateBeforeSetState(result.blocks);
+    flushSync(() => { onChange(result.blocks); });
+    traceStateAfterSetStateCallback(result.blocks);
+    finishPastePipelineTrace();
     setSlashMenu(null);
     setWikiMenu(null);
     setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
