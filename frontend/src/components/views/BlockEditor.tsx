@@ -33,7 +33,7 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { blockTintStyle, type BlockTint } from './blockColors';
-import { applyPasteAtBlock } from './blockPaste';
+import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
 import {
   blockLayoutIndentPx,
   exitEmptyListBlock,
@@ -168,6 +168,7 @@ interface SingleBlockProps {
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
+  onPasteBlocksAt?: (id: string, start: number, end: number, blocks: Block[]) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
@@ -213,6 +214,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onIndentBlock === next.onIndentBlock
     && prev.onOutdentBlock === next.onOutdentBlock
     && prev.onPasteAt === next.onPasteAt
+    && prev.onPasteBlocksAt === next.onPasteBlocksAt
     && prev.getRootBlocks === next.getRootBlocks
     && prev.onRootChange === next.onRootChange
     && prev.searchQueryFor === next.searchQueryFor
@@ -240,6 +242,7 @@ const SingleBlock = React.memo(function SingleBlock({
   onIndentBlock,
   onOutdentBlock,
   onPasteAt,
+  onPasteBlocksAt,
   getRootBlocks,
   onRootChange,
   searchQueryFor,
@@ -337,6 +340,7 @@ const SingleBlock = React.memo(function SingleBlock({
     onIndentBlock,
     onOutdentBlock,
     onPasteAt,
+    onPasteBlocksAt,
     getRootBlocks: getRootBlocks ?? getBlocks,
     onRootChange: onRootChange ?? onChange,
     searchQueryFor,
@@ -882,6 +886,20 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     selectBlock(result.focusBlockId);
   }, [onChange, selectBlock]);
 
+  const handlePasteBlocksAt = useCallback((
+    id: string, start: number, end: number, pasted: Block[],
+  ) => {
+    const cur = findBlockById(blocksRef.current, id);
+    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
+    const result = applyPasteBlocksAt(blocksRef.current, id, start, end, pasted, context);
+    if (!result) return;
+    onChange(result.blocks);
+    setSlashMenu(null);
+    setWikiMenu(null);
+    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
+    selectBlock(result.focusBlockId);
+  }, [onChange, selectBlock]);
+
   // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
   const handleToggleAddChild = useCallback((toggleBlockId: string) => {
     const newChild = makeBlock('paragraph');
@@ -1111,6 +1129,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onIndentBlock={handleIndentBlock}
             onOutdentBlock={handleOutdentBlock}
             onPasteAt={handlePasteAt}
+            onPasteBlocksAt={handlePasteBlocksAt}
             getRootBlocks={getRootBlocks}
             onRootChange={onRootChange}
             searchQueryFor={searchQueryFor}

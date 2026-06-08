@@ -8,7 +8,9 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderBlockContent } from './blockRegistry';
-import { applyPasteAtBlock } from './blockPaste';
+import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
+import { clipboardToBlocks } from './pasteOrchestrator';
+import { htmlDocumentToBlocks } from './htmlDocumentToBlocks';
 import { loadValidatedBlocks } from './documentRecovery';
 import { markdownToBlocks, makeBlock } from './blockUtils';
 import {
@@ -136,5 +138,26 @@ describe('Gemini chronology table paste', () => {
     const table = blocks.find(b => b.type === 'table')!;
     const el = mountTableInEditMode(table);
     expect(el.querySelector('table')).toBeTruthy();
+  });
+
+  it('HTML-first orchestrator preserves article around table (not table-only)', () => {
+    const html = `<h1>연대기</h1><p>소개</p>${GEMINI_CHRONOLOGY_HTML}<p>각주</p>`;
+    const plain = GEMINI_CHRONOLOGY_MD;
+    const dt = {
+      getData: (type: string) => (type === 'text/html' ? html : type === 'text/plain' ? plain : ''),
+    };
+    const blocks = clipboardToBlocks(dt)!;
+    expect(blocks.map(b => b.type)).toEqual(['heading1', 'paragraph', 'table', 'paragraph']);
+    expect(blocks[0].content).toBe('연대기');
+    expect(blocks[1].content).toBe('소개');
+    expect(blocks[3].content).toBe('각주');
+  });
+
+  it('applyPasteBlocksAt splices HTML document into editor', () => {
+    const html = `<h1>Title</h1><p>A</p><table><tr><th>X</th></tr><tr><td>1</td></tr></table><p>B</p>`;
+    const pasted = htmlDocumentToBlocks(html)!;
+    const para = makeBlock('paragraph', { id: 'p1', content: '' });
+    const result = applyPasteBlocksAt([para], 'p1', 0, 0, pasted);
+    expect(result!.blocks.map(b => b.type)).toEqual(['heading1', 'paragraph', 'table', 'paragraph']);
   });
 });

@@ -1,11 +1,15 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from './blockUtils';
 import {
   adaptPastedBlocks,
   applyPasteAtBlock,
+  applyPasteBlocksAt,
+  clipboardToBlocks,
   extractClipboardText,
   htmlToPlainText,
   isBareUrl,
+  isDocumentLevelPaste,
   normalizePasteText,
   pasteMarkdownIntoContent,
   smartInlineMerge,
@@ -80,5 +84,47 @@ describe('blockPaste', () => {
     expect(result?.blocks[0].type).toBe('bullet');
     expect(result?.blocks[0].indent).toBe(1);
     expect(result?.blocks[1].indent).toBe(1);
+  });
+
+  it('applyPasteBlocksAt splices pre-parsed blocks at caret', () => {
+    const b = makeBlock('paragraph', { id: 'x', content: 'start end' });
+    const pasted = [
+      makeBlock('heading1', { content: 'H' }),
+      makeBlock('paragraph', { content: 'body' }),
+    ];
+    const result = applyPasteBlocksAt([b], 'x', 5, 5, pasted);
+    expect(result?.blocks).toHaveLength(2);
+    expect(result?.blocks[0].content).toBe('startH');
+    expect(result?.blocks[1].content).toBe('body end');
+    expect(result?.focusBlockId).toBe(result?.blocks[1].id);
+  });
+
+  it('applyPasteBlocksAt inherits list type in list context', () => {
+    const b = makeBlock('bullet', { id: 'x', content: '', indent: 2 });
+    const pasted = [
+      makeBlock('paragraph', { content: 'a' }),
+      makeBlock('paragraph', { content: 'b' }),
+    ];
+    const result = applyPasteBlocksAt([b], 'x', 0, 0, pasted, { blockType: 'bullet', indent: 2 });
+    expect(result?.blocks.every(bl => bl.type === 'bullet' && bl.indent === 2)).toBe(true);
+  });
+
+  it('applyPasteBlocksAt returns null for empty input', () => {
+    const b = makeBlock('paragraph', { id: 'x', content: '' });
+    expect(applyPasteBlocksAt([b], 'x', 0, 0, [])).toBeNull();
+  });
+
+  it('clipboardToBlocks re-export parses HTML-first', () => {
+    const html = '<h1>T</h1><p>P</p>';
+    const dt = { getData: (t: string) => (t === 'text/html' ? html : t === 'text/plain' ? 'broken' : '') };
+    const blocks = clipboardToBlocks(dt);
+    expect(blocks?.map(bl => bl.type)).toEqual(['heading1', 'paragraph']);
+  });
+
+  it('isDocumentLevelPaste detects structured HTML single block', () => {
+    const html = '<h1>Only</h1>';
+    const dt = { getData: (t: string) => (t === 'text/html' ? html : '') };
+    const blocks = clipboardToBlocks(dt)!;
+    expect(isDocumentLevelPaste(dt, blocks)).toBe(true);
   });
 });

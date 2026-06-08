@@ -9,7 +9,11 @@ import { paintEditableLive } from './editableLive';
 import { applyWrapToBlockSelection } from './toolbarFormat';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { blockPlaceholder } from './blockPlaceholders';
-import { extractClipboardText } from './blockPaste';
+import {
+  clipboardToBlocks,
+  extractClipboardText,
+  isDocumentLevelPaste,
+} from './blockPaste';
 import { detectWikiQuery, findWikiLinkAtOffset } from './wikiNavigation';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
 
@@ -41,6 +45,7 @@ export interface EditableBlockProps {
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
+  onPasteBlocksAt?: (id: string, start: number, end: number, blocks: import('./blockUtils').Block[]) => void;
 }
 
 export function EditableBlock({
@@ -55,6 +60,7 @@ export function EditableBlock({
   onIndentBlock,
   onOutdentBlock,
   onPasteAt,
+  onPasteBlocksAt,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -290,18 +296,25 @@ export function EditableBlock({
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     e.preventDefault();
+    const el = e.currentTarget;
+    const sel = getSelectionOffsets(el);
+    const start = sel?.start ?? getCaretOffset(el);
+    const end = sel?.end ?? start;
+
+    const docBlocks = clipboardToBlocks(e.clipboardData);
+    if (docBlocks && isDocumentLevelPaste(e.clipboardData, docBlocks) && onPasteBlocksAt) {
+      onPasteBlocksAt(block.id, start, end, docBlocks);
+      return;
+    }
+
     const raw = extractClipboardText(e.clipboardData);
     if (!raw) return;
     if (!onPasteAt) {
       document.execCommand('insertText', false, raw);
       return;
     }
-    const el = e.currentTarget;
-    const sel = getSelectionOffsets(el);
-    const start = sel?.start ?? getCaretOffset(el);
-    const end = sel?.end ?? start;
     onPasteAt(block.id, start, end, raw);
-  }, [block.id, onPasteAt]);
+  }, [block.id, onPasteAt, onPasteBlocksAt]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (!onWikiNavigate || !(e.ctrlKey || e.metaKey)) return;

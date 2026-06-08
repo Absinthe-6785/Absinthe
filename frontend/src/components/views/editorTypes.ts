@@ -98,6 +98,7 @@ export interface BlockRenderContext {
   onIndentBlock?: (id: string) => void;
   onOutdentBlock?: (id: string) => void;
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
+  onPasteBlocksAt?: (id: string, start: number, end: number, blocks: Block[]) => void;
   getRootBlocks: () => Block[];
   onRootChange: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
