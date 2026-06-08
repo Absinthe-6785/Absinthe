@@ -42,14 +42,15 @@ describe('htmlDocumentToBlocks', () => {
     expect(blocks.every(b => b.type === 'heading3')).toBe(true);
   });
 
-  it('unknown elements fall back to paragraph', () => {
-    const details = htmlDocumentToBlocks(
+  it('parses details/summary as toggle blocks (UX-3A)', () => {
+    const blocks = htmlDocumentToBlocks(
       '<details><summary>Summary</summary><p>Body</p></details>',
     )!;
-    expect(details).toHaveLength(1);
-    expect(details[0].type).toBe('paragraph');
-    expect(details[0].content).toMatch(/Summary/);
-    expect(details[0].content).toMatch(/Body/);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('toggle');
+    expect(blocks[0].content).toBe('Summary');
+    expect(blocks[0].children[0].type).toBe('paragraph');
+    expect(blocks[0].children[0].content).toBe('Body');
   });
 
   it('callout-like div falls back to paragraph (no callout detection)', () => {
