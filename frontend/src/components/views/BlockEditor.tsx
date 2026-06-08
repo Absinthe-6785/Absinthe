@@ -92,19 +92,14 @@ import {
   shouldHandleDocumentFocus,
   type DocumentFocusAction,
 } from './documentFocus';
-import { BlocksCtx, type BlocksCtxValue, SingleBlock } from './features/block-editor/components/SingleBlock';
+import { SingleBlock } from './features/block-editor/components/SingleBlock';
+import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
+import { SelectionCtx, type SelectionCtxValue } from './features/block-editor/contexts/SelectionContext';
+import { DragCtx } from './features/block-editor/contexts/DragContext';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
 export { useBlockEditor } from './useBlockEditor';
-
-const DragCtx = React.createContext<import('./editorDragDrop').UseDragDropResult | null>(null);
-
-interface SelectionCtxValue {
-  selectedBlockIds: Set<string>;
-  onBlockSelect: (id: string, e: React.MouseEvent) => void;
-}
-const SelectionCtx = React.createContext<SelectionCtxValue | null>(null);
 
 // ── Props ────────────────────────────────────────────────────────────
 interface BlockEditorProps {
