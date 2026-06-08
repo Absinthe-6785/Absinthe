@@ -4,25 +4,67 @@
 import { EDITOR_READING_STYLES } from './editorReading';
 
 export const EDITOR_CHROME_STYLES = `
-  .be-block::before {
-    content: '';
-    position: absolute;
-    left: -44px;
-    top: -4px;
-    bottom: -4px;
-    width: 44px;
+  .be-block {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    cursor: text;
+    min-height: 28px;
   }
-  .be-editor-nested .be-block::before { left: -40px; width: 40px; }
+  .be-gutter {
+    position: relative;
+    flex: 0 0 44px;
+    width: 44px;
+    margin-left: -44px;
+    min-height: 28px;
+    z-index: 2;
+    pointer-events: auto;
+    opacity: 0;
+    transition: opacity .12s;
+    touch-action: none;
+  }
+  .be-editor-nested .be-gutter {
+    flex-basis: 40px;
+    width: 40px;
+    margin-left: -40px;
+  }
+  .be-gutter-strip {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    cursor: default;
+    touch-action: none;
+    pointer-events: auto;
+  }
+  .be-block:hover > .be-gutter,
+  .be-block.be-block-active > .be-gutter,
+  .be-block.be-controls-visible > .be-gutter,
+  .be-block.be-block-selected > .be-gutter,
+  .be-block.be-dragging > .be-gutter,
+  .be-editor-root.be-gutter-dragging .be-gutter {
+    opacity: 1;
+  }
+  .be-editor-root.be-gutter-dragging {
+    user-select: none;
+    cursor: default;
+  }
+  .be-content {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+  }
   .be-handles {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity .12s, visibility .12s;
+    z-index: 3;
   }
-  .be-block:hover > .be-handles,
-  .be-block.be-block-active > .be-handles,
-  .be-block.be-controls-visible > .be-handles,
-  .be-block.be-dragging > .be-handles,
+  .be-block:hover > .be-gutter > .be-handles,
+  .be-block.be-block-active > .be-gutter > .be-handles,
+  .be-block.be-controls-visible > .be-gutter > .be-handles,
+  .be-block.be-dragging > .be-gutter > .be-handles,
+  .be-gutter:hover > .be-handles,
   .be-handles:hover {
     opacity: 1 !important;
     visibility: visible !important;
@@ -76,10 +118,6 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 0.35;
     pointer-events: none;
   }
-  .be-block {
-    cursor: text;
-    min-height: 28px;
-  }
   .be-block-active {
     scroll-margin: 80px;
     background: var(--be-block-active-bg, transparent);
@@ -87,10 +125,10 @@ export const EDITOR_CHROME_STYLES = `
   .be-block-active.be-block-selected {
     background: var(--be-block-active-selected-bg, rgba(139,92,246,0.08));
   }
-  .be-block-active:not(.be-toggle-header-block)::before {
+  .be-block-active:not(.be-toggle-header-block) > .be-gutter::before {
     content: '';
     position: absolute;
-    left: -10px;
+    right: 6px;
     top: 3px;
     bottom: 3px;
     width: 2px;
@@ -98,8 +136,9 @@ export const EDITOR_CHROME_STYLES = `
     background: var(--be-accent, #8B5CF6);
     opacity: 0.55;
     pointer-events: none;
+    z-index: 0;
   }
-  .be-block-active.be-block-selected:not(.be-toggle-header-block)::before {
+  .be-block-active.be-block-selected:not(.be-toggle-header-block) > .be-gutter::before {
     opacity: 0.7;
   }
   .be-block.be-dragging {
