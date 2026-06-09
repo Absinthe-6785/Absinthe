@@ -18,26 +18,15 @@ import React, {
 } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  type Block, type BlockType,
-  makeBlock,
-  updateBlockById, deleteBlockById,
-  findBlockById, flattenBlockIds,
-  isTextBlockType,
+  updateBlockById,
+  findBlockById,
   blocksToMarkdown, markdownToBlocks,
 } from './blockUtils';
-import { applyToggleChildEnter } from './toggleNesting';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { type BlockTint } from './blockColors';
-import {
-  exitEmptyListBlock,
-  isListType,
-  listSplitExtras,
-  numberedMarker,
-  renumberNumberedLists,
-} from './listBlocks';
 import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
   moveBlockIntoToggle, moveBlockOutOfToggle,
@@ -71,7 +60,6 @@ import {
 } from './features/block-editor/constants/blockEditorConstants';
 import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
-import { enterSplitBlockType } from './features/block-editor/utils/blockEditorMutations';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
@@ -81,6 +69,7 @@ import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutt
 import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
 import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';
 import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
+import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -306,95 +295,22 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     );
   };
 
-  // ── Phase 2: 블록 분리 (Enter) ───────────────────────────────────
-  const handleSplitBlock = useCallback((id: string, before: string, after: string) => {
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
-
-    if (onEscapeToParentBelow) {
-      const result = applyToggleChildEnter(bs, id, before, after, true);
-      if (result.action === 'escape_below') {
-        onChange(result.children);
-        onEscapeToParentBelow();
-        return;
-      }
-      onChange(result.children);
-      setFocusCmd({ blockId: result.focusBlockId, offset: 'start' });
-      selectBlock(result.focusBlockId);
-      return;
-    }
-
-    const cur = bs[idx];
-
-    if (isListType(cur.type) && before === '' && after === '') {
-      const next = exitEmptyListBlock(bs, id);
-      onChange(next);
-      setFocusCmd({ blockId: id, offset: 'start' });
-      selectBlock(id);
-      return;
-    }
-
-    const updatedCur: Block = { ...cur, content: before };
-    const newType: BlockType = enterSplitBlockType(cur.type);
-    const newBlock: Block = makeBlock(newType, {
-      content: after,
-      indent: cur.indent,
-      checked: false,
-      ...(isListType(newType) ? listSplitExtras(cur, newType) : {}),
-    });
-
-    let next = [...bs];
-    next[idx] = updatedCur;
-    next.splice(idx + 1, 0, newBlock);
-    next = renumberNumberedLists(next);
-    onChange(next);
-
-    setFocusCmd({ blockId: newBlock.id, offset: 'start' });
-    selectBlock(newBlock.id);
-  }, [onChange, onEscapeToParentBelow, selectBlock]);
-
-  // ── Phase 2: 블록 병합 (Backspace at start) ──────────────────────
-  const handleMergeWithPrev = useCallback((id: string, selfContent: string) => {
-    const bs = blocksRef.current;
-    const ids = flattenBlockIds(bs);
-    const pos  = ids.indexOf(id);
-
-    // Toggle Step 3: 첫 번째 자식 Backspace@0 → 헤더 병합 또는 빈 자식 탈출
-    if (pos === 0 && onEscapeToParentHeader) {
-      if (selfContent === '') {
-        const cleaned = bs.filter(b => b.id !== id);
-        onChange(cleaned.length > 0 ? cleaned : []);
-        onEscapeToParentHeader();
-        return;
-      }
-      if (onMergeFirstChildIntoHeader) {
-        onMergeFirstChildIntoHeader(id, selfContent);
-        return;
-      }
-    }
-
-    if (pos <= 0) return;
-
-    const prevId    = ids[pos - 1];
-    const prevBlock = findBlockById(bs, prevId);
-    if (!prevBlock) return;
-
-    const mergedContent = prevBlock.content + selfContent;
-    const mergeOffset   = prevBlock.content.length;
-
-    let next = updateBlockById(bs, prevId, b => ({ ...b, content: mergedContent }));
-    next = deleteBlockById(next, id);
-    onChange(next);
-
-    setFocusCmd({ blockId: prevId, offset: mergeOffset });
-    selectBlock(prevId);
-  }, [onChange, onEscapeToParentHeader, onMergeFirstChildIntoHeader, selectBlock]);
-
-  // ── Phase 2: 블록 content 변경 ───────────────────────────────────
-  const handleContentChange = useCallback((id: string, content: string) => {
-    onChange(updateBlockById(blocksRef.current, id, b => ({ ...b, content })));
-  }, [onChange]);
+  const {
+    handleSplitBlock,
+    handleMergeWithPrev,
+    handleContentChange,
+    handleTableChange,
+    handleNavigateBlock,
+  } = useEditorBlockEditing({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    selectBlock,
+    onActiveBlockChange: handleActiveBlockChange,
+    onEscapeToParentBelow,
+    onEscapeToParentHeader,
+    onMergeFirstChildIntoHeader,
+  });
 
   const {
     slashMenu,
@@ -445,35 +361,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     searchScope,
     searchMatchIndex,
   });
-
-  // ── Table: 셀/행/열 변경 ─────────────────────────────────────────
-  const handleTableChange = useCallback((
-    blockId: string, headers: string[], rows: string[][],
-  ) => {
-    onChange(updateBlockById(blocksRef.current, blockId, b => ({
-      ...b, tableHeaders: headers, tableRows: rows,
-    })));
-  }, [onChange]);
-
-  const handleNavigateBlock = useCallback((fromId: string, dir: 'up' | 'down') => {
-    const bs = blocksRef.current;
-    const ids = flattenBlockIds(bs);
-    const pos = ids.indexOf(fromId);
-    if (pos < 0) return;
-    const targetPos = dir === 'up' ? pos - 1 : pos + 1;
-    if (targetPos < 0 || targetPos >= ids.length) return;
-    const targetId = ids[targetPos];
-    const targetBlock = findBlockById(bs, targetId);
-    if (!targetBlock) return;
-    selectBlock(targetId);
-    handleActiveBlockChange(targetId);
-    setFocusCmd({
-      blockId: targetId,
-      offset: isTextBlockType(targetBlock.type)
-        ? (dir === 'up' ? 'end' : 'start')
-        : 'start',
-    });
-  }, [handleActiveBlockChange, selectBlock]);
 
   // 외부 포커스 요청 (이미지 삽입 직후 등)
   useEffect(() => {
