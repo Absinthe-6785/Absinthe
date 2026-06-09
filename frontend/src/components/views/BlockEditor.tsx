@@ -19,12 +19,11 @@ import React, {
 import { flushSync } from 'react-dom';
 import {
   type Block, type BlockType,
-  makeBlock, cloneBlockTree,
+  makeBlock,
   updateBlockById, insertBlockAfter, deleteBlockById,
   findBlockById, flattenBlockIds,
   isTextBlockType,
   blocksToMarkdown, markdownToBlocks,
-  convertBlock,
 } from './blockUtils';
 import {
   applyToggleChildEnter,
@@ -54,7 +53,6 @@ import type {
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import type { ToggleNestedRenderer } from './toggleRender';
-import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
 import { SelectionToolbar } from './SelectionToolbar';
@@ -78,11 +76,7 @@ import {
 } from './features/block-editor/constants/blockEditorConstants';
 import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
-import {
-  enterSplitBlockType,
-  insertBlockAtIndex,
-  moveBlockInList,
-} from './features/block-editor/utils/blockEditorMutations';
+import { enterSplitBlockType } from './features/block-editor/utils/blockEditorMutations';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
@@ -90,6 +84,7 @@ import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorD
 import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
 import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
+import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -238,65 +233,28 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const parentSelection = useContext(SelectionCtx);
   const activeSelection = depth === 0 ? selectionCtx : parentSelection;
 
-  const handleAddBelow = useCallback((id: string) => {
-    const nb = makeBlock('paragraph');
-    onChange(insertBlockAfter(blocksRef.current, id, nb));
-    setFocusCmd({ blockId: nb.id, offset: 'start' });
-    selectBlock(nb.id);
-  }, [onChange, selectBlock]);
-
-  const handleAddAbove = useCallback((id: string) => {
-    const nb = makeBlock('paragraph');
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
-    onChange(insertBlockAtIndex(bs, idx, nb));
-    setFocusCmd({ blockId: nb.id, offset: 'start' });
-    selectBlock(nb.id);
-  }, [onChange, selectBlock]);
-
-  const handleDelete = useCallback((id: string) => {
-    const updated = deleteBlockById(blocksRef.current, id);
-    onChange(updated.length > 0 ? updated : [makeBlock('paragraph')]);
-    clearSelection();
-  }, [onChange, clearSelection]);
-
-  const handleDeleteSelected = useCallback(() => {
-    const ids = selectedBlockIdsRef.current;
-    if (!ids.size) return;
-    const updated = deleteSelectedBlocks(getRootBlocks(), ids);
-    onRootChange(updated);
-    clearSelection();
-    handleActiveBlockChange(null);
-  }, [getRootBlocks, onRootChange, handleActiveBlockChange, clearSelection]);
-
-  const handleDuplicateSelected = useCallback(() => {
-    const ids = selectedBlockIdsRef.current;
-    if (!ids.size) return;
-    const updated = duplicateSelectedBlocks(getRootBlocks(), ids);
-    onRootChange(updated);
-  }, [getRootBlocks, onRootChange]);
-
-  const handleMove = useCallback((id: string, dir: 'up' | 'down') => {
-    const next = moveBlockInList(blocksRef.current, id, dir);
-    if (next) onChange(next);
-  }, [onChange]);
-
-  const handleConvert = useCallback((id: string, newType: BlockType) => {
-    onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
-    setHandleMenu(null);
-    setPinnedControlsId(null);
-    setFocusCmd({ blockId: id, offset: 'end' });
-  }, [onChange]);
-
-  const handleDuplicate = useCallback((id: string) => {
-    const block = findBlockById(blocksRef.current, id);
-    if (!block) return;
-    const copy = cloneBlockTree(block);
-    onChange(insertBlockAfter(blocksRef.current, id, copy));
-    setFocusCmd({ blockId: copy.id, offset: 'start' });
-    selectBlock(copy.id);
-  }, [onChange, selectBlock]);
+  const {
+    handleAddBelow,
+    handleAddAbove,
+    handleDelete,
+    handleDeleteSelected,
+    handleDuplicateSelected,
+    handleMove,
+    handleConvert,
+    handleDuplicate,
+  } = useEditorBlockOps({
+    getBlocks: getLocalBlocks,
+    getRootBlocks,
+    onChange,
+    onRootChange,
+    onFocusCmd: setFocusCmd,
+    selectBlock,
+    clearSelection,
+    onActiveBlockChange: handleActiveBlockChange,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+    setHandleMenu,
+    setPinnedControlsId,
+  });
 
   useEffect(() => {
     if (!searchQuery.trim() || searchScope === 'all') return;
