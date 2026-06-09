@@ -41,6 +41,12 @@ import {
   LocalGraphView,
   RelatedNotesPanel,
   SavedViewsSection,
+  SmartCollectionsSection,
+  SMART_COLLECTIONS,
+  activateSmartCollection,
+  evaluateSmartCollection,
+  filterBySmartCollection,
+  findSmartCollection,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -48,6 +54,7 @@ import {
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
+  type SmartCollection,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -260,6 +267,7 @@ export const NoteView = () => {
   const [showAppearance, setShowAppearance] = useState(false);
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
+  const [activeSmartCollectionId, setActiveSmartCollectionId] = useState<string | null>(null);
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -297,11 +305,24 @@ export const NoteView = () => {
     setActiveTag(null);
     setSearchQuery(activateSavedView(view));
     setActiveSavedViewId(view.id);
+    setActiveSmartCollectionId(null);
   }, []);
 
   const handleClearSavedView = useCallback(() => {
     setSearchQuery('');
     setActiveSavedViewId(null);
+  }, []);
+
+  const handleActivateSmartCollection = useCallback((collection: SmartCollection) => {
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery('');
+    setActiveSavedViewId(null);
+    setActiveSmartCollectionId(activateSmartCollection(collection));
+  }, []);
+
+  const handleClearSmartCollection = useCallback(() => {
+    setActiveSmartCollectionId(null);
   }, []);
 
   const handleCreateSavedView = useCallback((name: string) => {
@@ -330,6 +351,20 @@ export const NoteView = () => {
     return { active: true as const, label: formatParsedQuery(parsed), error: null };
   }, [searchQuery]);
 
+  const activeSmartCollection = useMemo(
+    () => (activeSmartCollectionId ? findSmartCollection(activeSmartCollectionId) : undefined),
+    [activeSmartCollectionId],
+  );
+
+  const smartCollectionCounts = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    const counts: Record<string, number> = {};
+    for (const collection of SMART_COLLECTIONS) {
+      counts[collection.id] = evaluateSmartCollection(collection.id, knowledgeIndexService, safeNotes).length;
+    }
+    return counts;
+  }, [notes]);
+
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
     let list: Note[] =
@@ -340,6 +375,14 @@ export const NoteView = () => {
     if (activeTag) {
       const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
       list = list.filter(n => taggedIds.has(n.id));
+    }
+    if (activeSmartCollectionId) {
+      list = filterBySmartCollection(
+        list,
+        knowledgeIndexService,
+        activeSmartCollectionId,
+        safeNotes.filter(n => !n.deletedAt),
+      ).notes;
     }
     if (searchQuery.trim()) {
       if (knowledgeQueryInfo.active) {
@@ -362,14 +405,16 @@ export const NoteView = () => {
         }
       }
     }
-    // 정렬
-    list = [...list].sort((a, b) => {
-      if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
-      if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
-      return b.updatedAt - a.updatedAt;
-    });
+    // 정렬 — smart collections with explicit ordering skip user sort preference
+    if (!activeSmartCollectionId) {
+      list = [...list].sort((a, b) => {
+        if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
+        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
+        return b.updatedAt - a.updatedAt;
+      });
+    }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, activeSmartCollectionId]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(
@@ -925,13 +970,21 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); setActiveSmartCollectionId(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
                     </div>
                   </>
                 )}
+                <SmartCollectionsSection
+                  colors={c}
+                  collections={SMART_COLLECTIONS}
+                  activeCollectionId={activeSmartCollectionId}
+                  counts={smartCollectionCounts}
+                  onActivate={handleActivateSmartCollection}
+                  onClearActive={handleClearSmartCollection}
+                />
                 <SavedViewsSection
                   colors={c}
                   views={savedViews}
@@ -959,7 +1012,9 @@ export const NoteView = () => {
       <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {activeSavedView
+            {activeSmartCollection
+              ? activeSmartCollection.name
+              : activeSavedView
               ? activeSavedView.name
               : knowledgeQueryInfo.active
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
@@ -970,7 +1025,10 @@ export const NoteView = () => {
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
             )}
-            {activeTag && !searchQuery.trim() && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
+            {activeSmartCollection && !searchQuery.trim() && (
+              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
+            )}
+            {activeTag && !searchQuery.trim() && !activeSmartCollection && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title="Sort">

@@ -196,6 +196,64 @@ export class KnowledgeIndexService {
     return [...this.activeNotes.keys()];
   }
 
+  /**
+   * Relationship count from precomputed indexes — O(1) per neighbor bucket.
+   * Used by highly-connected smart collections.
+   */
+  getConnectionScore(noteId: string): number {
+    const title = this.getNoteTitle(noteId);
+    const incomingLinks = this.getIncoming(title).length;
+    const outgoingLinks = this.getOutgoing(noteId).length;
+    const incomingMentions = this.getMentioningNotes(noteId).length;
+    const outgoingMentions = (this.mentionsFromSourceId.get(noteId) ?? []).length;
+    const relatedCount = (this.relatedByNoteId.get(noteId) ?? []).length;
+    return incomingLinks + outgoingLinks + incomingMentions + outgoingMentions + relatedCount;
+  }
+
+  /** Notes with no wiki backlinks and no unlinked mentions — O(N) over indexes */
+  getOrphanNoteIds(): string[] {
+    const result: string[] = [];
+    for (const noteId of this.getAllNoteIds()) {
+      const title = this.getNoteTitle(noteId);
+      if (this.getIncoming(title).length > 0) continue;
+      if (this.getOutgoing(noteId).length > 0) continue;
+      if (this.getMentioningNotes(noteId).length > 0) continue;
+      if ((this.mentionsFromSourceId.get(noteId) ?? []).length > 0) continue;
+      result.push(noteId);
+    }
+    return result;
+  }
+
+  /** Notes with no indexed tags — O(N) */
+  getUntaggedNoteIds(): string[] {
+    return this.getAllNoteIds().filter(noteId => this.getTags(noteId).length === 0);
+  }
+
+  /** Notes with incoming or outgoing wiki links — O(N) */
+  getNoteIdsWithBacklinks(): string[] {
+    return this.getAllNoteIds().filter(noteId => {
+      const title = this.getNoteTitle(noteId);
+      return this.getIncoming(title).length > 0 || this.getOutgoing(noteId).length > 0;
+    });
+  }
+
+  /** Notes with incoming or outgoing unlinked mentions — O(N) */
+  getNoteIdsWithMentions(): string[] {
+    return this.getAllNoteIds().filter(noteId =>
+      this.getMentioningNotes(noteId).length > 0
+      || (this.mentionsFromSourceId.get(noteId) ?? []).length > 0,
+    );
+  }
+
+  /** Notes ranked by connection score — O(N log N) */
+  getHighlyConnectedNoteIds(minScore = 2): string[] {
+    return this.getAllNoteIds()
+      .map(noteId => ({ noteId, score: this.getConnectionScore(noteId) }))
+      .filter(entry => entry.score >= minScore)
+      .sort((a, b) => b.score - a.score || a.noteId.localeCompare(b.noteId))
+      .map(entry => entry.noteId);
+  }
+
   /** Indexed note title — O(1) */
   getNoteTitle(noteId: string): string {
     return this.activeNotes.get(noteId)?.title ?? '';

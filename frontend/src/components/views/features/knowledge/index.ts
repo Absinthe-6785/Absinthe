@@ -54,6 +54,7 @@ export {
 
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
+export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
@@ -118,3 +119,15 @@ export {
   SAVED_VIEWS_KEY,
   type SavedView,
 } from './views';
+
+export {
+  activateSmartCollection,
+  evaluateSmartCollection,
+  filterBySmartCollection,
+  findSmartCollection,
+  isSmartCollectionId,
+  SMART_COLLECTIONS,
+  type FilterSmartCollectionResult,
+  type SmartCollection,
+  type SmartCollectionId,
+} from './collections';
