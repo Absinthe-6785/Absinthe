@@ -56,6 +56,8 @@ export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './compon
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
+export { DatabaseTableView, type DatabaseTableViewProps } from './components/DatabaseTableView';
+export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
@@ -147,8 +149,34 @@ export {
 } from './collections';
 
 export {
+  activateDatabaseView,
+  createDatabaseView,
+  DATABASE_VIEWS_KEY,
+  DEFAULT_TABLE_COLUMNS,
+  deleteDatabaseView,
+  evaluateDatabaseView,
+  filterByDatabaseView,
+  findDatabaseView,
+  isValidDatabaseViewQuery,
+  loadDatabaseViews,
+  normalizeDatabaseViews,
+  renameDatabaseView,
+  saveDatabaseViews,
+  type DatabaseColumn,
+} from './databaseViews';
+
+export {
   INACTIVE_WORKSPACE,
+  activateDatabaseViewWorkspace,
+  activateRuleCollectionWorkspace,
+  activateSavedViewWorkspace,
+  activateSmartCollectionWorkspace,
+  applyWorkspaceListFilter,
+  clearWorkspaceActivation,
+  clearWorkspaceSearchBinding,
+  isDatabaseViewActive,
   isSameWorkspaceActivation,
+  isWorkspaceKindActive,
   WORKSPACE_FILTER_SOURCE,
   type DatabaseView,
   type DatabaseViewPresentation,

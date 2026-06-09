@@ -27,7 +27,6 @@ import {
   filterNotes,
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
-  activateSavedView,
   createSavedView,
   deleteSavedView,
   findSavedView,
@@ -43,21 +42,36 @@ import {
   SavedViewsSection,
   SmartCollectionsSection,
   RuleCollectionsSection,
+  DatabaseTableView,
+  DatabaseViewsSection,
   SMART_COLLECTIONS,
-  activateSmartCollection,
-  activateRuleCollection,
   createRuleCollection,
   evaluateSmartCollection,
   evaluateRuleCollection,
-  filterByRuleCollection,
-  filterBySmartCollection,
+  evaluateDatabaseView,
+  filterByDatabaseView,
   findRuleCollection,
   findSmartCollection,
+  findDatabaseView,
   isValidRuleCollectionQuery,
+  isValidDatabaseViewQuery,
   loadRuleCollections,
   renameRuleCollection,
   deleteRuleCollection,
   saveRuleCollections,
+  createDatabaseView,
+  deleteDatabaseView,
+  loadDatabaseViews,
+  renameDatabaseView,
+  saveDatabaseViews,
+  INACTIVE_WORKSPACE,
+  activateDatabaseViewWorkspace,
+  activateRuleCollectionWorkspace,
+  activateSavedViewWorkspace,
+  activateSmartCollectionWorkspace,
+  applyWorkspaceListFilter,
+  clearWorkspaceSearchBinding,
+  isWorkspaceKindActive,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -67,6 +81,8 @@ import {
   type SavedView,
   type SmartCollection,
   type RuleCollection,
+  type DatabaseView,
+  type WorkspaceActivation,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -278,10 +294,9 @@ export const NoteView = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [showAppearance, setShowAppearance] = useState(false);
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
-  const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
-  const [activeSmartCollectionId, setActiveSmartCollectionId] = useState<string | null>(null);
+  const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
   const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
-  const [activeRuleCollectionId, setActiveRuleCollectionId] = useState<string | null>(null);
+  const [databaseViews, setDatabaseViews] = useState(() => loadDatabaseViews());
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -301,12 +316,16 @@ export const NoteView = () => {
   }, [ruleCollections]);
 
   useEffect(() => {
-    if (!activeSavedViewId) return;
-    const view = findSavedView(savedViews, activeSavedViewId);
+    saveDatabaseViews(databaseViews);
+  }, [databaseViews]);
+
+  useEffect(() => {
+    if (workspaceActivation.kind !== 'saved-view') return;
+    const view = findSavedView(savedViews, workspaceActivation.id);
     if (!view || view.query !== searchQuery.trim()) {
-      setActiveSavedViewId(null);
+      setWorkspaceActivation(INACTIVE_WORKSPACE);
     }
-  }, [searchQuery, activeSavedViewId, savedViews]);
+  }, [searchQuery, workspaceActivation, savedViews]);
 
   const canSaveCurrentView = useMemo(
     () => isValidSavedViewQuery(searchQuery),
@@ -318,9 +337,23 @@ export const NoteView = () => {
     [searchQuery],
   );
 
+  const canCreateDatabaseView = useMemo(
+    () => isValidDatabaseViewQuery(searchQuery),
+    [searchQuery],
+  );
+
   const activeRuleCollection = useMemo(
-    () => (activeRuleCollectionId ? findRuleCollection(ruleCollections, activeRuleCollectionId) : undefined),
-    [activeRuleCollectionId, ruleCollections],
+    () => (workspaceActivation.kind === 'rule-collection'
+      ? findRuleCollection(ruleCollections, workspaceActivation.id)
+      : undefined),
+    [workspaceActivation, ruleCollections],
+  );
+
+  const activeDatabaseView = useMemo(
+    () => (workspaceActivation.kind === 'database-view'
+      ? findDatabaseView(databaseViews, workspaceActivation.id)
+      : undefined),
+    [workspaceActivation, databaseViews],
   );
 
   const ruleCollectionCounts = useMemo(() => {
@@ -332,49 +365,71 @@ export const NoteView = () => {
     return counts;
   }, [notes, ruleCollections]);
 
+  const databaseViewCounts = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    const counts: Record<string, number> = {};
+    for (const view of databaseViews) {
+      counts[view.id] = evaluateDatabaseView(view, knowledgeIndexService, safeNotes).length;
+    }
+    return counts;
+  }, [notes, databaseViews]);
+
   const activeSavedView = useMemo(
-    () => (activeSavedViewId ? findSavedView(savedViews, activeSavedViewId) : undefined),
-    [activeSavedViewId, savedViews],
+    () => (workspaceActivation.kind === 'saved-view'
+      ? findSavedView(savedViews, workspaceActivation.id)
+      : undefined),
+    [workspaceActivation, savedViews],
   );
 
-  const handleActivateSavedView = useCallback((view: SavedView) => {
+  const resetBrowseScope = useCallback(() => {
     setActiveFolderId(null);
     setActiveTag(null);
-    setSearchQuery(activateSavedView(view));
-    setActiveSavedViewId(view.id);
-    setActiveSmartCollectionId(null);
-    setActiveRuleCollectionId(null);
   }, []);
 
+  const handleActivateSavedView = useCallback((view: SavedView) => {
+    resetBrowseScope();
+    const result = activateSavedViewWorkspace(view);
+    setWorkspaceActivation(result.activation);
+    setSearchQuery(result.searchQuery);
+  }, [resetBrowseScope]);
+
   const handleClearSavedView = useCallback(() => {
-    setSearchQuery('');
-    setActiveSavedViewId(null);
+    const result = clearWorkspaceSearchBinding();
+    setWorkspaceActivation(result.activation);
+    setSearchQuery(result.searchQuery);
   }, []);
 
   const handleActivateSmartCollection = useCallback((collection: SmartCollection) => {
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-    setActiveSavedViewId(null);
-    setActiveRuleCollectionId(null);
-    setActiveSmartCollectionId(activateSmartCollection(collection));
-  }, []);
+    resetBrowseScope();
+    const result = activateSmartCollectionWorkspace(collection);
+    setWorkspaceActivation(result.activation);
+    setSearchQuery(result.searchQuery);
+  }, [resetBrowseScope]);
 
   const handleClearSmartCollection = useCallback(() => {
-    setActiveSmartCollectionId(null);
+    setWorkspaceActivation(prev => (prev.kind === 'smart-collection' ? INACTIVE_WORKSPACE : prev));
   }, []);
 
   const handleActivateRuleCollection = useCallback((collection: RuleCollection) => {
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-    setActiveSavedViewId(null);
-    setActiveSmartCollectionId(null);
-    setActiveRuleCollectionId(activateRuleCollection(collection));
-  }, []);
+    resetBrowseScope();
+    const result = activateRuleCollectionWorkspace(collection);
+    setWorkspaceActivation(result.activation);
+    setSearchQuery(result.searchQuery);
+  }, [resetBrowseScope]);
 
   const handleClearRuleCollection = useCallback(() => {
-    setActiveRuleCollectionId(null);
+    setWorkspaceActivation(prev => (prev.kind === 'rule-collection' ? INACTIVE_WORKSPACE : prev));
+  }, []);
+
+  const handleActivateDatabaseView = useCallback((view: DatabaseView) => {
+    resetBrowseScope();
+    const result = activateDatabaseViewWorkspace(view);
+    setWorkspaceActivation(result.activation);
+    setSearchQuery(result.searchQuery);
+  }, [resetBrowseScope]);
+
+  const handleClearDatabaseView = useCallback(() => {
+    setWorkspaceActivation(prev => (prev.kind === 'database-view' ? INACTIVE_WORKSPACE : prev));
   }, []);
 
   const handleCreateRuleCollection = useCallback((name: string, query: string) => {
@@ -387,7 +442,20 @@ export const NoteView = () => {
 
   const handleDeleteRuleCollection = useCallback((id: string) => {
     setRuleCollections(prev => deleteRuleCollection(prev, id));
-    setActiveRuleCollectionId(prev => (prev === id ? null : prev));
+    setWorkspaceActivation(prev => (prev.kind === 'rule-collection' && prev.id === id ? INACTIVE_WORKSPACE : prev));
+  }, []);
+
+  const handleCreateDatabaseView = useCallback((name: string, query: string) => {
+    setDatabaseViews(prev => createDatabaseView(prev, name, query));
+  }, []);
+
+  const handleRenameDatabaseView = useCallback((id: string, name: string) => {
+    setDatabaseViews(prev => renameDatabaseView(prev, id, name));
+  }, []);
+
+  const handleDeleteDatabaseView = useCallback((id: string) => {
+    setDatabaseViews(prev => deleteDatabaseView(prev, id));
+    setWorkspaceActivation(prev => (prev.kind === 'database-view' && prev.id === id ? INACTIVE_WORKSPACE : prev));
   }, []);
 
   const handleCreateSavedView = useCallback((name: string) => {
@@ -417,9 +485,13 @@ export const NoteView = () => {
   }, [searchQuery]);
 
   const activeSmartCollection = useMemo(
-    () => (activeSmartCollectionId ? findSmartCollection(activeSmartCollectionId) : undefined),
-    [activeSmartCollectionId],
+    () => (workspaceActivation.kind === 'smart-collection'
+      ? findSmartCollection(workspaceActivation.id)
+      : undefined),
+    [workspaceActivation],
   );
+
+  const isDatabaseViewMode = workspaceActivation.kind === 'database-view';
 
   const smartCollectionCounts = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -429,6 +501,14 @@ export const NoteView = () => {
     }
     return counts;
   }, [notes]);
+
+  const databaseViewNotes = useMemo(() => {
+    if (!activeDatabaseView) return [];
+    const safeNotes = Array.isArray(notes) ? notes.filter(n => !n.deletedAt) : [];
+    return filterByDatabaseView(safeNotes, knowledgeIndexService, activeDatabaseView).notes.sort(
+      (a, b) => b.updatedAt - a.updatedAt || (a.title ?? '').localeCompare(b.title ?? ''),
+    );
+  }, [activeDatabaseView, notes]);
 
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -441,17 +521,11 @@ export const NoteView = () => {
       const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
       list = list.filter(n => taggedIds.has(n.id));
     }
-    if (activeSmartCollectionId) {
-      list = filterBySmartCollection(
-        list,
-        knowledgeIndexService,
-        activeSmartCollectionId,
-        safeNotes.filter(n => !n.deletedAt),
-      ).notes;
-    }
-    if (activeRuleCollection) {
-      list = filterByRuleCollection(list, knowledgeIndexService, activeRuleCollection).notes;
-    }
+    list = applyWorkspaceListFilter(list, workspaceActivation, {
+      service: knowledgeIndexService,
+      vaultNotes: safeNotes.filter(n => !n.deletedAt),
+      ruleCollections,
+    });
     if (searchQuery.trim()) {
       if (knowledgeQueryInfo.active) {
         list = filterNotes(list, knowledgeIndexService, searchQuery).notes;
@@ -474,7 +548,7 @@ export const NoteView = () => {
       }
     }
     // 정렬 — smart collections with explicit ordering skip user sort preference
-    if (!activeSmartCollectionId) {
+    if (workspaceActivation.kind !== 'smart-collection') {
       list = [...list].sort((a, b) => {
         if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
         if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
@@ -482,7 +556,7 @@ export const NoteView = () => {
       });
     }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, activeSmartCollectionId, activeRuleCollection]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, workspaceActivation, ruleCollections]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(
@@ -983,8 +1057,8 @@ export const NoteView = () => {
                 </div>
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag && !activeSavedViewId && !activeSmartCollectionId && !activeRuleCollectionId ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setActiveSavedViewId(null); setActiveSmartCollectionId(null); setActiveRuleCollectionId(null); }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -1038,7 +1112,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); setActiveSmartCollectionId(null); setActiveRuleCollectionId(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1048,7 +1122,7 @@ export const NoteView = () => {
                 <SmartCollectionsSection
                   colors={c}
                   collections={SMART_COLLECTIONS}
-                  activeCollectionId={activeSmartCollectionId}
+                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') ? workspaceActivation.id : null}
                   counts={smartCollectionCounts}
                   onActivate={handleActivateSmartCollection}
                   onClearActive={handleClearSmartCollection}
@@ -1056,7 +1130,7 @@ export const NoteView = () => {
                 <RuleCollectionsSection
                   colors={c}
                   collections={ruleCollections}
-                  activeCollectionId={activeRuleCollectionId}
+                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'rule-collection') ? workspaceActivation.id : null}
                   counts={ruleCollectionCounts}
                   canCreateFromCurrent={canCreateRuleCollection}
                   currentQuery={searchQuery.trim()}
@@ -1066,10 +1140,23 @@ export const NoteView = () => {
                   onRename={handleRenameRuleCollection}
                   onDelete={handleDeleteRuleCollection}
                 />
+                <DatabaseViewsSection
+                  colors={c}
+                  views={databaseViews}
+                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'database-view') ? workspaceActivation.id : null}
+                  counts={databaseViewCounts}
+                  canCreateFromCurrent={canCreateDatabaseView}
+                  currentQuery={searchQuery.trim()}
+                  onActivate={handleActivateDatabaseView}
+                  onClearActive={handleClearDatabaseView}
+                  onCreate={handleCreateDatabaseView}
+                  onRename={handleRenameDatabaseView}
+                  onDelete={handleDeleteDatabaseView}
+                />
                 <SavedViewsSection
                   colors={c}
                   views={savedViews}
-                  activeViewId={activeSavedViewId}
+                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'saved-view') ? workspaceActivation.id : null}
                   canSaveCurrent={canSaveCurrentView}
                   onActivate={handleActivateSavedView}
                   onClearActive={handleClearSavedView}
@@ -1089,11 +1176,24 @@ export const NoteView = () => {
           )}
         </div>
       )}
-      {/* ── Note List ── */}
-      <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
+      {/* ── Note List / Database Table ── */}
+      <div style={{
+        width: focusMode ? 0 : (isDatabaseViewMode ? '45%' : 200),
+        minWidth: focusMode ? 0 : (isDatabaseViewMode ? 280 : 200),
+        overflow: 'hidden',
+        background: c.notelist,
+        borderRight: `1px solid ${c.sideBdr}`,
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: isDatabaseViewMode ? 1 : 0,
+        transition: 'width .2s, min-width .2s',
+        zIndex: 99,
+      }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {activeSmartCollection
+            {activeDatabaseView
+              ? activeDatabaseView.name
+              : activeSmartCollection
               ? activeSmartCollection.name
               : activeRuleCollection
               ? activeRuleCollection.name
@@ -1102,19 +1202,28 @@ export const NoteView = () => {
               : knowledgeQueryInfo.active
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
-            <span style={{ color: c.textFaint, marginLeft: 4 }}>({visibleNotes.length})</span>
+            <span style={{ color: c.textFaint, marginLeft: 4 }}>
+              ({isDatabaseViewMode ? databaseViewNotes.length : visibleNotes.length})
+            </span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
             )}
-            {activeSmartCollection && !searchQuery.trim() && (
+            {isWorkspaceKindActive(workspaceActivation, 'database-view') && !searchQuery.trim() && (
+              <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear database view">✕</button>
+            )}
+            {isWorkspaceKindActive(workspaceActivation, 'smart-collection') && !searchQuery.trim() && (
               <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
             )}
-            {activeRuleCollection && !searchQuery.trim() && !activeSmartCollection && (
+            {isWorkspaceKindActive(workspaceActivation, 'rule-collection') && !searchQuery.trim() && !isWorkspaceKindActive(workspaceActivation, 'smart-collection') && (
               <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
             )}
-            {activeTag && !searchQuery.trim() && !activeSmartCollection && !activeRuleCollection && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
+            {activeTag && workspaceActivation.kind === 'none' && !searchQuery.trim() && (
+              <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>
+            )}
+            {!isDatabaseViewMode && (
+              <>
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title="Sort">
@@ -1145,8 +1254,19 @@ export const NoteView = () => {
                 <Plus size={12}/>
               </button>
             )}
+              </>
+            )}
           </div>
         </div>
+        {isDatabaseViewMode && activeDatabaseView ? (
+          <DatabaseTableView
+            colors={c}
+            notes={databaseViewNotes}
+            service={knowledgeIndexService}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+          />
+        ) : (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
@@ -1186,6 +1306,7 @@ export const NoteView = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* ── Editor Area ── */}

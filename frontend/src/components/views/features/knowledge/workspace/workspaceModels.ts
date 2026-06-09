@@ -63,12 +63,4 @@ export function isSameWorkspaceActivation(
   return a.kind === b.kind && a.id === b.id;
 }
 
-/** Future Database View record shape — not implemented in K-8.75 */
-export type DatabaseViewPresentation = 'table' | 'board' | 'calendar';
-
-export interface DatabaseView {
-  id: string;
-  name: string;
-  query: string;
-  presentation: DatabaseViewPresentation;
-}
+export type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/databaseViewModels';
