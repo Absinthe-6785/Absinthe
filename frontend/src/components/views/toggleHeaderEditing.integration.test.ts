@@ -33,7 +33,9 @@ function mountEditor(initialBlocks: Block[]) {
   function StatefulEditor() {
     const [blocks, setBlocks] = React.useState(initialBlocks);
     current = blocks;
-    return createElement(BlockEditor, { blocks, onChange: setBlocks, colors, readOnly: false });
+    return createElement(BlockEditor, {
+      blocks, onChange: setBlocks, colors, readOnly: false, virtualBlocksPoc: false,
+    });
   }
   act(() => {
     root = createRoot(host);

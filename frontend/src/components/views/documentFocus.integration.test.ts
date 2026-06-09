@@ -62,6 +62,7 @@ function mountEditor(initialBlocks: Block[]): MountResult {
       onChange: setBlocks,
       colors,
       readOnly: false,
+      virtualBlocksPoc: false,
     });
   }
 

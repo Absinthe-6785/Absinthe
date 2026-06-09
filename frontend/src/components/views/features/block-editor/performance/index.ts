@@ -1,8 +1,18 @@
 export {
+  getVirtualBlocksDisableOverride,
   getVirtualBlocksPocOverride,
+  isVirtualBlocksEnvOptedOut,
   isVirtualBlocksPocEnabled,
+  setVirtualBlocksDisableOverride,
   setVirtualBlocksPocOverride,
 } from './virtualBlocksFlag';
+export {
+  collectVirtualizationStats,
+  getVirtualizationStats,
+  setVirtualizationStatsSource,
+  type VirtualizationStats,
+} from './virtualizationStats';
+export { VIRTUAL_BLOCK_OVERSCAN } from './useVirtualBlockList';
 export { estimateBlockHeight, getEstimatedHeightForType } from './blockHeightEstimates';
 export { BlockHeightCache } from './blockHeightCache';
 export { DISABLED_DRAG_API } from './disabledDragApi';

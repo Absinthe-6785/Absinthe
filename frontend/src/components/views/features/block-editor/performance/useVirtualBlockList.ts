@@ -7,7 +7,8 @@ import { observeScrollRectWithFallback } from './observeScrollRect';
 import { scrollToBlockId as scrollToBlockIdImpl, type BlockVirtualizer } from './scrollToBlockId';
 import { getDragStateSnapshot, subscribeDragState } from './dragStateStore';
 
-const DEFAULT_OVERSCAN = 8;
+export const VIRTUAL_BLOCK_OVERSCAN = 8;
+const DEFAULT_OVERSCAN = VIRTUAL_BLOCK_OVERSCAN;
 
 export interface UseVirtualBlockListOptions {
   blocks: Block[];
@@ -69,10 +70,17 @@ export function useVirtualBlockList({
     return scrollToBlockIdImpl(virtualizer, blocksRef.current, blockId);
   }, [virtualizer]);
 
+  const blockIdsKey = blocks.map(b => b.id).join('\0');
+
   useEffect(() => {
     if (!enabled) return;
     if (getScrollElement()) virtualizer.measure();
   }, [enabled, getScrollElement, virtualizer, blocks.length]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    heightCache.pruneStale(new Set(blocksRef.current.map(b => b.id)));
+  }, [enabled, blockIdsKey, heightCache]);
 
   const [, setPinTick] = useState(0);
 
