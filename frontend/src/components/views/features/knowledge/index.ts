@@ -53,6 +53,7 @@ export {
 } from './tags';
 
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
+export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
@@ -103,3 +104,17 @@ export {
   type QueryClause,
   type QueryEvaluation,
 } from './query';
+
+export {
+  activateSavedView,
+  createSavedView,
+  deleteSavedView,
+  findSavedView,
+  isValidSavedViewQuery,
+  loadSavedViews,
+  normalizeSavedViews,
+  renameSavedView,
+  saveSavedViews,
+  SAVED_VIEWS_KEY,
+  type SavedView,
+} from './views';

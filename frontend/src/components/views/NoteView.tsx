@@ -27,17 +27,27 @@ import {
   filterNotes,
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
+  activateSavedView,
+  createSavedView,
+  deleteSavedView,
+  findSavedView,
+  isValidSavedViewQuery,
+  loadSavedViews,
+  renameSavedView,
+  saveSavedViews,
   knowledgeIndexService,
   parseQuery,
   LinkedReferencesPanel,
   LocalGraphView,
   RelatedNotesPanel,
+  SavedViewsSection,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
   NoteTagsPanel,
   parseNoteMarkdown,
   serializeNoteMarkdown,
+  type SavedView,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -248,6 +258,8 @@ export const NoteView = () => {
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [showAppearance, setShowAppearance] = useState(false);
+  const [savedViews, setSavedViews] = useState(() => loadSavedViews());
+  const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -257,6 +269,53 @@ export const NoteView = () => {
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties'>>) => {
     updateNote(id, patch);
   }, [updateNote]);
+
+  useEffect(() => {
+    saveSavedViews(savedViews);
+  }, [savedViews]);
+
+  useEffect(() => {
+    if (!activeSavedViewId) return;
+    const view = findSavedView(savedViews, activeSavedViewId);
+    if (!view || view.query !== searchQuery.trim()) {
+      setActiveSavedViewId(null);
+    }
+  }, [searchQuery, activeSavedViewId, savedViews]);
+
+  const canSaveCurrentView = useMemo(
+    () => isValidSavedViewQuery(searchQuery),
+    [searchQuery],
+  );
+
+  const activeSavedView = useMemo(
+    () => (activeSavedViewId ? findSavedView(savedViews, activeSavedViewId) : undefined),
+    [activeSavedViewId, savedViews],
+  );
+
+  const handleActivateSavedView = useCallback((view: SavedView) => {
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery(activateSavedView(view));
+    setActiveSavedViewId(view.id);
+  }, []);
+
+  const handleClearSavedView = useCallback(() => {
+    setSearchQuery('');
+    setActiveSavedViewId(null);
+  }, []);
+
+  const handleCreateSavedView = useCallback((name: string) => {
+    setSavedViews(prev => createSavedView(prev, name, searchQuery));
+  }, [searchQuery]);
+
+  const handleRenameSavedView = useCallback((id: string, name: string) => {
+    setSavedViews(prev => renameSavedView(prev, id, name));
+  }, []);
+
+  const handleDeleteSavedView = useCallback((id: string) => {
+    setSavedViews(prev => deleteSavedView(prev, id));
+    setActiveSavedViewId(prev => (prev === id ? null : prev));
+  }, []);
 
   // ── 필터링 ──────────────────────────────────────────────────────
   const knowledgeQueryInfo = useMemo(() => {
@@ -811,8 +870,8 @@ export const NoteView = () => {
                 </div>
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag && !activeSavedViewId ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setActiveSavedViewId(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -866,13 +925,24 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
                     </div>
                   </>
                 )}
+                <SavedViewsSection
+                  colors={c}
+                  views={savedViews}
+                  activeViewId={activeSavedViewId}
+                  canSaveCurrent={canSaveCurrentView}
+                  onActivate={handleActivateSavedView}
+                  onClearActive={handleClearSavedView}
+                  onCreate={handleCreateSavedView}
+                  onRename={handleRenameSavedView}
+                  onDelete={handleDeleteSavedView}
+                />
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
                   <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
                     <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
@@ -889,14 +959,16 @@ export const NoteView = () => {
       <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {knowledgeQueryInfo.active
+            {activeSavedView
+              ? activeSavedView.name
+              : knowledgeQueryInfo.active
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>({visibleNotes.length})</span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {searchQuery.trim() && (
-              <button onClick={() => setSearchQuery('')} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
+              <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
             )}
             {activeTag && !searchQuery.trim() && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
             {/* 정렬 */}
