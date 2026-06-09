@@ -15,7 +15,6 @@
 
 import React, {
   useState, useRef, useCallback, useMemo, useEffect, useContext,
-  type CSSProperties,
 } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -96,54 +95,29 @@ import { SingleBlock } from './features/block-editor/components/SingleBlock';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
 import { SelectionCtx, type SelectionCtxValue } from './features/block-editor/contexts/SelectionContext';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
+import {
+  CHROME_LEAVE_DELAY_MS,
+  FOCUS_CMD_RESET_MS,
+  NESTED_EDITOR_PADDING_LEFT_PX,
+  noopBlockChange,
+} from './features/block-editor/constants/blockEditorConstants';
+import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
+import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
+import {
+  applySlashMenuTypeChange,
+  enterSplitBlockType,
+  getPasteBlockContext,
+  insertBlockAtIndex,
+  moveBlockInList,
+} from './features/block-editor/utils/blockEditorMutations';
+import { isControlsVisible } from './features/block-editor/utils/controlsVisibility';
+import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
 export { useBlockEditor } from './useBlockEditor';
 
-// ── Props ────────────────────────────────────────────────────────────
-interface BlockEditorProps {
-  blocks:       Block[];
-  onChange:     (blocks: Block[]) => void;
-  colors:       BlockEditorColors;
-  readOnly?:    boolean;
-  searchQuery?: string;
-  searchScope?: EditorSearchScope;
-  searchMatchIndex?: number;
-  /** 위키링크 [[ 자동완성 후보 (노트 제목 목록) */
-  wikiTargets?: string[];
-  /** edit 모드 Ctrl/Cmd+클릭으로 [[제목]] 따라가기 */
-  onWikiNavigate?: (title: string) => void;
-  /** 포커스된 블록 id — 이미지 삽입 위치 등 */
-  onActiveBlockChange?: (id: string | null) => void;
-  /** 외부에서 특정 블록으로 포커스 이동 요청 */
-  externalFocusId?: string | null;
-  onExternalFocusConsumed?: () => void;
-}
-
 // ── 내부 재귀 렌더러 ─────────────────────────────────────────────────
-interface BlockEditorInnerProps {
-  blocks: Block[]; onChange: (b: Block[]) => void;
-  colors: BlockEditorColors; readOnly: boolean;
-  searchQuery: string; depth: number;
-  wikiTargets: string[];
-  onWikiNavigate?: (title: string) => void;
-  onActiveBlockChange?: (id: string | null) => void;
-  externalFocusId?: string | null;
-  onExternalFocusConsumed?: () => void;
-  // Toggle Step 3: 자식 → 부모 탈출 콜백
-  onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
-  onEscapeToParentHeader?: () => void;  // 빈 첫 자식 Backspace → toggle 헤더로 포커스
-  onMergeFirstChildIntoHeader?: (childId: string, childContent: string) => void;
-  getRootBlocks?: () => Block[];
-  onRootChange?: (b: Block[]) => void;
-  searchScope?: EditorSearchScope;
-  searchMatchIndex?: number;
-  documentFocusApiRef?: React.MutableRefObject<{
-    handlePointerDown: (e: React.PointerEvent) => void;
-  } | null>;
-}
-
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
   externalFocusId, onExternalFocusConsumed,
@@ -259,7 +233,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     chromeLeaveTimer.current = setTimeout(() => {
       setChromeHoverId(null);
       chromeLeaveTimer.current = null;
-    }, 180);
+    }, CHROME_LEAVE_DELAY_MS);
   }, []);
 
   useEffect(() => () => {
@@ -268,9 +242,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, []);
 
   const controlsVisibleFor = useCallback((blockId: string) =>
-    pinnedControlsId === blockId
-    || handleMenu?.blockId === blockId
-    || chromeHoverId === blockId,
+    isControlsVisible(blockId, pinnedControlsId, handleMenu, chromeHoverId),
   [pinnedControlsId, handleMenu, chromeHoverId]);
 
   const getBlockType = useCallback(
@@ -430,9 +402,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const bs = blocksRef.current;
     const idx = bs.findIndex(b => b.id === id);
     if (idx < 0) return;
-    const next = [...bs];
-    next.splice(idx, 0, nb);
-    onChange(next);
+    onChange(insertBlockAtIndex(bs, idx, nb));
     setFocusCmd({ blockId: nb.id, offset: 'start' });
     selectBlock(nb.id);
   }, [onChange, selectBlock]);
@@ -462,14 +432,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [getRootBlocks, onRootChange]);
 
   const handleMove = useCallback((id: string, dir: 'up' | 'down') => {
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
-    const newIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= bs.length) return;
-    const next = [...bs];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    onChange(next);
+    const next = moveBlockInList(blocksRef.current, id, dir);
+    if (next) onChange(next);
   }, [onChange]);
 
   const handleConvert = useCallback((id: string, newType: BlockType) => {
@@ -572,8 +536,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     }
 
     const updatedCur: Block = { ...cur, content: before };
-    const newType: BlockType = ['heading1','heading2','heading3'].includes(cur.type)
-      ? 'paragraph' : cur.type;
+    const newType: BlockType = enterSplitBlockType(cur.type);
     const newBlock: Block = makeBlock(newType, {
       content: after,
       indent: cur.indent,
@@ -634,8 +597,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [onChange]);
 
   const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
-    const cur = findBlockById(blocksRef.current, id);
-    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
+    const context = getPasteBlockContext(findBlockById(blocksRef.current, id));
     const result = applyPasteAtBlock(blocksRef.current, id, start, end, text, context);
     if (!result) return;
     onChange(result.blocks);
@@ -649,7 +611,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     id: string, start: number, end: number, pasted: Block[],
   ) => {
     const cur = findBlockById(blocksRef.current, id);
-    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
+    const context = getPasteBlockContext(cur);
     traceApplyPasteBlocksAtInput(
       id,
       cur?.type ?? '(missing)',
@@ -751,18 +713,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (!slashMenu) return;
     const { blockId, query } = slashMenu;
 
-    // 현재 블록 content에서 '/쿼리' 부분 제거
-    onChange(updateBlockById(blocksRef.current, blockId, b => {
-      const slashIdx = b.content.lastIndexOf('/' + query);
-      const cleaned  = slashIdx >= 0
-        ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
-        : b.content;
-      // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
-      if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned, mathBlock: (b.math || cleaned).includes('\n') };
-      if (type === 'code')  return { ...b, type, content: '', code: b.code || cleaned };
-      if (type === 'image') return { ...b, type, content: '', src: '', alt: '', caption: undefined, width: undefined };
-      return { ...b, type, content: cleaned };
-    }));
+    onChange(updateBlockById(blocksRef.current, blockId, b => applySlashMenuTypeChange(b, type, query)));
 
     recordSlashUsage(type);
     setSlashMenu(null);
@@ -784,22 +735,15 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   // focusCmd 소비 후 리셋
   useEffect(() => {
     if (focusCmd) {
-      const t = setTimeout(() => setFocusCmd(null), 100);
+      const t = setTimeout(() => setFocusCmd(null), FOCUS_CMD_RESET_MS);
       return () => clearTimeout(t);
     }
   }, [focusCmd]);
 
-  // 최상위(depth 0) 헤딩 블록의 순번 — TOC(extractTOC와 동일한 문서 순서) 점프 타겟
-  const headingIndexById = useMemo(() => {
-    const m: Record<string, number> = {};
-    if (depth === 0) {
-      let h = 0;
-      for (const b of blocks) {
-        if (b.type === 'heading1' || b.type === 'heading2' || b.type === 'heading3') m[b.id] = h++;
-      }
-    }
-    return m;
-  }, [blocks, depth]);
+  const headingIndexById = useMemo(
+    () => buildHeadingIndexById(blocks, depth),
+    [blocks, depth],
+  );
 
   const renderToggleNested = useCallback<ToggleNestedRenderer>((toggleBlock) => (
     <BlockEditorInner
@@ -903,7 +847,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       <div
         ref={depth === 0 ? editorRootRef : undefined}
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
-        style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? 36 : 0), position:'relative' }}
+        style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
       >
         {blocks.map(block => (
@@ -1009,9 +953,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
 
 
-const noopBlockChange = () => {};
-
-
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
 export const BlockEditor = React.memo(function BlockEditor({
   blocks, onChange, colors, readOnly = false, searchQuery = '', searchScope = 'document',
@@ -1032,29 +973,7 @@ export const BlockEditor = React.memo(function BlockEditor({
             documentFocusApiRef.current?.handlePointerDown(e);
           }
         } : undefined}
-        style={{
-          '--be-accent': colors.accent,
-          '--be-accent-bg': colors.accentBg,
-          '--be-link': colors.linkColor ?? colors.accent,
-          '--be-code-bg': colors.codeBg,
-          '--be-placeholder-color': colors.textFaint,
-          '--be-text': colors.text,
-          '--be-doc-width': colors.documentMaxWidth ? `${colors.documentMaxWidth}px` : '720px',
-          '--be-font-family': colors.fontFamily ?? 'system-ui, sans-serif',
-          '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
-          '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
-          '--be-search-hl-color': colors.searchHlColor ?? colors.text,
-          '--be-block-active-bg': colors.blockFocusBg ?? 'transparent',
-          '--be-block-selected-bg': colors.blockSelectedBg ?? 'rgba(139,92,246,0.05)',
-          '--be-block-active-selected-bg': colors.isDark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.08)',
-          '--be-toggle-bg': colors.toggleBg ?? 'transparent',
-          '--be-toggle-hover-bg': colors.isDark ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.04)',
-          '--be-toggle-rail': colors.isDark ? 'rgba(139,92,246,0.18)' : 'rgba(139,92,246,0.16)',
-          '--be-toggle-rail-collapsed': colors.isDark ? 'rgba(139,92,246,0.24)' : 'rgba(139,92,246,0.20)',
-          '--be-border': colors.border,
-          '--be-text-muted': colors.textMuted,
-          '--be-menu-shadow': colors.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-        } as CSSProperties}
+        style={buildEditorCssVariables(colors)}
       >
       <BlockEditorInner
         blocks={blocks} onChange={onChange} colors={colors}
