@@ -251,16 +251,32 @@ export function runDataLayerAudit(size: number): DataLayerMetrics {
   };
 }
 
-export function mountEditorForAudit(blocks: Block[]): { root: Root; container: HTMLDivElement } {
+export interface MountEditorAuditOptions {
+  virtualBlocksPoc?: boolean;
+  scrollHeightPx?: number;
+}
+
+export function mountEditorForAudit(
+  blocks: Block[],
+  options: MountEditorAuditOptions = {},
+): { root: Root; container: HTMLDivElement } {
   document.body.innerHTML = '';
   document.head.innerHTML = '';
   const style = document.createElement('style');
   style.textContent = EDITOR_CHROME_STYLES;
   document.head.appendChild(style);
 
+  const scrollZone = document.createElement('div');
+  scrollZone.className = 'editor-drop-zone';
+  scrollZone.style.height = `${options.scrollHeightPx ?? 600}px`;
+  scrollZone.style.overflow = 'auto';
+  scrollZone.style.width = '100%';
+  document.body.appendChild(scrollZone);
+
   const container = document.createElement('div');
-  container.className = 'be-editor-root be-document-edit';
-  document.body.appendChild(container);
+  scrollZone.appendChild(container);
+
+  const virtualScrollParentRef = { current: scrollZone };
 
   let root: Root | null = null;
   act(() => {
@@ -271,15 +287,25 @@ export function mountEditorForAudit(blocks: Block[]): { root: Root; container: H
       colors: AUDIT_COLORS,
       readOnly: false,
       searchQuery: SEARCH_QUERY,
+      virtualBlocksPoc: options.virtualBlocksPoc,
+      virtualScrollParentRef,
     }));
   });
+
+  if (options.virtualBlocksPoc) {
+    act(() => {});
+    act(() => {});
+  }
 
   return { root: root!, container };
 }
 
-export function measureMount(blocks: Block[]): MountMetrics {
+export function measureMount(
+  blocks: Block[],
+  options: MountEditorAuditOptions = {},
+): MountMetrics {
   const t0 = performance.now();
-  mountEditorForAudit(blocks);
+  mountEditorForAudit(blocks, options);
   const mountMs = performance.now() - t0;
 
   const domBlockCount = document.querySelectorAll('[data-drag-id]').length;

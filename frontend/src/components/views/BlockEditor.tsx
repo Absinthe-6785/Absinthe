@@ -14,7 +14,7 @@
  */
 
 import React, {
-  useState, useRef, useCallback, useMemo, useEffect, useContext,
+  useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect, useContext,
 } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -79,6 +79,12 @@ import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockO
 import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
+import {
+  DISABLED_DRAG_API,
+  isVirtualBlocksPocEnabled,
+  useVirtualBlockList,
+  VirtualBlockList,
+} from './features/block-editor/performance';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
@@ -92,6 +98,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
   searchScope = 'document', searchMatchIndex = 0,
   documentFocusApiRef,
+  virtualBlocksPoc,
+  virtualScrollApiRef,
+  virtualScrollParentRef,
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
@@ -176,8 +185,54 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getScrollContainer: () =>
       editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
   } : undefined);
-  const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
+  const virtualRootEnabled = isVirtualBlocksPocEnabled(virtualBlocksPoc) && depth === 0;
+  const activeDrag = depth === 0 ? localDrag : parentDrag!;
+  const { dragState, bindGripPointer, getDragProps } = virtualRootEnabled
+    ? DISABLED_DRAG_API
+    : activeDrag;
   const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
+
+  const assignEditorRootRef = useCallback((node: HTMLDivElement | null) => {
+    editorRootRef.current = node;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!virtualRootEnabled) {
+      setVirtualScrollElement(null);
+      return;
+    }
+    const node = editorRootRef.current;
+    if (!node) return;
+    const scrollParent = node.closest('.editor-drop-zone') as HTMLElement | null
+      ?? node.parentElement;
+    setVirtualScrollElement(scrollParent);
+  }, [virtualRootEnabled, blocks.length]);
+
+  const getVirtualScrollElement = useCallback(
+    () => virtualScrollParentRef?.current
+      ?? virtualScrollElement
+      ?? editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
+    [virtualScrollElement, virtualScrollParentRef],
+  );
+
+  const virtualList = useVirtualBlockList({
+    blocks,
+    enabled: virtualRootEnabled,
+    getScrollElement: getVirtualScrollElement,
+  });
+
+  useEffect(() => {
+    if (!virtualScrollApiRef) return;
+    if (virtualRootEnabled) {
+      virtualScrollApiRef.current = { scrollToBlockId: virtualList.scrollToBlockId };
+    } else {
+      virtualScrollApiRef.current = null;
+    }
+    return () => {
+      virtualScrollApiRef.current = null;
+    };
+  }, [virtualRootEnabled, virtualList.scrollToBlockId, virtualScrollApiRef]);
 
   const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
     readOnly,
@@ -406,10 +461,69 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getSelectedIds: () => selectedBlockIdsRef.current,
   });
 
+  const renderEditorBlock = (block: typeof blocks[number]) => (
+    <SingleBlock
+      key={block.id}
+      block={block}
+      colors={c}
+      isSelected={activeSelection?.selectedBlockIds.has(block.id) ?? false}
+      activeBlockId={activeBlockId}
+      onBlockSelect={activeSelection?.onBlockSelect ?? (() => {})}
+      onAddBelow={handleAddBelow}
+      readOnly={readOnly}
+      searchQuery={searchQuery}
+      depth={depth}
+      wikiTargets={wikiTargets}
+      headingIndex={headingIndexById[block.id]}
+      onWikiNavigate={onWikiNavigate}
+      onSplitBlock={handleSplitBlock}
+      onMergeWithPrev={handleMergeWithPrev}
+      onContentChange={handleContentChange}
+      focusCmd={focusCmd}
+      dragState={dragState}
+      bindGripPointer={bindGripPointer}
+      getDragProps={getDragProps}
+      onOpenTurnInto={setHandleMenu}
+      onConvertBlock={handleConvert}
+      onSlashOpen={setSlashMenu}
+      onSlashClose={closeSlashMenu}
+      onWikiOpen={setWikiMenu}
+      onWikiClose={closeWikiMenu}
+      isMenuOpen={isMenuOpenForBlock(block.id)}
+      onToggleAddChild={handleToggleAddChild}
+      onToggleEnter={handleToggleEnter}
+      onTableChange={handleTableChange}
+      onNavigateBlock={handleNavigateBlock}
+      onActiveBlockChange={handleActiveBlockChange}
+      controlsVisible={controlsVisibleFor(block.id)}
+      onToggleControlsPin={handleToggleControlsPin}
+      onChromeEnter={handleChromeEnter}
+      onChromeLeave={handleChromeLeave}
+      onIndentBlock={handleIndentBlock}
+      onOutdentBlock={handleOutdentBlock}
+      onPasteAt={handlePasteAt}
+      onPasteBlocksAt={handlePasteBlocksAt}
+      onGutterPointerDown={depth === 0 && !readOnly ? handleGutterPointerDown : undefined}
+      getRootBlocks={getRootBlocks}
+      onRootChange={onRootChange}
+      searchQueryFor={searchQueryFor}
+      renderToggleNested={renderToggleNested}
+      showPersistentPlaceholder={showPersistentPlaceholder}
+    />
+  );
+
+  const blockList = virtualRootEnabled ? (
+    <VirtualBlockList blocks={blocks} virtualList={virtualList}>
+      {(block) => renderEditorBlock(block)}
+    </VirtualBlockList>
+  ) : (
+    blocks.map(block => renderEditorBlock(block))
+  );
+
   const editorBody = (
     <>
       <div
-        ref={depth === 0 ? editorRootRef : undefined}
+        ref={depth === 0 ? assignEditorRootRef : undefined}
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
@@ -417,52 +531,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         {depth === 0 && !readOnly && (
           <EmptyDocumentHint visible={isEmptyDocument(getRootBlocks())} colors={c} />
         )}
-        {blocks.map(block => (
-          <SingleBlock
-            key={block.id} block={block}
-            colors={c}
-            isSelected={activeSelection?.selectedBlockIds.has(block.id) ?? false}
-            activeBlockId={activeBlockId}
-            onBlockSelect={activeSelection?.onBlockSelect ?? (() => {})}
-            onAddBelow={handleAddBelow} readOnly={readOnly}
-            searchQuery={searchQuery} depth={depth} wikiTargets={wikiTargets}
-            headingIndex={headingIndexById[block.id]}
-            onWikiNavigate={onWikiNavigate}
-            onSplitBlock={handleSplitBlock}
-            onMergeWithPrev={handleMergeWithPrev}
-            onContentChange={handleContentChange}
-            focusCmd={focusCmd}
-            dragState={dragState}
-            bindGripPointer={bindGripPointer}
-            getDragProps={getDragProps}
-            onOpenTurnInto={setHandleMenu}
-            onConvertBlock={handleConvert}
-            onSlashOpen={setSlashMenu}
-            onSlashClose={closeSlashMenu}
-            onWikiOpen={setWikiMenu}
-            onWikiClose={closeWikiMenu}
-            isMenuOpen={isMenuOpenForBlock(block.id)}
-            onToggleAddChild={handleToggleAddChild}
-            onToggleEnter={handleToggleEnter}
-            onTableChange={handleTableChange}
-            onNavigateBlock={handleNavigateBlock}
-            onActiveBlockChange={handleActiveBlockChange}
-            controlsVisible={controlsVisibleFor(block.id)}
-            onToggleControlsPin={handleToggleControlsPin}
-            onChromeEnter={handleChromeEnter}
-            onChromeLeave={handleChromeLeave}
-            onIndentBlock={handleIndentBlock}
-            onOutdentBlock={handleOutdentBlock}
-            onPasteAt={handlePasteAt}
-            onPasteBlocksAt={handlePasteBlocksAt}
-            onGutterPointerDown={depth === 0 && !readOnly ? handleGutterPointerDown : undefined}
-            getRootBlocks={getRootBlocks}
-            onRootChange={onRootChange}
-            searchQueryFor={searchQueryFor}
-            renderToggleNested={renderToggleNested}
-            showPersistentPlaceholder={showPersistentPlaceholder}
-          />
-        ))}
+        {blockList}
         {depth === 0 && !readOnly && (
           <div className="be-document-bottom-strip" aria-hidden />
         )}
@@ -528,10 +597,13 @@ export const BlockEditor = React.memo(function BlockEditor({
   blocks, onChange, colors, readOnly = false, searchQuery = '', searchScope = 'document',
   searchMatchIndex = 0, wikiTargets = [], onWikiNavigate,
   onActiveBlockChange, externalFocusId, onExternalFocusConsumed,
+  virtualBlocksPoc, virtualScrollApiRef, virtualScrollParentRef,
 }: BlockEditorProps) {
   const documentFocusApiRef = useRef<{
     handlePointerDown: (e: React.PointerEvent) => void;
   } | null>(null);
+  const internalVirtualScrollApiRef = useRef<{ scrollToBlockId: (blockId: string) => boolean } | null>(null);
+  const scrollApiRef = virtualScrollApiRef ?? internalVirtualScrollApiRef;
 
   return (
     <>
@@ -555,6 +627,9 @@ export const BlockEditor = React.memo(function BlockEditor({
         externalFocusId={externalFocusId}
         onExternalFocusConsumed={onExternalFocusConsumed}
         documentFocusApiRef={documentFocusApiRef}
+        virtualBlocksPoc={virtualBlocksPoc}
+        virtualScrollApiRef={scrollApiRef}
+        virtualScrollParentRef={virtualScrollParentRef}
       />
       </div>
     </>

@@ -2,6 +2,7 @@ import type React from 'react';
 import type { Block } from '../../../blockUtils';
 import type { BlockEditorColors } from '../../../editorTypes';
 import type { EditorSearchScope } from '../../../editorSearch';
+import type { VirtualScrollApiRef } from '../performance';
 
 export interface BlockEditorProps {
   blocks:       Block[];
@@ -20,6 +21,11 @@ export interface BlockEditorProps {
   /** 외부에서 특정 블록으로 포커스 이동 요청 */
   externalFocusId?: string | null;
   onExternalFocusConsumed?: () => void;
+  /** UX-5E.1B POC — override env VITE_VIRTUAL_BLOCKS_POC */
+  virtualBlocksPoc?: boolean;
+  virtualScrollApiRef?: VirtualScrollApiRef;
+  /** Optional explicit scroll parent for virtual list (tests / custom hosts) */
+  virtualScrollParentRef?: React.RefObject<HTMLElement | null>;
 }
 
 export interface BlockEditorInnerProps {
@@ -40,6 +46,9 @@ export interface BlockEditorInnerProps {
   searchScope?: EditorSearchScope;
   searchMatchIndex?: number;
   documentFocusApiRef?: DocumentFocusApiRef;
+  virtualBlocksPoc?: boolean;
+  virtualScrollApiRef?: VirtualScrollApiRef;
+  virtualScrollParentRef?: React.RefObject<HTMLElement | null>;
 }
 
 export type DocumentFocusApiRef = React.MutableRefObject<{
