@@ -265,6 +265,25 @@ export {
 } from './relations';
 
 export {
+  isRollupColumnDefinition,
+  isRollupDefinition,
+  rollupDefinitionFromLegacy,
+  type FormulaDefinition,
+  type FormulaFieldInput,
+  type FormulaInput,
+  type FormulaRollupInput,
+  type RollupColumnDefinition,
+  type RollupComputeInput,
+  type RollupDefinition,
+  type RollupDirection,
+  type RollupFunction,
+  type RollupFunctionPhase1,
+  type RollupFunctionPhase2,
+  type RollupSortKey,
+  type RollupValue,
+} from './rollups';
+
+export {
   INACTIVE_WORKSPACE,
   activateDatabaseViewWorkspace,
   activateRuleCollectionWorkspace,
