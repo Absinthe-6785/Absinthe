@@ -1,4 +1,4 @@
-import type { BlockType } from './blockUtils';
+import type { BlockType } from '../../../../../blockUtils';
 
 /** Exact slash shortcuts — `/h1`, `/todo`, `/number`, etc. */
 export const SLASH_COMMAND_MAP: Record<string, BlockType> = {

@@ -4,7 +4,7 @@
  * Phase 1: 타입 정의 + 마크다운 ↔ 블록 배열 변환
  * React 의존성 없음 — 순수 TypeScript
  */
-import { slashCommandKeysMatching, resolveSlashCommand } from './slashCommands';
+import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
 import type { BlockTint } from './blockColors';
 
 // ── 블록 타입 정의 ─────────────────────────────────────────────────────

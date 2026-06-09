@@ -1,10 +1,10 @@
 /**
  * wikiNavigation.ts — Wiki trigger detection, insert, and navigation helpers
  */
-import { readBlockText } from './editableDom';
-import { getCaretOffset } from './features/block-editor/features/selection';
-import { paintEditableLive } from './editableLive';
-import type { BlockEditorColors } from './editorTypes';
+import { readBlockText } from '../../../../../editableDom';
+import { getCaretOffset } from '../../selection';
+import { paintEditableLive } from '../../../../../editableLive';
+import type { BlockEditorColors } from '../../../../../editorTypes';
 
 /** Unclosed `[[` query before caret, or null. */
 export function detectWikiQuery(beforeCaret: string): string | null {

@@ -2,8 +2,8 @@
  * WikiMenu.tsx — Wiki link autocomplete popup (Korean labels)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import type { BlockEditorColors } from './editorTypes';
-import { filterWikiTargets } from './wikiSearch';
+import type { BlockEditorColors } from '../../../../../editorTypes';
+import { filterWikiTargets } from '../utils/wikiSearch';
 
 export interface WikiMenuProps {
   query: string;

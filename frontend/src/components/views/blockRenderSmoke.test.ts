@@ -9,7 +9,7 @@ import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderBlockContent } from './blockRegistry';
 import { TableBlock } from './TableBlock';
-import { BlockContextMenu } from './BlockContextMenu';
+import { BlockContextMenu } from './features/block-editor/features/menus';
 import { makeBlock, type BlockType } from './blockUtils';
 import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
 

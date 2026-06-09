@@ -24,7 +24,13 @@ import {
 } from './blockUtils';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
-import { resolveSlashCommand } from './slashCommands';
+import {
+  BlockContextMenu,
+  resolveSlashCommand,
+  SlashMenu,
+  useEditorMenus,
+  WikiMenu,
+} from './features/block-editor/features/menus';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { type BlockTint } from './blockColors';
 import {
@@ -32,14 +38,11 @@ import {
   moveBlockIntoToggle, moveBlockOutOfToggle,
 } from './blockTree';
 import { useDragDrop } from './editorDragDrop';
-import { SlashMenu } from './SlashMenu';
 import type {
   BlockEditorColors, TurnIntoMenuState,
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import { readingRootClass } from './editorReading';
-import { BlockContextMenu } from './BlockContextMenu';
-import { WikiMenu } from './WikiMenu';
 import { EditorChromeStyles } from './EditorChrome';
 import {
   isFirstEmptyRootParagraph,
@@ -64,7 +67,6 @@ import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-e
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
-import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
 import { useEditorCopyEffects, useEditorPaste } from './features/block-editor/features/clipboard';

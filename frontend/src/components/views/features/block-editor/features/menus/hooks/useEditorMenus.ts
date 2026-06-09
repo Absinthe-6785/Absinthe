@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react';
-import { type Block, type BlockType, updateBlockById } from '../../../blockUtils';
-import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../editorTypes';
-import { recordSlashUsage } from '../../../slashRecent';
-import { insertWikiAtCaret } from '../../../wikiNavigation';
-import type { FocusCmd } from '../features/selection';
-import { applySlashMenuTypeChange } from '../utils/blockEditorMutations';
+import { type Block, type BlockType, updateBlockById } from '../../../../../blockUtils';
+import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../../../editorTypes';
+import { recordSlashUsage } from '../utils/slashRecent';
+import { insertWikiAtCaret } from '../utils/wikiNavigation';
+import type { FocusCmd } from '../../selection';
+import { applySlashMenuTypeChange } from '../../../utils/blockEditorMutations';
 
 export interface UseEditorMenusOptions {
   getBlocks: () => Block[];

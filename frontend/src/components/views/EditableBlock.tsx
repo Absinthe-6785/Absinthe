@@ -21,7 +21,7 @@ import {
   beginPastePipelineTrace,
   traceClipboardToBlocks,
 } from './pastePipelineTrace';
-import { detectWikiQuery, findWikiLinkAtOffset } from './wikiNavigation';
+import { detectWikiQuery, findWikiLinkAtOffset } from './features/block-editor/features/menus';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
 
 const getElText = readBlockText;
