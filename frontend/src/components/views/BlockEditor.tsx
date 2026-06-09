@@ -15,140 +15,69 @@
 
 import React, {
   useState, useRef, useCallback, useMemo, useEffect, useContext,
-  type CSSProperties,
 } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  type Block, type BlockType,
-  makeBlock, cloneBlockTree,
-  updateBlockById, insertBlockAfter, deleteBlockById,
-  findBlockById, flattenBlockIds,
-  isTextBlockType,
+  updateBlockById,
+  findBlockById,
   blocksToMarkdown, markdownToBlocks,
-  convertBlock,
 } from './blockUtils';
-import {
-  applyToggleChildEnter,
-  applyToggleChildMergeIntoHeader,
-  applyToggleHeaderEnter,
-} from './toggleNesting';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { type BlockTint } from './blockColors';
-import { installCopyDiagnostics } from './copyDiagnostics';
-import { installEditorCopyListener } from './copyListener';
-import {
-  finishPastePipelineTrace,
-  traceApplyPasteBlocksAtInput,
-  traceApplyPasteBlocksAtOutput,
-  traceStateAfterSetStateCallback,
-  traceStateBeforeSetState,
-} from './pastePipelineTrace';
-import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
-import {
-  exitEmptyListBlock,
-  isListType,
-  listSplitExtras,
-  numberedMarker,
-  renumberNumberedLists,
-} from './listBlocks';
 import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
   moveBlockIntoToggle, moveBlockOutOfToggle,
 } from './blockTree';
 import { useDragDrop } from './editorDragDrop';
 import { SlashMenu } from './SlashMenu';
-import { recordSlashUsage } from './slashRecent';
 import type {
   BlockEditorColors, TurnIntoMenuState,
-  SlashMenuState, WikiMenuState,
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
-import type { ToggleNestedRenderer } from './toggleRender';
-import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from './blockSelection';
-import {
-  beginGutterSelection,
-  hitTestBlockIdFromPoint,
-  isGutterDragStart,
-  updateGutterSelection,
-} from './blockGutterSelection';
-import { shouldDeleteSelectedBlocks } from './blockKeyboard';
-import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
 import { SelectionToolbar } from './SelectionToolbar';
 import { WikiMenu } from './WikiMenu';
-import { insertWikiAtCaret } from './wikiNavigation';
 import {
-  dispatchFocusCommand, getFocusHandler, registerFocusHandler,
+  dispatchFocusCommand, registerFocusHandler,
   type FocusCmd,
 } from './selectionState';
 import { EditorChromeStyles } from './EditorChrome';
 import {
-  focusNearestEditable,
   isFirstEmptyRootParagraph,
-  shouldHandleDocumentFocus,
-  type DocumentFocusAction,
 } from './documentFocus';
-import { BlocksCtx, type BlocksCtxValue, SingleBlock } from './features/block-editor/components/SingleBlock';
+import { SingleBlock } from './features/block-editor/components/SingleBlock';
+import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
+import { SelectionCtx } from './features/block-editor/contexts/SelectionContext';
+import { DragCtx } from './features/block-editor/contexts/DragContext';
+import {
+  FOCUS_CMD_RESET_MS,
+  NESTED_EDITOR_PADDING_LEFT_PX,
+  noopBlockChange,
+} from './features/block-editor/constants/blockEditorConstants';
+import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
+import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
+import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
+import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
+import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
+import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
+import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
+import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
+import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
+import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';
+import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
+import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
+import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
+import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
 export { useBlockEditor } from './useBlockEditor';
 
-const DragCtx = React.createContext<import('./editorDragDrop').UseDragDropResult | null>(null);
-
-interface SelectionCtxValue {
-  selectedBlockIds: Set<string>;
-  onBlockSelect: (id: string, e: React.MouseEvent) => void;
-}
-const SelectionCtx = React.createContext<SelectionCtxValue | null>(null);
-
-// ── Props ────────────────────────────────────────────────────────────
-interface BlockEditorProps {
-  blocks:       Block[];
-  onChange:     (blocks: Block[]) => void;
-  colors:       BlockEditorColors;
-  readOnly?:    boolean;
-  searchQuery?: string;
-  searchScope?: EditorSearchScope;
-  searchMatchIndex?: number;
-  /** 위키링크 [[ 자동완성 후보 (노트 제목 목록) */
-  wikiTargets?: string[];
-  /** edit 모드 Ctrl/Cmd+클릭으로 [[제목]] 따라가기 */
-  onWikiNavigate?: (title: string) => void;
-  /** 포커스된 블록 id — 이미지 삽입 위치 등 */
-  onActiveBlockChange?: (id: string | null) => void;
-  /** 외부에서 특정 블록으로 포커스 이동 요청 */
-  externalFocusId?: string | null;
-  onExternalFocusConsumed?: () => void;
-}
-
 // ── 내부 재귀 렌더러 ─────────────────────────────────────────────────
-interface BlockEditorInnerProps {
-  blocks: Block[]; onChange: (b: Block[]) => void;
-  colors: BlockEditorColors; readOnly: boolean;
-  searchQuery: string; depth: number;
-  wikiTargets: string[];
-  onWikiNavigate?: (title: string) => void;
-  onActiveBlockChange?: (id: string | null) => void;
-  externalFocusId?: string | null;
-  onExternalFocusConsumed?: () => void;
-  // Toggle Step 3: 자식 → 부모 탈출 콜백
-  onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록
-  onEscapeToParentHeader?: () => void;  // 빈 첫 자식 Backspace → toggle 헤더로 포커스
-  onMergeFirstChildIntoHeader?: (childId: string, childContent: string) => void;
-  getRootBlocks?: () => Block[];
-  onRootChange?: (b: Block[]) => void;
-  searchScope?: EditorSearchScope;
-  searchMatchIndex?: number;
-  documentFocusApiRef?: React.MutableRefObject<{
-    handlePointerDown: (e: React.PointerEvent) => void;
-  } | null>;
-}
-
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
   externalFocusId, onExternalFocusConsumed,
@@ -159,6 +88,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  const getLocalBlocks = useCallback(() => blocksRef.current, []);
 
   const getRootBlocks = useCallback(
     () => (getRootBlocksProp ? getRootBlocksProp() : blocksRef.current),
@@ -216,15 +147,21 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onChange,
   }), [onChange]);
 
-  const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(() => new Set());
-  const [anchorBlockId, setAnchorBlockId] = useState<string | null>(null);
-  const selectedBlockIdsRef = useRef(selectedBlockIds);
-  selectedBlockIdsRef.current = selectedBlockIds;
+  const {
+    selectedBlockIds,
+    setSelectedBlockIds,
+    setAnchorBlockId,
+    selectedBlockIdsRef,
+    selectBlock,
+    clearSelection,
+    selectionCtx,
+  } = useEditorSelection({
+    readOnly,
+    getRootBlocks,
+    onActiveBlockChange: handleActiveBlockChange,
+  });
+
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
-  // Phase 3: 슬래시 커맨드
-  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
-  // 위키링크 자동완성
-  const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
   // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
   const parentDrag = useContext(DragCtx);
   const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
@@ -233,265 +170,76 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
   } : undefined);
   const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
-  const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
-  const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
-  const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
-  const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
-  const gutterDragCleanupRef = useRef<(() => void) | null>(null);
-  const [isGutterDragging, setIsGutterDragging] = useState(false);
 
-  const handleToggleControlsPin = useCallback((id: string) => {
-    setPinnedControlsId(prev => {
-      if (prev !== id) {
-        setSelectedBlockIds(selectSingle(id));
-        setAnchorBlockId(id);
-      }
-      return prev === id ? null : id;
-    });
-  }, []);
+  const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
+    readOnly,
+    depth,
+    getRootBlocks,
+    setSelectedBlockIds,
+    setAnchorBlockId,
+    onActiveBlockChange: handleActiveBlockChange,
+    editorRootRef,
+  });
 
-  const handleChromeEnter = useCallback((id: string) => {
-    if (chromeLeaveTimer.current) {
-      clearTimeout(chromeLeaveTimer.current);
-      chromeLeaveTimer.current = null;
-    }
-    setChromeHoverId(id);
-  }, []);
-
-  const handleChromeLeave = useCallback(() => {
-    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
-    chromeLeaveTimer.current = setTimeout(() => {
-      setChromeHoverId(null);
-      chromeLeaveTimer.current = null;
-    }, 180);
-  }, []);
-
-  useEffect(() => () => {
-    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
-    gutterDragCleanupRef.current?.();
-  }, []);
-
-  const controlsVisibleFor = useCallback((blockId: string) =>
-    pinnedControlsId === blockId
-    || handleMenu?.blockId === blockId
-    || chromeHoverId === blockId,
-  [pinnedControlsId, handleMenu, chromeHoverId]);
+  const {
+    handleMenu,
+    setHandleMenu,
+    pinnedControlsId,
+    setPinnedControlsId,
+    handleChromeEnter,
+    handleChromeLeave,
+    handleToggleControlsPin,
+    controlsVisibleFor,
+  } = useEditorChrome({ onPinSelection: selectBlock });
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
     [],
   );
 
-  useEffect(() => {
-    if (!pinnedControlsId && !handleMenu) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('.be-handles, .be-block-handle-menu')) return;
-      setPinnedControlsId(null);
-      setHandleMenu(null);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [pinnedControlsId, handleMenu]);
-
-  const selectBlock = useCallback((id: string) => {
-    setSelectedBlockIds(selectSingle(id));
-    setAnchorBlockId(id);
-  }, []);
-
-  const handleBlockSelect = useCallback((id: string, e: React.MouseEvent) => {
-    if (readOnly) return;
-    const { selected, anchorId } = applyPointerSelection(
-      getRootBlocks(),
-      selectedBlockIdsRef.current,
-      anchorBlockId,
-      id,
-      { shiftKey: e.shiftKey, additiveKey: e.metaKey || e.ctrlKey },
-    );
-    setSelectedBlockIds(selected);
-    setAnchorBlockId(anchorId);
-    handleActiveBlockChange(id);
-  }, [readOnly, getRootBlocks, anchorBlockId, handleActiveBlockChange]);
-
   const showPersistentPlaceholder = useCallback((blockId: string) => {
     if (depth !== 0 || readOnly) return false;
     return isFirstEmptyRootParagraph(getRootBlocks(), blockId);
   }, [depth, readOnly, getRootBlocks]);
 
-  const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
-    if (action.kind === 'toggle-footer') {
-      if (action.created) {
-        flushSync(() => {
-          onRootChange(action.blocks);
-        });
-      }
-      handleActiveBlockChange(action.focusBlockId);
-      const focus = { blockId: action.focusBlockId, offset: 'start' as const };
-      setFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
-      return;
-    }
-    if (action.kind === 'append') {
-      flushSync(() => {
-        onRootChange([...getRootBlocks(), action.block]);
-      });
-      selectBlock(action.block.id);
-      handleActiveBlockChange(action.block.id);
-      const focus = { blockId: action.block.id, offset: 'start' as const };
-      setFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
-      return;
-    }
-    selectBlock(action.blockId);
-    handleActiveBlockChange(action.blockId);
-    setFocusCmd({ blockId: action.blockId, offset: action.offset });
-  }, [getRootBlocks, onRootChange, selectBlock, handleActiveBlockChange]);
-
-  const handleDocumentFocusPointerDown = useCallback((e: React.PointerEvent) => {
-    if (readOnly || depth !== 0) return;
-    if (e.button !== 0) return;
-    if (!shouldHandleDocumentFocus(e.target)) return;
-    const root = editorRootRef.current;
-    if (!root) return;
-    applyDocumentFocusAction(focusNearestEditable(e.clientY, getRootBlocks(), root));
-    e.preventDefault();
-  }, [readOnly, depth, getRootBlocks, applyDocumentFocusAction]);
-
-  useEffect(() => {
-    if (!documentFocusApiRef) return;
-    documentFocusApiRef.current = { handlePointerDown: handleDocumentFocusPointerDown };
-    return () => { documentFocusApiRef.current = null; };
-  }, [documentFocusApiRef, handleDocumentFocusPointerDown]);
-
-  const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
-    if (readOnly || depth !== 0) return;
-    if (!isGutterDragStart(e.target)) return;
-    if (e.button !== 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    window.getSelection()?.removeAllRanges();
-
-    gutterDragCleanupRef.current?.();
-
-    const root = editorRootRef.current;
-    root?.setPointerCapture(e.pointerId);
-    beginGutterSelection(blockId, e.pointerId);
-    setIsGutterDragging(true);
-
-    const anchorId = blockId;
-    const applyHover = (hoverId: string) => {
-      const selected = updateGutterSelection(getRootBlocks(), anchorId, hoverId);
-      setSelectedBlockIds(selected);
-      setAnchorBlockId(anchorId);
-      handleActiveBlockChange(hoverId);
-    };
-
-    applyHover(blockId);
-
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      const hoverId = hitTestBlockIdFromPoint(ev.clientX, ev.clientY, root);
-      if (hoverId) applyHover(hoverId);
-    };
-
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      root?.releasePointerCapture(ev.pointerId);
-      setIsGutterDragging(false);
-      cleanup();
-      gutterDragCleanupRef.current = null;
-    };
-    gutterDragCleanupRef.current = cleanup;
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  }, [readOnly, depth, getRootBlocks, handleActiveBlockChange]);
-
-  const selectionCtx = useMemo<SelectionCtxValue>(() => ({
-    selectedBlockIds,
-    onBlockSelect: handleBlockSelect,
-  }), [selectedBlockIds, handleBlockSelect]);
+  const { handleDocumentFocusPointerDown } = useEditorDocumentFocus({
+    readOnly,
+    depth,
+    getRootBlocks,
+    onRootChange,
+    selectBlock,
+    onActiveBlockChange: handleActiveBlockChange,
+    onFocusCmd: setFocusCmd,
+    editorRootRef,
+    documentFocusApiRef,
+  });
 
   const parentSelection = useContext(SelectionCtx);
   const activeSelection = depth === 0 ? selectionCtx : parentSelection;
 
-  const handleAddBelow = useCallback((id: string) => {
-    const nb = makeBlock('paragraph');
-    onChange(insertBlockAfter(blocksRef.current, id, nb));
-    setFocusCmd({ blockId: nb.id, offset: 'start' });
-    selectBlock(nb.id);
-  }, [onChange, selectBlock]);
-
-  const handleAddAbove = useCallback((id: string) => {
-    const nb = makeBlock('paragraph');
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
-    const next = [...bs];
-    next.splice(idx, 0, nb);
-    onChange(next);
-    setFocusCmd({ blockId: nb.id, offset: 'start' });
-    selectBlock(nb.id);
-  }, [onChange, selectBlock]);
-
-  const handleDelete = useCallback((id: string) => {
-    const updated = deleteBlockById(blocksRef.current, id);
-    onChange(updated.length > 0 ? updated : [makeBlock('paragraph')]);
-    setSelectedBlockIds(emptySelection());
-    setAnchorBlockId(null);
-  }, [onChange]);
-
-  const handleDeleteSelected = useCallback(() => {
-    const ids = selectedBlockIdsRef.current;
-    if (!ids.size) return;
-    const updated = deleteSelectedBlocks(getRootBlocks(), ids);
-    onRootChange(updated);
-    setSelectedBlockIds(emptySelection());
-    setAnchorBlockId(null);
-    handleActiveBlockChange(null);
-  }, [getRootBlocks, onRootChange, handleActiveBlockChange]);
-
-  const handleDuplicateSelected = useCallback(() => {
-    const ids = selectedBlockIdsRef.current;
-    if (!ids.size) return;
-    const updated = duplicateSelectedBlocks(getRootBlocks(), ids);
-    onRootChange(updated);
-  }, [getRootBlocks, onRootChange]);
-
-  const handleMove = useCallback((id: string, dir: 'up' | 'down') => {
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
-    const newIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= bs.length) return;
-    const next = [...bs];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    onChange(next);
-  }, [onChange]);
-
-  const handleConvert = useCallback((id: string, newType: BlockType) => {
-    onChange(updateBlockById(blocksRef.current, id, b => convertBlock(b, newType)));
-    setHandleMenu(null);
-    setPinnedControlsId(null);
-    setFocusCmd({ blockId: id, offset: 'end' });
-  }, [onChange]);
-
-  const handleDuplicate = useCallback((id: string) => {
-    const block = findBlockById(blocksRef.current, id);
-    if (!block) return;
-    const copy = cloneBlockTree(block);
-    onChange(insertBlockAfter(blocksRef.current, id, copy));
-    setFocusCmd({ blockId: copy.id, offset: 'start' });
-    selectBlock(copy.id);
-  }, [onChange, selectBlock]);
+  const {
+    handleAddBelow,
+    handleAddAbove,
+    handleDelete,
+    handleDeleteSelected,
+    handleDuplicateSelected,
+    handleMove,
+    handleConvert,
+    handleDuplicate,
+  } = useEditorBlockOps({
+    getBlocks: getLocalBlocks,
+    getRootBlocks,
+    onChange,
+    onRootChange,
+    onFocusCmd: setFocusCmd,
+    selectBlock,
+    clearSelection,
+    onActiveBlockChange: handleActiveBlockChange,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+    setHandleMenu,
+    setPinnedControlsId,
+  });
 
   useEffect(() => {
     if (!searchQuery.trim() || searchScope === 'all') return;
@@ -547,201 +295,72 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     );
   };
 
-  // ── Phase 2: 블록 분리 (Enter) ───────────────────────────────────
-  const handleSplitBlock = useCallback((id: string, before: string, after: string) => {
-    const bs = blocksRef.current;
-    const idx = bs.findIndex(b => b.id === id);
-    if (idx < 0) return;
+  const {
+    handleSplitBlock,
+    handleMergeWithPrev,
+    handleContentChange,
+    handleTableChange,
+    handleNavigateBlock,
+  } = useEditorBlockEditing({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    selectBlock,
+    onActiveBlockChange: handleActiveBlockChange,
+    onEscapeToParentBelow,
+    onEscapeToParentHeader,
+    onMergeFirstChildIntoHeader,
+  });
 
-    if (onEscapeToParentBelow) {
-      const result = applyToggleChildEnter(bs, id, before, after, true);
-      if (result.action === 'escape_below') {
-        onChange(result.children);
-        onEscapeToParentBelow();
-        return;
-      }
-      onChange(result.children);
-      setFocusCmd({ blockId: result.focusBlockId, offset: 'start' });
-      selectBlock(result.focusBlockId);
-      return;
-    }
+  const {
+    slashMenu,
+    wikiMenu,
+    setSlashMenu,
+    setWikiMenu,
+    closeSlashMenu,
+    closeWikiMenu,
+    closeMenus,
+    isMenuOpenForBlock,
+    handleSlashSelect,
+    handleWikiSelect,
+  } = useEditorMenus({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    colors: c,
+    wikiTargets,
+    searchQuery,
+    onContentChange: handleContentChange,
+  });
 
-    const cur = bs[idx];
+  const { handlePasteAt, handlePasteBlocksAt } = useEditorPaste({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    closeMenus,
+    selectBlock,
+  });
 
-    if (isListType(cur.type) && before === '' && after === '') {
-      const next = exitEmptyListBlock(bs, id);
-      onChange(next);
-      setFocusCmd({ blockId: id, offset: 'start' });
-      selectBlock(id);
-      return;
-    }
-
-    const updatedCur: Block = { ...cur, content: before };
-    const newType: BlockType = ['heading1','heading2','heading3'].includes(cur.type)
-      ? 'paragraph' : cur.type;
-    const newBlock: Block = makeBlock(newType, {
-      content: after,
-      indent: cur.indent,
-      checked: false,
-      ...(isListType(newType) ? listSplitExtras(cur, newType) : {}),
-    });
-
-    let next = [...bs];
-    next[idx] = updatedCur;
-    next.splice(idx + 1, 0, newBlock);
-    next = renumberNumberedLists(next);
-    onChange(next);
-
-    setFocusCmd({ blockId: newBlock.id, offset: 'start' });
-    selectBlock(newBlock.id);
-  }, [onChange, onEscapeToParentBelow, selectBlock]);
-
-  // ── Phase 2: 블록 병합 (Backspace at start) ──────────────────────
-  const handleMergeWithPrev = useCallback((id: string, selfContent: string) => {
-    const bs = blocksRef.current;
-    const ids = flattenBlockIds(bs);
-    const pos  = ids.indexOf(id);
-
-    // Toggle Step 3: 첫 번째 자식 Backspace@0 → 헤더 병합 또는 빈 자식 탈출
-    if (pos === 0 && onEscapeToParentHeader) {
-      if (selfContent === '') {
-        const cleaned = bs.filter(b => b.id !== id);
-        onChange(cleaned.length > 0 ? cleaned : []);
-        onEscapeToParentHeader();
-        return;
-      }
-      if (onMergeFirstChildIntoHeader) {
-        onMergeFirstChildIntoHeader(id, selfContent);
-        return;
-      }
-    }
-
-    if (pos <= 0) return;
-
-    const prevId    = ids[pos - 1];
-    const prevBlock = findBlockById(bs, prevId);
-    if (!prevBlock) return;
-
-    const mergedContent = prevBlock.content + selfContent;
-    const mergeOffset   = prevBlock.content.length;
-
-    let next = updateBlockById(bs, prevId, b => ({ ...b, content: mergedContent }));
-    next = deleteBlockById(next, id);
-    onChange(next);
-
-    setFocusCmd({ blockId: prevId, offset: mergeOffset });
-    selectBlock(prevId);
-  }, [onChange, onEscapeToParentHeader, onMergeFirstChildIntoHeader, selectBlock]);
-
-  // ── Phase 2: 블록 content 변경 ───────────────────────────────────
-  const handleContentChange = useCallback((id: string, content: string) => {
-    onChange(updateBlockById(blocksRef.current, id, b => ({ ...b, content })));
-  }, [onChange]);
-
-  const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
-    const cur = findBlockById(blocksRef.current, id);
-    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
-    const result = applyPasteAtBlock(blocksRef.current, id, start, end, text, context);
-    if (!result) return;
-    onChange(result.blocks);
-    setSlashMenu(null);
-    setWikiMenu(null);
-    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
-    selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock]);
-
-  const handlePasteBlocksAt = useCallback((
-    id: string, start: number, end: number, pasted: Block[],
-  ) => {
-    const cur = findBlockById(blocksRef.current, id);
-    const context = cur ? { blockType: cur.type, indent: cur.indent } : undefined;
-    traceApplyPasteBlocksAtInput(
-      id,
-      cur?.type ?? '(missing)',
-      start,
-      end,
-      pasted,
-    );
-    const result = applyPasteBlocksAt(blocksRef.current, id, start, end, pasted, context);
-    if (!result) {
-      finishPastePipelineTrace();
-      return;
-    }
-    traceApplyPasteBlocksAtOutput(result.blocks);
-    traceStateBeforeSetState(result.blocks);
-    flushSync(() => { onChange(result.blocks); });
-    traceStateAfterSetStateCallback(result.blocks);
-    finishPastePipelineTrace();
-    setSlashMenu(null);
-    setWikiMenu(null);
-    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
-    selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock]);
-
-  // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
-  const handleToggleAddChild = useCallback((toggleBlockId: string) => {
-    const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
-      ...b,
-      collapsed: false,
-      children: [newChild],
-    })));
-    // 새로 생성된 자식 블록으로 포커스
-    requestAnimationFrame(() => {
-      const handler = getFocusHandler(newChild.id);
-      if (handler) handler({ blockId: newChild.id, offset: 'start' });
-    });
-  }, [onChange]);
-
-  // ── Toggle Step 2: 헤더 Enter → 자식 블록 생성 & 포커스 ──────────
-  const handleToggleEnter = useCallback((toggleBlockId: string, before: string, after: string) => {
-    const toggle = findBlockById(blocksRef.current, toggleBlockId);
-    if (!toggle) return;
-    const { headerContent, children, focusBlockId } = applyToggleHeaderEnter(
-      toggle.children,
-      before,
-      after,
-    );
-    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
-      ...b,
-      content: headerContent,
-      collapsed: false,
-      children,
-    })));
-    requestAnimationFrame(() => {
-      const handler = getFocusHandler(focusBlockId);
-      if (handler) handler({ blockId: focusBlockId, offset: 'start' });
-    });
-  }, [onChange]);
-
-  // ── Table: 셀/행/열 변경 ─────────────────────────────────────────
-  const handleTableChange = useCallback((
-    blockId: string, headers: string[], rows: string[][],
-  ) => {
-    onChange(updateBlockById(blocksRef.current, blockId, b => ({
-      ...b, tableHeaders: headers, tableRows: rows,
-    })));
-  }, [onChange]);
-
-  const handleNavigateBlock = useCallback((fromId: string, dir: 'up' | 'down') => {
-    const bs = blocksRef.current;
-    const ids = flattenBlockIds(bs);
-    const pos = ids.indexOf(fromId);
-    if (pos < 0) return;
-    const targetPos = dir === 'up' ? pos - 1 : pos + 1;
-    if (targetPos < 0 || targetPos >= ids.length) return;
-    const targetId = ids[targetPos];
-    const targetBlock = findBlockById(bs, targetId);
-    if (!targetBlock) return;
-    selectBlock(targetId);
-    handleActiveBlockChange(targetId);
-    setFocusCmd({
-      blockId: targetId,
-      offset: isTextBlockType(targetBlock.type)
-        ? (dir === 'up' ? 'end' : 'start')
-        : 'start',
-    });
-  }, [handleActiveBlockChange, selectBlock]);
+  const {
+    handleToggleAddChild,
+    handleToggleEnter,
+    renderToggleNested,
+  } = useEditorToggle({
+    getBlocks: getLocalBlocks,
+    getRootBlocks,
+    onChange,
+    onRootChange,
+    NestedEditor: BlockEditorInner,
+    colors: c,
+    readOnly,
+    searchQuery,
+    depth,
+    wikiTargets,
+    onWikiNavigate,
+    onActiveBlockChange,
+    searchScope,
+    searchMatchIndex,
+  });
 
   // 외부 포커스 요청 (이미지 삽입 직후 등)
   useEffect(() => {
@@ -752,163 +371,40 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onExternalFocusConsumed?.();
   }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed, selectBlock]);
 
-  const handleSlashSelect = useCallback((type: BlockType) => {
-    if (!slashMenu) return;
-    const { blockId, query } = slashMenu;
-
-    // 현재 블록 content에서 '/쿼리' 부분 제거
-    onChange(updateBlockById(blocksRef.current, blockId, b => {
-      const slashIdx = b.content.lastIndexOf('/' + query);
-      const cleaned  = slashIdx >= 0
-        ? b.content.slice(0, slashIdx) + b.content.slice(slashIdx + 1 + query.length)
-        : b.content;
-      // math/code 변환 시 남은 텍스트를 식/코드로 시드하고 content는 비움
-      if (type === 'math')  return { ...b, type, content: '', math: b.math || cleaned, mathBlock: (b.math || cleaned).includes('\n') };
-      if (type === 'code')  return { ...b, type, content: '', code: b.code || cleaned };
-      if (type === 'image') return { ...b, type, content: '', src: '', alt: '', caption: undefined, width: undefined };
-      return { ...b, type, content: cleaned };
-    }));
-
-    recordSlashUsage(type);
-    setSlashMenu(null);
-    // 타입 변환 후 해당 블록 포커스 (끝)
-    setFocusCmd({ blockId, offset: 'end' });
-  }, [slashMenu, onChange]);
-
-  // ── 위키링크 선택 → 포커스된 contentEditable에 직접 [[제목]] 삽입 ──
-  // 상태 round-trip 대신 DOM을 직접 조작해 캐럿 위치를 정확히 유지한다.
-  const handleWikiSelect = useCallback((title: string) => {
-    const el = document.activeElement as HTMLElement | null;
-    if (el && el.isContentEditable) {
-      const text = insertWikiAtCaret(el, title, c, wikiTargets, searchQuery);
-      if (wikiMenu) handleContentChange(wikiMenu.blockId, text);
-    }
-    setWikiMenu(null);
-  }, [wikiMenu, handleContentChange, c, wikiTargets, searchQuery]);
-
   // focusCmd 소비 후 리셋
   useEffect(() => {
     if (focusCmd) {
-      const t = setTimeout(() => setFocusCmd(null), 100);
+      const t = setTimeout(() => setFocusCmd(null), FOCUS_CMD_RESET_MS);
       return () => clearTimeout(t);
     }
   }, [focusCmd]);
 
-  // 최상위(depth 0) 헤딩 블록의 순번 — TOC(extractTOC와 동일한 문서 순서) 점프 타겟
-  const headingIndexById = useMemo(() => {
-    const m: Record<string, number> = {};
-    if (depth === 0) {
-      let h = 0;
-      for (const b of blocks) {
-        if (b.type === 'heading1' || b.type === 'heading2' || b.type === 'heading3') m[b.id] = h++;
-      }
-    }
-    return m;
-  }, [blocks, depth]);
+  const headingIndexById = useMemo(
+    () => buildHeadingIndexById(blocks, depth),
+    [blocks, depth],
+  );
 
-  const renderToggleNested = useCallback<ToggleNestedRenderer>((toggleBlock) => (
-    <BlockEditorInner
-      blocks={toggleBlock.children}
-      onChange={children => {
-        onChange(updateBlockById(blocksRef.current, toggleBlock.id, b => ({ ...b, children })));
-      }}
-      colors={c}
-      readOnly={readOnly}
-      searchQuery={searchQuery}
-      depth={depth + 1}
-      wikiTargets={wikiTargets}
-      onWikiNavigate={onWikiNavigate}
-      onActiveBlockChange={onActiveBlockChange}
-      externalFocusId={undefined}
-      getRootBlocks={getRootBlocks}
-      onRootChange={onRootChange}
-      searchScope={searchScope}
-      searchMatchIndex={searchMatchIndex}
-      onEscapeToParentBelow={() => {
-        const newBlock = makeBlock('paragraph');
-        onChange(insertBlockAfter(getRootBlocks(), toggleBlock.id, newBlock));
-        requestAnimationFrame(() => {
-          const h = getFocusHandler(newBlock.id);
-          if (h) h({ blockId: newBlock.id, offset: 'start' });
-        });
-      }}
-      onEscapeToParentHeader={() => {
-        const h = getFocusHandler(toggleBlock.id);
-        if (h) h({ blockId: toggleBlock.id, offset: 'end' });
-      }}
-      onMergeFirstChildIntoHeader={(childId, childContent) => {
-        const root = getRootBlocks();
-        const toggle = findBlockById(root, toggleBlock.id);
-        if (!toggle) return;
-        const result = applyToggleChildMergeIntoHeader(
-          toggle.content,
-          toggle.children,
-          childId,
-          childContent,
-        );
-        if (!result) return;
-        onChange(updateBlockById(root, toggleBlock.id, t => ({
-          ...t,
-          content: result.headerContent,
-          children: result.children,
-        })));
-        requestAnimationFrame(() => {
-          const h = getFocusHandler(toggleBlock.id);
-          if (h) h({ blockId: toggleBlock.id, offset: result.focusOffset });
-        });
-      }}
-    />
-  ), [
-    onChange, c, readOnly, searchQuery, depth, wikiTargets, onWikiNavigate,
-    onActiveBlockChange, getRootBlocks, onRootChange, searchScope, searchMatchIndex,
-  ]);
+  useEditorKeyboard({
+    readOnly,
+    depth,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+    onClearSelection: clearSelection,
+    onDeleteSelected: handleDeleteSelected,
+  });
 
-  useEffect(() => {
-    if (readOnly || depth !== 0) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (selectedBlockIdsRef.current.size > 0) {
-          setSelectedBlockIds(emptySelection());
-          setAnchorBlockId(null);
-        }
-        return;
-      }
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      if (!shouldDeleteSelectedBlocks(e, selectedBlockIdsRef.current)) return;
-      e.preventDefault();
-      handleDeleteSelected();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [readOnly, depth, handleDeleteSelected]);
-
-  useEffect(() => {
-    if (depth !== 0) return;
-
-    const uninstallCopy = installEditorCopyListener({
-      getRootBlocks,
-      getSelectedIds: () => selectedBlockIdsRef.current,
-    });
-
-    const uninstallDiag = installCopyDiagnostics({
-      readOnly,
-      depth,
-      getRootBlocks,
-      getSelectedIds: () => selectedBlockIdsRef.current,
-    });
-
-    return () => {
-      uninstallCopy();
-      uninstallDiag();
-    };
-  }, [readOnly, depth, getRootBlocks]);
+  useEditorCopyEffects({
+    readOnly,
+    depth,
+    getRootBlocks,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+  });
 
   const editorBody = (
     <>
       <div
         ref={depth === 0 ? editorRootRef : undefined}
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
-        style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? 36 : 0), position:'relative' }}
+        style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
       >
         {blocks.map(block => (
@@ -932,10 +428,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onOpenTurnInto={setHandleMenu}
             onConvertBlock={handleConvert}
             onSlashOpen={setSlashMenu}
-            onSlashClose={() => setSlashMenu(null)}
+            onSlashClose={closeSlashMenu}
             onWikiOpen={setWikiMenu}
-            onWikiClose={() => setWikiMenu(null)}
-            isMenuOpen={slashMenu?.blockId === block.id || wikiMenu?.blockId === block.id}
+            onWikiClose={closeWikiMenu}
+            isMenuOpen={isMenuOpenForBlock(block.id)}
             onToggleAddChild={handleToggleAddChild}
             onToggleEnter={handleToggleEnter}
             onTableChange={handleTableChange}
@@ -981,7 +477,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorX={slashMenu.anchorX}
           colors={c}
           onSelect={handleSlashSelect}
-          onClose={() => setSlashMenu(null)}
+          onClose={closeSlashMenu}
         />
       )}
       {/* 위키링크 자동완성 메뉴 */}
@@ -993,7 +489,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorX={wikiMenu.anchorX}
           colors={c}
           onSelect={handleWikiSelect}
-          onClose={() => setWikiMenu(null)}
+          onClose={closeWikiMenu}
         />
       )}
     </>
@@ -1012,9 +508,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   );
 }
 
-
-
-const noopBlockChange = () => {};
 
 
 // ── 최상위 BlockEditor ───────────────────────────────────────────────
@@ -1037,29 +530,7 @@ export const BlockEditor = React.memo(function BlockEditor({
             documentFocusApiRef.current?.handlePointerDown(e);
           }
         } : undefined}
-        style={{
-          '--be-accent': colors.accent,
-          '--be-accent-bg': colors.accentBg,
-          '--be-link': colors.linkColor ?? colors.accent,
-          '--be-code-bg': colors.codeBg,
-          '--be-placeholder-color': colors.textFaint,
-          '--be-text': colors.text,
-          '--be-doc-width': colors.documentMaxWidth ? `${colors.documentMaxWidth}px` : '720px',
-          '--be-font-family': colors.fontFamily ?? 'system-ui, sans-serif',
-          '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
-          '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
-          '--be-search-hl-color': colors.searchHlColor ?? colors.text,
-          '--be-block-active-bg': colors.blockFocusBg ?? 'transparent',
-          '--be-block-selected-bg': colors.blockSelectedBg ?? 'rgba(139,92,246,0.05)',
-          '--be-block-active-selected-bg': colors.isDark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.08)',
-          '--be-toggle-bg': colors.toggleBg ?? 'transparent',
-          '--be-toggle-hover-bg': colors.isDark ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.04)',
-          '--be-toggle-rail': colors.isDark ? 'rgba(139,92,246,0.18)' : 'rgba(139,92,246,0.16)',
-          '--be-toggle-rail-collapsed': colors.isDark ? 'rgba(139,92,246,0.24)' : 'rgba(139,92,246,0.20)',
-          '--be-border': colors.border,
-          '--be-text-muted': colors.textMuted,
-          '--be-menu-shadow': colors.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-        } as CSSProperties}
+        style={buildEditorCssVariables(colors)}
       >
       <BlockEditorInner
         blocks={blocks} onChange={onChange} colors={colors}
