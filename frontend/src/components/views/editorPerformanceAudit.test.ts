@@ -60,7 +60,7 @@ function expectMountRow(row: MountMetrics, size: number): void {
 function expectFullAuditRow(row: PerformanceAuditRow, size: number): void {
   expectDataLayerRow(row, size);
   expect(row.selectionChangeRerenders).toBe(2);
-  expect(row.dragStateRerenders).toBe(size);
+  expect(row.dragStateRerenders).toBe(0);
   expect(row.searchHighlightRerenders).toBeGreaterThan(0);
 }
 

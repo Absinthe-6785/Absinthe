@@ -1,7 +1,7 @@
 /**
  * editorDragDrop.tsx — Block editor drag-and-drop (extracted from BlockEditor)
  */
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { flattenBlockIds, type Block } from './blockUtils';
 import { applyHierarchyDragDrop } from './dragHierarchy';
 import { applyMultiBlockDragDrop } from './multiBlockDrag';
@@ -9,6 +9,12 @@ import { minimalDragIds } from './dragSelection';
 import { renumberNumberedListsDeep } from './listBlocks';
 import { applyDragAutoscroll } from './dragAutoscroll';
 import { isDragOverUnchanged } from './dragOverState';
+import {
+  getDragStateSnapshot,
+  setDragStateStore,
+  updateDragStateOver,
+} from './features/block-editor/performance/dragStateStore';
+import { syncDragDom } from './features/block-editor/performance/dragDomSync';
 
 const DRAG_REJECT_MS = 420;
 
@@ -19,7 +25,6 @@ export interface DragState {
 }
 
 export interface UseDragDropResult {
-  dragState: DragState | null;
   bindGripPointer: (id: string, e: React.PointerEvent, onClick?: () => void) => void;
   getDragProps: (id: string) => {
     onPointerEnter: (e: React.PointerEvent) => void;
@@ -31,6 +36,8 @@ export interface UseDragDropOptions {
   getSelectedIds?: () => string[];
   /** Primary note scroll container (e.g. .editor-drop-zone). No global document scroll. */
   getScrollContainer?: () => HTMLElement | null;
+  /** Editor root for imperative drag chrome (isolation from React tree). */
+  getEditorRoot?: () => HTMLElement | null;
 }
 
 const DRAG_THRESHOLD_PX = 6;
@@ -166,15 +173,19 @@ export function useDragDrop(
   onReorder: (newBlocks: Block[]) => void,
   options: UseDragDropOptions = {},
 ): UseDragDropResult {
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const dragStateRef = useRef<DragState | null>(null);
-  dragStateRef.current = dragState;
   const getBlocksRef = useRef(getBlocks);
   getBlocksRef.current = getBlocks;
   const getSelectedIdsRef = useRef(options.getSelectedIds);
   getSelectedIdsRef.current = options.getSelectedIds;
   const getScrollContainerRef = useRef(options.getScrollContainer);
   getScrollContainerRef.current = options.getScrollContainer;
+  const getEditorRootRef = useRef(options.getEditorRoot);
+  getEditorRootRef.current = options.getEditorRoot;
+
+  const publishDragState = useCallback((next: DragState | null) => {
+    setDragStateStore(next);
+    syncDragDom(next, () => getEditorRootRef.current?.() ?? null);
+  }, []);
 
   const resolveDraggingIds = useCallback((id: string): string[] => {
     const selected = getSelectedIdsRef.current?.() ?? [];
@@ -197,11 +208,11 @@ export function useDragDrop(
     const pointerId = e.pointerId;
 
     const updateOver = (overId: string | null, overPos: DragState['overPos']) => {
-      setDragState(s => {
-        if (!s || s.draggingIds[0] !== primaryId) return s;
-        if (isDragOverUnchanged(s, overId, overPos)) return s;
-        return { ...s, overId, overPos };
-      });
+      const current = getDragStateSnapshot();
+      if (!current || current.draggingIds[0] !== primaryId) return;
+      if (isDragOverUnchanged(current, overId, overPos)) return;
+      updateDragStateOver(overId, overPos);
+      syncDragDom(getDragStateSnapshot(), () => getEditorRootRef.current?.() ?? null);
     };
 
     const beginDragging = () => {
@@ -211,7 +222,7 @@ export function useDragDrop(
       } catch {
         // happy-dom / unsupported capture — window listeners still apply
       }
-      setDragState({ draggingIds, overId: null, overPos: null });
+      publishDragState({ draggingIds, overId: null, overPos: null });
     };
 
     const cleanup = (shouldCommit: boolean) => {
@@ -233,7 +244,7 @@ export function useDragDrop(
       }
 
       if (shouldCommit && dragging) {
-        const st = dragStateRef.current;
+        const st = getDragStateSnapshot();
         if (st?.overId && st.overPos && st.draggingIds.length) {
           const next = commitDragDrop(
             getBlocksRef.current(),
@@ -246,7 +257,7 @@ export function useDragDrop(
         }
       }
 
-      setDragState(null);
+      publishDragState(null);
     };
 
     const onMove = (ev: PointerEvent) => {
@@ -296,7 +307,7 @@ export function useDragDrop(
     window.addEventListener('pointerup', onPointerEnd);
     window.addEventListener('pointercancel', onPointerEnd);
     window.addEventListener('keydown', onKeyDown);
-  }, [onReorder, resolveDraggingIds]);
+  }, [onReorder, publishDragState, resolveDraggingIds]);
 
   const getDragProps = useCallback((id: string) => ({
     onPointerEnter: (_e: React.PointerEvent) => {
@@ -305,5 +316,5 @@ export function useDragDrop(
     'data-drag-id': id,
   }), []);
 
-  return { dragState, bindGripPointer, getDragProps };
+  return { bindGripPointer, getDragProps };
 }

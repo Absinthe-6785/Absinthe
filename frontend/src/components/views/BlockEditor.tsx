@@ -80,6 +80,7 @@ import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBl
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 import {
   DISABLED_DRAG_API,
+  DragOverlay,
   isVirtualBlocksPocEnabled,
   listVirtualBlockRows,
   PendingFocusQueue,
@@ -184,22 +185,23 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   if (!pendingFocusQueueRef.current) pendingFocusQueueRef.current = new PendingFocusQueue();
   // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
   const parentDrag = useContext(DragCtx);
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const assignEditorRootRef = useCallback((node: HTMLDivElement | null) => {
+    editorRootRef.current = node;
+  }, []);
+
   const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
     getSelectedIds: () => [...selectedBlockIdsRef.current],
     getScrollContainer: () =>
       editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
+    getEditorRoot: () => editorRootRef.current,
   } : undefined);
   const virtualRootEnabled = isVirtualBlocksPocEnabled(virtualBlocksPoc) && depth === 0;
   const activeDrag = depth === 0 ? localDrag : parentDrag!;
-  const { dragState, bindGripPointer, getDragProps } = virtualRootEnabled
+  const { bindGripPointer, getDragProps } = virtualRootEnabled
     ? DISABLED_DRAG_API
     : activeDrag;
-  const editorRootRef = useRef<HTMLDivElement | null>(null);
   const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
-
-  const assignEditorRootRef = useCallback((node: HTMLDivElement | null) => {
-    editorRootRef.current = node;
-  }, []);
 
   useLayoutEffect(() => {
     if (!virtualRootEnabled) {
@@ -495,7 +497,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       onSplitBlock={handleSplitBlock}
       onMergeWithPrev={handleMergeWithPrev}
       onContentChange={handleContentChange}
-      dragState={dragState}
       bindGripPointer={bindGripPointer}
       getDragProps={getDragProps}
       onOpenTurnInto={setHandleMenu}
@@ -552,6 +553,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         )}
         {depth === 0 && !readOnly && (
           <MultiSelectHint count={selectedBlockIds.size} colors={c} />
+        )}
+        {depth === 0 && !readOnly && !virtualRootEnabled && (
+          <DragOverlay
+            colors={c}
+            getBlocks={getRootBlocks}
+            getEditorRoot={() => editorRootRef.current}
+          />
         )}
       </div>
       {!readOnly && (

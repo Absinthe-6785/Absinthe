@@ -1,4 +1,4 @@
-import React, { type ReactNode, type CSSProperties } from 'react';
+import React, { type CSSProperties, type ReactNode } from 'react';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
 import { renderToggleChildren, renderToggleHeader, type ToggleNestedRenderer } from './toggleRender';
@@ -8,12 +8,10 @@ export interface ToggleBlockProps {
   colors: BlockEditorColors;
   ctx: BlockRenderContext;
   toggleOpen: boolean;
-  toggleDropActive: boolean;
   depth: number;
   blockShellProps: Record<string, unknown>;
   blockShellStyle: CSSProperties;
   blockShellClass: string;
-  dropIndicators: ReactNode;
   gutterChrome: ReactNode;
   onChromeEnter?: () => void;
   onChromeLeave?: () => void;
@@ -26,12 +24,10 @@ export function ToggleBlock({
   colors: c,
   ctx,
   toggleOpen,
-  toggleDropActive,
   depth,
   blockShellProps,
   blockShellStyle,
   blockShellClass,
-  dropIndicators,
   gutterChrome,
   onChromeEnter,
   onChromeLeave,
@@ -40,7 +36,7 @@ export function ToggleBlock({
 }: ToggleBlockProps) {
   return (
     <div
-      className={`be-toggle-wrap${!toggleOpen ? ' be-toggle-collapsed' : ''}${toggleDropActive ? ' be-toggle-drop-active' : ''}`}
+      className={`be-toggle-wrap${!toggleOpen ? ' be-toggle-collapsed' : ''}`}
       style={{ '--be-toggle-depth': depth } as CSSProperties}
     >
       <div
@@ -50,13 +46,12 @@ export function ToggleBlock({
         onMouseEnter={onChromeEnter}
         onMouseLeave={onChromeLeave}
       >
-        {dropIndicators}
         {gutterChrome}
         <div className="be-content" onMouseDown={onSelect}>
           {renderToggleHeader(block, c, ctx)}
         </div>
       </div>
-      {toggleOpen && renderToggleChildren(block, ctx, renderNested, toggleDropActive)}
+      {toggleOpen && renderToggleChildren(block, ctx, renderNested)}
     </div>
   );
 }

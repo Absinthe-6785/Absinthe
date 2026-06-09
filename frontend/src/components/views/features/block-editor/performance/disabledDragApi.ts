@@ -5,7 +5,6 @@
 import type { UseDragDropResult } from '../../../editorDragDrop';
 
 export const DISABLED_DRAG_API: UseDragDropResult = {
-  dragState: null,
   bindGripPointer: () => {},
   getDragProps: (id: string) => ({
     onPointerEnter: () => {},

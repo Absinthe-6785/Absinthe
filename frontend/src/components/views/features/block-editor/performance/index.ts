@@ -6,6 +6,22 @@ export {
 export { estimateBlockHeight, getEstimatedHeightForType } from './blockHeightEstimates';
 export { BlockHeightCache } from './blockHeightCache';
 export { DISABLED_DRAG_API } from './disabledDragApi';
+export { DragOverlay } from './DragOverlay';
+export {
+  getRowMetrics,
+  getVisibleRowMetrics,
+  getVirtualRowMetrics,
+  resolveDropTargetFromRows,
+  type RowMetricsOptions,
+  type DropTargetHit,
+} from './rowMetrics';
+export {
+  getDragStateSnapshot,
+  subscribeDragState,
+  setDragStateStore,
+  updateDragStateOver,
+} from './dragStateStore';
+export { useDragStateSnapshot } from './useDragStateSnapshot';
 export { scrollToBlockId, type BlockVirtualizer } from './scrollToBlockId';
 export { useVirtualBlockList, type UseVirtualBlockListResult } from './useVirtualBlockList';
 export { VirtualBlockList } from './VirtualBlockList';

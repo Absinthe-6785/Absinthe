@@ -14,10 +14,6 @@ import {
   traceRenderBlock,
 } from '../../../pastePipelineTrace';
 import { blockLayoutIndentPx } from '../../../listBlocks';
-import {
-  DropInsertIndicator,
-  type DragState,
-} from '../../../editorDragDrop';
 import type {
   BlockEditorColors, BlockRenderContext, TurnIntoMenuState,
   SlashMenuState, WikiMenuState,
@@ -50,7 +46,6 @@ interface SingleBlockProps {
   onMergeWithPrev: (id: string, selfContent: string) => void;
   onContentChange: (id: string, content: string) => void;
   // Phase 3: 드래그&드롭
-  dragState:  DragState | null;
   bindGripPointer: (id: string, e: React.PointerEvent, onClick?: () => void) => void;
   getDragProps: (id: string) => { onPointerEnter: (e: React.PointerEvent) => void; 'data-drag-id': string };
   onOpenTurnInto: (state: TurnIntoMenuState) => void;
@@ -99,7 +94,6 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.depth === next.depth
     && prev.isMenuOpen === next.isMenuOpen
     && prev.headingIndex === next.headingIndex
-    && prev.dragState === next.dragState
     && prev.colors === next.colors
     && prev.wikiTargets === next.wikiTargets
     && prev.onAddBelow === next.onAddBelow
@@ -139,7 +133,7 @@ export const SingleBlock = React.memo(function SingleBlock({
   block, colors: c, isSelected,
   onBlockSelect, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
   onSplitBlock, onMergeWithPrev, onContentChange,
-  dragState, bindGripPointer, getDragProps,
+  bindGripPointer, getDragProps,
   onOpenTurnInto, onConvertBlock,
   onSlashOpen, onSlashClose,
   onWikiOpen, onWikiClose, isMenuOpen, onWikiNavigate,
@@ -216,12 +210,7 @@ export const SingleBlock = React.memo(function SingleBlock({
 
   const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery, wikiTargets);
 
-  // ── 드래그 인디케이터 계산 ──────────────────────────────────────
-  const isDragging   = dragState?.draggingIds.includes(block.id) ?? false;
-  const isOverBefore = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'before';
-  const isOverAfter  = !isDragging && dragState?.overId === block.id && dragState?.overPos === 'after';
-  const isOverInside = !isDragging && block.type === 'toggle' && dragState?.overId === block.id && dragState?.overPos === 'inside';
-  const isActive     = activeBlockId === block.id;
+  const isActive = activeBlockId === block.id;
   const layoutIndent = blockLayoutIndentPx(block, depth);
 
   if (isPasteTraceActive() && depth === 0) {
@@ -344,49 +333,24 @@ export const SingleBlock = React.memo(function SingleBlock({
     borderLeft: tintStyle.borderLeft,
     transition: 'background .12s',
     opacity: 1,
-    userSelect: dragState ? 'none' : undefined,
     background: tintStyle.background ?? 'transparent',
   };
 
   const blockShellClass = blockShellClassName(
-    isActive, isSelected, controlsVisible ?? false, isDragging ? 'be-dragging' : undefined,
-  );
-
-  const dropIndicators = (
-    <>
-      {isOverBefore && (
-        <DropInsertIndicator position="before" indentLeft={layoutIndent} accent={c.accent} />
-      )}
-      {isOverInside && (
-        <div
-          className="be-drop-inside"
-          style={{
-            position: 'absolute', inset: 2, borderRadius: 8, zIndex: 9,
-            border: `2px dashed ${c.accent}`, pointerEvents: 'none',
-            background: `${c.accent}14`,
-          }}
-        />
-      )}
-      {isOverAfter && (
-        <DropInsertIndicator position="after" indentLeft={layoutIndent} accent={c.accent} />
-      )}
-    </>
+    isActive, isSelected, controlsVisible ?? false,
   );
 
   if (block.type === 'toggle') {
-    const toggleDropActive = dragState?.overId === block.id && dragState?.overPos === 'inside';
     return (
       <ToggleBlock
         block={block}
         colors={c}
         ctx={renderCtx}
         toggleOpen={toggleOpen}
-        toggleDropActive={toggleDropActive}
         depth={depth}
         blockShellProps={blockShellProps}
         blockShellStyle={blockShellStyle}
         blockShellClass={blockShellClass}
-        dropIndicators={dropIndicators}
         onChromeEnter={() => onChromeEnter?.(block.id)}
         onChromeLeave={() => onChromeLeave?.()}
         onSelect={handleContentMouseDown}
@@ -403,7 +367,6 @@ export const SingleBlock = React.memo(function SingleBlock({
       className={blockShellClass}
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}>
-      {dropIndicators}
       {gutterChrome}
       {needsShell ? (
         <div className="be-content">{body}</div>

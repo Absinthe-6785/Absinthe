@@ -169,6 +169,10 @@ export const EDITOR_CHROME_STYLES = `
   .be-block.be-dragging {
     opacity: 0.4;
   }
+  .be-editor-root.be-drag-active,
+  .be-editor-root.be-drag-active * {
+    user-select: none;
+  }
   .be-document {
     max-width: var(--be-doc-width, 720px);
     margin: 0 auto;
