@@ -1,15 +1,14 @@
 /**
- * Knowledge-15.0 — Forward-looking rollup model types.
+ * Knowledge-15.0 / K-15 — Rollup model types, normalization, and formula stubs.
  *
- * Documents recommended rollup architecture for K-15.5+ implementation.
  * Rollups are computed presentation values — not stored on notes.
- * No runtime behavior in K-15.0 — types only.
+ * K-15.0 documents forward-looking types; K-15 adds runtime normalization.
  */
 
 /** Which relation edges participate in the aggregate */
 export type RollupDirection = 'outgoing' | 'incoming';
 
-/** Phase 1 rollup functions — K-15.5 */
+/** Phase 1 rollup functions — K-15 */
 export type RollupFunctionPhase1 =
   | 'count'
   | 'list'
@@ -28,6 +27,15 @@ export type RollupFunctionPhase2 =
 /** Full rollup function union — implementation gated by phase */
 export type RollupFunction = RollupFunctionPhase1 | RollupFunctionPhase2;
 
+export const ROLLUP_FUNCTIONS_PHASE1: readonly RollupFunctionPhase1[] = [
+  'count',
+  'list',
+  'latest',
+  'sum',
+  'first',
+  'last',
+];
+
 /** Sort key for ordered pick functions (first / last / latest / earliest) */
 export type RollupSortKey = 'updatedAt' | 'title' | string;
 
@@ -39,7 +47,7 @@ export interface RollupDefinition {
   /** Relation property key, e.g. "course", "lecture" */
   relationKey: string;
   /** outgoing: targets on this note; incoming: sources pointing to this note */
-  direction: RollupDirection;
+  direction?: RollupDirection;
   function: RollupFunction;
   /** Property key on linked notes — required for sum / latest / min / max / average */
   targetField?: string;
@@ -49,7 +57,7 @@ export interface RollupDefinition {
   includeMissing?: boolean;
 }
 
-/** Table column binding for a rollup — K-15.5+ */
+/** Table column binding for a rollup — K-15 */
 export interface RollupColumnDefinition {
   key: string;
   label?: string;
@@ -65,7 +73,7 @@ export interface RollupValue {
   missingTargets?: number;
 }
 
-/** Input to rollup compute helper — K-15.5+ */
+/** Input to rollup compute helper — K-15 */
 export interface RollupComputeInput {
   noteId: string;
   definition: RollupDefinition;
@@ -102,16 +110,92 @@ export interface RelationRollupConfig {
   field?: string;
 }
 
+export function isRollupFunctionPhase1(value: string): value is RollupFunctionPhase1 {
+  return (ROLLUP_FUNCTIONS_PHASE1 as readonly string[]).includes(value);
+}
+
 export function isRollupDefinition(value: unknown): value is RollupDefinition {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<RollupDefinition>;
+  const direction = record.direction;
   return (
     typeof record.relationKey === 'string'
     && record.relationKey.trim().length > 0
-    && (record.direction === 'outgoing' || record.direction === 'incoming')
+    && (direction === undefined || direction === 'outgoing' || direction === 'incoming')
     && typeof record.function === 'string'
     && record.function.trim().length > 0
   );
+}
+
+/** Normalize persisted rollup definition — Phase 1 functions only */
+export function normalizeRollupDefinition(raw: unknown): RollupDefinition | null {
+  if (!isRollupDefinition(raw)) return null;
+  const record = raw as RollupDefinition;
+  const fn = record.function.trim();
+  if (!isRollupFunctionPhase1(fn)) return null;
+
+  const direction = record.direction === 'outgoing' ? 'outgoing' : 'incoming';
+  const definition: RollupDefinition = {
+    relationKey: record.relationKey.trim(),
+    direction,
+    function: fn,
+  };
+
+  if (typeof record.targetField === 'string' && record.targetField.trim()) {
+    definition.targetField = record.targetField.trim();
+  }
+  if (typeof record.sortBy === 'string' && record.sortBy.trim()) {
+    definition.sortBy = record.sortBy.trim();
+  }
+  if (record.includeMissing === true) {
+    definition.includeMissing = true;
+  }
+
+  return definition;
+}
+
+export function normalizeRollupColumns(raw: unknown): RollupColumnDefinition[] {
+  if (!Array.isArray(raw)) return [];
+
+  const columns: RollupColumnDefinition[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Partial<RollupColumnDefinition>;
+    const key = typeof record.key === 'string' ? record.key.trim() : '';
+    if (!key || seen.has(key.toLowerCase())) continue;
+
+    const rollup = normalizeRollupDefinition(record.rollup);
+    if (!rollup) continue;
+
+    seen.add(key.toLowerCase());
+    columns.push({
+      key,
+      visible: record.visible !== false,
+      rollup,
+      ...(typeof record.label === 'string' && record.label.trim()
+        ? { label: record.label.trim() }
+        : {}),
+    });
+  }
+
+  return columns;
+}
+
+export function rollupColumnLabel(column: RollupColumnDefinition): string {
+  if (column.label?.trim()) return column.label.trim();
+  const fn = column.rollup.function;
+  const key = column.rollup.relationKey;
+  switch (fn) {
+    case 'count': return `${key} count`;
+    case 'list': return `${key} list`;
+    case 'sum': return `${key} sum`;
+    case 'latest': return `Latest ${key}`;
+    case 'first': return `First ${key}`;
+    case 'last': return `Last ${key}`;
+    default: return column.key;
+  }
 }
 
 export function isRollupColumnDefinition(value: unknown): value is RollupColumnDefinition {
@@ -121,7 +205,7 @@ export function isRollupColumnDefinition(value: unknown): value is RollupColumnD
     typeof record.key === 'string'
     && record.key.trim().length > 0
     && typeof record.visible === 'boolean'
-    && isRollupDefinition(record.rollup)
+    && normalizeRollupDefinition(record.rollup) !== null
   );
 }
 

@@ -1,7 +1,17 @@
 export {
+  computeRollup,
+  resolveRollupLinkedNotes,
+  type LinkedNoteRef,
+} from './computeRollup';
+export {
   isRollupColumnDefinition,
   isRollupDefinition,
+  isRollupFunctionPhase1,
+  normalizeRollupColumns,
+  normalizeRollupDefinition,
+  rollupColumnLabel,
   rollupDefinitionFromLegacy,
+  ROLLUP_FUNCTIONS_PHASE1,
   type FormulaDefinition,
   type FormulaFieldInput,
   type FormulaInput,

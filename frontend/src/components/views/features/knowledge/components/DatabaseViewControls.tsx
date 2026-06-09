@@ -6,6 +6,7 @@ import {
   columnLabelForKey,
   resolveAllColumnKeys,
   resolveVisibleColumns,
+  resolveVisibleRollupColumns,
 } from '../databaseViews/databaseViewConfig';
 import {
   BOARD_GROUP_BY_FIELD,
@@ -25,11 +26,14 @@ import type {
 import { isBuiltinColumnKey } from '../databaseViews/databaseViewModels';
 import {
   addDatabaseViewColumn,
+  addDatabaseViewRollupColumn,
   removeDatabaseViewColumn,
+  removeDatabaseViewRollupColumn,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
+  setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
 } from '../databaseViews/databaseViewOperations';
 import { prepareDatabaseViewPresentation } from '../databaseViews/prepareDatabaseViewPresentation';
@@ -39,6 +43,7 @@ import { DatabaseCalendarView } from './DatabaseCalendarView';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 import { DatabaseTableView } from './DatabaseTableView';
+import { ROLLUP_FUNCTIONS_PHASE1, rollupColumnLabel, type RollupFunctionPhase1 } from '../rollups/rollupModels';
 
 export interface DatabaseViewControlsProps {
   colors: NoteChromeColors;
@@ -50,6 +55,18 @@ export interface DatabaseViewControlsProps {
   onRemoveColumn: (key: string) => void;
   onToggleColumnVisibility: (key: string, visible: boolean) => void;
   onSortChange: (sort: DatabaseViewSort) => void;
+  onAddRollupColumn: (column: {
+    key: string;
+    visible: boolean;
+    rollup: {
+      relationKey: string;
+      direction: 'incoming';
+      function: RollupFunctionPhase1;
+      targetField?: string;
+    };
+  }) => void;
+  onRemoveRollupColumn: (key: string) => void;
+  onToggleRollupColumnVisibility: (key: string, visible: boolean) => void;
 }
 
 export function DatabaseViewControls({
@@ -62,13 +79,21 @@ export function DatabaseViewControls({
   onRemoveColumn,
   onToggleColumnVisibility,
   onSortChange,
+  onAddRollupColumn,
+  onRemoveRollupColumn,
+  onToggleRollupColumnVisibility,
 }: DatabaseViewControlsProps) {
   const [newColumnKey, setNewColumnKey] = useState('');
+  const [rollupKey, setRollupKey] = useState('');
+  const [rollupRelationKey, setRollupRelationKey] = useState('course');
+  const [rollupFunction, setRollupFunction] = useState<RollupFunctionPhase1>('count');
+  const [rollupTargetField, setRollupTargetField] = useState('');
   const configured = withDatabaseViewDefaults(view);
   const tableConfig = getTableConfig(configured);
   const boardConfig = getBoardConfig(configured);
   const calendarConfig = getCalendarConfig(configured);
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
+  const rollupColumns = tableConfig.rollupColumns ?? [];
   const visibility = new Map(
     tableConfig.columns.map(entry => [entry.key.toLowerCase(), entry.visible]),
   );
@@ -78,6 +103,23 @@ export function DatabaseViewControls({
     if (!trimmed) return;
     onAddColumn(trimmed);
     setNewColumnKey('');
+  };
+
+  const submitAddRollup = () => {
+    const key = rollupKey.trim();
+    const relationKey = rollupRelationKey.trim();
+    if (!key || !relationKey) return;
+    onAddRollupColumn({
+      key,
+      visible: true,
+      rollup: {
+        relationKey,
+        direction: 'incoming',
+        function: rollupFunction,
+        ...(rollupTargetField.trim() ? { targetField: rollupTargetField.trim() } : {}),
+      },
+    });
+    setRollupKey('');
   };
 
   return (
@@ -193,6 +235,72 @@ export function DatabaseViewControls({
               Add
             </button>
           </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+            <span style={{ fontWeight: 700 }}>Rollup Columns</span>
+            {rollupColumns.map(column => (
+              <div key={column.key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ flex: 1, color: column.visible ? c.accent : c.textMuted }}>
+                  {rollupColumnLabel(column)}
+                </span>
+                <button
+                  type="button"
+                  className="btbtn"
+                  style={{ padding: '1px 4px', fontSize: 9 }}
+                  onClick={() => onToggleRollupColumnVisibility(column.key, !column.visible)}
+                >
+                  {column.visible ? 'Hide' : 'Show'}
+                </button>
+                <button
+                  type="button"
+                  className="btbtn"
+                  style={{ padding: '1px 4px', fontSize: 9, color: c.danger }}
+                  onClick={() => onRemoveRollupColumn(column.key)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <input
+              className="bwi"
+              style={{ fontSize: 10 }}
+              placeholder="Rollup column key"
+              value={rollupKey}
+              onChange={e => setRollupKey(e.target.value)}
+            />
+            <input
+              className="bwi"
+              style={{ fontSize: 10 }}
+              placeholder="Relation key"
+              value={rollupRelationKey}
+              onChange={e => setRollupRelationKey(e.target.value)}
+            />
+            <select
+              className="bwi"
+              style={{ fontSize: 10 }}
+              value={rollupFunction}
+              onChange={e => setRollupFunction(e.target.value as RollupFunctionPhase1)}
+            >
+              {ROLLUP_FUNCTIONS_PHASE1.map(fn => (
+                <option key={fn} value={fn}>{fn}</option>
+              ))}
+            </select>
+            {(rollupFunction === 'sum' || rollupFunction === 'latest') && (
+              <input
+                className="bwi"
+                style={{ fontSize: 10 }}
+                placeholder={rollupFunction === 'latest' ? 'Target field (e.g. updatedAt)' : 'Numeric field'}
+                value={rollupTargetField}
+                onChange={e => setRollupTargetField(e.target.value)}
+              />
+            )}
+            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitAddRollup}>
+              Add rollup
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -230,6 +338,10 @@ export function DatabaseViewPanel({
     () => resolveVisibleColumns(tableConfig.columns),
     [tableConfig.columns],
   );
+  const visibleRollupColumns = useMemo(
+    () => resolveVisibleRollupColumns(tableConfig.rollupColumns),
+    [tableConfig.rollupColumns],
+  );
 
   const patch = useCallback(
     (updater: (current: DatabaseView) => DatabaseView) => onViewChange(updater),
@@ -248,6 +360,9 @@ export function DatabaseViewPanel({
         onRemoveColumn={key => patch(v => removeDatabaseViewColumn(v, key))}
         onToggleColumnVisibility={(key, visible) => patch(v => setDatabaseViewColumnVisibility(v, key, visible))}
         onSortChange={sort => patch(v => setDatabaseViewSort(v, sort))}
+        onAddRollupColumn={column => patch(v => addDatabaseViewRollupColumn(v, column))}
+        onRemoveRollupColumn={key => patch(v => removeDatabaseViewRollupColumn(v, key))}
+        onToggleRollupColumnVisibility={(key, visible) => patch(v => setDatabaseViewRollupColumnVisibility(v, key, visible))}
       />
       {presentationData.type === 'board' ? (
         <DatabaseBoardView
@@ -271,6 +386,7 @@ export function DatabaseViewPanel({
           colors={c}
           notes={presentationData.notes}
           columns={visibleColumns}
+          rollupColumns={visibleRollupColumns}
           sort={tableConfig.sort}
           service={service}
           activeNoteId={activeNoteId}

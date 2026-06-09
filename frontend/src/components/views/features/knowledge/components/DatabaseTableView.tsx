@@ -5,11 +5,14 @@ import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
+import { computeRollup } from '../rollups/computeRollup';
+import { rollupColumnLabel, type RollupColumnDefinition } from '../rollups/rollupModels';
 
 export interface DatabaseTableViewProps {
   colors: NoteChromeColors;
   notes: readonly NoteBase[];
   columns?: readonly DatabaseColumn[];
+  rollupColumns?: readonly RollupColumnDefinition[];
   sort?: DatabaseViewSort;
   service: KnowledgeIndexService;
   activeNoteId: string | null;
@@ -26,6 +29,15 @@ export function getDatabaseCellValue(
   return column.key === 'title' ? 'Untitled' : '—';
 }
 
+export function getDatabaseRollupCellValue(
+  note: NoteBase,
+  column: RollupColumnDefinition,
+  service: KnowledgeIndexService,
+  notesById: ReadonlyMap<string, NoteBase>,
+): string {
+  return computeRollup(note, column.rollup, service, notesById).display;
+}
+
 function sortIndicator(sort: DatabaseViewSort | undefined, columnKey: string): string {
   if (!sort || sort.key !== columnKey) return '';
   return sort.direction === 'asc' ? ' ↑' : ' ↓';
@@ -35,11 +47,15 @@ export function DatabaseTableView({
   colors: c,
   notes,
   columns = DEFAULT_TABLE_COLUMNS,
+  rollupColumns = [],
   sort,
   service,
   activeNoteId,
   onSelectNote,
 }: DatabaseTableViewProps) {
+  const notesById = new Map(notes.map(note => [note.id, note]));
+  const totalColumns = columns.length + rollupColumns.length;
+
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -59,12 +75,26 @@ export function DatabaseTableView({
                 {column.label}{sortIndicator(sort, column.key)}
               </th>
             ))}
+            {rollupColumns.map(column => (
+              <th
+                key={`rollup-${column.key}`}
+                style={{
+                  textAlign: 'left',
+                  padding: '6px 8px',
+                  color: c.accent,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {rollupColumnLabel(column)}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {notes.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} style={{ padding: 16, textAlign: 'center', color: c.textFaint }}>
+              <td colSpan={totalColumns} style={{ padding: 16, textAlign: 'center', color: c.textFaint }}>
                 {DATABASE_EMPTY_MESSAGE}
               </td>
             </tr>
@@ -91,6 +121,21 @@ export function DatabaseTableView({
                   }}
                 >
                   {getDatabaseCellValue(note, column, service)}
+                </td>
+              ))}
+              {rollupColumns.map(column => (
+                <td
+                  key={`rollup-${column.key}-${note.id}`}
+                  style={{
+                    padding: '6px 8px',
+                    color: note.id === activeNoteId ? c.accent : c.textMuted,
+                    maxWidth: 160,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {getDatabaseRollupCellValue(note, column, service, notesById)}
                 </td>
               ))}
             </tr>
