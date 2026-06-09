@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { blockShellClassName, BlockGutter } from './EditorChrome';
+import { blockShellClassName, BlockGutter, BlockHandles } from './EditorChrome';
 import { shouldShowBlockChrome } from './editorReading';
+import { GRIP_DRAG_TITLE, GUTTER_RANGE_TITLE } from './features/block-editor/utils/editorDiscoverability';
 
 describe('editorChrome', () => {
   it('blockShellClassName includes active and selected', () => {
@@ -41,5 +42,21 @@ describe('editorChrome', () => {
     expect(html).toContain('be-gutter');
     expect(html).toContain('be-gutter-strip');
     expect(html).toContain('data-gutter-block-id="x"');
+    expect(html).toContain(GUTTER_RANGE_TITLE);
+  });
+
+  it('BlockHandles grip exposes drag/menu discoverability labels (UX-5C)', () => {
+    const html = renderToStaticMarkup(
+      createElement(BlockHandles, {
+        blockId: 'b1',
+        depth: 0,
+        readOnly: false,
+        controlsVisible: false,
+        bindGripPointer: () => {},
+        onOpenTurnInto: () => {},
+      }),
+    );
+    expect(html).toContain('be-grip');
+    expect(html).toContain(GRIP_DRAG_TITLE);
   });
 });

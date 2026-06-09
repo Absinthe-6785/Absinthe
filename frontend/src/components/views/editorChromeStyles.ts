@@ -13,14 +13,14 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-gutter {
     position: relative;
-    flex: 0 0 44px;
-    width: 44px;
-    margin-left: -44px;
+    flex: 0 0 48px;
+    width: 48px;
+    margin-left: -48px;
     min-height: 28px;
     z-index: 2;
     pointer-events: auto;
-    opacity: 0;
-    transition: opacity .12s;
+    opacity: 0.32;
+    transition: opacity .12s ease-out;
     touch-action: none;
   }
   .be-editor-nested .be-gutter {
@@ -32,9 +32,13 @@ export const EDITOR_CHROME_STYLES = `
     position: absolute;
     inset: 0;
     z-index: 1;
-    cursor: default;
+    cursor: cell;
     touch-action: none;
     pointer-events: auto;
+  }
+  .be-gutter-strip:hover {
+    background: var(--be-accent-bg, rgba(139,92,246,0.06));
+    border-radius: 4px;
   }
   .be-block:hover > .be-gutter,
   .be-block.be-block-active > .be-gutter,
@@ -71,19 +75,24 @@ export const EDITOR_CHROME_STYLES = `
     pointer-events: auto !important;
   }
   .be-handle-btn {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: transparent;
     color: var(--be-text-muted, #71717A);
     padding: 0;
-    transition: opacity .12s, color .12s;
+    transition: opacity .12s, color .12s, background .12s, box-shadow .12s;
   }
   .be-grip { cursor: grab; touch-action: none; }
+  .be-grip.be-grip-pinned {
+    color: var(--be-accent, #8B5CF6);
+    background: var(--be-accent-bg, rgba(139,92,246,0.12));
+    box-shadow: 0 0 0 1px var(--be-accent, #8B5CF6);
+  }
   .be-grip:active { cursor: grabbing; }
   .be-grip.be-drag-rejected {
     animation: be-drag-reject-shake .42s ease-in-out;
@@ -106,14 +115,19 @@ export const EDITOR_CHROME_STYLES = `
     height: 3px;
     border-radius: 50%;
     background: currentColor;
-    opacity: 0.45;
+    opacity: 0.55;
+  }
+  .be-block:hover .be-grip-dot,
+  .be-block-active .be-grip-dot,
+  .be-block-selected .be-grip-dot {
+    opacity: 0.85;
   }
   .be-handle-btn:hover,
   .be-controls-visible .be-handle-btn {
-    background: transparent;
+    background: var(--be-accent-bg, rgba(139,92,246,0.1));
     color: var(--be-accent, #8B5CF6);
   }
-  .be-handle-btn:hover .be-grip-dot { opacity: 0.85; }
+  .be-handle-btn:hover .be-grip-dot { opacity: 1; }
   .be-block-selected {
     background: var(--be-block-selected-bg, rgba(139,92,246,0.05));
   }
@@ -163,7 +177,17 @@ export const EDITOR_CHROME_STYLES = `
     color: var(--be-text, inherit);
   }
   .be-document-edit {
-    padding-left: 40px;
+    padding-left: 44px;
+  }
+  @media (pointer: coarse) {
+    .be-block-active > .be-gutter,
+    .be-block.be-block-selected > .be-gutter {
+      opacity: 1;
+    }
+    .be-handle-btn {
+      width: 36px;
+      height: 36px;
+    }
   }
   .be-editable[contenteditable]:empty::before {
     content: none;
