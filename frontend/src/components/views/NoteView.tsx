@@ -21,8 +21,10 @@ import {
 } from './noteUtils';
 import {
   extractMentionContexts,
+  buildLocalGraphData,
   knowledgeIndexService,
   LinkedReferencesPanel,
+  LocalGraphView,
   RelatedNotesPanel,
   listTags,
   noteMatchesPageTag,
@@ -230,7 +232,7 @@ export const NoteView = () => {
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'properties' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -356,6 +358,16 @@ export const NoteView = () => {
 
   const relatedNotes = useMemo(
     () => (activeNote ? knowledgeIndexService.getRelatedNotes(activeNote.id) : []),
+    [activeNote, notes],
+  );
+  const localGraphData = useMemo(
+    () => (activeNote
+      ? buildLocalGraphData({
+        noteId: activeNote.id,
+        noteTitle: activeNote.title ?? '',
+        service: knowledgeIndexService,
+      })
+      : null),
     [activeNote, notes],
   );
   const allTags = useMemo(
@@ -543,6 +555,7 @@ export const NoteView = () => {
   const RIGHT_PANELS = useMemo(() => [
     { key: 'toc'        as const, label: 'Outline', icon: <AlignLeft size={11}/> },
     { key: 'links'      as const, label: 'Links',   icon: <Link size={11}/> },
+    { key: 'graph'      as const, label: 'Graph',   icon: <GitFork size={11}/> },
     { key: 'properties' as const, label: 'Props',   icon: <SlidersHorizontal size={11}/> },
     { key: 'tags'       as const, label: 'Tags',    icon: <Tag size={11}/> },
     { key: 'stats'      as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
@@ -1236,6 +1249,14 @@ export const NoteView = () => {
                 onNavigateToNote={setActiveNoteId}
               />
             </div>
+          )}
+
+          {rightPanel === 'graph' && activeNote && localGraphData && (
+            <LocalGraphView
+              colors={c}
+              graphData={localGraphData}
+              onNavigate={setActiveNoteId}
+            />
           )}
 
           {/* Properties */}
