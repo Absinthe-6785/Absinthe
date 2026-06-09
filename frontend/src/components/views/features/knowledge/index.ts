@@ -19,6 +19,7 @@ export {
 export {
   getProperty,
   listProperties,
+  listUserProperties,
   normalizeNoteProperties,
   normalizePropertyKey,
   parseNoteMarkdown,
@@ -27,5 +28,18 @@ export {
   setProperty,
 } from './properties';
 
+export {
+  addTag,
+  hasTag,
+  listTags,
+  noteMatchesPageTag,
+  normalizeTagName,
+  removeTag,
+  renameTag,
+  setTags,
+  TAGS_PROPERTY_KEY,
+} from './tags';
+
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
+export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';

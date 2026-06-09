@@ -3,7 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import {
-  listProperties,
+  listUserProperties,
   removeProperty,
   setProperty,
 } from '../properties';
@@ -19,7 +19,7 @@ export function NotePropertiesPanel({
   note,
   onUpdateProperties,
 }: NotePropertiesPanelProps) {
-  const properties = listProperties(note);
+  const properties = listUserProperties(note);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
