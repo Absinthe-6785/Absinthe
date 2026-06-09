@@ -12,7 +12,10 @@ export type ViolationCode =
   | 'INVALID_TABLE_SHAPE'
   | 'NON_NESTABLE_IN_TOGGLE'
   | 'NON_TOGGLE_HAS_CHILDREN'
-  | 'STALE_LIST_FIELDS';
+  | 'STALE_LIST_FIELDS'
+  | 'LIST_CONTINUITY'
+  | 'TYPE_FIELD_MISMATCH'
+  | 'INVALID_INDENT_RELATIONSHIP';
 
 export interface BlockTreeViolation {
   code: ViolationCode;
@@ -20,6 +23,8 @@ export interface BlockTreeViolation {
   blockId?: string;
   path: string;
   message: string;
+  expected?: string;
+  actual?: string;
 }
 
 export interface BlockTreeValidationResult {
@@ -34,6 +39,43 @@ export interface BlockTreeValidationResult {
 }
 
 const NON_NESTABLE_IN_TOGGLE_TYPES = new Set<BlockType>(['image', 'divider', 'table']);
+
+const ZERO_INDENT_TYPES = new Set<BlockType>([
+  'paragraph',
+  'heading1',
+  'heading2',
+  'heading3',
+  'divider',
+  'code',
+  'image',
+  'table',
+  'quote',
+  'callout',
+  'math',
+]);
+
+const TYPE_SPECIFIC_FIELDS: { field: keyof Block; allowedTypes: Set<BlockType> }[] = [
+  { field: 'src', allowedTypes: new Set(['image']) },
+  { field: 'alt', allowedTypes: new Set(['image']) },
+  { field: 'caption', allowedTypes: new Set(['image']) },
+  { field: 'width', allowedTypes: new Set(['image']) },
+  { field: 'language', allowedTypes: new Set(['code']) },
+  { field: 'code', allowedTypes: new Set(['code']) },
+  { field: 'tableHeaders', allowedTypes: new Set(['table']) },
+  { field: 'tableRows', allowedTypes: new Set(['table']) },
+  { field: 'calloutIcon', allowedTypes: new Set(['callout']) },
+  { field: 'math', allowedTypes: new Set(['math']) },
+  { field: 'mathBlock', allowedTypes: new Set(['math']) },
+  { field: 'collapsed', allowedTypes: new Set(['toggle']) },
+];
+
+function fieldIsPresent(block: Block, field: keyof Block): boolean {
+  const value = block[field];
+  if (value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
 
 function pushViolation(
   violations: BlockTreeViolation[],
@@ -73,6 +115,99 @@ function validateTableShape(
       });
     }
   }
+}
+
+function validateListContinuity(
+  blocks: Block[],
+  parentPath: string,
+  violations: BlockTreeViolation[],
+): void {
+  let index = 0;
+  while (index < blocks.length) {
+    const block = blocks[index];
+    if (block.type !== 'numbered') {
+      index++;
+      continue;
+    }
+
+    const indent = block.indent ?? 0;
+    let expected = 1;
+    while (
+      index < blocks.length
+      && blocks[index].type === 'numbered'
+      && (blocks[index].indent ?? 0) === indent
+    ) {
+      const current = blocks[index];
+      const actual = current.listIndex ?? expected;
+      if (actual !== expected) {
+        pushViolation(violations, {
+          code: 'LIST_CONTINUITY',
+          severity: 'warning',
+          blockId: current.id,
+          path: `${parentPath}[${index}]`,
+          message: `Numbered list index ${actual} breaks continuity (expected ${expected})`,
+          expected: String(expected),
+          actual: String(actual),
+        });
+      }
+      expected++;
+      index++;
+    }
+  }
+}
+
+function validateTypeFieldMismatch(
+  block: Block,
+  path: string,
+  violations: BlockTreeViolation[],
+): void {
+  if (block.type === 'image' && !fieldIsPresent(block, 'src')) {
+    pushViolation(violations, {
+      code: 'TYPE_FIELD_MISMATCH',
+      severity: 'warning',
+      blockId: block.id,
+      path,
+      message: 'Image block must have a non-empty src',
+      expected: 'src',
+      actual: 'missing',
+    });
+  }
+
+  for (const { field, allowedTypes } of TYPE_SPECIFIC_FIELDS) {
+    if (!fieldIsPresent(block, field)) continue;
+    if (!isKnownBlockType(block.type) || allowedTypes.has(block.type)) continue;
+
+    pushViolation(violations, {
+      code: 'TYPE_FIELD_MISMATCH',
+      severity: 'warning',
+      blockId: block.id,
+      path,
+      message: `Block type "${block.type}" must not carry ${field}`,
+      expected: `no ${field}`,
+      actual: String(field),
+    });
+  }
+}
+
+function validateIndentRelationship(
+  block: Block,
+  path: string,
+  violations: BlockTreeViolation[],
+): void {
+  if (!isKnownBlockType(block.type) || !ZERO_INDENT_TYPES.has(block.type)) return;
+
+  const indent = block.indent ?? 0;
+  if (indent <= 0) return;
+
+  pushViolation(violations, {
+    code: 'INVALID_INDENT_RELATIONSHIP',
+    severity: 'warning',
+    blockId: block.id,
+    path,
+    message: `Block type "${block.type}" should not use indent > 0 (got ${indent})`,
+    expected: '0',
+    actual: String(indent),
+  });
 }
 
 function validateStaleListFields(
@@ -203,7 +338,11 @@ function walkBlocks(
     }
 
     validateStaleListFields(block, path, violations);
+    validateTypeFieldMismatch(block, path, violations);
+    validateIndentRelationship(block, path, violations);
   }
+
+  validateListContinuity(blocks, parentPath, violations);
 }
 
 export function validateBlockTree(blocks: Block[]): BlockTreeValidationResult {
