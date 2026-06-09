@@ -187,7 +187,7 @@ export function estimateInvalidation(blocks: Block[]): InvalidationMetrics {
   return {
     selectionChangeRerenders: 2,
     multiSelectRerenders: Math.min(10, rootCount),
-    dragStateRerenders: rootCount,
+    dragStateRerenders: 0,
     searchHighlightRerenders: matchCount,
   };
 }
