@@ -64,7 +64,6 @@ import {
 } from './features/block-editor/features/selection';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
 import {
-  FOCUS_CMD_RESET_MS,
   NESTED_EDITOR_PADDING_LEFT_PX,
   noopBlockChange,
 } from './features/block-editor/constants/blockEditorConstants';
@@ -82,8 +81,12 @@ import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboa
 import {
   DISABLED_DRAG_API,
   isVirtualBlocksPocEnabled,
+  listVirtualBlockRows,
+  PendingFocusQueue,
+  createVirtualNavigationApi,
   useVirtualBlockList,
   VirtualBlockList,
+  VirtualNavigationProvider,
 } from './features/block-editor/performance';
 
 export type { BlockEditorColors } from './editorTypes';
@@ -177,7 +180,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onActiveBlockChange: handleActiveBlockChange,
   });
 
-  const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
+  const pendingFocusQueueRef = useRef<PendingFocusQueue | null>(null);
+  if (!pendingFocusQueueRef.current) pendingFocusQueueRef.current = new PendingFocusQueue();
   // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
   const parentDrag = useContext(DragCtx);
   const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
@@ -222,17 +226,36 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getScrollElement: getVirtualScrollElement,
   });
 
+  const navigationApi = useMemo(
+    () => createVirtualNavigationApi({
+      virtualEnabled: virtualRootEnabled,
+      scrollToBlockId: virtualList.scrollToBlockId,
+      queue: pendingFocusQueueRef.current!,
+    }),
+    [virtualRootEnabled, virtualList.scrollToBlockId],
+  );
+
+  const requestFocus = useCallback((cmd: FocusCmd) => {
+    navigationApi.requestFocus(cmd);
+  }, [navigationApi]);
+
   useEffect(() => {
     if (!virtualScrollApiRef) return;
     if (virtualRootEnabled) {
-      virtualScrollApiRef.current = { scrollToBlockId: virtualList.scrollToBlockId };
+      virtualScrollApiRef.current = { scrollToBlockId: navigationApi.scrollToBlockId };
     } else {
       virtualScrollApiRef.current = null;
     }
     return () => {
       virtualScrollApiRef.current = null;
     };
-  }, [virtualRootEnabled, virtualList.scrollToBlockId, virtualScrollApiRef]);
+  }, [virtualRootEnabled, navigationApi, virtualScrollApiRef]);
+
+  const getRootBlockRows = useCallback(() => {
+    const scrollEl = getVirtualScrollElement();
+    if (!scrollEl) return [];
+    return listVirtualBlockRows(virtualList.virtualizer, blocksRef.current, scrollEl);
+  }, [getVirtualScrollElement, virtualList.virtualizer]);
 
   const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
     readOnly,
@@ -272,9 +295,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onRootChange,
     selectBlock,
     onActiveBlockChange: handleActiveBlockChange,
-    onFocusCmd: setFocusCmd,
+    onFocusCmd: requestFocus,
     editorRootRef,
     documentFocusApiRef,
+    getRootBlockRows: virtualRootEnabled ? getRootBlockRows : undefined,
   });
 
   const parentSelection = useContext(SelectionCtx);
@@ -294,7 +318,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getRootBlocks,
     onChange,
     onRootChange,
-    onFocusCmd: setFocusCmd,
+    onFocusCmd: requestFocus,
     selectBlock,
     clearSelection,
     onActiveBlockChange: handleActiveBlockChange,
@@ -310,8 +334,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const m = matches[searchMatchIndex % matches.length];
     selectBlock(m.blockId);
     handleActiveBlockChange(m.blockId);
-    setFocusCmd({ blockId: m.blockId, offset: m.offset });
-  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange, selectBlock]);
+    requestFocus({ blockId: m.blockId, offset: m.offset });
+  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange, selectBlock, requestFocus]);
 
   const renderBlockMenu = (state: TurnIntoMenuState, onDone: () => void) => {
     const id = state.blockId;
@@ -366,7 +390,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   } = useEditorBlockEditing({
     getBlocks: getLocalBlocks,
     onChange,
-    onFocusCmd: setFocusCmd,
+    onFocusCmd: requestFocus,
     selectBlock,
     onActiveBlockChange: handleActiveBlockChange,
     onEscapeToParentBelow,
@@ -388,7 +412,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   } = useEditorMenus({
     getBlocks: getLocalBlocks,
     onChange,
-    onFocusCmd: setFocusCmd,
+    onFocusCmd: requestFocus,
     colors: c,
     wikiTargets,
     searchQuery,
@@ -398,7 +422,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const { handlePasteAt, handlePasteBlocksAt } = useEditorPaste({
     getBlocks: getLocalBlocks,
     onChange,
-    onFocusCmd: setFocusCmd,
+    onFocusCmd: requestFocus,
     closeMenus,
     selectBlock,
   });
@@ -429,17 +453,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (!externalFocusId) return;
     selectBlock(externalFocusId);
     handleActiveBlockChange(externalFocusId);
-    setFocusCmd({ blockId: externalFocusId, offset: 'start' });
+    requestFocus({ blockId: externalFocusId, offset: 'start' });
     onExternalFocusConsumed?.();
-  }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed, selectBlock]);
-
-  // focusCmd 소비 후 리셋
-  useEffect(() => {
-    if (focusCmd) {
-      const t = setTimeout(() => setFocusCmd(null), FOCUS_CMD_RESET_MS);
-      return () => clearTimeout(t);
-    }
-  }, [focusCmd]);
+  }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed, selectBlock, requestFocus]);
 
   const headingIndexById = useMemo(
     () => buildHeadingIndexById(blocks, depth),
@@ -479,7 +495,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       onSplitBlock={handleSplitBlock}
       onMergeWithPrev={handleMergeWithPrev}
       onContentChange={handleContentChange}
-      focusCmd={focusCmd}
       dragState={dragState}
       bindGripPointer={bindGripPointer}
       getDragProps={getDragProps}
@@ -577,15 +592,21 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     </>
   );
 
+  const bodyWithProviders = depth === 0 ? (
+    <SelectionCtx.Provider value={selectionCtx}>
+      <DragCtx.Provider value={localDrag}>
+        <VirtualNavigationProvider value={navigationApi}>
+          {editorBody}
+        </VirtualNavigationProvider>
+      </DragCtx.Provider>
+    </SelectionCtx.Provider>
+  ) : (
+    editorBody
+  );
+
   return (
     <BlocksCtx.Provider value={blocksCtx}>
-      {depth === 0 ? (
-        <SelectionCtx.Provider value={selectionCtx}>
-          <DragCtx.Provider value={localDrag}>{editorBody}</DragCtx.Provider>
-        </SelectionCtx.Provider>
-      ) : (
-        editorBody
-      )}
+      {bodyWithProviders}
     </BlocksCtx.Provider>
   );
 }

@@ -88,8 +88,9 @@ export function blockIdAtRow(
   clientY: number,
   editorRoot: HTMLElement,
   rootBlockIds: string[],
+  rowHits?: BlockRowHit[],
 ): { blockId: string | null; belowAll: boolean } {
-  const rows = listRootBlockRows(editorRoot, rootBlockIds);
+  const rows = rowHits ?? listRootBlockRows(editorRoot, rootBlockIds);
   if (rows.length === 0) return { blockId: null, belowAll: true };
 
   const last = rows[rows.length - 1]!;
@@ -118,6 +119,7 @@ export function resolveDocumentFocus(
   clientY: number,
   rootBlocks: Block[],
   editorRoot: HTMLElement,
+  rowHits?: BlockRowHit[],
 ): DocumentFocusAction {
   const toggleFocus = resolveToggleAwareFocus(clientY, rootBlocks, editorRoot);
   if (toggleFocus) {
@@ -136,7 +138,7 @@ export function resolveDocumentFocus(
   }
 
   const rootBlockIds = rootBlocks.map(b => b.id);
-  const { blockId, belowAll } = blockIdAtRow(clientY, editorRoot, rootBlockIds);
+  const { blockId, belowAll } = blockIdAtRow(clientY, editorRoot, rootBlockIds, rowHits);
 
   if (belowAll) {
     const last = rootBlocks[rootBlocks.length - 1];
@@ -168,6 +170,7 @@ export function focusNearestEditable(
   clientY: number,
   blocks: Block[],
   editorRoot: HTMLElement,
+  rowHits?: BlockRowHit[],
 ): DocumentFocusAction {
-  return resolveDocumentFocus(clientY, blocks, editorRoot);
+  return resolveDocumentFocus(clientY, blocks, editorRoot, rowHits);
 }
