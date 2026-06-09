@@ -33,7 +33,7 @@ export function LinkedReferencesPanel({
   const brokenOutgoing = outgoing.filter(o => !o.targetNoteId);
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
         Linked References{' '}
         {incoming.length > 0 && (
