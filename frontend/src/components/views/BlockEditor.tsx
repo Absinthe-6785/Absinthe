@@ -62,12 +62,6 @@ import type {
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import type { ToggleNestedRenderer } from './toggleRender';
-import {
-  beginGutterSelection,
-  hitTestBlockIdFromPoint,
-  isGutterDragStart,
-  updateGutterSelection,
-} from './blockGutterSelection';
 import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
@@ -103,6 +97,7 @@ import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
+import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -204,8 +199,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   } : undefined);
   const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
   const editorRootRef = useRef<HTMLDivElement | null>(null);
-  const gutterDragCleanupRef = useRef<(() => void) | null>(null);
-  const [isGutterDragging, setIsGutterDragging] = useState(false);
+
+  const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
+    readOnly,
+    depth,
+    getRootBlocks,
+    setSelectedBlockIds,
+    setAnchorBlockId,
+    onActiveBlockChange: handleActiveBlockChange,
+    editorRootRef,
+  });
 
   const {
     handleMenu,
@@ -217,10 +220,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     handleToggleControlsPin,
     controlsVisibleFor,
   } = useEditorChrome({ onPinSelection: selectBlock });
-
-  useEffect(() => () => {
-    gutterDragCleanupRef.current?.();
-  }, []);
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
@@ -243,57 +242,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     editorRootRef,
     documentFocusApiRef,
   });
-
-  const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
-    if (readOnly || depth !== 0) return;
-    if (!isGutterDragStart(e.target)) return;
-    if (e.button !== 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    window.getSelection()?.removeAllRanges();
-
-    gutterDragCleanupRef.current?.();
-
-    const root = editorRootRef.current;
-    root?.setPointerCapture(e.pointerId);
-    beginGutterSelection(blockId, e.pointerId);
-    setIsGutterDragging(true);
-
-    const anchorId = blockId;
-    const applyHover = (hoverId: string) => {
-      const selected = updateGutterSelection(getRootBlocks(), anchorId, hoverId);
-      setSelectedBlockIds(selected);
-      setAnchorBlockId(anchorId);
-      handleActiveBlockChange(hoverId);
-    };
-
-    applyHover(blockId);
-
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      const hoverId = hitTestBlockIdFromPoint(ev.clientX, ev.clientY, root);
-      if (hoverId) applyHover(hoverId);
-    };
-
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      root?.releasePointerCapture(ev.pointerId);
-      setIsGutterDragging(false);
-      cleanup();
-      gutterDragCleanupRef.current = null;
-    };
-    gutterDragCleanupRef.current = cleanup;
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  }, [readOnly, depth, getRootBlocks, handleActiveBlockChange]);
 
   const parentSelection = useContext(SelectionCtx);
   const activeSelection = depth === 0 ? selectionCtx : parentSelection;
