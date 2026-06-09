@@ -93,7 +93,6 @@ import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts
 import { SelectionCtx, type SelectionCtxValue } from './features/block-editor/contexts/SelectionContext';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
 import {
-  CHROME_LEAVE_DELAY_MS,
   FOCUS_CMD_RESET_MS,
   NESTED_EDITOR_PADDING_LEFT_PX,
   noopBlockChange,
@@ -107,8 +106,8 @@ import {
   insertBlockAtIndex,
   moveBlockInList,
 } from './features/block-editor/utils/blockEditorMutations';
-import { isControlsVisible } from './features/block-editor/utils/controlsVisibility';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
+import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -201,65 +200,34 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
   } : undefined);
   const { dragState, bindGripPointer, getDragProps } = depth === 0 ? localDrag : parentDrag!;
-  const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
-  const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
-  const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
-  const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const gutterDragCleanupRef = useRef<(() => void) | null>(null);
   const [isGutterDragging, setIsGutterDragging] = useState(false);
 
-  const handleToggleControlsPin = useCallback((id: string) => {
-    setPinnedControlsId(prev => {
-      if (prev !== id) {
-        setSelectedBlockIds(selectSingle(id));
-        setAnchorBlockId(id);
-      }
-      return prev === id ? null : id;
-    });
+  const onPinSelection = useCallback((id: string) => {
+    setSelectedBlockIds(selectSingle(id));
+    setAnchorBlockId(id);
   }, []);
 
-  const handleChromeEnter = useCallback((id: string) => {
-    if (chromeLeaveTimer.current) {
-      clearTimeout(chromeLeaveTimer.current);
-      chromeLeaveTimer.current = null;
-    }
-    setChromeHoverId(id);
-  }, []);
-
-  const handleChromeLeave = useCallback(() => {
-    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
-    chromeLeaveTimer.current = setTimeout(() => {
-      setChromeHoverId(null);
-      chromeLeaveTimer.current = null;
-    }, CHROME_LEAVE_DELAY_MS);
-  }, []);
+  const {
+    handleMenu,
+    setHandleMenu,
+    pinnedControlsId,
+    setPinnedControlsId,
+    handleChromeEnter,
+    handleChromeLeave,
+    handleToggleControlsPin,
+    controlsVisibleFor,
+  } = useEditorChrome({ onPinSelection });
 
   useEffect(() => () => {
-    if (chromeLeaveTimer.current) clearTimeout(chromeLeaveTimer.current);
     gutterDragCleanupRef.current?.();
   }, []);
-
-  const controlsVisibleFor = useCallback((blockId: string) =>
-    isControlsVisible(blockId, pinnedControlsId, handleMenu, chromeHoverId),
-  [pinnedControlsId, handleMenu, chromeHoverId]);
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
     [],
   );
-
-  useEffect(() => {
-    if (!pinnedControlsId && !handleMenu) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('.be-handles, .be-block-handle-menu')) return;
-      setPinnedControlsId(null);
-      setHandleMenu(null);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [pinnedControlsId, handleMenu]);
 
   const selectBlock = useCallback((id: string) => {
     setSelectedBlockIds(selectSingle(id));
