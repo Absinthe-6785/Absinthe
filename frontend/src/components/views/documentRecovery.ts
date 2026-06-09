@@ -3,6 +3,7 @@
  */
 import { genBlockId, makeBlock, type Block, type BlockType } from './blockUtils';
 import { sanitizeBlockType } from './blockTypeGuards';
+import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
 
 function asString(val: unknown, fallback = ''): string {
   return typeof val === 'string' ? val : fallback;
@@ -97,9 +98,15 @@ export function repairBlock(raw: unknown): Block | null {
 
 /** Validate and repair a block forest — always returns at least one paragraph */
 export function validateDocument(input: unknown): Block[] {
-  if (!Array.isArray(input)) return [makeBlock('paragraph')];
+  if (!Array.isArray(input)) {
+    const blocks = [makeBlock('paragraph')];
+    assertValidBlockTree(blocks, 'validateDocument');
+    return blocks;
+  }
   const blocks = input.map(repairBlock).filter((b): b is Block => b !== null);
-  return blocks.length > 0 ? blocks : [makeBlock('paragraph')];
+  const result = blocks.length > 0 ? blocks : [makeBlock('paragraph')];
+  assertValidBlockTree(result, 'validateDocument');
+  return result;
 }
 
 /** Parse markdown then validate — entry point for useBlockEditor */
