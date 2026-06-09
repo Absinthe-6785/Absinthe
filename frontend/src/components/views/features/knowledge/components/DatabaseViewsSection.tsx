@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { DatabaseView } from '../databaseViews/databaseViewModels';
+import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/databaseViewModels';
 
 export interface DatabaseViewsSectionProps {
   colors: NoteChromeColors;
@@ -12,7 +12,7 @@ export interface DatabaseViewsSectionProps {
   currentQuery: string;
   onActivate: (view: DatabaseView) => void;
   onClearActive: () => void;
-  onCreate: (name: string, query: string) => void;
+  onCreate: (name: string, query: string, presentation?: DatabaseViewPresentation, groupBy?: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
 }
@@ -33,11 +33,15 @@ export function DatabaseViewsSection({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newQuery, setNewQuery] = useState('');
+  const [newPresentation, setNewPresentation] = useState<DatabaseViewPresentation>('table');
+  const [newGroupBy, setNewGroupBy] = useState('status');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
   const openCreateForm = (prefillQuery = '') => {
     setNewQuery(prefillQuery);
+    setNewPresentation('table');
+    setNewGroupBy('status');
     setShowCreateForm(true);
   };
 
@@ -45,7 +49,12 @@ export function DatabaseViewsSection({
     const trimmedName = newName.trim();
     const trimmedQuery = newQuery.trim();
     if (!trimmedName || !trimmedQuery) return;
-    onCreate(trimmedName, trimmedQuery);
+    onCreate(
+      trimmedName,
+      trimmedQuery,
+      newPresentation,
+      newPresentation === 'board' ? newGroupBy : undefined,
+    );
     setNewName('');
     setNewQuery('');
     setShowCreateForm(false);
@@ -58,6 +67,11 @@ export function DatabaseViewsSection({
     onRename(renamingId, trimmed);
     setRenamingId(null);
     setRenameValue('');
+  };
+
+  const presentationLabel = (view: DatabaseView) => {
+    if (view.presentation === 'board') return 'board';
+    return 'table';
   };
 
   return (
@@ -99,7 +113,7 @@ export function DatabaseViewsSection({
             className={`bfi ${activeViewId === view.id ? 'active' : ''}`}
             onClick={() => onActivate(view)}
             style={{ gap: 4, fontSize: 11 }}
-            title={`${view.query} · table`}
+            title={`${view.query} · ${presentationLabel(view)}`}
           >
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {view.name}
@@ -157,6 +171,28 @@ export function DatabaseViewsSection({
               if (e.key === 'Escape') setShowCreateForm(false);
             }}
           />
+          <select
+            className="bwi"
+            style={{ width: '100%', fontSize: 11 }}
+            value={newPresentation}
+            onChange={e => setNewPresentation(e.target.value as DatabaseViewPresentation)}
+          >
+            <option value="table">Table</option>
+            <option value="board">Board</option>
+          </select>
+          {newPresentation === 'board' && (
+            <input
+              className="bwi"
+              style={{ width: '100%', fontSize: 11 }}
+              placeholder="Group by property (e.g. status)"
+              value={newGroupBy}
+              onChange={e => setNewGroupBy(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') submitCreate();
+                if (e.key === 'Escape') setShowCreateForm(false);
+              }}
+            />
+          )}
           <div style={{ display: 'flex', gap: 3 }}>
             <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>Save</button>
             <button

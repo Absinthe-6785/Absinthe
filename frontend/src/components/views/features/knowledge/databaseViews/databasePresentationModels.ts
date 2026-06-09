@@ -1,8 +1,5 @@
 /**
- * Knowledge-9.75 — Forward-looking database presentation config types.
- *
- * Documents the recommended Option A model for K-10 (Board) and K-11 (Calendar).
- * Existing DatabaseView retains root-level columns/sort until K-10 prep migration.
+ * Knowledge-9.75 / K-10 — Database presentation config types.
  */
 
 import type {

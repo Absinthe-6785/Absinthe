@@ -24,6 +24,28 @@ export {
   toDatabaseColumn,
 } from './databaseViewConfig';
 export {
+  DEFAULT_BOARD_GROUP_BY,
+  UNASSIGNED_LANE_KEY,
+  UNASSIGNED_LANE_LABEL,
+  defaultBoardPresentationConfig,
+  defaultPresentationConfig,
+  defaultTablePresentationConfig,
+  getBoardConfig,
+  getTableConfig,
+  liftLegacyTableConfig,
+  normalizeBoardConfig,
+  normalizePresentationConfig,
+  setBoardGroupBy,
+  setViewPresentation,
+  syncLegacyTableFields,
+  withPresentationDefaults,
+} from './databasePresentationConfig';
+export { getDatabaseFieldValue, getNoteGroupValue } from './databaseFieldValues';
+export {
+  groupNotesByProperty,
+  type BoardLane,
+} from './groupNotesByProperty';
+export {
   activateDatabaseView,
   createDatabaseView,
   deleteDatabaseView,
@@ -31,12 +53,15 @@ export {
   isValidDatabaseViewQuery,
   normalizeDatabaseViews,
   renameDatabaseView,
+  type CreateDatabaseViewOptions,
 } from './databaseViews';
 export {
   addDatabaseViewColumn,
   hideDatabaseViewColumn,
   removeDatabaseViewColumn,
   setDatabaseViewColumnVisibility,
+  setDatabaseViewGroupBy,
+  setDatabaseViewPresentation,
   setDatabaseViewSort,
   showDatabaseViewColumn,
   updateDatabaseViewConfig,
@@ -44,6 +69,7 @@ export {
 export { evaluateDatabaseView } from './evaluateDatabaseView';
 export { filterByDatabaseView } from './filterByDatabaseView';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
+export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 export { getDatabaseRowSortValue, sortDatabaseViewRows } from './sortDatabaseViewRows';
 export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './databaseViewsStorage';
 export type {

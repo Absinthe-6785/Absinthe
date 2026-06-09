@@ -2,35 +2,58 @@ import {
   defaultDatabaseViewColumns,
   normalizeDatabaseViewColumns,
 } from './databaseViewConfig';
+import {
+  getTableConfig,
+  setBoardGroupBy,
+  setViewPresentation,
+  withPresentationDefaults,
+} from './databasePresentationConfig';
 import type {
   DatabaseView,
   DatabaseViewColumnEntry,
+  DatabaseViewPresentation,
   DatabaseViewSort,
 } from './databaseViewModels';
 import { isBuiltinColumnKey } from './databaseViewModels';
 
-function updateViewColumns(
+function updateViewTable(
   view: DatabaseView,
-  columns: DatabaseViewColumnEntry[],
+  updater: (columns: DatabaseViewColumnEntry[], sort: DatabaseViewSort) => {
+    columns: DatabaseViewColumnEntry[];
+    sort: DatabaseViewSort;
+  },
 ): DatabaseView {
-  return { ...view, columns: normalizeDatabaseViewColumns(columns) };
+  const table = getTableConfig(view);
+  const next = updater(table.columns, table.sort);
+  return withPresentationDefaults({
+    ...view,
+    presentationConfig: {
+      type: 'table',
+      columns: normalizeDatabaseViewColumns(next.columns),
+      sort: next.sort,
+    },
+  });
 }
 
 export function addDatabaseViewColumn(view: DatabaseView, key: string): DatabaseView {
   const trimmed = key.trim();
   if (!trimmed) return view;
 
-  const columns = normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns());
+  const table = getTableConfig(view);
+  const columns = normalizeDatabaseViewColumns(table.columns);
   const existing = columns.find(entry => entry.key.toLowerCase() === trimmed.toLowerCase());
-  if (existing) {
-    return updateViewColumns(view, columns.map(entry =>
+  const nextColumns = existing
+    ? columns.map(entry =>
       entry.key.toLowerCase() === trimmed.toLowerCase()
         ? { ...entry, visible: true }
         : entry,
-    ));
-  }
+    )
+    : [...columns, { key: trimmed, visible: true }];
 
-  return updateViewColumns(view, [...columns, { key: trimmed, visible: true }]);
+  return updateViewTable(view, () => ({
+    columns: nextColumns,
+    sort: table.sort,
+  }));
 }
 
 export function removeDatabaseViewColumn(view: DatabaseView, key: string): DatabaseView {
@@ -39,11 +62,12 @@ export function removeDatabaseViewColumn(view: DatabaseView, key: string): Datab
     return setDatabaseViewColumnVisibility(view, trimmed, false);
   }
 
-  const columns = normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns());
-  return updateViewColumns(
-    view,
-    columns.filter(entry => entry.key.toLowerCase() !== trimmed.toLowerCase()),
-  );
+  const table = getTableConfig(view);
+  const columns = normalizeDatabaseViewColumns(table.columns);
+  return updateViewTable(view, () => ({
+    columns: columns.filter(entry => entry.key.toLowerCase() !== trimmed.toLowerCase()),
+    sort: table.sort,
+  }));
 }
 
 export function setDatabaseViewColumnVisibility(
@@ -54,7 +78,8 @@ export function setDatabaseViewColumnVisibility(
   const trimmed = key.trim();
   if (!trimmed) return view;
 
-  const columns = normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns());
+  const table = getTableConfig(view);
+  const columns = normalizeDatabaseViewColumns(table.columns);
   const exists = columns.some(entry => entry.key.toLowerCase() === trimmed.toLowerCase());
   const next = exists
     ? columns.map(entry =>
@@ -62,7 +87,10 @@ export function setDatabaseViewColumnVisibility(
     )
     : [...columns, { key: trimmed, visible }];
 
-  return updateViewColumns(view, next);
+  return updateViewTable(view, () => ({
+    columns: next,
+    sort: table.sort,
+  }));
 }
 
 export function showDatabaseViewColumn(view: DatabaseView, key: string): DatabaseView {
@@ -80,7 +108,22 @@ export function setDatabaseViewSort(
   const key = sort.key.trim();
   if (!key) return view;
   const direction = sort.direction === 'asc' ? 'asc' : 'desc';
-  return { ...view, sort: { key, direction } };
+  const table = getTableConfig(view);
+  return updateViewTable(view, () => ({
+    columns: table.columns,
+    sort: { key, direction },
+  }));
+}
+
+export function setDatabaseViewPresentation(
+  view: DatabaseView,
+  presentation: DatabaseViewPresentation,
+): DatabaseView {
+  return setViewPresentation(view, presentation);
+}
+
+export function setDatabaseViewGroupBy(view: DatabaseView, groupBy: string): DatabaseView {
+  return setBoardGroupBy(view, groupBy);
 }
 
 export function updateDatabaseViewConfig(

@@ -1,13 +1,21 @@
 import { isKnowledgeQuery, parseQuery } from '../query/parseQuery';
 import {
-  defaultDatabaseViewColumns,
-  DEFAULT_DATABASE_VIEW_SORT,
-  normalizeDatabaseViewColumns,
-  normalizeDatabaseViewSort,
-} from './databaseViewConfig';
+  defaultBoardPresentationConfig,
+  defaultTablePresentationConfig,
+  liftLegacyTableConfig,
+  normalizePresentationConfig,
+  syncLegacyTableFields,
+  withPresentationDefaults,
+} from './databasePresentationConfig';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
-const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table'];
+const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board'];
+
+export interface CreateDatabaseViewOptions {
+  id?: string;
+  presentation?: DatabaseViewPresentation;
+  groupBy?: string;
+}
 
 export function isValidDatabaseViewQuery(query: string): boolean {
   const trimmed = query.trim();
@@ -33,14 +41,26 @@ export function normalizeDatabaseViews(raw: unknown): DatabaseView[] {
     const query = record.query.trim();
     const presentation = isSupportedPresentation(record.presentation) ? record.presentation : 'table';
     if (!record.id || !name || !query || !isValidDatabaseViewQuery(query)) continue;
-    views.push({
+
+    const presentationConfig = normalizePresentationConfig(
+      record.presentationConfig,
+      presentation,
+      record,
+    );
+    const normalized = withPresentationDefaults({
       id: record.id,
       name,
       query,
       presentation,
-      columns: normalizeDatabaseViewColumns(record.columns ?? defaultDatabaseViewColumns()),
-      sort: normalizeDatabaseViewSort(record.sort ?? DEFAULT_DATABASE_VIEW_SORT),
+      presentationConfig,
+      ...syncLegacyTableFields(
+        record as DatabaseView,
+        presentationConfig.type === 'table'
+          ? presentationConfig
+          : liftLegacyTableConfig(record),
+      ),
     });
+    views.push(normalized);
   }
 
   return views.sort((a, b) => a.name.localeCompare(b.name));
@@ -57,20 +77,31 @@ export function createDatabaseView(
   views: readonly DatabaseView[],
   name: string,
   query: string,
-  id = `database-${Date.now()}`,
+  options: CreateDatabaseViewOptions = {},
 ): DatabaseView[] {
   const trimmedName = name.trim();
   const trimmedQuery = query.trim();
   if (!trimmedName || !isValidDatabaseViewQuery(trimmedQuery)) return [...views];
 
-  const next: DatabaseView = {
-    id,
+  const presentation = options.presentation === 'board' ? 'board' : 'table';
+  const presentationConfig = presentation === 'board'
+    ? defaultBoardPresentationConfig(options.groupBy)
+    : defaultTablePresentationConfig();
+  const tableFields = syncLegacyTableFields(
+    {} as DatabaseView,
+    presentationConfig.type === 'table'
+      ? presentationConfig
+      : defaultTablePresentationConfig(),
+  );
+
+  const next = withPresentationDefaults({
+    id: options.id ?? `database-${Date.now()}`,
     name: trimmedName,
     query: trimmedQuery,
-    presentation: 'table',
-    columns: defaultDatabaseViewColumns(),
-    sort: { ...DEFAULT_DATABASE_VIEW_SORT },
-  };
+    presentation,
+    presentationConfig,
+    ...tableFields,
+  });
   return [...views, next].sort((a, b) => a.name.localeCompare(b.name));
 }
 
