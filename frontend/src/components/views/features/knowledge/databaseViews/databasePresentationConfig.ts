@@ -4,6 +4,7 @@ import {
   normalizeDatabaseViewColumns,
   normalizeDatabaseViewSort,
 } from './databaseViewConfig';
+import { normalizeRollupColumns } from '../rollups/rollupModels';
 import type {
   DatabaseBoardConfig,
   DatabaseCalendarConfig,
@@ -22,6 +23,7 @@ export function defaultTablePresentationConfig(): DatabaseTableConfig {
     type: 'table',
     columns: defaultDatabaseViewColumns(),
     sort: { ...DEFAULT_DATABASE_VIEW_SORT },
+    rollupColumns: [],
   };
 }
 
@@ -62,6 +64,7 @@ export function liftLegacyTableConfig(view: Partial<DatabaseView>): DatabaseTabl
     type: 'table',
     columns: normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns()),
     sort: normalizeDatabaseViewSort(view.sort ?? DEFAULT_DATABASE_VIEW_SORT),
+    rollupColumns: [],
   };
 }
 
@@ -125,6 +128,7 @@ export function normalizePresentationConfig(
         sort: normalizeDatabaseViewSort(
           table.sort ?? legacyView?.sort ?? DEFAULT_DATABASE_VIEW_SORT,
         ),
+        rollupColumns: normalizeRollupColumns(table.rollupColumns),
       };
     }
     if (record.type === 'board') {

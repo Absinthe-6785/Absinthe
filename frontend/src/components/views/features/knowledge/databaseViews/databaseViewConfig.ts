@@ -1,4 +1,4 @@
-import type { DatabaseColumn, DatabaseViewColumnEntry, DatabaseViewSort } from './databaseViewModels';
+import type { RollupColumnDefinition } from '../rollups/rollupModels';
 import { BUILTIN_COLUMN_KEYS, isBuiltinColumnKey } from './databaseViewModels';
 
 /** Default Phase 1 table columns (all visible) */
@@ -88,6 +88,8 @@ export function resolveAllColumnKeys(
   return (columns ?? defaultDatabaseViewColumns()).map(entry => entry.key);
 }
 
-export function isPropertyColumnKey(key: string): boolean {
-  return !isBuiltinColumnKey(key);
+export function resolveVisibleRollupColumns(
+  rollupColumns: readonly RollupColumnDefinition[] | undefined,
+): RollupColumnDefinition[] {
+  return (rollupColumns ?? []).filter(entry => entry.visible);
 }

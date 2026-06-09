@@ -9,6 +9,7 @@ import {
   setViewPresentation,
   withPresentationDefaults,
 } from './databasePresentationConfig';
+import type { DatabaseTableConfig } from './databasePresentationModels';
 import type {
   DatabaseView,
   DatabaseViewColumnEntry,
@@ -16,22 +17,22 @@ import type {
   DatabaseViewSort,
 } from './databaseViewModels';
 import { isBuiltinColumnKey } from './databaseViewModels';
+import type { RollupColumnDefinition, RollupDefinition } from '../rollups/rollupModels';
+import { normalizeRollupColumns } from '../rollups/rollupModels';
 
 function updateViewTable(
   view: DatabaseView,
-  updater: (columns: DatabaseViewColumnEntry[], sort: DatabaseViewSort) => {
-    columns: DatabaseViewColumnEntry[];
-    sort: DatabaseViewSort;
-  },
+  updater: (table: DatabaseTableConfig) => DatabaseTableConfig,
 ): DatabaseView {
   const table = getTableConfig(view);
-  const next = updater(table.columns, table.sort);
+  const next = updater(table);
   return withPresentationDefaults({
     ...view,
     presentationConfig: {
       type: 'table',
       columns: normalizeDatabaseViewColumns(next.columns),
       sort: next.sort,
+      rollupColumns: normalizeRollupColumns(next.rollupColumns),
     },
   });
 }
@@ -51,9 +52,9 @@ export function addDatabaseViewColumn(view: DatabaseView, key: string): Database
     )
     : [...columns, { key: trimmed, visible: true }];
 
-  return updateViewTable(view, () => ({
+  return updateViewTable(view, table => ({
+    ...table,
     columns: nextColumns,
-    sort: table.sort,
   }));
 }
 
@@ -65,9 +66,9 @@ export function removeDatabaseViewColumn(view: DatabaseView, key: string): Datab
 
   const table = getTableConfig(view);
   const columns = normalizeDatabaseViewColumns(table.columns);
-  return updateViewTable(view, () => ({
+  return updateViewTable(view, current => ({
+    ...current,
     columns: columns.filter(entry => entry.key.toLowerCase() !== trimmed.toLowerCase()),
-    sort: table.sort,
   }));
 }
 
@@ -88,9 +89,9 @@ export function setDatabaseViewColumnVisibility(
     )
     : [...columns, { key: trimmed, visible }];
 
-  return updateViewTable(view, () => ({
+  return updateViewTable(view, current => ({
+    ...current,
     columns: next,
-    sort: table.sort,
   }));
 }
 
@@ -109,10 +110,92 @@ export function setDatabaseViewSort(
   const key = sort.key.trim();
   if (!key) return view;
   const direction = sort.direction === 'asc' ? 'asc' : 'desc';
-  const table = getTableConfig(view);
-  return updateViewTable(view, () => ({
-    columns: table.columns,
+  return updateViewTable(view, table => ({
+    ...table,
     sort: { key, direction },
+  }));
+}
+
+function rollupColumnKeyTaken(table: DatabaseTableConfig, key: string): boolean {
+  const norm = key.toLowerCase();
+  return (
+    table.columns.some(entry => entry.key.toLowerCase() === norm)
+    || (table.rollupColumns ?? []).some(entry => entry.key.toLowerCase() === norm)
+  );
+}
+
+export function addDatabaseViewRollupColumn(
+  view: DatabaseView,
+  column: RollupColumnDefinition,
+): DatabaseView {
+  const key = column.key.trim();
+  if (!key) return view;
+
+  const table = getTableConfig(view);
+  const rollupColumns = normalizeRollupColumns(table.rollupColumns);
+  const existing = rollupColumns.find(entry => entry.key.toLowerCase() === key.toLowerCase());
+  const nextColumns = existing
+    ? rollupColumns.map(entry =>
+      entry.key.toLowerCase() === key.toLowerCase()
+        ? { ...column, key, visible: true }
+        : entry,
+    )
+    : rollupColumnKeyTaken(table, key)
+      ? rollupColumns
+      : [...rollupColumns, { ...column, key, visible: column.visible !== false }];
+
+  return updateViewTable(view, current => ({
+    ...current,
+    rollupColumns: nextColumns,
+  }));
+}
+
+export function addDatabaseViewRollupDefinition(
+  view: DatabaseView,
+  key: string,
+  rollup: RollupDefinition,
+  label?: string,
+): DatabaseView {
+  return addDatabaseViewRollupColumn(view, {
+    key,
+    visible: true,
+    rollup,
+    ...(label?.trim() ? { label: label.trim() } : {}),
+  });
+}
+
+export function removeDatabaseViewRollupColumn(view: DatabaseView, key: string): DatabaseView {
+  const trimmed = key.trim();
+  if (!trimmed) return view;
+
+  const table = getTableConfig(view);
+  return updateViewTable(view, current => ({
+    ...current,
+    rollupColumns: normalizeRollupColumns(table.rollupColumns)
+      .filter(entry => entry.key.toLowerCase() !== trimmed.toLowerCase()),
+  }));
+}
+
+export function setDatabaseViewRollupColumnVisibility(
+  view: DatabaseView,
+  key: string,
+  visible: boolean,
+): DatabaseView {
+  const trimmed = key.trim();
+  if (!trimmed) return view;
+
+  const table = getTableConfig(view);
+  const rollupColumns = normalizeRollupColumns(table.rollupColumns);
+  const exists = rollupColumns.some(entry => entry.key.toLowerCase() === trimmed.toLowerCase());
+  if (!exists) return view;
+
+  return updateViewTable(view, current => ({
+    ...current,
+    rollupColumns: rollupColumns.map(entry =>
+      entry.key.toLowerCase() === trimmed.toLowerCase()
+        ? { ...entry, visible }
+        : entry,
+    ),
   }));
 }
 

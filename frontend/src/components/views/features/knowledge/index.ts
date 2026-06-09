@@ -56,7 +56,7 @@ export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './compon
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
-export { DatabaseTableView, getDatabaseCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
+export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
 export { DatabaseCalendarView, type DatabaseCalendarViewProps } from './components/DatabaseCalendarView';
 export { DatabaseNoteCard, type DatabaseNoteCardProps } from './components/DatabaseNoteCard';
@@ -164,6 +164,8 @@ export {
 export {
   activateDatabaseView,
   addDatabaseViewColumn,
+  addDatabaseViewRollupColumn,
+  addDatabaseViewRollupDefinition,
   BUILTIN_COLUMN_KEYS,
   createDatabaseView,
   DATABASE_VIEWS_KEY,
@@ -183,10 +185,13 @@ export {
   prepareDatabaseCalendarBuckets,
   prepareDatabaseViewPresentation,
   removeDatabaseViewColumn,
+  removeDatabaseViewRollupColumn,
   renameDatabaseView,
   resolveVisibleColumns,
+  resolveVisibleRollupColumns,
   saveDatabaseViews,
   setDatabaseViewColumnVisibility,
+  setDatabaseViewRollupColumnVisibility,
   setDatabaseViewGroupBy,
   setDatabaseViewDateProperty,
   setDatabaseViewPresentation,
@@ -263,6 +268,18 @@ export {
   setRelationTargets,
   toRelationEdges,
 } from './relations';
+
+export {
+  computeRollup,
+  resolveRollupLinkedNotes,
+  normalizeRollupColumns,
+  normalizeRollupDefinition,
+  rollupColumnLabel,
+  ROLLUP_FUNCTIONS_PHASE1,
+  type RollupColumnDefinition,
+  type RollupDefinition,
+  type RollupValue,
+} from './rollups';
 
 export {
   INACTIVE_WORKSPACE,

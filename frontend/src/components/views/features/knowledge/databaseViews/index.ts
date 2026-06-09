@@ -83,12 +83,16 @@ export {
 } from './databaseViews';
 export {
   addDatabaseViewColumn,
+  addDatabaseViewRollupColumn,
+  addDatabaseViewRollupDefinition,
   hideDatabaseViewColumn,
   removeDatabaseViewColumn,
+  removeDatabaseViewRollupColumn,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
+  setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
   showDatabaseViewColumn,
   updateDatabaseViewConfig,
