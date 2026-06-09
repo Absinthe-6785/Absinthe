@@ -53,13 +53,14 @@ describe('htmlDocumentToBlocks', () => {
     expect(blocks[0].children[0].content).toBe('Body');
   });
 
-  it('callout-like div falls back to paragraph (no callout detection)', () => {
+  it('parses callout div as callout block (UX-5B.3)', () => {
     const blocks = htmlDocumentToBlocks(
-      '<div class="callout">Important note</div>',
+      '<div class="callout" data-callout-icon="💡">Important note</div>',
     )!;
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[0].type).toBe('callout');
     expect(blocks[0].content).toBe('Important note');
+    expect(blocks[0].calloutIcon).toBe('💡');
   });
 
   it('unwraps wrapper divs and walks children in order', () => {

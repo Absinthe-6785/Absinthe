@@ -8,6 +8,13 @@ import { makeBlock, type Block } from '../../../../../blockUtils';
 import { isDetailsToggleElement, toggleBlockFromDetails } from '../../../../../htmlToggleParser';
 import { parseBeToggleWrap } from './domToggleParser';
 import { elementInlineToMarkdown } from '../inline/inlineClipboard';
+import {
+  parseCalloutElement,
+  parseCodeFromCodeElement,
+  parseCodeFromPre,
+  parseImageElement,
+  parseMathElement,
+} from '../special/specialBlockClipboard';
 
 const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
   H1: 'heading1',
@@ -133,6 +140,11 @@ function walkNode(node: Node, out: Block[]): void {
   }
 
   if (tag === 'P') {
+    const children = Array.from(el.children);
+    if (children.length === 1 && children[0].tagName.toUpperCase() === 'IMG') {
+      out.push(parseImageElement(children[0] as HTMLImageElement));
+      return;
+    }
     const content = inlineText(el);
     out.push(makeBlock('paragraph', { content }));
     return;
@@ -155,14 +167,23 @@ function walkNode(node: Node, out: Block[]): void {
   }
 
   if (tag === 'BLOCKQUOTE') {
+    const callout = parseCalloutElement(el, inlineText);
+    if (callout) {
+      out.push(callout);
+      return;
+    }
     const content = inlineText(el);
     if (content) out.push(makeBlock('quote', { content }));
     return;
   }
 
   if (tag === 'PRE') {
-    const code = el.textContent ?? '';
-    out.push(makeBlock('code', { code, language: '' }));
+    out.push(parseCodeFromPre(el));
+    return;
+  }
+
+  if (tag === 'CODE' && el.parentElement?.tagName.toUpperCase() !== 'PRE') {
+    out.push(parseCodeFromCodeElement(el));
     return;
   }
 
@@ -172,12 +193,24 @@ function walkNode(node: Node, out: Block[]): void {
   }
 
   if (tag === 'IMG') {
-    const img = el as HTMLImageElement;
-    out.push(makeBlock('image', {
-      src: img.getAttribute('src') ?? '',
-      alt: img.getAttribute('alt') ?? '',
-    }));
+    out.push(parseImageElement(el as HTMLImageElement));
     return;
+  }
+
+  if (
+    (tag === 'SPAN' || tag === 'DIV')
+    && el.getAttribute('data-block-type') === 'math'
+  ) {
+    out.push(parseMathElement(el));
+    return;
+  }
+
+  if (tag === 'DIV' && el.classList.contains('callout')) {
+    const callout = parseCalloutElement(el, inlineText);
+    if (callout) {
+      out.push(callout);
+      return;
+    }
   }
 
   if (tag === 'BR') {
@@ -219,5 +252,6 @@ export function htmlDocumentToBlocks(html: string): Block[] | null {
 /** True when HTML likely contains block-level document structure. */
 export function htmlHasBlockStructure(html: string): boolean {
   if (!/<[a-z]/i.test(html)) return false;
-  return /<(h[1-6]|p|table|ul|ol|blockquote|pre|hr|div|li|details)\b/i.test(html);
+  return /<(h[1-6]|p|table|ul|ol|blockquote|pre|code|hr|div|li|details|img)\b/i.test(html)
+    || /data-block-type=["']math["']/i.test(html);
 }
