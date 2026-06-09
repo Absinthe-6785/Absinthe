@@ -79,26 +79,7 @@ export interface RollupComputeInput {
   definition: RollupDefinition;
 }
 
-/** Future formula input referencing a rollup — K-16+ */
-export interface FormulaRollupInput {
-  type: 'rollup';
-  definition: RollupDefinition;
-}
-
-/** Future formula input referencing a field — K-16+ */
-export interface FormulaFieldInput {
-  type: 'field';
-  key: string;
-}
-
-export type FormulaInput = FormulaFieldInput | FormulaRollupInput;
-
-/** Future formula column definition — K-16+ */
-export interface FormulaDefinition {
-  id: string;
-  expression: string;
-  inputs: Record<string, FormulaInput>;
-}
+/** Formula types live in ../formulas/formulaModels.ts (K-16.0+) */
 
 /** @deprecated Use RollupDefinition — retained for K-12.0 compatibility */
 export type RelationRollupAggregate = 'count' | 'latest' | 'sum' | 'list';
