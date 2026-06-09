@@ -8,6 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { Profiler } from 'react';
 import { BlockEditor } from './BlockEditor';
+import { isVirtualBlocksPocEnabled } from './features/block-editor/performance/virtualBlocksFlag';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import {
   blocksToMarkdown,
@@ -292,7 +293,7 @@ export function mountEditorForAudit(
     }));
   });
 
-  if (options.virtualBlocksPoc) {
+  if (isVirtualBlocksPocEnabled(options.virtualBlocksPoc)) {
     act(() => {});
     act(() => {});
   }
@@ -352,6 +353,7 @@ export function measureMountWithProfiler(blocks: Block[]): MountMetrics {
           onChange: () => {},
           colors: AUDIT_COLORS,
           readOnly: false,
+          virtualBlocksPoc: false,
         }),
       ),
     );

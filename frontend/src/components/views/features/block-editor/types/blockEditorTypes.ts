@@ -21,7 +21,7 @@ export interface BlockEditorProps {
   /** 외부에서 특정 블록으로 포커스 이동 요청 */
   externalFocusId?: string | null;
   onExternalFocusConsumed?: () => void;
-  /** UX-5E.1B POC — override env VITE_VIRTUAL_BLOCKS_POC */
+  /** Override virtualization default (true). Set false to force non-virtual root list. */
   virtualBlocksPoc?: boolean;
   virtualScrollApiRef?: VirtualScrollApiRef;
   /** Optional explicit scroll parent for virtual list (tests / custom hosts) */

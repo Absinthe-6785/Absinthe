@@ -47,11 +47,22 @@ function expectDataLayerRow(row: DataLayerMetrics, size: number): void {
   }
 }
 
-function expectMountRow(row: MountMetrics, size: number): void {
+function expectLegacyMountRow(row: MountMetrics, size: number): void {
   for (const key of MOUNT_TIMING_KEYS) {
     expectFiniteNonNegative(row[key], key);
   }
   expect(row.domBlockCount).toBeGreaterThanOrEqual(size * 0.9);
+  expect(row.domEditableCount).toBeGreaterThan(0);
+  expect(Number.isFinite(row.profilerRenderCount)).toBe(true);
+  expect(row.profilerRenderCount).toBeGreaterThanOrEqual(0);
+}
+
+function expectVirtualMountRow(row: MountMetrics, size: number): void {
+  for (const key of MOUNT_TIMING_KEYS) {
+    expectFiniteNonNegative(row[key], key);
+  }
+  expect(row.domBlockCount).toBeGreaterThan(0);
+  expect(row.domBlockCount).toBeLessThan(Math.min(size, 150));
   expect(row.domEditableCount).toBeGreaterThan(0);
   expect(Number.isFinite(row.profilerRenderCount)).toBe(true);
   expect(row.profilerRenderCount).toBeGreaterThanOrEqual(0);
@@ -83,13 +94,17 @@ describe('editorPerformanceAudit', () => {
     expectDataLayerRow(runDataLayerAudit(size), size);
   });
 
-  it.each(MOUNT_SIZES.map(s => [s]))('mount audit @ %i blocks', (size) => {
-    expectMountRow(measureMount(generateBenchmarkBlocks(size)), size);
+  it.each(MOUNT_SIZES.map(s => [s]))('default virtual mount audit @ %i blocks', (size) => {
+    expectVirtualMountRow(measureMount(generateBenchmarkBlocks(size)), size);
+  }, 60_000);
+
+  it.each(MOUNT_SIZES.map(s => [s]))('legacy full mount audit @ %i blocks', (size) => {
+    expectLegacyMountRow(measureMount(generateBenchmarkBlocks(size), { virtualBlocksPoc: false }), size);
   }, 60_000);
 
   it.each(PROFILER_SIZES.map(s => [s]))('profiler mount @ %i blocks', (size) => {
     const row = measureMountWithProfiler(generateBenchmarkBlocks(size));
-    expectMountRow(row, size);
+    expectLegacyMountRow(row, size);
     expect(row.profilerRenderCount).toBeGreaterThan(0);
     // eslint-disable-next-line no-console
     console.log(`[profiler @${size}] commit=${row.profilerCommitMs.toFixed(1)}ms renders=${row.profilerRenderCount}`);
@@ -105,7 +120,7 @@ describe('editorPerformanceAudit', () => {
 
   it.each(VIRTUAL_MOUNT_SIZES.map(s => [s]))('virtual mount audit @ %i blocks', (size) => {
     const blocks = generateBenchmarkBlocks(size);
-    const virtual = measureMount(blocks, { virtualBlocksPoc: true });
+    const virtual = measureMount(blocks);
     expectFiniteNonNegative(virtual.mountMs, 'mountMs');
     expect(virtual.domBlockCount).toBeGreaterThan(0);
     expect(virtual.domBlockCount).toBeLessThan(Math.min(size, 150));

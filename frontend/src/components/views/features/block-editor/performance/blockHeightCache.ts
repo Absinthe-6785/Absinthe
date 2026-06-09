@@ -22,6 +22,18 @@ export class BlockHeightCache {
     this.heights.clear();
   }
 
+  /** Drop cached heights for block ids no longer in the document. */
+  pruneStale(validIds: ReadonlySet<string>): number {
+    let removed = 0;
+    for (const id of [...this.heights.keys()]) {
+      if (!validIds.has(id)) {
+        this.heights.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   get size(): number {
     return this.heights.size;
   }

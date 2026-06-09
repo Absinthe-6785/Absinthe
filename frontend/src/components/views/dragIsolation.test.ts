@@ -65,6 +65,7 @@ function mountEditor(blocks: Block[]) {
       onChange: () => {},
       colors,
       readOnly: false,
+      virtualBlocksPoc: false,
     }));
   });
 

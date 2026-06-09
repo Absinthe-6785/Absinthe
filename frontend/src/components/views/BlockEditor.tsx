@@ -79,14 +79,17 @@ import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 import {
+  collectVirtualizationStats,
   DragOverlay,
   getRowMetrics,
   isVirtualBlocksPocEnabled,
   listVirtualBlockRows,
   PendingFocusQueue,
   resolveDropTargetFromRows,
+  setVirtualizationStatsSource,
   createVirtualNavigationApi,
   useVirtualBlockList,
+  VIRTUAL_BLOCK_OVERSCAN,
   VirtualBlockList,
   VirtualNavigationProvider,
   type RowMetricsOptions,
@@ -291,6 +294,24 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       virtualScrollApiRef.current = null;
     };
   }, [virtualRootEnabled, navigationApi, virtualScrollApiRef]);
+
+  useEffect(() => {
+    if (depth !== 0) return;
+    setVirtualizationStatsSource(() => collectVirtualizationStats(
+      virtualRootEnabled,
+      blocksRef.current,
+      virtualList.virtualizer,
+      virtualList.heightCache,
+      VIRTUAL_BLOCK_OVERSCAN,
+    ));
+    return () => { setVirtualizationStatsSource(null); };
+  }, [
+    depth,
+    virtualRootEnabled,
+    virtualList.virtualizer,
+    virtualList.heightCache,
+    blocks.length,
+  ]);
 
   const getRootBlockRows = useCallback(() => {
     const scrollEl = getVirtualScrollElement();
