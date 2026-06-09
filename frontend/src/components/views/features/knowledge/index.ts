@@ -12,6 +12,18 @@ export {
 } from './backlinks';
 
 export {
+  bodyHasWikiLinkToTitle,
+  bodyTextWithoutWikiLinks,
+  buildTitleMentionRegex,
+  containsWholeWordMention,
+  extractMentionContexts,
+  findMentionInText,
+  hasUnlinkedMention,
+} from './mentions';
+
+export type { MentionLookupOptions } from './KnowledgeIndexService';
+
+export {
   KnowledgeIndexService,
   knowledgeIndexService,
 } from './KnowledgeIndexService';
