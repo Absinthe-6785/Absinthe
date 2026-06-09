@@ -80,10 +80,7 @@ import {
 } from './selectionState';
 import { EditorChromeStyles } from './EditorChrome';
 import {
-  focusNearestEditable,
   isFirstEmptyRootParagraph,
-  shouldHandleDocumentFocus,
-  type DocumentFocusAction,
 } from './documentFocus';
 import { SingleBlock } from './features/block-editor/components/SingleBlock';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
@@ -105,6 +102,7 @@ import {
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
+import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -248,50 +246,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     return isFirstEmptyRootParagraph(getRootBlocks(), blockId);
   }, [depth, readOnly, getRootBlocks]);
 
-  const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
-    if (action.kind === 'toggle-footer') {
-      if (action.created) {
-        flushSync(() => {
-          onRootChange(action.blocks);
-        });
-      }
-      handleActiveBlockChange(action.focusBlockId);
-      const focus = { blockId: action.focusBlockId, offset: 'start' as const };
-      setFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
-      return;
-    }
-    if (action.kind === 'append') {
-      flushSync(() => {
-        onRootChange([...getRootBlocks(), action.block]);
-      });
-      selectBlock(action.block.id);
-      handleActiveBlockChange(action.block.id);
-      const focus = { blockId: action.block.id, offset: 'start' as const };
-      setFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
-      return;
-    }
-    selectBlock(action.blockId);
-    handleActiveBlockChange(action.blockId);
-    setFocusCmd({ blockId: action.blockId, offset: action.offset });
-  }, [getRootBlocks, onRootChange, selectBlock, handleActiveBlockChange]);
-
-  const handleDocumentFocusPointerDown = useCallback((e: React.PointerEvent) => {
-    if (readOnly || depth !== 0) return;
-    if (e.button !== 0) return;
-    if (!shouldHandleDocumentFocus(e.target)) return;
-    const root = editorRootRef.current;
-    if (!root) return;
-    applyDocumentFocusAction(focusNearestEditable(e.clientY, getRootBlocks(), root));
-    e.preventDefault();
-  }, [readOnly, depth, getRootBlocks, applyDocumentFocusAction]);
-
-  useEffect(() => {
-    if (!documentFocusApiRef) return;
-    documentFocusApiRef.current = { handlePointerDown: handleDocumentFocusPointerDown };
-    return () => { documentFocusApiRef.current = null; };
-  }, [documentFocusApiRef, handleDocumentFocusPointerDown]);
+  const { handleDocumentFocusPointerDown } = useEditorDocumentFocus({
+    readOnly,
+    depth,
+    getRootBlocks,
+    onRootChange,
+    selectBlock,
+    onActiveBlockChange: handleActiveBlockChange,
+    onFocusCmd: setFocusCmd,
+    editorRootRef,
+    documentFocusApiRef,
+  });
 
   const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly || depth !== 0) return;
