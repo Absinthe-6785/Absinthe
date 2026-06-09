@@ -21,7 +21,9 @@ import {
 } from './noteUtils';
 import {
   extractMentionContexts,
-  buildLocalGraphData,
+  buildExpandedGraphData,
+  collapseNode,
+  expandNode,
   knowledgeIndexService,
   LinkedReferencesPanel,
   LocalGraphView,
@@ -242,6 +244,7 @@ export const NoteView = () => {
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [showAppearance, setShowAppearance] = useState(false);
+  const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -360,16 +363,40 @@ export const NoteView = () => {
     () => (activeNote ? knowledgeIndexService.getRelatedNotes(activeNote.id) : []),
     [activeNote, notes],
   );
+
+  useEffect(() => {
+    setExpandedGraphNodes([]);
+  }, [activeNote?.id]);
+
   const localGraphData = useMemo(
     () => (activeNote
-      ? buildLocalGraphData({
-        noteId: activeNote.id,
-        noteTitle: activeNote.title ?? '',
+      ? buildExpandedGraphData({
+        centerId: activeNote.id,
+        centerTitle: activeNote.title ?? '',
+        expandedNodeIds: expandedGraphNodes,
         service: knowledgeIndexService,
       })
       : null),
-    [activeNote, notes],
+    [activeNote, notes, expandedGraphNodes],
   );
+
+  const handleExpandGraphNode = useCallback((noteId: string) => {
+    if (!activeNote) return;
+    const baseGraph = buildExpandedGraphData({
+      centerId: activeNote.id,
+      centerTitle: activeNote.title ?? '',
+      expandedNodeIds: [],
+      service: knowledgeIndexService,
+    });
+    const expandableIds = baseGraph.nodes
+      .filter(node => node.expandable)
+      .map(node => node.noteId);
+    setExpandedGraphNodes(prev => expandNode(prev, noteId, expandableIds));
+  }, [activeNote]);
+
+  const handleCollapseGraphNode = useCallback((noteId: string) => {
+    setExpandedGraphNodes(prev => collapseNode(prev, noteId));
+  }, []);
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),
     [notes],
@@ -1256,6 +1283,8 @@ export const NoteView = () => {
               colors={c}
               graphData={localGraphData}
               onNavigate={setActiveNoteId}
+              onExpandNode={handleExpandGraphNode}
+              onCollapseNode={handleCollapseGraphNode}
             />
           )}
 
