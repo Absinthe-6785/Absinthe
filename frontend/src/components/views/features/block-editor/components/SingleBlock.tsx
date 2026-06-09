@@ -27,9 +27,10 @@ import { SafeBlockRenderer } from '../../../SafeBlockRenderer';
 import { ToggleBlock } from '../../../ToggleBlock';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import {
-  dispatchFocusCommand, registerFocusHandler,
+  dispatchFocusCommand,
+  registerFocusHandler,
   type FocusCmd,
-} from '../../../selectionState';
+} from '../features/selection';
 import { BlockGutter, BlockHandles, blockShellClassName } from '../../../EditorChrome';
 import { renderInlineMarkdown } from '../../../editableRender';
 import { useBlocksCtx } from '../contexts/BlocksContext';

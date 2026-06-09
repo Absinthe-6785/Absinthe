@@ -9,7 +9,7 @@ import {
   traceStateAfterSetStateCallback,
   traceStateBeforeSetState,
 } from '../../../../../pastePipelineTrace';
-import type { FocusCmd } from '../../../../../selectionState';
+import type { FocusCmd } from '../../selection';
 import { getPasteBlockContext } from '../../../utils/blockEditorMutations';
 
 export interface UseEditorPasteOptions {

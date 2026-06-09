@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { deriveToolbarFormats, EMPTY_FORMATS } from './toolbarFormat';
-import type { BlockType } from './blockUtils';
+import type { BlockType } from '../../../../../blockUtils';
 
 describe('toolbarFormat', () => {
   it('EMPTY_FORMATS defaults', () => {

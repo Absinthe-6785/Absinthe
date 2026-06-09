@@ -5,15 +5,15 @@ import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 
 import {
   Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3,
 } from 'lucide-react';
-import { readBlockText } from './editableDom';
-import type { BlockType } from './blockUtils';
-import type { BlockEditorColors } from './editorTypes';
-import { paintEditableLive } from './editableLive';
+import { readBlockText } from '../../../../../editableDom';
+import type { BlockType } from '../../../../../blockUtils';
+import type { BlockEditorColors } from '../../../../../editorTypes';
+import { paintEditableLive } from '../../../../../editableLive';
 import {
   deriveToolbarFormats, applyWrapToBlockSelection,
   EMPTY_FORMATS, type ToolbarFormatState,
-} from './toolbarFormat';
-import { saveSelectionRange } from './selectionState';
+} from '../utils/toolbarFormat';
+import { saveSelectionRange } from '../utils/selectionState';
 
 export interface SelectionToolbarProps {
   colors: BlockEditorColors;

@@ -7,7 +7,7 @@ import {
   haveSameParent,
   selectRange,
   selectSingle,
-} from './blockSelection';
+} from './features/block-editor/features/selection';
 
 export interface GutterSelectionState {
   anchorId: string;

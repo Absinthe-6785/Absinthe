@@ -2,7 +2,7 @@
  * blockKeyboard.ts — When Delete/Backspace should delete selected blocks (not edit text)
  */
 import { readBlockText } from './editableDom';
-import { getCaretOffset, getSelectionOffsets } from './selectionOffsets';
+import { getCaretOffset, getSelectionOffsets } from './features/block-editor/features/selection';
 
 export function shouldDeleteSelectedBlocks(
   e: KeyboardEvent,

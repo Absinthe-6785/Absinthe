@@ -3,7 +3,7 @@ import { type Block, type BlockType, updateBlockById } from '../../../blockUtils
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../editorTypes';
 import { recordSlashUsage } from '../../../slashRecent';
 import { insertWikiAtCaret } from '../../../wikiNavigation';
-import type { FocusCmd } from '../../../selectionState';
+import type { FocusCmd } from '../features/selection';
 import { applySlashMenuTypeChange } from '../utils/blockEditorMutations';
 
 export interface UseEditorMenusOptions {

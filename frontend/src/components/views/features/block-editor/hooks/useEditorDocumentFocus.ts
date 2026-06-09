@@ -6,7 +6,7 @@ import {
   shouldHandleDocumentFocus,
   type DocumentFocusAction,
 } from '../../../documentFocus';
-import { dispatchFocusCommand, type FocusCmd } from '../../../selectionState';
+import { dispatchFocusCommand, type FocusCmd } from '../features/selection';
 import type { DocumentFocusApiRef } from '../types/blockEditorTypes';
 
 export interface UseEditorDocumentFocusOptions {

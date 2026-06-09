@@ -1,8 +1,8 @@
 /**
  * blockSelection.ts — Pure multi-block selection helpers (same-parent range)
  */
-import type { Block } from './blockUtils';
-import { findParentId } from './blockTree';
+import type { Block } from '../../../../../blockUtils';
+import { findParentId } from '../../../../../blockTree';
 
 export function selectSingle(id: string): Set<string> {
   return new Set([id]);

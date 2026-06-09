@@ -1,7 +1,7 @@
 /**
  * editableLive.ts — DOM paint for contentEditable blocks (uses editableRender)
  */
-import { setCaretOffset, setSelectionOffsets } from './selectionOffsets';
+import { setCaretOffset, setSelectionOffsets } from './features/block-editor/features/selection';
 import { liveInlineHtml } from './editableRender';
 import type { BlockEditorColors } from './editorTypes';
 

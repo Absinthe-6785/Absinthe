@@ -11,7 +11,7 @@ import {
   applyToggleChildMergeIntoHeader,
   applyToggleHeaderEnter,
 } from '../../../toggleNesting';
-import { getFocusHandler } from '../../../selectionState';
+import { getFocusHandler } from '../features/selection';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import type { BlockEditorInnerProps } from '../types/blockEditorTypes';
 

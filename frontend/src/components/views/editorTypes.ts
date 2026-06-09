@@ -4,7 +4,7 @@
 
 import type { ReactNode, MutableRefObject } from 'react';
 import type { Block, BlockType } from './blockUtils';
-import type { FocusCmd } from './selectionState';
+import type { FocusCmd } from './features/block-editor/features/selection';
 
 export interface BlockEditorColors {
   bg:         string;

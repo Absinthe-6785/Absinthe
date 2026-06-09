@@ -15,7 +15,7 @@ import {
 } from './features/block-editor/features/clipboard';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { readBlockText, setSelectionOffsets } from './editableDom';
-import { getSelectionOffsets } from './selectionOffsets';
+import { getSelectionOffsets } from './features/block-editor/features/selection';
 import { markdownToBlocks, type Block } from './blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline

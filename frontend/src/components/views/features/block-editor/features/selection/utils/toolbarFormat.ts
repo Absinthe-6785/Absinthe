@@ -1,9 +1,9 @@
 /**
  * toolbarFormat.ts — Selection toolbar format state & wrap helpers
  */
-import type { BlockType } from './blockUtils';
-import { readBlockText, getSelectionOffsets, setSelectionOffsets } from './editableDom';
-import { selectionHasFormat, toggleMarkdownWrap } from './inlineFormat';
+import type { BlockType } from '../../../../../blockUtils';
+import { readBlockText, getSelectionOffsets, setSelectionOffsets } from '../../../../../editableDom';
+import { selectionHasFormat, toggleMarkdownWrap } from '../../../../../inlineFormat';
 
 export interface ToolbarFormatState {
   bold: boolean;
