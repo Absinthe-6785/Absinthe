@@ -6,5 +6,6 @@ export {
   isKnowledgeQuery,
   normalizeQueryValue,
   parseQuery,
+  tokenizeQuery,
 } from './parseQuery';
 export type { ParsedQuery, QueryClause, QueryEvaluation } from './queryModels';
