@@ -384,3 +384,201 @@ describe('validateBlockTree — multiple violations', () => {
     expect(codes).toContain('NEGATIVE_INDENT');
   });
 });
+
+describe('validateBlockTree — LIST_CONTINUITY', () => {
+  it('accepts consecutive numbered list indices', () => {
+    const result = validateBlockTree([
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      makeBlock('numbered', { id: 'n2', content: 'two', listIndex: 2, indent: 0 }),
+      makeBlock('numbered', { id: 'n3', content: 'three', listIndex: 3, indent: 0 }),
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.violations.filter(v => v.code === 'LIST_CONTINUITY')).toHaveLength(0);
+  });
+
+  it('warns when numbered list indices skip values', () => {
+    const result = validateBlockTree([
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      makeBlock('numbered', { id: 'n2', content: 'two', listIndex: 3, indent: 0 }),
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'LIST_CONTINUITY',
+      severity: 'warning',
+      blockId: 'n2',
+      path: 'root[1]',
+      expected: '2',
+      actual: '3',
+    }));
+  });
+
+  it('warns when a numbered run has a gap in the middle', () => {
+    const result = validateBlockTree([
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      makeBlock('numbered', { id: 'n2', content: 'two', listIndex: 2, indent: 0 }),
+      makeBlock('numbered', { id: 'n3', content: 'four', listIndex: 4, indent: 0 }),
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'LIST_CONTINUITY',
+      blockId: 'n3',
+      expected: '3',
+      actual: '4',
+    }));
+  });
+
+  it('validates separate runs per indent level', () => {
+    const result = validateBlockTree([
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      makeBlock('numbered', { id: 'n2', content: 'nested one', listIndex: 1, indent: 1 }),
+      makeBlock('numbered', { id: 'n3', content: 'nested two', listIndex: 2, indent: 1 }),
+      makeBlock('numbered', { id: 'n4', content: 'top again', listIndex: 1, indent: 0 }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'LIST_CONTINUITY')).toHaveLength(0);
+  });
+
+  it('restarts numbering after a non-numbered sibling', () => {
+    const result = validateBlockTree([
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      makeBlock('paragraph', { id: 'p1', content: 'break' }),
+      makeBlock('numbered', { id: 'n2', content: 'one again', listIndex: 1, indent: 0 }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'LIST_CONTINUITY')).toHaveLength(0);
+  });
+
+  it('checks numbered runs inside toggle children', () => {
+    const child = makeBlock('numbered', { id: 'n2', content: 'bad', listIndex: 3, indent: 0 });
+    const toggle = makeBlock('toggle', { id: 't1', content: 'T', children: [
+      makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
+      child,
+    ] });
+    const result = validateBlockTree([toggle]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'LIST_CONTINUITY',
+      blockId: 'n2',
+      path: 'root[0].children[1]',
+      expected: '2',
+      actual: '3',
+    }));
+  });
+});
+
+describe('validateBlockTree — TYPE_FIELD_MISMATCH', () => {
+  it('warns when paragraph carries image fields', () => {
+    const result = validateBlockTree([
+      makeBlock('paragraph', { id: 'p1', content: 'x', src: 'https://example.com/a.png' }),
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'TYPE_FIELD_MISMATCH',
+      severity: 'warning',
+      blockId: 'p1',
+      message: expect.stringContaining('src'),
+      expected: 'no src',
+      actual: 'src',
+    }));
+  });
+
+  it('warns when paragraph carries code fields', () => {
+    const result = validateBlockTree([
+      makeBlock('paragraph', { id: 'p1', content: 'x', language: 'ts' }),
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'TYPE_FIELD_MISMATCH',
+      message: expect.stringContaining('language'),
+    }));
+  });
+
+  it('warns when image block has no src', () => {
+    const result = validateBlockTree([
+      makeBlock('image', { id: 'img', alt: 'missing source' }),
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'TYPE_FIELD_MISMATCH',
+      blockId: 'img',
+      message: expect.stringContaining('src'),
+      expected: 'src',
+      actual: 'missing',
+    }));
+  });
+
+  it('accepts image block with src', () => {
+    const result = validateBlockTree([
+      makeBlock('image', { id: 'img', src: 'https://example.com/a.png', alt: 'ok' }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'TYPE_FIELD_MISMATCH')).toHaveLength(0);
+  });
+
+  it('warns when heading carries table fields', () => {
+    const result = validateBlockTree([
+      makeBlock('heading1', { id: 'h1', content: 'Title', tableHeaders: ['A'] }),
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'TYPE_FIELD_MISMATCH',
+      message: expect.stringContaining('tableHeaders'),
+    }));
+  });
+
+  it('accepts code block with language and code fields', () => {
+    const result = validateBlockTree([
+      makeBlock('code', { id: 'c1', language: 'ts', code: 'const x = 1;' }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'TYPE_FIELD_MISMATCH')).toHaveLength(0);
+  });
+});
+
+describe('validateBlockTree — INVALID_INDENT_RELATIONSHIP', () => {
+  it('warns when paragraph uses indent > 0', () => {
+    const result = validateBlockTree([
+      makeBlock('paragraph', { id: 'p1', content: 'indented', indent: 2 }),
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'INVALID_INDENT_RELATIONSHIP',
+      severity: 'warning',
+      blockId: 'p1',
+      expected: '0',
+      actual: '2',
+    }));
+  });
+
+  it('warns when heading uses indent > 0', () => {
+    const result = validateBlockTree([
+      makeBlock('heading2', { id: 'h1', content: 'Title', indent: 2 }),
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'INVALID_INDENT_RELATIONSHIP',
+      blockId: 'h1',
+      actual: '2',
+    }));
+  });
+
+  it('warns when divider uses indent > 0', () => {
+    const result = validateBlockTree([
+      makeBlock('divider', { id: 'd1', indent: 1 }),
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      code: 'INVALID_INDENT_RELATIONSHIP',
+      blockId: 'd1',
+      actual: '1',
+    }));
+  });
+
+  it('allows list blocks to use indent > 0', () => {
+    const result = validateBlockTree([
+      makeBlock('bullet', { id: 'b1', content: 'item', indent: 2 }),
+      makeBlock('numbered', { id: 'n1', content: 'item', indent: 1, listIndex: 1 }),
+      makeBlock('todo', { id: 't1', content: 'task', indent: 3 }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'INVALID_INDENT_RELATIONSHIP')).toHaveLength(0);
+  });
+
+  it('allows zero indent on non-list block types', () => {
+    const result = validateBlockTree([
+      makeBlock('paragraph', { id: 'p1', content: 'ok', indent: 0 }),
+      makeBlock('heading1', { id: 'h1', content: 'ok', indent: 0 }),
+      makeBlock('divider', { id: 'd1', indent: 0 }),
+    ]);
+    expect(result.violations.filter(v => v.code === 'INVALID_INDENT_RELATIONSHIP')).toHaveLength(0);
+  });
+});
