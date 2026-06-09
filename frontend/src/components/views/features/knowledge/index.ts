@@ -21,7 +21,7 @@ export {
   hasUnlinkedMention,
 } from './mentions';
 
-export type { MentionLookupOptions } from './KnowledgeIndexService';
+export type { MentionLookupOptions, RelatedNote } from './KnowledgeIndexService';
 
 export {
   KnowledgeIndexService,
@@ -54,4 +54,14 @@ export {
 
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
+export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
+
+export {
+  computeRelatedScore,
+  formatRelatedReasons,
+  RELATED_SCORE,
+  type RelatedReason,
+  type RelatedScoreBreakdown,
+  type RelatedScoreInput,
+} from './related';

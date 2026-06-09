@@ -23,6 +23,7 @@ import {
   extractMentionContexts,
   knowledgeIndexService,
   LinkedReferencesPanel,
+  RelatedNotesPanel,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -352,6 +353,11 @@ export const NoteView = () => {
     const sourceIds = new Set(mentioningNotes.map(r => r.noteId));
     return extractMentionContexts(activeNote.title ?? '', notes, sourceIds);
   }, [activeNote, notes, mentioningNotes]);
+
+  const relatedNotes = useMemo(
+    () => (activeNote ? knowledgeIndexService.getRelatedNotes(activeNote.id) : []),
+    [activeNote, notes],
+  );
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),
     [notes],
@@ -1212,17 +1218,24 @@ export const NoteView = () => {
 
           {/* Links */}
           {rightPanel === 'links' && activeNote && pageReferences && (
-            <LinkedReferencesPanel
-              colors={c}
-              activeNoteTitle={activeNote.title ?? ''}
-              incoming={pageReferences.incoming}
-              contexts={backlinkContexts}
-              mentioning={mentioningNotes}
-              mentionContexts={mentionContexts}
-              outgoing={pageReferences.outgoing}
-              onNavigateToNote={setActiveNoteId}
-              onNavigateToWiki={navigateToWiki}
-            />
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <LinkedReferencesPanel
+                colors={c}
+                activeNoteTitle={activeNote.title ?? ''}
+                incoming={pageReferences.incoming}
+                contexts={backlinkContexts}
+                mentioning={mentioningNotes}
+                mentionContexts={mentionContexts}
+                outgoing={pageReferences.outgoing}
+                onNavigateToNote={setActiveNoteId}
+                onNavigateToWiki={navigateToWiki}
+              />
+              <RelatedNotesPanel
+                colors={c}
+                related={relatedNotes}
+                onNavigateToNote={setActiveNoteId}
+              />
+            </div>
           )}
 
           {/* Properties */}
