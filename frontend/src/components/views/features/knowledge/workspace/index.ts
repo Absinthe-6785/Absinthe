@@ -9,3 +9,20 @@ export {
   type WorkspaceItemKind,
   type WorkspaceItemRef,
 } from './workspaceModels';
+export {
+  activateDatabaseViewWorkspace,
+  activateRuleCollectionWorkspace,
+  activateSavedViewWorkspace,
+  activateSmartCollectionWorkspace,
+  clearWorkspaceActivation,
+  clearWorkspaceSearchBinding,
+  isWorkspaceKindActive,
+  type WorkspaceActivateResult,
+} from './workspaceActivation';
+export {
+  applyWorkspaceListFilter,
+  getWorkspaceActiveId,
+  getWorkspaceActiveKind,
+  isDatabaseViewActive,
+  type WorkspaceFilterContext,
+} from './resolveWorkspaceFilter';
