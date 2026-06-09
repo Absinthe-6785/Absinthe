@@ -1,4 +1,10 @@
 import { isKnowledgeQuery, parseQuery } from '../query/parseQuery';
+import {
+  defaultDatabaseViewColumns,
+  DEFAULT_DATABASE_VIEW_SORT,
+  normalizeDatabaseViewColumns,
+  normalizeDatabaseViewSort,
+} from './databaseViewConfig';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
 const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table'];
@@ -27,7 +33,14 @@ export function normalizeDatabaseViews(raw: unknown): DatabaseView[] {
     const query = record.query.trim();
     const presentation = isSupportedPresentation(record.presentation) ? record.presentation : 'table';
     if (!record.id || !name || !query || !isValidDatabaseViewQuery(query)) continue;
-    views.push({ id: record.id, name, query, presentation });
+    views.push({
+      id: record.id,
+      name,
+      query,
+      presentation,
+      columns: normalizeDatabaseViewColumns(record.columns ?? defaultDatabaseViewColumns()),
+      sort: normalizeDatabaseViewSort(record.sort ?? DEFAULT_DATABASE_VIEW_SORT),
+    });
   }
 
   return views.sort((a, b) => a.name.localeCompare(b.name));
@@ -55,6 +68,8 @@ export function createDatabaseView(
     name: trimmedName,
     query: trimmedQuery,
     presentation: 'table',
+    columns: defaultDatabaseViewColumns(),
+    sort: { ...DEFAULT_DATABASE_VIEW_SORT },
   };
   return [...views, next].sort((a, b) => a.name.localeCompare(b.name));
 }

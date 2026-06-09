@@ -8,7 +8,7 @@ import { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { DatabaseTableView } from '../components/DatabaseTableView';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { filterNotes } from '../query/filterNotes';
-import { DEFAULT_TABLE_COLUMNS } from './databaseColumns';
+import { DEFAULT_TABLE_COLUMNS, defaultDatabaseViewColumns } from './databaseColumns';
 import { evaluateDatabaseView } from './evaluateDatabaseView';
 import { filterByDatabaseView } from './filterByDatabaseView';
 import {
@@ -83,7 +83,14 @@ describe('isValidDatabaseViewQuery', () => {
 });
 
 describe('database view CRUD', () => {
-  const seed = [{ id: 'a', name: 'Japanese Study', query: 'tag:japanese', presentation: 'table' as const }];
+  const seed = [{
+    id: 'a',
+    name: 'Japanese Study',
+    query: 'tag:japanese',
+    presentation: 'table' as const,
+    columns: defaultDatabaseViewColumns(),
+    sort: { key: 'updatedAt', direction: 'desc' as const },
+  }];
 
   it('creates a database view with table presentation', () => {
     const next = createDatabaseView(seed, 'Textbooks', 'tag:textbook');
@@ -111,7 +118,14 @@ describe('databaseViewsStorage', () => {
   });
 
   it('persists and loads database views', () => {
-    const views = [{ id: '1', name: 'Japanese Study', query: 'tag:japanese', presentation: 'table' as const }];
+    const views = [{
+      id: '1',
+      name: 'Japanese Study',
+      query: 'tag:japanese',
+      presentation: 'table' as const,
+      columns: defaultDatabaseViewColumns(),
+      sort: { key: 'updatedAt', direction: 'desc' as const },
+    }];
     saveDatabaseViews(views);
     expect(loadDatabaseViews()).toEqual(views);
   });
@@ -126,6 +140,8 @@ describe('databaseViewsStorage', () => {
       { id: '1', name: 'Legacy', query: 'tag:legacy' },
     ]);
     expect(views[0].presentation).toBe('table');
+    expect(views[0].columns?.length).toBeGreaterThan(0);
+    expect(views[0].sort?.key).toBe('updatedAt');
   });
 });
 
@@ -143,12 +159,26 @@ describe('query integration', () => {
   });
 
   it('evaluates database views through filterNotes', () => {
-    const view = { id: '1', name: 'Japanese Study', query: 'tag:japanese', presentation: 'table' as const };
+    const view = {
+      id: '1',
+      name: 'Japanese Study',
+      query: 'tag:japanese',
+      presentation: 'table' as const,
+      columns: defaultDatabaseViewColumns(),
+      sort: { key: 'updatedAt', direction: 'desc' as const },
+    };
     expect(evaluateDatabaseView(view, service, notes)).toEqual(['a']);
   });
 
   it('routes database views through the query engine', () => {
-    const view = { id: '1', name: 'Japanese Study', query: 'tag:japanese', presentation: 'table' as const };
+    const view = {
+      id: '1',
+      name: 'Japanese Study',
+      query: 'tag:japanese',
+      presentation: 'table' as const,
+      columns: defaultDatabaseViewColumns(),
+      sort: { key: 'updatedAt', direction: 'desc' as const },
+    };
     const direct = filterNotes(notes, service, view.query);
     const viaView = filterByDatabaseView(notes, service, view);
     expect(viaView.notes.map(n => n.id)).toEqual(direct.notes.map(n => n.id));
@@ -156,7 +186,14 @@ describe('query integration', () => {
   });
 
   it('updates dynamically when indexed metadata changes', () => {
-    const view = { id: '1', name: 'Japanese', query: 'tag:japanese status:active', presentation: 'table' as const };
+    const view = {
+      id: '1',
+      name: 'Japanese',
+      query: 'tag:japanese status:active',
+      presentation: 'table' as const,
+      columns: defaultDatabaseViewColumns(),
+      sort: { key: 'updatedAt', direction: 'desc' as const },
+    };
     expect(evaluateDatabaseView(view, service, notes)).toEqual(['a']);
 
     service.updateNote(note('b', 'English Notes', '', { properties: { tags: 'japanese', status: 'active' } }));
@@ -166,7 +203,14 @@ describe('query integration', () => {
 
 describe('workspace integration', () => {
   it('activates database views through workspace helpers', () => {
-    const view = { id: 'db-1', name: 'Japanese Study', query: 'tag:japanese', presentation: 'table' as const };
+    const view = {
+      id: 'db-1',
+      name: 'Japanese Study',
+      query: 'tag:japanese',
+      presentation: 'table' as const,
+      columns: defaultDatabaseViewColumns(),
+      sort: { key: 'updatedAt', direction: 'desc' as const },
+    };
     const result = activateDatabaseViewWorkspace(view);
     expect(result.activation).toEqual({ kind: 'database-view', id: 'db-1' });
     expect(result.searchQuery).toBe('');
