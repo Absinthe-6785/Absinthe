@@ -4,9 +4,10 @@
  * When semantic copy fails, Chromium may place `.be-toggle-wrap` HTML on the clipboard.
  */
 import { makeBlock, type Block, type BlockType } from '../../../../../blockUtils';
+import { elementInlineToMarkdown } from '../inline/inlineClipboard';
 
 function inlineText(el: Element): string {
-  return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return elementInlineToMarkdown(el);
 }
 
 export function isDomToggleHtml(html: string): boolean {

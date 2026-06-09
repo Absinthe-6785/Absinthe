@@ -7,6 +7,7 @@
 import { makeBlock, type Block } from '../../../../../blockUtils';
 import { isDetailsToggleElement, toggleBlockFromDetails } from '../../../../../htmlToggleParser';
 import { parseBeToggleWrap } from './domToggleParser';
+import { elementInlineToMarkdown } from '../inline/inlineClipboard';
 
 const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
   H1: 'heading1',
@@ -16,14 +17,14 @@ const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
 };
 
 function inlineText(el: Element): string {
-  return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return elementInlineToMarkdown(el);
 }
 
 function tableFromElement(table: HTMLTableElement): Block | null {
   const rows: string[][] = [];
   table.querySelectorAll('tr').forEach(tr => {
     const cells = Array.from(tr.querySelectorAll('th, td')).map(
-      c => (c.textContent ?? '').trim().replace(/\|/g, '\\|'),
+      c => elementInlineToMarkdown(c).replace(/\|/g, '\\|'),
     );
     if (cells.length > 0) rows.push(cells);
   });
