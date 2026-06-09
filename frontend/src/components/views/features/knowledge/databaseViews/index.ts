@@ -46,3 +46,16 @@ export { filterByDatabaseView } from './filterByDatabaseView';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
 export { getDatabaseRowSortValue, sortDatabaseViewRows } from './sortDatabaseViewRows';
 export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './databaseViewsStorage';
+export type {
+  DatabaseBoardConfig,
+  DatabaseCalendarConfig,
+  DatabasePresentationConfig,
+  DatabaseTableConfig,
+  DatabaseViewRecord,
+} from './databasePresentationModels';
+export {
+  isDatabaseBoardConfig,
+  isDatabaseCalendarConfig,
+  isDatabaseTableConfig,
+  presentationConfigForType,
+} from './databasePresentationModels';
