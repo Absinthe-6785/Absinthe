@@ -237,6 +237,18 @@ export {
 } from './databaseViews';
 
 export {
+  isRelationEdge,
+  isRelationRecord,
+  type ExplicitGraphRelationshipType,
+  type RelationAuthoringInput,
+  type RelationEdge,
+  type RelationQueryClause,
+  type RelationRecord,
+  type RelationRollupAggregate,
+  type RelationRollupConfig,
+} from './relations';
+
+export {
   INACTIVE_WORKSPACE,
   activateDatabaseViewWorkspace,
   activateRuleCollectionWorkspace,
