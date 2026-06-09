@@ -20,16 +20,12 @@ import { flushSync } from 'react-dom';
 import {
   type Block, type BlockType,
   makeBlock,
-  updateBlockById, insertBlockAfter, deleteBlockById,
+  updateBlockById, deleteBlockById,
   findBlockById, flattenBlockIds,
   isTextBlockType,
   blocksToMarkdown, markdownToBlocks,
 } from './blockUtils';
-import {
-  applyToggleChildEnter,
-  applyToggleChildMergeIntoHeader,
-  applyToggleHeaderEnter,
-} from './toggleNesting';
+import { applyToggleChildEnter } from './toggleNesting';
 import { indentBlock, outdentBlock } from './blockTree';
 import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
@@ -52,13 +48,12 @@ import type {
   BlockEditorColors, TurnIntoMenuState,
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
-import type { ToggleNestedRenderer } from './toggleRender';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
 import { SelectionToolbar } from './SelectionToolbar';
 import { WikiMenu } from './WikiMenu';
 import {
-  dispatchFocusCommand, getFocusHandler, registerFocusHandler,
+  dispatchFocusCommand, registerFocusHandler,
   type FocusCmd,
 } from './selectionState';
 import { EditorChromeStyles } from './EditorChrome';
@@ -85,6 +80,7 @@ import { useEditorSelection } from './features/block-editor/hooks/useEditorSelec
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
 import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
 import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';
+import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -429,41 +425,26 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     selectBlock,
   });
 
-  // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
-  const handleToggleAddChild = useCallback((toggleBlockId: string) => {
-    const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
-      ...b,
-      collapsed: false,
-      children: [newChild],
-    })));
-    // 새로 생성된 자식 블록으로 포커스
-    requestAnimationFrame(() => {
-      const handler = getFocusHandler(newChild.id);
-      if (handler) handler({ blockId: newChild.id, offset: 'start' });
-    });
-  }, [onChange]);
-
-  // ── Toggle Step 2: 헤더 Enter → 자식 블록 생성 & 포커스 ──────────
-  const handleToggleEnter = useCallback((toggleBlockId: string, before: string, after: string) => {
-    const toggle = findBlockById(blocksRef.current, toggleBlockId);
-    if (!toggle) return;
-    const { headerContent, children, focusBlockId } = applyToggleHeaderEnter(
-      toggle.children,
-      before,
-      after,
-    );
-    onChange(updateBlockById(blocksRef.current, toggleBlockId, b => ({
-      ...b,
-      content: headerContent,
-      collapsed: false,
-      children,
-    })));
-    requestAnimationFrame(() => {
-      const handler = getFocusHandler(focusBlockId);
-      if (handler) handler({ blockId: focusBlockId, offset: 'start' });
-    });
-  }, [onChange]);
+  const {
+    handleToggleAddChild,
+    handleToggleEnter,
+    renderToggleNested,
+  } = useEditorToggle({
+    getBlocks: getLocalBlocks,
+    getRootBlocks,
+    onChange,
+    onRootChange,
+    NestedEditor: BlockEditorInner,
+    colors: c,
+    readOnly,
+    searchQuery,
+    depth,
+    wikiTargets,
+    onWikiNavigate,
+    onActiveBlockChange,
+    searchScope,
+    searchMatchIndex,
+  });
 
   // ── Table: 셀/행/열 변경 ─────────────────────────────────────────
   const handleTableChange = useCallback((
@@ -515,63 +496,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     () => buildHeadingIndexById(blocks, depth),
     [blocks, depth],
   );
-
-  const renderToggleNested = useCallback<ToggleNestedRenderer>((toggleBlock) => (
-    <BlockEditorInner
-      blocks={toggleBlock.children}
-      onChange={children => {
-        onChange(updateBlockById(blocksRef.current, toggleBlock.id, b => ({ ...b, children })));
-      }}
-      colors={c}
-      readOnly={readOnly}
-      searchQuery={searchQuery}
-      depth={depth + 1}
-      wikiTargets={wikiTargets}
-      onWikiNavigate={onWikiNavigate}
-      onActiveBlockChange={onActiveBlockChange}
-      externalFocusId={undefined}
-      getRootBlocks={getRootBlocks}
-      onRootChange={onRootChange}
-      searchScope={searchScope}
-      searchMatchIndex={searchMatchIndex}
-      onEscapeToParentBelow={() => {
-        const newBlock = makeBlock('paragraph');
-        onChange(insertBlockAfter(getRootBlocks(), toggleBlock.id, newBlock));
-        requestAnimationFrame(() => {
-          const h = getFocusHandler(newBlock.id);
-          if (h) h({ blockId: newBlock.id, offset: 'start' });
-        });
-      }}
-      onEscapeToParentHeader={() => {
-        const h = getFocusHandler(toggleBlock.id);
-        if (h) h({ blockId: toggleBlock.id, offset: 'end' });
-      }}
-      onMergeFirstChildIntoHeader={(childId, childContent) => {
-        const root = getRootBlocks();
-        const toggle = findBlockById(root, toggleBlock.id);
-        if (!toggle) return;
-        const result = applyToggleChildMergeIntoHeader(
-          toggle.content,
-          toggle.children,
-          childId,
-          childContent,
-        );
-        if (!result) return;
-        onChange(updateBlockById(root, toggleBlock.id, t => ({
-          ...t,
-          content: result.headerContent,
-          children: result.children,
-        })));
-        requestAnimationFrame(() => {
-          const h = getFocusHandler(toggleBlock.id);
-          if (h) h({ blockId: toggleBlock.id, offset: result.focusOffset });
-        });
-      }}
-    />
-  ), [
-    onChange, c, readOnly, searchQuery, depth, wikiTargets, onWikiNavigate,
-    onActiveBlockChange, getRootBlocks, onRootChange, searchScope, searchMatchIndex,
-  ]);
 
   useEditorKeyboard({
     readOnly,
