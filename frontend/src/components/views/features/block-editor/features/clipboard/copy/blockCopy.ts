@@ -8,6 +8,7 @@ import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block } from '../../../../../blockUtils';
 import { readBlockText } from '../../../../../editableDom';
 import { getSelectionOffsets } from '../../selection';
+import { markdownInlineToHtml } from '../inline/inlineClipboard';
 
 function escapeHtml(text: string): string {
   return text
@@ -17,31 +18,35 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+function inlineHtml(content: string): string {
+  return markdownInlineToHtml(content);
+}
+
 function blockBodyHtml(block: Block): string {
   switch (block.type) {
     case 'paragraph':
-      return `<p>${escapeHtml(block.content)}</p>`;
+      return `<p>${inlineHtml(block.content)}</p>`;
     case 'heading1':
-      return `<h1>${escapeHtml(block.content)}</h1>`;
+      return `<h1>${inlineHtml(block.content)}</h1>`;
     case 'heading2':
-      return `<h2>${escapeHtml(block.content)}</h2>`;
+      return `<h2>${inlineHtml(block.content)}</h2>`;
     case 'heading3':
-      return `<h3>${escapeHtml(block.content)}</h3>`;
+      return `<h3>${inlineHtml(block.content)}</h3>`;
     case 'quote':
-      return `<blockquote>${escapeHtml(block.content)}</blockquote>`;
+      return `<blockquote>${inlineHtml(block.content)}</blockquote>`;
     case 'bullet':
       return bulletGroupToHtml([block]);
     case 'numbered':
       return numberedGroupToHtml([block]);
     case 'todo': {
       const mark = block.checked ? 'x' : ' ';
-      return `<ul><li>[${mark}] ${escapeHtml(block.content)}</li></ul>`;
+      return `<ul><li>[${mark}] ${inlineHtml(block.content)}</li></ul>`;
     }
     case 'toggle': {
       const openAttr = block.collapsed ? '' : ' open';
       const childHtml = blocksToCopyHtml(block.children);
       const body = childHtml ? `<div class="btbody">${childHtml}</div>` : '';
-      return `<details class="btoggle"${openAttr}><summary class="btsummary">${escapeHtml(block.content)}</summary>${body}</details>`;
+      return `<details class="btoggle"${openAttr}><summary class="btsummary">${inlineHtml(block.content)}</summary>${body}</details>`;
     }
     case 'code':
       return `<pre><code>${escapeHtml(block.code ?? block.content)}</code></pre>`;
@@ -50,7 +55,7 @@ function blockBodyHtml(block: Block): string {
     case 'table':
       return tableBlockToHtml(block);
     default:
-      if (block.content) return `<p>${escapeHtml(block.content)}</p>`;
+      if (block.content) return `<p>${inlineHtml(block.content)}</p>`;
       return '';
   }
 }
@@ -156,7 +161,7 @@ function listGroupToHtml(blocks: Block[], ordered: boolean): string {
       }
 
       const nestedHtml = nested.length ? render(nested, depth + 1) : '';
-      html += `<li>${escapeHtml(item.content)}${nestedHtml}</li>`;
+      html += `<li>${inlineHtml(item.content)}${nestedHtml}</li>`;
       j = k;
     }
     html += `</${tag}>`;
@@ -171,7 +176,7 @@ function todoGroupToHtml(blocks: Block[]): string {
   let html = '<ul>';
   for (const block of blocks) {
     const mark = block.checked ? 'x' : ' ';
-    html += `<li>[${mark}] ${escapeHtml(block.content)}</li>`;
+    html += `<li>[${mark}] ${inlineHtml(block.content)}</li>`;
   }
   html += '</ul>';
   return html;

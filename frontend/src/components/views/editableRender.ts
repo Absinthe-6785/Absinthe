@@ -84,6 +84,7 @@ export function renderInlineMarkdownHtml(
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
     .replace(/~~(.+?)~~/g, '<del>$1</del>')
     .replace(/==(.+?)==/g, `<mark style="background:${c.accentBg};color:${c.accent}">$1</mark>`)
     .replace(/`([^`]+)`/g, `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">$1</code>`)
@@ -124,6 +125,7 @@ export function liveInlineHtml(
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em><span class="be-mark">***</span>$1<span class="be-mark">***</span></em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong><span class="be-mark">**</span>$1<span class="be-mark">**</span></strong>')
     .replace(/\*(.+?)\*/g, '<em><span class="be-mark">*</span>$1<span class="be-mark">*</span></em>')
+    .replace(/\+\+(.+?)\+\+/g, '<u><span class="be-mark">++</span>$1<span class="be-mark">++</span></u>')
     .replace(/~~(.+?)~~/g, '<del><span class="be-mark">~~</span>$1<span class="be-mark">~~</span></del>')
     .replace(/==(.+?)==/g, `<mark class="be-live-mark"><span class="be-mark">==</span>$1<span class="be-mark">==</span></mark>`)
     .replace(/`([^`]+)`/g, `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`);
