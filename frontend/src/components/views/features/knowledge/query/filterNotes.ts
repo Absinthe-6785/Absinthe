@@ -28,6 +28,10 @@ export function filterNotes(
     return { notes: [...notes], parsed, matchedIds: null, usedKnowledgeQuery: false };
   }
 
+  if (!isKnowledgeQuery(trimmed)) {
+    return { notes: [], parsed, matchedIds: new Set(), usedKnowledgeQuery: true };
+  }
+
   if (parsed.error) {
     return { notes: [], parsed, matchedIds: new Set(), usedKnowledgeQuery: true };
   }

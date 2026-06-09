@@ -1,6 +1,6 @@
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { parseQuery } from './parseQuery';
-import type { ParsedQuery, QueryEvaluation } from './queryModels';
+import type { ParsedQuery, QueryClause, QueryEvaluation } from './queryModels';
 
 function intersect(a: Set<string>, b: Set<string>): Set<string> {
   const next = new Set<string>();
@@ -8,6 +8,21 @@ function intersect(a: Set<string>, b: Set<string>): Set<string> {
     if (b.has(id)) next.add(id);
   }
   return next;
+}
+
+function evaluateClause(service: KnowledgeIndexService, clause: QueryClause): string[] {
+  switch (clause.type) {
+    case 'tag':
+      return service.getNotesWithTag(clause.value);
+    case 'property':
+      return service.getNotesWithProperty(clause.key, clause.value);
+    case 'hasRelation':
+      return service.getNotesWithOutgoingRelation(clause.propertyKey);
+    case 'linkedTo':
+      return service.getNotesLinkedTo(clause.title);
+    case 'relation':
+      return service.getNotesWithRelationToTitle(clause.propertyKey, clause.title);
+  }
 }
 
 /** Evaluate parsed query against indexed metadata — O(clauses × result size) */
@@ -21,10 +36,7 @@ export function evaluateQuery(
   let result: Set<string> | null = null;
 
   for (const clause of parsed.clauses) {
-    const ids = clause.type === 'tag'
-      ? service.getNotesWithTag(clause.value)
-      : service.getNotesWithProperty(clause.key, clause.value);
-
+    const ids = evaluateClause(service, clause);
     const bucket = new Set(ids);
     result = result === null ? bucket : intersect(result, bucket);
     if (result.size === 0) break;

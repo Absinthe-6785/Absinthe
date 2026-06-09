@@ -2,7 +2,10 @@
 
 export type QueryClause =
   | { type: 'tag'; value: string }
-  | { type: 'property'; key: string; value: string };
+  | { type: 'property'; key: string; value: string }
+  | { type: 'hasRelation'; propertyKey: string }
+  | { type: 'linkedTo'; title: string }
+  | { type: 'relation'; propertyKey: string; title: string };
 
 export interface ParsedQuery {
   clauses: QueryClause[];

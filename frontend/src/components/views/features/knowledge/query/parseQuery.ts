@@ -3,37 +3,136 @@ import { normalizeTagName } from '../tags/tagConstants';
 import type { ParsedQuery, QueryClause } from './queryModels';
 
 const CLAUSE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
+const RELATION_VALUE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
 
 /** Normalize property/tag values for index lookup */
 export function normalizeQueryValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
-/** Parse `tag:japanese status:active` into AND clauses */
+function unquoteValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function quoteValueIfNeeded(value: string): string {
+  return /\s/.test(value) ? `"${value}"` : value;
+}
+
+/** Split query into key:value tokens — respects quoted values and relation:key:"title" */
+export function tokenizeQuery(input: string): string[] {
+  const tokens: string[] = [];
+  const s = input.trim();
+  let i = 0;
+
+  while (i < s.length) {
+    while (i < s.length && /\s/.test(s[i]!)) i++;
+    if (i >= s.length) break;
+
+    const start = i;
+
+    while (i < s.length && /[a-zA-Z0-9_-]/.test(s[i]!)) i++;
+    if (i >= s.length || s[i] !== ':') {
+      while (i < s.length && !/\s/.test(s[i]!)) i++;
+      tokens.push(s.slice(start, i));
+      continue;
+    }
+    i++;
+
+    const key = s.slice(start, i - 1);
+    const normKey = normalizePropertyKey(key);
+
+    if (normKey === 'relation') {
+      while (i < s.length && /[a-zA-Z0-9_-]/.test(s[i]!)) i++;
+      if (i >= s.length || s[i] !== ':') {
+        tokens.push(s.slice(start, i));
+        continue;
+      }
+      i++;
+    }
+
+    if (s[i] === '"') {
+      i++;
+      while (i < s.length && s[i] !== '"') i++;
+      if (i < s.length) i++;
+    } else {
+      while (i < s.length && !/\s/.test(s[i]!)) i++;
+    }
+
+    tokens.push(s.slice(start, i));
+  }
+
+  return tokens;
+}
+
+function parseClauseToken(token: string): QueryClause | { error: string } {
+  const match = token.match(CLAUSE_RE);
+  if (!match) {
+    return { error: `Invalid query token: ${token}` };
+  }
+
+  const [, rawKey, rawValue] = match;
+  const key = rawKey.trim();
+  const value = rawValue.trim();
+  if (!value) {
+    return { error: `Missing value for ${key}` };
+  }
+
+  const normKey = normalizePropertyKey(key);
+
+  if (normKey === 'tag') {
+    return { type: 'tag', value: unquoteValue(value) };
+  }
+
+  if (normKey === 'hasrelation') {
+    const propertyKey = unquoteValue(value);
+    if (!propertyKey) return { error: `Missing relation property key for hasRelation` };
+    return { type: 'hasRelation', propertyKey };
+  }
+
+  if (normKey === 'linkedto') {
+    const title = unquoteValue(value);
+    if (!title) return { error: `Missing target title for linkedTo` };
+    return { type: 'linkedTo', title };
+  }
+
+  if (normKey === 'relation') {
+    const relationMatch = value.match(RELATION_VALUE_RE);
+    if (!relationMatch) {
+      return { error: `Invalid relation clause: ${token}` };
+    }
+    const propertyKey = relationMatch[1].trim();
+    const title = unquoteValue(relationMatch[2]);
+    if (!propertyKey || !title) {
+      return { error: `Invalid relation clause: ${token}` };
+    }
+    return { type: 'relation', propertyKey, title };
+  }
+
+  return { type: 'property', key, value: unquoteValue(value) };
+}
+
+/** Parse `tag:japanese status:active relation:course:"N1"` into AND clauses */
 export function parseQuery(input: string): ParsedQuery {
   const trimmed = input.trim();
   if (!trimmed) return { clauses: [] };
 
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  const tokens = tokenizeQuery(trimmed);
+  if (tokens.length === 0) {
+    return { clauses: [], error: `Invalid query token: ${trimmed}` };
+  }
+
   const clauses: QueryClause[] = [];
 
   for (const token of tokens) {
-    const match = token.match(CLAUSE_RE);
-    if (!match) {
-      return { clauses: [], error: `Invalid query token: ${token}` };
+    const parsed = parseClauseToken(token);
+    if ('error' in parsed) {
+      return { clauses: [], error: parsed.error };
     }
-
-    const [, rawKey, rawValue] = match;
-    const value = rawValue.trim();
-    if (!value) {
-      return { clauses: [], error: `Missing value for ${rawKey}` };
-    }
-
-    if (normalizePropertyKey(rawKey) === 'tag') {
-      clauses.push({ type: 'tag', value });
-    } else {
-      clauses.push({ type: 'property', key: rawKey.trim(), value });
-    }
+    clauses.push(parsed);
   }
 
   return { clauses };
@@ -42,23 +141,35 @@ export function parseQuery(input: string): ParsedQuery {
 export function formatParsedQuery(parsed: ParsedQuery): string {
   return parsed.clauses.map(clause => {
     if (clause.type === 'tag') return `tag:${clause.value}`;
-    return `${clause.key}:${clause.value}`;
+    if (clause.type === 'hasRelation') return `hasRelation:${clause.propertyKey}`;
+    if (clause.type === 'linkedTo') return `linkedTo:${quoteValueIfNeeded(clause.title)}`;
+    if (clause.type === 'relation') {
+      return `relation:${clause.propertyKey}:${quoteValueIfNeeded(clause.title)}`;
+    }
+    return `${clause.key}:${quoteValueIfNeeded(clause.value)}`;
   }).join(' ');
+}
+
+function isValidClauseToken(token: string): boolean {
+  return CLAUSE_RE.test(token);
 }
 
 /** Whether every token uses key:value syntax */
 export function isKnowledgeQuery(input: string): boolean {
   const trimmed = input.trim();
   if (!trimmed) return false;
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
-  return tokens.length > 0 && tokens.every(token => CLAUSE_RE.test(token));
+  const tokens = tokenizeQuery(trimmed);
+  if (tokens.length === 0) return false;
+  if (tokens.join(' ') !== trimmed) return false;
+  if (!tokens.every(isValidClauseToken)) return false;
+  return !parseQuery(trimmed).error;
 }
 
 /** Whether input attempts knowledge query syntax (at least one key:value token) */
 export function hasKnowledgeQuerySyntax(input: string): boolean {
   const trimmed = input.trim();
   if (!trimmed) return false;
-  return trimmed.split(/\s+/).some(token => CLAUSE_RE.test(token));
+  return tokenizeQuery(trimmed).some(isValidClauseToken);
 }
 
 export { normalizeTagName };
