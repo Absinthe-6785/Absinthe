@@ -649,7 +649,7 @@ class RoutineExceptionCreate(BaseModel):
     end_date: str
     reason: str = ''
 
-class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None; starred: bool = False
+class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None; starred: bool = False; properties: dict[str, str] | None = None
 
 # ==========================================
 # Recipes (레시피)
@@ -726,8 +726,9 @@ async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)
     try:
         return supabase.table("notes").upsert(data, on_conflict="id").execute().data
     except Exception:
-        # notes 테이블에 starred 컬럼이 아직 없는 구 스키마 호환 — 해당 필드 제외 후 재시도
+        # notes 테이블에 starred/properties 컬럼이 아직 없는 구 스키마 호환
         data.pop("starred", None)
+        data.pop("properties", None)
         return supabase.table("notes").upsert(data, on_conflict="id").execute().data
 
 @app.delete("/api/notes/{note_id}")

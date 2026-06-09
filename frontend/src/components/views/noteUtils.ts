@@ -22,6 +22,8 @@ export interface NoteBase {
   folderId: string | null;
   deletedAt: number | null;
   starred?: boolean;
+  /** Page-level metadata — key/value strings, case-insensitive lookup */
+  properties?: Record<string, string>;
 }
 export interface NoteFolderBase {
   id: string;
@@ -53,6 +55,21 @@ const LEGACY_PL_FOLDERS = 'planner-note-folders';
 const LEGACY_PL_ACTIVE  = 'planner-active-note';
 const LEGACY_PL_NOTES_V1 = 'planner-notes';
 
+export function normalizeNoteProperties(
+  properties: Record<string, string> | null | undefined,
+): Record<string, string> | undefined {
+  if (!properties || typeof properties !== 'object') return undefined;
+
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (typeof key !== 'string' || !key.trim()) continue;
+    if (typeof value !== 'string') continue;
+    result[key.trim()] = value;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 export function normalizeNote(n: Partial<NoteBase>): NoteBase {
   return {
     id: n.id ?? `note-${Date.now()}-${Math.random()}`,
@@ -62,6 +79,7 @@ export function normalizeNote(n: Partial<NoteBase>): NoteBase {
     folderId: n.folderId ?? null,
     deletedAt: n.deletedAt ?? null,
     starred: n.starred ?? false,
+    properties: normalizeNoteProperties(n.properties),
   };
 }
 
@@ -469,7 +487,7 @@ export function getLocalOnlyNotes(dbNoteIds: Iterable<string>, localNotes: NoteB
 
 /** POST /api/notes upsert 페이로드 — NoteView·Planner 공통 */
 export function noteSyncPayload(note: NoteBase) {
-  return {
+  const payload: Record<string, unknown> = {
     id: note.id,
     title: note.title ?? '',
     body: note.body ?? '',
@@ -478,6 +496,10 @@ export function noteSyncPayload(note: NoteBase) {
     deleted_at: note.deletedAt ?? null,
     starred: note.starred ?? false,
   };
+  if (note.properties && Object.keys(note.properties).length > 0) {
+    payload.properties = note.properties;
+  }
+  return payload;
 }
 
 /** 위키 제목 정규화 — 대소문자 무시 비교용 */

@@ -25,6 +25,7 @@ import {
   mergeFoldersFromStorageJson,
   normalizeNoteFolderId,
   noteSyncPayload,
+  normalizeNoteProperties,
   NOTES_KEY,
   FOLDERS_KEY,
   ACTIVE_KEY,
@@ -57,7 +58,7 @@ interface NotesState {
   setActiveNoteId: (id: string | null) => void;
   setActiveFolderId: (id: string | null | 'trash') => void;
   createNote: (opts?: CreateNoteOpts) => string;
-  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => void;
+  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties'>>) => void;
   toggleStar: (id: string) => void;
   duplicateNote: (note: Note) => string;
   moveNoteToTrash: (id: string) => void;
@@ -103,7 +104,16 @@ function resolveFolderId(opts?: CreateNoteOpts): string | null {
 }
 
 function mapDbNote(
-  n: { id: string; title: string; body: string; updated_at: number; folder_id?: string | null; deleted_at?: number | null; starred?: boolean },
+  n: {
+    id: string;
+    title: string;
+    body: string;
+    updated_at: number;
+    folder_id?: string | null;
+    deleted_at?: number | null;
+    starred?: boolean;
+    properties?: Record<string, string> | null;
+  },
   local: Note | undefined,
 ): Note {
   const localIsNewer = local && local.updatedAt > n.updated_at;
@@ -119,6 +129,9 @@ function mapDbNote(
       ? (local.deletedAt ?? null)
       : (n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null)),
     starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
+    properties: localIsNewer
+      ? normalizeNoteProperties(local.properties)
+      : normalizeNoteProperties(n.properties ?? local?.properties),
   };
 }
 
@@ -131,7 +144,13 @@ function rebuildKnowledgeIndex(notes: Note[]) {
 }
 
 function syncKnowledgeIndexForNote(note: Note, patch?: Partial<Note>) {
-  if (!patch || 'body' in patch || 'title' in patch || 'deletedAt' in patch) {
+  if (
+    !patch ||
+    'body' in patch ||
+    'title' in patch ||
+    'deletedAt' in patch ||
+    'properties' in patch
+  ) {
     knowledgeIndexService.updateNote(note);
   }
 }

@@ -4,6 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -21,6 +22,9 @@ import {
 import {
   knowledgeIndexService,
   LinkedReferencesPanel,
+  NotePropertiesPanel,
+  parseNoteMarkdown,
+  serializeNoteMarkdown,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -181,7 +185,7 @@ export const NoteView = () => {
   }, [storeDeleteFolder]);
 
   const exportNote = useCallback((note: Note) => {
-    const blob = new Blob([note.body], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([serializeNoteMarkdown(note)], { type: 'text/markdown;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -203,7 +207,7 @@ export const NoteView = () => {
       const fileName = count > 0 ? `${safeName}_${count}.md` : `${safeName}.md`;
       // 순차 다운로드 (브라우저 팝업 차단 방지)
       setTimeout(() => {
-        const blob = new Blob([note.body ?? ''], { type: 'text/markdown;charset=utf-8' });
+        const blob = new Blob([serializeNoteMarkdown(note)], { type: 'text/markdown;charset=utf-8' });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href     = url;
@@ -221,7 +225,7 @@ export const NoteView = () => {
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'tags' | 'properties' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -236,7 +240,7 @@ export const NoteView = () => {
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred'>>) => {
+  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties'>>) => {
     updateNote(id, patch);
   }, [updateNote]);
 
@@ -377,13 +381,15 @@ export const NoteView = () => {
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = ev => {
-        const body = ev.target?.result as string;
+        const raw = ev.target?.result as string;
+        const { body, properties } = parseNoteMarkdown(raw);
         const title = file.name.replace(/\.md$/i, '');
         const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         importNote({
           id, title, body, updatedAt: Date.now(),
           folderId: normalizeNoteFolderId(activeFolderId),
           deletedAt: null, starred: false,
+          properties,
         });
       };
       reader.readAsText(file);
@@ -511,10 +517,11 @@ export const NoteView = () => {
     { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
   ], []);
   const RIGHT_PANELS = useMemo(() => [
-    { key: 'toc'   as const, label: 'Outline', icon: <AlignLeft size={11}/> },
-    { key: 'links' as const, label: 'Links',   icon: <Link size={11}/> },
-    { key: 'tags'  as const, label: 'Tags',    icon: <Tag size={11}/> },
-    { key: 'stats' as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
+    { key: 'toc'        as const, label: 'Outline', icon: <AlignLeft size={11}/> },
+    { key: 'links'      as const, label: 'Links',   icon: <Link size={11}/> },
+    { key: 'properties' as const, label: 'Props',   icon: <SlidersHorizontal size={11}/> },
+    { key: 'tags'       as const, label: 'Tags',    icon: <Tag size={11}/> },
+    { key: 'stats'      as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ], []);
 
   // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
@@ -1195,6 +1202,15 @@ export const NoteView = () => {
               outgoing={pageReferences.outgoing}
               onNavigateToNote={setActiveNoteId}
               onNavigateToWiki={navigateToWiki}
+            />
+          )}
+
+          {/* Properties */}
+          {rightPanel === 'properties' && activeNote && (
+            <NotePropertiesPanel
+              colors={c}
+              note={activeNote}
+              onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
             />
           )}
 

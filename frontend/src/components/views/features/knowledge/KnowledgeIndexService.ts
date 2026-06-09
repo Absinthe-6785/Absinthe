@@ -13,15 +13,19 @@ export class KnowledgeIndexService {
   private incomingByTitle = new Map<string, Map<string, PageReference>>();
   /** source note id → outgoing link titles */
   private outgoingByNoteId = new Map<string, string[]>();
+  /** note id → page properties (extension point for tags/queries/graph) */
+  private propertiesByNoteId = new Map<string, Readonly<Record<string, string>>>();
 
   /** Cold start / bulk sync — full rebuild */
   buildFromNotes(notes: NoteBase[]): void {
     this.incomingByTitle.clear();
     this.outgoingByNoteId.clear();
+    this.propertiesByNoteId.clear();
 
     for (const note of notes) {
       if (note.deletedAt) continue;
       this.upsertNoteEdges(note);
+      this.upsertNoteProperties(note);
     }
   }
 
@@ -33,11 +37,18 @@ export class KnowledgeIndexService {
     }
     this.removeNoteEdges(note.id);
     this.upsertNoteEdges(note);
+    this.upsertNoteProperties(note);
   }
 
   /** Remove a note from the index (trash / permanent delete) */
   removeNote(noteId: string): void {
     this.removeNoteEdges(noteId);
+    this.propertiesByNoteId.delete(noteId);
+  }
+
+  /** Page properties for a note — O(1). Future: tag/property queries build on this. */
+  getProperties(noteId: string): Readonly<Record<string, string>> {
+    return this.propertiesByNoteId.get(noteId) ?? {};
   }
 
   /** Reverse link lookup — pages linking to targetTitle. O(1) */
@@ -111,6 +122,14 @@ export class KnowledgeIndexService {
         this.incomingByTitle.set(key, bucket);
       }
       bucket.set(note.id, ref);
+    }
+  }
+
+  private upsertNoteProperties(note: NoteBase): void {
+    if (note.properties && Object.keys(note.properties).length > 0) {
+      this.propertiesByNoteId.set(note.id, { ...note.properties });
+    } else {
+      this.propertiesByNoteId.delete(note.id);
     }
   }
 }
