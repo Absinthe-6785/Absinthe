@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/databaseViewModels';
+import {
+  BOARD_GROUP_BY_FIELD,
+  CALENDAR_DATE_PROPERTY_FIELD,
+  presentationLabel,
+} from '../databaseViews/databasePresentationMeta';
+import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
+import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 
 export interface DatabaseViewsSectionProps {
   colors: NoteChromeColors;
@@ -78,7 +85,7 @@ export function DatabaseViewsSection({
     setRenameValue('');
   };
 
-  const presentationLabel = (view: DatabaseView) => view.presentation;
+  const presentationLabelForView = (view: DatabaseView) => presentationLabel(view.presentation);
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
@@ -119,7 +126,7 @@ export function DatabaseViewsSection({
             className={`bfi ${activeViewId === view.id ? 'active' : ''}`}
             onClick={() => onActivate(view)}
             style={{ gap: 4, fontSize: 11 }}
-            title={`${view.query} · ${presentationLabel(view)}`}
+            title={`${view.query} · ${presentationLabelForView(view)}`}
           >
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {view.name}
@@ -177,41 +184,40 @@ export function DatabaseViewsSection({
               if (e.key === 'Escape') setShowCreateForm(false);
             }}
           />
-          <select
-            className="bwi"
-            style={{ width: '100%', fontSize: 11 }}
+          <DatabasePresentationSwitcher
             value={newPresentation}
-            onChange={e => setNewPresentation(e.target.value as DatabaseViewPresentation)}
-          >
-            <option value="table">Table</option>
-            <option value="board">Board</option>
-            <option value="calendar">Calendar</option>
-          </select>
+            onChange={setNewPresentation}
+            showLabel={false}
+            className="bwi"
+            style={{ width: '100%' }}
+          />
           {newPresentation === 'board' && (
-            <input
-              className="bwi"
-              style={{ width: '100%', fontSize: 11 }}
-              placeholder="Group by property (e.g. status)"
-              value={newGroupBy}
-              onChange={e => setNewGroupBy(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') submitCreate();
-                if (e.key === 'Escape') setShowCreateForm(false);
-              }}
-            />
+            <div style={{ width: '100%' }}>
+              <DatabasePropertyKeyField
+                preset={BOARD_GROUP_BY_FIELD}
+                value={newGroupBy}
+                onChange={setNewGroupBy}
+                onSubmit={submitCreate}
+                inputClassName="bwi"
+                inputStyle={{ width: '100%', minWidth: 0, fontSize: 11 }}
+                labelStyle={{ fontSize: 11 }}
+                listId="database-create-board-groupby"
+              />
+            </div>
           )}
           {newPresentation === 'calendar' && (
-            <input
-              className="bwi"
-              style={{ width: '100%', fontSize: 11 }}
-              placeholder="Date property (e.g. reviewDate)"
-              value={newDateProperty}
-              onChange={e => setNewDateProperty(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') submitCreate();
-                if (e.key === 'Escape') setShowCreateForm(false);
-              }}
-            />
+            <div style={{ width: '100%' }}>
+              <DatabasePropertyKeyField
+                preset={CALENDAR_DATE_PROPERTY_FIELD}
+                value={newDateProperty}
+                onChange={setNewDateProperty}
+                onSubmit={submitCreate}
+                inputClassName="bwi"
+                inputStyle={{ width: '100%', minWidth: 0, fontSize: 11 }}
+                labelStyle={{ fontSize: 11 }}
+                listId="database-create-calendar-date"
+              />
+            </div>
           )}
           <div style={{ display: 'flex', gap: 3 }}>
             <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>Save</button>

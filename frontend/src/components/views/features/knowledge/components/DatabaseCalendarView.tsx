@@ -3,17 +3,18 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import {
   calendarBucketsToMap,
   NO_DATE_KEY,
   type CalendarDateBucket,
 } from '../databaseViews/bucketNotesByDate';
+import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
 import {
   addMonths,
   buildCalendarMonthGrid,
   formatCalendarMonthLabel,
 } from '../databaseViews/parseDatabaseDate';
+import { DatabaseNoteCard } from './DatabaseNoteCard';
 
 export interface DatabaseCalendarViewProps {
   colors: NoteChromeColors;
@@ -24,51 +25,6 @@ export interface DatabaseCalendarViewProps {
 }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function CalendarCard({
-  note,
-  colors: c,
-  service,
-  isActive,
-  onSelect,
-}: {
-  note: NoteBase;
-  colors: NoteChromeColors;
-  service: KnowledgeIndexService;
-  isActive: boolean;
-  onSelect: () => void;
-}) {
-  const title = getDatabaseFieldValue(note, 'title', service);
-  const tags = getDatabaseFieldValue(note, 'tags', service);
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      style={{
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        background: isActive ? `${c.accent}15` : c.card,
-        border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
-        borderRadius: 4,
-        padding: '3px 4px',
-        marginBottom: 3,
-        cursor: 'pointer',
-        color: c.text,
-      }}
-    >
-      <div style={{ fontSize: 9, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {title}
-      </div>
-      {tags && (
-        <div style={{ fontSize: 8, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {tags}
-        </div>
-      )}
-    </button>
-  );
-}
 
 export function DatabaseCalendarView({
   colors: c,
@@ -109,6 +65,18 @@ export function DatabaseCalendarView({
 
   const hasScheduledNotes = buckets.some(bucket => bucket.dateKey !== NO_DATE_KEY && bucket.notes.length > 0);
 
+  const renderCard = (note: NoteBase) => (
+    <DatabaseNoteCard
+      key={note.id}
+      note={note}
+      colors={c}
+      service={service}
+      size="compact"
+      isActive={note.id === activeNoteId}
+      onSelect={() => onSelectNote(note.id)}
+    />
+  );
+
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist, padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -128,7 +96,7 @@ export function DatabaseCalendarView({
 
       {!hasScheduledNotes && noDateNotes.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-          No matching notes
+          {DATABASE_EMPTY_MESSAGE}
         </div>
       ) : (
         <>
@@ -159,16 +127,7 @@ export function DatabaseCalendarView({
                   <div style={{ fontSize: 9, fontWeight: 700, color: c.textMuted, marginBottom: 3 }}>
                     {cell.day}
                   </div>
-                  {notes.map(note => (
-                    <CalendarCard
-                      key={note.id}
-                      note={note}
-                      colors={c}
-                      service={service}
-                      isActive={note.id === activeNoteId}
-                      onSelect={() => onSelectNote(note.id)}
-                    />
-                  ))}
+                  {notes.map(renderCard)}
                 </div>
               );
             })}
@@ -183,16 +142,7 @@ export function DatabaseCalendarView({
                 No Date ({noDateNotes.length})
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {noDateNotes.map(note => (
-                  <CalendarCard
-                    key={note.id}
-                    note={note}
-                    colors={c}
-                    service={service}
-                    isActive={note.id === activeNoteId}
-                    onSelect={() => onSelectNote(note.id)}
-                  />
-                ))}
+                {noDateNotes.map(renderCard)}
               </div>
             </div>
           )}

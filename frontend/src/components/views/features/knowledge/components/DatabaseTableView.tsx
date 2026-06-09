@@ -2,6 +2,7 @@ import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
+import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
 
@@ -64,7 +65,7 @@ export function DatabaseTableView({
           {notes.length === 0 ? (
             <tr>
               <td colSpan={columns.length} style={{ padding: 16, textAlign: 'center', color: c.textFaint }}>
-                No matching notes
+                {DATABASE_EMPTY_MESSAGE}
               </td>
             </tr>
           ) : notes.map(note => (
