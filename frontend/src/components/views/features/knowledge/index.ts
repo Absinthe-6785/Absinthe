@@ -246,6 +246,20 @@ export {
   type RelationRecord,
   type RelationRollupAggregate,
   type RelationRollupConfig,
+  type ResolvedRelationTarget,
+  addRelationTarget,
+  getRelationTargets,
+  hasRelations,
+  listRelationKeys,
+  listRelationRecords,
+  normalizeNoteRelations,
+  normalizeRelationPropertyKey,
+  parseRelationsFrontmatter,
+  relationEdgeKey,
+  removeRelationTarget,
+  serializeRelationsFrontmatter,
+  setRelationTargets,
+  toRelationEdges,
 } from './relations';
 
 export {
