@@ -1,7 +1,8 @@
 import { normalizeWikiTitle } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { RELATED_SCORE } from '../related/relatedNotesScoring';
-import type { GraphData, GraphEdge, GraphNode, GraphRelationshipType } from './graphModels';
+import { addEdge, incrementDegree } from './graphEdgeUtils';
+import type { GraphData, GraphEdge, GraphNode } from './graphModels';
 
 export interface BuildLocalGraphInput {
   noteId: string;
@@ -9,33 +10,12 @@ export interface BuildLocalGraphInput {
   service: KnowledgeIndexService;
 }
 
-function edgeKey(
-  sourceId: string,
-  targetId: string,
-  relationshipType: GraphRelationshipType,
-): string {
-  return `${sourceId}\0${targetId}\0${relationshipType}`;
-}
-
-function addEdge(
-  edges: Map<string, GraphEdge>,
-  sourceId: string,
-  targetId: string,
-  relationshipType: GraphRelationshipType,
-  weight: number,
-): void {
-  if (sourceId === targetId) return;
-  const key = edgeKey(sourceId, targetId, relationshipType);
-  if (!edges.has(key)) {
-    edges.set(key, { sourceId, targetId, relationshipType, weight });
-  }
-}
-
 /** Build one-hop local graph from precomputed knowledge index data — O(neighbors) */
 export function buildLocalGraphData(input: BuildLocalGraphInput): GraphData {
   const { noteId, noteTitle, service } = input;
   const edgeMap = new Map<string, GraphEdge>();
   const nodeTitles = new Map<string, string>();
+  const degrees = new Map<string, number>();
 
   nodeTitles.set(noteId, noteTitle);
 
@@ -67,18 +47,22 @@ export function buildLocalGraphData(input: BuildLocalGraphInput): GraphData {
 
   const incomingIds = new Set(incoming.map(ref => ref.noteId));
 
+  const trackEdge = (
+    sourceId: string,
+    targetId: string,
+    relationshipType: GraphEdge['relationshipType'],
+    weight: number,
+  ) => {
+    addEdge(edgeMap, sourceId, targetId, relationshipType, weight);
+    incrementDegree(degrees, sourceId, targetId);
+  };
+
   for (const ref of incoming) {
     const mutual = outgoingKeys.has(normalizeWikiTitle(ref.noteTitle));
     if (mutual) {
-      addEdge(
-        edgeMap,
-        noteId,
-        ref.noteId,
-        'mutual-backlink',
-        RELATED_SCORE.MUTUAL_BACKLINK,
-      );
+      trackEdge(noteId, ref.noteId, 'mutual-backlink', RELATED_SCORE.MUTUAL_BACKLINK);
     } else {
-      addEdge(edgeMap, ref.noteId, noteId, 'backlink', RELATED_SCORE.BACKLINK);
+      trackEdge(ref.noteId, noteId, 'backlink', RELATED_SCORE.BACKLINK);
     }
   }
 
@@ -86,20 +70,20 @@ export function buildLocalGraphData(input: BuildLocalGraphInput): GraphData {
     const key = normalizeWikiTitle(title);
     const match = key ? relatedByTitleKey.get(key) : undefined;
     if (!match || incomingIds.has(match.noteId)) continue;
-    addEdge(edgeMap, noteId, match.noteId, 'backlink', RELATED_SCORE.BACKLINK);
+    trackEdge(noteId, match.noteId, 'backlink', RELATED_SCORE.BACKLINK);
   }
 
   for (const ref of mentioning) {
-    addEdge(edgeMap, ref.noteId, noteId, 'mention', RELATED_SCORE.MENTION);
+    trackEdge(ref.noteId, noteId, 'mention', RELATED_SCORE.MENTION);
   }
 
   for (const ref of mentioned) {
-    addEdge(edgeMap, noteId, ref.noteId, 'mention', RELATED_SCORE.MENTION);
+    trackEdge(noteId, ref.noteId, 'mention', RELATED_SCORE.MENTION);
   }
 
   for (const item of related) {
     if (item.reasons.includes('shared tag')) {
-      addEdge(edgeMap, noteId, item.noteId, 'shared-tag', RELATED_SCORE.SHARED_TAG);
+      trackEdge(noteId, item.noteId, 'shared-tag', RELATED_SCORE.SHARED_TAG);
     }
   }
 
@@ -107,6 +91,7 @@ export function buildLocalGraphData(input: BuildLocalGraphInput): GraphData {
     noteId: id,
     title,
     type: id === noteId ? 'current' : 'connected',
+    degree: degrees.get(id) ?? 0,
   }));
 
   nodes.sort((a, b) => {
@@ -115,6 +100,7 @@ export function buildLocalGraphData(input: BuildLocalGraphInput): GraphData {
   });
 
   return {
+    scope: 'local',
     centerNoteId: noteId,
     nodes,
     edges: [...edgeMap.values()],

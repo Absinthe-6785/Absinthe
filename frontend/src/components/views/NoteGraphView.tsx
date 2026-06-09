@@ -9,7 +9,8 @@
  */
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { extractLinks } from './noteUtils';
+import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
+import type { GlobalGraphRelationshipFilter } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const [showIsolated, setShowIsolated] = useState(true);
   const [searchQuery, setSearchQuery]   = useState('');
+  const [relationshipFilter, setRelationshipFilter] = useState<GlobalGraphRelationshipFilter>('all');
 
   const dragOffset = useRef({ dx: 0, dy: 0 });
   const panStart   = useRef({ mx: 0, my: 0, tx: 0, ty: 0 });
@@ -114,46 +116,59 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     return ids;
   }, [visible]);
 
+  const noteById = useMemo(
+    () => new Map(visible.map(note => [note.id, note])),
+    [visible],
+  );
+
+  const graphData = useMemo(
+    () => buildGlobalGraphData({
+      service: knowledgeIndexService,
+      options: { relationshipFilter },
+    }),
+    [visibleKey, relationshipFilter],
+  );
+
   // ── 그래프 초기화 ─────────────────────────────────────────────────
   useEffect(() => {
-    const titleToId: Record<string, string> = {};
-    visible.forEach(n => { titleToId[n.title] = n.id; });
-
-    const linkCount: Record<string, number> = {};
-    const edgeSet   = new Set<string>();
+    const edgeSet = new Set<string>();
     const edgeList: GraphEdge[] = [];
 
-    visible.forEach(n => {
-      extractLinks(n.body).forEach(title => {
-        const toId = titleToId[title];
-        if (!toId || toId === n.id) return;
-        const key = [n.id, toId].sort().join('|');
-        if (!edgeSet.has(key)) {
-          edgeSet.add(key);
-          edgeList.push({ from: n.id, to: toId });
-        }
-        linkCount[n.id] = (linkCount[n.id] || 0) + 1;
-        linkCount[toId] = (linkCount[toId] || 0) + 1;
-      });
+    graphData.edges.forEach(edge => {
+      const key = [edge.sourceId, edge.targetId].sort().join('|');
+      if (edgeSet.has(key)) return;
+      edgeSet.add(key);
+      edgeList.push({ from: edge.sourceId, to: edge.targetId });
     });
     edgesRef.current = edgeList;
 
+    const degreeById = new Map(graphData.nodes.map(node => [node.noteId, node.degree ?? 0]));
     const existing = Object.fromEntries(nodesRef.current.map(n => [n.id, n]));
     const cx = size.w / 2, cy = size.h / 2;
-    nodesRef.current = visible.map(n => existing[n.id] ?? {
-      id: n.id, title: n.title, folderId: n.folderId ?? null,
-      x: cx + (Math.random() - 0.5) * 300,
-      y: cy + (Math.random() - 0.5) * 300,
-      vx: 0, vy: 0, links: 0,
+
+    nodesRef.current = graphData.nodes.map(node => {
+      const note = noteById.get(node.noteId);
+      const prior = existing[node.noteId];
+      return prior ?? {
+        id: node.noteId,
+        title: node.title,
+        folderId: note?.folderId ?? null,
+        x: cx + (Math.random() - 0.5) * 300,
+        y: cy + (Math.random() - 0.5) * 300,
+        vx: 0,
+        vy: 0,
+        links: 0,
+      };
     });
+
     nodesRef.current.forEach(nd => {
-      const src = visible.find(n => n.id === nd.id);
-      nd.links    = linkCount[nd.id] || 0;
-      nd.title    = src?.title    ?? nd.title;
-      nd.starred  = src?.starred  ?? false;
-      nd.folderId = src?.folderId ?? null;
+      const note = noteById.get(nd.id);
+      nd.links = degreeById.get(nd.id) ?? 0;
+      nd.title = note?.title ?? nd.title;
+      nd.starred = note?.starred ?? false;
+      nd.folderId = note?.folderId ?? null;
     });
-  }, [visibleKey, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [graphData, noteById, size.w, size.h]);
 
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
@@ -212,7 +227,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
     frameRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [visibleKey, size.w, size.h, dragging]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visibleKey, size.w, size.h, dragging, relationshipFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG 좌표 변환 헬퍼 (클라이언트 → 그래프 공간) ──────────────
   const clientToGraph = useCallback((cx: number, cy: number) => {
@@ -398,6 +413,28 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             )}
           </div>
         </div>
+
+        {/* Relationship filter */}
+        <select
+          value={relationshipFilter}
+          onChange={e => setRelationshipFilter(e.target.value as GlobalGraphRelationshipFilter)}
+          style={{
+            pointerEvents: 'all',
+            height: 28,
+            padding: '0 8px',
+            fontSize: 11,
+            borderRadius: 6,
+            border: `1px solid ${colors.searchB}`,
+            background: colors.searchBg,
+            color: colors.searchTxt,
+            outline: 'none',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <option value="all">All links</option>
+          <option value="backlinks">Backlinks</option>
+          <option value="mentions">Mentions</option>
+        </select>
 
         {/* 고립 노드 토글 */}
         {isolatedCount > 0 && (

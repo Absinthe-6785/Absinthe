@@ -162,6 +162,21 @@ export class KnowledgeIndexService {
     return result.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
 
+  /** All indexed note ids — O(N) */
+  getAllNoteIds(): string[] {
+    return [...this.activeNotes.keys()];
+  }
+
+  /** Indexed note title — O(1) */
+  getNoteTitle(noteId: string): string {
+    return this.activeNotes.get(noteId)?.title ?? '';
+  }
+
+  /** Resolve wiki link title to note id — O(1) */
+  resolveNoteId(title: string): string | undefined {
+    return this.noteIdByTitleKey.get(normalizeWikiTitle(title));
+  }
+
   /** Reverse link lookup — pages linking to targetTitle. O(1) */
   getIncoming(title: string, opts: IncomingLinksOptions = {}): PageReference[] {
     const key = normalizeWikiTitle(title);
@@ -386,10 +401,6 @@ export class KnowledgeIndexService {
     }
   }
 
-  private resolveNoteIdByTitle(title: string): string | undefined {
-    return this.noteIdByTitleKey.get(normalizeWikiTitle(title));
-  }
-
   private hasWikiLinkTo(fromId: string, toId: string): boolean {
     const toTitle = this.activeNotes.get(toId)?.title ?? '';
     if (!toTitle.trim()) return false;
@@ -423,7 +434,7 @@ export class KnowledgeIndexService {
     }
 
     for (const linkTitle of this.getOutgoing(noteId)) {
-      const tid = this.resolveNoteIdByTitle(linkTitle);
+      const tid = this.resolveNoteId(linkTitle);
       if (tid && tid !== noteId) neighbors.add(tid);
     }
 

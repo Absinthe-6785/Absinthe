@@ -36,7 +36,8 @@ describe('buildLocalGraphData', () => {
     });
 
     const center = graph.nodes.find(n => n.noteId === 'genki');
-    expect(center).toEqual({ noteId: 'genki', title: 'Genki', type: 'current' });
+    expect(center).toMatchObject({ noteId: 'genki', title: 'Genki', type: 'current' });
+    expect(graph.scope).toBe('local');
     expect(graph.centerNoteId).toBe('genki');
   });
 
@@ -164,7 +165,7 @@ describe('buildLocalGraphData', () => {
     });
 
     expect(graph.nodes).toEqual([
-      { noteId: 'solo', title: 'Solo Note', type: 'current' },
+      { noteId: 'solo', title: 'Solo Note', type: 'current', degree: 0 },
     ]);
     expect(graph.edges).toEqual([]);
   });
