@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as blockUtils from './blockUtils';
 import { makeBlock } from './blockUtils';
 import {
   adaptPastedBlocks,
@@ -126,5 +127,64 @@ describe('blockPaste', () => {
     const dt = { getData: (t: string) => (t === 'text/html' ? html : '') };
     const blocks = clipboardToBlocks(dt)!;
     expect(isDocumentLevelPaste(dt, blocks)).toBe(true);
+  });
+});
+
+describe('applyPasteAtBlock tree validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('valid multiline paste does not throw', () => {
+    vi.stubEnv('PROD', false);
+    vi.stubEnv('DEV', true);
+    const b = makeBlock('paragraph', { id: 'x', content: 'before after' });
+    expect(() => applyPasteAtBlock([b], 'x', 6, 6, '- one\n- two')).not.toThrow();
+    const result = applyPasteAtBlock([b], 'x', 6, 6, '- one\n- two');
+    expect(result?.blocks).toHaveLength(2);
+  });
+
+  it('throws when generated tree is invalid in DEV/TEST', () => {
+    vi.stubEnv('PROD', false);
+    vi.stubEnv('DEV', true);
+    vi.spyOn(blockUtils, 'markdownToBlocks').mockReturnValue([
+      makeBlock('paragraph', { id: 'other', content: 'a' }),
+      makeBlock('paragraph', { id: 'dup', content: 'b' }),
+    ]);
+    const b = makeBlock('paragraph', { id: 'dup', content: 'start' });
+    expect(() => applyPasteAtBlock([b], 'dup', 0, 0, 'line1\nline2')).toThrow(
+      /Tree validation failed/,
+    );
+    expect(() => applyPasteAtBlock([b], 'dup', 0, 0, 'line1\nline2')).toThrow(
+      /DUPLICATE_ID/,
+    );
+  });
+
+  it('includes applyPasteAtBlock context in validation error', () => {
+    vi.stubEnv('PROD', false);
+    vi.stubEnv('DEV', true);
+    vi.spyOn(blockUtils, 'markdownToBlocks').mockReturnValue([
+      makeBlock('paragraph', { id: 'other', content: 'a' }),
+      makeBlock('paragraph', { id: 'dup', content: 'b' }),
+    ]);
+    const b = makeBlock('paragraph', { id: 'dup', content: 'start' });
+    expect(() => applyPasteAtBlock([b], 'dup', 0, 0, 'line1\nline2')).toThrow(
+      /Context: applyPasteAtBlock/,
+    );
+  });
+
+  it('skips validation in production mode', () => {
+    vi.stubEnv('PROD', true);
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.spyOn(blockUtils, 'markdownToBlocks').mockReturnValue([
+      makeBlock('paragraph', { id: 'other', content: 'a' }),
+      makeBlock('paragraph', { id: 'dup', content: 'b' }),
+    ]);
+    const b = makeBlock('paragraph', { id: 'dup', content: 'start' });
+    expect(() => applyPasteAtBlock([b], 'dup', 0, 0, 'line1\nline2')).not.toThrow();
+    const result = applyPasteAtBlock([b], 'dup', 0, 0, 'line1\nline2');
+    expect(result?.blocks).toHaveLength(2);
   });
 });
