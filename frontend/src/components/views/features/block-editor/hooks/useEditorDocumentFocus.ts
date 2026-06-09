@@ -4,9 +4,10 @@ import type { Block } from '../../../blockUtils';
 import {
   focusNearestEditable,
   shouldHandleDocumentFocus,
+  type BlockRowHit,
   type DocumentFocusAction,
 } from '../../../documentFocus';
-import { dispatchFocusCommand, type FocusCmd } from '../features/selection';
+import type { FocusCmd } from '../features/selection';
 import type { DocumentFocusApiRef } from '../types/blockEditorTypes';
 
 export interface UseEditorDocumentFocusOptions {
@@ -19,6 +20,7 @@ export interface UseEditorDocumentFocusOptions {
   onFocusCmd: (cmd: FocusCmd) => void;
   editorRootRef: RefObject<HTMLDivElement | null>;
   documentFocusApiRef?: DocumentFocusApiRef;
+  getRootBlockRows?: () => BlockRowHit[];
 }
 
 export interface UseEditorDocumentFocusResult {
@@ -35,6 +37,7 @@ export function useEditorDocumentFocus({
   onFocusCmd,
   editorRootRef,
   documentFocusApiRef,
+  getRootBlockRows,
 }: UseEditorDocumentFocusOptions): UseEditorDocumentFocusResult {
   const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
     if (action.kind === 'toggle-footer') {
@@ -44,9 +47,7 @@ export function useEditorDocumentFocus({
         });
       }
       onActiveBlockChange(action.focusBlockId);
-      const focus = { blockId: action.focusBlockId, offset: 'start' as const };
-      onFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
+      onFocusCmd({ blockId: action.focusBlockId, offset: 'start' });
       return;
     }
     if (action.kind === 'append') {
@@ -55,15 +56,13 @@ export function useEditorDocumentFocus({
       });
       selectBlock(action.block.id);
       onActiveBlockChange(action.block.id);
-      const focus = { blockId: action.block.id, offset: 'start' as const };
-      onFocusCmd(focus);
-      requestAnimationFrame(() => dispatchFocusCommand(focus));
+      onFocusCmd({ blockId: action.block.id, offset: 'start' });
       return;
     }
     selectBlock(action.blockId);
     onActiveBlockChange(action.blockId);
     onFocusCmd({ blockId: action.blockId, offset: action.offset });
-  }, [getRootBlocks, onRootChange, selectBlock, onActiveBlockChange]);
+  }, [getRootBlocks, onRootChange, selectBlock, onActiveBlockChange, onFocusCmd]);
 
   const handleDocumentFocusPointerDown = useCallback((e: React.PointerEvent) => {
     if (readOnly || depth !== 0) return;
@@ -71,9 +70,12 @@ export function useEditorDocumentFocus({
     if (!shouldHandleDocumentFocus(e.target)) return;
     const root = editorRootRef.current;
     if (!root) return;
-    applyDocumentFocusAction(focusNearestEditable(e.clientY, getRootBlocks(), root));
+    const rowHits = getRootBlockRows?.();
+    applyDocumentFocusAction(
+      focusNearestEditable(e.clientY, getRootBlocks(), root, rowHits),
+    );
     e.preventDefault();
-  }, [readOnly, depth, getRootBlocks, applyDocumentFocusAction]);
+  }, [readOnly, depth, getRootBlocks, getRootBlockRows, applyDocumentFocusAction]);
 
   useEffect(() => {
     if (!documentFocusApiRef) return;

@@ -27,10 +27,10 @@ import { SafeBlockRenderer } from '../../../SafeBlockRenderer';
 import { ToggleBlock } from '../../../ToggleBlock';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import {
-  dispatchFocusCommand,
   registerFocusHandler,
   type FocusCmd,
 } from '../features/selection';
+import { useVirtualNavigation } from '../performance/VirtualNavigationContext';
 import { BlockGutter, BlockHandles, blockShellClassName } from '../../../EditorChrome';
 import { renderInlineMarkdown } from '../../../editableRender';
 import { useBlocksCtx } from '../contexts/BlocksContext';
@@ -49,7 +49,6 @@ interface SingleBlockProps {
   onSplitBlock:    (id: string, before: string, after: string) => void;
   onMergeWithPrev: (id: string, selfContent: string) => void;
   onContentChange: (id: string, content: string) => void;
-  focusCmd?: FocusCmd | null;
   // Phase 3: 드래그&드롭
   dragState:  DragState | null;
   bindGripPointer: (id: string, e: React.PointerEvent, onClick?: () => void) => void;
@@ -100,7 +99,6 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.depth === next.depth
     && prev.isMenuOpen === next.isMenuOpen
     && prev.headingIndex === next.headingIndex
-    && prev.focusCmd === next.focusCmd
     && prev.dragState === next.dragState
     && prev.colors === next.colors
     && prev.wikiTargets === next.wikiTargets
@@ -140,7 +138,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
 export const SingleBlock = React.memo(function SingleBlock({
   block, colors: c, isSelected,
   onBlockSelect, onAddBelow, readOnly, searchQuery, depth, wikiTargets, headingIndex,
-  onSplitBlock, onMergeWithPrev, onContentChange, focusCmd,
+  onSplitBlock, onMergeWithPrev, onContentChange,
   dragState, bindGripPointer, getDragProps,
   onOpenTurnInto, onConvertBlock,
   onSlashOpen, onSlashClose,
@@ -186,34 +184,35 @@ export const SingleBlock = React.memo(function SingleBlock({
   }, [block.id, getBlocks, onChange]);
 
   const editableRef = useRef<HTMLElement | null>(null);
+  const virtualNavigation = useVirtualNavigation();
 
-  // 포커스 레지스트리 — 텍스트(contentEditable) / 비텍스트(shell) 분기
-  useEffect(() => {
-    const handler = (cmd: FocusCmd) => {
-      if (isTextBlockType(block.type)) {
-        const el = editableRef.current;
-        if (!el) return;
-        el.focus();
-        requestAnimationFrame(() => {
-          if (!editableRef.current) return;
-          const target = editableRef.current;
-          if (cmd.offset === 'start')       setCaretOffset(target, 0);
-          else if (cmd.offset === 'end')    setCaretOffset(target, getElText(target).length);
-          else                              setCaretOffset(target, cmd.offset as number);
-        });
-      } else {
-        shellRef.current?.focus();
-      }
-    };
-    return registerFocusHandler(block.id, handler);
-  }, [block.id, block.type]);
-
-  // 외부 focusCmd가 이 블록을 가리키면 실행
-  useEffect(() => {
-    if (focusCmd && focusCmd.blockId === block.id) {
-      dispatchFocusCommand(focusCmd);
+  const applyFocusCommand = useCallback((cmd: FocusCmd) => {
+    if (isTextBlockType(block.type)) {
+      const el = editableRef.current;
+      if (!el) return;
+      el.focus();
+      requestAnimationFrame(() => {
+        if (!editableRef.current) return;
+        const target = editableRef.current;
+        if (cmd.offset === 'start')       setCaretOffset(target, 0);
+        else if (cmd.offset === 'end')    setCaretOffset(target, getElText(target).length);
+        else                              setCaretOffset(target, cmd.offset as number);
+      });
+    } else {
+      shellRef.current?.focus();
     }
-  }, [focusCmd, block.id]);
+  }, [block.type]);
+
+  // 포커스 레지스트리 + pending queue replay on mount (virtualization-safe)
+  useEffect(() => {
+    const handler = (cmd: FocusCmd) => { applyFocusCommand(cmd); };
+    const unregister = registerFocusHandler(block.id, handler);
+    const pending = virtualNavigation?.consumePendingFocus(block.id);
+    if (pending) {
+      requestAnimationFrame(() => applyFocusCommand(pending));
+    }
+    return unregister;
+  }, [block.id, applyFocusCommand, virtualNavigation]);
 
   const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery, wikiTargets);
 
@@ -293,8 +292,8 @@ export const SingleBlock = React.memo(function SingleBlock({
     e.preventDefault();
     onBlockSelect(block.id, e);
     onActiveBlockChange?.(block.id);
-    dispatchFocusCommand({ blockId: block.id, offset: 'end' });
-  }, [readOnly, block.id, onBlockSelect, onActiveBlockChange]);
+    applyFocusCommand({ blockId: block.id, offset: 'end' });
+  }, [readOnly, block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
 
   const gutterChrome = (
     <BlockGutter blockId={block.id} readOnly={readOnly} onPointerDown={onGutterPointerDown}>
