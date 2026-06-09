@@ -48,6 +48,11 @@ import {
   isFirstEmptyRootParagraph,
 } from './documentFocus';
 import { SingleBlock } from './features/block-editor/components/SingleBlock';
+import {
+  EmptyDocumentHint,
+  MultiSelectHint,
+} from './features/block-editor/components/EditorDiscoverabilityHints';
+import { isEmptyDocument } from './features/block-editor/utils/editorDiscoverability';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
 import {
   dispatchFocusCommand,
@@ -409,6 +414,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
       >
+        {depth === 0 && !readOnly && (
+          <EmptyDocumentHint visible={isEmptyDocument(getRootBlocks())} colors={c} />
+        )}
         {blocks.map(block => (
           <SingleBlock
             key={block.id} block={block}
@@ -457,6 +465,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         ))}
         {depth === 0 && !readOnly && (
           <div className="be-document-bottom-strip" aria-hidden />
+        )}
+        {depth === 0 && !readOnly && (
+          <MultiSelectHint count={selectedBlockIds.size} colors={c} />
         )}
       </div>
       {!readOnly && (

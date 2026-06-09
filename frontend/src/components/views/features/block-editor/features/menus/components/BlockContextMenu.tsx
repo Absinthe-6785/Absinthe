@@ -16,6 +16,7 @@ import { BLOCK_TINT_OPTIONS, type BlockTint } from '../../../../../blockColors';
 import { blockIcon } from '../../../../../blockIcons';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { CONTEXT_MENU, TINT_LABELS } from '../utils/editorMenuModel';
+import { BLOCK_MENU_FOOTER_HINT } from '../../../utils/editorDiscoverability';
 
 export interface BlockContextMenuProps {
   blockId: string;
@@ -197,6 +198,16 @@ export function BlockContextMenu({
           {mi(<ArrowDown size={12}/>, CONTEXT_MENU.moveDown, onMoveDown)}
           <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
           {mi(<Trash2 size={12}/>, CONTEXT_MENU.delete, onDelete, true)}
+          <div style={{
+            borderTop: `1px solid ${c.border}`,
+            margin: '6px 0 0',
+            padding: '8px 12px 4px',
+            fontSize: 10,
+            lineHeight: 1.45,
+            color: c.textFaint,
+          }}>
+            {BLOCK_MENU_FOOTER_HINT}
+          </div>
         </>
       )}
     </div>

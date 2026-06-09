@@ -6,6 +6,7 @@ import { BlockGripIcon } from './editorDragDrop';
 import { shouldShowBlockChrome } from './editorReading';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import type { TurnIntoMenuState } from './editorTypes';
+import { GRIP_DRAG_TITLE, GUTTER_RANGE_TITLE } from './features/block-editor/utils/editorDiscoverability';
 
 export function blockShellClassName(
   isActive: boolean,
@@ -30,7 +31,8 @@ export function BlockGutter({ blockId, readOnly, onPointerDown, children }: Bloc
     <div className="be-gutter" data-gutter-block-id={blockId}>
       <div
         className="be-gutter-strip"
-        aria-hidden
+        title={GUTTER_RANGE_TITLE}
+        aria-label={GUTTER_RANGE_TITLE}
         onPointerDown={onPointerDown ? e => onPointerDown(blockId, e) : undefined}
       />
       {children}
@@ -81,7 +83,8 @@ export function BlockHandles({
             onOpenTurnInto({ blockId, anchorY: rect.top, anchorX: rect.right + 2 });
           });
         }}
-        title="드래그: 이동 · 클릭: 메뉴"
+        title={GRIP_DRAG_TITLE}
+        aria-label={GRIP_DRAG_TITLE}
       >
         <BlockGripIcon />
       </button>
