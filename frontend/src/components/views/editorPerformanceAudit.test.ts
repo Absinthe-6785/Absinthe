@@ -21,7 +21,8 @@ import {
 } from './editorPerformanceAudit';
 import { generateBenchmarkBlocks } from './editorBenchmark';
 
-const MOUNT_SIZES = [100, 250, 500, 1000, 2000] as const;
+const MOUNT_SIZES = [100, 250, 500, 1000] as const;
+const VIRTUAL_MOUNT_SIZES = [100, 500, 1000, 2000] as const;
 const PROFILER_SIZES = [100, 500, 1000] as const;
 
 const DATA_LAYER_TIMING_KEYS = [
@@ -101,6 +102,16 @@ describe('editorPerformanceAudit', () => {
     const next = simulateKeystroke(blocks, id);
     expect(next[50].content).toBe(`${before}x`);
   });
+
+  it.each(VIRTUAL_MOUNT_SIZES.map(s => [s]))('virtual mount audit @ %i blocks', (size) => {
+    const blocks = generateBenchmarkBlocks(size);
+    const virtual = measureMount(blocks, { virtualBlocksPoc: true });
+    expectFiniteNonNegative(virtual.mountMs, 'mountMs');
+    expect(virtual.domBlockCount).toBeGreaterThan(0);
+    expect(virtual.domBlockCount).toBeLessThan(Math.min(size, 150));
+    // eslint-disable-next-line no-console
+    console.log(`[virtual mount @${size}] ${virtual.mountMs.toFixed(0)}ms dom=${virtual.domBlockCount}`);
+  }, 90_000);
 
   it('prints benchmark table for UX-5D report', () => {
     const dataRows = AUDIT_SIZES.map(s => runFullAudit(s, false));
