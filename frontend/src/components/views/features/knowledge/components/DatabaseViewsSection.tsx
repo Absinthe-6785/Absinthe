@@ -12,7 +12,13 @@ export interface DatabaseViewsSectionProps {
   currentQuery: string;
   onActivate: (view: DatabaseView) => void;
   onClearActive: () => void;
-  onCreate: (name: string, query: string, presentation?: DatabaseViewPresentation, groupBy?: string) => void;
+  onCreate: (
+    name: string,
+    query: string,
+    presentation?: DatabaseViewPresentation,
+    groupBy?: string,
+    dateProperty?: string,
+  ) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
 }
@@ -35,6 +41,7 @@ export function DatabaseViewsSection({
   const [newQuery, setNewQuery] = useState('');
   const [newPresentation, setNewPresentation] = useState<DatabaseViewPresentation>('table');
   const [newGroupBy, setNewGroupBy] = useState('status');
+  const [newDateProperty, setNewDateProperty] = useState('reviewDate');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -42,6 +49,7 @@ export function DatabaseViewsSection({
     setNewQuery(prefillQuery);
     setNewPresentation('table');
     setNewGroupBy('status');
+    setNewDateProperty('reviewDate');
     setShowCreateForm(true);
   };
 
@@ -54,6 +62,7 @@ export function DatabaseViewsSection({
       trimmedQuery,
       newPresentation,
       newPresentation === 'board' ? newGroupBy : undefined,
+      newPresentation === 'calendar' ? newDateProperty : undefined,
     );
     setNewName('');
     setNewQuery('');
@@ -69,10 +78,7 @@ export function DatabaseViewsSection({
     setRenameValue('');
   };
 
-  const presentationLabel = (view: DatabaseView) => {
-    if (view.presentation === 'board') return 'board';
-    return 'table';
-  };
+  const presentationLabel = (view: DatabaseView) => view.presentation;
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
@@ -179,6 +185,7 @@ export function DatabaseViewsSection({
           >
             <option value="table">Table</option>
             <option value="board">Board</option>
+            <option value="calendar">Calendar</option>
           </select>
           {newPresentation === 'board' && (
             <input
@@ -187,6 +194,19 @@ export function DatabaseViewsSection({
               placeholder="Group by property (e.g. status)"
               value={newGroupBy}
               onChange={e => setNewGroupBy(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') submitCreate();
+                if (e.key === 'Escape') setShowCreateForm(false);
+              }}
+            />
+          )}
+          {newPresentation === 'calendar' && (
+            <input
+              className="bwi"
+              style={{ width: '100%', fontSize: 11 }}
+              placeholder="Date property (e.g. reviewDate)"
+              value={newDateProperty}
+              onChange={e => setNewDateProperty(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter') submitCreate();
                 if (e.key === 'Escape') setShowCreateForm(false);

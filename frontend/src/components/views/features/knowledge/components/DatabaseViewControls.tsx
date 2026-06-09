@@ -4,7 +4,7 @@ import {
   columnLabelForKey,
   resolveAllColumnKeys,
 } from '../databaseViews/databaseViewConfig';
-import { getBoardConfig, getTableConfig } from '../databaseViews/databasePresentationConfig';
+import { getBoardConfig, getCalendarConfig, getTableConfig } from '../databaseViews/databasePresentationConfig';
 import type {
   DatabaseView,
   DatabaseViewPresentation,
@@ -18,6 +18,7 @@ export interface DatabaseViewControlsProps {
   view: DatabaseView;
   onPresentationChange: (presentation: DatabaseViewPresentation) => void;
   onGroupByChange: (groupBy: string) => void;
+  onDatePropertyChange: (dateProperty: string) => void;
   onAddColumn: (key: string) => void;
   onRemoveColumn: (key: string) => void;
   onToggleColumnVisibility: (key: string, visible: boolean) => void;
@@ -29,6 +30,7 @@ export function DatabaseViewControls({
   view,
   onPresentationChange,
   onGroupByChange,
+  onDatePropertyChange,
   onAddColumn,
   onRemoveColumn,
   onToggleColumnVisibility,
@@ -38,6 +40,7 @@ export function DatabaseViewControls({
   const configured = withDatabaseViewDefaults(view);
   const tableConfig = getTableConfig(configured);
   const boardConfig = getBoardConfig(configured);
+  const calendarConfig = getCalendarConfig(configured);
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
   const visibility = new Map(
     tableConfig.columns.map(entry => [entry.key.toLowerCase(), entry.visible]),
@@ -70,6 +73,7 @@ export function DatabaseViewControls({
         >
           <option value="table">Table</option>
           <option value="board">Board</option>
+          <option value="calendar">Calendar</option>
         </select>
       </div>
 
@@ -82,6 +86,17 @@ export function DatabaseViewControls({
             placeholder="Property key (e.g. status)"
             value={boardConfig.groupBy}
             onChange={e => onGroupByChange(e.target.value)}
+          />
+        </div>
+      ) : configured.presentation === 'calendar' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ color: c.textMuted, fontWeight: 700 }}>Date property</span>
+          <input
+            className="bwi"
+            style={{ flex: 1, minWidth: 120, fontSize: 10 }}
+            placeholder="Property key (e.g. reviewDate)"
+            value={calendarConfig.dateProperty}
+            onChange={e => onDatePropertyChange(e.target.value)}
           />
         </div>
       ) : (

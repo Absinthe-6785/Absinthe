@@ -25,22 +25,48 @@ export {
 } from './databaseViewConfig';
 export {
   DEFAULT_BOARD_GROUP_BY,
+  DEFAULT_CALENDAR_DATE_PROPERTY,
   UNASSIGNED_LANE_KEY,
   UNASSIGNED_LANE_LABEL,
   defaultBoardPresentationConfig,
+  defaultCalendarPresentationConfig,
   defaultPresentationConfig,
   defaultTablePresentationConfig,
   getBoardConfig,
+  getCalendarConfig,
   getTableConfig,
   liftLegacyTableConfig,
   normalizeBoardConfig,
+  normalizeCalendarConfig,
   normalizePresentationConfig,
   setBoardGroupBy,
+  setCalendarDateProperty,
   setViewPresentation,
   syncLegacyTableFields,
   withPresentationDefaults,
 } from './databasePresentationConfig';
-export { getDatabaseFieldValue, getNoteGroupValue } from './databaseFieldValues';
+export {
+  getDatabaseFieldValue,
+  getNoteDateValue,
+  getNoteGroupValue,
+} from './databaseFieldValues';
+export {
+  bucketNotesByDate,
+  calendarBucketsToMap,
+  DEFAULT_NO_DATE_LABEL,
+  NO_DATE_KEY,
+  type CalendarDateBucket,
+} from './bucketNotesByDate';
+export {
+  addMonths,
+  buildCalendarMonthGrid,
+  formatCalendarDayLabel,
+  formatCalendarMonthLabel,
+  parseDatabaseDate,
+  parseDateKey,
+  toDateKey,
+  type CalendarMonthCell,
+} from './parseDatabaseDate';
 export {
   groupNotesByProperty,
   type BoardLane,
@@ -60,6 +86,7 @@ export {
   hideDatabaseViewColumn,
   removeDatabaseViewColumn,
   setDatabaseViewColumnVisibility,
+  setDatabaseViewDateProperty,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
   setDatabaseViewSort,
@@ -70,6 +97,7 @@ export { evaluateDatabaseView } from './evaluateDatabaseView';
 export { filterByDatabaseView } from './filterByDatabaseView';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
 export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
+export { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
 export { getDatabaseRowSortValue, sortDatabaseViewRows } from './sortDatabaseViewRows';
 export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './databaseViewsStorage';
 export type {

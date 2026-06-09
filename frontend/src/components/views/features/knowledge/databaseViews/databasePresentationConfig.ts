@@ -6,12 +6,14 @@ import {
 } from './databaseViewConfig';
 import type {
   DatabaseBoardConfig,
+  DatabaseCalendarConfig,
   DatabasePresentationConfig,
   DatabaseTableConfig,
 } from './databasePresentationModels';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
 export const DEFAULT_BOARD_GROUP_BY = 'status';
+export const DEFAULT_CALENDAR_DATE_PROPERTY = 'updatedAt';
 export const UNASSIGNED_LANE_KEY = '__unassigned__';
 export const UNASSIGNED_LANE_LABEL = 'No value';
 
@@ -32,6 +34,15 @@ export function defaultBoardPresentationConfig(
   };
 }
 
+export function defaultCalendarPresentationConfig(
+  dateProperty = DEFAULT_CALENDAR_DATE_PROPERTY,
+): DatabaseCalendarConfig {
+  return {
+    type: 'calendar',
+    dateProperty,
+  };
+}
+
 export function defaultPresentationConfig(
   presentation: DatabaseViewPresentation,
 ): DatabasePresentationConfig {
@@ -39,7 +50,7 @@ export function defaultPresentationConfig(
     case 'board':
       return defaultBoardPresentationConfig();
     case 'calendar':
-      return { type: 'calendar', dateProperty: 'updatedAt' };
+      return defaultCalendarPresentationConfig();
     default:
       return defaultTablePresentationConfig();
   }
@@ -80,6 +91,23 @@ export function normalizeBoardConfig(raw: unknown): DatabaseBoardConfig {
   return defaultBoardPresentationConfig();
 }
 
+export function normalizeCalendarConfig(raw: unknown): DatabaseCalendarConfig {
+  if (raw && typeof raw === 'object') {
+    const record = raw as Partial<DatabaseCalendarConfig>;
+    if (record.type === 'calendar' && typeof record.dateProperty === 'string' && record.dateProperty.trim()) {
+      const config: DatabaseCalendarConfig = {
+        type: 'calendar',
+        dateProperty: record.dateProperty.trim(),
+      };
+      if (typeof record.unscheduledLabel === 'string' && record.unscheduledLabel.trim()) {
+        config.unscheduledLabel = record.unscheduledLabel.trim();
+      }
+      return config;
+    }
+  }
+  return defaultCalendarPresentationConfig();
+}
+
 export function normalizePresentationConfig(
   raw: unknown,
   presentation: DatabaseViewPresentation,
@@ -102,10 +130,16 @@ export function normalizePresentationConfig(
     if (record.type === 'board') {
       return normalizeBoardConfig(raw);
     }
+    if (record.type === 'calendar') {
+      return normalizeCalendarConfig(raw);
+    }
   }
 
   if (presentation === 'board') {
     return defaultBoardPresentationConfig();
+  }
+  if (presentation === 'calendar') {
+    return defaultCalendarPresentationConfig();
   }
   return liftLegacyTableConfig(legacyView ?? {});
 }
@@ -124,6 +158,14 @@ export function getBoardConfig(view: DatabaseView): DatabaseBoardConfig {
     return normalized.presentationConfig;
   }
   return defaultBoardPresentationConfig();
+}
+
+export function getCalendarConfig(view: DatabaseView): DatabaseCalendarConfig {
+  const normalized = withPresentationDefaults(view);
+  if (normalized.presentationConfig.type === 'calendar') {
+    return normalized.presentationConfig;
+  }
+  return defaultCalendarPresentationConfig();
 }
 
 /** Sync legacy root columns/sort from table config for backward-compatible persistence */
@@ -166,6 +208,18 @@ export function withPresentationDefaults(view: DatabaseView): DatabaseView {
     };
   }
 
+  if (presentation === 'calendar' && presentationConfig.type === 'calendar') {
+    const tableCache = view.presentationConfig?.type === 'table'
+      ? view.presentationConfig
+      : liftLegacyTableConfig(view);
+    return {
+      ...view,
+      presentation,
+      presentationConfig,
+      ...syncLegacyTableFields(view, tableCache),
+    };
+  }
+
   return {
     ...view,
     presentation,
@@ -195,6 +249,10 @@ export function setViewPresentation(
     presentationConfig = current.presentationConfig.type === 'board'
       ? current.presentationConfig
       : defaultBoardPresentationConfig();
+  } else if (presentation === 'calendar') {
+    presentationConfig = current.presentationConfig.type === 'calendar'
+      ? current.presentationConfig
+      : defaultCalendarPresentationConfig();
   } else {
     presentationConfig = defaultPresentationConfig(presentation);
   }
@@ -226,5 +284,25 @@ export function setBoardGroupBy(view: DatabaseView, groupBy: string): DatabaseVi
     ...current,
     presentation: 'board',
     presentationConfig: boardConfig,
+  });
+}
+
+export function setCalendarDateProperty(view: DatabaseView, dateProperty: string): DatabaseView {
+  const trimmed = dateProperty.trim();
+  if (!trimmed) return view;
+
+  const current = withPresentationDefaults(view);
+  const calendarConfig: DatabaseCalendarConfig = {
+    type: 'calendar',
+    dateProperty: trimmed,
+    ...(current.presentationConfig.type === 'calendar' && current.presentationConfig.unscheduledLabel
+      ? { unscheduledLabel: current.presentationConfig.unscheduledLabel }
+      : {}),
+  };
+
+  return withPresentationDefaults({
+    ...current,
+    presentation: 'calendar',
+    presentationConfig: calendarConfig,
   });
 }

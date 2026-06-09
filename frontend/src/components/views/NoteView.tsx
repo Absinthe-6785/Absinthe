@@ -44,6 +44,7 @@ import {
   RuleCollectionsSection,
   DatabaseTableView,
   DatabaseBoardView,
+  DatabaseCalendarView,
   DatabaseViewControls,
   DatabaseViewsSection,
   SMART_COLLECTIONS,
@@ -53,6 +54,7 @@ import {
   evaluateDatabaseView,
   prepareDatabaseViewRows,
   prepareDatabaseBoardLanes,
+  prepareDatabaseCalendarBuckets,
   resolveVisibleColumns,
   withDatabaseViewDefaults,
   getBoardConfig,
@@ -63,6 +65,7 @@ import {
   setDatabaseViewColumnVisibility,
   setDatabaseViewPresentation,
   setDatabaseViewGroupBy,
+  setDatabaseViewDateProperty,
   updateDatabaseViewConfig,
   findRuleCollection,
   findSmartCollection,
@@ -466,8 +469,9 @@ export const NoteView = () => {
     query: string,
     presentation?: DatabaseViewPresentation,
     groupBy?: string,
+    dateProperty?: string,
   ) => {
-    setDatabaseViews(prev => createDatabaseView(prev, name, query, { presentation, groupBy }));
+    setDatabaseViews(prev => createDatabaseView(prev, name, query, { presentation, groupBy, dateProperty }));
   }, []);
 
   const handleRenameDatabaseView = useCallback((id: string, name: string) => {
@@ -535,6 +539,12 @@ export const NoteView = () => {
     return prepareDatabaseBoardLanes(activeDatabaseView, safeNotes, knowledgeIndexService);
   }, [activeDatabaseView, notes]);
 
+  const databaseCalendarBuckets = useMemo(() => {
+    if (!activeDatabaseView) return [];
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    return prepareDatabaseCalendarBuckets(activeDatabaseView, safeNotes, knowledgeIndexService);
+  }, [activeDatabaseView, notes]);
+
   const activeDatabaseViewColumns = useMemo(() => {
     if (!activeDatabaseView) return [];
     const configured = withDatabaseViewDefaults(activeDatabaseView);
@@ -578,6 +588,10 @@ export const NoteView = () => {
 
   const handleDatabaseViewGroupByChange = useCallback((groupBy: string) => {
     patchActiveDatabaseView(view => setDatabaseViewGroupBy(view, groupBy));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewDatePropertyChange = useCallback((dateProperty: string) => {
+    patchActiveDatabaseView(view => setDatabaseViewDateProperty(view, dateProperty));
   }, [patchActiveDatabaseView]);
 
   const visibleNotes = useMemo(() => {
@@ -1335,6 +1349,7 @@ export const NoteView = () => {
               view={activeDatabaseView}
               onPresentationChange={handleDatabaseViewPresentationChange}
               onGroupByChange={handleDatabaseViewGroupByChange}
+              onDatePropertyChange={handleDatabaseViewDatePropertyChange}
               onAddColumn={handleDatabaseViewAddColumn}
               onRemoveColumn={handleDatabaseViewRemoveColumn}
               onToggleColumnVisibility={handleDatabaseViewToggleColumn}
@@ -1347,6 +1362,14 @@ export const NoteView = () => {
                 service={knowledgeIndexService}
                 activeNoteId={activeNoteId}
                 cardFields={activeBoardConfig?.cardFields}
+                onSelectNote={setActiveNoteId}
+              />
+            ) : activeDatabaseView.presentation === 'calendar' ? (
+              <DatabaseCalendarView
+                colors={c}
+                buckets={databaseCalendarBuckets}
+                service={knowledgeIndexService}
+                activeNoteId={activeNoteId}
                 onSelectNote={setActiveNoteId}
               />
             ) : (
