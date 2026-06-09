@@ -6,6 +6,10 @@ import {
   tagsFromPropertyValue,
   tagsToPropertyValue,
 } from '../tags/tagConstants';
+import {
+  parseRelationsFrontmatter,
+  serializeRelationsFrontmatter,
+} from '../relations/relationMarkdown';
 
 /** Case-insensitive property key for lookup */
 export function normalizePropertyKey(key: string): string {
@@ -112,6 +116,12 @@ function parseFrontmatterContent(content: string): Record<string, string> {
       continue;
     }
 
+    if (/^relations\s*:\s*$/i.test(trimmed)) {
+      i++;
+      while (i < lines.length && /^\s/.test(lines[i])) i++;
+      continue;
+    }
+
     if (/^tags\s*:\s*$/i.test(trimmed)) {
       const tags: string[] = [];
       i++;
@@ -143,15 +153,21 @@ function parseFrontmatterContent(content: string): Record<string, string> {
 }
 
 /** Parse simple YAML frontmatter from imported markdown */
-export function parseNoteMarkdown(raw: string): { body: string; properties?: Record<string, string> } {
+export function parseNoteMarkdown(raw: string): {
+  body: string;
+  properties?: Record<string, string>;
+  relations?: Record<string, string[]>;
+} {
   const match = raw.match(FRONTMATTER_RE);
   if (!match) return { body: raw };
 
   const properties = parseFrontmatterContent(match[1]);
+  const relations = parseRelationsFrontmatter(match[1]);
 
   return {
     body: raw.slice(match[0].length).replace(/^\n+/, ''),
     properties: normalizeNoteProperties(properties),
+    relations,
   };
 }
 
@@ -159,8 +175,11 @@ export function parseNoteMarkdown(raw: string): { body: string; properties?: Rec
 export function serializeNoteMarkdown(note: NoteBase): string {
   const tags = tagsFromPropertyValue(getProperty(note, TAGS_PROPERTY_KEY));
   const userProps = listUserProperties(note);
+  const relationLines = serializeRelationsFrontmatter(note.relations);
 
-  if (tags.length === 0 && userProps.length === 0) return note.body ?? '';
+  if (tags.length === 0 && userProps.length === 0 && relationLines.length === 0) {
+    return note.body ?? '';
+  }
 
   const lines: string[] = [];
   if (tags.length > 0) {
@@ -169,6 +188,7 @@ export function serializeNoteMarkdown(note: NoteBase): string {
       lines.push(`  - ${escapeYamlValue(tag)}`);
     }
   }
+  lines.push(...relationLines);
   for (const { key, value } of userProps) {
     lines.push(`${key}: ${escapeYamlValue(value)}`);
   }

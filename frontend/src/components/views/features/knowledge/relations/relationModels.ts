@@ -33,6 +33,15 @@ export type RelationQueryClause =
   | { type: 'hasRelation'; key: string }
   | { type: 'linkedTo'; target: string };
 
+/** Resolved relation target for lookup APIs */
+export interface ResolvedRelationTarget {
+  targetId: string;
+  propertyKey: string;
+  targetTitle: string;
+  /** True when target note is missing or trashed */
+  missing: boolean;
+}
+
 /** Graph extension — K-14+ */
 export type ExplicitGraphRelationshipType = 'relation';
 

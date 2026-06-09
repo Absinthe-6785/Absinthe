@@ -6,6 +6,8 @@ import { listTags } from './tags/noteTags';
 import { isTagsPropertyKey, normalizeTagName } from './tags/tagConstants';
 import { normalizePropertyKey } from './properties/noteProperties';
 import { normalizeQueryValue } from './query/parseQuery';
+import type { RelationEdge, ResolvedRelationTarget } from './relations/relationModels';
+import { normalizeRelationPropertyKey, relationEdgeKey, toRelationEdges } from './relations/relationNormalize';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
 
 export interface RelatedNote {
@@ -51,6 +53,10 @@ export class KnowledgeIndexService {
   private notesByProperty = new Map<string, Map<string, Set<string>>>();
   /** normalized property key → normalized value → display value */
   private propertyValueLabels = new Map<string, Map<string, string>>();
+  /** source note id → outgoing relation edges */
+  private outgoingRelationsByNoteId = new Map<string, RelationEdge[]>();
+  /** target note id → incoming relation edges */
+  private incomingRelationsByTargetId = new Map<string, RelationEdge[]>();
 
   /** Cold start / bulk sync — full rebuild */
   buildFromNotes(notes: NoteBase[]): void {
@@ -66,6 +72,8 @@ export class KnowledgeIndexService {
     this.relatedByNoteId.clear();
     this.notesByProperty.clear();
     this.propertyValueLabels.clear();
+    this.outgoingRelationsByNoteId.clear();
+    this.incomingRelationsByTargetId.clear();
 
     for (const note of notes) {
       if (note.deletedAt) continue;
@@ -79,6 +87,7 @@ export class KnowledgeIndexService {
       this.upsertNoteEdges(note);
       this.upsertNoteProperties(note);
       this.upsertNoteTags(note);
+      this.upsertNoteRelations(note);
       this.indexMentionsFromSource(note);
     }
 
@@ -99,6 +108,7 @@ export class KnowledgeIndexService {
     const oldTitleKey = normalizeWikiTitle(this.activeNotes.get(note.id)?.title ?? '');
 
     this.removeNoteEdges(note.id);
+    this.removeNoteRelations(note.id);
     this.removeMentionsFromSource(note.id);
     this.activeNotes.set(note.id, { title: note.title ?? '', body: note.body ?? '' });
 
@@ -111,6 +121,7 @@ export class KnowledgeIndexService {
     this.upsertNoteEdges(note);
     this.upsertNoteProperties(note);
     this.upsertNoteTags(note);
+    this.upsertNoteRelations(note);
     this.indexMentionsFromSource(note);
     this.rebuildMentionsForTarget(note.id);
 
@@ -127,6 +138,7 @@ export class KnowledgeIndexService {
     const titleKey = normalizeWikiTitle(this.activeNotes.get(noteId)?.title ?? '');
 
     this.removeNoteEdges(noteId);
+    this.removeNoteRelations(noteId);
     this.removeMentionsFromSource(noteId);
     this.removeNoteTags(noteId);
     this.removeNoteFromPropertyIndex(noteId);
@@ -194,6 +206,67 @@ export class KnowledgeIndexService {
   /** All indexed note ids — O(N) */
   getAllNoteIds(): string[] {
     return [...this.activeNotes.keys()];
+  }
+
+  /** Outgoing relation edges from a note — O(1) */
+  getOutgoingRelations(noteId: string): readonly RelationEdge[] {
+    return this.outgoingRelationsByNoteId.get(noteId) ?? [];
+  }
+
+  /** Alias for outgoing relations on a note */
+  getRelations(noteId: string): readonly RelationEdge[] {
+    return this.getOutgoingRelations(noteId);
+  }
+
+  /** Incoming relation edges to a note — O(1) bucket lookup */
+  getIncomingRelations(noteId: string): readonly RelationEdge[] {
+    return this.incomingRelationsByTargetId.get(noteId) ?? [];
+  }
+
+  /** Outgoing target note ids for a relation property key — O(k) over outgoing edges */
+  getRelationTargets(sourceId: string, propertyKey: string): string[] {
+    const normKey = normalizeRelationPropertyKey(propertyKey);
+    return this.getOutgoingRelations(sourceId)
+      .filter(edge => normalizeRelationPropertyKey(edge.propertyKey) === normKey)
+      .map(edge => edge.targetId);
+  }
+
+  /** Source note ids with an outgoing relation to target via property key */
+  getNotesWithRelation(propertyKey: string, targetId: string): string[] {
+    const normKey = normalizeRelationPropertyKey(propertyKey);
+    return (this.incomingRelationsByTargetId.get(targetId) ?? [])
+      .filter(edge => normalizeRelationPropertyKey(edge.propertyKey) === normKey)
+      .map(edge => edge.sourceId);
+  }
+
+  /** Reverse relation lookup — sources linking to target via property key */
+  getRelatedNotesByRelation(targetId: string, propertyKey: string): string[] {
+    return this.getNotesWithRelation(propertyKey, targetId);
+  }
+
+  /** Resolve outgoing relation targets with titles; missing when target absent */
+  resolveRelationTargets(sourceId: string, propertyKey?: string): ResolvedRelationTarget[] {
+    const filterKey = propertyKey ? normalizeRelationPropertyKey(propertyKey) : null;
+    const edges = this.getOutgoingRelations(sourceId).filter(edge =>
+      !filterKey || normalizeRelationPropertyKey(edge.propertyKey) === filterKey,
+    );
+
+    const seen = new Set<string>();
+    const resolved: ResolvedRelationTarget[] = [];
+    for (const edge of edges) {
+      const identity = relationEdgeKey(edge.sourceId, edge.targetId, edge.propertyKey);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+
+      const active = this.activeNotes.get(edge.targetId);
+      resolved.push({
+        targetId: edge.targetId,
+        propertyKey: edge.propertyKey,
+        targetTitle: active?.title ?? '',
+        missing: !active,
+      });
+    }
+    return resolved;
   }
 
   /**
@@ -479,6 +552,48 @@ export class KnowledgeIndexService {
         this.notesByTag.set(key, bucket);
       }
       bucket.set(note.id, tag);
+    }
+  }
+
+  private removeNoteRelations(sourceId: string): void {
+    for (const edge of this.outgoingRelationsByNoteId.get(sourceId) ?? []) {
+      this.removeIncomingRelationEdge(edge);
+    }
+    this.outgoingRelationsByNoteId.delete(sourceId);
+  }
+
+  private removeIncomingRelationEdge(edge: RelationEdge): void {
+    const incoming = this.incomingRelationsByTargetId.get(edge.targetId);
+    if (!incoming) return;
+
+    const normKey = normalizeRelationPropertyKey(edge.propertyKey);
+    const next = incoming.filter(existing =>
+      !(existing.sourceId === edge.sourceId
+        && normalizeRelationPropertyKey(existing.propertyKey) === normKey),
+    );
+
+    if (next.length === 0) {
+      this.incomingRelationsByTargetId.delete(edge.targetId);
+    } else {
+      this.incomingRelationsByTargetId.set(edge.targetId, next);
+    }
+  }
+
+  private upsertNoteRelations(note: NoteBase): void {
+    this.removeNoteRelations(note.id);
+    const edges = toRelationEdges(note.id, note.relations);
+    if (edges.length === 0) return;
+
+    this.outgoingRelationsByNoteId.set(note.id, edges);
+    for (const edge of edges) {
+      const incoming = this.incomingRelationsByTargetId.get(edge.targetId) ?? [];
+      const identity = relationEdgeKey(edge.sourceId, edge.targetId, edge.propertyKey);
+      if (incoming.some(existing =>
+        relationEdgeKey(existing.sourceId, existing.targetId, existing.propertyKey) === identity,
+      )) {
+        continue;
+      }
+      this.incomingRelationsByTargetId.set(edge.targetId, [...incoming, edge]);
     }
   }
 

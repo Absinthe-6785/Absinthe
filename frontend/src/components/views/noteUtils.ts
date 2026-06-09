@@ -5,7 +5,7 @@
  * 테스트 작성 및 재사용이 용이하도록 독립 모듈로 관리.
  */
 
-// KaTeX 전역 선언 (동적 로드 후 window.katex로 접근)
+import { normalizeNoteRelations } from './features/knowledge/relations/relationNormalize';
 declare global {
   interface Window {
     katex?: { renderToString: (expr: string, opts?: object) => string };
@@ -24,6 +24,8 @@ export interface NoteBase {
   starred?: boolean;
   /** Page-level metadata — key/value strings, case-insensitive lookup */
   properties?: Record<string, string>;
+  /** Outgoing relations — property key → target note ids */
+  relations?: Record<string, string[]>;
 }
 export interface NoteFolderBase {
   id: string;
@@ -80,6 +82,7 @@ export function normalizeNote(n: Partial<NoteBase>): NoteBase {
     deletedAt: n.deletedAt ?? null,
     starred: n.starred ?? false,
     properties: normalizeNoteProperties(n.properties),
+    relations: normalizeNoteRelations(n.relations),
   };
 }
 
@@ -498,6 +501,9 @@ export function noteSyncPayload(note: NoteBase) {
   };
   if (note.properties && Object.keys(note.properties).length > 0) {
     payload.properties = note.properties;
+  }
+  if (note.relations && Object.keys(note.relations).length > 0) {
+    payload.relations = note.relations;
   }
   return payload;
 }
