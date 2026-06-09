@@ -10,7 +10,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
-import type { GlobalGraphRelationshipFilter } from './features/knowledge';
+import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
@@ -26,7 +26,11 @@ interface GraphNode {
   starred?: boolean;
 }
 
-interface GraphEdge { from: string; to: string; }
+interface GraphEdge {
+  from: string;
+  to: string;
+  relationshipType: GraphRelationshipType;
+}
 
 interface Transform { x: number; y: number; k: number; }
 
@@ -135,10 +139,14 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     const edgeList: GraphEdge[] = [];
 
     graphData.edges.forEach(edge => {
-      const key = [edge.sourceId, edge.targetId].sort().join('|');
+      const key = [edge.sourceId, edge.targetId, edge.relationshipType].join('|');
       if (edgeSet.has(key)) return;
       edgeSet.add(key);
-      edgeList.push({ from: edge.sourceId, to: edge.targetId });
+      edgeList.push({
+        from: edge.sourceId,
+        to: edge.targetId,
+        relationshipType: edge.relationshipType,
+      });
     });
     edgesRef.current = edgeList;
 
@@ -434,6 +442,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           <option value="all">All links</option>
           <option value="backlinks">Backlinks</option>
           <option value="mentions">Mentions</option>
+          <option value="relations">Relations</option>
         </select>
 
         {/* 고립 노드 토글 */}
@@ -516,11 +525,20 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             const isAct  = e.from === activeNoteId || e.to === activeNoteId;
             const isDim  = matchedIds !== null
               && !matchedIds.has(e.from) && !matchedIds.has(e.to);
+            const isRelation = e.relationshipType === 'relation';
+            const strokeColor = isDim
+              ? colors.dimEdge
+              : isRelation
+                ? '#10B981'
+                : isAct
+                  ? colors.act
+                  : colors.edge;
             return (
               <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={isDim ? colors.dimEdge : isAct ? colors.act : colors.edge}
-                strokeWidth={isAct ? 1.5 : 1}
+                stroke={strokeColor}
+                strokeWidth={isAct ? 1.5 : isRelation ? 1.75 : 1}
                 strokeOpacity={isDim ? 0.15 : isAct ? 0.9 : 0.45}
+                strokeDasharray={isRelation ? '4 3' : undefined}
                 markerEnd={isDim ? 'url(#garr-dim)' : isAct ? 'url(#garr-act)' : 'url(#garr)'}
               />
             );

@@ -58,7 +58,7 @@ interface NotesState {
   setActiveNoteId: (id: string | null) => void;
   setActiveFolderId: (id: string | null | 'trash') => void;
   createNote: (opts?: CreateNoteOpts) => string;
-  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties'>>) => void;
+  updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
   toggleStar: (id: string) => void;
   duplicateNote: (note: Note) => string;
   moveNoteToTrash: (id: string) => void;
@@ -149,7 +149,8 @@ function syncKnowledgeIndexForNote(note: Note, patch?: Partial<Note>) {
     'body' in patch ||
     'title' in patch ||
     'deletedAt' in patch ||
-    'properties' in patch
+    'properties' in patch ||
+    'relations' in patch
   ) {
     knowledgeIndexService.updateNote(note);
   }

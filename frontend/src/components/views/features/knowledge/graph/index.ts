@@ -17,5 +17,6 @@ export {
   type GraphNodeType,
   type GraphRelationshipType,
   type GraphScope,
+  type LocalGraphRelationshipFilter,
 } from './graphModels';
 export { LocalGraphView, type LocalGraphViewProps } from './LocalGraphView';

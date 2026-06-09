@@ -26,6 +26,10 @@ function includeMentions(filter: GlobalGraphRelationshipFilter): boolean {
   return filter === 'all' || filter === 'mentions';
 }
 
+function includeRelations(filter: GlobalGraphRelationshipFilter): boolean {
+  return filter === 'all' || filter === 'relations';
+}
+
 /** Build full-vault graph from precomputed knowledge index data — O(N + E) */
 export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
   const { service, options = {} } = input;
@@ -50,6 +54,14 @@ export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
         if (ref.noteId === noteId) continue;
         addEdge(edgeMap, noteId, ref.noteId, 'mention', RELATED_SCORE.MENTION);
         incrementDegree(degrees, noteId, ref.noteId);
+      }
+    }
+
+    if (includeRelations(relationshipFilter)) {
+      for (const edge of service.getOutgoingRelations(noteId)) {
+        if (edge.targetId === noteId) continue;
+        addEdge(edgeMap, edge.sourceId, edge.targetId, 'relation', RELATED_SCORE.RELATION);
+        incrementDegree(degrees, edge.sourceId, edge.targetId);
       }
     }
   }

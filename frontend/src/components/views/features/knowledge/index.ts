@@ -70,6 +70,7 @@ export {
 } from './components/DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
+export { NoteRelationsPanel, type NoteRelationsPanelProps, type IncomingRelationDisplay } from './components/NoteRelationsPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
 
@@ -93,6 +94,7 @@ export {
   type GraphNodeType,
   type GraphRelationshipType,
   type GraphScope,
+  type LocalGraphRelationshipFilter,
   type LocalGraphViewProps,
 } from './graph';
 
