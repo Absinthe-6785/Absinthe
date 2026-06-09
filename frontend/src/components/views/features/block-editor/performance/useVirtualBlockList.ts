@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import type { Block } from '../../../blockUtils';
 import { BlockHeightCache } from './blockHeightCache';
 import { estimateBlockHeight } from './blockHeightEstimates';
 import { observeScrollRectWithFallback } from './observeScrollRect';
 import { scrollToBlockId as scrollToBlockIdImpl, type BlockVirtualizer } from './scrollToBlockId';
+import { getDragStateSnapshot, subscribeDragState } from './dragStateStore';
 
 const DEFAULT_OVERSCAN = 8;
 
@@ -35,10 +36,20 @@ export function useVirtualBlockList({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
 
+  const pinnedIndicesRef = useRef<number[]>([]);
+
   const virtualizer = useVirtualizer({
     count: enabled ? blocks.length : 0,
     getScrollElement,
     overscan,
+    rangeExtractor: (range) => {
+      const base = defaultRangeExtractor(range);
+      const pinned = pinnedIndicesRef.current.filter(
+        i => i >= 0 && i < blocksRef.current.length,
+      );
+      if (pinned.length === 0) return base;
+      return [...new Set([...base, ...pinned])].sort((a, b) => a - b);
+    },
     observeElementRect: observeScrollRectWithFallback,
     estimateSize: (index) => {
       const block = blocksRef.current[index];
@@ -62,6 +73,30 @@ export function useVirtualBlockList({
     if (!enabled) return;
     if (getScrollElement()) virtualizer.measure();
   }, [enabled, getScrollElement, virtualizer, blocks.length]);
+
+  const [, setPinTick] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const syncPinned = () => {
+      const state = getDragStateSnapshot();
+      if (!state) {
+        pinnedIndicesRef.current = [];
+      } else {
+        const pinIds = new Set(
+          [...state.draggingIds, state.overId].filter((id): id is string => !!id),
+        );
+        const pinned: number[] = [];
+        blocksRef.current.forEach((block, index) => {
+          if (pinIds.has(block.id)) pinned.push(index);
+        });
+        pinnedIndicesRef.current = pinned;
+      }
+      setPinTick(t => t + 1);
+    };
+    syncPinned();
+    return subscribeDragState(syncPinned);
+  }, [enabled]);
 
   return {
     virtualizer,

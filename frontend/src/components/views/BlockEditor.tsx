@@ -37,7 +37,7 @@ import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
   moveBlockIntoToggle, moveBlockOutOfToggle,
 } from './blockTree';
-import { useDragDrop } from './editorDragDrop';
+import { resolveDragOverFromPoint, useDragDrop } from './editorDragDrop';
 import type {
   BlockEditorColors, TurnIntoMenuState,
 } from './editorTypes';
@@ -79,15 +79,17 @@ import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 import {
-  DISABLED_DRAG_API,
   DragOverlay,
+  getRowMetrics,
   isVirtualBlocksPocEnabled,
   listVirtualBlockRows,
   PendingFocusQueue,
+  resolveDropTargetFromRows,
   createVirtualNavigationApi,
   useVirtualBlockList,
   VirtualBlockList,
   VirtualNavigationProvider,
+  type RowMetricsOptions,
 } from './features/block-editor/performance';
 
 export type { BlockEditorColors } from './editorTypes';
@@ -190,17 +192,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     editorRootRef.current = node;
   }, []);
 
-  const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
-    getSelectedIds: () => [...selectedBlockIdsRef.current],
-    getScrollContainer: () =>
-      editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
-    getEditorRoot: () => editorRootRef.current,
-  } : undefined);
   const virtualRootEnabled = isVirtualBlocksPocEnabled(virtualBlocksPoc) && depth === 0;
-  const activeDrag = depth === 0 ? localDrag : parentDrag!;
-  const { bindGripPointer, getDragProps } = virtualRootEnabled
-    ? DISABLED_DRAG_API
-    : activeDrag;
   const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
@@ -227,6 +219,53 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     enabled: virtualRootEnabled,
     getScrollElement: getVirtualScrollElement,
   });
+
+  const rowMetricsOptionsRef = useRef<RowMetricsOptions>({
+    getEditorRoot: () => editorRootRef.current,
+    getRootBlockIds: () => blocksRef.current.map(b => b.id),
+    getBlocks: () => blocksRef.current,
+    getVirtualizer: () => virtualList.virtualizer,
+    getScrollElement: getVirtualScrollElement,
+  });
+  rowMetricsOptionsRef.current = {
+    getEditorRoot: () => editorRootRef.current,
+    getRootBlockIds: () => blocksRef.current.map(b => b.id),
+    getBlocks: () => blocksRef.current,
+    getVirtualizer: () => virtualList.virtualizer,
+    getScrollElement: getVirtualScrollElement,
+  };
+
+  const resolveVirtualDragOver = useCallback((
+    clientX: number,
+    clientY: number,
+    draggingIds: string[],
+  ) => {
+    const domHit = resolveDragOverFromPoint(clientX, clientY, draggingIds);
+    if (domHit) return domHit;
+    if (!virtualRootEnabled) return null;
+    const rows = getRowMetrics(rowMetricsOptionsRef.current);
+    return resolveDropTargetFromRows(
+      clientY,
+      rows,
+      draggingIds,
+      id => findBlockById(blocksRef.current, id) ?? undefined,
+    );
+  }, [virtualRootEnabled]);
+
+  const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
+    getSelectedIds: () => [...selectedBlockIdsRef.current],
+    getScrollContainer: () =>
+      editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null,
+    getEditorRoot: () => editorRootRef.current,
+    resolveDragOver: virtualRootEnabled ? resolveVirtualDragOver : undefined,
+  } : undefined);
+  const activeDrag = depth === 0 ? localDrag : parentDrag!;
+  const { bindGripPointer, getDragProps } = activeDrag;
+
+  const getRowMetricsOptions = useCallback(
+    () => rowMetricsOptionsRef.current,
+    [],
+  );
 
   const navigationApi = useMemo(
     () => createVirtualNavigationApi({
@@ -554,11 +593,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         {depth === 0 && !readOnly && (
           <MultiSelectHint count={selectedBlockIds.size} colors={c} />
         )}
-        {depth === 0 && !readOnly && !virtualRootEnabled && (
+        {depth === 0 && !readOnly && (
           <DragOverlay
             colors={c}
             getBlocks={getRootBlocks}
             getEditorRoot={() => editorRootRef.current}
+            getRowMetricsOptions={virtualRootEnabled ? getRowMetricsOptions : undefined}
           />
         )}
       </div>

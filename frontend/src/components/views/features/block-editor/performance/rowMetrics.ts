@@ -52,8 +52,59 @@ export function getRowMetrics(options: RowMetricsOptions): BlockRowHit[] {
   return getVisibleRowMetrics(options);
 }
 
-function rowForBlockId(rows: BlockRowHit[], blockId: string): BlockRowHit | undefined {
+export function rowForBlockId(rows: BlockRowHit[], blockId: string): BlockRowHit | undefined {
   return rows.find(r => r.blockId === blockId);
+}
+
+export interface OverlayFrame {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  indentLeft: number;
+}
+
+/** Map a row hit to fixed overlay coordinates (virtual-safe). */
+export function overlayFrameFromRow(
+  row: BlockRowHit,
+  scrollRect: { left: number; width: number },
+  indentLeft = 0,
+): OverlayFrame {
+  return {
+    top: row.top,
+    left: scrollRect.left,
+    width: scrollRect.width,
+    height: row.bottom - row.top,
+    indentLeft,
+  };
+}
+
+/** Resolve overlay frame: DOM measurement first, then row metrics. */
+export function resolveOverlayFrame(
+  blockId: string,
+  options: RowMetricsOptions,
+): OverlayFrame | null {
+  const el = document.querySelector(`[data-drag-id="${blockId}"]`) as HTMLElement | null;
+  if (el) {
+    const rect = el.getBoundingClientRect();
+    const marginLeft = parseFloat(getComputedStyle(el).marginLeft) || 0;
+    return {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      indentLeft: marginLeft,
+    };
+  }
+
+  const rows = getRowMetrics(options);
+  const row = rowForBlockId(rows, blockId);
+  if (!row) return null;
+
+  const scrollEl = options.getScrollElement?.();
+  const scrollRect = scrollEl?.getBoundingClientRect()
+    ?? { left: 0, width: typeof window !== 'undefined' ? window.innerWidth : 800 };
+  return overlayFrameFromRow(row, scrollRect);
 }
 
 /**

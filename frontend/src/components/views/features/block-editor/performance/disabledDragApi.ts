@@ -1,6 +1,6 @@
 /**
- * No-op drag API used when VIRTUAL_BLOCKS_POC is enabled.
- * Block reorder drag is disabled until UX-5E.1C virtual hit-test integration.
+ * No-op drag API for tests or explicit drag-disable scenarios.
+ * Production virtual drag uses real useDragDrop with row-metrics hit-test (UX-5E.1E).
  */
 import type { UseDragDropResult } from '../../../editorDragDrop';
 
