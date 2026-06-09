@@ -16,4 +16,16 @@ export {
   knowledgeIndexService,
 } from './KnowledgeIndexService';
 
+export {
+  getProperty,
+  listProperties,
+  normalizeNoteProperties,
+  normalizePropertyKey,
+  parseNoteMarkdown,
+  removeProperty,
+  serializeNoteMarkdown,
+  setProperty,
+} from './properties';
+
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
+export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';

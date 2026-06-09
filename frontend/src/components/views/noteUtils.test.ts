@@ -113,6 +113,14 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     expect(payload.starred).toBe(true);
     expect(payload.folder_id).toBeNull();
   });
+
+  it('noteSyncPayload includes properties when present', () => {
+    const payload = noteSyncPayload({
+      id: 'n1', title: 'T', body: 'B', updatedAt: 1, folderId: null, deletedAt: null,
+      properties: { status: 'active' },
+    });
+    expect(payload.properties).toEqual({ status: 'active' });
+  });
 });
 
 describe('mergeNotesFromStorageJson — multi-tab', () => {
