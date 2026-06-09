@@ -1,14 +1,16 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
+import { getProperty } from '../properties/noteProperties';
 import { listTags } from '../tags/noteTags';
-import type { DatabaseColumn } from '../databaseViews/databaseViewModels';
+import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
 
 export interface DatabaseTableViewProps {
   colors: NoteChromeColors;
   notes: readonly NoteBase[];
   columns?: readonly DatabaseColumn[];
+  sort?: DatabaseViewSort;
   service: KnowledgeIndexService;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
@@ -23,7 +25,7 @@ function formatUpdatedAt(timestamp: number): string {
   });
 }
 
-function getCellValue(
+export function getDatabaseCellValue(
   note: NoteBase,
   column: DatabaseColumn,
   service: KnowledgeIndexService,
@@ -36,6 +38,8 @@ function getCellValue(
     case 'tags':
       return listTags(note).join(', ') || '—';
     default: {
+      const fromNote = getProperty(note, column.key);
+      if (fromNote !== undefined && fromNote.trim()) return fromNote.trim();
       const props = service.getProperties(note.id);
       const match = Object.entries(props).find(
         ([key]) => key.toLowerCase() === column.key.toLowerCase(),
@@ -45,10 +49,16 @@ function getCellValue(
   }
 }
 
+function sortIndicator(sort: DatabaseViewSort | undefined, columnKey: string): string {
+  if (!sort || sort.key !== columnKey) return '';
+  return sort.direction === 'asc' ? ' ↑' : ' ↓';
+}
+
 export function DatabaseTableView({
   colors: c,
   notes,
   columns = DEFAULT_TABLE_COLUMNS,
+  sort,
   service,
   activeNoteId,
   onSelectNote,
@@ -69,7 +79,7 @@ export function DatabaseTableView({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {column.label}
+                {column.label}{sortIndicator(sort, column.key)}
               </th>
             ))}
           </tr>
@@ -103,7 +113,7 @@ export function DatabaseTableView({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {getCellValue(note, column, service)}
+                  {getDatabaseCellValue(note, column, service)}
                 </td>
               ))}
             </tr>

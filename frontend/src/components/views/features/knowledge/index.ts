@@ -56,7 +56,8 @@ export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './compon
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
-export { DatabaseTableView, type DatabaseTableViewProps } from './components/DatabaseTableView';
+export { DatabaseTableView, getDatabaseCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
+export { DatabaseViewControls, type DatabaseViewControlsProps } from './components/DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
@@ -150,19 +151,36 @@ export {
 
 export {
   activateDatabaseView,
+  addDatabaseViewColumn,
+  BUILTIN_COLUMN_KEYS,
   createDatabaseView,
   DATABASE_VIEWS_KEY,
+  DEFAULT_DATABASE_VIEW_SORT,
   DEFAULT_TABLE_COLUMNS,
   deleteDatabaseView,
   evaluateDatabaseView,
   filterByDatabaseView,
   findDatabaseView,
+  hideDatabaseViewColumn,
+  isBuiltinColumnKey,
   isValidDatabaseViewQuery,
   loadDatabaseViews,
   normalizeDatabaseViews,
+  prepareDatabaseViewRows,
+  removeDatabaseViewColumn,
   renameDatabaseView,
+  resolveVisibleColumns,
   saveDatabaseViews,
+  setDatabaseViewColumnVisibility,
+  setDatabaseViewSort,
+  showDatabaseViewColumn,
+  sortDatabaseViewRows,
+  updateDatabaseViewConfig,
+  withDatabaseViewDefaults,
   type DatabaseColumn,
+  type DatabaseViewColumnEntry,
+  type DatabaseViewSort,
+  type DatabaseSortDirection,
 } from './databaseViews';
 
 export {

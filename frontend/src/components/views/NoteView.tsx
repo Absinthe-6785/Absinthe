@@ -43,13 +43,21 @@ import {
   SmartCollectionsSection,
   RuleCollectionsSection,
   DatabaseTableView,
+  DatabaseViewControls,
   DatabaseViewsSection,
   SMART_COLLECTIONS,
   createRuleCollection,
   evaluateSmartCollection,
   evaluateRuleCollection,
   evaluateDatabaseView,
-  filterByDatabaseView,
+  prepareDatabaseViewRows,
+  resolveVisibleColumns,
+  withDatabaseViewDefaults,
+  addDatabaseViewColumn,
+  removeDatabaseViewColumn,
+  setDatabaseViewSort,
+  setDatabaseViewColumnVisibility,
+  updateDatabaseViewConfig,
   findRuleCollection,
   findSmartCollection,
   findDatabaseView,
@@ -82,6 +90,7 @@ import {
   type SmartCollection,
   type RuleCollection,
   type DatabaseView,
+  type DatabaseViewSort,
   type WorkspaceActivation,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
@@ -504,11 +513,40 @@ export const NoteView = () => {
 
   const databaseViewNotes = useMemo(() => {
     if (!activeDatabaseView) return [];
-    const safeNotes = Array.isArray(notes) ? notes.filter(n => !n.deletedAt) : [];
-    return filterByDatabaseView(safeNotes, knowledgeIndexService, activeDatabaseView).notes.sort(
-      (a, b) => b.updatedAt - a.updatedAt || (a.title ?? '').localeCompare(b.title ?? ''),
-    );
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    return prepareDatabaseViewRows(activeDatabaseView, safeNotes, knowledgeIndexService);
   }, [activeDatabaseView, notes]);
+
+  const activeDatabaseViewColumns = useMemo(() => {
+    if (!activeDatabaseView) return [];
+    return resolveVisibleColumns(withDatabaseViewDefaults(activeDatabaseView).columns);
+  }, [activeDatabaseView]);
+
+  const activeDatabaseViewSort = useMemo(() => {
+    if (!activeDatabaseView) return undefined;
+    return withDatabaseViewDefaults(activeDatabaseView).sort;
+  }, [activeDatabaseView]);
+
+  const patchActiveDatabaseView = useCallback((updater: (view: DatabaseView) => DatabaseView) => {
+    if (workspaceActivation.kind !== 'database-view') return;
+    setDatabaseViews(prev => updateDatabaseViewConfig(prev, workspaceActivation.id, updater));
+  }, [workspaceActivation]);
+
+  const handleDatabaseViewAddColumn = useCallback((key: string) => {
+    patchActiveDatabaseView(view => addDatabaseViewColumn(view, key));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewRemoveColumn = useCallback((key: string) => {
+    patchActiveDatabaseView(view => removeDatabaseViewColumn(view, key));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewToggleColumn = useCallback((key: string, visible: boolean) => {
+    patchActiveDatabaseView(view => setDatabaseViewColumnVisibility(view, key, visible));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewSortChange = useCallback((sort: DatabaseViewSort) => {
+    patchActiveDatabaseView(view => setDatabaseViewSort(view, sort));
+  }, [patchActiveDatabaseView]);
 
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -1259,13 +1297,25 @@ export const NoteView = () => {
           </div>
         </div>
         {isDatabaseViewMode && activeDatabaseView ? (
-          <DatabaseTableView
-            colors={c}
-            notes={databaseViewNotes}
-            service={knowledgeIndexService}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-          />
+          <>
+            <DatabaseViewControls
+              colors={c}
+              view={activeDatabaseView}
+              onAddColumn={handleDatabaseViewAddColumn}
+              onRemoveColumn={handleDatabaseViewRemoveColumn}
+              onToggleColumnVisibility={handleDatabaseViewToggleColumn}
+              onSortChange={handleDatabaseViewSortChange}
+            />
+            <DatabaseTableView
+              colors={c}
+              notes={databaseViewNotes}
+              columns={activeDatabaseViewColumns}
+              sort={activeDatabaseViewSort}
+              service={knowledgeIndexService}
+              activeNoteId={activeNoteId}
+              onSelectNote={setActiveNoteId}
+            />
+          </>
         ) : (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
