@@ -150,6 +150,33 @@ describe('blockCopy semantic round-trip', () => {
     expect(data['text/plain']).toBe('Hi');
   });
 
+  it('table block copies as HTML table with TSV-style plain fallback (UX-5B.1)', () => {
+    const table = makeBlock('table', {
+      tableHeaders: ['Name', 'Score'],
+      tableRows: [['Alice', '95'], ['Bob', '88']],
+    });
+    const data: Record<string, string> = {};
+    applySemanticCopy([table], {
+      setData: (type, val) => { data[type] = val; },
+    });
+    expect(data['text/html']).toContain('<table>');
+    expect(data['text/html']).toContain('<th>Name</th>');
+    expect(data['text/html']).toContain('<td>Alice</td>');
+    expect(data['text/plain']).toContain('| Name | Score |');
+    expect(data['text/plain']).toContain('| Alice | 95 |');
+  });
+
+  it('table block round-trips through clipboard paste', () => {
+    const table = makeBlock('table', {
+      tableHeaders: ['H'],
+      tableRows: [['cell']],
+    });
+    const parsed = roundTrip([table]);
+    expect(parsed[0].type).toBe('table');
+    expect(parsed[0].tableHeaders).toEqual(['H']);
+    expect(parsed[0].tableRows).toEqual([['cell']]);
+  });
+
   it('isolated indented bullet does not emit empty ul', () => {
     const html = blocksToCopyHtml([makeBlock('bullet', { content: 'nested', indent: 1 })]);
     expect(html).not.toBe('<ul></ul>');

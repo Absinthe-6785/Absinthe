@@ -6,6 +6,7 @@
  */
 import { makeBlock, type Block } from '../../../../../blockUtils';
 import { isDetailsToggleElement, toggleBlockFromDetails } from '../../../../../htmlToggleParser';
+import { parseBeToggleWrap } from './domToggleParser';
 
 const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
   H1: 'heading1',
@@ -109,6 +110,14 @@ function walkNode(node: Node, out: Block[]): void {
 
   const el = node as HTMLElement;
   const tag = el.tagName.toUpperCase();
+
+  if (el.classList.contains('be-toggle-wrap')) {
+    const toggle = parseBeToggleWrap(el);
+    if (toggle) {
+      out.push(toggle);
+      return;
+    }
+  }
 
   if (tag in HEADING_MAP) {
     const content = inlineText(el);
