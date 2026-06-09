@@ -1,8 +1,14 @@
 import type { NoteBase } from '../../noteUtils';
 import { extractLinks, findNoteByTitle, normalizeWikiTitle } from '../../noteUtils';
+import { hasUnlinkedMention } from './mentions/mentionDetection';
 import { listTags } from './tags/noteTags';
 import { normalizeTagName } from './tags/tagConstants';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
+
+export interface MentionLookupOptions {
+  /** Exclude self when viewing mentions on active page */
+  excludeNoteId?: string;
+}
 
 /**
  * KnowledgeIndexService — shared indexing layer for knowledge features.
@@ -21,6 +27,12 @@ export class KnowledgeIndexService {
   private tagsByNoteId = new Map<string, readonly string[]>();
   /** normalized tag → note id → display tag name */
   private notesByTag = new Map<string, Map<string, string>>();
+  /** active note id → title/body snapshot for mention indexing */
+  private activeNotes = new Map<string, { title: string; body: string }>();
+  /** target note id → source note id → reference (unlinked mentions) */
+  private mentionsByTargetId = new Map<string, Map<string, PageReference>>();
+  /** source note id → target note ids mentioned as plain text */
+  private mentionsFromSourceId = new Map<string, string[]>();
 
   /** Cold start / bulk sync — full rebuild */
   buildFromNotes(notes: NoteBase[]): void {
@@ -29,12 +41,21 @@ export class KnowledgeIndexService {
     this.propertiesByNoteId.clear();
     this.tagsByNoteId.clear();
     this.notesByTag.clear();
+    this.activeNotes.clear();
+    this.mentionsByTargetId.clear();
+    this.mentionsFromSourceId.clear();
+
+    for (const note of notes) {
+      if (note.deletedAt) continue;
+      this.activeNotes.set(note.id, { title: note.title ?? '', body: note.body ?? '' });
+    }
 
     for (const note of notes) {
       if (note.deletedAt) continue;
       this.upsertNoteEdges(note);
       this.upsertNoteProperties(note);
       this.upsertNoteTags(note);
+      this.indexMentionsFromSource(note);
     }
   }
 
@@ -45,16 +66,23 @@ export class KnowledgeIndexService {
       return;
     }
     this.removeNoteEdges(note.id);
+    this.removeMentionsFromSource(note.id);
+    this.activeNotes.set(note.id, { title: note.title ?? '', body: note.body ?? '' });
     this.upsertNoteEdges(note);
     this.upsertNoteProperties(note);
     this.upsertNoteTags(note);
+    this.indexMentionsFromSource(note);
+    this.rebuildMentionsForTarget(note.id);
   }
 
   /** Remove a note from the index (trash / permanent delete) */
   removeNote(noteId: string): void {
     this.removeNoteEdges(noteId);
+    this.removeMentionsFromSource(noteId);
     this.removeNoteTags(noteId);
     this.propertiesByNoteId.delete(noteId);
+    this.mentionsByTargetId.delete(noteId);
+    this.activeNotes.delete(noteId);
   }
 
   /** Page properties for a note — O(1). Future: tag/property queries build on this. */
@@ -109,6 +137,29 @@ export class KnowledgeIndexService {
 
   getBacklinkCount(title: string, excludeNoteId?: string): number {
     return this.getIncoming(title, { excludeNoteId }).length;
+  }
+
+  /** Notes that mention this page as plain text — O(1) */
+  getMentioningNotes(targetNoteId: string, opts: MentionLookupOptions = {}): PageReference[] {
+    const bucket = this.mentionsByTargetId.get(targetNoteId);
+    if (!bucket) return [];
+
+    const refs = [...bucket.values()];
+    if (!opts.excludeNoteId) return refs;
+    return refs.filter(r => r.noteId !== opts.excludeNoteId);
+  }
+
+  /** Alias for incoming unlinked mentions */
+  getMentions(targetNoteId: string, opts: MentionLookupOptions = {}): PageReference[] {
+    return this.getMentioningNotes(targetNoteId, opts);
+  }
+
+  getMentionCount(targetNoteId: string, excludeNoteId?: string): number {
+    return this.getMentioningNotes(targetNoteId, { excludeNoteId }).length;
+  }
+
+  resolveMentionNavigation(ref: PageReference): string {
+    return ref.noteId;
   }
 
   /** Combined incoming/outgoing references for a page */
@@ -197,6 +248,72 @@ export class KnowledgeIndexService {
         this.notesByTag.set(key, bucket);
       }
       bucket.set(note.id, tag);
+    }
+  }
+
+  private removeMentionsFromSource(sourceId: string): void {
+    for (const targetId of this.mentionsFromSourceId.get(sourceId) ?? []) {
+      const bucket = this.mentionsByTargetId.get(targetId);
+      if (!bucket) continue;
+      bucket.delete(sourceId);
+      if (bucket.size === 0) this.mentionsByTargetId.delete(targetId);
+    }
+    this.mentionsFromSourceId.delete(sourceId);
+  }
+
+  private indexMentionsFromSource(note: NoteBase): void {
+    const ref: PageReference = { noteId: note.id, noteTitle: note.title ?? '' };
+    const body = note.body ?? '';
+    const targetIds: string[] = [];
+
+    for (const [targetId, target] of this.activeNotes) {
+      if (targetId === note.id || !target.title.trim()) continue;
+      if (hasUnlinkedMention(body, target.title)) {
+        let bucket = this.mentionsByTargetId.get(targetId);
+        if (!bucket) {
+          bucket = new Map();
+          this.mentionsByTargetId.set(targetId, bucket);
+        }
+        bucket.set(note.id, ref);
+        targetIds.push(targetId);
+      }
+    }
+
+    if (targetIds.length > 0) {
+      this.mentionsFromSourceId.set(note.id, targetIds);
+    }
+  }
+
+  private rebuildMentionsForTarget(targetId: string): void {
+    const target = this.activeNotes.get(targetId);
+    if (!target?.title.trim()) {
+      this.mentionsByTargetId.delete(targetId);
+      return;
+    }
+
+    for (const [sourceId, targets] of this.mentionsFromSourceId) {
+      if (!targets.includes(targetId)) continue;
+      const next = targets.filter(id => id !== targetId);
+      if (next.length > 0) this.mentionsFromSourceId.set(sourceId, next);
+      else this.mentionsFromSourceId.delete(sourceId);
+    }
+
+    const nextBucket = new Map<string, PageReference>();
+    for (const [sourceId, source] of this.activeNotes) {
+      if (sourceId === targetId) continue;
+      if (hasUnlinkedMention(source.body, target.title)) {
+        nextBucket.set(sourceId, { noteId: sourceId, noteTitle: source.title });
+        const existing = this.mentionsFromSourceId.get(sourceId) ?? [];
+        if (!existing.includes(targetId)) {
+          this.mentionsFromSourceId.set(sourceId, [...existing, targetId]);
+        }
+      }
+    }
+
+    if (nextBucket.size > 0) {
+      this.mentionsByTargetId.set(targetId, nextBucket);
+    } else {
+      this.mentionsByTargetId.delete(targetId);
     }
   }
 }

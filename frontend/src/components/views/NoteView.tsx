@@ -20,6 +20,7 @@ import {
   normalizeNoteFolderId,
 } from './noteUtils';
 import {
+  extractMentionContexts,
   knowledgeIndexService,
   LinkedReferencesPanel,
   listTags,
@@ -340,6 +341,17 @@ export const NoteView = () => {
     () => (activeNote ? extractLinkContexts(activeNote.title ?? '', notes) : []),
     [notes, activeNote?.id, activeNote?.title],
   );
+
+  const mentioningNotes = useMemo(
+    () => (activeNote ? knowledgeIndexService.getMentioningNotes(activeNote.id, { excludeNoteId: activeNote.id }) : []),
+    [activeNote, notes],
+  );
+
+  const mentionContexts = useMemo(() => {
+    if (!activeNote) return [];
+    const sourceIds = new Set(mentioningNotes.map(r => r.noteId));
+    return extractMentionContexts(activeNote.title ?? '', notes, sourceIds);
+  }, [activeNote, notes, mentioningNotes]);
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),
     [notes],
@@ -1205,6 +1217,8 @@ export const NoteView = () => {
               activeNoteTitle={activeNote.title ?? ''}
               incoming={pageReferences.incoming}
               contexts={backlinkContexts}
+              mentioning={mentioningNotes}
+              mentionContexts={mentionContexts}
               outgoing={pageReferences.outgoing}
               onNavigateToNote={setActiveNoteId}
               onNavigateToWiki={navigateToWiki}
