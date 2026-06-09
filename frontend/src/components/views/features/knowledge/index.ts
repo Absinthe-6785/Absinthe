@@ -88,3 +88,18 @@ export {
   type RelatedScoreBreakdown,
   type RelatedScoreInput,
 } from './related';
+
+export {
+  evaluateQuery,
+  evaluateQueryString,
+  filterNotes,
+  formatParsedQuery,
+  hasKnowledgeQuerySyntax,
+  isKnowledgeQuery,
+  normalizeQueryValue,
+  parseQuery,
+  type FilterNotesResult,
+  type ParsedQuery,
+  type QueryClause,
+  type QueryEvaluation,
+} from './query';

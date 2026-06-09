@@ -3,7 +3,9 @@ import { extractLinks, findNoteByTitle, normalizeWikiTitle } from '../../noteUti
 import { hasUnlinkedMention } from './mentions/mentionDetection';
 import { computeRelatedScore, type RelatedReason } from './related/relatedNotesScoring';
 import { listTags } from './tags/noteTags';
-import { normalizeTagName } from './tags/tagConstants';
+import { isTagsPropertyKey, normalizeTagName } from './tags/tagConstants';
+import { normalizePropertyKey } from './properties/noteProperties';
+import { normalizeQueryValue } from './query/parseQuery';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
 
 export interface RelatedNote {
@@ -45,6 +47,10 @@ export class KnowledgeIndexService {
   private noteIdByTitleKey = new Map<string, string>();
   /** note id → precomputed related notes */
   private relatedByNoteId = new Map<string, RelatedNote[]>();
+  /** normalized property key → normalized value → note ids */
+  private notesByProperty = new Map<string, Map<string, Set<string>>>();
+  /** normalized property key → normalized value → display value */
+  private propertyValueLabels = new Map<string, Map<string, string>>();
 
   /** Cold start / bulk sync — full rebuild */
   buildFromNotes(notes: NoteBase[]): void {
@@ -58,6 +64,8 @@ export class KnowledgeIndexService {
     this.mentionsFromSourceId.clear();
     this.noteIdByTitleKey.clear();
     this.relatedByNoteId.clear();
+    this.notesByProperty.clear();
+    this.propertyValueLabels.clear();
 
     for (const note of notes) {
       if (note.deletedAt) continue;
@@ -121,6 +129,7 @@ export class KnowledgeIndexService {
     this.removeNoteEdges(noteId);
     this.removeMentionsFromSource(noteId);
     this.removeNoteTags(noteId);
+    this.removeNoteFromPropertyIndex(noteId);
     this.propertiesByNoteId.delete(noteId);
     this.mentionsByTargetId.delete(noteId);
     this.activeNotes.delete(noteId);
@@ -160,6 +169,26 @@ export class KnowledgeIndexService {
       result.push({ tag: display, count: bucket.size });
     }
     return result.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  /** Note ids with a property value — O(1) bucket lookup */
+  getNotesWithProperty(key: string, value: string): string[] {
+    const normKey = normalizePropertyKey(key);
+    const normValue = normalizeQueryValue(value);
+    const bucket = this.notesByProperty.get(normKey)?.get(normValue);
+    return bucket ? [...bucket] : [];
+  }
+
+  /** Distinct indexed values for a property key */
+  getPropertyValues(key: string): string[] {
+    const normKey = normalizePropertyKey(key);
+    const values = this.notesByProperty.get(normKey);
+    if (!values) return [];
+
+    const labels = this.propertyValueLabels.get(normKey);
+    return [...values.keys()]
+      .map(normValue => labels?.get(normValue) ?? normValue)
+      .sort((a, b) => a.localeCompare(b));
   }
 
   /** All indexed note ids — O(N) */
@@ -299,10 +328,70 @@ export class KnowledgeIndexService {
   }
 
   private upsertNoteProperties(note: NoteBase): void {
+    this.removeNoteFromPropertyIndex(note.id);
+
     if (note.properties && Object.keys(note.properties).length > 0) {
       this.propertiesByNoteId.set(note.id, { ...note.properties });
+      for (const [key, value] of Object.entries(note.properties)) {
+        if (isTagsPropertyKey(key)) continue;
+        this.indexProperty(note.id, key, value);
+      }
     } else {
       this.propertiesByNoteId.delete(note.id);
+    }
+  }
+
+  private indexProperty(noteId: string, key: string, value: string): void {
+    const normKey = normalizePropertyKey(key);
+    const normValue = normalizeQueryValue(value);
+    if (!normKey || !normValue) return;
+
+    let values = this.notesByProperty.get(normKey);
+    if (!values) {
+      values = new Map();
+      this.notesByProperty.set(normKey, values);
+    }
+
+    let noteIds = values.get(normValue);
+    if (!noteIds) {
+      noteIds = new Set();
+      values.set(normValue, noteIds);
+    }
+    noteIds.add(noteId);
+
+    let labels = this.propertyValueLabels.get(normKey);
+    if (!labels) {
+      labels = new Map();
+      this.propertyValueLabels.set(normKey, labels);
+    }
+    if (!labels.has(normValue)) {
+      labels.set(normValue, value.trim());
+    }
+  }
+
+  private unindexProperty(noteId: string, key: string, value: string): void {
+    const normKey = normalizePropertyKey(key);
+    const normValue = normalizeQueryValue(value);
+    const values = this.notesByProperty.get(normKey);
+    const bucket = values?.get(normValue);
+    if (!bucket) return;
+
+    bucket.delete(noteId);
+    if (bucket.size === 0) {
+      values?.delete(normValue);
+      const labels = this.propertyValueLabels.get(normKey);
+      labels?.delete(normValue);
+      if (values && values.size === 0) this.notesByProperty.delete(normKey);
+      if (labels && labels.size === 0) this.propertyValueLabels.delete(normKey);
+    }
+  }
+
+  private removeNoteFromPropertyIndex(noteId: string): void {
+    const props = this.propertiesByNoteId.get(noteId);
+    if (!props) return;
+    for (const [key, value] of Object.entries(props)) {
+      if (isTagsPropertyKey(key)) continue;
+      this.unindexProperty(noteId, key, value);
     }
   }
 

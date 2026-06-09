@@ -24,7 +24,11 @@ import {
   buildExpandedGraphData,
   collapseNode,
   expandNode,
+  filterNotes,
+  formatParsedQuery,
+  hasKnowledgeQuerySyntax,
   knowledgeIndexService,
+  parseQuery,
   LinkedReferencesPanel,
   LocalGraphView,
   RelatedNotesPanel,
@@ -255,6 +259,18 @@ export const NoteView = () => {
   }, [updateNote]);
 
   // ── 필터링 ──────────────────────────────────────────────────────
+  const knowledgeQueryInfo = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || !hasKnowledgeQuerySyntax(trimmed)) {
+      return { active: false as const, label: null, error: null as string | null };
+    }
+    const parsed = parseQuery(trimmed);
+    if (parsed.error) {
+      return { active: true as const, label: null, error: parsed.error };
+    }
+    return { active: true as const, label: formatParsedQuery(parsed), error: null };
+  }, [searchQuery]);
+
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
     let list: Note[] =
@@ -267,20 +283,24 @@ export const NoteView = () => {
       list = list.filter(n => taggedIds.has(n.id));
     }
     if (searchQuery.trim()) {
-      const parsed = parseNoteSearchQuery(searchQuery);
-      if (parsed.mode === 'tag') {
-        list = list.filter(n =>
-          noteMatchesTagSearch(n.body ?? '', parsed.value) ||
-          noteMatchesPageTag(n, parsed.value),
-        );
+      if (knowledgeQueryInfo.active) {
+        list = filterNotes(list, knowledgeIndexService, searchQuery).notes;
       } else {
-        const q = parsed.value.toLowerCase();
-        list = list.filter(n =>
-          (n.title ?? '').toLowerCase().includes(q) ||
-          (n.body ?? '').toLowerCase().includes(q) ||
-          extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
-          noteMatchesPageTag(n, q)
-        );
+        const parsed = parseNoteSearchQuery(searchQuery);
+        if (parsed.mode === 'tag') {
+          list = list.filter(n =>
+            noteMatchesTagSearch(n.body ?? '', parsed.value) ||
+            noteMatchesPageTag(n, parsed.value),
+          );
+        } else {
+          const q = parsed.value.toLowerCase();
+          list = list.filter(n =>
+            (n.title ?? '').toLowerCase().includes(q) ||
+            (n.body ?? '').toLowerCase().includes(q) ||
+            extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
+            noteMatchesPageTag(n, q)
+          );
+        }
       }
     }
     // 정렬
@@ -290,7 +310,7 @@ export const NoteView = () => {
       return b.updatedAt - a.updatedAt;
     });
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(
@@ -777,8 +797,19 @@ export const NoteView = () => {
               </div>
               <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
                 <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
-                <input className="bwsi" style={{ fontSize: 11 }} placeholder="Search… (#tag)" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
+                <input
+                  className="bwsi"
+                  style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined }}
+                  placeholder="tag:japanese status:active"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
               </div>
+              {knowledgeQueryInfo.active && knowledgeQueryInfo.error && (
+                <div style={{ padding: '4px 10px', fontSize: 10, color: c.danger, borderBottom: `1px solid ${c.sideBdr}` }}>
+                  {knowledgeQueryInfo.error}
+                </div>
+              )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
@@ -858,11 +889,16 @@ export const NoteView = () => {
       <div style={{ width: focusMode ? 0 : 200, minWidth: focusMode ? 0 : 200, overflow: 'hidden', background: c.notelist, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', zIndex: 99 }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {activeTag ? `#${activeTag}` : folderLabel}
+            {knowledgeQueryInfo.active
+              ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
+              : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>({visibleNotes.length})</span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
-            {activeTag && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
+            {searchQuery.trim() && (
+              <button onClick={() => setSearchQuery('')} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
+            )}
+            {activeTag && !searchQuery.trim() && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title="Sort">
