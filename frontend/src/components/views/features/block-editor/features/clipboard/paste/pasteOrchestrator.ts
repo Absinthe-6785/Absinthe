@@ -12,6 +12,7 @@ import {
   normalizePasteText,
   tsvToMarkdownTable,
 } from './pasteStructure';
+import { isSingleLineMarkdownBlock, parseSingleLineMarkdown } from './singleLineMarkdown';
 
 function blocksFromPlain(plain: string): Block[] | null {
   const normalized = normalizePasteText(plain);
@@ -25,7 +26,9 @@ function blocksFromPlain(plain: string): Block[] | null {
     }
   }
 
-  if (!normalized.includes('\n')) return null;
+  if (!normalized.includes('\n')) {
+    return parseSingleLineMarkdown(normalized);
+  }
 
   const blocks = markdownToBlocks(normalized);
   return blocks.length > 0 ? blocks : null;
@@ -77,5 +80,6 @@ export function isDocumentLevelPaste(
   const plain = clipboard.getData('text/plain') ?? '';
   if (html && htmlHasBlockStructure(html)) return true;
   if (plain.includes('\n')) return true;
+  if (isSingleLineMarkdownBlock(plain.trim())) return true;
   return false;
 }

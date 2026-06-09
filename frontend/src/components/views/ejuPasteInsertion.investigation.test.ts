@@ -318,7 +318,7 @@ describe('EJU paste insertion investigation', () => {
     expect(trace.firstTypeMutationFunction).toBeNull();
   });
 
-  it('4 — browser DOM clipboard (pre-UX-3A.3 copy failure) → paste at title', () => {
+  it('4 — browser DOM clipboard (UX-5B.1 toggle recovery) → paste at title', () => {
     const browserHtml = BROWSER_DOM_CLIPBOARD_HTML.replace(/GRAMMAR_ID/g, grammarToggle.id);
     const plain = 'Grammar Module\nParticles\nは vs が';
     const trace = tracePasteInsertion(
@@ -332,9 +332,10 @@ describe('EJU paste insertion investigation', () => {
     );
     dumpTrace(trace);
 
-    expect(trace.parsedRootType).toBe('paragraph');
-    expect(trace.firstDivergenceParsedVsExpected).toMatch(/parsed\[0\]\.type=paragraph/);
-    expect(trace.firstTypeMutationFunction).toContain('clipboardToBlocks');
+    expect(trace.parsedRootType).toBe('toggle');
+    expect(trace.parsedTree[0].type).toBe('toggle');
+    expect(trace.parsedTree[0].children?.length).toBeGreaterThan(0);
+    expect(trace.firstTypeMutationFunction).toBeNull();
   });
 
   it('5 — variant B h3.btsummary clipboard → paste at title', () => {

@@ -47,10 +47,33 @@ function blockBodyHtml(block: Block): string {
       return `<pre><code>${escapeHtml(block.code ?? block.content)}</code></pre>`;
     case 'divider':
       return '<hr>';
+    case 'table':
+      return tableBlockToHtml(block);
     default:
       if (block.content) return `<p>${escapeHtml(block.content)}</p>`;
       return '';
   }
+}
+
+function tableBlockToHtml(block: Block): string {
+  const headers = block.tableHeaders ?? [];
+  const rows = block.tableRows ?? [];
+  if (!headers.length) return '';
+
+  let html = '<table><thead><tr>';
+  for (const h of headers) {
+    html += `<th>${escapeHtml(h)}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    html += '<tr>';
+    for (let i = 0; i < headers.length; i++) {
+      html += `<td>${escapeHtml(row[i] ?? '')}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 /** Serialize blocks to semantic HTML for clipboard (toggle, lists, nested children). */
