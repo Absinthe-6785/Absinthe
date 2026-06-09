@@ -1,42 +1,28 @@
 /**
- * DragOverlay — drop indicators and preview chrome isolated from the block tree.
+ * DragOverlay — drop indicators and drag ghosts isolated from the block tree.
+ * Virtual-safe: positions from row metrics when source DOM is unmounted.
  */
 import React, { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { findBlockById, type Block } from '../../../blockUtils';
 import { DropInsertIndicator } from '../../../editorDragDrop';
 import type { BlockEditorColors } from '../../../editorTypes';
+import {
+  resolveOverlayFrame,
+  type OverlayFrame,
+  type RowMetricsOptions,
+} from './rowMetrics';
 import { useDragStateSnapshot } from './useDragStateSnapshot';
 
 export interface DragOverlayProps {
   colors: BlockEditorColors;
   getBlocks: () => Block[];
   getEditorRoot: () => HTMLElement | null;
+  getRowMetricsOptions?: () => RowMetricsOptions | null;
 }
 
-interface OverlayFrame {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-  indentLeft: number;
-}
-
-function measureOverlayFrame(
-  overId: string,
-  getEditorRoot: () => HTMLElement | null,
-): OverlayFrame | null {
-  const el = document.querySelector(`[data-drag-id="${overId}"]`) as HTMLElement | null;
-  if (!el) return null;
-  const rect = el.getBoundingClientRect();
-  const marginLeft = parseFloat(getComputedStyle(el).marginLeft) || 0;
-  return {
-    top: rect.top,
-    left: rect.left,
-    width: rect.width,
-    height: rect.height,
-    indentLeft: marginLeft,
-  };
+function isBlockDomMounted(blockId: string): boolean {
+  return !!document.querySelector(`[data-drag-id="${blockId}"]`);
 }
 
 function InsideIndicator({ frame, accent }: { frame: OverlayFrame; accent: string }) {
@@ -46,8 +32,8 @@ function InsideIndicator({ frame, accent }: { frame: OverlayFrame; accent: strin
       style={{
         position: 'fixed',
         top: frame.top + 2,
-        left: frame.left + 2,
-        width: Math.max(0, frame.width - 4),
+        left: frame.left + frame.indentLeft + 2,
+        width: Math.max(0, frame.width - frame.indentLeft - 4),
         height: Math.max(0, frame.height - 4),
         borderRadius: 8,
         zIndex: 10000,
@@ -86,40 +72,90 @@ function LineIndicator({
   );
 }
 
-export function DragOverlay({ colors, getBlocks, getEditorRoot }: DragOverlayProps) {
+function DragGhost({ frame }: { frame: OverlayFrame }) {
+  return (
+    <div
+      className="be-drag-ghost be-block be-dragging"
+      data-drag-ghost="true"
+      style={{
+        position: 'fixed',
+        top: frame.top,
+        left: frame.left,
+        width: frame.width,
+        height: frame.height,
+        opacity: 0.4,
+        pointerEvents: 'none',
+        zIndex: 9999,
+        boxSizing: 'border-box',
+      }}
+    />
+  );
+}
+
+export function DragOverlay({
+  colors,
+  getBlocks,
+  getEditorRoot,
+  getRowMetricsOptions,
+}: DragOverlayProps) {
   const dragState = useDragStateSnapshot();
-  const [frame, setFrame] = useState<OverlayFrame | null>(null);
+  const [dropFrame, setDropFrame] = useState<OverlayFrame | null>(null);
+  const [ghostFrames, setGhostFrames] = useState<OverlayFrame[]>([]);
 
   useLayoutEffect(() => {
-    if (!dragState?.overId || !dragState.overPos) {
-      setFrame(null);
+    if (!dragState) {
+      setDropFrame(null);
+      setGhostFrames([]);
       return;
     }
-    const next = measureOverlayFrame(dragState.overId, getEditorRoot);
-    setFrame(next);
-  }, [dragState?.overId, dragState?.overPos, getEditorRoot]);
 
-  if (!dragState?.overId || !dragState.overPos || !frame) return null;
+    const metricsOpts = getRowMetricsOptions?.() ?? {
+      getEditorRoot,
+      getRootBlockIds: () => getBlocks().map(b => b.id),
+      getBlocks,
+    };
 
-  const block = findBlockById(getBlocks(), dragState.overId) as Block | null;
-  const isDragging = dragState.draggingIds.includes(dragState.overId);
-  if (isDragging) return null;
+    if (dragState.overId && dragState.overPos) {
+      const frame = resolveOverlayFrame(dragState.overId, metricsOpts);
+      setDropFrame(frame);
+    } else {
+      setDropFrame(null);
+    }
+
+    const ghosts: OverlayFrame[] = [];
+    for (const id of dragState.draggingIds) {
+      if (isBlockDomMounted(id)) continue;
+      const frame = resolveOverlayFrame(id, metricsOpts);
+      if (frame) ghosts.push(frame);
+    }
+    setGhostFrames(ghosts);
+  }, [dragState, getBlocks, getEditorRoot, getRowMetricsOptions]);
 
   const host = typeof document !== 'undefined' ? document.body : null;
-  if (!host) return null;
+  if (!host || !dragState) return null;
 
   const accent = colors.accent;
+  const overBlock = dragState.overId
+    ? findBlockById(getBlocks(), dragState.overId) as Block | null
+    : null;
+  const showDrop = dropFrame
+    && dragState.overId
+    && dragState.overPos
+    && !dragState.draggingIds.includes(dragState.overId);
 
   return createPortal(
     <>
-      {dragState.overPos === 'inside' && block?.type === 'toggle' && (
-        <InsideIndicator frame={frame} accent={accent} />
+      {ghostFrames.map((frame, i) => (
+        <DragGhost key={`ghost-${i}`} frame={frame} />
+      ))}
+      {showDrop && dragState.overPos === 'inside' && overBlock?.type === 'toggle' && (
+        <InsideIndicator frame={dropFrame} accent={accent} />
       )}
-      {dragState.overPos === 'before' && (
-        <LineIndicator frame={frame} position="before" accent={accent} />
+      {showDrop && dragState.overPos === 'before' && (
+        <LineIndicator frame={dropFrame} position="before" accent={accent} />
       )}
-      {dragState.overPos === 'after' && (
-        <LineIndicator frame={frame} position="after" accent={accent} />
+      {showDrop && dragState.overPos === 'after' && (
+        <LineIndicator frame={dropFrame} position="after" accent={accent} />
       )}
     </>,
     host,

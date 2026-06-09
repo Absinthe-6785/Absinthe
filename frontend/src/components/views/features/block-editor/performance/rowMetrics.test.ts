@@ -4,6 +4,7 @@ import { makeBlock } from '../../../blockUtils';
 import {
   getVisibleRowMetrics,
   resolveDropTargetFromRows,
+  resolveOverlayFrame,
   type BlockRowHit,
 } from './rowMetrics';
 
@@ -53,5 +54,27 @@ describe('rowMetrics', () => {
       overId: 't',
       overPos: 'inside',
     });
+  });
+
+  it('resolveOverlayFrame uses row metrics when DOM is absent', () => {
+    const scroll = document.createElement('div');
+    scroll.getBoundingClientRect = () => ({
+      left: 20, width: 400, top: 0, bottom: 600, right: 420, height: 600, x: 20, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const mockVirtualizer = {
+      measurementsCache: [{ start: 200, size: 48 }],
+      getOffsetForIndex: () => [200, 'start'] as [number, string],
+    };
+    const blocks = [makeBlock('paragraph', { id: 'offscreen' })];
+    const frame = resolveOverlayFrame('offscreen', {
+      getEditorRoot: () => null,
+      getRootBlockIds: () => ['offscreen'],
+      getBlocks: () => blocks,
+      getVirtualizer: () => mockVirtualizer as never,
+      getScrollElement: () => scroll,
+    });
+    expect(frame).not.toBeNull();
+    expect(frame!.height).toBe(48);
   });
 });

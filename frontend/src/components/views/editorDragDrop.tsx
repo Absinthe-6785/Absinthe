@@ -32,12 +32,20 @@ export interface UseDragDropResult {
   };
 }
 
+export type DragOverResolver = (
+  clientX: number,
+  clientY: number,
+  draggingIds: string[],
+) => { overId: string; overPos: 'before' | 'after' | 'inside' } | null;
+
 export interface UseDragDropOptions {
   getSelectedIds?: () => string[];
   /** Primary note scroll container (e.g. .editor-drop-zone). No global document scroll. */
   getScrollContainer?: () => HTMLElement | null;
   /** Editor root for imperative drag chrome (isolation from React tree). */
   getEditorRoot?: () => HTMLElement | null;
+  /** Custom hit-test (virtual row metrics); defaults to DOM elementsFromPoint. */
+  resolveDragOver?: DragOverResolver;
 }
 
 const DRAG_THRESHOLD_PX = 6;
@@ -181,6 +189,8 @@ export function useDragDrop(
   getScrollContainerRef.current = options.getScrollContainer;
   const getEditorRootRef = useRef(options.getEditorRoot);
   getEditorRootRef.current = options.getEditorRoot;
+  const resolveDragOverRef = useRef(options.resolveDragOver);
+  resolveDragOverRef.current = options.resolveDragOver;
 
   const publishDragState = useCallback((next: DragState | null) => {
     setDragStateStore(next);
@@ -273,7 +283,8 @@ export function useDragDrop(
         applyDragAutoscroll(scrollContainer, ev.clientY);
       }
 
-      const hit = resolveDragOverFromPoint(ev.clientX, ev.clientY, draggingIds);
+      const resolve = resolveDragOverRef.current ?? resolveDragOverFromPoint;
+      const hit = resolve(ev.clientX, ev.clientY, draggingIds);
       if (hit) {
         updateOver(hit.overId, hit.overPos);
       } else {

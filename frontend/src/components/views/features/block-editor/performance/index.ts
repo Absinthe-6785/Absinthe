@@ -12,8 +12,12 @@ export {
   getVisibleRowMetrics,
   getVirtualRowMetrics,
   resolveDropTargetFromRows,
+  resolveOverlayFrame,
+  overlayFrameFromRow,
+  rowForBlockId,
   type RowMetricsOptions,
   type DropTargetHit,
+  type OverlayFrame,
 } from './rowMetrics';
 export {
   getDragStateSnapshot,
