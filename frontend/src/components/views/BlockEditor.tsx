@@ -62,7 +62,6 @@ import type {
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import type { ToggleNestedRenderer } from './toggleRender';
-import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from './blockSelection';
 import {
   beginGutterSelection,
   hitTestBlockIdFromPoint,
@@ -84,7 +83,7 @@ import {
 } from './documentFocus';
 import { SingleBlock } from './features/block-editor/components/SingleBlock';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
-import { SelectionCtx, type SelectionCtxValue } from './features/block-editor/contexts/SelectionContext';
+import { SelectionCtx } from './features/block-editor/contexts/SelectionContext';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
 import {
   FOCUS_CMD_RESET_MS,
@@ -103,6 +102,7 @@ import { buildEditorCssVariables } from './features/block-editor/utils/editorThe
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
+import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -180,10 +180,20 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onChange,
   }), [onChange]);
 
-  const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(() => new Set());
-  const [anchorBlockId, setAnchorBlockId] = useState<string | null>(null);
-  const selectedBlockIdsRef = useRef(selectedBlockIds);
-  selectedBlockIdsRef.current = selectedBlockIds;
+  const {
+    selectedBlockIds,
+    setSelectedBlockIds,
+    setAnchorBlockId,
+    selectedBlockIdsRef,
+    selectBlock,
+    clearSelection,
+    selectionCtx,
+  } = useEditorSelection({
+    readOnly,
+    getRootBlocks,
+    onActiveBlockChange: handleActiveBlockChange,
+  });
+
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
   // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
   const parentDrag = useContext(DragCtx);
@@ -197,11 +207,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const gutterDragCleanupRef = useRef<(() => void) | null>(null);
   const [isGutterDragging, setIsGutterDragging] = useState(false);
 
-  const onPinSelection = useCallback((id: string) => {
-    setSelectedBlockIds(selectSingle(id));
-    setAnchorBlockId(id);
-  }, []);
-
   const {
     handleMenu,
     setHandleMenu,
@@ -211,7 +216,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     handleChromeLeave,
     handleToggleControlsPin,
     controlsVisibleFor,
-  } = useEditorChrome({ onPinSelection });
+  } = useEditorChrome({ onPinSelection: selectBlock });
 
   useEffect(() => () => {
     gutterDragCleanupRef.current?.();
@@ -221,25 +226,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
     [],
   );
-
-  const selectBlock = useCallback((id: string) => {
-    setSelectedBlockIds(selectSingle(id));
-    setAnchorBlockId(id);
-  }, []);
-
-  const handleBlockSelect = useCallback((id: string, e: React.MouseEvent) => {
-    if (readOnly) return;
-    const { selected, anchorId } = applyPointerSelection(
-      getRootBlocks(),
-      selectedBlockIdsRef.current,
-      anchorBlockId,
-      id,
-      { shiftKey: e.shiftKey, additiveKey: e.metaKey || e.ctrlKey },
-    );
-    setSelectedBlockIds(selected);
-    setAnchorBlockId(anchorId);
-    handleActiveBlockChange(id);
-  }, [readOnly, getRootBlocks, anchorBlockId, handleActiveBlockChange]);
 
   const showPersistentPlaceholder = useCallback((blockId: string) => {
     if (depth !== 0 || readOnly) return false;
@@ -309,11 +295,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     window.addEventListener('pointercancel', onUp);
   }, [readOnly, depth, getRootBlocks, handleActiveBlockChange]);
 
-  const selectionCtx = useMemo<SelectionCtxValue>(() => ({
-    selectedBlockIds,
-    onBlockSelect: handleBlockSelect,
-  }), [selectedBlockIds, handleBlockSelect]);
-
   const parentSelection = useContext(SelectionCtx);
   const activeSelection = depth === 0 ? selectionCtx : parentSelection;
 
@@ -337,19 +318,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const handleDelete = useCallback((id: string) => {
     const updated = deleteBlockById(blocksRef.current, id);
     onChange(updated.length > 0 ? updated : [makeBlock('paragraph')]);
-    setSelectedBlockIds(emptySelection());
-    setAnchorBlockId(null);
-  }, [onChange]);
+    clearSelection();
+  }, [onChange, clearSelection]);
 
   const handleDeleteSelected = useCallback(() => {
     const ids = selectedBlockIdsRef.current;
     if (!ids.size) return;
     const updated = deleteSelectedBlocks(getRootBlocks(), ids);
     onRootChange(updated);
-    setSelectedBlockIds(emptySelection());
-    setAnchorBlockId(null);
+    clearSelection();
     handleActiveBlockChange(null);
-  }, [getRootBlocks, onRootChange, handleActiveBlockChange]);
+  }, [getRootBlocks, onRootChange, handleActiveBlockChange, clearSelection]);
 
   const handleDuplicateSelected = useCallback(() => {
     const ids = selectedBlockIdsRef.current;
@@ -729,10 +708,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     readOnly,
     depth,
     getSelectedIds: () => selectedBlockIdsRef.current,
-    onClearSelection: () => {
-      setSelectedBlockIds(emptySelection());
-      setAnchorBlockId(null);
-    },
+    onClearSelection: clearSelection,
     onDeleteSelected: handleDeleteSelected,
   });
 
