@@ -143,11 +143,13 @@ export function applyPasteAtBlock(
   if (!pasted.includes('\n')) {
     const { content, focusOffset } = smartInlineMerge(before, selected, pasted, after);
     const next = updateBlockById(blocks, blockId, b => ({ ...b, content }));
-    return {
+    const result = {
       blocks: next,
       focusBlockId: blockId,
       focusOffset,
     };
+    assertValidBlockTree(result.blocks, 'applyPasteAtBlock');
+    return result;
   }
 
   let pastedBlocks = markdownToBlocks(pasted);
@@ -155,7 +157,9 @@ export function applyPasteAtBlock(
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
 
   if (cur.type === 'toggle') {
-    return applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+    const result = applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+    if (result) assertValidBlockTree(result.blocks, 'applyPasteAtBlock');
+    return result;
   }
 
   let replacement: Block[];
@@ -184,11 +188,13 @@ export function applyPasteAtBlock(
     ...blocks.slice(idx + 1),
   ];
 
-  return {
+  const result = {
     blocks: renumberNumberedListsDeep(next),
     focusBlockId,
     focusOffset,
   };
+  assertValidBlockTree(result.blocks, 'applyPasteAtBlock');
+  return result;
 }
 
 /** Insert pre-parsed blocks at a block offset (UX-2A HTML / document paste). */
