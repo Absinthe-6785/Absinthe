@@ -36,8 +36,6 @@ import { blockPlaceholder } from './blockPlaceholders';
 import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { type BlockTint } from './blockColors';
-import { installCopyDiagnostics } from './copyDiagnostics';
-import { installEditorCopyListener } from './copyListener';
 import {
   finishPastePipelineTrace,
   traceApplyPasteBlocksAtInput,
@@ -112,6 +110,7 @@ import {
 } from './features/block-editor/utils/blockEditorMutations';
 import { isControlsVisible } from './features/block-editor/utils/controlsVisibility';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
+import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
@@ -821,26 +820,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [readOnly, depth, handleDeleteSelected]);
 
-  useEffect(() => {
-    if (depth !== 0) return;
-
-    const uninstallCopy = installEditorCopyListener({
-      getRootBlocks,
-      getSelectedIds: () => selectedBlockIdsRef.current,
-    });
-
-    const uninstallDiag = installCopyDiagnostics({
-      readOnly,
-      depth,
-      getRootBlocks,
-      getSelectedIds: () => selectedBlockIdsRef.current,
-    });
-
-    return () => {
-      uninstallCopy();
-      uninstallDiag();
-    };
-  }, [readOnly, depth, getRootBlocks]);
+  useEditorCopyEffects({
+    readOnly,
+    depth,
+    getRootBlocks,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+  });
 
   const editorBody = (
     <>
