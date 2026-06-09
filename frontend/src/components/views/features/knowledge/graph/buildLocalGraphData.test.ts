@@ -181,6 +181,8 @@ describe('buildLocalGraphData', () => {
     const spyMentions = vi.spyOn(service, 'getMentioningNotes');
     const spyMentioned = vi.spyOn(service, 'getMentionedNotes');
     const spyRelated = vi.spyOn(service, 'getRelatedNotes');
+    const spyOutgoingRelations = vi.spyOn(service, 'getOutgoingRelations');
+    const spyIncomingRelations = vi.spyOn(service, 'getIncomingRelations');
 
     buildLocalGraphData({ noteId: 'genki', noteTitle: 'Genki', service });
 
@@ -189,5 +191,35 @@ describe('buildLocalGraphData', () => {
     expect(spyMentions).toHaveBeenCalledWith('genki', { excludeNoteId: 'genki' });
     expect(spyMentioned).toHaveBeenCalledWith('genki');
     expect(spyRelated).toHaveBeenCalledWith('genki');
+    expect(spyOutgoingRelations).toHaveBeenCalledWith('genki');
+    expect(spyIncomingRelations).toHaveBeenCalledWith('genki');
+  });
+
+  it('creates relation edges from indexed relation maps', () => {
+    service.buildFromNotes([
+      { id: 'course-1', title: 'Japanese N1', body: '', updatedAt: 0, folderId: null, deletedAt: null },
+      {
+        id: 'lecture-1',
+        title: 'Lecture 1',
+        body: '',
+        updatedAt: 0,
+        folderId: null,
+        deletedAt: null,
+        relations: { course: ['course-1'] },
+      },
+    ]);
+
+    const graph = buildLocalGraphData({
+      noteId: 'lecture-1',
+      noteTitle: 'Lecture 1',
+      service,
+    });
+
+    expect(graph.edges).toContainEqual({
+      sourceId: 'lecture-1',
+      targetId: 'course-1',
+      relationshipType: 'relation',
+      weight: RELATED_SCORE.RELATION,
+    });
   });
 });

@@ -4,13 +4,16 @@ export type GraphScope = 'local' | 'global' | 'expanded';
 
 export type GraphNodeType = 'current' | 'connected';
 
-export type GlobalGraphRelationshipFilter = 'all' | 'backlinks' | 'mentions';
+export type GlobalGraphRelationshipFilter = 'all' | 'backlinks' | 'mentions' | 'relations';
+
+export type LocalGraphRelationshipFilter = GlobalGraphRelationshipFilter;
 
 export type GraphRelationshipType =
   | 'backlink'
   | 'mutual-backlink'
   | 'mention'
-  | 'shared-tag';
+  | 'shared-tag'
+  | 'relation';
 
 export interface GraphNode {
   noteId: string;

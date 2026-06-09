@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
-  SlidersHorizontal,
+  SlidersHorizontal, ArrowRightLeft,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -76,6 +76,7 @@ import {
   noteMatchesPageTag,
   NotePropertiesPanel,
   NoteTagsPanel,
+  NoteRelationsPanel,
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
@@ -284,7 +285,7 @@ export const NoteView = () => {
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -304,7 +305,7 @@ export const NoteView = () => {
 
   const importInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties'>>) => {
+  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
     updateNote(id, patch);
   }, [updateNote]);
 
@@ -687,6 +688,26 @@ export const NoteView = () => {
     [activeNote?.id, activeNote?.properties],
   );
 
+  const resolvedOutgoingRelations = useMemo(
+    () => (activeNote ? knowledgeIndexService.resolveRelationTargets(activeNote.id) : []),
+    [activeNote, notes],
+  );
+
+  const incomingRelationDisplays = useMemo(
+    () => {
+      if (!activeNote) return [];
+      return knowledgeIndexService.getIncomingRelations(activeNote.id).map(edge => {
+        const sourceTitle = knowledgeIndexService.getNoteTitle(edge.sourceId);
+        return {
+          edge,
+          sourceTitle,
+          missing: !sourceTitle,
+        };
+      });
+    },
+    [activeNote, notes],
+  );
+
   // ── 폴더 ────────────────────────────────────────────────────────
   const addFolder = useCallback(() => {
     if (!newFolderName.trim()) return;
@@ -866,6 +887,7 @@ export const NoteView = () => {
     { key: 'graph'      as const, label: 'Graph',   icon: <GitFork size={11}/> },
     { key: 'properties' as const, label: 'Props',   icon: <SlidersHorizontal size={11}/> },
     { key: 'tags'       as const, label: 'Tags',    icon: <Tag size={11}/> },
+    { key: 'relations'  as const, label: 'Relations', icon: <ArrowRightLeft size={11}/> },
     { key: 'stats'      as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ], []);
 
@@ -1699,6 +1721,22 @@ export const NoteView = () => {
                 setSearchQuery('');
                 setActiveTag(tag);
               }}
+            />
+          )}
+
+          {rightPanel === 'relations' && activeNote && (
+            <NoteRelationsPanel
+              colors={c}
+              note={activeNote}
+              wikiTargets={wikiTargets}
+              outgoing={resolvedOutgoingRelations}
+              incoming={incomingRelationDisplays}
+              onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
+              onNavigateToNote={setActiveNoteId}
+              onResolveTargetId={title =>
+                knowledgeIndexService.resolveNoteId(title)
+                ?? findNoteByTitle(title, notes)?.id
+              }
             />
           )}
 

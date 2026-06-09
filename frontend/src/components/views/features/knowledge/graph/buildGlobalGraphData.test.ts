@@ -92,6 +92,53 @@ describe('buildGlobalGraphData', () => {
     expect(graph.edges.some(edge => edge.relationshipType === 'backlink')).toBe(false);
   });
 
+  it('creates relation edges from indexed relation maps', () => {
+    service.buildFromNotes([
+      note('course-1', 'Japanese N1', ''),
+      {
+        id: 'lecture-1',
+        title: 'Lecture 1',
+        body: '',
+        updatedAt: 0,
+        folderId: null,
+        deletedAt: null,
+        relations: { course: ['course-1'] },
+      },
+    ]);
+
+    const graph = buildGlobalGraphData({ service });
+
+    expect(graph.edges).toContainEqual({
+      sourceId: 'lecture-1',
+      targetId: 'course-1',
+      relationshipType: 'relation',
+      weight: RELATED_SCORE.RELATION,
+    });
+  });
+
+  it('filters to relations only', () => {
+    service.buildFromNotes([
+      note('course-1', 'Japanese N1', ''),
+      {
+        id: 'lecture-1',
+        title: 'Lecture 1',
+        body: 'Japanese N1',
+        updatedAt: 0,
+        folderId: null,
+        deletedAt: null,
+        relations: { course: ['course-1'] },
+      },
+    ]);
+
+    const graph = buildGlobalGraphData({
+      service,
+      options: { relationshipFilter: 'relations' },
+    });
+
+    expect(graph.edges.every(edge => edge.relationshipType === 'relation')).toBe(true);
+    expect(graph.edges).toHaveLength(1);
+  });
+
   it('computes node degree from visible edges', () => {
     service.buildFromNotes([
       note('a', 'Alpha', ''),
@@ -131,6 +178,7 @@ describe('buildGlobalGraphData', () => {
     const spyAll = vi.spyOn(service, 'getAllNoteIds');
     const spyOutgoing = vi.spyOn(service, 'getOutgoing');
     const spyMentioned = vi.spyOn(service, 'getMentionedNotes');
+    const spyOutgoingRelations = vi.spyOn(service, 'getOutgoingRelations');
     const spyResolve = vi.spyOn(service, 'resolveNoteId');
     const spyTitle = vi.spyOn(service, 'getNoteTitle');
 
@@ -139,6 +187,7 @@ describe('buildGlobalGraphData', () => {
     expect(spyAll).toHaveBeenCalled();
     expect(spyOutgoing).toHaveBeenCalled();
     expect(spyMentioned).toHaveBeenCalled();
+    expect(spyOutgoingRelations).toHaveBeenCalled();
     expect(spyResolve).toHaveBeenCalled();
     expect(spyTitle).toHaveBeenCalled();
   });

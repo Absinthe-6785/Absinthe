@@ -4,6 +4,7 @@ export const RELATED_SCORE = {
   BACKLINK: 10,
   MENTION: 3,
   MUTUAL_BACKLINK: 15,
+  RELATION: 8,
 } as const;
 
 export type RelatedReason = 'shared tag' | 'backlink' | 'mutual backlink' | 'mention';

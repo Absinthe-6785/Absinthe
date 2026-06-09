@@ -81,6 +81,18 @@ export function buildNoteNeighborhood(
     }
   }
 
+  for (const edge of service.getOutgoingRelations(noteId)) {
+    const targetTitle = service.getNoteTitle(edge.targetId);
+    nodeTitles.set(edge.targetId, targetTitle || 'Missing target');
+    trackEdge(noteId, edge.targetId, 'relation', RELATED_SCORE.RELATION);
+  }
+
+  for (const edge of service.getIncomingRelations(noteId)) {
+    const sourceTitle = service.getNoteTitle(edge.sourceId);
+    nodeTitles.set(edge.sourceId, sourceTitle || 'Missing target');
+    trackEdge(edge.sourceId, noteId, 'relation', RELATED_SCORE.RELATION);
+  }
+
   const nodes: GraphNode[] = [...nodeTitles.entries()].map(([id, title]) => ({
     noteId: id,
     title,

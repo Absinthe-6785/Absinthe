@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { GraphData, GraphNode, GraphRelationshipType } from './graphModels';
+import type { GraphData, GraphNode, GraphRelationshipType, LocalGraphRelationshipFilter } from './graphModels';
 
 const MIN_K = 0.5;
 const MAX_K = 3;
@@ -89,6 +89,14 @@ function computeRadialLayout(
   return layout;
 }
 
+function edgeMatchesFilter(type: GraphRelationshipType, filter: LocalGraphRelationshipFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'backlinks') return type === 'backlink' || type === 'mutual-backlink';
+  if (filter === 'mentions') return type === 'mention';
+  if (filter === 'relations') return type === 'relation';
+  return true;
+}
+
 function edgeStroke(type: GraphRelationshipType, accent: string, muted: string): string {
   switch (type) {
     case 'mutual-backlink':
@@ -99,9 +107,15 @@ function edgeStroke(type: GraphRelationshipType, accent: string, muted: string):
       return muted;
     case 'shared-tag':
       return muted;
+    case 'relation':
+      return '#10B981';
     default:
       return muted;
   }
+}
+
+function edgeDash(type: GraphRelationshipType): string | undefined {
+  return type === 'relation' ? '4 3' : undefined;
 }
 
 function truncateTitle(title: string, max = 14): string {
@@ -118,6 +132,7 @@ export function LocalGraphView({
 }: LocalGraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [relationshipFilter, setRelationshipFilter] = useState<LocalGraphRelationshipFilter>('all');
   const [size, setSize] = useState({ w: 180, h: 220 });
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const [panning, setPanning] = useState(false);
@@ -205,6 +220,10 @@ export function LocalGraphView({
   const isEmpty = graphData.nodes.length <= 1;
   const connectedCount = Math.max(0, graphData.nodes.length - 1);
   const scopeLabel = graphData.scope === 'expanded' ? 'Expanded graph' : 'Local graph';
+  const visibleEdges = useMemo(
+    () => graphData.edges.filter(edge => edgeMatchesFilter(edge.relationshipType, relationshipFilter)),
+    [graphData.edges, relationshipFilter],
+  );
 
   return (
     <div
@@ -235,6 +254,23 @@ export function LocalGraphView({
             <span style={{ color: c.danger }}> · limit reached</span>
           )}
         </span>
+        <select
+          value={relationshipFilter}
+          onChange={e => setRelationshipFilter(e.target.value as LocalGraphRelationshipFilter)}
+          style={{
+            background: c.input,
+            border: `1px solid ${c.inputBdr}`,
+            borderRadius: 4,
+            color: c.textMuted,
+            fontSize: 9,
+            padding: '2px 4px',
+          }}
+        >
+          <option value="all">All</option>
+          <option value="backlinks">Backlinks</option>
+          <option value="mentions">Mentions</option>
+          <option value="relations">Relations</option>
+        </select>
         <button
           type="button"
           onClick={() => setTransform({ x: 0, y: 0, k: 1 })}
@@ -266,7 +302,7 @@ export function LocalGraphView({
         >
           <rect width={size.w} height={size.h} fill="transparent" />
           <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
-            {graphData.edges.map(edge => {
+            {visibleEdges.map(edge => {
               const source = layoutById.get(edge.sourceId);
               const target = layoutById.get(edge.targetId);
               if (!source || !target) return null;
@@ -278,8 +314,9 @@ export function LocalGraphView({
                   x2={target.x}
                   y2={target.y}
                   stroke={edgeStroke(edge.relationshipType, c.accent, c.textFaint)}
-                  strokeWidth={edge.relationshipType === 'mutual-backlink' ? 2.5 : 1.5}
+                  strokeWidth={edge.relationshipType === 'mutual-backlink' ? 2.5 : edge.relationshipType === 'relation' ? 2 : 1.5}
                   strokeOpacity={0.85}
+                  strokeDasharray={edgeDash(edge.relationshipType)}
                   markerEnd="url(#local-graph-arrow)"
                 />
               );
