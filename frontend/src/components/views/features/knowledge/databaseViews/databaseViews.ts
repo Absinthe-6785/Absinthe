@@ -1,6 +1,7 @@
 import { isKnowledgeQuery, parseQuery } from '../query/parseQuery';
 import {
   defaultBoardPresentationConfig,
+  defaultCalendarPresentationConfig,
   defaultTablePresentationConfig,
   liftLegacyTableConfig,
   normalizePresentationConfig,
@@ -9,12 +10,13 @@ import {
 } from './databasePresentationConfig';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
-const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board'];
+const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board', 'calendar'];
 
 export interface CreateDatabaseViewOptions {
   id?: string;
   presentation?: DatabaseViewPresentation;
   groupBy?: string;
+  dateProperty?: string;
 }
 
 export function isValidDatabaseViewQuery(query: string): boolean {
@@ -83,10 +85,16 @@ export function createDatabaseView(
   const trimmedQuery = query.trim();
   if (!trimmedName || !isValidDatabaseViewQuery(trimmedQuery)) return [...views];
 
-  const presentation = options.presentation === 'board' ? 'board' : 'table';
+  const presentation = options.presentation === 'board'
+    ? 'board'
+    : options.presentation === 'calendar'
+      ? 'calendar'
+      : 'table';
   const presentationConfig = presentation === 'board'
     ? defaultBoardPresentationConfig(options.groupBy)
-    : defaultTablePresentationConfig();
+    : presentation === 'calendar'
+      ? defaultCalendarPresentationConfig(options.dateProperty)
+      : defaultTablePresentationConfig();
   const tableFields = syncLegacyTableFields(
     {} as DatabaseView,
     presentationConfig.type === 'table'

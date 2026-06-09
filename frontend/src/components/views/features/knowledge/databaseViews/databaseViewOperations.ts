@@ -5,6 +5,7 @@ import {
 import {
   getTableConfig,
   setBoardGroupBy,
+  setCalendarDateProperty,
   setViewPresentation,
   withPresentationDefaults,
 } from './databasePresentationConfig';
@@ -124,6 +125,10 @@ export function setDatabaseViewPresentation(
 
 export function setDatabaseViewGroupBy(view: DatabaseView, groupBy: string): DatabaseView {
   return setBoardGroupBy(view, groupBy);
+}
+
+export function setDatabaseViewDateProperty(view: DatabaseView, dateProperty: string): DatabaseView {
+  return setCalendarDateProperty(view, dateProperty);
 }
 
 export function updateDatabaseViewConfig(

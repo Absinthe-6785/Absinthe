@@ -58,6 +58,7 @@ export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './co
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
 export { DatabaseTableView, getDatabaseCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
+export { DatabaseCalendarView, type DatabaseCalendarViewProps } from './components/DatabaseCalendarView';
 export { DatabaseViewControls, type DatabaseViewControlsProps } from './components/DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
@@ -169,12 +170,14 @@ export {
   normalizeDatabaseViews,
   prepareDatabaseViewRows,
   prepareDatabaseBoardLanes,
+  prepareDatabaseCalendarBuckets,
   removeDatabaseViewColumn,
   renameDatabaseView,
   resolveVisibleColumns,
   saveDatabaseViews,
   setDatabaseViewColumnVisibility,
   setDatabaseViewGroupBy,
+  setDatabaseViewDateProperty,
   setDatabaseViewPresentation,
   setDatabaseViewSort,
   showDatabaseViewColumn,
@@ -183,13 +186,22 @@ export {
   withDatabaseViewDefaults,
   withPresentationDefaults,
   getBoardConfig,
+  getCalendarConfig,
   getTableConfig,
   groupNotesByProperty,
+  bucketNotesByDate,
+  parseDatabaseDate,
+  getNoteDateValue,
   getDatabaseFieldValue,
   getNoteGroupValue,
   DEFAULT_BOARD_GROUP_BY,
+  DEFAULT_CALENDAR_DATE_PROPERTY,
+  DEFAULT_NO_DATE_LABEL,
+  NO_DATE_KEY,
   UNASSIGNED_LANE_KEY,
   UNASSIGNED_LANE_LABEL,
+  buildCalendarMonthGrid,
+  addMonths,
   isDatabaseBoardConfig,
   isDatabaseCalendarConfig,
   isDatabaseTableConfig,
@@ -204,6 +216,7 @@ export {
   type DatabaseViewSort,
   type DatabaseSortDirection,
   type BoardLane,
+  type CalendarDateBucket,
   type CreateDatabaseViewOptions,
 } from './databaseViews';
 
