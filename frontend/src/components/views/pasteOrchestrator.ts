@@ -5,6 +5,7 @@
  */
 import { markdownToBlocks, type Block } from './blockUtils';
 import { validateDocument } from './documentRecovery';
+import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
 import { htmlDocumentToBlocks, htmlHasBlockStructure } from './htmlDocumentToBlocks';
 import {
   looksLikeTsv,
@@ -45,7 +46,9 @@ export function clipboardToBlocks(
     if (htmlHasBlockStructure(html)) {
       const fromHtml = htmlDocumentToBlocks(html);
       if (fromHtml && fromHtml.length > 0) {
-        return validateDocument(fromHtml);
+        const blocks = validateDocument(fromHtml);
+        assertValidBlockTree(blocks, 'clipboardToBlocks');
+        return blocks;
       }
     }
     // HTML failed or no structure → fall through to plain
@@ -53,7 +56,11 @@ export function clipboardToBlocks(
 
   if (plain) {
     const fromPlain = blocksFromPlain(plain);
-    if (fromPlain) return validateDocument(fromPlain);
+    if (fromPlain) {
+      const blocks = validateDocument(fromPlain);
+      assertValidBlockTree(blocks, 'clipboardToBlocks');
+      return blocks;
+    }
   }
 
   return null;

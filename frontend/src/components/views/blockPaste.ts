@@ -6,6 +6,7 @@ import {
   prepareStructuredPasteText,
 } from './pasteStructure';
 import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from './blockUtils';
+import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
 import { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
 export { normalizePasteText, htmlToPlainText } from './pasteStructure';
@@ -211,7 +212,9 @@ export function applyPasteBlocksAt(
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
 
   if (cur.type === 'toggle') {
-    return applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+    const result = applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
+    if (result) assertValidBlockTree(result.blocks, 'applyPasteBlocksAt');
+    return result;
   }
 
   let replacement: Block[];
@@ -241,11 +244,13 @@ export function applyPasteBlocksAt(
     ...blocks.slice(idx + 1),
   ];
 
-  return {
+  const result = {
     blocks: renumberNumberedListsDeep(next),
     focusBlockId,
     focusOffset,
   };
+  assertValidBlockTree(result.blocks, 'applyPasteBlocksAt');
+  return result;
 }
 
 /** @internal for tests — split at caret then merge pasted markdown blocks */
