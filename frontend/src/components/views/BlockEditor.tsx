@@ -71,7 +71,6 @@ import {
   isGutterDragStart,
   updateGutterSelection,
 } from './blockGutterSelection';
-import { shouldDeleteSelectedBlocks } from './blockKeyboard';
 import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
@@ -111,6 +110,7 @@ import {
 import { isControlsVisible } from './features/block-editor/utils/controlsVisibility';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
+import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
@@ -801,24 +801,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onActiveBlockChange, getRootBlocks, onRootChange, searchScope, searchMatchIndex,
   ]);
 
-  useEffect(() => {
-    if (readOnly || depth !== 0) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (selectedBlockIdsRef.current.size > 0) {
-          setSelectedBlockIds(emptySelection());
-          setAnchorBlockId(null);
-        }
-        return;
-      }
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      if (!shouldDeleteSelectedBlocks(e, selectedBlockIdsRef.current)) return;
-      e.preventDefault();
-      handleDeleteSelected();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [readOnly, depth, handleDeleteSelected]);
+  useEditorKeyboard({
+    readOnly,
+    depth,
+    getSelectedIds: () => selectedBlockIdsRef.current,
+    onClearSelection: () => {
+      setSelectedBlockIds(emptySelection());
+      setAnchorBlockId(null);
+    },
+    onDeleteSelected: handleDeleteSelected,
+  });
 
   useEditorCopyEffects({
     readOnly,
