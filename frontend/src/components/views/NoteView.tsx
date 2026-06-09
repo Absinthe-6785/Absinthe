@@ -42,11 +42,22 @@ import {
   RelatedNotesPanel,
   SavedViewsSection,
   SmartCollectionsSection,
+  RuleCollectionsSection,
   SMART_COLLECTIONS,
   activateSmartCollection,
+  activateRuleCollection,
+  createRuleCollection,
   evaluateSmartCollection,
+  evaluateRuleCollection,
+  filterByRuleCollection,
   filterBySmartCollection,
+  findRuleCollection,
   findSmartCollection,
+  isValidRuleCollectionQuery,
+  loadRuleCollections,
+  renameRuleCollection,
+  deleteRuleCollection,
+  saveRuleCollections,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -55,6 +66,7 @@ import {
   serializeNoteMarkdown,
   type SavedView,
   type SmartCollection,
+  type RuleCollection,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -268,6 +280,8 @@ export const NoteView = () => {
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
   const [activeSmartCollectionId, setActiveSmartCollectionId] = useState<string | null>(null);
+  const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
+  const [activeRuleCollectionId, setActiveRuleCollectionId] = useState<string | null>(null);
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -283,6 +297,10 @@ export const NoteView = () => {
   }, [savedViews]);
 
   useEffect(() => {
+    saveRuleCollections(ruleCollections);
+  }, [ruleCollections]);
+
+  useEffect(() => {
     if (!activeSavedViewId) return;
     const view = findSavedView(savedViews, activeSavedViewId);
     if (!view || view.query !== searchQuery.trim()) {
@@ -295,6 +313,25 @@ export const NoteView = () => {
     [searchQuery],
   );
 
+  const canCreateRuleCollection = useMemo(
+    () => isValidRuleCollectionQuery(searchQuery),
+    [searchQuery],
+  );
+
+  const activeRuleCollection = useMemo(
+    () => (activeRuleCollectionId ? findRuleCollection(ruleCollections, activeRuleCollectionId) : undefined),
+    [activeRuleCollectionId, ruleCollections],
+  );
+
+  const ruleCollectionCounts = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    const counts: Record<string, number> = {};
+    for (const collection of ruleCollections) {
+      counts[collection.id] = evaluateRuleCollection(collection, knowledgeIndexService, safeNotes).length;
+    }
+    return counts;
+  }, [notes, ruleCollections]);
+
   const activeSavedView = useMemo(
     () => (activeSavedViewId ? findSavedView(savedViews, activeSavedViewId) : undefined),
     [activeSavedViewId, savedViews],
@@ -306,6 +343,7 @@ export const NoteView = () => {
     setSearchQuery(activateSavedView(view));
     setActiveSavedViewId(view.id);
     setActiveSmartCollectionId(null);
+    setActiveRuleCollectionId(null);
   }, []);
 
   const handleClearSavedView = useCallback(() => {
@@ -318,11 +356,38 @@ export const NoteView = () => {
     setActiveTag(null);
     setSearchQuery('');
     setActiveSavedViewId(null);
+    setActiveRuleCollectionId(null);
     setActiveSmartCollectionId(activateSmartCollection(collection));
   }, []);
 
   const handleClearSmartCollection = useCallback(() => {
     setActiveSmartCollectionId(null);
+  }, []);
+
+  const handleActivateRuleCollection = useCallback((collection: RuleCollection) => {
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery('');
+    setActiveSavedViewId(null);
+    setActiveSmartCollectionId(null);
+    setActiveRuleCollectionId(activateRuleCollection(collection));
+  }, []);
+
+  const handleClearRuleCollection = useCallback(() => {
+    setActiveRuleCollectionId(null);
+  }, []);
+
+  const handleCreateRuleCollection = useCallback((name: string, query: string) => {
+    setRuleCollections(prev => createRuleCollection(prev, name, query));
+  }, []);
+
+  const handleRenameRuleCollection = useCallback((id: string, name: string) => {
+    setRuleCollections(prev => renameRuleCollection(prev, id, name));
+  }, []);
+
+  const handleDeleteRuleCollection = useCallback((id: string) => {
+    setRuleCollections(prev => deleteRuleCollection(prev, id));
+    setActiveRuleCollectionId(prev => (prev === id ? null : prev));
   }, []);
 
   const handleCreateSavedView = useCallback((name: string) => {
@@ -384,6 +449,9 @@ export const NoteView = () => {
         safeNotes.filter(n => !n.deletedAt),
       ).notes;
     }
+    if (activeRuleCollection) {
+      list = filterByRuleCollection(list, knowledgeIndexService, activeRuleCollection).notes;
+    }
     if (searchQuery.trim()) {
       if (knowledgeQueryInfo.active) {
         list = filterNotes(list, knowledgeIndexService, searchQuery).notes;
@@ -414,7 +482,7 @@ export const NoteView = () => {
       });
     }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, activeSmartCollectionId]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, activeSmartCollectionId, activeRuleCollection]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(
@@ -915,8 +983,8 @@ export const NoteView = () => {
                 </div>
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag && !activeSavedViewId ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setActiveSavedViewId(null); }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag && !activeSavedViewId && !activeSmartCollectionId && !activeRuleCollectionId ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setActiveSavedViewId(null); setActiveSmartCollectionId(null); setActiveRuleCollectionId(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -970,7 +1038,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); setActiveSmartCollectionId(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setActiveSavedViewId(null); setActiveSmartCollectionId(null); setActiveRuleCollectionId(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -984,6 +1052,19 @@ export const NoteView = () => {
                   counts={smartCollectionCounts}
                   onActivate={handleActivateSmartCollection}
                   onClearActive={handleClearSmartCollection}
+                />
+                <RuleCollectionsSection
+                  colors={c}
+                  collections={ruleCollections}
+                  activeCollectionId={activeRuleCollectionId}
+                  counts={ruleCollectionCounts}
+                  canCreateFromCurrent={canCreateRuleCollection}
+                  currentQuery={searchQuery.trim()}
+                  onActivate={handleActivateRuleCollection}
+                  onClearActive={handleClearRuleCollection}
+                  onCreate={handleCreateRuleCollection}
+                  onRename={handleRenameRuleCollection}
+                  onDelete={handleDeleteRuleCollection}
                 />
                 <SavedViewsSection
                   colors={c}
@@ -1014,6 +1095,8 @@ export const NoteView = () => {
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
             {activeSmartCollection
               ? activeSmartCollection.name
+              : activeRuleCollection
+              ? activeRuleCollection.name
               : activeSavedView
               ? activeSavedView.name
               : knowledgeQueryInfo.active
@@ -1028,7 +1111,10 @@ export const NoteView = () => {
             {activeSmartCollection && !searchQuery.trim() && (
               <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
             )}
-            {activeTag && !searchQuery.trim() && !activeSmartCollection && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
+            {activeRuleCollection && !searchQuery.trim() && !activeSmartCollection && (
+              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
+            )}
+            {activeTag && !searchQuery.trim() && !activeSmartCollection && !activeRuleCollection && <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>}
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title="Sort">
