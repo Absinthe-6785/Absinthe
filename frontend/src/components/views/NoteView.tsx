@@ -42,30 +42,13 @@ import {
   SavedViewsSection,
   SmartCollectionsSection,
   RuleCollectionsSection,
-  DatabaseTableView,
-  DatabaseBoardView,
-  DatabaseCalendarView,
-  DatabaseViewControls,
+  DatabaseViewPanel,
   DatabaseViewsSection,
   SMART_COLLECTIONS,
   createRuleCollection,
   evaluateSmartCollection,
   evaluateRuleCollection,
   evaluateDatabaseView,
-  prepareDatabaseViewRows,
-  prepareDatabaseBoardLanes,
-  prepareDatabaseCalendarBuckets,
-  resolveVisibleColumns,
-  withDatabaseViewDefaults,
-  getBoardConfig,
-  getTableConfig,
-  addDatabaseViewColumn,
-  removeDatabaseViewColumn,
-  setDatabaseViewSort,
-  setDatabaseViewColumnVisibility,
-  setDatabaseViewPresentation,
-  setDatabaseViewGroupBy,
-  setDatabaseViewDateProperty,
   updateDatabaseViewConfig,
   findRuleCollection,
   findSmartCollection,
@@ -100,7 +83,6 @@ import {
   type RuleCollection,
   type DatabaseView,
   type DatabaseViewPresentation,
-  type DatabaseViewSort,
   type WorkspaceActivation,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
@@ -527,72 +509,21 @@ export const NoteView = () => {
     return counts;
   }, [notes]);
 
-  const databaseViewNotes = useMemo(() => {
-    if (!activeDatabaseView) return [];
+  const activeDatabaseViewNoteCount = useMemo(() => {
+    if (!activeDatabaseView) return 0;
     const safeNotes = Array.isArray(notes) ? notes : [];
-    return prepareDatabaseViewRows(activeDatabaseView, safeNotes, knowledgeIndexService);
+    return evaluateDatabaseView(activeDatabaseView, knowledgeIndexService, safeNotes).length;
   }, [activeDatabaseView, notes]);
-
-  const databaseBoardLanes = useMemo(() => {
-    if (!activeDatabaseView) return [];
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    return prepareDatabaseBoardLanes(activeDatabaseView, safeNotes, knowledgeIndexService);
-  }, [activeDatabaseView, notes]);
-
-  const databaseCalendarBuckets = useMemo(() => {
-    if (!activeDatabaseView) return [];
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    return prepareDatabaseCalendarBuckets(activeDatabaseView, safeNotes, knowledgeIndexService);
-  }, [activeDatabaseView, notes]);
-
-  const activeDatabaseViewColumns = useMemo(() => {
-    if (!activeDatabaseView) return [];
-    const configured = withDatabaseViewDefaults(activeDatabaseView);
-    return resolveVisibleColumns(getTableConfig(configured).columns);
-  }, [activeDatabaseView]);
-
-  const activeDatabaseViewSort = useMemo(() => {
-    if (!activeDatabaseView) return undefined;
-    return getTableConfig(withDatabaseViewDefaults(activeDatabaseView)).sort;
-  }, [activeDatabaseView]);
-
-  const activeBoardConfig = useMemo(() => {
-    if (!activeDatabaseView) return undefined;
-    return getBoardConfig(withDatabaseViewDefaults(activeDatabaseView));
-  }, [activeDatabaseView]);
 
   const patchActiveDatabaseView = useCallback((updater: (view: DatabaseView) => DatabaseView) => {
     if (workspaceActivation.kind !== 'database-view') return;
     setDatabaseViews(prev => updateDatabaseViewConfig(prev, workspaceActivation.id, updater));
   }, [workspaceActivation]);
 
-  const handleDatabaseViewAddColumn = useCallback((key: string) => {
-    patchActiveDatabaseView(view => addDatabaseViewColumn(view, key));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewRemoveColumn = useCallback((key: string) => {
-    patchActiveDatabaseView(view => removeDatabaseViewColumn(view, key));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewToggleColumn = useCallback((key: string, visible: boolean) => {
-    patchActiveDatabaseView(view => setDatabaseViewColumnVisibility(view, key, visible));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewSortChange = useCallback((sort: DatabaseViewSort) => {
-    patchActiveDatabaseView(view => setDatabaseViewSort(view, sort));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewPresentationChange = useCallback((presentation: DatabaseViewPresentation) => {
-    patchActiveDatabaseView(view => setDatabaseViewPresentation(view, presentation));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewGroupByChange = useCallback((groupBy: string) => {
-    patchActiveDatabaseView(view => setDatabaseViewGroupBy(view, groupBy));
-  }, [patchActiveDatabaseView]);
-
-  const handleDatabaseViewDatePropertyChange = useCallback((dateProperty: string) => {
-    patchActiveDatabaseView(view => setDatabaseViewDateProperty(view, dateProperty));
-  }, [patchActiveDatabaseView]);
+  const safeNotesForDatabase = useMemo(
+    () => (Array.isArray(notes) ? notes : []).filter(n => !n.deletedAt),
+    [notes],
+  );
 
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -1287,7 +1218,7 @@ export const NoteView = () => {
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
-              ({isDatabaseViewMode ? databaseViewNotes.length : visibleNotes.length})
+              ({isDatabaseViewMode ? activeDatabaseViewNoteCount : visibleNotes.length})
             </span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
@@ -1343,47 +1274,15 @@ export const NoteView = () => {
           </div>
         </div>
         {isDatabaseViewMode && activeDatabaseView ? (
-          <>
-            <DatabaseViewControls
-              colors={c}
-              view={activeDatabaseView}
-              onPresentationChange={handleDatabaseViewPresentationChange}
-              onGroupByChange={handleDatabaseViewGroupByChange}
-              onDatePropertyChange={handleDatabaseViewDatePropertyChange}
-              onAddColumn={handleDatabaseViewAddColumn}
-              onRemoveColumn={handleDatabaseViewRemoveColumn}
-              onToggleColumnVisibility={handleDatabaseViewToggleColumn}
-              onSortChange={handleDatabaseViewSortChange}
-            />
-            {activeDatabaseView.presentation === 'board' ? (
-              <DatabaseBoardView
-                colors={c}
-                lanes={databaseBoardLanes}
-                service={knowledgeIndexService}
-                activeNoteId={activeNoteId}
-                cardFields={activeBoardConfig?.cardFields}
-                onSelectNote={setActiveNoteId}
-              />
-            ) : activeDatabaseView.presentation === 'calendar' ? (
-              <DatabaseCalendarView
-                colors={c}
-                buckets={databaseCalendarBuckets}
-                service={knowledgeIndexService}
-                activeNoteId={activeNoteId}
-                onSelectNote={setActiveNoteId}
-              />
-            ) : (
-              <DatabaseTableView
-                colors={c}
-                notes={databaseViewNotes}
-                columns={activeDatabaseViewColumns}
-                sort={activeDatabaseViewSort}
-                service={knowledgeIndexService}
-                activeNoteId={activeNoteId}
-                onSelectNote={setActiveNoteId}
-              />
-            )}
-          </>
+          <DatabaseViewPanel
+            colors={c}
+            view={activeDatabaseView}
+            notes={safeNotesForDatabase}
+            service={knowledgeIndexService}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+            onViewChange={patchActiveDatabaseView}
+          />
         ) : (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (

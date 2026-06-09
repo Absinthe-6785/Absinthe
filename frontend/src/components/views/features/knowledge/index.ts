@@ -59,7 +59,15 @@ export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './comp
 export { DatabaseTableView, getDatabaseCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
 export { DatabaseCalendarView, type DatabaseCalendarViewProps } from './components/DatabaseCalendarView';
-export { DatabaseViewControls, type DatabaseViewControlsProps } from './components/DatabaseViewControls';
+export { DatabaseNoteCard, type DatabaseNoteCardProps } from './components/DatabaseNoteCard';
+export { DatabasePresentationSwitcher, type DatabasePresentationSwitcherProps } from './components/DatabasePresentationSwitcher';
+export { DatabasePropertyKeyField, type DatabasePropertyKeyFieldProps } from './components/DatabasePropertyKeyField';
+export {
+  DatabaseViewControls,
+  DatabaseViewPanel,
+  type DatabaseViewControlsProps,
+  type DatabaseViewPanelProps,
+} from './components/DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
@@ -171,6 +179,7 @@ export {
   prepareDatabaseViewRows,
   prepareDatabaseBoardLanes,
   prepareDatabaseCalendarBuckets,
+  prepareDatabaseViewPresentation,
   removeDatabaseViewColumn,
   renameDatabaseView,
   resolveVisibleColumns,
@@ -202,6 +211,13 @@ export {
   UNASSIGNED_LANE_LABEL,
   buildCalendarMonthGrid,
   addMonths,
+  DATABASE_PRESENTATION_OPTIONS,
+  DATABASE_EMPTY_MESSAGE,
+  presentationLabel,
+  BOARD_GROUP_BY_FIELD,
+  CALENDAR_DATE_PROPERTY_FIELD,
+  SUGGESTED_PROPERTY_KEYS,
+  type DatabaseViewPresentationData,
   isDatabaseBoardConfig,
   isDatabaseCalendarConfig,
   isDatabaseTableConfig,

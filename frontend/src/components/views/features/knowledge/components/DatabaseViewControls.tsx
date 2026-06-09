@@ -1,17 +1,44 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import {
   columnLabelForKey,
   resolveAllColumnKeys,
+  resolveVisibleColumns,
 } from '../databaseViews/databaseViewConfig';
-import { getBoardConfig, getCalendarConfig, getTableConfig } from '../databaseViews/databasePresentationConfig';
+import {
+  BOARD_GROUP_BY_FIELD,
+  CALENDAR_DATE_PROPERTY_FIELD,
+  TABLE_ADD_COLUMN_FIELD,
+} from '../databaseViews/databasePresentationMeta';
+import {
+  getBoardConfig,
+  getCalendarConfig,
+  getTableConfig,
+} from '../databaseViews/databasePresentationConfig';
 import type {
   DatabaseView,
   DatabaseViewPresentation,
   DatabaseViewSort,
 } from '../databaseViews/databaseViewModels';
 import { isBuiltinColumnKey } from '../databaseViews/databaseViewModels';
+import {
+  addDatabaseViewColumn,
+  removeDatabaseViewColumn,
+  setDatabaseViewColumnVisibility,
+  setDatabaseViewDateProperty,
+  setDatabaseViewGroupBy,
+  setDatabaseViewPresentation,
+  setDatabaseViewSort,
+} from '../databaseViews/databaseViewOperations';
+import { prepareDatabaseViewPresentation } from '../databaseViews/prepareDatabaseViewPresentation';
 import { withDatabaseViewDefaults } from '../databaseViews/prepareDatabaseViewRows';
+import { DatabaseBoardView } from './DatabaseBoardView';
+import { DatabaseCalendarView } from './DatabaseCalendarView';
+import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
+import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
+import { DatabaseTableView } from './DatabaseTableView';
 
 export interface DatabaseViewControlsProps {
   colors: NoteChromeColors;
@@ -62,47 +89,32 @@ export function DatabaseViewControls({
       flexDirection: 'column',
       gap: 6,
       fontSize: 10,
+      color: c.textMuted,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <span style={{ color: c.textMuted, fontWeight: 700 }}>View</span>
-        <select
-          className="bwi"
-          style={{ fontSize: 10, padding: '2px 4px' }}
-          value={configured.presentation}
-          onChange={e => onPresentationChange(e.target.value as DatabaseViewPresentation)}
-        >
-          <option value="table">Table</option>
-          <option value="board">Board</option>
-          <option value="calendar">Calendar</option>
-        </select>
-      </div>
+      <DatabasePresentationSwitcher
+        value={configured.presentation}
+        onChange={onPresentationChange}
+        style={{ color: c.textMuted }}
+      />
 
       {configured.presentation === 'board' ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ color: c.textMuted, fontWeight: 700 }}>Group by</span>
-          <input
-            className="bwi"
-            style={{ flex: 1, minWidth: 120, fontSize: 10 }}
-            placeholder="Property key (e.g. status)"
-            value={boardConfig.groupBy}
-            onChange={e => onGroupByChange(e.target.value)}
-          />
-        </div>
+        <DatabasePropertyKeyField
+          preset={BOARD_GROUP_BY_FIELD}
+          value={boardConfig.groupBy}
+          onChange={onGroupByChange}
+          listId="database-board-groupby-suggestions"
+        />
       ) : configured.presentation === 'calendar' ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ color: c.textMuted, fontWeight: 700 }}>Date property</span>
-          <input
-            className="bwi"
-            style={{ flex: 1, minWidth: 120, fontSize: 10 }}
-            placeholder="Property key (e.g. reviewDate)"
-            value={calendarConfig.dateProperty}
-            onChange={e => onDatePropertyChange(e.target.value)}
-          />
-        </div>
+        <DatabasePropertyKeyField
+          preset={CALENDAR_DATE_PROPERTY_FIELD}
+          value={calendarConfig.dateProperty}
+          onChange={onDatePropertyChange}
+          listId="database-calendar-date-suggestions"
+        />
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ color: c.textMuted, fontWeight: 700 }}>Sort</span>
+            <span style={{ fontWeight: 700 }}>Sort</span>
             <select
               className="bwi"
               style={{ fontSize: 10, padding: '2px 4px' }}
@@ -131,7 +143,7 @@ export function DatabaseViewControls({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ color: c.textMuted, fontWeight: 700 }}>Columns</span>
+            <span style={{ fontWeight: 700 }}>Columns</span>
             {columnKeys.map(key => {
               const visible = visibility.get(key.toLowerCase()) !== false;
               return (
@@ -164,13 +176,19 @@ export function DatabaseViewControls({
             <input
               className="bwi"
               style={{ flex: 1, fontSize: 10 }}
-              placeholder="Property key (e.g. status)"
+              placeholder={TABLE_ADD_COLUMN_FIELD.placeholder}
               value={newColumnKey}
+              list="database-table-column-suggestions"
               onChange={e => setNewColumnKey(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter') submitAddColumn();
               }}
             />
+            <datalist id="database-table-column-suggestions">
+              {columnKeys.map(key => (
+                <option key={key} value={key} />
+              ))}
+            </datalist>
             <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitAddColumn}>
               Add
             </button>
@@ -178,5 +196,87 @@ export function DatabaseViewControls({
         </>
       )}
     </div>
+  );
+}
+
+export interface DatabaseViewPanelProps {
+  colors: NoteChromeColors;
+  view: DatabaseView;
+  notes: readonly NoteBase[];
+  service: KnowledgeIndexService;
+  activeNoteId: string | null;
+  onSelectNote: (noteId: string) => void;
+  onViewChange: (updater: (view: DatabaseView) => DatabaseView) => void;
+}
+
+/** Unified database panel — controls + presentation renderer */
+export function DatabaseViewPanel({
+  colors: c,
+  view,
+  notes,
+  service,
+  activeNoteId,
+  onSelectNote,
+  onViewChange,
+}: DatabaseViewPanelProps) {
+  const configured = useMemo(() => withDatabaseViewDefaults(view), [view]);
+  const presentationData = useMemo(
+    () => prepareDatabaseViewPresentation(view, notes, service),
+    [view, notes, service],
+  );
+  const tableConfig = useMemo(() => getTableConfig(configured), [configured]);
+  const boardConfig = useMemo(() => getBoardConfig(configured), [configured]);
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(tableConfig.columns),
+    [tableConfig.columns],
+  );
+
+  const patch = useCallback(
+    (updater: (current: DatabaseView) => DatabaseView) => onViewChange(updater),
+    [onViewChange],
+  );
+
+  return (
+    <>
+      <DatabaseViewControls
+        colors={c}
+        view={view}
+        onPresentationChange={presentation => patch(v => setDatabaseViewPresentation(v, presentation))}
+        onGroupByChange={groupBy => patch(v => setDatabaseViewGroupBy(v, groupBy))}
+        onDatePropertyChange={dateProperty => patch(v => setDatabaseViewDateProperty(v, dateProperty))}
+        onAddColumn={key => patch(v => addDatabaseViewColumn(v, key))}
+        onRemoveColumn={key => patch(v => removeDatabaseViewColumn(v, key))}
+        onToggleColumnVisibility={(key, visible) => patch(v => setDatabaseViewColumnVisibility(v, key, visible))}
+        onSortChange={sort => patch(v => setDatabaseViewSort(v, sort))}
+      />
+      {presentationData.type === 'board' ? (
+        <DatabaseBoardView
+          colors={c}
+          lanes={presentationData.lanes}
+          service={service}
+          activeNoteId={activeNoteId}
+          cardFields={boardConfig.cardFields}
+          onSelectNote={onSelectNote}
+        />
+      ) : presentationData.type === 'calendar' ? (
+        <DatabaseCalendarView
+          colors={c}
+          buckets={presentationData.buckets}
+          service={service}
+          activeNoteId={activeNoteId}
+          onSelectNote={onSelectNote}
+        />
+      ) : (
+        <DatabaseTableView
+          colors={c}
+          notes={presentationData.notes}
+          columns={visibleColumns}
+          sort={tableConfig.sort}
+          service={service}
+          activeNoteId={activeNoteId}
+          onSelectNote={onSelectNote}
+        />
+      )}
+    </>
   );
 }

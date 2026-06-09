@@ -98,6 +98,18 @@ export { filterByDatabaseView } from './filterByDatabaseView';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
 export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 export { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
+export {
+  prepareDatabaseViewPresentation,
+  type DatabaseViewPresentationData,
+} from './prepareDatabaseViewPresentation';
+export {
+  DATABASE_PRESENTATION_OPTIONS,
+  DATABASE_EMPTY_MESSAGE,
+  BOARD_GROUP_BY_FIELD,
+  CALENDAR_DATE_PROPERTY_FIELD,
+  presentationLabel,
+  SUGGESTED_PROPERTY_KEYS,
+} from './databasePresentationMeta';
 export { getDatabaseRowSortValue, sortDatabaseViewRows } from './sortDatabaseViewRows';
 export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './databaseViewsStorage';
 export type {
