@@ -14,10 +14,15 @@ import {
   highlightText,
   extractTOC, extractTags, extractLinks,
   extractLinkContexts,
-  findNoteByTitle, findWikiLinkInText,
-  parseNoteSearchQuery, noteMatchesTagSearch, noteReferencesTitle,
+  findNoteByTitle,
+  parseNoteSearchQuery, noteMatchesTagSearch,
   normalizeNoteFolderId,
 } from './noteUtils';
+import {
+  buildBacklinkIndex,
+  getPageReferences,
+  LinkedReferencesPanel,
+} from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
 import { NoteGraphView } from './NoteGraphView';
@@ -312,24 +317,17 @@ export const NoteView = () => {
     () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [notes]
   );
-  const backlinks = useMemo(() =>
-    activeNote && (activeNote.title ?? '').trim()
-      ? notes.filter(n =>
-          n.id !== activeNote.id &&
-          !n.deletedAt &&
-          noteReferencesTitle(n.body ?? '', activeNote.title ?? '')
-        )
-      : [],
-    [notes, activeNote?.id, activeNote?.title]
+  const backlinkIndex = useMemo(() => buildBacklinkIndex(notes), [notes]);
+
+  const pageReferences = useMemo(
+    () => (activeNote ? getPageReferences(backlinkIndex, activeNote, notes) : null),
+    [backlinkIndex, activeNote, notes],
   );
 
-  // 백링크 컨텍스트 — 각 백링크 노트에서 [[제목]] 포함 문단 발췌
-  const backlinkContexts = useMemo(() =>
-    activeNote
-      ? extractLinkContexts(activeNote.title ?? '', notes)
-      : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [notes, activeNote?.id, activeNote?.title]
+  // Linked reference excerpts — contextual paragraphs from referring pages
+  const backlinkContexts = useMemo(
+    () => (activeNote ? extractLinkContexts(activeNote.title ?? '', notes) : []),
+    [notes, activeNote?.id, activeNote?.title],
   );
   const allTags = useMemo(() => {
     const m: Record<string, number> = {};
@@ -1191,107 +1189,16 @@ export const NoteView = () => {
           )}
 
           {/* Links */}
-          {rightPanel === 'links' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-              {/* ── Backlinks with context ── */}
-              <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
-                Backlinks {backlinks.length > 0 && <span style={{ color: c.accent }}>({backlinks.length})</span>}
-              </div>
-              {backlinks.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>No backlinks</p>
-                : backlinkContexts.map(ctx => (
-                  <div key={ctx.noteId}
-                    style={{
-                      margin: '0 8px 6px',
-                      borderRadius: 7,
-                      border: `1px solid ${c.sideBdr}`,
-                      background: c.cardHov,
-                      overflow: 'hidden',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setActiveNoteId(ctx.noteId)}
-                  >
-                    {/* 노트 제목 행 */}
-                    <div style={{
-                      padding: '5px 9px 4px',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      borderBottom: ctx.excerpts.length > 0 ? `1px solid ${c.sideBdr}` : 'none',
-                    }}>
-                      <span style={{ fontSize: 10, color: c.accent, flexShrink: 0 }}>↗</span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, color: c.text,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {ctx.noteTitle}
-                      </span>
-                    </div>
-                    {/* 발췌 문단들 */}
-                    {ctx.excerpts.map((excerpt, ei) => {
-                      // [[제목]] 부분을 강조 표시 (대소문자 무시 매칭)
-                      const target = findWikiLinkInText(excerpt, activeNote!.title ?? '') ?? `[[${activeNote!.title ?? ''}]]`;
-                      const parts  = excerpt.split(target);
-                      return (
-                        <div key={ei} style={{
-                          padding: '4px 9px 5px',
-                          fontSize: 10, lineHeight: 1.55,
-                          color: c.textMuted,
-                          borderTop: ei > 0 ? `1px dashed ${c.sideBdr}` : 'none',
-                        }}>
-                          {parts.map((part, pi) => (
-                            <span key={pi}>
-                              {part}
-                              {pi < parts.length - 1 && (
-                                <mark style={{
-                                  background: c.accentBg,
-                                  color: c.accent,
-                                  borderRadius: 3,
-                                  padding: '0 2px',
-                                  fontWeight: 600,
-                                }}>
-                                  {target}
-                                </mark>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))
-              }
-              {/* ── Outgoing links (resolved + broken) ── */}
-              {(() => {
-                const outLinks = extractLinks(activeNote.body);
-                if (outLinks.length === 0) return null;
-                const resolved = outLinks.filter(t => findNoteByTitle(t, notes));
-                const broken   = outLinks.filter(t => !findNoteByTitle(t, notes));
-                return (
-                  <>
-                    <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 600, borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                      Outgoing <span style={{ color: c.green }}>({resolved.length})</span>
-                      {broken.length > 0 && <span style={{ color: c.textFaint }}> · {broken.length} missing</span>}
-                    </div>
-                    {outLinks.map(title => {
-                      const found = findNoteByTitle(title, notes);
-                      if (found) {
-                        return (
-                          <div key={title} className="bbl" style={{ color: c.green }}
-                            onClick={() => setActiveNoteId(found.id)}>→ {title}</div>
-                        );
-                      }
-                      return (
-                        <div key={title} className="bbl"
-                          style={{ color: c.textMuted, fontStyle: 'italic' }}
-                          title="Click to create note"
-                          onClick={() => navigateToWiki(title)}>
-                          → {title} <span style={{ fontSize: 9, color: c.accent }}>+ create</span>
-                        </div>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-            </div>
+          {rightPanel === 'links' && activeNote && pageReferences && (
+            <LinkedReferencesPanel
+              colors={c}
+              activeNoteTitle={activeNote.title ?? ''}
+              incoming={pageReferences.incoming}
+              contexts={backlinkContexts}
+              outgoing={pageReferences.outgoing}
+              onNavigateToNote={setActiveNoteId}
+              onNavigateToWiki={navigateToWiki}
+            />
           )}
 
           {/* Tags */}
