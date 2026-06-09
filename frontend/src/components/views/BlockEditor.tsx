@@ -37,14 +37,6 @@ import { resolveSlashCommand } from './slashCommands';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
 import { type BlockTint } from './blockColors';
 import {
-  finishPastePipelineTrace,
-  traceApplyPasteBlocksAtInput,
-  traceApplyPasteBlocksAtOutput,
-  traceStateAfterSetStateCallback,
-  traceStateBeforeSetState,
-} from './pastePipelineTrace';
-import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
-import {
   exitEmptyListBlock,
   isListType,
   listSplitExtras,
@@ -88,7 +80,6 @@ import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-e
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
 import {
   enterSplitBlockType,
-  getPasteBlockContext,
   insertBlockAtIndex,
   moveBlockInList,
 } from './features/block-editor/utils/blockEditorMutations';
@@ -98,6 +89,7 @@ import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
+import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -471,42 +463,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onContentChange: handleContentChange,
   });
 
-  const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
-    const context = getPasteBlockContext(findBlockById(blocksRef.current, id));
-    const result = applyPasteAtBlock(blocksRef.current, id, start, end, text, context);
-    if (!result) return;
-    onChange(result.blocks);
-    closeMenus();
-    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
-    selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock, closeMenus]);
-
-  const handlePasteBlocksAt = useCallback((
-    id: string, start: number, end: number, pasted: Block[],
-  ) => {
-    const cur = findBlockById(blocksRef.current, id);
-    const context = getPasteBlockContext(cur);
-    traceApplyPasteBlocksAtInput(
-      id,
-      cur?.type ?? '(missing)',
-      start,
-      end,
-      pasted,
-    );
-    const result = applyPasteBlocksAt(blocksRef.current, id, start, end, pasted, context);
-    if (!result) {
-      finishPastePipelineTrace();
-      return;
-    }
-    traceApplyPasteBlocksAtOutput(result.blocks);
-    traceStateBeforeSetState(result.blocks);
-    flushSync(() => { onChange(result.blocks); });
-    traceStateAfterSetStateCallback(result.blocks);
-    finishPastePipelineTrace();
-    closeMenus();
-    setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
-    selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock, closeMenus]);
+  const { handlePasteAt, handlePasteBlocksAt } = useEditorPaste({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    closeMenus,
+    selectBlock,
+  });
 
   // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
   const handleToggleAddChild = useCallback((toggleBlockId: string) => {
