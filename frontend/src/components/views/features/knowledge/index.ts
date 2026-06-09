@@ -58,12 +58,18 @@ export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/Rel
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
 
 export {
+  buildExpandedGraphData,
   buildGlobalGraphData,
   buildLocalGraphData,
+  collapseNode,
+  DEFAULT_MAX_VISIBLE_GRAPH_NODES,
+  expandNode,
   LocalGraphView,
+  type BuildExpandedGraphInput,
   type BuildGlobalGraphInput,
   type BuildGlobalGraphOptions,
   type BuildLocalGraphInput,
+  type ExpandedGraphMeta,
   type GlobalGraphRelationshipFilter,
   type GraphData,
   type GraphEdge,

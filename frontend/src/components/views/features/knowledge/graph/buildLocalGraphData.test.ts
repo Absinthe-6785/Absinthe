@@ -165,7 +165,7 @@ describe('buildLocalGraphData', () => {
     });
 
     expect(graph.nodes).toEqual([
-      { noteId: 'solo', title: 'Solo Note', type: 'current', degree: 0 },
+      { noteId: 'solo', title: 'Solo Note', type: 'current', degree: 0, hop: 0, expandable: false },
     ]);
     expect(graph.edges).toEqual([]);
   });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { GraphData, GraphRelationshipType } from './graphModels';
+import type { GraphData, GraphNode, GraphRelationshipType } from './graphModels';
 
 const MIN_K = 0.5;
 const MAX_K = 3;
@@ -12,6 +12,9 @@ interface LayoutNode {
   noteId: string;
   title: string;
   type: 'current' | 'connected';
+  hop?: number;
+  expanded?: boolean;
+  expandable?: boolean;
   x: number;
   y: number;
 }
@@ -26,6 +29,8 @@ export interface LocalGraphViewProps {
   colors: NoteChromeColors;
   graphData: GraphData;
   onNavigate: (noteId: string) => void;
+  onExpandNode?: (noteId: string) => void;
+  onCollapseNode?: (noteId: string) => void;
 }
 
 function computeRadialLayout(
@@ -35,24 +40,50 @@ function computeRadialLayout(
 ): LayoutNode[] {
   const cx = width / 2;
   const cy = height / 2;
-  const connected = graphData.nodes.filter(n => n.type === 'connected');
-  const radius = Math.max(70, Math.min(width, height) * 0.32);
+  const maxRadius = Math.max(70, Math.min(width, height) * 0.38);
 
-  const layout: LayoutNode[] = graphData.nodes.map(node => {
-    if (node.type === 'current') {
-      return { ...node, x: cx, y: cy };
-    }
-    return { ...node, x: cx, y: cy };
-  });
+  const groups = new Map<number, GraphNode[]>();
+  for (const node of graphData.nodes) {
+    const hop = node.hop ?? (node.type === 'current' ? 0 : 1);
+    const bucket = groups.get(hop) ?? [];
+    bucket.push(node);
+    groups.set(hop, bucket);
+  }
 
-  connected.forEach((node, index) => {
-    const angle = connected.length === 1
-      ? -Math.PI / 2
-      : (index / connected.length) * Math.PI * 2 - Math.PI / 2;
-    const entry = layout.find(n => n.noteId === node.noteId);
-    if (!entry) return;
-    entry.x = cx + Math.cos(angle) * radius;
-    entry.y = cy + Math.sin(angle) * radius;
+  const hops = [...groups.keys()].sort((a, b) => a - b);
+  const hopCount = hops.length;
+
+  const layout: LayoutNode[] = graphData.nodes.map(node => ({
+    noteId: node.noteId,
+    title: node.title,
+    type: node.type,
+    hop: node.hop,
+    expanded: node.expanded,
+    expandable: node.expandable,
+    x: cx,
+    y: cy,
+  }));
+
+  hops.forEach((hop, hopIndex) => {
+    const ringNodes = groups.get(hop) ?? [];
+    const radius = hop === 0
+      ? 0
+      : (maxRadius * hopIndex) / Math.max(hopCount - 1, 1);
+
+    ringNodes.forEach((node, index) => {
+      const entry = layout.find(item => item.noteId === node.noteId);
+      if (!entry) return;
+      if (hop === 0) {
+        entry.x = cx;
+        entry.y = cy;
+        return;
+      }
+      const angle = ringNodes.length === 1
+        ? -Math.PI / 2
+        : (index / ringNodes.length) * Math.PI * 2 - Math.PI / 2;
+      entry.x = cx + Math.cos(angle) * radius;
+      entry.y = cy + Math.sin(angle) * radius;
+    });
   });
 
   return layout;
@@ -78,7 +109,13 @@ function truncateTitle(title: string, max = 14): string {
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`;
 }
 
-export function LocalGraphView({ colors: c, graphData, onNavigate }: LocalGraphViewProps) {
+export function LocalGraphView({
+  colors: c,
+  graphData,
+  onNavigate,
+  onExpandNode,
+  onCollapseNode,
+}: LocalGraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 180, h: 220 });
@@ -166,6 +203,8 @@ export function LocalGraphView({ colors: c, graphData, onNavigate }: LocalGraphV
   }, [transform.x, transform.y]);
 
   const isEmpty = graphData.nodes.length <= 1;
+  const connectedCount = Math.max(0, graphData.nodes.length - 1);
+  const scopeLabel = graphData.scope === 'expanded' ? 'Expanded graph' : 'Local graph';
 
   return (
     <div
@@ -187,9 +226,15 @@ export function LocalGraphView({ colors: c, graphData, onNavigate }: LocalGraphV
           borderBottom: `1px solid ${c.sideBdr}`,
           fontSize: 10,
           color: c.textMuted,
+          gap: 6,
         }}
       >
-        <span>Local graph · {Math.max(0, graphData.nodes.length - 1)} connected</span>
+        <span style={{ flex: 1 }}>
+          {scopeLabel} · {connectedCount} connected
+          {graphData.meta?.limitReached && (
+            <span style={{ color: c.danger }}> · limit reached</span>
+          )}
+        </span>
         <button
           type="button"
           onClick={() => setTransform({ x: 0, y: 0, k: 1 })}
@@ -257,32 +302,92 @@ export function LocalGraphView({ colors: c, graphData, onNavigate }: LocalGraphV
             {layoutNodes.map(node => {
               const isCenter = node.type === 'current';
               const radius = isCenter ? CENTER_RADIUS : NODE_RADIUS;
+              const canExpand = !isCenter && node.expandable && !node.expanded && onExpandNode;
+              const canCollapse = !isCenter && node.expanded && onCollapseNode;
+
               return (
-                <g
-                  key={node.noteId}
-                  transform={`translate(${node.x}, ${node.y})`}
-                  style={{ cursor: isCenter ? 'default' : 'pointer' }}
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (!isCenter) onNavigate(node.noteId);
-                  }}
-                >
-                  <circle
-                    r={radius}
-                    fill={isCenter ? c.accentBg : c.cardHov}
-                    stroke={isCenter ? c.accent : c.sideBdr}
-                    strokeWidth={isCenter ? 2.5 : 1.5}
-                  />
-                  <text
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill={isCenter ? c.accent : c.text}
-                    fontSize={isCenter ? 10 : 9}
-                    fontWeight={isCenter ? 700 : 600}
-                    pointerEvents="none"
+                <g key={node.noteId} transform={`translate(${node.x}, ${node.y})`}>
+                  {node.expanded && (
+                    <circle
+                      r={radius + 5}
+                      fill="none"
+                      stroke={c.accent}
+                      strokeWidth={1.5}
+                      strokeDasharray="3 2"
+                      opacity={0.8}
+                    />
+                  )}
+
+                  <g
+                    style={{ cursor: isCenter ? 'default' : 'pointer' }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (!isCenter) onNavigate(node.noteId);
+                    }}
                   >
-                    {truncateTitle(node.title)}
-                  </text>
+                    <circle
+                      r={radius}
+                      fill={isCenter ? c.accentBg : c.cardHov}
+                      stroke={isCenter ? c.accent : c.sideBdr}
+                      strokeWidth={isCenter ? 2.5 : 1.5}
+                    />
+                    <text
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fill={isCenter ? c.accent : c.text}
+                      fontSize={isCenter ? 10 : 9}
+                      fontWeight={isCenter ? 700 : 600}
+                      pointerEvents="none"
+                    >
+                      {truncateTitle(node.title)}
+                    </text>
+                  </g>
+
+                  {canExpand && (
+                    <g
+                      transform={`translate(${radius - 2}, ${-radius + 2})`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        onExpandNode?.(node.noteId);
+                      }}
+                    >
+                      <circle r={7} fill={c.accent} />
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill={c.sidebar}
+                        fontSize={10}
+                        fontWeight={700}
+                        pointerEvents="none"
+                      >
+                        +
+                      </text>
+                    </g>
+                  )}
+
+                  {canCollapse && (
+                    <g
+                      transform={`translate(${radius - 2}, ${-radius + 2})`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        onCollapseNode?.(node.noteId);
+                      }}
+                    >
+                      <circle r={7} fill={c.textMuted} />
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill={c.sidebar}
+                        fontSize={10}
+                        fontWeight={700}
+                        pointerEvents="none"
+                      >
+                        −
+                      </text>
+                    </g>
+                  )}
                 </g>
               );
             })}
