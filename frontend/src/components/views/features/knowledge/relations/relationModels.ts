@@ -45,15 +45,10 @@ export interface ResolvedRelationTarget {
 /** Graph extension — K-14+ */
 export type ExplicitGraphRelationshipType = 'relation';
 
-/** Rollup config placeholder — K-15+ */
-export type RelationRollupAggregate = 'count' | 'latest' | 'sum' | 'list';
-
-export interface RelationRollupConfig {
-  relationKey: string;
-  aggregate: RelationRollupAggregate;
-  /** Property on linked notes — for sum/latest aggregates */
-  field?: string;
-}
+export type {
+  RelationRollupAggregate,
+  RelationRollupConfig,
+} from '../rollups/rollupModels';
 
 export function isRelationEdge(value: unknown): value is RelationEdge {
   if (!value || typeof value !== 'object') return false;
