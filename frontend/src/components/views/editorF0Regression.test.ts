@@ -21,7 +21,7 @@ import {
   extractClipboardText,
   normalizePasteText,
   smartInlineMerge,
-} from './blockPaste';
+} from './features/block-editor/features/clipboard';
 
 describe('F-0 list Enter regression', () => {
   it('empty numbered item exits and clears listIndex', () => {

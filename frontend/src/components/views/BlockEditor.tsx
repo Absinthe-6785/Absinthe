@@ -66,11 +66,10 @@ import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
-import { useEditorPaste } from './features/block-editor/hooks/useEditorPaste';
+import { useEditorCopyEffects, useEditorPaste } from './features/block-editor/features/clipboard';
 import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';
 import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
-import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
 export type { BlockEditorColors } from './editorTypes';

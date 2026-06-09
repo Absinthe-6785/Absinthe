@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { htmlDocumentToBlocks } from './htmlDocumentToBlocks';
+import { htmlDocumentToBlocks } from './features/block-editor/features/clipboard';
 import { isDetailsToggleElement, toggleBlockFromDetails } from './htmlToggleParser';
 
 describe('htmlToggleParser', () => {

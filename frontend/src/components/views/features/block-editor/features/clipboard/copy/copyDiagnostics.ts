@@ -1,11 +1,11 @@
 /**
  * copyDiagnostics.ts — Copy path types, HTML classification, and dev-only trace listeners.
  */
-import type { Block } from './blockUtils';
-import { isEditorQaEnabled } from './editorQa';
+import type { Block } from '../../../../../blockUtils';
+import { isEditorQaEnabled } from '../../../../../editorQa';
 import { getLastCopyTraceReport } from './copyTraceStore';
-import { readBlockText } from './editableDom';
-import { getSelectionOffsets } from './selectionOffsets';
+import { readBlockText } from '../../../../../editableDom';
+import { getSelectionOffsets } from '../../../../../selectionOffsets';
 
 const PREVIEW_LEN = 1000;
 

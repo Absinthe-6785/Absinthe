@@ -4,12 +4,15 @@
  * Run: npm test -- ejuCopyFailure.investigation --disable-console-intercept
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handleEditorCopyEvent, blocksToCopyHtml } from './blockCopy';
-import { blockShape } from './blockCopy.investigationHelpers';
-import { resolveCopySelection } from './copySelection';
-import { classifyClipboardHtml } from './copyDiagnostics';
+import {
+  blockShape,
+  blocksToCopyHtml,
+  classifyClipboardHtml,
+  clipboardToBlocks,
+  handleEditorCopyEvent,
+  resolveCopySelection,
+} from './features/block-editor/features/clipboard';
 import { findBlockById, markdownToBlocks, type Block } from './blockUtils';
-import { clipboardToBlocks } from './pasteOrchestrator';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 
@@ -402,8 +405,9 @@ describe('EJU toggle copy failure investigation', () => {
 
   it('F — production: installEditorCopyListener registers copy handler (not diagnostics)', async () => {
     vi.stubEnv('DEV', 'false');
-    const { installEditorCopyListener } = await import('./copyListener');
-    const { installCopyDiagnostics } = await import('./copyDiagnostics');
+    const { installEditorCopyListener, installCopyDiagnostics } = await import(
+      './features/block-editor/features/clipboard'
+    );
     const addSpy = vi.spyOn(window, 'addEventListener');
     const before = addSpy.mock.calls.filter(c => c[0] === 'copy').length;
 

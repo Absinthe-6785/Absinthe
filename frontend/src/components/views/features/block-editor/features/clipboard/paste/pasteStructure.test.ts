@@ -6,7 +6,7 @@ import {
   tsvToMarkdownTable,
   prepareStructuredPasteText,
 } from './pasteStructure';
-import { markdownToBlocks } from './blockUtils';
+import { markdownToBlocks } from '../../../../../blockUtils';
 
 describe('pasteStructure', () => {
   it('numbered list paste', () => {

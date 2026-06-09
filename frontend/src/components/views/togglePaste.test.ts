@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from './blockUtils';
-import { applyPasteAtBlock, applyPasteBlocksAt, clipboardToBlocks } from './blockPaste';
+import {
+  applyPasteAtBlock,
+  applyPasteBlocksAt,
+  clipboardToBlocks,
+} from './features/block-editor/features/clipboard';
 
 describe('toggle header paste (UX-3A)', () => {
   const toggle = makeBlock('toggle', {

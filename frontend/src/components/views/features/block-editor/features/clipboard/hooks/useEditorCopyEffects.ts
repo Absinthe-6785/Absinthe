@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import type { Block } from '../../../blockUtils';
-import { installCopyDiagnostics } from '../../../copyDiagnostics';
-import { installEditorCopyListener } from '../../../copyListener';
+import type { Block } from '../../../../../blockUtils';
+import { installCopyDiagnostics } from '../copy/copyDiagnostics';
+import { installEditorCopyListener } from '../copy/copyListener';
 
 export interface UseEditorCopyEffectsOptions {
   readOnly: boolean;

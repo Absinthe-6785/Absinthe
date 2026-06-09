@@ -13,7 +13,7 @@ import {
   clipboardToBlocks,
   extractClipboardText,
   isDocumentLevelPaste,
-} from './blockPaste';
+} from './features/block-editor/features/clipboard';
 import {
   beginPastePipelineTrace,
   traceClipboardToBlocks,

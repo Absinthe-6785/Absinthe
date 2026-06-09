@@ -11,7 +11,7 @@ import {
   getLastCopyClipboardVerification,
 } from './copyClipboardVerification';
 import { installEditorCopyListener } from './copyListener';
-import { blocksToMarkdown, markdownToBlocks } from './blockUtils';
+import { blocksToMarkdown, markdownToBlocks } from '../../../../../blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 

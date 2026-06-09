@@ -4,8 +4,8 @@
  * Walks the full document; never returns only the first table.
  * Unknown elements → paragraph fallback (no callout detection).
  */
-import { makeBlock, type Block } from './blockUtils';
-import { isDetailsToggleElement, toggleBlockFromDetails } from './htmlToggleParser';
+import { makeBlock, type Block } from '../../../../../blockUtils';
+import { isDetailsToggleElement, toggleBlockFromDetails } from '../../../../../htmlToggleParser';
 
 const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
   H1: 'heading1',

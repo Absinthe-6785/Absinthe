@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { handleEditorCopyEvent } from './blockCopy';
 import { classifyClipboardHtml } from './copyDiagnostics';
-import { makeBlock, markdownToBlocks } from './blockUtils';
+import { makeBlock, markdownToBlocks } from '../../../../../blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 

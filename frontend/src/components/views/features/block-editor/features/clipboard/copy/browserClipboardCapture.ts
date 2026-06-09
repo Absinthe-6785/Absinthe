@@ -2,7 +2,7 @@
  * browserClipboardCapture.ts — Dev-only OS clipboard vs handler clipboard capture (UX-3A QA).
  */
 import type { CopyTraceReport } from './copyDiagnostics';
-import { isEditorQaEnabled } from './editorQa';
+import { isEditorQaEnabled } from '../../../../../editorQa';
 import {
   classifyClipboardPayloadVariant,
   firstByteDifference,

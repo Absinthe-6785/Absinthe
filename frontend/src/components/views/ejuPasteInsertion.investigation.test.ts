@@ -4,15 +4,17 @@
  * Run: npm test -- ejuPasteInsertion.investigation --disable-console-intercept
  */
 import { describe, expect, it } from 'vitest';
-import { blockShape, type TreeShape } from './blockCopy.investigationHelpers';
-import { blocksToCopyHtml } from './blockCopy';
 import {
   applyPasteAtBlock,
   applyPasteBlocksAt,
+  blockShape,
+  blocksToCopyHtml,
+  clipboardToBlocks,
   extractClipboardText,
-} from './blockPaste';
+  isDocumentLevelPaste,
+  type TreeShape,
+} from './features/block-editor/features/clipboard';
 import { blocksToMarkdown, findBlockById, markdownToBlocks, type Block } from './blockUtils';
-import { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 
