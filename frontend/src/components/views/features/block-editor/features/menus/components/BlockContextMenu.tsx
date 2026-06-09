@@ -2,7 +2,7 @@
  * BlockContextMenu.tsx — Block grip context menu (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, type ReactNode } from 'react';
-import { computeFixedMenuPosition } from './menuViewport';
+import { computeFixedMenuPosition } from '../utils/menuViewport';
 import {
   Plus, Copy, Indent, Outdent, Link2, Palette,
   Trash2, ArrowUp, ArrowDown,
@@ -10,12 +10,12 @@ import {
 import {
   BLOCK_TYPE_MENU, TURN_INTO_TYPES,
   type BlockType,
-} from './blockUtils';
-import { slashDisplayLabel } from './slashCommands';
-import { BLOCK_TINT_OPTIONS, type BlockTint } from './blockColors';
-import { blockIcon } from './blockIcons';
-import type { BlockEditorColors } from './editorTypes';
-import { CONTEXT_MENU, TINT_LABELS } from './editorMenuModel';
+} from '../../../../../blockUtils';
+import { slashDisplayLabel } from '../utils/slashCommands';
+import { BLOCK_TINT_OPTIONS, type BlockTint } from '../../../../../blockColors';
+import { blockIcon } from '../../../../../blockIcons';
+import type { BlockEditorColors } from '../../../../../editorTypes';
+import { CONTEXT_MENU, TINT_LABELS } from '../utils/editorMenuModel';
 
 export interface BlockContextMenuProps {
   blockId: string;

@@ -1,7 +1,7 @@
 /**
  * slashRecent.ts — Global per-browser slash command recency (localStorage)
  */
-import type { BlockType } from './blockUtils';
+import type { BlockType } from '../../../../../blockUtils';
 
 const STORAGE_KEY = 'absinthe.slashRecent.v1';
 const MAX_RECENT = 6;

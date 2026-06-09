@@ -6,7 +6,7 @@ import {
   filterBlockMenu,
   type BlockType,
   type BlockTypeMeta,
-} from './blockUtils';
+} from '../../../../../blockUtils';
 import { getSlashRecent } from './slashRecent';
 
 export interface SlashPaletteResult {

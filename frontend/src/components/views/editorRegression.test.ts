@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from './blockUtils';
 import { filterBlockMenu } from './blockUtils';
-import { resolveSlashCommand } from './slashCommands';
+import { resolveSlashCommand } from './features/block-editor/features/menus';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { selectionHasFormat } from './inlineFormat';
 import { applyToggleChildEnter, applyToggleHeaderEnter } from './toggleNesting';

@@ -2,10 +2,10 @@
  * SlashMenu.tsx — Slash command popup (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import type { BlockType } from './blockUtils';
-import { slashDisplayLabel, slashShortcutFor } from './slashCommands';
-import { buildSlashPalette } from './slashPalette';
-import type { BlockEditorColors } from './editorTypes';
+import type { BlockType } from '../../../../../blockUtils';
+import { slashDisplayLabel, slashShortcutFor } from '../utils/slashCommands';
+import { buildSlashPalette } from '../utils/slashPalette';
+import type { BlockEditorColors } from '../../../../../editorTypes';
 
 export interface SlashMenuProps {
   query: string;
