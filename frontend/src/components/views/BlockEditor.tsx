@@ -57,10 +57,8 @@ import {
 } from './blockTree';
 import { useDragDrop } from './editorDragDrop';
 import { SlashMenu } from './SlashMenu';
-import { recordSlashUsage } from './slashRecent';
 import type {
   BlockEditorColors, TurnIntoMenuState,
-  SlashMenuState, WikiMenuState,
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import type { ToggleNestedRenderer } from './toggleRender';
@@ -76,7 +74,6 @@ import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
 import { SelectionToolbar } from './SelectionToolbar';
 import { WikiMenu } from './WikiMenu';
-import { insertWikiAtCaret } from './wikiNavigation';
 import {
   dispatchFocusCommand, getFocusHandler, registerFocusHandler,
   type FocusCmd,
@@ -100,7 +97,6 @@ import {
 import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
 import {
-  applySlashMenuTypeChange,
   enterSplitBlockType,
   getPasteBlockContext,
   insertBlockAtIndex,
@@ -108,6 +104,7 @@ import {
 } from './features/block-editor/utils/blockEditorMutations';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
+import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorCopyEffects } from './features/block-editor/hooks/useEditorCopyEffects';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 
@@ -126,6 +123,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 }: BlockEditorInnerProps) {
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  const getLocalBlocks = useCallback(() => blocksRef.current, []);
 
   const getRootBlocks = useCallback(
     () => (getRootBlocksProp ? getRootBlocksProp() : blocksRef.current),
@@ -188,10 +187,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const selectedBlockIdsRef = useRef(selectedBlockIds);
   selectedBlockIdsRef.current = selectedBlockIds;
   const [focusCmd, setFocusCmd] = useState<FocusCmd | null>(null);
-  // Phase 3: 슬래시 커맨드
-  const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
-  // 위키링크 자동완성
-  const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
   // Phase 3: 드래그&드롭 — root-level only; nested editors share via DragCtx
   const parentDrag = useContext(DragCtx);
   const localDrag = useDragDrop(getRootBlocks, onRootChange, depth === 0 ? {
@@ -563,16 +558,36 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onChange(updateBlockById(blocksRef.current, id, b => ({ ...b, content })));
   }, [onChange]);
 
+  const {
+    slashMenu,
+    wikiMenu,
+    setSlashMenu,
+    setWikiMenu,
+    closeSlashMenu,
+    closeWikiMenu,
+    closeMenus,
+    isMenuOpenForBlock,
+    handleSlashSelect,
+    handleWikiSelect,
+  } = useEditorMenus({
+    getBlocks: getLocalBlocks,
+    onChange,
+    onFocusCmd: setFocusCmd,
+    colors: c,
+    wikiTargets,
+    searchQuery,
+    onContentChange: handleContentChange,
+  });
+
   const handlePasteAt = useCallback((id: string, start: number, end: number, text: string) => {
     const context = getPasteBlockContext(findBlockById(blocksRef.current, id));
     const result = applyPasteAtBlock(blocksRef.current, id, start, end, text, context);
     if (!result) return;
     onChange(result.blocks);
-    setSlashMenu(null);
-    setWikiMenu(null);
+    closeMenus();
     setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
     selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock]);
+  }, [onChange, selectBlock, closeMenus]);
 
   const handlePasteBlocksAt = useCallback((
     id: string, start: number, end: number, pasted: Block[],
@@ -596,11 +611,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     flushSync(() => { onChange(result.blocks); });
     traceStateAfterSetStateCallback(result.blocks);
     finishPastePipelineTrace();
-    setSlashMenu(null);
-    setWikiMenu(null);
+    closeMenus();
     setFocusCmd({ blockId: result.focusBlockId, offset: result.focusOffset });
     selectBlock(result.focusBlockId);
-  }, [onChange, selectBlock]);
+  }, [onChange, selectBlock, closeMenus]);
 
   // ── Toggle Step 1: 빈 toggle에 첫 자식 블록 생성 ─────────────────
   const handleToggleAddChild = useCallback((toggleBlockId: string) => {
@@ -675,29 +689,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     setFocusCmd({ blockId: externalFocusId, offset: 'start' });
     onExternalFocusConsumed?.();
   }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed, selectBlock]);
-
-  const handleSlashSelect = useCallback((type: BlockType) => {
-    if (!slashMenu) return;
-    const { blockId, query } = slashMenu;
-
-    onChange(updateBlockById(blocksRef.current, blockId, b => applySlashMenuTypeChange(b, type, query)));
-
-    recordSlashUsage(type);
-    setSlashMenu(null);
-    // 타입 변환 후 해당 블록 포커스 (끝)
-    setFocusCmd({ blockId, offset: 'end' });
-  }, [slashMenu, onChange]);
-
-  // ── 위키링크 선택 → 포커스된 contentEditable에 직접 [[제목]] 삽입 ──
-  // 상태 round-trip 대신 DOM을 직접 조작해 캐럿 위치를 정확히 유지한다.
-  const handleWikiSelect = useCallback((title: string) => {
-    const el = document.activeElement as HTMLElement | null;
-    if (el && el.isContentEditable) {
-      const text = insertWikiAtCaret(el, title, c, wikiTargets, searchQuery);
-      if (wikiMenu) handleContentChange(wikiMenu.blockId, text);
-    }
-    setWikiMenu(null);
-  }, [wikiMenu, handleContentChange, c, wikiTargets, searchQuery]);
 
   // focusCmd 소비 후 리셋
   useEffect(() => {
@@ -816,10 +807,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
             onOpenTurnInto={setHandleMenu}
             onConvertBlock={handleConvert}
             onSlashOpen={setSlashMenu}
-            onSlashClose={() => setSlashMenu(null)}
+            onSlashClose={closeSlashMenu}
             onWikiOpen={setWikiMenu}
-            onWikiClose={() => setWikiMenu(null)}
-            isMenuOpen={slashMenu?.blockId === block.id || wikiMenu?.blockId === block.id}
+            onWikiClose={closeWikiMenu}
+            isMenuOpen={isMenuOpenForBlock(block.id)}
             onToggleAddChild={handleToggleAddChild}
             onToggleEnter={handleToggleEnter}
             onTableChange={handleTableChange}
@@ -865,7 +856,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorX={slashMenu.anchorX}
           colors={c}
           onSelect={handleSlashSelect}
-          onClose={() => setSlashMenu(null)}
+          onClose={closeSlashMenu}
         />
       )}
       {/* 위키링크 자동완성 메뉴 */}
@@ -877,7 +868,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           anchorX={wikiMenu.anchorX}
           colors={c}
           onSelect={handleWikiSelect}
-          onClose={() => setWikiMenu(null)}
+          onClose={closeWikiMenu}
         />
       )}
     </>
