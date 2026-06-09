@@ -1,6 +1,7 @@
 export {
   getProperty,
   listProperties,
+  listUserProperties,
   normalizePropertyKey,
   parseNoteMarkdown,
   removeProperty,

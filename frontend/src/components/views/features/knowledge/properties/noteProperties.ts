@@ -1,5 +1,11 @@
 import type { NoteBase } from '../../../noteUtils';
 import { normalizeNoteProperties } from '../../../noteUtils';
+import {
+  isTagsPropertyKey,
+  TAGS_PROPERTY_KEY,
+  tagsFromPropertyValue,
+  tagsToPropertyValue,
+} from '../tags/tagConstants';
 
 /** Case-insensitive property key for lookup */
 export function normalizePropertyKey(key: string): string {
@@ -48,10 +54,15 @@ export function removeProperty(note: NoteBase, key: string): NoteBase {
   return { ...note, properties };
 }
 
-/** List all properties preserving stored key casing */
+/** List all properties preserving stored key casing (includes reserved keys) */
 export function listProperties(note: NoteBase): { key: string; value: string }[] {
   if (!note.properties) return [];
   return Object.entries(note.properties).map(([key, value]) => ({ key, value }));
+}
+
+/** User-editable properties — excludes reserved keys like tags */
+export function listUserProperties(note: NoteBase): { key: string; value: string }[] {
+  return listProperties(note).filter(p => !isTagsPropertyKey(p.key));
 }
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -88,16 +99,55 @@ function parseFrontmatterLine(line: string): { key: string; value: string } | nu
   return { key, value };
 }
 
+function parseFrontmatterContent(content: string): Record<string, string> {
+  const properties: Record<string, string> = {};
+  const lines = content.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      i++;
+      continue;
+    }
+
+    if (/^tags\s*:\s*$/i.test(trimmed)) {
+      const tags: string[] = [];
+      i++;
+      while (i < lines.length && /^\s*-\s+/.test(lines[i])) {
+        let item = lines[i].replace(/^\s*-\s+/, '').trim();
+        if (
+          (item.startsWith('"') && item.endsWith('"')) ||
+          (item.startsWith("'") && item.endsWith("'"))
+        ) {
+          item = item.slice(1, -1);
+        }
+        if (item) tags.push(item);
+        i++;
+      }
+      if (tags.length > 0) {
+        properties[TAGS_PROPERTY_KEY] = tagsToPropertyValue(tags);
+      }
+      continue;
+    }
+
+    const parsed = parseFrontmatterLine(line);
+    if (parsed && !isTagsPropertyKey(parsed.key)) {
+      properties[parsed.key] = parsed.value;
+    }
+    i++;
+  }
+
+  return properties;
+}
+
 /** Parse simple YAML frontmatter from imported markdown */
 export function parseNoteMarkdown(raw: string): { body: string; properties?: Record<string, string> } {
   const match = raw.match(FRONTMATTER_RE);
   if (!match) return { body: raw };
 
-  const properties: Record<string, string> = {};
-  for (const line of match[1].split('\n')) {
-    const parsed = parseFrontmatterLine(line);
-    if (parsed) properties[parsed.key] = parsed.value;
-  }
+  const properties = parseFrontmatterContent(match[1]);
 
   return {
     body: raw.slice(match[0].length).replace(/^\n+/, ''),
@@ -107,13 +157,22 @@ export function parseNoteMarkdown(raw: string): { body: string; properties?: Rec
 
 /** Serialize note body with optional YAML frontmatter for export */
 export function serializeNoteMarkdown(note: NoteBase): string {
-  const entries = listProperties(note);
-  if (entries.length === 0) return note.body ?? '';
+  const tags = tagsFromPropertyValue(getProperty(note, TAGS_PROPERTY_KEY));
+  const userProps = listUserProperties(note);
 
-  const frontmatter = entries
-    .map(({ key, value }) => `${key}: ${escapeYamlValue(value)}`)
-    .join('\n');
+  if (tags.length === 0 && userProps.length === 0) return note.body ?? '';
+
+  const lines: string[] = [];
+  if (tags.length > 0) {
+    lines.push('tags:');
+    for (const tag of tags) {
+      lines.push(`  - ${escapeYamlValue(tag)}`);
+    }
+  }
+  for (const { key, value } of userProps) {
+    lines.push(`${key}: ${escapeYamlValue(value)}`);
+  }
 
   const body = note.body ?? '';
-  return `---\n${frontmatter}\n---\n\n${body}`;
+  return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }

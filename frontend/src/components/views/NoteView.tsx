@@ -22,7 +22,10 @@ import {
 import {
   knowledgeIndexService,
   LinkedReferencesPanel,
+  listTags,
+  noteMatchesPageTag,
   NotePropertiesPanel,
+  NoteTagsPanel,
   parseNoteMarkdown,
   serializeNoteMarkdown,
 } from './features/knowledge';
@@ -252,17 +255,24 @@ export const NoteView = () => {
       activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
       activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
                                      safeNotes.filter(n => !n.deletedAt);
-    if (activeTag) list = list.filter(n => extractTags(n.body ?? '').includes(activeTag));
+    if (activeTag) {
+      const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
+      list = list.filter(n => taggedIds.has(n.id));
+    }
     if (searchQuery.trim()) {
       const parsed = parseNoteSearchQuery(searchQuery);
       if (parsed.mode === 'tag') {
-        list = list.filter(n => noteMatchesTagSearch(n.body ?? '', parsed.value));
+        list = list.filter(n =>
+          noteMatchesTagSearch(n.body ?? '', parsed.value) ||
+          noteMatchesPageTag(n, parsed.value),
+        );
       } else {
         const q = parsed.value.toLowerCase();
         list = list.filter(n =>
           (n.title ?? '').toLowerCase().includes(q) ||
           (n.body ?? '').toLowerCase().includes(q) ||
-          extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q))
+          extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
+          noteMatchesPageTag(n, q)
         );
       }
     }
@@ -330,17 +340,13 @@ export const NoteView = () => {
     () => (activeNote ? extractLinkContexts(activeNote.title ?? '', notes) : []),
     [notes, activeNote?.id, activeNote?.title],
   );
-  const allTags = useMemo(() => {
-    const m: Record<string, number> = {};
-    notes.filter(n => !n.deletedAt).forEach(n =>
-      extractTags(n.body ?? '').forEach(t => { m[t] = (m[t] || 0) + 1; })
-    );
-    return Object.entries(m).sort((a, b) => b[1] - a[1]);
-  }, [notes]);
-  // noteTags: activeNote.body가 바뀔 때만 재계산
+  const allTags = useMemo(
+    () => knowledgeIndexService.getAllTags(),
+    [notes],
+  );
   const noteTags = useMemo(
-    () => activeNote ? extractTags(activeNote.body) : [],
-    [activeNote?.body]
+    () => (activeNote ? listTags(activeNote) : []),
+    [activeNote?.id, activeNote?.properties],
   );
 
   // ── 폴더 ────────────────────────────────────────────────────────
@@ -838,7 +844,7 @@ export const NoteView = () => {
             </div>
           ) : visibleNotes.map(n => {
             const folder  = folders.find(f => f.id === n.folderId);
-            const tags    = extractTags(n.body).slice(0, 2);
+            const tags    = listTags(n).slice(0, 2);
             const rawPreview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
             const hlTitle   = searchQuery.trim() ? highlightText(n.title || 'Untitled', searchQuery) : (n.title || 'Untitled');
             const hlPreview = searchQuery.trim() ? highlightText(rawPreview, searchQuery) : rawPreview;
@@ -1214,31 +1220,19 @@ export const NoteView = () => {
             />
           )}
 
-          {/* Tags */}
-          {rightPanel === 'tags' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>This note's tags</div>
-              {noteTags.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 0' }}>No tags · use #tag</p>
-                : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
-                    {noteTags.map(t => (
-                      <span key={t} className={`btpill ${activeTag === t ? 'active' : ''}`}
-                        onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === t ? null : t); }}>#{t}</span>
-                    ))}
-                  </div>
-                )
-              }
-              <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8, borderTop: `1px solid ${c.sideBdr}`, paddingTop: 10 }}>All Tags</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {allTags.map(([tag, count]) => (
-                  <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
-                    #{tag} <span style={{ color: c.textMuted }}>{count}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
+          {rightPanel === 'tags' && activeNote && (
+            <NoteTagsPanel
+              colors={c}
+              note={activeNote}
+              allTags={allTags}
+              activeTag={activeTag}
+              onUpdateTags={properties => noteUpdate(activeNote.id, { properties })}
+              onSelectTag={tag => {
+                setActiveFolderId(null);
+                setSearchQuery('');
+                setActiveTag(tag);
+              }}
+            />
           )}
 
           {/* Stats */}
@@ -1249,7 +1243,7 @@ export const NoteView = () => {
             const lines = body.split('\n').length;
             const readMin = Math.max(1, Math.ceil(words / 200));
             const linkCount = extractLinks(body).length;
-            const tagCount  = extractTags(body).length;
+            const tagCount  = noteTags.length;
             const headings  = (body.match(/^#{1,3} /gm) || []).length;
             const codeBlocks = (body.match(/```/g) || []).length / 2;
             const created = Number(activeNote.id.split('-')[1] || 0);
@@ -1281,14 +1275,14 @@ export const NoteView = () => {
                   <>
                     <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Tag Cloud</div>
                     <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {allTags.slice(0, 20).map(([tag, count]) => {
-                        const maxCount = allTags[0][1];
+                      {allTags.slice(0, 20).map(({ tag, count }) => {
+                        const maxCount = allTags[0]?.count ?? 1;
                         const size = 9 + Math.round((count / maxCount) * 8);
                         const opacity = 0.5 + (count / maxCount) * 0.5;
                         return (
                           <span key={tag}
-                            style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag === tag ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); }}>
+                            style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag?.toLowerCase() === tag.toLowerCase() ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
+                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag); }}>
                             #{tag}
                           </span>
                         );
