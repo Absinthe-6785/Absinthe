@@ -58,6 +58,18 @@ export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/Rel
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
 
 export {
+  buildLocalGraphData,
+  LocalGraphView,
+  type BuildLocalGraphInput,
+  type GraphData,
+  type GraphEdge,
+  type GraphNode,
+  type GraphNodeType,
+  type GraphRelationshipType,
+  type LocalGraphViewProps,
+} from './graph';
+
+export {
   computeRelatedScore,
   formatRelatedReasons,
   RELATED_SCORE,

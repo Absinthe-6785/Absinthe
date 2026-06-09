@@ -203,6 +203,15 @@ export class KnowledgeIndexService {
     return this.getMentioningNotes(targetNoteId, { excludeNoteId }).length;
   }
 
+  /** Notes mentioned as plain text from a source note — O(1) */
+  getMentionedNotes(sourceNoteId: string): PageReference[] {
+    const targetIds = this.mentionsFromSourceId.get(sourceNoteId) ?? [];
+    return targetIds.map(targetId => ({
+      noteId: targetId,
+      noteTitle: this.activeNotes.get(targetId)?.title ?? '',
+    }));
+  }
+
   resolveMentionNavigation(ref: PageReference): string {
     return ref.noteId;
   }
