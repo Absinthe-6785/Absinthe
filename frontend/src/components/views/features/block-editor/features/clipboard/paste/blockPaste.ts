@@ -1,12 +1,12 @@
-import { splitBlockContent } from './blockContent';
-import { isListType, renumberNumberedListsDeep } from './listBlocks';
+import { splitBlockContent } from '../../../../../blockContent';
+import { isListType, renumberNumberedListsDeep } from '../../../../../listBlocks';
 import {
   htmlToPlainText,
   normalizePasteText,
   prepareStructuredPasteText,
 } from './pasteStructure';
-import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from './blockUtils';
-import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
+import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from '../../../../../blockUtils';
+import { assertValidBlockTree } from '../../../validation/assertValidBlockTree';
 import { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
 export { normalizePasteText, htmlToPlainText } from './pasteStructure';

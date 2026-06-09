@@ -1,4 +1,4 @@
-import type { Block } from './blockUtils';
+import type { Block } from '../../../../../blockUtils';
 
 export type TreeShape = {
   type: string;

@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { handleEditorCopyEvent } from './blockCopy';
 import { assertTreesEqual } from './blockCopy.test';
 import { classifyClipboardHtml } from './copyDiagnostics';
-import { makeBlock, markdownToBlocks } from './blockUtils';
-import { clipboardToBlocks } from './pasteOrchestrator';
+import { makeBlock, markdownToBlocks } from '../../../../../blockUtils';
+import { clipboardToBlocks } from '../paste/pasteOrchestrator';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 

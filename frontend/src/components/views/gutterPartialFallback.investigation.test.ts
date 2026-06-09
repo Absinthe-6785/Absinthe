@@ -8,8 +8,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
-import { collectBlocksForCopy, handleEditorCopyEvent } from './blockCopy';
-import { classifyClipboardHtml } from './copyDiagnostics';
+import {
+  classifyClipboardHtml,
+  collectBlocksForCopy,
+  handleEditorCopyEvent,
+} from './features/block-editor/features/clipboard';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { readBlockText, setSelectionOffsets } from './editableDom';
 import { getSelectionOffsets } from './selectionOffsets';

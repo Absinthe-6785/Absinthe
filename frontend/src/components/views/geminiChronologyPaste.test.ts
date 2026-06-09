@@ -8,16 +8,19 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderBlockContent } from './blockRegistry';
-import { applyPasteAtBlock, applyPasteBlocksAt } from './blockPaste';
-import { clipboardToBlocks } from './pasteOrchestrator';
-import { htmlDocumentToBlocks } from './htmlDocumentToBlocks';
+import {
+  applyPasteAtBlock,
+  applyPasteBlocksAt,
+  clipboardToBlocks,
+  htmlDocumentToBlocks,
+} from './features/block-editor/features/clipboard';
 import { loadValidatedBlocks } from './documentRecovery';
 import { markdownToBlocks, makeBlock } from './blockUtils';
 import {
   htmlTableToMarkdown,
   parseStructuredPaste,
   prepareStructuredPasteText,
-} from './pasteStructure';
+} from './features/block-editor/features/clipboard';
 import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
 
 /** Typical Gemini chronology export (markdown pipe table). */

@@ -5,9 +5,9 @@
  */
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
 import { resolveCopySelection } from './copySelection';
-import { blocksToMarkdown, findBlockById, type Block } from './blockUtils';
-import { readBlockText } from './editableDom';
-import { getSelectionOffsets } from './selectionOffsets';
+import { blocksToMarkdown, findBlockById, type Block } from '../../../../../blockUtils';
+import { readBlockText } from '../../../../../editableDom';
+import { getSelectionOffsets } from '../../../../../selectionOffsets';
 
 function escapeHtml(text: string): string {
   return text

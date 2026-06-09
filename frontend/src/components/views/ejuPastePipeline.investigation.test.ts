@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
-import { blocksToCopyHtml } from './blockCopy';
+import { blocksToCopyHtml } from './features/block-editor/features/clipboard';
 import { getLastPastePipelineTrace } from './pastePipelineTrace';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { makeBlock, markdownToBlocks, type Block } from './blockUtils';

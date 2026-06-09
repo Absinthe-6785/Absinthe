@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeBlock, markdownToBlocks, type Block } from './blockUtils';
+import { makeBlock, markdownToBlocks, type Block } from '../../../../../blockUtils';
 import {
   applySemanticCopy,
   blocksToCopyHtml,
@@ -10,7 +10,7 @@ import {
 } from './blockCopy';
 import { classifyClipboardPayloadVariant } from './copyClipboardVerification';
 import { classifyClipboardHtml } from './copyDiagnostics';
-import { clipboardToBlocks } from './pasteOrchestrator';
+import { clipboardToBlocks } from '../paste/pasteOrchestrator';
 
 type TreeShape = { type: string; content?: string; checked?: boolean; collapsed?: boolean; indent?: number; children?: TreeShape[] };
 

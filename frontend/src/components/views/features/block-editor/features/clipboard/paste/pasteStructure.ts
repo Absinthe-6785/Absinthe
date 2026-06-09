@@ -1,7 +1,7 @@
 /**
  * pasteStructure.ts — Structured clipboard → markdown / blocks
  */
-import { markdownToBlocks, type Block } from './blockUtils';
+import { markdownToBlocks, type Block } from '../../../../../blockUtils';
 
 export function normalizePasteText(raw: string): string {
   return raw

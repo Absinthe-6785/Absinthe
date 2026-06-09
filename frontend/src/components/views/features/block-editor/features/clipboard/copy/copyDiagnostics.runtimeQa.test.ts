@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { classifyClipboardHtml, installCopyDiagnostics } from './copyDiagnostics';
 import { installEditorCopyListener } from './copyListener';
-import { markdownToBlocks } from './blockUtils';
+import { markdownToBlocks } from '../../../../../blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 

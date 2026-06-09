@@ -12,8 +12,9 @@ describe('editorQa production gating (UX-4E)', () => {
   it('skips clipboard verification hooks when DEV is false', async () => {
     vi.stubEnv('DEV', false);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { verifyCopyClipboardSync } = await import('./copyClipboardVerification');
-    const { scheduleBrowserClipboardCapture } = await import('./browserClipboardCapture');
+    const { scheduleBrowserClipboardCapture, verifyCopyClipboardSync } = await import(
+      './features/block-editor/features/clipboard'
+    );
 
     const e = { clipboardData: { getData: () => '' } } as ClipboardEvent;
     expect(verifyCopyClipboardSync(e, null)).toBeNull();
@@ -37,7 +38,7 @@ describe('editorQa production gating (UX-4E)', () => {
     vi.stubEnv('DEV', false);
     vi.resetModules();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { installEditorCopyListener } = await import('./copyListener');
+    const { installEditorCopyListener } = await import('./features/block-editor/features/clipboard');
     const toggle = makeBlock('toggle', {
       id: 't1',
       content: 'Grammar Module',

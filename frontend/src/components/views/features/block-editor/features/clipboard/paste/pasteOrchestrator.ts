@@ -3,9 +3,9 @@
  *
  * Rule: when text/html exists → try HTML first → on failure fall back to text/plain.
  */
-import { markdownToBlocks, type Block } from './blockUtils';
-import { validateDocument } from './documentRecovery';
-import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
+import { markdownToBlocks, type Block } from '../../../../../blockUtils';
+import { validateDocument } from '../../../../../documentRecovery';
+import { assertValidBlockTree } from '../../../validation/assertValidBlockTree';
 import { htmlDocumentToBlocks, htmlHasBlockStructure } from './htmlDocumentToBlocks';
 import {
   looksLikeTsv,

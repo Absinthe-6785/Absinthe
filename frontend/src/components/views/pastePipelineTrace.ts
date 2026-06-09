@@ -2,7 +2,7 @@
  * pastePipelineTrace.ts — Dev-only paste pipeline instrumentation (QA).
  */
 import type { Block } from './blockUtils';
-import { blockShape } from './blockCopy.investigationHelpers';
+import { blockShape } from './features/block-editor/features/clipboard';
 import { isEditorQaEnabled } from './editorQa';
 
 export interface BlockIdentityNode {

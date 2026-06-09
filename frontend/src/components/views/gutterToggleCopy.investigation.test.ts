@@ -9,12 +9,12 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
 import {
+  blockShape,
+  classifyClipboardHtml,
   collectBlocksForCopy,
   handleEditorCopyEvent,
-} from './blockCopy';
-import { blockShape } from './blockCopy.investigationHelpers';
-import { classifyClipboardHtml } from './copyDiagnostics';
-import { resolveCopySelection } from './copySelection';
+  resolveCopySelection,
+} from './features/block-editor/features/clipboard';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { setSelectionOffsets } from './editableDom';
 import { markdownToBlocks, type Block } from './blockUtils';

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import * as blockUtils from './blockUtils';
-import { makeBlock } from './blockUtils';
+import * as blockUtils from '../../../../../blockUtils';
+import { makeBlock } from '../../../../../blockUtils';
 import {
   adaptPastedBlocks,
   applyPasteAtBlock,

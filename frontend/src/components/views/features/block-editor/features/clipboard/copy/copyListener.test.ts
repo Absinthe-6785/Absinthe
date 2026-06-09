@@ -8,7 +8,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as blockCopy from './blockCopy';
 import { installEditorCopyListener } from './copyListener';
-import { makeBlock } from './blockUtils';
+import { makeBlock } from '../../../../../blockUtils';
 
 describe('installEditorCopyListener (UX-3A.3)', () => {
   afterEach(() => {
@@ -79,7 +79,7 @@ describe('installEditorCopyListener (UX-3A.3)', () => {
   });
 
   it('preview production bundle includes copy listener registration', () => {
-    const frontendDir = path.resolve(import.meta.dirname, '../../..');
+    const frontendDir = path.resolve(import.meta.dirname, '../../../../../../../..');
     execSync('npm run build', { cwd: frontendDir, stdio: 'pipe' });
 
     const assetDir = path.join(frontendDir, 'dist/assets');

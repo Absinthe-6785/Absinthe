@@ -1,16 +1,16 @@
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { type Block, findBlockById } from '../../../blockUtils';
-import { applyPasteAtBlock, applyPasteBlocksAt } from '../../../blockPaste';
+import { type Block, findBlockById } from '../../../../../blockUtils';
+import { applyPasteAtBlock, applyPasteBlocksAt } from '../paste/blockPaste';
 import {
   finishPastePipelineTrace,
   traceApplyPasteBlocksAtInput,
   traceApplyPasteBlocksAtOutput,
   traceStateAfterSetStateCallback,
   traceStateBeforeSetState,
-} from '../../../pastePipelineTrace';
-import type { FocusCmd } from '../../../selectionState';
-import { getPasteBlockContext } from '../utils/blockEditorMutations';
+} from '../../../../../pastePipelineTrace';
+import type { FocusCmd } from '../../../../../selectionState';
+import { getPasteBlockContext } from '../../../utils/blockEditorMutations';
 
 export interface UseEditorPasteOptions {
   getBlocks: () => Block[];

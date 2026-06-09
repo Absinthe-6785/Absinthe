@@ -14,9 +14,9 @@ import {
 } from './browserClipboardCapture';
 import { blocksToCopyHtml, handleEditorCopyEvent } from './blockCopy';
 import { installEditorCopyListener } from './copyListener';
-import { BlockEditor } from './BlockEditor';
-import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
-import { markdownToBlocks } from './blockUtils';
+import { BlockEditor } from '../../../../../BlockEditor';
+import { EDITOR_CHROME_STYLES } from '../../../../../editorChromeStyles';
+import { markdownToBlocks } from '../../../../../blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 

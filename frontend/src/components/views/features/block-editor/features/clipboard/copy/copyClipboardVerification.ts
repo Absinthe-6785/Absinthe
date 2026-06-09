@@ -3,8 +3,8 @@
  */
 import type { CopyTraceReport } from './copyDiagnostics';
 import { classifyClipboardHtml } from './copyDiagnostics';
-import { isEditorQaEnabled } from './editorQa';
-import { clipboardToBlocks } from './pasteOrchestrator';
+import { isEditorQaEnabled } from '../../../../../editorQa';
+import { clipboardToBlocks } from '../paste/pasteOrchestrator';
 
 export type ClipboardPayloadVariant =
   | 'A-semantic-details-summary'

@@ -8,8 +8,8 @@ import { handleEditorCopyEvent } from './blockCopy';
 import { verifyCopyClipboardSync } from './copyClipboardVerification';
 import type { CopyTraceReport } from './copyDiagnostics';
 import { setLastCopyTraceReport } from './copyTraceStore';
-import { isEditorQaEnabled } from './editorQa';
-import type { Block } from './blockUtils';
+import { isEditorQaEnabled } from '../../../../../editorQa';
+import type { Block } from '../../../../../blockUtils';
 
 export interface EditorCopyListenerOptions {
   getRootBlocks: () => Block[];
