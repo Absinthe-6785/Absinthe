@@ -19,8 +19,7 @@ import {
   normalizeNoteFolderId,
 } from './noteUtils';
 import {
-  buildBacklinkIndex,
-  getPageReferences,
+  knowledgeIndexService,
   LinkedReferencesPanel,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
@@ -317,11 +316,9 @@ export const NoteView = () => {
     () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [notes]
   );
-  const backlinkIndex = useMemo(() => buildBacklinkIndex(notes), [notes]);
-
   const pageReferences = useMemo(
-    () => (activeNote ? getPageReferences(backlinkIndex, activeNote, notes) : null),
-    [backlinkIndex, activeNote, notes],
+    () => (activeNote ? knowledgeIndexService.getPageReferences(activeNote, notes) : null),
+    [activeNote, notes],
   );
 
   // Linked reference excerpts — contextual paragraphs from referring pages

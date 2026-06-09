@@ -11,4 +11,9 @@ export {
   type PageReference,
 } from './backlinks';
 
+export {
+  KnowledgeIndexService,
+  knowledgeIndexService,
+} from './KnowledgeIndexService';
+
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';

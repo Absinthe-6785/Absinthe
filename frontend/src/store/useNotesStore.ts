@@ -32,6 +32,7 @@ import {
   LOCAL_NOTES_SAVE_ERROR,
   LOCAL_FOLDERS_SAVE_ERROR,
 } from '../components/views/noteUtils';
+import { knowledgeIndexService } from '../components/views/features/knowledge';
 
 export type { Note, NoteFolder };
 
@@ -123,6 +124,17 @@ function mapDbNote(
 
 const initialNotes = loadNotes();
 const initialFolders = loadFolders();
+knowledgeIndexService.buildFromNotes(initialNotes);
+
+function rebuildKnowledgeIndex(notes: Note[]) {
+  knowledgeIndexService.buildFromNotes(notes);
+}
+
+function syncKnowledgeIndexForNote(note: Note, patch?: Partial<Note>) {
+  if (!patch || 'body' in patch || 'title' in patch || 'deletedAt' in patch) {
+    knowledgeIndexService.updateNote(note);
+  }
+}
 
 export const useNotesStore = create<NotesState>((set, get) => {
   const syncNoteToDB = async (note: Note): Promise<boolean> => {
@@ -235,6 +247,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ notes, activeNoteId: id });
       persistNotes(notes);
       saveActiveNoteId(id);
+      knowledgeIndexService.updateNote(note);
       void syncNoteToDB(note);
       return id;
     },
@@ -244,6 +257,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ notes, activeNoteId: note.id });
       persistNotes(notes);
       saveActiveNoteId(note.id);
+      knowledgeIndexService.updateNote(note);
       void syncNoteToDB(note);
     },
 
@@ -255,6 +269,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       persistNotes(notes);
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
+      syncKnowledgeIndexForNote(updated, patch);
       if ('body' in patch) {
         scheduleBodySync(updated);
       } else {
@@ -280,6 +295,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ notes, activeNoteId: id });
       persistNotes(notes);
       saveActiveNoteId(id);
+      knowledgeIndexService.updateNote(copy);
       void syncNoteToDB(copy);
       return id;
     },
@@ -294,7 +310,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
       persistNotes(notes);
       saveActiveNoteId(nextActive);
       const trashed = notes.find(n => n.id === id);
-      if (trashed) void syncNoteToDB(trashed);
+      if (trashed) {
+        knowledgeIndexService.removeNote(id);
+        void syncNoteToDB(trashed);
+      }
     },
 
     restoreNote: (id) => {
@@ -309,12 +328,16 @@ export const useNotesStore = create<NotesState>((set, get) => {
       });
       persistNotes(notes);
       saveActiveNoteId(id);
-      if (restored) void syncNoteToDB(restored);
+      if (restored) {
+        knowledgeIndexService.updateNote(restored);
+        void syncNoteToDB(restored);
+      }
     },
 
     permanentDeleteNote: (id) => {
       clearBodySyncTimer(id);
       pendingBodySync.delete(id);
+      knowledgeIndexService.removeNote(id);
       const notes = get().notes.filter(n => n.id !== id);
       const nextActive = get().activeNoteId === id
         ? (notes.find(n => !n.deletedAt)?.id ?? null)
@@ -410,6 +433,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             set({ notes: merged, activeNoteId: nextActive });
             persistNotes(merged);
             saveActiveNoteId(nextActive);
+            rebuildKnowledgeIndex(merged);
           } else if (dbNotes.length === 0) {
             await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
           }
@@ -459,6 +483,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         savedAt: null,
         isSyncing: false,
       });
+      rebuildKnowledgeIndex(notes);
     },
   };
 });
@@ -477,6 +502,7 @@ function applyStorageMerge(key: string | null, newValue: string | null) {
     const nextActive = stillValid ? prevActive : loadActiveNoteId(merged);
     applyingStorageMerge = true;
     useNotesStore.setState({ notes: merged, activeNoteId: nextActive });
+    rebuildKnowledgeIndex(merged);
     if (!saveNotes(merged)) useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
     if (nextActive !== prevActive) saveActiveNoteId(nextActive);
     applyingStorageMerge = false;
