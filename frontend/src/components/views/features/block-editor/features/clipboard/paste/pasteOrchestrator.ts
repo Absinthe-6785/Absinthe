@@ -13,6 +13,11 @@ import {
   tsvToMarkdownTable,
 } from './pasteStructure';
 import { isSingleLineMarkdownBlock, parseSingleLineMarkdown } from './singleLineMarkdown';
+import {
+  parseFencedCodeFromPlain,
+  parseImageFromPlain,
+  parseMathFromPlain,
+} from '../special/specialBlockClipboard';
 
 function blocksFromPlain(plain: string): Block[] | null {
   const normalized = normalizePasteText(plain);
@@ -27,8 +32,16 @@ function blocksFromPlain(plain: string): Block[] | null {
   }
 
   if (!normalized.includes('\n')) {
-    return parseSingleLineMarkdown(normalized);
+    return parseSingleLineMarkdown(normalized)
+      ?? parseImageFromPlain(normalized)
+      ?? parseMathFromPlain(normalized);
   }
+
+  const fenced = parseFencedCodeFromPlain(normalized);
+  if (fenced) return fenced;
+
+  const math = parseMathFromPlain(normalized);
+  if (math) return math;
 
   const blocks = markdownToBlocks(normalized);
   return blocks.length > 0 ? blocks : null;

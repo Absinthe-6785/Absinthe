@@ -9,6 +9,12 @@ import { blocksToMarkdown, findBlockById, type Block } from '../../../../../bloc
 import { readBlockText } from '../../../../../editableDom';
 import { getSelectionOffsets } from '../../selection';
 import { markdownInlineToHtml } from '../inline/inlineClipboard';
+import {
+  calloutBlockToHtml,
+  codeBlockToHtml,
+  imageBlockToHtml,
+  mathBlockToHtml,
+} from '../special/specialBlockClipboard';
 
 function escapeHtml(text: string): string {
   return text
@@ -49,7 +55,13 @@ function blockBodyHtml(block: Block): string {
       return `<details class="btoggle"${openAttr}><summary class="btsummary">${inlineHtml(block.content)}</summary>${body}</details>`;
     }
     case 'code':
-      return `<pre><code>${escapeHtml(block.code ?? block.content)}</code></pre>`;
+      return codeBlockToHtml(block);
+    case 'math':
+      return mathBlockToHtml(block);
+    case 'image':
+      return imageBlockToHtml(block);
+    case 'callout':
+      return calloutBlockToHtml(block, inlineHtml);
     case 'divider':
       return '<hr>';
     case 'table':
