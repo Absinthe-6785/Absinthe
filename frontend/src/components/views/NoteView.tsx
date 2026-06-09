@@ -43,6 +43,7 @@ import {
   SmartCollectionsSection,
   RuleCollectionsSection,
   DatabaseTableView,
+  DatabaseBoardView,
   DatabaseViewControls,
   DatabaseViewsSection,
   SMART_COLLECTIONS,
@@ -51,12 +52,17 @@ import {
   evaluateRuleCollection,
   evaluateDatabaseView,
   prepareDatabaseViewRows,
+  prepareDatabaseBoardLanes,
   resolveVisibleColumns,
   withDatabaseViewDefaults,
+  getBoardConfig,
+  getTableConfig,
   addDatabaseViewColumn,
   removeDatabaseViewColumn,
   setDatabaseViewSort,
   setDatabaseViewColumnVisibility,
+  setDatabaseViewPresentation,
+  setDatabaseViewGroupBy,
   updateDatabaseViewConfig,
   findRuleCollection,
   findSmartCollection,
@@ -90,6 +96,7 @@ import {
   type SmartCollection,
   type RuleCollection,
   type DatabaseView,
+  type DatabaseViewPresentation,
   type DatabaseViewSort,
   type WorkspaceActivation,
 } from './features/knowledge';
@@ -454,8 +461,13 @@ export const NoteView = () => {
     setWorkspaceActivation(prev => (prev.kind === 'rule-collection' && prev.id === id ? INACTIVE_WORKSPACE : prev));
   }, []);
 
-  const handleCreateDatabaseView = useCallback((name: string, query: string) => {
-    setDatabaseViews(prev => createDatabaseView(prev, name, query));
+  const handleCreateDatabaseView = useCallback((
+    name: string,
+    query: string,
+    presentation?: DatabaseViewPresentation,
+    groupBy?: string,
+  ) => {
+    setDatabaseViews(prev => createDatabaseView(prev, name, query, { presentation, groupBy }));
   }, []);
 
   const handleRenameDatabaseView = useCallback((id: string, name: string) => {
@@ -517,14 +529,26 @@ export const NoteView = () => {
     return prepareDatabaseViewRows(activeDatabaseView, safeNotes, knowledgeIndexService);
   }, [activeDatabaseView, notes]);
 
+  const databaseBoardLanes = useMemo(() => {
+    if (!activeDatabaseView) return [];
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    return prepareDatabaseBoardLanes(activeDatabaseView, safeNotes, knowledgeIndexService);
+  }, [activeDatabaseView, notes]);
+
   const activeDatabaseViewColumns = useMemo(() => {
     if (!activeDatabaseView) return [];
-    return resolveVisibleColumns(withDatabaseViewDefaults(activeDatabaseView).columns);
+    const configured = withDatabaseViewDefaults(activeDatabaseView);
+    return resolveVisibleColumns(getTableConfig(configured).columns);
   }, [activeDatabaseView]);
 
   const activeDatabaseViewSort = useMemo(() => {
     if (!activeDatabaseView) return undefined;
-    return withDatabaseViewDefaults(activeDatabaseView).sort;
+    return getTableConfig(withDatabaseViewDefaults(activeDatabaseView)).sort;
+  }, [activeDatabaseView]);
+
+  const activeBoardConfig = useMemo(() => {
+    if (!activeDatabaseView) return undefined;
+    return getBoardConfig(withDatabaseViewDefaults(activeDatabaseView));
   }, [activeDatabaseView]);
 
   const patchActiveDatabaseView = useCallback((updater: (view: DatabaseView) => DatabaseView) => {
@@ -546,6 +570,14 @@ export const NoteView = () => {
 
   const handleDatabaseViewSortChange = useCallback((sort: DatabaseViewSort) => {
     patchActiveDatabaseView(view => setDatabaseViewSort(view, sort));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewPresentationChange = useCallback((presentation: DatabaseViewPresentation) => {
+    patchActiveDatabaseView(view => setDatabaseViewPresentation(view, presentation));
+  }, [patchActiveDatabaseView]);
+
+  const handleDatabaseViewGroupByChange = useCallback((groupBy: string) => {
+    patchActiveDatabaseView(view => setDatabaseViewGroupBy(view, groupBy));
   }, [patchActiveDatabaseView]);
 
   const visibleNotes = useMemo(() => {
@@ -1301,20 +1333,33 @@ export const NoteView = () => {
             <DatabaseViewControls
               colors={c}
               view={activeDatabaseView}
+              onPresentationChange={handleDatabaseViewPresentationChange}
+              onGroupByChange={handleDatabaseViewGroupByChange}
               onAddColumn={handleDatabaseViewAddColumn}
               onRemoveColumn={handleDatabaseViewRemoveColumn}
               onToggleColumnVisibility={handleDatabaseViewToggleColumn}
               onSortChange={handleDatabaseViewSortChange}
             />
-            <DatabaseTableView
-              colors={c}
-              notes={databaseViewNotes}
-              columns={activeDatabaseViewColumns}
-              sort={activeDatabaseViewSort}
-              service={knowledgeIndexService}
-              activeNoteId={activeNoteId}
-              onSelectNote={setActiveNoteId}
-            />
+            {activeDatabaseView.presentation === 'board' ? (
+              <DatabaseBoardView
+                colors={c}
+                lanes={databaseBoardLanes}
+                service={knowledgeIndexService}
+                activeNoteId={activeNoteId}
+                cardFields={activeBoardConfig?.cardFields}
+                onSelectNote={setActiveNoteId}
+              />
+            ) : (
+              <DatabaseTableView
+                colors={c}
+                notes={databaseViewNotes}
+                columns={activeDatabaseViewColumns}
+                sort={activeDatabaseViewSort}
+                service={knowledgeIndexService}
+                activeNoteId={activeNoteId}
+                onSelectNote={setActiveNoteId}
+              />
+            )}
           </>
         ) : (
         <div style={{ flex: 1, overflowY: 'auto' }}>

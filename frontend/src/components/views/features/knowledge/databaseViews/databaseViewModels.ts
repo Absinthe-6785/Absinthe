@@ -1,4 +1,6 @@
-/** Phase 1 presentation modes — table only implemented in K-9 */
+import type { DatabasePresentationConfig } from './databasePresentationModels';
+
+/** Phase 1 presentation modes — table and board implemented in K-9/K-10 */
 export type DatabaseViewPresentation = 'table' | 'board' | 'calendar';
 
 export type DatabaseSortDirection = 'asc' | 'desc';
@@ -15,13 +17,16 @@ export interface DatabaseViewSort {
   direction: DatabaseSortDirection;
 }
 
-/** User-defined database view — stores query rule and table config, not note ids */
+/** User-defined database view — stores query rule and presentation config, not note ids */
 export interface DatabaseView {
   id: string;
   name: string;
   query: string;
   presentation: DatabaseViewPresentation;
+  presentationConfig: DatabasePresentationConfig;
+  /** Legacy table columns — kept in sync for backward-compatible persistence */
   columns?: DatabaseViewColumnEntry[];
+  /** Legacy table sort — kept in sync for backward-compatible persistence */
   sort?: DatabaseViewSort;
 }
 

@@ -9,6 +9,7 @@ import { DatabaseTableView } from '../components/DatabaseTableView';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { filterNotes } from '../query/filterNotes';
 import { DEFAULT_TABLE_COLUMNS, defaultDatabaseViewColumns } from './databaseColumns';
+import { defaultTablePresentationConfig } from './databasePresentationConfig';
 import { evaluateDatabaseView } from './evaluateDatabaseView';
 import { filterByDatabaseView } from './filterByDatabaseView';
 import {
@@ -83,13 +84,15 @@ describe('isValidDatabaseViewQuery', () => {
 });
 
 describe('database view CRUD', () => {
+  const tableConfig = defaultTablePresentationConfig();
   const seed = [{
     id: 'a',
     name: 'Japanese Study',
     query: 'tag:japanese',
     presentation: 'table' as const,
-    columns: defaultDatabaseViewColumns(),
-    sort: { key: 'updatedAt', direction: 'desc' as const },
+    presentationConfig: tableConfig,
+    columns: tableConfig.columns,
+    sort: tableConfig.sort,
   }];
 
   it('creates a database view with table presentation', () => {
@@ -118,13 +121,15 @@ describe('databaseViewsStorage', () => {
   });
 
   it('persists and loads database views', () => {
+    const tableConfig = defaultTablePresentationConfig();
     const views = [{
       id: '1',
       name: 'Japanese Study',
       query: 'tag:japanese',
       presentation: 'table' as const,
-      columns: defaultDatabaseViewColumns(),
-      sort: { key: 'updatedAt', direction: 'desc' as const },
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     }];
     saveDatabaseViews(views);
     expect(loadDatabaseViews()).toEqual(views);
@@ -140,6 +145,7 @@ describe('databaseViewsStorage', () => {
       { id: '1', name: 'Legacy', query: 'tag:legacy' },
     ]);
     expect(views[0].presentation).toBe('table');
+    expect(views[0].presentationConfig.type).toBe('table');
     expect(views[0].columns?.length).toBeGreaterThan(0);
     expect(views[0].sort?.key).toBe('updatedAt');
   });
@@ -159,25 +165,29 @@ describe('query integration', () => {
   });
 
   it('evaluates database views through filterNotes', () => {
+    const tableConfig = defaultTablePresentationConfig();
     const view = {
       id: '1',
       name: 'Japanese Study',
       query: 'tag:japanese',
       presentation: 'table' as const,
-      columns: defaultDatabaseViewColumns(),
-      sort: { key: 'updatedAt', direction: 'desc' as const },
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     };
     expect(evaluateDatabaseView(view, service, notes)).toEqual(['a']);
   });
 
   it('routes database views through the query engine', () => {
+    const tableConfig = defaultTablePresentationConfig();
     const view = {
       id: '1',
       name: 'Japanese Study',
       query: 'tag:japanese',
       presentation: 'table' as const,
-      columns: defaultDatabaseViewColumns(),
-      sort: { key: 'updatedAt', direction: 'desc' as const },
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     };
     const direct = filterNotes(notes, service, view.query);
     const viaView = filterByDatabaseView(notes, service, view);
@@ -186,13 +196,15 @@ describe('query integration', () => {
   });
 
   it('updates dynamically when indexed metadata changes', () => {
+    const tableConfig = defaultTablePresentationConfig();
     const view = {
       id: '1',
       name: 'Japanese',
       query: 'tag:japanese status:active',
       presentation: 'table' as const,
-      columns: defaultDatabaseViewColumns(),
-      sort: { key: 'updatedAt', direction: 'desc' as const },
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     };
     expect(evaluateDatabaseView(view, service, notes)).toEqual(['a']);
 
@@ -203,13 +215,15 @@ describe('query integration', () => {
 
 describe('workspace integration', () => {
   it('activates database views through workspace helpers', () => {
+    const tableConfig = defaultTablePresentationConfig();
     const view = {
       id: 'db-1',
       name: 'Japanese Study',
       query: 'tag:japanese',
       presentation: 'table' as const,
-      columns: defaultDatabaseViewColumns(),
-      sort: { key: 'updatedAt', direction: 'desc' as const },
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     };
     const result = activateDatabaseViewWorkspace(view);
     expect(result.activation).toEqual({ kind: 'database-view', id: 'db-1' });

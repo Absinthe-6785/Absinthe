@@ -7,6 +7,7 @@ import {
   normalizeDatabaseViewColumns,
   resolveVisibleColumns,
 } from './databaseViewConfig';
+import { defaultTablePresentationConfig, withPresentationDefaults } from './databasePresentationConfig';
 import {
   addDatabaseViewColumn,
   hideDatabaseViewColumn,
@@ -40,15 +41,26 @@ function note(
 }
 
 function baseView(overrides: Partial<DatabaseView> = {}): DatabaseView {
-  return {
+  const tableConfig = defaultTablePresentationConfig();
+  const { presentationConfig: overrideConfig, sort, columns, ...rest } = overrides;
+  const presentationConfig = overrideConfig
+    ?? (sort || columns
+      ? {
+        type: 'table' as const,
+        columns: columns ?? tableConfig.columns,
+        sort: sort ?? tableConfig.sort,
+      }
+      : tableConfig);
+  return withPresentationDefaults({
     id: 'db-1',
     name: 'Study',
     query: 'tag:japanese',
     presentation: 'table',
-    columns: defaultDatabaseViewColumns(),
-    sort: { key: 'updatedAt', direction: 'desc' },
-    ...overrides,
-  };
+    presentationConfig,
+    columns: presentationConfig.type === 'table' ? presentationConfig.columns : tableConfig.columns,
+    sort: presentationConfig.type === 'table' ? presentationConfig.sort : tableConfig.sort,
+    ...rest,
+  });
 }
 
 describe('column operations', () => {
@@ -168,14 +180,20 @@ describe('persistence and backward compatibility', () => {
   });
 
   it('persists columns and sort settings', () => {
-    const views = [baseView({
+    const tableConfig = {
+      type: 'table' as const,
       columns: [
         { key: 'title', visible: true },
         { key: 'status', visible: true },
         { key: 'updatedAt', visible: false },
         { key: 'tags', visible: true },
       ],
-      sort: { key: 'status', direction: 'asc' },
+      sort: { key: 'status', direction: 'asc' as const },
+    };
+    const views = [baseView({
+      presentationConfig: tableConfig,
+      columns: tableConfig.columns,
+      sort: tableConfig.sort,
     })];
     saveDatabaseViews(views);
     expect(loadDatabaseViews()[0].sort).toEqual({ key: 'status', direction: 'asc' });
@@ -186,12 +204,18 @@ describe('persistence and backward compatibility', () => {
     const views = normalizeDatabaseViews([
       { id: '1', name: 'Legacy', query: 'tag:legacy', presentation: 'table' },
     ]);
+    expect(views[0].presentationConfig.type).toBe('table');
     expect(views[0].columns?.length).toBeGreaterThan(0);
     expect(views[0].sort?.key).toBe('updatedAt');
   });
 
   it('creates new views with default columns and sort', () => {
     const created = createDatabaseView([], 'Japanese Study', 'tag:japanese')[0];
+    expect(created.presentationConfig.type).toBe('table');
+    if (created.presentationConfig.type === 'table') {
+      expect(created.presentationConfig.columns.map(c => c.key)).toEqual(['title', 'updatedAt', 'tags']);
+      expect(created.presentationConfig.sort).toEqual({ key: 'updatedAt', direction: 'desc' });
+    }
     expect(created.columns?.map(c => c.key)).toEqual(['title', 'updatedAt', 'tags']);
     expect(created.sort).toEqual({ key: 'updatedAt', direction: 'desc' });
   });

@@ -1,8 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { getProperty } from '../properties/noteProperties';
-import { listTags } from '../tags/noteTags';
+import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
 
@@ -16,37 +15,14 @@ export interface DatabaseTableViewProps {
   onSelectNote: (noteId: string) => void;
 }
 
-function formatUpdatedAt(timestamp: number): string {
-  if (!timestamp) return '—';
-  return new Date(timestamp).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export function getDatabaseCellValue(
   note: NoteBase,
   column: DatabaseColumn,
   service: KnowledgeIndexService,
 ): string {
-  switch (column.key) {
-    case 'title':
-      return note.title || 'Untitled';
-    case 'updatedAt':
-      return formatUpdatedAt(note.updatedAt);
-    case 'tags':
-      return listTags(note).join(', ') || '—';
-    default: {
-      const fromNote = getProperty(note, column.key);
-      if (fromNote !== undefined && fromNote.trim()) return fromNote.trim();
-      const props = service.getProperties(note.id);
-      const match = Object.entries(props).find(
-        ([key]) => key.toLowerCase() === column.key.toLowerCase(),
-      );
-      return match?.[1]?.trim() || '—';
-    }
-  }
+  const value = getDatabaseFieldValue(note, column.key, service);
+  if (value) return value;
+  return column.key === 'title' ? 'Untitled' : '—';
 }
 
 function sortIndicator(sort: DatabaseViewSort | undefined, columnKey: string): string {

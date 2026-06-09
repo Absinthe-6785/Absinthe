@@ -57,6 +57,7 @@ export { SavedViewsSection, type SavedViewsSectionProps } from './components/Sav
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
 export { DatabaseTableView, getDatabaseCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
+export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
 export { DatabaseViewControls, type DatabaseViewControlsProps } from './components/DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './components/DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components/NotePropertiesPanel';
@@ -167,16 +168,28 @@ export {
   loadDatabaseViews,
   normalizeDatabaseViews,
   prepareDatabaseViewRows,
+  prepareDatabaseBoardLanes,
   removeDatabaseViewColumn,
   renameDatabaseView,
   resolveVisibleColumns,
   saveDatabaseViews,
   setDatabaseViewColumnVisibility,
+  setDatabaseViewGroupBy,
+  setDatabaseViewPresentation,
   setDatabaseViewSort,
   showDatabaseViewColumn,
   sortDatabaseViewRows,
   updateDatabaseViewConfig,
   withDatabaseViewDefaults,
+  withPresentationDefaults,
+  getBoardConfig,
+  getTableConfig,
+  groupNotesByProperty,
+  getDatabaseFieldValue,
+  getNoteGroupValue,
+  DEFAULT_BOARD_GROUP_BY,
+  UNASSIGNED_LANE_KEY,
+  UNASSIGNED_LANE_LABEL,
   isDatabaseBoardConfig,
   isDatabaseCalendarConfig,
   isDatabaseTableConfig,
@@ -190,6 +203,8 @@ export {
   type DatabaseViewRecord,
   type DatabaseViewSort,
   type DatabaseSortDirection,
+  type BoardLane,
+  type CreateDatabaseViewOptions,
 } from './databaseViews';
 
 export {
