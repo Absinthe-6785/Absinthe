@@ -2,7 +2,7 @@
  * copySelection.ts — Resolve copy targets from DOM selection (reading mode + edit mode)
  */
 import { readBlockText } from '../../../../../editableDom';
-import { getSelectionOffsets } from '../../../../../selectionOffsets';
+import { getSelectionOffsets } from '../../selection';
 import { flattenBlockIds, type Block } from '../../../../../blockUtils';
 
 export interface CopySelectionContext {

@@ -5,7 +5,7 @@ import type { Block } from '../../../../../blockUtils';
 import { isEditorQaEnabled } from '../../../../../editorQa';
 import { getLastCopyTraceReport } from './copyTraceStore';
 import { readBlockText } from '../../../../../editableDom';
-import { getSelectionOffsets } from '../../../../../selectionOffsets';
+import { getSelectionOffsets } from '../../selection';
 
 const PREVIEW_LEN = 1000;
 

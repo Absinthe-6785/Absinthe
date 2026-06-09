@@ -13,7 +13,7 @@ import {
 } from '../../../blockUtils';
 import { deleteSelectedBlocks, duplicateSelectedBlocks } from '../../../multiBlockOps';
 import type { TurnIntoMenuState } from '../../../editorTypes';
-import type { FocusCmd } from '../../../selectionState';
+import type { FocusCmd } from '../features/selection';
 import { insertBlockAtIndex, moveBlockInList } from '../utils/blockEditorMutations';
 
 export interface UseEditorBlockOpsOptions {

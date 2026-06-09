@@ -2,7 +2,7 @@
  * wikiNavigation.ts — Wiki trigger detection, insert, and navigation helpers
  */
 import { readBlockText } from './editableDom';
-import { getCaretOffset } from './selectionOffsets';
+import { getCaretOffset } from './features/block-editor/features/selection';
 import { paintEditableLive } from './editableLive';
 import type { BlockEditorColors } from './editorTypes';
 

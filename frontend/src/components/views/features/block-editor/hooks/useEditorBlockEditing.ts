@@ -16,7 +16,7 @@ import {
   listSplitExtras,
   renumberNumberedLists,
 } from '../../../listBlocks';
-import type { FocusCmd } from '../../../selectionState';
+import type { FocusCmd } from '../features/selection';
 import { enterSplitBlockType } from '../utils/blockEditorMutations';
 
 export interface UseEditorBlockEditingOptions {

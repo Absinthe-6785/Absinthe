@@ -39,19 +39,21 @@ import type {
 import { loadValidatedBlocks } from './documentRecovery';
 import { readingRootClass } from './editorReading';
 import { BlockContextMenu } from './BlockContextMenu';
-import { SelectionToolbar } from './SelectionToolbar';
 import { WikiMenu } from './WikiMenu';
-import {
-  dispatchFocusCommand, registerFocusHandler,
-  type FocusCmd,
-} from './selectionState';
 import { EditorChromeStyles } from './EditorChrome';
 import {
   isFirstEmptyRootParagraph,
 } from './documentFocus';
 import { SingleBlock } from './features/block-editor/components/SingleBlock';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
-import { SelectionCtx } from './features/block-editor/contexts/SelectionContext';
+import {
+  dispatchFocusCommand,
+  registerFocusHandler,
+  SelectionCtx,
+  SelectionToolbar,
+  useEditorSelection,
+  type FocusCmd,
+} from './features/block-editor/features/selection';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
 import {
   FOCUS_CMD_RESET_MS,
@@ -64,7 +66,6 @@ import { buildEditorCssVariables } from './features/block-editor/utils/editorThe
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorMenus } from './features/block-editor/hooks/useEditorMenus';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
-import { useEditorSelection } from './features/block-editor/hooks/useEditorSelection';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
 import { useEditorCopyEffects, useEditorPaste } from './features/block-editor/features/clipboard';
 import { useEditorBlockOps } from './features/block-editor/hooks/useEditorBlockOps';

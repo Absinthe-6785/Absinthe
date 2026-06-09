@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeBlock } from './blockUtils';
+import { makeBlock } from '../../../../../blockUtils';
 import {
   applyPointerSelection,
   clearSelection,

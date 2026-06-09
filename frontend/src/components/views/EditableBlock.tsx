@@ -4,9 +4,12 @@
 import React, { useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import type { Block, BlockType } from './blockUtils';
 import { readBlockText, deleteBeforeCaret } from './editableDom';
-import { getCaretOffset, getSelectionOffsets } from './selectionOffsets';
+import {
+  applyWrapToBlockSelection,
+  getCaretOffset,
+  getSelectionOffsets,
+} from './features/block-editor/features/selection';
 import { paintEditableLive } from './editableLive';
-import { applyWrapToBlockSelection } from './toolbarFormat';
 import { insertNewlineInBlock, splitBlockContent } from './blockContent';
 import { blockPlaceholder } from './blockPlaceholders';
 import {

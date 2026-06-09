@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { Block } from '../../../blockUtils';
-import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from '../../../blockSelection';
-import type { SelectionCtxValue } from '../contexts/SelectionContext';
+import type { Block } from '../../../../../blockUtils';
+import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from '../utils/blockSelection';
+import type { SelectionCtxValue } from '../context/SelectionContext';
 
 export interface UseEditorSelectionOptions {
   readOnly: boolean;

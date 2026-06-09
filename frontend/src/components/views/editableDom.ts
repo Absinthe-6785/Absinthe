@@ -1,6 +1,6 @@
 /**
  * contentEditable plain-text helpers.
- * Offset math lives in selectionOffsets.ts (re-exported here for compatibility).
+ * Offset math lives in selection/utils/selectionOffsets.ts (re-exported here for compatibility).
  */
 
 export {
@@ -9,7 +9,7 @@ export {
   setCaretOffset,
   setSelectionOffsets,
   nodePlainLength,
-} from './selectionOffsets';
+} from './features/block-editor/features/selection';
 
 /** DOM subtree → markdown/plain string for a single block. */
 export function domToPlainText(el: HTMLElement): string {
