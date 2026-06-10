@@ -17,6 +17,12 @@ import type {
   DatabaseTimelineSortBy,
 } from './databasePresentationModels';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
+import {
+  migrateLegacySortToSortRules,
+  normalizeDatabaseViewSortRules,
+  primarySortRule,
+  syncTableSortConfig,
+} from './databaseSortFutureModels';
 
 export const DEFAULT_BOARD_GROUP_BY = 'status';
 export const DEFAULT_CALENDAR_DATE_PROPERTY = 'updatedAt';
@@ -28,12 +34,50 @@ export const UNASSIGNED_LANE_KEY = '__unassigned__';
 export const UNASSIGNED_LANE_LABEL = 'No value';
 
 export function defaultTablePresentationConfig(): DatabaseTableConfig {
+  const sortRules = migrateLegacySortToSortRules(DEFAULT_DATABASE_VIEW_SORT);
   return {
     type: 'table',
     columns: defaultDatabaseViewColumns(),
-    sort: { ...DEFAULT_DATABASE_VIEW_SORT },
+    sort: primarySortRule(sortRules),
+    sortRules,
     rollupColumns: [],
     formulaColumns: [],
+  };
+}
+
+export function normalizeTableConfig(
+  raw: unknown,
+  legacyView?: Partial<DatabaseView>,
+): DatabaseTableConfig {
+  const record = raw && typeof raw === 'object' ? raw as Partial<DatabaseTableConfig> : {};
+  const legacySort = legacyView?.sort ? normalizeDatabaseViewSort(legacyView.sort) : null;
+  const recordSort = record.sort ? normalizeDatabaseViewSort(record.sort) : null;
+  const sort = normalizeDatabaseViewSort(
+    recordSort ?? legacySort ?? DEFAULT_DATABASE_VIEW_SORT,
+  );
+  const normalizedRules = record.sortRules
+    ? normalizeDatabaseViewSortRules([...record.sortRules])
+    : null;
+  const primarySort = recordSort ?? legacySort;
+
+  let synced = syncTableSortConfig(sort, normalizedRules ?? undefined);
+  if (
+    normalizedRules
+    && normalizedRules.length === 1
+    && primarySort
+    && (normalizedRules[0].key !== primarySort.key || normalizedRules[0].direction !== primarySort.direction)
+  ) {
+    synced = syncTableSortConfig(primarySort, [primarySort]);
+  }
+  return {
+    type: 'table',
+    columns: normalizeDatabaseViewColumns(
+      record.columns ?? legacyView?.columns ?? defaultDatabaseViewColumns(),
+    ),
+    sort: synced.sort,
+    sortRules: synced.sortRules,
+    rollupColumns: normalizeRollupColumns(record.rollupColumns),
+    formulaColumns: normalizeFormulaColumns(record.formulaColumns),
   };
 }
 
@@ -96,13 +140,10 @@ export function defaultPresentationConfig(
 
 /** Lift legacy root columns/sort into a table presentation config */
 export function liftLegacyTableConfig(view: Partial<DatabaseView>): DatabaseTableConfig {
-  return {
-    type: 'table',
-    columns: normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns()),
-    sort: normalizeDatabaseViewSort(view.sort ?? DEFAULT_DATABASE_VIEW_SORT),
-    rollupColumns: [],
-    formulaColumns: [],
-  };
+  return normalizeTableConfig(
+    view.presentationConfig?.type === 'table' ? view.presentationConfig : undefined,
+    view,
+  );
 }
 
 export function normalizeBoardConfig(raw: unknown): DatabaseBoardConfig {
@@ -206,18 +247,7 @@ export function normalizePresentationConfig(
   if (raw && typeof raw === 'object') {
     const record = raw as { type?: string };
     if (record.type === 'table') {
-      const table = raw as Partial<DatabaseTableConfig>;
-      return {
-        type: 'table',
-        columns: normalizeDatabaseViewColumns(
-          table.columns ?? legacyView?.columns ?? defaultDatabaseViewColumns(),
-        ),
-        sort: normalizeDatabaseViewSort(
-          table.sort ?? legacyView?.sort ?? DEFAULT_DATABASE_VIEW_SORT,
-        ),
-        rollupColumns: normalizeRollupColumns(table.rollupColumns),
-        formulaColumns: normalizeFormulaColumns(table.formulaColumns),
-      };
+      return normalizeTableConfig(raw, legacyView);
     }
     if (record.type === 'board') {
       return normalizeBoardConfig(raw);

@@ -5,7 +5,7 @@
  */
 
 import type { DatabaseViewSort } from './databaseViewModels';
-import type { DatabaseViewSortRule } from './databasePresentationFutureModels';
+import type { DatabaseViewSortRule } from './databasePresentationModels';
 
 export type { DatabaseViewSortRule };
 
@@ -53,4 +53,13 @@ export function migrateLegacySortToSortRules(
 export function primarySortRule(rules: readonly DatabaseViewSortRule[]): DatabaseViewSort {
   const first = rules[0] ?? { key: 'updatedAt', direction: 'desc' as const };
   return { key: first.key, direction: first.direction };
+}
+
+/** Keep legacy sort and sortRules in sync */
+export function syncTableSortConfig(
+  sort: DatabaseViewSort,
+  sortRules?: readonly DatabaseViewSortRule[],
+): { sort: DatabaseViewSort; sortRules: DatabaseViewSortRule[] } {
+  const rules = migrateLegacySortToSortRules(sort, sortRules);
+  return { sort: primarySortRule(rules), sortRules: rules };
 }

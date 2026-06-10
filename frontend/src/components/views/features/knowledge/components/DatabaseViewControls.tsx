@@ -9,6 +9,7 @@ import {
   resolveVisibleFormulaColumns,
   resolveVisibleRollupColumns,
 } from '../databaseViews/databaseViewConfig';
+import { resolveAllSortableKeys, resolveDatabaseViewSortRules } from '../databaseViews/sortDatabaseViewRows';
 import {
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
@@ -31,14 +32,18 @@ import type {
   DatabaseViewPresentation,
   DatabaseViewSort,
 } from '../databaseViews/databaseViewModels';
+import type { DatabaseViewSortRule } from '../databaseViews/databasePresentationModels';
 import { isBuiltinColumnKey } from '../databaseViews/databaseViewModels';
 import {
   addDatabaseViewColumn,
   addDatabaseViewFormulaColumn,
   addDatabaseViewRollupColumn,
+  addDatabaseViewSortRule,
+  moveDatabaseViewSortRule,
   removeDatabaseViewColumn,
   removeDatabaseViewFormulaColumn,
   removeDatabaseViewRollupColumn,
+  removeDatabaseViewSortRule,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
   setDatabaseViewFormulaColumnVisibility,
@@ -46,13 +51,14 @@ import {
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
+  setDatabaseViewSortRules,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
   setDatabaseViewGalleryCoverProperty,
   setDatabaseViewGalleryCardFields,
 } from '../databaseViews/databaseViewOperations';
 import { prepareDatabaseViewPresentation } from '../databaseViews/prepareDatabaseViewPresentation';
-import { withDatabaseViewDefaults } from '../databaseViews/prepareDatabaseViewRows';
+import { resolveDatabaseViewSortRules } from '../databaseViews/sortDatabaseViewRows';
 import { DatabaseBoardView } from './DatabaseBoardView';
 import { DatabaseCalendarView } from './DatabaseCalendarView';
 import { DatabaseGalleryView } from './DatabaseGalleryView';
@@ -77,6 +83,10 @@ export interface DatabaseViewControlsProps {
   onRemoveColumn: (key: string) => void;
   onToggleColumnVisibility: (key: string, visible: boolean) => void;
   onSortChange: (sort: DatabaseViewSort) => void;
+  onSortRulesChange: (sortRules: readonly DatabaseViewSortRule[]) => void;
+  onAddSortRule: (rule: DatabaseViewSortRule) => void;
+  onRemoveSortRule: (index: number) => void;
+  onMoveSortRule: (fromIndex: number, toIndex: number) => void;
   onAddRollupColumn: (column: {
     key: string;
     visible: boolean;
@@ -117,6 +127,10 @@ export function DatabaseViewControls({
   onRemoveColumn,
   onToggleColumnVisibility,
   onSortChange,
+  onSortRulesChange,
+  onAddSortRule,
+  onRemoveSortRule,
+  onMoveSortRule,
   onAddRollupColumn,
   onRemoveRollupColumn,
   onToggleRollupColumnVisibility,
@@ -149,6 +163,8 @@ export function DatabaseViewControls({
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
   const rollupColumns = tableConfig.rollupColumns ?? [];
   const formulaColumns = tableConfig.formulaColumns ?? [];
+  const sortRules = resolveDatabaseViewSortRules(tableConfig);
+  const sortableKeys = resolveAllSortableKeys(tableConfig);
   const visibility = new Map(
     tableConfig.columns.map(entry => [entry.key.toLowerCase(), entry.visible]),
   );
@@ -315,33 +331,87 @@ export function DatabaseViewControls({
         </>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700 }}>Sort</span>
-            <select
-              className="bwi"
-              style={{ fontSize: 10, padding: '2px 4px' }}
-              value={tableConfig.sort.key}
-              onChange={e => onSortChange({
-                key: e.target.value,
-                direction: tableConfig.sort.direction,
-              })}
-            >
-              {columnKeys.map(key => (
-                <option key={key} value={key}>{columnLabelForKey(key)}</option>
-              ))}
-            </select>
-            <select
-              className="bwi"
-              style={{ fontSize: 10, padding: '2px 4px' }}
-              value={tableConfig.sort.direction}
-              onChange={e => onSortChange({
-                key: tableConfig.sort.key,
-                direction: e.target.value as 'asc' | 'desc',
-              })}
-            >
-              <option value="desc">Descending</option>
-              <option value="asc">Ascending</option>
-            </select>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 700 }}>Sort rules</span>
+              <button
+                type="button"
+                className="btbtn"
+                style={{ padding: '1px 6px', fontSize: 9 }}
+                onClick={() => onAddSortRule({
+                  key: sortableKeys[0] ?? 'updatedAt',
+                  direction: 'desc',
+                })}
+              >
+                Add rule
+              </button>
+            </div>
+            {sortRules.map((rule, index) => (
+              <div key={`${rule.key}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 9, color: c.textFaint, minWidth: 42 }}>Rule {index + 1}</span>
+                <select
+                  className="bwi"
+                  style={{ flex: 1, minWidth: 80, fontSize: 10, padding: '2px 4px' }}
+                  value={rule.key}
+                  onChange={e => {
+                    const next = sortRules.map((entry, i) => (
+                      i === index ? { ...entry, key: e.target.value } : entry
+                    ));
+                    onSortRulesChange(next);
+                  }}
+                >
+                  {sortableKeys.map(key => (
+                    <option key={key} value={key}>{columnLabelForKey(key)}</option>
+                  ))}
+                </select>
+                <select
+                  className="bwi"
+                  style={{ fontSize: 10, padding: '2px 4px' }}
+                  value={rule.direction}
+                  onChange={e => {
+                    const next = sortRules.map((entry, i) => (
+                      i === index
+                        ? { ...entry, direction: e.target.value as 'asc' | 'desc' }
+                        : entry
+                    ));
+                    onSortRulesChange(next);
+                  }}
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+                <button
+                  type="button"
+                  className="btbtn"
+                  style={{ padding: '1px 4px', fontSize: 9 }}
+                  disabled={index === 0}
+                  onClick={() => onMoveSortRule(index, index - 1)}
+                  title="Move up"
+                >
+                  Up
+                </button>
+                <button
+                  type="button"
+                  className="btbtn"
+                  style={{ padding: '1px 4px', fontSize: 9 }}
+                  disabled={index === sortRules.length - 1}
+                  onClick={() => onMoveSortRule(index, index + 1)}
+                  title="Move down"
+                >
+                  Down
+                </button>
+                <button
+                  type="button"
+                  className="btbtn"
+                  style={{ padding: '1px 4px', fontSize: 9, color: c.danger }}
+                  disabled={sortRules.length <= 1}
+                  onClick={() => onRemoveSortRule(index)}
+                  title="Remove rule"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -690,6 +760,10 @@ export function DatabaseViewPanel({
         onRemoveColumn={key => patch(v => removeDatabaseViewColumn(v, key))}
         onToggleColumnVisibility={(key, visible) => patch(v => setDatabaseViewColumnVisibility(v, key, visible))}
         onSortChange={sort => patch(v => setDatabaseViewSort(v, sort))}
+        onSortRulesChange={sortRules => patch(v => setDatabaseViewSortRules(v, sortRules))}
+        onAddSortRule={rule => patch(v => addDatabaseViewSortRule(v, rule))}
+        onRemoveSortRule={index => patch(v => removeDatabaseViewSortRule(v, index))}
+        onMoveSortRule={(fromIndex, toIndex) => patch(v => moveDatabaseViewSortRule(v, fromIndex, toIndex))}
         onAddRollupColumn={column => patch(v => addDatabaseViewRollupColumn(v, column))}
         onRemoveRollupColumn={key => patch(v => removeDatabaseViewRollupColumn(v, key))}
         onToggleRollupColumnVisibility={(key, visible) => patch(v => setDatabaseViewRollupColumnVisibility(v, key, visible))}
@@ -740,6 +814,7 @@ export function DatabaseViewPanel({
           rollupColumns={visibleRollupColumns}
           formulaColumns={visibleFormulaColumns}
           sort={tableConfig.sort}
+          sortRules={resolveDatabaseViewSortRules(tableConfig)}
           service={service}
           activeNoteId={activeNoteId}
           onSelectNote={onSelectNote}

@@ -108,6 +108,10 @@ export {
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
+  setDatabaseViewSortRules,
+  addDatabaseViewSortRule,
+  removeDatabaseViewSortRule,
+  moveDatabaseViewSortRule,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
   setDatabaseViewGalleryCoverProperty,
@@ -151,7 +155,8 @@ export {
   presentationLabel,
   SUGGESTED_PROPERTY_KEYS,
 } from './databasePresentationMeta';
-export { getDatabaseRowSortValue, sortDatabaseViewRows } from './sortDatabaseViewRows';
+export { getDatabaseRowSortValue, resolveAllSortableKeys, resolveDatabaseViewSortRules, sortDatabaseViewRows } from './sortDatabaseViewRows';
+export { normalizeTableConfig } from './databasePresentationConfig';
 export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './databaseViewsStorage';
 export type {
   DatabaseBoardConfig,
@@ -162,6 +167,7 @@ export type {
   DatabaseTableConfig,
   DatabaseTimelineConfig,
   DatabaseTimelineSortBy,
+  DatabaseViewSortRule,
   DatabaseViewRecord,
 } from './databasePresentationModels';
 export {

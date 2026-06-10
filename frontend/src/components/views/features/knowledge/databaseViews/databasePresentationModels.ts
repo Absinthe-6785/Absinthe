@@ -10,11 +10,20 @@ import type {
   DatabaseViewSort,
 } from './databaseViewModels';
 
+/** Ordered multi-column sort rule — K-18.1 */
+export interface DatabaseViewSortRule {
+  key: string;
+  direction: DatabaseViewSort['direction'];
+}
+
 /** Table presentation config — mirrors K-9.5 columns + sort */
 export interface DatabaseTableConfig {
   type: 'table';
   columns: DatabaseViewColumnEntry[];
+  /** Legacy shorthand — kept in sync with sortRules[0] */
   sort: DatabaseViewSort;
+  /** Multi-column sort priority list — K-18.1 */
+  sortRules?: DatabaseViewSortRule[];
   /** Computed relation rollup columns — K-15 */
   rollupColumns?: RollupColumnDefinition[];
   /** Computed formula columns — K-16 */
