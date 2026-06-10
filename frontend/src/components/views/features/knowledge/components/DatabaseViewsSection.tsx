@@ -12,6 +12,7 @@ import {
   presentationLabel,
 } from '../databaseViews/databasePresentationMeta';
 import { parseGalleryCardFieldsInput } from '../databaseViews/galleryModels';
+import { DATABASE_TEMPLATES } from '../databaseViews/databaseTemplates';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 
@@ -37,6 +38,7 @@ export interface DatabaseViewsSectionProps {
   ) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onCreateFromTemplate?: (templateId: string) => void;
 }
 
 export function DatabaseViewsSection({
@@ -51,8 +53,10 @@ export function DatabaseViewsSection({
   onCreate,
   onRename,
   onDelete,
+  onCreateFromTemplate,
 }: DatabaseViewsSectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [newName, setNewName] = useState('');
   const [newQuery, setNewQuery] = useState('');
   const [newPresentation, setNewPresentation] = useState<DatabaseViewPresentation>('table');
@@ -66,6 +70,7 @@ export function DatabaseViewsSection({
   const [renameValue, setRenameValue] = useState('');
 
   const openCreateForm = (prefillQuery = '') => {
+    setShowTemplatePicker(false);
     setNewQuery(prefillQuery);
     setNewPresentation('table');
     setNewGroupBy('status');
@@ -75,6 +80,16 @@ export function DatabaseViewsSection({
     setNewCoverProperty('coverImage');
     setNewCardFields('status, priority, reviewDate');
     setShowCreateForm(true);
+  };
+
+  const openTemplatePicker = () => {
+    setShowCreateForm(false);
+    setShowTemplatePicker(true);
+  };
+
+  const selectTemplate = (templateId: string) => {
+    onCreateFromTemplate?.(templateId);
+    setShowTemplatePicker(false);
   };
 
   const submitCreate = () => {
@@ -180,7 +195,40 @@ export function DatabaseViewsSection({
         )
       ))}
 
-      {showCreateForm ? (
+      {showTemplatePicker ? (
+        <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {DATABASE_TEMPLATES.map(template => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={() => selectTemplate(template.id)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                background: c.card,
+                border: `1px solid ${c.sideBdr}`,
+                borderRadius: 5,
+                padding: '6px 8px',
+                cursor: 'pointer',
+                color: c.text,
+              }}
+              title={template.description}
+            >
+              <div style={{ fontSize: 11, fontWeight: 600 }}>{template.name}</div>
+              <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{template.description}</div>
+              <div style={{ fontSize: 9, color: c.textFaint, marginTop: 4 }}>
+                {presentationLabel(template.presentation)}
+              </div>
+            </button>
+          ))}
+          <button
+            onClick={() => setShowTemplatePicker(false)}
+            style={{ background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : showCreateForm ? (
         <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <input
             className="bwi"
@@ -315,6 +363,16 @@ export function DatabaseViewsSection({
             <Plus size={10} color={c.textMuted} />
             <span>New database</span>
           </div>
+          {onCreateFromTemplate && (
+            <div
+              className="bfi"
+              onClick={openTemplatePicker}
+              style={{ color: c.textMuted, fontSize: 10 }}
+            >
+              <Plus size={10} color={c.textMuted} />
+              <span>Choose template</span>
+            </div>
+          )}
           {canCreateFromCurrent && (
             <div
               className="bfi"

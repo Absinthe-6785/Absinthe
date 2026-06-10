@@ -61,6 +61,7 @@ import {
   deleteRuleCollection,
   saveRuleCollections,
   createDatabaseView,
+  createDatabaseViewFromTemplate,
   deleteDatabaseView,
   loadDatabaseViews,
   renameDatabaseView,
@@ -478,6 +479,10 @@ export const NoteView = () => {
       coverProperty,
       cardFields,
     }));
+  }, []);
+
+  const handleCreateDatabaseViewFromTemplate = useCallback((templateId: string) => {
+    setDatabaseViews(prev => createDatabaseViewFromTemplate(prev, templateId));
   }, []);
 
   const handleRenameDatabaseView = useCallback((id: string, name: string) => {
@@ -1213,6 +1218,7 @@ export const NoteView = () => {
                   onActivate={handleActivateDatabaseView}
                   onClearActive={handleClearDatabaseView}
                   onCreate={handleCreateDatabaseView}
+                  onCreateFromTemplate={handleCreateDatabaseViewFromTemplate}
                   onRename={handleRenameDatabaseView}
                   onDelete={handleDeleteDatabaseView}
                 />

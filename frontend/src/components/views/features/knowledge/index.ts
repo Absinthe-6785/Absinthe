@@ -181,6 +181,9 @@ export {
   addDatabaseViewRollupDefinition,
   BUILTIN_COLUMN_KEYS,
   createDatabaseView,
+  createDatabaseViewFromTemplate,
+  DATABASE_TEMPLATES,
+  findDatabaseTemplate,
   DATABASE_VIEWS_KEY,
   DEFAULT_DATABASE_VIEW_SORT,
   DEFAULT_TABLE_COLUMNS,
@@ -291,6 +294,8 @@ export {
   type GalleryField,
   type GalleryItem,
   type CreateDatabaseViewOptions,
+  type CreateDatabaseViewFromTemplateOptions,
+  type DatabaseTemplateDefinition,
 } from './databaseViews';
 
 export {
