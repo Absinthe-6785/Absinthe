@@ -134,3 +134,20 @@ export {
   isDatabaseTableConfig,
   presentationConfigForType,
 } from './databasePresentationModels';
+export {
+  isDatabaseGalleryConfig,
+  isDatabasePresentationConfigFuture,
+  isDatabaseTimelineConfig,
+  normalizeGalleryConfig,
+  normalizeTimelineConfig,
+  presentationConfigTypeForPresentation,
+  type DatabaseGalleryCardSize,
+  type DatabaseGalleryConfig,
+  type DatabasePresentationConfigFuture,
+  type DatabaseTableGroupConfig,
+  type DatabaseTimelineConfig,
+  type DatabaseTimelineSortBy,
+  type DatabaseViewPresentationFuture,
+  type DatabaseViewSortRule,
+  type ImplementedPresentationConfigMap,
+} from './databasePresentationFutureModels';
