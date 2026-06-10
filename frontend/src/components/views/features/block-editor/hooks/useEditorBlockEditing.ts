@@ -115,6 +115,11 @@ export function useEditorBlockEditing({
 
     if (pos <= 0) return;
 
+    const selfBlock = findBlockById(bs, id);
+    if (selfBlock?.type === 'toggle' && selfBlock.children.length > 0) {
+      return;
+    }
+
     const prevId    = ids[pos - 1];
     const prevBlock = findBlockById(bs, prevId);
     if (!prevBlock) return;

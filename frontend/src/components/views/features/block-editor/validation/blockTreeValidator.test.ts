@@ -426,12 +426,12 @@ describe('validateBlockTree — LIST_CONTINUITY', () => {
     }));
   });
 
-  it('validates separate runs per indent level', () => {
+  it('validates separate counters per indent level (Notion-style parent resume)', () => {
     const result = validateBlockTree([
       makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
       makeBlock('numbered', { id: 'n2', content: 'nested one', listIndex: 1, indent: 1 }),
       makeBlock('numbered', { id: 'n3', content: 'nested two', listIndex: 2, indent: 1 }),
-      makeBlock('numbered', { id: 'n4', content: 'top again', listIndex: 1, indent: 0 }),
+      makeBlock('numbered', { id: 'n4', content: 'top again', listIndex: 2, indent: 0 }),
     ]);
     expect(result.violations.filter(v => v.code === 'LIST_CONTINUITY')).toHaveLength(0);
   });

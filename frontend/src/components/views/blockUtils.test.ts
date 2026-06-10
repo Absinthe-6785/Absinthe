@@ -125,6 +125,42 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
+  it('roundtrips toggle with empty title and children', () => {
+    const blocks = [
+      makeBlock('toggle', { content: '', children: [makeBlock('paragraph', { content: 'child' })] }),
+    ];
+    const md = blocksToMarkdown(blocks);
+    const parsed = markdownToBlocks(md);
+    expect(parsed[0].type).toBe('toggle');
+    expect(parsed[0].content).toBe('');
+    expect(parsed[0].children[0].content).toBe('child');
+    expect(blocksToMarkdown(parsed)).toBe(md);
+  });
+
+  it('roundtrips empty toggle without children as collapsed marker', () => {
+    const blocks = [makeBlock('toggle', { content: '', children: [], collapsed: false })];
+    const md = blocksToMarkdown(blocks);
+    expect(md).toBe('>!');
+    const parsed = markdownToBlocks(md);
+    expect(parsed[0].type).toBe('toggle');
+    expect(parsed[0].content).toBe('');
+    expect(blocksToMarkdown(parsed)).toBe(md);
+  });
+
+  it('roundtrips callout', () => {
+    const md = '> 💡 Important note';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('callout');
+    expect(blocks[0].calloutIcon).toBe('💡');
+    expect(blocks[0].content).toBe('Important note');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('preserves unicode symbols through round-trip', () => {
+    const md = '→ ⇒ ≤ ≥ √ ∑ ∞';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
   it('roundtrips quote (single line, no children)', () => {
     const md = '> A single quote';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);

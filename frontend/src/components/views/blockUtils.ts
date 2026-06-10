@@ -236,24 +236,38 @@ export function markdownToBlocks(md: string): Block[] {
     return makeBlock('table', { tableHeaders: headers, tableRows: rows });
   };
 
+  // ── 콜아웃 (토글·인용보다 먼저 — "> 💡 text" 직렬화 호환) ─────────
+  const tryCallout = (): Block | null => {
+    const m = lines[i].match(/^> ([\p{Extended_Pictographic}\u2600-\u27BF])\s*(.*)$/u);
+    if (!m) return null;
+
+    const nextLine = lines[i + 1];
+    const hasToggleChildren = nextLine !== undefined &&
+      (nextLine.startsWith('  ') || nextLine === '');
+    if (hasToggleChildren) return null;
+
+    i++;
+    return makeBlock('callout', { content: m[2], calloutIcon: m[1] });
+  };
+
   // ── 토글 블록 ─────────────────────────────────────────────────────
-  // 열린 toggle : "> 제목"   → collapsed: false  (기존 노트 호환)
-  // 닫힌 toggle : ">! 제목"  → collapsed: true
+  // 열린 toggle : "> 제목" / ">" (빈 제목) → collapsed: false
+  // 닫힌 toggle : ">! 제목" / ">!"         → collapsed: true
   const tryToggle = (): Block | null => {
-    const mClosed = lines[i].match(/^>! (.+)$/);          // ">! " 로 시작
-    const mOpen   = !mClosed && lines[i].match(/^> (.+)$/); // "> " 로 시작 (">!" 아닌 것)
+    const mClosed = lines[i].match(/^>!\s?(.*)$/);
+    const mOpen   = !mClosed && lines[i].match(/^>(?!!)\s?(.*)$/);
     const m       = mClosed ?? mOpen;
     if (!m) return null;
 
     const collapsed = !!mClosed;
-    const summary   = m[1];
+    const summary   = m[1] ?? '';
 
     const nextLine = lines[i + 1];
     const hasChildren = nextLine !== undefined &&
       (nextLine.startsWith('  ') || nextLine === '');
 
     // 닫힌 toggle(>!)은 자식 유무 무관하게 toggle로 처리
-    // 열린 toggle(> )은 자식이 있을 때만 toggle로 처리 — 없으면 quote로 양보
+    // 열린 toggle(>)은 자식이 있을 때만 toggle — 없으면 quote로 양보
     if (!collapsed && !hasChildren) return null;
 
     const childLines: string[] = [];
@@ -340,6 +354,10 @@ export function markdownToBlocks(md: string): Block[] {
     // 테이블
     const table = tryTable();
     if (table) { blocks.push(table); continue; }
+
+    // 콜아웃
+    const callout = tryCallout();
+    if (callout) { blocks.push(callout); continue; }
 
     // 토글
     const toggle = tryToggle();
@@ -441,10 +459,10 @@ export function blocksToMarkdown(blocks: Block[]): string {
       }
 
       case 'toggle': {
-        // collapsed: true  → ">! 제목" (접힌 상태 보존)
-        // collapsed: false → "> 제목"  (열린 상태, 기존 호환)
-        const prefix = block.collapsed ? '>!' : '>';
-        lines.push(`${prefix} ${block.content}`);
+        // collapsed / empty leaf → ">!" ; open → ">" (빈 제목은 접두만 출력)
+        const collapsed = block.collapsed || (!block.content && block.children.length === 0);
+        const prefix = collapsed ? '>!' : '>';
+        lines.push(block.content ? `${prefix} ${block.content}` : prefix);
         if (block.children.length > 0) {
           const childMd = blocksToMarkdown(block.children);
           childMd.split('\n').forEach(cl => lines.push(`  ${cl}`));

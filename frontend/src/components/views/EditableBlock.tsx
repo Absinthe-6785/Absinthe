@@ -121,6 +121,8 @@ export function EditableBlock({
     const offset = getCaretOffset(el);
     const before = text.slice(0, offset);
 
+    if (composingRef.current) return;
+
     const wikiQuery = detectWikiQuery(before);
     if (wikiQuery !== null) {
       const rect = el.getBoundingClientRect();

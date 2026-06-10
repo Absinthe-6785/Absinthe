@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -749,6 +749,14 @@ export const NoteView = () => {
         return;
       }
 
+      const target = e.target;
+      if (
+        target instanceof HTMLElement
+        && target.closest('[contenteditable="true"], .be-editable')
+      ) {
+        return;
+      }
+
       switch (e.key) {
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
@@ -1009,7 +1017,7 @@ export const NoteView = () => {
               {folders.map(f => (
                 <button key={f.id} className={`bicon-btn ${activeFolderId === f.id ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}>
-                  <span style={{ fontSize: 14 }}>📁</span>
+                  <Folder size={14} color={activeFolderId === f.id ? c.accent : c.textMuted}/>
                   <span className="bicon-tooltip">{f.name} ({notes.filter(n => n.folderId === f.id && !n.deletedAt).length})</span>
                 </button>
               ))}

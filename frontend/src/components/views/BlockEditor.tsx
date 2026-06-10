@@ -341,8 +341,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   } = useEditorChrome({ onPinSelection: selectBlock });
 
   const getBlockType = useCallback(
-    (blockId: string) => findBlockById(blocksRef.current, blockId)?.type,
-    [],
+    (blockId: string) => findBlockById(getRootBlocks(), blockId)?.type,
+    [getRootBlocks],
   );
 
   const showPersistentPlaceholder = useCallback((blockId: string) => {
@@ -402,13 +402,14 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const renderBlockMenu = (state: TurnIntoMenuState, onDone: () => void) => {
     const id = state.blockId;
     const root = getRootBlocks();
+    const menuBlock = findBlockById(root, id);
     const multiCount = selectedBlockIds.size > 1 && selectedBlockIds.has(id)
       ? selectedBlockIds.size
       : undefined;
     return (
       <BlockContextMenu
         blockId={id}
-        currentType={findBlockById(blocksRef.current, id)?.type ?? 'paragraph'}
+        currentType={menuBlock?.type ?? 'paragraph'}
         anchorY={state.anchorY}
         anchorX={state.anchorX}
         colors={c}

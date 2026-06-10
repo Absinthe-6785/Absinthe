@@ -1,7 +1,7 @@
 /**
  * editorDragDrop.tsx — Block editor drag-and-drop (extracted from BlockEditor)
  */
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import { flattenBlockIds, type Block } from './blockUtils';
 import { applyHierarchyDragDrop } from './dragHierarchy';
 import { applyMultiBlockDragDrop } from './multiBlockDrag';
@@ -17,6 +17,32 @@ import {
 import { syncDragDom } from './features/block-editor/performance/dragDomSync';
 
 const DRAG_REJECT_MS = 420;
+const dragRejectTimerIds = new Set<number>();
+
+/** Cancel pending drag-reject pulse timers (unmount / test teardown). */
+export function clearPendingDragRejectTimers(): void {
+  for (const timerId of dragRejectTimerIds) {
+    window.clearTimeout(timerId);
+  }
+  dragRejectTimerIds.clear();
+}
+
+function pulseDragReject(ids: string[]) {
+  if (typeof document === 'undefined') return;
+  for (const id of ids) {
+    const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
+    grip?.classList.add('be-drag-rejected');
+  }
+  const timerId = window.setTimeout(() => {
+    dragRejectTimerIds.delete(timerId);
+    if (typeof document === 'undefined') return;
+    for (const id of ids) {
+      const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
+      grip?.classList.remove('be-drag-rejected');
+    }
+  }, DRAG_REJECT_MS);
+  dragRejectTimerIds.add(timerId);
+}
 
 export interface DragState {
   draggingIds: string[];
@@ -61,20 +87,6 @@ export function commitDragDrop(
     ? applyMultiBlockDragDrop(root, draggingIds, overId, overPos)
     : applyHierarchyDragDrop(root, draggingIds[0], overId, overPos);
   return next ? renumberNumberedListsDeep(next) : null;
-}
-
-function pulseDragReject(ids: string[]) {
-  if (typeof document === 'undefined') return;
-  for (const id of ids) {
-    const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
-    grip?.classList.add('be-drag-rejected');
-  }
-  window.setTimeout(() => {
-    for (const id of ids) {
-      const grip = document.querySelector(`[data-drag-id="${id}"] .be-grip`);
-      grip?.classList.remove('be-drag-rejected');
-    }
-  }, DRAG_REJECT_MS);
 }
 
 export function resolveDragOverFromPoint(
@@ -191,6 +203,8 @@ export function useDragDrop(
   getEditorRootRef.current = options.getEditorRoot;
   const resolveDragOverRef = useRef(options.resolveDragOver);
   resolveDragOverRef.current = options.resolveDragOver;
+
+  useEffect(() => () => clearPendingDragRejectTimers(), []);
 
   const publishDragState = useCallback((next: DragState | null) => {
     setDragStateStore(next);

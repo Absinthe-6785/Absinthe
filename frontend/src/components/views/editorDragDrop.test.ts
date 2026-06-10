@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { makeBlock } from './blockUtils';
 import { applyDragDrop } from './blockTree';
-import { commitDragDrop } from './editorDragDrop';
+import { commitDragDrop, clearPendingDragRejectTimers } from './editorDragDrop';
 
 /** Smoke tests for drag-drop module contract (logic lives in blockTree). */
 describe('editorDragDrop contract', () => {
@@ -14,6 +14,10 @@ describe('editorDragDrop contract', () => {
 });
 
 describe('commitDragDrop', () => {
+  afterEach(() => {
+    clearPendingDragRejectTimers();
+  });
+
   it('renumbers numbered lists after sibling reorder', () => {
     const blocks = [
       makeBlock('numbered', { id: 'a', content: 'A', listIndex: 1 }),
@@ -29,5 +33,11 @@ describe('commitDragDrop', () => {
     const child = makeBlock('paragraph', { id: 'c' });
     const toggle = makeBlock('toggle', { id: 't', children: [child] });
     expect(commitDragDrop([toggle], ['t'], 'c', 'inside')).toBeNull();
+  });
+});
+
+describe('clearPendingDragRejectTimers', () => {
+  it('is safe to call when no timers are pending', () => {
+    expect(() => clearPendingDragRejectTimers()).not.toThrow();
   });
 });

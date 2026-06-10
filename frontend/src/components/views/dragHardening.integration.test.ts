@@ -8,6 +8,7 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
+import { clearPendingDragRejectTimers } from './editorDragDrop';
 import { flattenBlockIds, makeBlock, type Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 
@@ -151,6 +152,7 @@ function selectBlock(id: string, additive = false) {
 
 describe('drag hardening integration', () => {
   afterEach(() => {
+    clearPendingDragRejectTimers();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
     document.head.innerHTML = '';

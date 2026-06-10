@@ -31,24 +31,20 @@ export function listSplitExtras(cur: Block, newType: BlockType): Partial<Block> 
   return base;
 }
 
-/** Renumber consecutive numbered items per indent level. */
+/** Renumber numbered items per indent — bullets/todos do not reset (Notion-style). */
 export function renumberNumberedLists(blocks: Block[]): Block[] {
   const result = blocks.map(b => ({ ...b }));
-  let i = 0;
-  while (i < result.length) {
-    if (result[i].type !== 'numbered') {
-      i++;
-      continue;
-    }
-    const indent = result[i].indent ?? 0;
-    let num = 1;
-    while (
-      i < result.length
-      && result[i].type === 'numbered'
-      && (result[i].indent ?? 0) === indent
-    ) {
-      result[i] = { ...result[i], listIndex: num++ };
-      i++;
+  const counters = new Map<number, number>();
+
+  for (let i = 0; i < result.length; i++) {
+    const block = result[i];
+    if (block.type === 'numbered') {
+      const indent = block.indent ?? 0;
+      const next = (counters.get(indent) ?? 0) + 1;
+      counters.set(indent, next);
+      result[i] = { ...block, listIndex: next };
+    } else if (!isListType(block.type)) {
+      counters.clear();
     }
   }
   return result;
