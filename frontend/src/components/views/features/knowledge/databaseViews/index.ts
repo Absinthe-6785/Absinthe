@@ -83,6 +83,13 @@ export {
   type BoardLane,
 } from './groupNotesByProperty';
 export {
+  createDatabaseViewFromTemplate,
+  DATABASE_TEMPLATES,
+  findDatabaseTemplate,
+  type CreateDatabaseViewFromTemplateOptions,
+  type DatabaseTemplateDefinition,
+} from './databaseTemplates';
+export {
   activateDatabaseView,
   createDatabaseView,
   deleteDatabaseView,
