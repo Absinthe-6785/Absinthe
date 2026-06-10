@@ -5,10 +5,13 @@ import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/da
 import {
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
+  GALLERY_CARD_FIELDS_FIELD,
+  GALLERY_COVER_PROPERTY_FIELD,
   TIMELINE_END_DATE_FIELD,
   TIMELINE_START_DATE_FIELD,
   presentationLabel,
 } from '../databaseViews/databasePresentationMeta';
+import { parseGalleryCardFieldsInput } from '../databaseViews/galleryModels';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 
@@ -29,6 +32,8 @@ export interface DatabaseViewsSectionProps {
     dateProperty?: string,
     startDateProperty?: string,
     endDateProperty?: string,
+    coverProperty?: string,
+    cardFields?: readonly string[],
   ) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -55,6 +60,8 @@ export function DatabaseViewsSection({
   const [newDateProperty, setNewDateProperty] = useState('reviewDate');
   const [newStartDateProperty, setNewStartDateProperty] = useState('startDate');
   const [newEndDateProperty, setNewEndDateProperty] = useState('endDate');
+  const [newCoverProperty, setNewCoverProperty] = useState('coverImage');
+  const [newCardFields, setNewCardFields] = useState('status, priority, reviewDate');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -65,6 +72,8 @@ export function DatabaseViewsSection({
     setNewDateProperty('reviewDate');
     setNewStartDateProperty('startDate');
     setNewEndDateProperty('endDate');
+    setNewCoverProperty('coverImage');
+    setNewCardFields('status, priority, reviewDate');
     setShowCreateForm(true);
   };
 
@@ -80,6 +89,8 @@ export function DatabaseViewsSection({
       newPresentation === 'calendar' ? newDateProperty : undefined,
       newPresentation === 'timeline' ? newStartDateProperty : undefined,
       newPresentation === 'timeline' ? newEndDateProperty : undefined,
+      newPresentation === 'gallery' ? newCoverProperty : undefined,
+      newPresentation === 'gallery' ? parseGalleryCardFieldsInput(newCardFields) : undefined,
     );
     setNewName('');
     setNewQuery('');
@@ -255,6 +266,33 @@ export function DatabaseViewsSection({
                   listId="database-create-timeline-end"
                 />
               </div>
+            </>
+          )}
+          {newPresentation === 'gallery' && (
+            <>
+              <div style={{ width: '100%' }}>
+                <DatabasePropertyKeyField
+                  preset={GALLERY_COVER_PROPERTY_FIELD}
+                  value={newCoverProperty}
+                  onChange={setNewCoverProperty}
+                  onSubmit={submitCreate}
+                  inputClassName="bwi"
+                  inputStyle={{ width: '100%', minWidth: 0, fontSize: 11 }}
+                  labelStyle={{ fontSize: 11 }}
+                  listId="database-create-gallery-cover"
+                />
+              </div>
+              <input
+                className="bwi"
+                style={{ width: '100%', fontSize: 11 }}
+                placeholder={GALLERY_CARD_FIELDS_FIELD.placeholder}
+                value={newCardFields}
+                onChange={e => setNewCardFields(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') submitCreate();
+                  if (e.key === 'Escape') setShowCreateForm(false);
+                }}
+              />
             </>
           )}
           <div style={{ display: 'flex', gap: 3 }}>

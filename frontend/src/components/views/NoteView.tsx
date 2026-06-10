@@ -466,6 +466,8 @@ export const NoteView = () => {
     dateProperty?: string,
     startDateProperty?: string,
     endDateProperty?: string,
+    coverProperty?: string,
+    cardFields?: readonly string[],
   ) => {
     setDatabaseViews(prev => createDatabaseView(prev, name, query, {
       presentation,
@@ -473,6 +475,8 @@ export const NoteView = () => {
       dateProperty,
       startDateProperty,
       endDateProperty,
+      coverProperty,
+      cardFields,
     }));
   }, []);
 

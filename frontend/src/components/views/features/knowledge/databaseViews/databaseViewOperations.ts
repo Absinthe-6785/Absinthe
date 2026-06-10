@@ -8,6 +8,8 @@ import {
   setCalendarDateProperty,
   setTimelineEndDateProperty,
   setTimelineStartDateProperty,
+  setGalleryCoverProperty,
+  setGalleryCardFields,
   setViewPresentation,
   withPresentationDefaults,
 } from './databasePresentationConfig';
@@ -291,6 +293,14 @@ export function setDatabaseViewTimelineStartProperty(view: DatabaseView, startDa
 
 export function setDatabaseViewTimelineEndProperty(view: DatabaseView, endDateProperty: string): DatabaseView {
   return setTimelineEndDateProperty(view, endDateProperty);
+}
+
+export function setDatabaseViewGalleryCoverProperty(view: DatabaseView, coverProperty: string): DatabaseView {
+  return setGalleryCoverProperty(view, coverProperty);
+}
+
+export function setDatabaseViewGalleryCardFields(view: DatabaseView, cardFields: readonly string[]): DatabaseView {
+  return setGalleryCardFields(view, cardFields);
 }
 
 export function updateDatabaseViewConfig(

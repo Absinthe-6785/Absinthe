@@ -11,6 +11,7 @@ export const DATABASE_PRESENTATION_OPTIONS: readonly DatabasePresentationOption[
   { value: 'board', label: 'Board' },
   { value: 'calendar', label: 'Calendar' },
   { value: 'timeline', label: 'Timeline' },
+  { value: 'gallery', label: 'Gallery' },
 ];
 
 export function presentationLabel(presentation: DatabaseViewPresentation): string {
@@ -47,6 +48,18 @@ export const TIMELINE_END_DATE_FIELD: DatabasePropertyFieldPreset = {
   defaultValue: 'endDate',
 };
 
+export const GALLERY_COVER_PROPERTY_FIELD: DatabasePropertyFieldPreset = {
+  label: 'Cover image property',
+  placeholder: 'Property key (e.g. coverImage)',
+  defaultValue: 'coverImage',
+};
+
+export const GALLERY_CARD_FIELDS_FIELD: DatabasePropertyFieldPreset = {
+  label: 'Card fields',
+  placeholder: 'Comma-separated keys (e.g. status, priority)',
+  defaultValue: 'status, priority, reviewDate',
+};
+
 export const TABLE_ADD_COLUMN_FIELD: DatabasePropertyFieldPreset = {
   label: 'Columns',
   placeholder: 'Property key (e.g. status)',
@@ -63,6 +76,7 @@ export const SUGGESTED_PROPERTY_KEYS = [
   'examDate',
   'startDate',
   'endDate',
+  'coverImage',
   'updatedAt',
   'createdAt',
 ] as const;

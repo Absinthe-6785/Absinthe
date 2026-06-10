@@ -9,6 +9,8 @@ import { normalizeRollupColumns } from '../rollups/rollupModels';
 import type {
   DatabaseBoardConfig,
   DatabaseCalendarConfig,
+  DatabaseGalleryCardSize,
+  DatabaseGalleryConfig,
   DatabasePresentationConfig,
   DatabaseTableConfig,
   DatabaseTimelineConfig,
@@ -20,6 +22,8 @@ export const DEFAULT_BOARD_GROUP_BY = 'status';
 export const DEFAULT_CALENDAR_DATE_PROPERTY = 'updatedAt';
 export const DEFAULT_TIMELINE_START_PROPERTY = 'startDate';
 export const DEFAULT_TIMELINE_END_PROPERTY = 'endDate';
+export const DEFAULT_GALLERY_COVER_PROPERTY = 'coverImage';
+export const DEFAULT_GALLERY_CARD_FIELDS = ['status', 'priority', 'reviewDate'] as const;
 export const UNASSIGNED_LANE_KEY = '__unassigned__';
 export const UNASSIGNED_LANE_LABEL = 'No value';
 
@@ -62,6 +66,17 @@ export function defaultTimelinePresentationConfig(
   };
 }
 
+export function defaultGalleryPresentationConfig(
+  coverProperty = DEFAULT_GALLERY_COVER_PROPERTY,
+  cardFields: readonly string[] = DEFAULT_GALLERY_CARD_FIELDS,
+): DatabaseGalleryConfig {
+  return {
+    type: 'gallery',
+    coverProperty,
+    cardFields: [...cardFields],
+  };
+}
+
 export function defaultPresentationConfig(
   presentation: DatabaseViewPresentation,
 ): DatabasePresentationConfig {
@@ -72,6 +87,8 @@ export function defaultPresentationConfig(
       return defaultCalendarPresentationConfig();
     case 'timeline':
       return defaultTimelinePresentationConfig();
+    case 'gallery':
+      return defaultGalleryPresentationConfig();
     default:
       return defaultTablePresentationConfig();
   }
@@ -156,6 +173,31 @@ export function normalizeTimelineConfig(raw: unknown): DatabaseTimelineConfig {
   return defaultTimelinePresentationConfig();
 }
 
+const GALLERY_CARD_SIZES: readonly DatabaseGalleryCardSize[] = ['compact', 'medium', 'large'];
+
+export function normalizeGalleryConfig(raw: unknown): DatabaseGalleryConfig {
+  if (raw && typeof raw === 'object') {
+    const record = raw as Partial<DatabaseGalleryConfig>;
+    if (record.type === 'gallery') {
+      const config = defaultGalleryPresentationConfig();
+      if (typeof record.coverProperty === 'string' && record.coverProperty.trim()) {
+        config.coverProperty = record.coverProperty.trim();
+      }
+      if (Array.isArray(record.cardFields)) {
+        const cardFields = record.cardFields
+          .filter(field => typeof field === 'string' && field.trim())
+          .map(field => field.trim());
+        if (cardFields.length > 0) config.cardFields = cardFields;
+      }
+      if (record.cardSize && (GALLERY_CARD_SIZES as readonly string[]).includes(record.cardSize)) {
+        config.cardSize = record.cardSize;
+      }
+      return config;
+    }
+  }
+  return defaultGalleryPresentationConfig();
+}
+
 export function normalizePresentationConfig(
   raw: unknown,
   presentation: DatabaseViewPresentation,
@@ -186,6 +228,9 @@ export function normalizePresentationConfig(
     if (record.type === 'timeline') {
       return normalizeTimelineConfig(raw);
     }
+    if (record.type === 'gallery') {
+      return normalizeGalleryConfig(raw);
+    }
   }
 
   if (presentation === 'board') {
@@ -196,6 +241,9 @@ export function normalizePresentationConfig(
   }
   if (presentation === 'timeline') {
     return defaultTimelinePresentationConfig();
+  }
+  if (presentation === 'gallery') {
+    return defaultGalleryPresentationConfig();
   }
   return liftLegacyTableConfig(legacyView ?? {});
 }
@@ -230,6 +278,14 @@ export function getTimelineConfig(view: DatabaseView): DatabaseTimelineConfig {
     return normalized.presentationConfig;
   }
   return defaultTimelinePresentationConfig();
+}
+
+export function getGalleryConfig(view: DatabaseView): DatabaseGalleryConfig {
+  const normalized = withPresentationDefaults(view);
+  if (normalized.presentationConfig.type === 'gallery') {
+    return normalized.presentationConfig;
+  }
+  return defaultGalleryPresentationConfig();
 }
 
 /** Sync legacy root columns/sort from table config for backward-compatible persistence */
@@ -296,6 +352,18 @@ export function withPresentationDefaults(view: DatabaseView): DatabaseView {
     };
   }
 
+  if (presentation === 'gallery' && presentationConfig.type === 'gallery') {
+    const tableCache = view.presentationConfig?.type === 'table'
+      ? view.presentationConfig
+      : liftLegacyTableConfig(view);
+    return {
+      ...view,
+      presentation,
+      presentationConfig,
+      ...syncLegacyTableFields(view, tableCache),
+    };
+  }
+
   return {
     ...view,
     presentation,
@@ -333,6 +401,10 @@ export function setViewPresentation(
     presentationConfig = current.presentationConfig.type === 'timeline'
       ? current.presentationConfig
       : defaultTimelinePresentationConfig();
+  } else if (presentation === 'gallery') {
+    presentationConfig = current.presentationConfig.type === 'gallery'
+      ? current.presentationConfig
+      : defaultGalleryPresentationConfig();
   } else {
     presentationConfig = defaultPresentationConfig(presentation);
   }
@@ -436,5 +508,53 @@ export function setTimelineEndDateProperty(view: DatabaseView, endDateProperty: 
     ...current,
     presentation: 'timeline',
     presentationConfig: timelineConfig,
+  });
+}
+
+export function setGalleryCoverProperty(view: DatabaseView, coverProperty: string): DatabaseView {
+  const trimmed = coverProperty.trim();
+  if (!trimmed) return view;
+
+  const current = withPresentationDefaults(view);
+  const galleryConfig: DatabaseGalleryConfig = {
+    type: 'gallery',
+    coverProperty: trimmed,
+    ...(current.presentationConfig.type === 'gallery' && current.presentationConfig.cardFields
+      ? { cardFields: current.presentationConfig.cardFields }
+      : { cardFields: [...DEFAULT_GALLERY_CARD_FIELDS] }),
+    ...(current.presentationConfig.type === 'gallery' && current.presentationConfig.cardSize
+      ? { cardSize: current.presentationConfig.cardSize }
+      : {}),
+  };
+
+  return withPresentationDefaults({
+    ...current,
+    presentation: 'gallery',
+    presentationConfig: galleryConfig,
+  });
+}
+
+export function setGalleryCardFields(view: DatabaseView, cardFields: readonly string[]): DatabaseView {
+  const normalizedFields = cardFields
+    .map(field => field.trim())
+    .filter(Boolean);
+  if (normalizedFields.length === 0) return view;
+
+  const current = withPresentationDefaults(view);
+  const galleryConfig: DatabaseGalleryConfig = {
+    type: 'gallery',
+    ...(current.presentationConfig.type === 'gallery' && current.presentationConfig.coverProperty
+      ? { coverProperty: current.presentationConfig.coverProperty }
+      : { coverProperty: DEFAULT_GALLERY_COVER_PROPERTY }),
+    cardFields: normalizedFields,
+    ...(current.presentationConfig.type === 'gallery' && current.presentationConfig.cardSize
+      ? { cardSize: current.presentationConfig.cardSize }
+      : {}),
+  };
+
+  return withPresentationDefaults({
+    ...current,
+    presentation: 'gallery',
+    presentationConfig: galleryConfig,
   });
 }

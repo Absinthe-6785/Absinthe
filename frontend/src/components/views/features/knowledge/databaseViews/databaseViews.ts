@@ -4,6 +4,7 @@ import {
   defaultCalendarPresentationConfig,
   defaultTablePresentationConfig,
   defaultTimelinePresentationConfig,
+  defaultGalleryPresentationConfig,
   liftLegacyTableConfig,
   normalizePresentationConfig,
   syncLegacyTableFields,
@@ -11,7 +12,7 @@ import {
 } from './databasePresentationConfig';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
-const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board', 'calendar', 'timeline'];
+const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board', 'calendar', 'timeline', 'gallery'];
 
 export interface CreateDatabaseViewOptions {
   id?: string;
@@ -20,6 +21,8 @@ export interface CreateDatabaseViewOptions {
   dateProperty?: string;
   startDateProperty?: string;
   endDateProperty?: string;
+  coverProperty?: string;
+  cardFields?: readonly string[];
 }
 
 export function isValidDatabaseViewQuery(query: string): boolean {
@@ -94,14 +97,18 @@ export function createDatabaseView(
       ? 'calendar'
       : options.presentation === 'timeline'
         ? 'timeline'
-        : 'table';
+        : options.presentation === 'gallery'
+          ? 'gallery'
+          : 'table';
   const presentationConfig = presentation === 'board'
     ? defaultBoardPresentationConfig(options.groupBy)
     : presentation === 'calendar'
       ? defaultCalendarPresentationConfig(options.dateProperty)
       : presentation === 'timeline'
         ? defaultTimelinePresentationConfig(options.startDateProperty, options.endDateProperty)
-        : defaultTablePresentationConfig();
+        : presentation === 'gallery'
+          ? defaultGalleryPresentationConfig(options.coverProperty, options.cardFields)
+          : defaultTablePresentationConfig();
   const tableFields = syncLegacyTableFields(
     {} as DatabaseView,
     presentationConfig.type === 'table'

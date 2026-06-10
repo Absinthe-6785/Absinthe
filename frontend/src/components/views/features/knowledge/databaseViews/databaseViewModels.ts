@@ -1,7 +1,7 @@
 import type { DatabasePresentationConfig } from './databasePresentationModels';
 
-/** Phase 1 presentation modes — table through timeline (K-17.5) */
-export type DatabaseViewPresentation = 'table' | 'board' | 'calendar' | 'timeline';
+/** Phase 1 presentation modes — table through gallery (K-17.75) */
+export type DatabaseViewPresentation = 'table' | 'board' | 'calendar' | 'timeline' | 'gallery';
 
 export type DatabaseSortDirection = 'asc' | 'desc';
 
