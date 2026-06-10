@@ -45,6 +45,14 @@ export function activateDatabaseViewWorkspace(view: DatabaseView): WorkspaceActi
   };
 }
 
+/** Activate workspace dashboard — clears search query */
+export function activateDashboardWorkspace(): WorkspaceActivateResult {
+  return {
+    activation: { kind: 'dashboard' },
+    searchQuery: '',
+  };
+}
+
 export function clearWorkspaceActivation(): WorkspaceActivateResult {
   return {
     activation: INACTIVE_WORKSPACE,

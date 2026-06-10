@@ -26,6 +26,7 @@ export type WorkspaceFilterSource =
 /** Single active workspace selection — replaces multiple nullable IDs in NoteView */
 export type WorkspaceActivation =
   | { kind: 'none' }
+  | { kind: 'dashboard' }
   | { kind: 'saved-view'; id: string }
   | { kind: 'smart-collection'; id: SmartCollectionId }
   | { kind: 'rule-collection'; id: string }
@@ -60,6 +61,8 @@ export type WorkspaceRef = WorkspaceItemRef;
 export interface WorkspaceSessionState {
   activation: WorkspaceActivation;
   updatedAt: number;
+  /** Last non-dashboard activation for resume widget (K-19.3) */
+  resumeActivation?: WorkspaceActivation;
 }
 
 const WORKSPACE_ITEM_KINDS: readonly WorkspaceItemKind[] = [
@@ -86,7 +89,7 @@ export function isWorkspaceItemKind(value: unknown): value is WorkspaceItemKind 
 export function isWorkspaceActivation(value: unknown): value is WorkspaceActivation {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<WorkspaceActivation>;
-  if (record.kind === 'none') return true;
+  if (record.kind === 'none' || record.kind === 'dashboard') return true;
   if (typeof record.kind !== 'string' || typeof record.id !== 'string') return false;
   if (!isWorkspaceItemKind(record.kind)) return false;
   const id = record.id.trim();
@@ -104,6 +107,7 @@ export function isActiveWorkspaceActivation(
 export function normalizeWorkspaceActivation(raw: unknown): WorkspaceActivation {
   if (!isWorkspaceActivation(raw)) return INACTIVE_WORKSPACE;
   if (raw.kind === 'none') return INACTIVE_WORKSPACE;
+  if (raw.kind === 'dashboard') return { kind: 'dashboard' };
   if (raw.kind === 'smart-collection') {
     return { kind: 'smart-collection', id: raw.id.trim() as SmartCollectionId };
   }
@@ -117,7 +121,18 @@ export function normalizeWorkspaceSession(raw: unknown): WorkspaceSessionState |
   const updatedAt = typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
     ? record.updatedAt
     : Date.now();
-  return { activation, updatedAt };
+  const resumeActivation = record.resumeActivation
+    ? normalizeWorkspaceActivation(record.resumeActivation)
+    : undefined;
+  const session: WorkspaceSessionState = { activation, updatedAt };
+  if (
+    resumeActivation
+    && resumeActivation.kind !== 'none'
+    && resumeActivation.kind !== 'dashboard'
+  ) {
+    session.resumeActivation = resumeActivation;
+  }
+  return session;
 }
 
 /** Whether two activations refer to the same workspace selection */
@@ -127,6 +142,8 @@ export function isSameWorkspaceActivation(
 ): boolean {
   if (a.kind === 'none' && b.kind === 'none') return true;
   if (a.kind === 'none' || b.kind === 'none') return false;
+  if (a.kind === 'dashboard' && b.kind === 'dashboard') return true;
+  if (a.kind === 'dashboard' || b.kind === 'dashboard') return false;
   return a.kind === b.kind && a.id === b.id;
 }
 

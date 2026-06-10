@@ -58,6 +58,7 @@ export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './co
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
 export { PinnedWorkspacesSection, type PinnedWorkspacesSectionProps } from './components/PinnedWorkspacesSection';
 export { RecentWorkSection, type RecentWorkSectionProps } from './components/RecentWorkSection';
+export { WorkspaceDashboardView, type WorkspaceDashboardViewProps, type WorkspaceDashboardQuickActions } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
@@ -390,6 +391,7 @@ export {
 
 export {
   INACTIVE_WORKSPACE,
+  activateDashboardWorkspace,
   activateDatabaseViewWorkspace,
   activateRuleCollectionWorkspace,
   activateSavedViewWorkspace,
@@ -402,6 +404,7 @@ export {
   getWorkspaceFilterSource,
   isActiveWorkspaceActivation,
   isDatabaseViewActive,
+  isDashboardActive,
   isSameWorkspaceActivation,
   isWorkspaceActivation,
   isWorkspaceItemKind,
@@ -434,6 +437,14 @@ export {
   type RecentWorkEntry,
   type UseNoteWorkspaceOptions,
   type UseNoteWorkspaceResult,
+  DEFAULT_RECENT_NOTES_LIMIT,
+  DEFAULT_WORKSPACE_DASHBOARD,
+  formatRecentTimestamp,
+  isDashboardActivation,
+  workspaceKindLabel,
+  type WorkspaceDashboardModel,
+  type WorkspaceDashboardWidget,
+  type WorkspaceDashboardWidgetId,
   type WorkspaceActivation,
   type WorkspaceFilterSource,
   type WorkspaceItemKind,

@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -40,6 +40,7 @@ import {
   DatabaseViewsSection,
   PinnedWorkspacesSection,
   RecentWorkSection,
+  WorkspaceDashboardView,
   SMART_COLLECTIONS,
   INACTIVE_WORKSPACE,
   useNoteWorkspace,
@@ -289,6 +290,10 @@ export const NoteView = () => {
     activeRuleCollection,
     activeDatabaseView,
     isDatabaseViewMode,
+    isDashboardMode,
+    dashboard,
+    resumeWorkspace,
+    recentNotes,
     shouldSkipUserSort,
     smartCollectionCounts,
     ruleCollectionCounts,
@@ -327,10 +332,17 @@ export const NoteView = () => {
     handleUnpinWorkspace,
     handleMovePinnedWorkspace,
     handleClearRecentWork,
+    handleActivateDashboard,
+    handleClearDashboard,
+    handleResumeLastWorkspace,
+    handleLeaveDashboardForNote,
   } = workspace;
 
+  const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode;
   const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
-  const activeWorkspaceId = workspaceActivation.kind === 'none' ? null : workspaceActivation.id;
+  const activeWorkspaceId = workspaceActivation.kind === 'none' || workspaceActivation.kind === 'dashboard'
+    ? null
+    : workspaceActivation.id;
 
   const formulaQueryCatalog = useMemo(
     () => buildFormulaQueryCatalog(databaseViews),
@@ -341,7 +353,9 @@ export const NoteView = () => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const importInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
+  const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
     updateNote(id, patch);
   }, [updateNote]);
@@ -912,6 +926,7 @@ export const NoteView = () => {
               <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
                 <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
                 <input
+                  ref={searchInputRef}
                   className="bwsi"
                   style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined }}
                   placeholder="tag:japanese status:active"
@@ -987,6 +1002,17 @@ export const NoteView = () => {
                     </div>
                   </>
                 )}
+                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
+                  <div className="bseclbl">Workspace</div>
+                  <div
+                    className={`bfi ${isDashboardMode ? 'active' : ''}`}
+                    onClick={handleActivateDashboard}
+                    style={{ gap: 4, fontSize: 11 }}
+                  >
+                    <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
+                    <span style={{ flex: 1 }}>Dashboard</span>
+                  </div>
+                </div>
                 <PinnedWorkspacesSection
                   colors={c}
                   pinned={pinnedWorkspaces}
@@ -1061,6 +1087,7 @@ export const NoteView = () => {
                     name: view.name,
                     subtitle: view.query,
                   })}
+                  openCreateFormSignal={databaseCreateSignal}
                 />
                 <SavedViewsSection
                   colors={c}
@@ -1094,20 +1121,22 @@ export const NoteView = () => {
       )}
       {/* ── Note List / Database Table ── */}
       <div style={{
-        width: focusMode ? 0 : (isDatabaseViewMode ? '45%' : 200),
-        minWidth: focusMode ? 0 : (isDatabaseViewMode ? 280 : 200),
+        width: focusMode ? 0 : (isWorkspacePanelMode ? '45%' : 200),
+        minWidth: focusMode ? 0 : (isWorkspacePanelMode ? 280 : 200),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
         display: 'flex',
         flexDirection: 'column',
-        flexShrink: isDatabaseViewMode ? 1 : 0,
+        flexShrink: isWorkspacePanelMode ? 1 : 0,
         transition: 'width .2s, min-width .2s',
         zIndex: 99,
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {activeDatabaseView
+            {isDashboardMode
+              ? dashboard.name
+              : activeDatabaseView
               ? activeDatabaseView.name
               : activeSmartCollection
               ? activeSmartCollection.name
@@ -1119,12 +1148,15 @@ export const NoteView = () => {
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
-              ({isDatabaseViewMode ? activeDatabaseViewNoteCount : visibleNotes.length})
+              ({isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
             </span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
+            )}
+            {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
+              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave dashboard">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'database-view') && !searchQuery.trim() && (
               <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear database view">✕</button>
@@ -1138,7 +1170,7 @@ export const NoteView = () => {
             {activeTag && workspaceActivation.kind === 'none' && !searchQuery.trim() && (
               <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>
             )}
-            {!isDatabaseViewMode && (
+            {!isWorkspacePanelMode && (
               <>
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
@@ -1174,7 +1206,34 @@ export const NoteView = () => {
             )}
           </div>
         </div>
-        {isDatabaseViewMode && activeDatabaseView ? (
+        {isDashboardMode ? (
+          <WorkspaceDashboardView
+            colors={c}
+            dashboard={dashboard}
+            pinned={pinnedWorkspaces}
+            recent={recentWork}
+            resumeWorkspace={resumeWorkspace}
+            recentNotes={recentNotes}
+            onActivateWorkspace={handleActivateWorkspaceRef}
+            onResumeWorkspace={handleResumeLastWorkspace}
+            onSelectNote={noteId => {
+              handleLeaveDashboardForNote(noteId);
+              setActiveNoteId(noteId);
+            }}
+            quickActions={{
+              onNewNote: () => createNote(),
+              onNewDatabaseView: () => {
+                setSidebarCollapsed(false);
+                setDatabaseCreateSignal(signal => signal + 1);
+              },
+              onOpenSearch: () => {
+                setSidebarCollapsed(false);
+                searchInputRef.current?.focus();
+              },
+              onOpenGraph: () => setViewMode('graph'),
+            }}
+          />
+        ) : isDatabaseViewMode && activeDatabaseView ? (
           <DatabaseViewPanel
             colors={c}
             view={activeDatabaseView}

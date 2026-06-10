@@ -49,7 +49,7 @@ describe('applyWorkspaceListFilter', () => {
     expect(filtered).toEqual([]);
   });
 
-  it('leaves saved-view and database-view activations to their dedicated paths', () => {
+  it('leaves saved-view, database-view, and dashboard activations to their dedicated paths', () => {
     const savedViewFiltered = applyWorkspaceListFilter(notes, { kind: 'saved-view', id: 'sv-1' }, {
       service,
       vaultNotes: notes,
@@ -60,7 +60,13 @@ describe('applyWorkspaceListFilter', () => {
       vaultNotes: notes,
       ruleCollections: [],
     });
+    const dashboardFiltered = applyWorkspaceListFilter(notes, { kind: 'dashboard' }, {
+      service,
+      vaultNotes: notes,
+      ruleCollections: [],
+    });
     expect(savedViewFiltered.map(n => n.id)).toEqual(['a', 'b', 'c']);
     expect(databaseFiltered.map(n => n.id)).toEqual(['a', 'b', 'c']);
+    expect(dashboardFiltered.map(n => n.id)).toEqual(['a', 'b', 'c']);
   });
 });
