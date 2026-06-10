@@ -32,17 +32,21 @@ export {
   UNASSIGNED_LANE_LABEL,
   defaultBoardPresentationConfig,
   defaultCalendarPresentationConfig,
+  defaultTimelinePresentationConfig,
   defaultPresentationConfig,
   defaultTablePresentationConfig,
   getBoardConfig,
   getCalendarConfig,
   getTableConfig,
+  getTimelineConfig,
   liftLegacyTableConfig,
   normalizeBoardConfig,
   normalizeCalendarConfig,
   normalizePresentationConfig,
   setBoardGroupBy,
   setCalendarDateProperty,
+  setTimelineEndDateProperty,
+  setTimelineStartDateProperty,
   setViewPresentation,
   syncLegacyTableFields,
   withPresentationDefaults,
@@ -99,6 +103,8 @@ export {
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
+  setDatabaseViewTimelineEndProperty,
+  setDatabaseViewTimelineStartProperty,
   showDatabaseViewColumn,
   updateDatabaseViewConfig,
 } from './databaseViewOperations';
@@ -107,6 +113,13 @@ export { filterByDatabaseView } from './filterByDatabaseView';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
 export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 export { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
+export { prepareDatabaseTimelineItems } from './prepareDatabaseTimelineItems';
+export {
+  formatTimelineDateRange,
+  timelineItemOverlapsMonth,
+  daysInMonth,
+  type TimelineItem,
+} from './timelineModels';
 export {
   prepareDatabaseViewPresentation,
   type DatabaseViewPresentationData,
@@ -116,6 +129,8 @@ export {
   DATABASE_EMPTY_MESSAGE,
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
+  TIMELINE_START_DATE_FIELD,
+  TIMELINE_END_DATE_FIELD,
   presentationLabel,
   SUGGESTED_PROPERTY_KEYS,
 } from './databasePresentationMeta';

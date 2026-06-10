@@ -48,9 +48,10 @@ function note(
 
 describe('databasePresentationMeta', () => {
   it('exposes all presentation options', () => {
-    expect(DATABASE_PRESENTATION_OPTIONS.map(o => o.value)).toEqual(['table', 'board', 'calendar']);
+    expect(DATABASE_PRESENTATION_OPTIONS.map(o => o.value)).toEqual(['table', 'board', 'calendar', 'timeline']);
     expect(presentationLabel('board')).toBe('Board');
     expect(presentationLabel('calendar')).toBe('Calendar');
+    expect(presentationLabel('timeline')).toBe('Timeline');
   });
 
   it('defines shared property field presets', () => {
@@ -102,6 +103,26 @@ describe('prepareDatabaseViewPresentation', () => {
     expect(data.type).toBe('calendar');
     if (data.type === 'calendar') {
       expect(data.buckets.some(b => b.notes.some(n => n.id === 'a'))).toBe(true);
+    }
+  });
+
+  it('dispatches timeline presentation', () => {
+    const view = createDatabaseView([], 'Timeline', 'tag:japanese', {
+      presentation: 'timeline',
+      startDateProperty: 'startDate',
+      endDateProperty: 'endDate',
+    })[0];
+    const notesWithRange = [
+      ...notes,
+      note('t', 'Timeline task', '', {
+        properties: { tags: 'japanese', startDate: '2026-06-10', endDate: '2026-06-12' },
+      }),
+    ];
+    service.buildFromNotes(notesWithRange);
+    const data = prepareDatabaseViewPresentation(view, notesWithRange, service);
+    expect(data.type).toBe('timeline');
+    if (data.type === 'timeline') {
+      expect(data.items.some(item => item.noteId === 't')).toBe(true);
     }
   });
 });
@@ -173,6 +194,7 @@ describe('shared control components', () => {
     expect(container.textContent).toContain('Table');
     expect(container.textContent).toContain('Board');
     expect(container.textContent).toContain('Calendar');
+    expect(container.textContent).toContain('Timeline');
   });
 
   it('renders property key field with preset label', () => {

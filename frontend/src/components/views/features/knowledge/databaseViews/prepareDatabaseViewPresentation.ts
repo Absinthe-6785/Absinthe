@@ -5,13 +5,16 @@ import type { CalendarDateBucket } from './bucketNotesByDate';
 import type { BoardLane } from './groupNotesByProperty';
 import { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 import { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
+import { prepareDatabaseTimelineItems } from './prepareDatabaseTimelineItems';
+import type { TimelineItem } from './timelineModels';
 import { prepareDatabaseViewRows } from './prepareDatabaseViewRows';
 import { withPresentationDefaults } from './databasePresentationConfig';
 
 export type DatabaseViewPresentationData =
   | { type: 'table'; notes: NoteBase[] }
   | { type: 'board'; lanes: BoardLane[] }
-  | { type: 'calendar'; buckets: CalendarDateBucket[] };
+  | { type: 'calendar'; buckets: CalendarDateBucket[] }
+  | { type: 'timeline'; items: TimelineItem[] };
 
 /**
  * Unified post-filter presentation dispatch.
@@ -35,6 +38,11 @@ export function prepareDatabaseViewPresentation(
       return {
         type: 'calendar',
         buckets: prepareDatabaseCalendarBuckets(configured, safeNotes, service),
+      };
+    case 'timeline':
+      return {
+        type: 'timeline',
+        items: prepareDatabaseTimelineItems(configured, safeNotes, service),
       };
     default:
       return {

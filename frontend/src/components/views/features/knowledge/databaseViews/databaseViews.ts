@@ -3,6 +3,7 @@ import {
   defaultBoardPresentationConfig,
   defaultCalendarPresentationConfig,
   defaultTablePresentationConfig,
+  defaultTimelinePresentationConfig,
   liftLegacyTableConfig,
   normalizePresentationConfig,
   syncLegacyTableFields,
@@ -10,13 +11,15 @@ import {
 } from './databasePresentationConfig';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
-const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board', 'calendar'];
+const SUPPORTED_PRESENTATIONS: readonly DatabaseViewPresentation[] = ['table', 'board', 'calendar', 'timeline'];
 
 export interface CreateDatabaseViewOptions {
   id?: string;
   presentation?: DatabaseViewPresentation;
   groupBy?: string;
   dateProperty?: string;
+  startDateProperty?: string;
+  endDateProperty?: string;
 }
 
 export function isValidDatabaseViewQuery(query: string): boolean {
@@ -89,12 +92,16 @@ export function createDatabaseView(
     ? 'board'
     : options.presentation === 'calendar'
       ? 'calendar'
-      : 'table';
+      : options.presentation === 'timeline'
+        ? 'timeline'
+        : 'table';
   const presentationConfig = presentation === 'board'
     ? defaultBoardPresentationConfig(options.groupBy)
     : presentation === 'calendar'
       ? defaultCalendarPresentationConfig(options.dateProperty)
-      : defaultTablePresentationConfig();
+      : presentation === 'timeline'
+        ? defaultTimelinePresentationConfig(options.startDateProperty, options.endDateProperty)
+        : defaultTablePresentationConfig();
   const tableFields = syncLegacyTableFields(
     {} as DatabaseView,
     presentationConfig.type === 'table'

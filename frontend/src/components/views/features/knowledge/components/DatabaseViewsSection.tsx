@@ -5,6 +5,8 @@ import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/da
 import {
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
+  TIMELINE_END_DATE_FIELD,
+  TIMELINE_START_DATE_FIELD,
   presentationLabel,
 } from '../databaseViews/databasePresentationMeta';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
@@ -25,6 +27,8 @@ export interface DatabaseViewsSectionProps {
     presentation?: DatabaseViewPresentation,
     groupBy?: string,
     dateProperty?: string,
+    startDateProperty?: string,
+    endDateProperty?: string,
   ) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -49,6 +53,8 @@ export function DatabaseViewsSection({
   const [newPresentation, setNewPresentation] = useState<DatabaseViewPresentation>('table');
   const [newGroupBy, setNewGroupBy] = useState('status');
   const [newDateProperty, setNewDateProperty] = useState('reviewDate');
+  const [newStartDateProperty, setNewStartDateProperty] = useState('startDate');
+  const [newEndDateProperty, setNewEndDateProperty] = useState('endDate');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -57,6 +63,8 @@ export function DatabaseViewsSection({
     setNewPresentation('table');
     setNewGroupBy('status');
     setNewDateProperty('reviewDate');
+    setNewStartDateProperty('startDate');
+    setNewEndDateProperty('endDate');
     setShowCreateForm(true);
   };
 
@@ -70,6 +78,8 @@ export function DatabaseViewsSection({
       newPresentation,
       newPresentation === 'board' ? newGroupBy : undefined,
       newPresentation === 'calendar' ? newDateProperty : undefined,
+      newPresentation === 'timeline' ? newStartDateProperty : undefined,
+      newPresentation === 'timeline' ? newEndDateProperty : undefined,
     );
     setNewName('');
     setNewQuery('');
@@ -218,6 +228,34 @@ export function DatabaseViewsSection({
                 listId="database-create-calendar-date"
               />
             </div>
+          )}
+          {newPresentation === 'timeline' && (
+            <>
+              <div style={{ width: '100%' }}>
+                <DatabasePropertyKeyField
+                  preset={TIMELINE_START_DATE_FIELD}
+                  value={newStartDateProperty}
+                  onChange={setNewStartDateProperty}
+                  onSubmit={submitCreate}
+                  inputClassName="bwi"
+                  inputStyle={{ width: '100%', minWidth: 0, fontSize: 11 }}
+                  labelStyle={{ fontSize: 11 }}
+                  listId="database-create-timeline-start"
+                />
+              </div>
+              <div style={{ width: '100%' }}>
+                <DatabasePropertyKeyField
+                  preset={TIMELINE_END_DATE_FIELD}
+                  value={newEndDateProperty}
+                  onChange={setNewEndDateProperty}
+                  onSubmit={submitCreate}
+                  inputClassName="bwi"
+                  inputStyle={{ width: '100%', minWidth: 0, fontSize: 11 }}
+                  labelStyle={{ fontSize: 11 }}
+                  listId="database-create-timeline-end"
+                />
+              </div>
+            </>
           )}
           <div style={{ display: 'flex', gap: 3 }}>
             <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>Save</button>
