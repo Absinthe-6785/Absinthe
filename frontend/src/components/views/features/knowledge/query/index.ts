@@ -10,3 +10,18 @@ export {
   tokenizeQuery,
 } from './parseQuery';
 export type { ParsedQuery, QueryClause, QueryEvaluation, FormulaQueryClause, FormulaQueryOperator } from './queryModels';
+export {
+  compileFilterConditionToClause,
+  compileVisualFilterToParsedQuery,
+  compileVisualFilterToQueryString,
+  isFilterCondition,
+  isFilterGroup,
+  isVisualFilterModel,
+  mergeQueryWithVisualFilter,
+  normalizeVisualFilterModel,
+  type FilterComparisonOperator,
+  type FilterCondition,
+  type FilterFieldKind,
+  type FilterGroup,
+  type VisualFilterModel,
+} from './visualFilterModels';

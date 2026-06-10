@@ -180,6 +180,12 @@ export {
   type DatabasePresentationConfigFuture,
   type DatabaseTableGroupConfig,
   type DatabaseViewPresentationFuture,
-  type DatabaseViewSortRule,
   type ImplementedPresentationConfigMap,
 } from './databasePresentationFutureModels';
+export {
+  isDatabaseViewSortRule,
+  migrateLegacySortToSortRules,
+  normalizeDatabaseViewSortRules,
+  primarySortRule,
+  type DatabaseViewSortRule,
+} from './databaseSortFutureModels';
