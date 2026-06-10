@@ -1,4 +1,15 @@
 export {
+  computeFormula,
+  type FormulaEvalContext,
+} from './computeFormula';
+export {
+  computeFormulasForNote,
+  createFormulaComputeMemo,
+  formulaMemoKey,
+  getFormulaColumnValue,
+  type FormulaComputeMemo,
+} from './computeFormulas';
+export {
   buildFormulaDependencyGraph,
   formulaColumnLabel,
   isFormulaColumnDefinition,

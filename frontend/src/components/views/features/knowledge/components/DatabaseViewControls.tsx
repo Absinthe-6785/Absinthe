@@ -6,6 +6,7 @@ import {
   columnLabelForKey,
   resolveAllColumnKeys,
   resolveVisibleColumns,
+  resolveVisibleFormulaColumns,
   resolveVisibleRollupColumns,
 } from '../databaseViews/databaseViewConfig';
 import {
@@ -26,11 +27,14 @@ import type {
 import { isBuiltinColumnKey } from '../databaseViews/databaseViewModels';
 import {
   addDatabaseViewColumn,
+  addDatabaseViewFormulaColumn,
   addDatabaseViewRollupColumn,
   removeDatabaseViewColumn,
+  removeDatabaseViewFormulaColumn,
   removeDatabaseViewRollupColumn,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
+  setDatabaseViewFormulaColumnVisibility,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,
@@ -43,6 +47,7 @@ import { DatabaseCalendarView } from './DatabaseCalendarView';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 import { DatabaseTableView } from './DatabaseTableView';
+import { formulaColumnLabel, type FormulaInput } from '../formulas/formulaModels';
 import { ROLLUP_FUNCTIONS_PHASE1, rollupColumnLabel, type RollupFunctionPhase1 } from '../rollups/rollupModels';
 
 export interface DatabaseViewControlsProps {
@@ -67,6 +72,18 @@ export interface DatabaseViewControlsProps {
   }) => void;
   onRemoveRollupColumn: (key: string) => void;
   onToggleRollupColumnVisibility: (key: string, visible: boolean) => void;
+  onAddFormulaColumn: (column: {
+    key: string;
+    visible: boolean;
+    formula: {
+      id: string;
+      expression: string;
+      inputs: Record<string, FormulaInput>;
+    };
+    label?: string;
+  }) => void;
+  onRemoveFormulaColumn: (key: string) => void;
+  onToggleFormulaColumnVisibility: (key: string, visible: boolean) => void;
 }
 
 export function DatabaseViewControls({
@@ -82,18 +99,33 @@ export function DatabaseViewControls({
   onAddRollupColumn,
   onRemoveRollupColumn,
   onToggleRollupColumnVisibility,
+  onAddFormulaColumn,
+  onRemoveFormulaColumn,
+  onToggleFormulaColumnVisibility,
 }: DatabaseViewControlsProps) {
   const [newColumnKey, setNewColumnKey] = useState('');
   const [rollupKey, setRollupKey] = useState('');
   const [rollupRelationKey, setRollupRelationKey] = useState('course');
   const [rollupFunction, setRollupFunction] = useState<RollupFunctionPhase1>('count');
   const [rollupTargetField, setRollupTargetField] = useState('');
+  const [formulaKey, setFormulaKey] = useState('');
+  const [formulaExpression, setFormulaExpression] = useState('');
+  const [formulaInputName, setFormulaInputName] = useState('');
+  const [formulaInputType, setFormulaInputType] = useState<'field' | 'rollup' | 'formula' | 'metadata'>('field');
+  const [formulaFieldKey, setFormulaFieldKey] = useState('');
+  const [formulaRefKey, setFormulaRefKey] = useState('');
+  const [formulaMetadataKey, setFormulaMetadataKey] = useState<'updatedAt' | 'createdAt' | 'title'>('updatedAt');
+  const [formulaRollupRelationKey, setFormulaRollupRelationKey] = useState('course');
+  const [formulaRollupFunction, setFormulaRollupFunction] = useState<RollupFunctionPhase1>('count');
+  const [formulaRollupTargetField, setFormulaRollupTargetField] = useState('');
+  const [formulaInputs, setFormulaInputs] = useState<Record<string, FormulaInput>>({});
   const configured = withDatabaseViewDefaults(view);
   const tableConfig = getTableConfig(configured);
   const boardConfig = getBoardConfig(configured);
   const calendarConfig = getCalendarConfig(configured);
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
   const rollupColumns = tableConfig.rollupColumns ?? [];
+  const formulaColumns = tableConfig.formulaColumns ?? [];
   const visibility = new Map(
     tableConfig.columns.map(entry => [entry.key.toLowerCase(), entry.visible]),
   );
@@ -120,6 +152,71 @@ export function DatabaseViewControls({
       },
     });
     setRollupKey('');
+  };
+
+  const buildPendingFormulaInput = (): FormulaInput | null => {
+    const name = formulaInputName.trim();
+    if (!name) return null;
+
+    switch (formulaInputType) {
+      case 'field': {
+        const key = formulaFieldKey.trim();
+        if (!key) return null;
+        return { type: 'field', key };
+      }
+      case 'rollup': {
+        const relationKey = formulaRollupRelationKey.trim();
+        if (!relationKey) return null;
+        return {
+          type: 'rollup',
+          definition: {
+            relationKey,
+            direction: 'incoming',
+            function: formulaRollupFunction,
+            ...(formulaRollupTargetField.trim()
+              ? { targetField: formulaRollupTargetField.trim() }
+              : {}),
+          },
+        };
+      }
+      case 'formula': {
+        const refKey = formulaRefKey.trim();
+        if (!refKey) return null;
+        return { type: 'formula', formulaKey: refKey };
+      }
+      case 'metadata':
+        return { type: 'metadata', key: formulaMetadataKey };
+      default:
+        return null;
+    }
+  };
+
+  const submitAddFormulaInput = () => {
+    const name = formulaInputName.trim();
+    const input = buildPendingFormulaInput();
+    if (!name || !input) return;
+    setFormulaInputs(current => ({ ...current, [name]: input }));
+    setFormulaInputName('');
+    setFormulaFieldKey('');
+    setFormulaRefKey('');
+  };
+
+  const submitAddFormula = () => {
+    const key = formulaKey.trim();
+    const expression = formulaExpression.trim();
+    if (!key || !expression || Object.keys(formulaInputs).length === 0) return;
+    onAddFormulaColumn({
+      key,
+      visible: true,
+      formula: {
+        id: key,
+        expression,
+        inputs: formulaInputs,
+      },
+    });
+    setFormulaKey('');
+    setFormulaExpression('');
+    setFormulaInputs({});
   };
 
   return (
@@ -301,6 +398,167 @@ export function DatabaseViewControls({
               Add rollup
             </button>
           </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+            <span style={{ fontWeight: 700 }}>Formula Columns</span>
+            {formulaColumns.map(column => (
+              <div key={column.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ flex: 1, color: column.visible ? c.accent : c.textMuted }}>
+                    {formulaColumnLabel(column)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btbtn"
+                    style={{ padding: '1px 4px', fontSize: 9 }}
+                    onClick={() => onToggleFormulaColumnVisibility(column.key, !column.visible)}
+                  >
+                    {column.visible ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btbtn"
+                    style={{ padding: '1px 4px', fontSize: 9, color: c.danger }}
+                    onClick={() => onRemoveFormulaColumn(column.key)}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <span style={{ fontSize: 9, color: c.textFaint, fontFamily: 'monospace' }}>
+                  {column.formula.expression}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <input
+              className="bwi"
+              style={{ fontSize: 10 }}
+              placeholder="Formula column key"
+              value={formulaKey}
+              onChange={e => setFormulaKey(e.target.value)}
+            />
+            <input
+              className="bwi"
+              style={{ fontSize: 10, fontFamily: 'monospace' }}
+              placeholder="Expression, e.g. (completed / total) * 100"
+              value={formulaExpression}
+              onChange={e => setFormulaExpression(e.target.value)}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontWeight: 700 }}>Input bindings</span>
+              {Object.entries(formulaInputs).map(([name, input]) => (
+                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ flex: 1, fontFamily: 'monospace', color: c.text }}>
+                    {name} → {input.type}
+                  </span>
+                  <button
+                    type="button"
+                    className="btbtn"
+                    style={{ padding: '1px 4px', fontSize: 9, color: c.danger }}
+                    onClick={() => setFormulaInputs(current => {
+                      const next = { ...current };
+                      delete next[name];
+                      return next;
+                    })}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <input
+                className="bwi"
+                style={{ fontSize: 10 }}
+                placeholder="Input name (matches expression identifier)"
+                value={formulaInputName}
+                onChange={e => setFormulaInputName(e.target.value)}
+              />
+              <select
+                className="bwi"
+                style={{ fontSize: 10 }}
+                value={formulaInputType}
+                onChange={e => setFormulaInputType(e.target.value as typeof formulaInputType)}
+              >
+                <option value="field">Property field</option>
+                <option value="rollup">Rollup</option>
+                <option value="formula">Formula reference</option>
+                <option value="metadata">Metadata</option>
+              </select>
+              {formulaInputType === 'field' && (
+                <input
+                  className="bwi"
+                  style={{ fontSize: 10 }}
+                  placeholder="Property key"
+                  value={formulaFieldKey}
+                  onChange={e => setFormulaFieldKey(e.target.value)}
+                />
+              )}
+              {formulaInputType === 'rollup' && (
+                <>
+                  <input
+                    className="bwi"
+                    style={{ fontSize: 10 }}
+                    placeholder="Relation key"
+                    value={formulaRollupRelationKey}
+                    onChange={e => setFormulaRollupRelationKey(e.target.value)}
+                  />
+                  <select
+                    className="bwi"
+                    style={{ fontSize: 10 }}
+                    value={formulaRollupFunction}
+                    onChange={e => setFormulaRollupFunction(e.target.value as RollupFunctionPhase1)}
+                  >
+                    {ROLLUP_FUNCTIONS_PHASE1.map(fn => (
+                      <option key={fn} value={fn}>{fn}</option>
+                    ))}
+                  </select>
+                  {(formulaRollupFunction === 'sum' || formulaRollupFunction === 'latest') && (
+                    <input
+                      className="bwi"
+                      style={{ fontSize: 10 }}
+                      placeholder="Target field"
+                      value={formulaRollupTargetField}
+                      onChange={e => setFormulaRollupTargetField(e.target.value)}
+                    />
+                  )}
+                </>
+              )}
+              {formulaInputType === 'formula' && (
+                <input
+                  className="bwi"
+                  style={{ fontSize: 10 }}
+                  placeholder="Formula column key"
+                  value={formulaRefKey}
+                  onChange={e => setFormulaRefKey(e.target.value)}
+                  list="database-formula-ref-suggestions"
+                />
+              )}
+              {formulaInputType === 'metadata' && (
+                <select
+                  className="bwi"
+                  style={{ fontSize: 10 }}
+                  value={formulaMetadataKey}
+                  onChange={e => setFormulaMetadataKey(e.target.value as typeof formulaMetadataKey)}
+                >
+                  <option value="updatedAt">updatedAt</option>
+                  <option value="createdAt">createdAt</option>
+                  <option value="title">title</option>
+                </select>
+              )}
+              <button className="btbtn" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitAddFormulaInput}>
+                Add input binding
+              </button>
+            </div>
+            <datalist id="database-formula-ref-suggestions">
+              {formulaColumns.map(column => (
+                <option key={column.key} value={column.key} />
+              ))}
+            </datalist>
+            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitAddFormula}>
+              Add formula
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -342,6 +600,10 @@ export function DatabaseViewPanel({
     () => resolveVisibleRollupColumns(tableConfig.rollupColumns),
     [tableConfig.rollupColumns],
   );
+  const visibleFormulaColumns = useMemo(
+    () => resolveVisibleFormulaColumns(tableConfig.formulaColumns),
+    [tableConfig.formulaColumns],
+  );
 
   const patch = useCallback(
     (updater: (current: DatabaseView) => DatabaseView) => onViewChange(updater),
@@ -363,6 +625,9 @@ export function DatabaseViewPanel({
         onAddRollupColumn={column => patch(v => addDatabaseViewRollupColumn(v, column))}
         onRemoveRollupColumn={key => patch(v => removeDatabaseViewRollupColumn(v, key))}
         onToggleRollupColumnVisibility={(key, visible) => patch(v => setDatabaseViewRollupColumnVisibility(v, key, visible))}
+        onAddFormulaColumn={column => patch(v => addDatabaseViewFormulaColumn(v, column))}
+        onRemoveFormulaColumn={key => patch(v => removeDatabaseViewFormulaColumn(v, key))}
+        onToggleFormulaColumnVisibility={(key, visible) => patch(v => setDatabaseViewFormulaColumnVisibility(v, key, visible))}
       />
       {presentationData.type === 'board' ? (
         <DatabaseBoardView
@@ -387,6 +652,7 @@ export function DatabaseViewPanel({
           notes={presentationData.notes}
           columns={visibleColumns}
           rollupColumns={visibleRollupColumns}
+          formulaColumns={visibleFormulaColumns}
           sort={tableConfig.sort}
           service={service}
           activeNoteId={activeNoteId}

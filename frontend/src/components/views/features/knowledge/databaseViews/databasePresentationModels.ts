@@ -2,6 +2,7 @@
  * Knowledge-9.75 / K-10 — Database presentation config types.
  */
 
+import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import type { RollupColumnDefinition } from '../rollups/rollupModels';
 import type {
   DatabaseViewColumnEntry,
@@ -16,6 +17,8 @@ export interface DatabaseTableConfig {
   sort: DatabaseViewSort;
   /** Computed relation rollup columns — K-15 */
   rollupColumns?: RollupColumnDefinition[];
+  /** Computed formula columns — K-16 */
+  formulaColumns?: FormulaColumnDefinition[];
 }
 
 /** Board presentation config — K-10 */

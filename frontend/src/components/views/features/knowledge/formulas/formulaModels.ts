@@ -2,7 +2,7 @@
  * Knowledge-16.0 — Formula model types and dependency graph helpers.
  *
  * Formulas are computed presentation values — not stored on notes.
- * Architecture-only in K-16.0; evaluation lands in K-16.5+.
+ * Architecture-only in K-16.0; evaluation in K-16.
  */
 
 import type { RollupDefinition } from '../rollups/rollupModels';
@@ -51,7 +51,7 @@ export interface FormulaDefinition {
   returnType?: FormulaReturnType;
 }
 
-/** Table column binding for a formula — K-16.5+ */
+/** Table column binding for a formula — K-16 */
 export interface FormulaColumnDefinition {
   key: string;
   label?: string;

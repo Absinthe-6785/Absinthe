@@ -5,6 +5,13 @@ import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
+import {
+  computeFormulasForNote,
+  createFormulaComputeMemo,
+  getFormulaColumnValue,
+  type FormulaComputeMemo,
+} from '../formulas/computeFormulas';
+import { formulaColumnLabel, type FormulaColumnDefinition } from '../formulas/formulaModels';
 import { computeRollup } from '../rollups/computeRollup';
 import { rollupColumnLabel, type RollupColumnDefinition } from '../rollups/rollupModels';
 
@@ -13,6 +20,7 @@ export interface DatabaseTableViewProps {
   notes: readonly NoteBase[];
   columns?: readonly DatabaseColumn[];
   rollupColumns?: readonly RollupColumnDefinition[];
+  formulaColumns?: readonly FormulaColumnDefinition[];
   sort?: DatabaseViewSort;
   service: KnowledgeIndexService;
   activeNoteId: string | null;
@@ -38,6 +46,25 @@ export function getDatabaseRollupCellValue(
   return computeRollup(note, column.rollup, service, notesById).display;
 }
 
+export function getDatabaseFormulaCellValue(
+  note: NoteBase,
+  column: FormulaColumnDefinition,
+  service: KnowledgeIndexService,
+  notesById: ReadonlyMap<string, NoteBase>,
+  formulaColumns: readonly FormulaColumnDefinition[],
+  memo?: FormulaComputeMemo,
+  precomputed?: ReadonlyMap<string, import('../formulas/formulaModels').FormulaValue>,
+): string {
+  const values = precomputed ?? computeFormulasForNote(
+    note,
+    formulaColumns,
+    service,
+    notesById,
+    memo,
+  );
+  return getFormulaColumnValue(column.key, values).display;
+}
+
 function sortIndicator(sort: DatabaseViewSort | undefined, columnKey: string): string {
   if (!sort || sort.key !== columnKey) return '';
   return sort.direction === 'asc' ? ' ↑' : ' ↓';
@@ -48,13 +75,15 @@ export function DatabaseTableView({
   notes,
   columns = DEFAULT_TABLE_COLUMNS,
   rollupColumns = [],
+  formulaColumns = [],
   sort,
   service,
   activeNoteId,
   onSelectNote,
 }: DatabaseTableViewProps) {
   const notesById = new Map(notes.map(note => [note.id, note]));
-  const totalColumns = columns.length + rollupColumns.length;
+  const formulaMemo = createFormulaComputeMemo();
+  const totalColumns = columns.length + rollupColumns.length + formulaColumns.length;
 
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist }}>
@@ -89,6 +118,21 @@ export function DatabaseTableView({
                 {rollupColumnLabel(column)}
               </th>
             ))}
+            {formulaColumns.map(column => (
+              <th
+                key={`formula-${column.key}`}
+                style={{
+                  textAlign: 'left',
+                  padding: '6px 8px',
+                  color: c.accent,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  fontStyle: 'italic',
+                }}
+              >
+                {formulaColumnLabel(column)}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -98,48 +142,77 @@ export function DatabaseTableView({
                 {DATABASE_EMPTY_MESSAGE}
               </td>
             </tr>
-          ) : notes.map(note => (
-            <tr
-              key={note.id}
-              onClick={() => onSelectNote(note.id)}
-              style={{
-                borderBottom: `1px solid ${c.sideBdr}`,
-                cursor: 'pointer',
-                background: note.id === activeNoteId ? `${c.accent}15` : 'transparent',
-              }}
-            >
-              {columns.map(column => (
-                <td
-                  key={column.id}
-                  style={{
-                    padding: '6px 8px',
-                    color: note.id === activeNoteId ? c.accent : c.text,
-                    maxWidth: column.key === 'title' ? 240 : 160,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {getDatabaseCellValue(note, column, service)}
-                </td>
-              ))}
-              {rollupColumns.map(column => (
-                <td
-                  key={`rollup-${column.key}-${note.id}`}
-                  style={{
-                    padding: '6px 8px',
-                    color: note.id === activeNoteId ? c.accent : c.textMuted,
-                    maxWidth: 160,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {getDatabaseRollupCellValue(note, column, service, notesById)}
-                </td>
-              ))}
-            </tr>
-          ))}
+          ) : notes.map(note => {
+            const rowFormulaValues = formulaColumns.length > 0
+              ? computeFormulasForNote(note, formulaColumns, service, notesById, formulaMemo)
+              : undefined;
+
+            return (
+              <tr
+                key={note.id}
+                onClick={() => onSelectNote(note.id)}
+                style={{
+                  borderBottom: `1px solid ${c.sideBdr}`,
+                  cursor: 'pointer',
+                  background: note.id === activeNoteId ? `${c.accent}15` : 'transparent',
+                }}
+              >
+                {columns.map(column => (
+                  <td
+                    key={column.id}
+                    style={{
+                      padding: '6px 8px',
+                      color: note.id === activeNoteId ? c.accent : c.text,
+                      maxWidth: column.key === 'title' ? 240 : 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {getDatabaseCellValue(note, column, service)}
+                  </td>
+                ))}
+                {rollupColumns.map(column => (
+                  <td
+                    key={`rollup-${column.key}-${note.id}`}
+                    style={{
+                      padding: '6px 8px',
+                      color: note.id === activeNoteId ? c.accent : c.textMuted,
+                      maxWidth: 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {getDatabaseRollupCellValue(note, column, service, notesById)}
+                  </td>
+                ))}
+                {formulaColumns.map(column => (
+                  <td
+                    key={`formula-${column.key}-${note.id}`}
+                    style={{
+                      padding: '6px 8px',
+                      color: note.id === activeNoteId ? c.accent : c.textMuted,
+                      maxWidth: 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {getDatabaseFormulaCellValue(
+                      note,
+                      column,
+                      service,
+                      notesById,
+                      formulaColumns,
+                      formulaMemo,
+                      rowFormulaValues,
+                    )}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

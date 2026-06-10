@@ -4,6 +4,7 @@ import {
   normalizeDatabaseViewColumns,
   normalizeDatabaseViewSort,
 } from './databaseViewConfig';
+import { normalizeFormulaColumns } from '../formulas/formulaModels';
 import { normalizeRollupColumns } from '../rollups/rollupModels';
 import type {
   DatabaseBoardConfig,
@@ -24,6 +25,7 @@ export function defaultTablePresentationConfig(): DatabaseTableConfig {
     columns: defaultDatabaseViewColumns(),
     sort: { ...DEFAULT_DATABASE_VIEW_SORT },
     rollupColumns: [],
+    formulaColumns: [],
   };
 }
 
@@ -65,6 +67,7 @@ export function liftLegacyTableConfig(view: Partial<DatabaseView>): DatabaseTabl
     columns: normalizeDatabaseViewColumns(view.columns ?? defaultDatabaseViewColumns()),
     sort: normalizeDatabaseViewSort(view.sort ?? DEFAULT_DATABASE_VIEW_SORT),
     rollupColumns: [],
+    formulaColumns: [],
   };
 }
 
@@ -129,6 +132,7 @@ export function normalizePresentationConfig(
           table.sort ?? legacyView?.sort ?? DEFAULT_DATABASE_VIEW_SORT,
         ),
         rollupColumns: normalizeRollupColumns(table.rollupColumns),
+        formulaColumns: normalizeFormulaColumns(table.formulaColumns),
       };
     }
     if (record.type === 'board') {
