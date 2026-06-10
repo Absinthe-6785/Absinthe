@@ -83,12 +83,37 @@ import {
   workspaceRefFromActivation,
   type WorkspaceResolveContext,
 } from './resolveWorkspaceRef';
+import {
+  focusUiFromPreset,
+  INACTIVE_FOCUS_SESSION,
+  type FocusPreset,
+  type FocusSessionState,
+  type FocusUiPreferences,
+} from './focusModeModels';
+import {
+  createFocusPreset,
+  deleteFocusPreset,
+  findFocusPreset,
+  pruneFocusPresets,
+} from './focusPresets';
+import { loadFocusPresets, saveFocusPresets } from './focusPresetsStorage';
+import {
+  DEFAULT_QUICK_CAPTURE_MODEL,
+  type QuickCaptureModel,
+  type QuickCaptureType,
+} from './quickCaptureModels';
+
+export interface QuickCaptureInput {
+  title: string;
+  captureType: QuickCaptureType;
+}
 
 export interface UseNoteWorkspaceOptions {
   notes: readonly NoteBase[];
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   resetBrowseScope: () => void;
+  onCreateQuickCapture?: (input: QuickCaptureInput) => string | void;
 }
 
 export interface UseNoteWorkspaceResult {
@@ -160,6 +185,23 @@ export interface UseNoteWorkspaceResult {
   handleClearDashboard: () => void;
   handleResumeLastWorkspace: () => void;
   handleLeaveDashboardForNote: (noteId: string) => void;
+  focusPresets: readonly FocusPreset[];
+  focusPresetTargets: Readonly<Record<string, WorkspaceRef | null>>;
+  focusSession: FocusSessionState;
+  activeFocusPreset: FocusPreset | undefined;
+  isFocusPresetActive: boolean;
+  focusUiPreferences: FocusUiPreferences;
+  focusWorkspaceOptions: readonly WorkspaceRef[];
+  handleCreateFocusPreset: (
+    name: string,
+    workspace: Pick<WorkspaceRef, 'kind' | 'id'>,
+    ui?: Partial<Pick<FocusPreset, 'hideSidebar' | 'hideSecondaryPanels' | 'hideGraph'>>,
+  ) => void;
+  handleDeleteFocusPreset: (id: string) => void;
+  handleActivateFocusPreset: (id: string) => void;
+  handleExitFocusPreset: () => void;
+  quickCapture: QuickCaptureModel;
+  handleQuickCapture: (title: string, captureType: QuickCaptureType) => string | void;
 }
 
 export function useNoteWorkspace({
@@ -167,14 +209,18 @@ export function useNoteWorkspace({
   searchQuery,
   setSearchQuery,
   resetBrowseScope,
+  onCreateQuickCapture,
 }: UseNoteWorkspaceOptions): UseNoteWorkspaceResult {
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
   const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
   const [databaseViews, setDatabaseViews] = useState(() => loadDatabaseViews());
   const [preferences, setPreferences] = useState(() => loadWorkspacePreferences());
+  const [focusPresets, setFocusPresets] = useState(() => loadFocusPresets());
+  const [focusSession, setFocusSession] = useState<FocusSessionState>(INACTIVE_FOCUS_SESSION);
   const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
   const hasRestoredSession = useRef(false);
   const sessionSnapshotRef = useRef<ReturnType<typeof loadWorkspaceSession>>(null);
+  const preFocusActivationRef = useRef<WorkspaceActivation | null>(null);
 
   const resolveContext = useMemo<WorkspaceResolveContext>(() => ({
     savedViews,
@@ -197,6 +243,23 @@ export function useNoteWorkspace({
   useEffect(() => {
     saveWorkspacePreferences(preferences);
   }, [preferences]);
+
+  useEffect(() => {
+    saveFocusPresets(focusPresets);
+  }, [focusPresets]);
+
+  useEffect(() => {
+    setFocusPresets(prev => pruneFocusPresets(prev, (kind, id) =>
+      isValidWorkspaceRef(kind, id, resolveContext)));
+  }, [resolveContext]);
+
+  useEffect(() => {
+    if (!focusSession.activePresetId) return;
+    if (!findFocusPreset(focusPresets, focusSession.activePresetId)) {
+      setFocusSession(INACTIVE_FOCUS_SESSION);
+      preFocusActivationRef.current = null;
+    }
+  }, [focusPresets, focusSession.activePresetId]);
 
   useEffect(() => {
     const next = workspaceSessionFromActivation(workspaceActivation, sessionSnapshotRef.current);
@@ -589,6 +652,104 @@ export function useNoteWorkspace({
     setWorkspaceActivation(prev => (prev.kind === 'dashboard' ? INACTIVE_WORKSPACE : prev));
   }, []);
 
+  const activeFocusPreset = useMemo(
+    () => (focusSession.activePresetId
+      ? findFocusPreset(focusPresets, focusSession.activePresetId)
+      : undefined),
+    [focusPresets, focusSession.activePresetId],
+  );
+
+  const isFocusPresetActive = Boolean(activeFocusPreset);
+
+  const focusUiPreferences = useMemo<FocusUiPreferences>(() => {
+    if (!activeFocusPreset) {
+      return { hideSidebar: false, hideSecondaryPanels: false, hideGraph: false };
+    }
+    return focusUiFromPreset(activeFocusPreset);
+  }, [activeFocusPreset]);
+
+  const focusPresetTargets = useMemo(() => {
+    const targets: Record<string, WorkspaceRef | null> = {};
+    for (const preset of focusPresets) {
+      targets[preset.id] = resolveWorkspaceRef(preset.workspace, resolveContext);
+    }
+    return targets;
+  }, [focusPresets, resolveContext]);
+
+  const focusWorkspaceOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: WorkspaceRef[] = [];
+    const add = (ref: WorkspaceRef | null) => {
+      if (!ref) return;
+      const key = `${ref.kind}:${ref.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      options.push(ref);
+    };
+    for (const ref of pinnedWorkspaces) add(ref);
+    for (const entry of recentWork) add(entry.workspace);
+    for (const view of savedViews) {
+      add(resolveWorkspaceRef({ kind: 'saved-view', id: view.id, name: view.name }, resolveContext));
+    }
+    for (const collection of ruleCollections) {
+      add(resolveWorkspaceRef({ kind: 'rule-collection', id: collection.id, name: collection.name }, resolveContext));
+    }
+    for (const view of databaseViews) {
+      add(resolveWorkspaceRef({ kind: 'database-view', id: view.id, name: view.name }, resolveContext));
+    }
+    for (const collection of SMART_COLLECTIONS) {
+      add(resolveWorkspaceRef({ kind: 'smart-collection', id: collection.id, name: collection.name }, resolveContext));
+    }
+    return options;
+  }, [pinnedWorkspaces, recentWork, savedViews, ruleCollections, databaseViews, resolveContext]);
+
+  const handleCreateFocusPreset = useCallback((
+    name: string,
+    workspace: Pick<WorkspaceRef, 'kind' | 'id'>,
+    ui?: Partial<Pick<FocusPreset, 'hideSidebar' | 'hideSecondaryPanels' | 'hideGraph'>>,
+  ) => {
+    if (!isValidWorkspaceRef(workspace.kind, workspace.id, resolveContext)) return;
+    setFocusPresets(prev => createFocusPreset(prev, {
+      name,
+      workspace,
+      hideSidebar: ui?.hideSidebar,
+      hideSecondaryPanels: ui?.hideSecondaryPanels,
+      hideGraph: ui?.hideGraph,
+    }));
+  }, [resolveContext]);
+
+  const handleDeleteFocusPreset = useCallback((id: string) => {
+    setFocusPresets(prev => deleteFocusPreset(prev, id));
+    setFocusSession(prev => (prev.activePresetId === id ? INACTIVE_FOCUS_SESSION : prev));
+  }, []);
+
+  const handleActivateFocusPreset = useCallback((id: string) => {
+    const preset = findFocusPreset(focusPresets, id);
+    const target = preset ? resolveWorkspaceRef(preset.workspace, resolveContext) : null;
+    if (!preset || !target) return;
+    preFocusActivationRef.current = workspaceActivation;
+    resetBrowseScope();
+    handleActivateWorkspaceRef(target);
+    setFocusSession({ activePresetId: preset.id, startedAt: Date.now() });
+  }, [focusPresets, resolveContext, workspaceActivation, resetBrowseScope, handleActivateWorkspaceRef]);
+
+  const handleExitFocusPreset = useCallback(() => {
+    const prior = preFocusActivationRef.current;
+    setFocusSession(INACTIVE_FOCUS_SESSION);
+    preFocusActivationRef.current = null;
+    if (!prior) return;
+    const restored = restoreWorkspaceActivation(prior, resolveContext);
+    if (!restored) return;
+    resetBrowseScope();
+    applyActivationResult(restored, { recordRecent: false });
+  }, [resolveContext, resetBrowseScope, applyActivationResult]);
+
+  const handleQuickCapture = useCallback((title: string, captureType: QuickCaptureType) => {
+    const trimmed = title.trim();
+    if (!trimmed || !onCreateQuickCapture) return;
+    return onCreateQuickCapture({ title: trimmed, captureType });
+  }, [onCreateQuickCapture]);
+
   return {
     workspaceActivation,
     setWorkspaceActivation,
@@ -648,5 +809,18 @@ export function useNoteWorkspace({
     handleClearDashboard,
     handleResumeLastWorkspace,
     handleLeaveDashboardForNote,
+    focusPresets,
+    focusPresetTargets,
+    focusSession,
+    activeFocusPreset,
+    isFocusPresetActive,
+    focusUiPreferences,
+    focusWorkspaceOptions,
+    handleCreateFocusPreset,
+    handleDeleteFocusPreset,
+    handleActivateFocusPreset,
+    handleExitFocusPreset,
+    quickCapture: DEFAULT_QUICK_CAPTURE_MODEL,
+    handleQuickCapture,
   };
 }

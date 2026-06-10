@@ -85,4 +85,40 @@ export {
   workspaceRefFromActivation,
   type WorkspaceResolveContext,
 } from './resolveWorkspaceRef';
-export { useNoteWorkspace, type UseNoteWorkspaceOptions, type UseNoteWorkspaceResult } from './useNoteWorkspace';
+export { useNoteWorkspace, type UseNoteWorkspaceOptions, type UseNoteWorkspaceResult, type QuickCaptureInput } from './useNoteWorkspace';
+export {
+  createInboxNote,
+  INBOX_TAG,
+  buildQuickCaptureTitle,
+} from './quickCapture';
+export {
+  DEFAULT_QUICK_CAPTURE_MODEL,
+  getCaptureTypeTag,
+  QUICK_CAPTURE_TYPES,
+  type QuickCaptureModel,
+  type QuickCaptureType,
+  type QuickCaptureTypeOption,
+} from './quickCaptureModels';
+export {
+  createFocusPreset,
+  deleteFocusPreset,
+  findFocusPreset,
+  pruneFocusPresets,
+} from './focusPresets';
+export {
+  clearFocusPresets,
+  FOCUS_PRESETS_KEY,
+  loadFocusPresets,
+  saveFocusPresets,
+} from './focusPresetsStorage';
+export {
+  focusUiFromPreset,
+  INACTIVE_FOCUS_SESSION,
+  isFocusPreset,
+  normalizeFocusPreset,
+  normalizeFocusPresets,
+  normalizeFocusSession,
+  type FocusPreset,
+  type FocusSessionState,
+  type FocusUiPreferences,
+} from './focusModeModels';

@@ -58,7 +58,13 @@ export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './co
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
 export { PinnedWorkspacesSection, type PinnedWorkspacesSectionProps } from './components/PinnedWorkspacesSection';
 export { RecentWorkSection, type RecentWorkSectionProps } from './components/RecentWorkSection';
-export { WorkspaceDashboardView, type WorkspaceDashboardViewProps, type WorkspaceDashboardQuickActions } from './components/WorkspaceDashboardView';
+export {
+  WorkspaceDashboardView,
+  type WorkspaceDashboardViewProps,
+  type WorkspaceDashboardQuickActions,
+  type WorkspaceDashboardFocusProps,
+  type WorkspaceDashboardQuickCaptureProps,
+} from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
@@ -425,6 +431,20 @@ export {
   saveWorkspacePreferences,
   saveWorkspaceSession,
   togglePinnedWorkspace,
+  createInboxNote,
+  createFocusPreset,
+  deleteFocusPreset,
+  findFocusPreset,
+  FOCUS_PRESETS_KEY,
+  focusUiFromPreset,
+  getCaptureTypeTag,
+  INACTIVE_FOCUS_SESSION,
+  INBOX_TAG,
+  loadFocusPresets,
+  normalizeFocusPreset,
+  pruneFocusPresets,
+  QUICK_CAPTURE_TYPES,
+  saveFocusPresets,
   useNoteWorkspace,
   WORKSPACE_FILTER_SOURCE,
   WORKSPACE_PREFS_KEY,
@@ -437,6 +457,13 @@ export {
   type RecentWorkEntry,
   type UseNoteWorkspaceOptions,
   type UseNoteWorkspaceResult,
+  type QuickCaptureInput,
+  type QuickCaptureModel,
+  type QuickCaptureType,
+  type FocusPreset,
+  type FocusSessionState,
+  type FocusUiPreferences,
+  DEFAULT_QUICK_CAPTURE_MODEL,
   DEFAULT_RECENT_NOTES_LIMIT,
   DEFAULT_WORKSPACE_DASHBOARD,
   formatRecentTimestamp,

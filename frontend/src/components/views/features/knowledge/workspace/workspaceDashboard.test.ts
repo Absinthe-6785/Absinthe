@@ -168,6 +168,8 @@ describe('dashboard model helpers', () => {
       'recent-work',
       'resume-last-workspace',
       'recent-notes',
+      'focus-presets',
+      'quick-capture',
       'quick-actions',
     ]);
   });

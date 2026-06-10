@@ -6,7 +6,9 @@ export type WorkspaceDashboardWidgetId =
   | 'recent-work'
   | 'resume-last-workspace'
   | 'recent-notes'
-  | 'quick-actions';
+  | 'quick-actions'
+  | 'focus-presets'
+  | 'quick-capture';
 
 export interface WorkspaceDashboardWidget {
   id: WorkspaceDashboardWidgetId;
@@ -28,6 +30,8 @@ export const DEFAULT_WORKSPACE_DASHBOARD: WorkspaceDashboardModel = {
     { id: 'recent-work', title: 'Recent Work' },
     { id: 'resume-last-workspace', title: 'Resume Last Workspace' },
     { id: 'recent-notes', title: 'Recent Notes' },
+    { id: 'focus-presets', title: 'Focus Presets' },
+    { id: 'quick-capture', title: 'Quick Capture' },
     { id: 'quick-actions', title: 'Quick Actions' },
   ],
 };

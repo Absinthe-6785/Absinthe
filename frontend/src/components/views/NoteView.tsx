@@ -44,6 +44,8 @@ import {
   SMART_COLLECTIONS,
   INACTIVE_WORKSPACE,
   useNoteWorkspace,
+  createInboxNote,
+  type QuickCaptureInput,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -272,11 +274,14 @@ export const NoteView = () => {
     setActiveTag(null);
   }, []);
 
+  const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
+
   const workspace = useNoteWorkspace({
     notes,
     searchQuery,
     setSearchQuery,
     resetBrowseScope,
+    onCreateQuickCapture: input => createQuickCaptureRef.current(input),
   });
 
   const {
@@ -336,7 +341,44 @@ export const NoteView = () => {
     handleClearDashboard,
     handleResumeLastWorkspace,
     handleLeaveDashboardForNote,
+    focusPresets,
+    focusPresetTargets,
+    focusSession,
+    activeFocusPreset,
+    isFocusPresetActive,
+    focusUiPreferences,
+    focusWorkspaceOptions,
+    handleCreateFocusPreset,
+    handleDeleteFocusPreset,
+    handleActivateFocusPreset,
+    handleExitFocusPreset,
+    quickCapture,
+    handleQuickCapture,
   } = workspace;
+
+  createQuickCaptureRef.current = (input: QuickCaptureInput) => {
+    const id = storeCreateNote({ title: input.title, body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const tagged = createInboxNote(created, { captureType: input.captureType });
+      updateNote(id, { properties: tagged.properties });
+    }
+    handleLeaveDashboardForNote(id);
+    setActiveNoteId(id);
+    setViewMode('edit');
+    return id;
+  };
+
+  const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
+  const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
+  const hideLeftChrome = focusMode || hideSidebarByFocus;
+  const hideSecondaryChrome = focusMode || hideSecondaryByFocus;
+
+  useEffect(() => {
+    if (isFocusPresetActive && focusUiPreferences.hideGraph && viewMode === 'graph') {
+      setViewMode('edit');
+    }
+  }, [isFocusPresetActive, focusUiPreferences.hideGraph, viewMode]);
 
   const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode;
   const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
@@ -833,7 +875,10 @@ export const NoteView = () => {
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
       {/* ── 포커스 모드 오버레이 ── */}
-      {focusMode && <div className="focus-overlay" onClick={() => setFocusMode(false)}/>}
+      {hideLeftChrome && <div className="focus-overlay" onClick={() => {
+        if (isFocusPresetActive) handleExitFocusPreset();
+        else setFocusMode(false);
+      }}/>}
 
       {/* ── 단축키 모달 ── */}
       {showShortcuts && (
@@ -878,7 +923,7 @@ export const NoteView = () => {
       )}
 
       {/* ── Left Sidebar ── */}
-      {!focusMode && (
+      {!hideLeftChrome && (
         <div style={{ width: sidebarCollapsed ? 44 : 185, minWidth: sidebarCollapsed ? 44 : 185, background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', overflow: 'hidden', zIndex: 99 }}>
           {sidebarCollapsed ? (
             <div className="bicon-bar" style={{ flex: 1 }}>
@@ -1121,8 +1166,8 @@ export const NoteView = () => {
       )}
       {/* ── Note List / Database Table ── */}
       <div style={{
-        width: focusMode ? 0 : (isWorkspacePanelMode ? '45%' : 200),
-        minWidth: focusMode ? 0 : (isWorkspacePanelMode ? 280 : 200),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome ? 0 : (isWorkspacePanelMode ? '45%' : 200)),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome ? 0 : (isWorkspacePanelMode ? 280 : 200)),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
@@ -1232,6 +1277,19 @@ export const NoteView = () => {
               },
               onOpenGraph: () => setViewMode('graph'),
             }}
+            focus={{
+              presets: focusPresets,
+              presetTargets: focusPresetTargets,
+              activePresetId: focusSession.activePresetId,
+              workspaceOptions: focusWorkspaceOptions,
+              onCreatePreset: handleCreateFocusPreset,
+              onDeletePreset: handleDeleteFocusPreset,
+              onActivatePreset: handleActivateFocusPreset,
+              onExitPreset: handleExitFocusPreset,
+            }}
+            quickCapture={{
+              onCapture: handleQuickCapture,
+            }}
           />
         ) : isDatabaseViewMode && activeDatabaseView ? (
           <DatabaseViewPanel
@@ -1292,6 +1350,17 @@ export const NoteView = () => {
           <>
             {/* Note Header */}
             <div style={{ padding: '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0 }}>
+              {isFocusPresetActive && activeFocusPreset && (
+                <button
+                  type="button"
+                  className="btbtn"
+                  onClick={handleExitFocusPreset}
+                  style={{ fontSize: 10, color: c.accent, whiteSpace: 'nowrap' }}
+                  title="Exit focus mode"
+                >
+                  Exit Focus
+                </button>
+              )}
               <input ref={titleInputRef} value={activeNote.title} readOnly={isTrash}
                 onChange={e => noteUpdate(activeNote.id, { title: e.target.value })}
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: 15, fontWeight: 700 }}
@@ -1563,7 +1632,7 @@ export const NoteView = () => {
       </div>
 
       {/* ── Right Panel ── */}
-      {activeNote && viewMode !== 'graph' && showRightPanel && (
+      {activeNote && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
         <div style={{ width: 210, minWidth: 210, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
             {RIGHT_PANELS.map(({ key, label, icon }) => (
