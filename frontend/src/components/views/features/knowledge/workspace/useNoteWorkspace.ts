@@ -102,10 +102,30 @@ import {
   type QuickCaptureModel,
   type QuickCaptureType,
 } from './quickCaptureModels';
+import { TASK_TEMPLATES } from './taskTemplateRegistry';
+import { JOURNAL_TEMPLATES } from './journalTemplateRegistry';
+import type { TaskTemplateDefinition } from './taskTemplateModels';
+import type { JournalTemplateDefinition } from './journalTemplateModels';
+import {
+  getJournalDatabaseTemplateId,
+  getTaskDatabaseTemplateId,
+} from './productivityDatabaseBridge';
 
 export interface QuickCaptureInput {
   title: string;
   captureType: QuickCaptureType;
+  taskTemplateId?: string;
+}
+
+export interface CreateTaskInput {
+  templateId: string;
+  title?: string;
+  toInbox?: boolean;
+}
+
+export interface CreateJournalInput {
+  templateId: string;
+  title?: string;
 }
 
 export interface UseNoteWorkspaceOptions {
@@ -114,6 +134,8 @@ export interface UseNoteWorkspaceOptions {
   setSearchQuery: (query: string) => void;
   resetBrowseScope: () => void;
   onCreateQuickCapture?: (input: QuickCaptureInput) => string | void;
+  onCreateTask?: (input: CreateTaskInput) => string | void;
+  onCreateJournal?: (input: CreateJournalInput) => string | void;
 }
 
 export interface UseNoteWorkspaceResult {
@@ -201,7 +223,17 @@ export interface UseNoteWorkspaceResult {
   handleActivateFocusPreset: (id: string) => void;
   handleExitFocusPreset: () => void;
   quickCapture: QuickCaptureModel;
-  handleQuickCapture: (title: string, captureType: QuickCaptureType) => string | void;
+  handleQuickCapture: (
+    title: string,
+    captureType: QuickCaptureType,
+    taskTemplateId?: string,
+  ) => string | void;
+  taskTemplates: readonly TaskTemplateDefinition[];
+  journalTemplates: readonly JournalTemplateDefinition[];
+  handleCreateTask: (templateId: string, title?: string, toInbox?: boolean) => string | void;
+  handleCreateJournal: (templateId: string, title?: string) => string | void;
+  handleCreateTaskDatabase: () => void;
+  handleCreateJournalDatabase: () => void;
 }
 
 export function useNoteWorkspace({
@@ -210,6 +242,8 @@ export function useNoteWorkspace({
   setSearchQuery,
   resetBrowseScope,
   onCreateQuickCapture,
+  onCreateTask,
+  onCreateJournal,
 }: UseNoteWorkspaceOptions): UseNoteWorkspaceResult {
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
   const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
@@ -744,11 +778,37 @@ export function useNoteWorkspace({
     applyActivationResult(restored, { recordRecent: false });
   }, [resolveContext, resetBrowseScope, applyActivationResult]);
 
-  const handleQuickCapture = useCallback((title: string, captureType: QuickCaptureType) => {
+  const handleQuickCapture = useCallback((
+    title: string,
+    captureType: QuickCaptureType,
+    taskTemplateId?: string,
+  ) => {
     const trimmed = title.trim();
     if (!trimmed || !onCreateQuickCapture) return;
-    return onCreateQuickCapture({ title: trimmed, captureType });
+    return onCreateQuickCapture({ title: trimmed, captureType, taskTemplateId });
   }, [onCreateQuickCapture]);
+
+  const handleCreateTask = useCallback((
+    templateId: string,
+    title?: string,
+    toInbox = true,
+  ) => {
+    if (!onCreateTask) return;
+    return onCreateTask({ templateId, title, toInbox });
+  }, [onCreateTask]);
+
+  const handleCreateJournal = useCallback((templateId: string, title?: string) => {
+    if (!onCreateJournal) return;
+    return onCreateJournal({ templateId, title });
+  }, [onCreateJournal]);
+
+  const handleCreateTaskDatabase = useCallback(() => {
+    handleCreateDatabaseViewFromTemplate(getTaskDatabaseTemplateId());
+  }, [handleCreateDatabaseViewFromTemplate]);
+
+  const handleCreateJournalDatabase = useCallback(() => {
+    handleCreateDatabaseViewFromTemplate(getJournalDatabaseTemplateId());
+  }, [handleCreateDatabaseViewFromTemplate]);
 
   return {
     workspaceActivation,
@@ -822,5 +882,11 @@ export function useNoteWorkspace({
     handleExitFocusPreset,
     quickCapture: DEFAULT_QUICK_CAPTURE_MODEL,
     handleQuickCapture,
+    taskTemplates: TASK_TEMPLATES,
+    journalTemplates: JOURNAL_TEMPLATES,
+    handleCreateTask,
+    handleCreateJournal,
+    handleCreateTaskDatabase,
+    handleCreateJournalDatabase,
   };
 }

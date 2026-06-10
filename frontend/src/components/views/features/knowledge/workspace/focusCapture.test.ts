@@ -25,6 +25,7 @@ import {
   normalizeFocusPresets,
 } from './focusModeModels';
 import { createInboxNote, INBOX_TAG } from './quickCapture';
+import { TASK_TEMPLATES } from './taskTemplateRegistry';
 import { getCaptureTypeTag, DEFAULT_QUICK_CAPTURE_MODEL } from './quickCaptureModels';
 import { hasTag, listTags } from '../tags/noteTags';
 import { restoreWorkspaceActivation } from './resolveWorkspaceRef';
@@ -230,7 +231,10 @@ describe('WorkspaceDashboardView focus and capture widgets', () => {
           onActivatePreset,
           onExitPreset: vi.fn(),
         },
-        quickCapture: { onCapture },
+        quickCapture: {
+          taskTemplates: TASK_TEMPLATES,
+          onCapture,
+        },
       }));
     });
 

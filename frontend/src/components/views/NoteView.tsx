@@ -45,7 +45,15 @@ import {
   INACTIVE_WORKSPACE,
   useNoteWorkspace,
   createInboxNote,
+  buildTaskNote,
+  buildJournalNote,
+  resolveTaskTemplateId,
+  resolveJournalTemplateId,
+  TASK_TEMPLATES,
+  JOURNAL_TEMPLATES,
   type QuickCaptureInput,
+  type CreateTaskInput,
+  type CreateJournalInput,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -275,6 +283,8 @@ export const NoteView = () => {
   }, []);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
+  const createTaskRef = useRef<(input: CreateTaskInput) => string | void>(() => {});
+  const createJournalRef = useRef<(input: CreateJournalInput) => string | void>(() => {});
 
   const workspace = useNoteWorkspace({
     notes,
@@ -282,6 +292,8 @@ export const NoteView = () => {
     setSearchQuery,
     resetBrowseScope,
     onCreateQuickCapture: input => createQuickCaptureRef.current(input),
+    onCreateTask: input => createTaskRef.current(input),
+    onCreateJournal: input => createJournalRef.current(input),
   });
 
   const {
@@ -354,19 +366,71 @@ export const NoteView = () => {
     handleExitFocusPreset,
     quickCapture,
     handleQuickCapture,
+    taskTemplates,
+    journalTemplates,
+    handleCreateTask,
+    handleCreateJournal,
+    handleCreateTaskDatabase,
+    handleCreateJournalDatabase,
   } = workspace;
+
+  const openCreatedNote = useCallback((id: string) => {
+    handleLeaveDashboardForNote(id);
+    setActiveNoteId(id);
+    setViewMode('edit');
+    return id;
+  }, [handleLeaveDashboardForNote, setActiveNoteId]);
 
   createQuickCaptureRef.current = (input: QuickCaptureInput) => {
     const id = storeCreateNote({ title: input.title, body: '' });
     const created = notes.find(n => n.id === id);
     if (created) {
-      const tagged = createInboxNote(created, { captureType: input.captureType });
-      updateNote(id, { properties: tagged.properties });
+      if (input.captureType === 'task') {
+        const template = resolveTaskTemplateId(input.taskTemplateId, TASK_TEMPLATES);
+        if (template) {
+          const taskNote = buildTaskNote(created, template, {
+            title: input.title,
+            toInbox: true,
+          });
+          updateNote(id, { title: taskNote.title, properties: taskNote.properties });
+        }
+      } else {
+        const tagged = createInboxNote(created, { captureType: input.captureType });
+        updateNote(id, { properties: tagged.properties });
+      }
     }
-    handleLeaveDashboardForNote(id);
-    setActiveNoteId(id);
-    setViewMode('edit');
-    return id;
+    return openCreatedNote(id);
+  };
+
+  createTaskRef.current = (input: CreateTaskInput) => {
+    const template = resolveTaskTemplateId(input.templateId, TASK_TEMPLATES);
+    if (!template) return;
+    const id = storeCreateNote({ title: input.title?.trim() || template.defaultTitle, body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const taskNote = buildTaskNote(created, template, {
+        title: input.title,
+        toInbox: input.toInbox ?? true,
+      });
+      updateNote(id, { title: taskNote.title, body: taskNote.body, properties: taskNote.properties });
+    }
+    return openCreatedNote(id);
+  };
+
+  createJournalRef.current = (input: CreateJournalInput) => {
+    const template = resolveJournalTemplateId(input.templateId, JOURNAL_TEMPLATES);
+    if (!template) return;
+    const id = storeCreateNote({ title: input.title?.trim() || template.defaultTitle, body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const journalNote = buildJournalNote(created, template, { title: input.title });
+      updateNote(id, {
+        title: journalNote.title,
+        body: journalNote.body,
+        properties: journalNote.properties,
+      });
+    }
+    return openCreatedNote(id);
   };
 
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
@@ -1288,7 +1352,16 @@ export const NoteView = () => {
               onExitPreset: handleExitFocusPreset,
             }}
             quickCapture={{
+              taskTemplates,
               onCapture: handleQuickCapture,
+            }}
+            productivity={{
+              taskTemplates,
+              journalTemplates,
+              onCreateTask: handleCreateTask,
+              onCreateJournal: handleCreateJournal,
+              onCreateTaskDatabase: handleCreateTaskDatabase,
+              onCreateJournalDatabase: handleCreateJournalDatabase,
             }}
           />
         ) : isDatabaseViewMode && activeDatabaseView ? (

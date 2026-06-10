@@ -85,7 +85,7 @@ export {
   workspaceRefFromActivation,
   type WorkspaceResolveContext,
 } from './resolveWorkspaceRef';
-export { useNoteWorkspace, type UseNoteWorkspaceOptions, type UseNoteWorkspaceResult, type QuickCaptureInput } from './useNoteWorkspace';
+export { useNoteWorkspace, type UseNoteWorkspaceOptions, type UseNoteWorkspaceResult, type QuickCaptureInput, type CreateTaskInput, type CreateJournalInput } from './useNoteWorkspace';
 export {
   createInboxNote,
   INBOX_TAG,
@@ -122,3 +122,39 @@ export {
   type FocusSessionState,
   type FocusUiPreferences,
 } from './focusModeModels';
+export {
+  TASK_TEMPLATES,
+} from './taskTemplateRegistry';
+export {
+  applyTaskProperties,
+  buildTaskNote,
+  findTaskTemplate,
+  resolveTaskTemplateId,
+} from './taskTemplates';
+export {
+  DEFAULT_TASK_TEMPLATE_ID,
+  DEFAULT_TASK_PRIORITY,
+  DEFAULT_TASK_STATUS,
+  TASK_PROPERTY_KEYS,
+  type TaskPropertyKey,
+  type TaskTemplateDefinition,
+} from './taskTemplateModels';
+export {
+  JOURNAL_TEMPLATES,
+} from './journalTemplateRegistry';
+export {
+  buildJournalNote,
+  findJournalTemplate,
+  resolveJournalTemplateId,
+} from './journalTemplates';
+export {
+  DEFAULT_JOURNAL_TEMPLATE_ID,
+  JOURNAL_TAG,
+  type JournalTemplateDefinition,
+} from './journalTemplateModels';
+export {
+  getJournalDatabaseTemplateId,
+  getTaskDatabaseTemplateId,
+  JOURNAL_DATABASE_TEMPLATE_ID,
+  TASK_DATABASE_TEMPLATE_ID,
+} from './productivityDatabaseBridge';

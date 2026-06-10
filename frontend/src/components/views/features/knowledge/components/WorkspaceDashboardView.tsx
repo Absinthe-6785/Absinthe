@@ -7,6 +7,9 @@ import {
   DEFAULT_QUICK_CAPTURE_MODEL,
   type QuickCaptureType,
 } from '../workspace/quickCaptureModels';
+import { DEFAULT_TASK_TEMPLATE_ID } from '../workspace/taskTemplateModels';
+import type { TaskTemplateDefinition } from '../workspace/taskTemplateModels';
+import type { JournalTemplateDefinition } from '../workspace/journalTemplateModels';
 import {
   DEFAULT_RECENT_NOTES_LIMIT,
   formatRecentTimestamp,
@@ -37,7 +40,17 @@ export interface WorkspaceDashboardFocusProps {
 }
 
 export interface WorkspaceDashboardQuickCaptureProps {
-  onCapture: (title: string, captureType: QuickCaptureType) => void;
+  taskTemplates: readonly TaskTemplateDefinition[];
+  onCapture: (title: string, captureType: QuickCaptureType, taskTemplateId?: string) => void;
+}
+
+export interface WorkspaceDashboardProductivityProps {
+  taskTemplates: readonly TaskTemplateDefinition[];
+  journalTemplates: readonly JournalTemplateDefinition[];
+  onCreateTask: (templateId: string, title?: string) => void;
+  onCreateJournal: (templateId: string, title?: string) => void;
+  onCreateTaskDatabase?: () => void;
+  onCreateJournalDatabase?: () => void;
 }
 
 export interface WorkspaceDashboardViewProps {
@@ -53,6 +66,7 @@ export interface WorkspaceDashboardViewProps {
   quickActions: WorkspaceDashboardQuickActions;
   focus?: WorkspaceDashboardFocusProps;
   quickCapture?: WorkspaceDashboardQuickCaptureProps;
+  productivity?: WorkspaceDashboardProductivityProps;
   recentNotesLimit?: number;
 }
 
@@ -132,18 +146,28 @@ export function WorkspaceDashboardView({
   quickActions,
   focus,
   quickCapture,
+  productivity,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureType, setCaptureType] = useState<QuickCaptureType>('note');
+  const [captureTaskTemplateId, setCaptureTaskTemplateId] = useState(DEFAULT_TASK_TEMPLATE_ID);
   const [newPresetName, setNewPresetName] = useState('');
   const [newPresetWorkspaceKey, setNewPresetWorkspaceKey] = useState('');
+  const [showTaskPicker, setShowTaskPicker] = useState(false);
+  const [showJournalPicker, setShowJournalPicker] = useState(false);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [journalTitle, setJournalTitle] = useState('');
 
   const submitCapture = () => {
     const trimmed = captureTitle.trim();
     if (!trimmed || !quickCapture) return;
-    quickCapture.onCapture(trimmed, captureType);
+    quickCapture.onCapture(
+      trimmed,
+      captureType,
+      captureType === 'task' ? captureTaskTemplateId : undefined,
+    );
     setCaptureTitle('');
   };
 
@@ -360,6 +384,18 @@ export function WorkspaceDashboardView({
               <option key={type.id} value={type.id}>{type.label}</option>
             ))}
           </select>
+          {captureType === 'task' && quickCapture.taskTemplates.length > 0 && (
+            <select
+              className="bwi"
+              style={{ width: '100%', fontSize: 11 }}
+              value={captureTaskTemplateId}
+              onChange={e => setCaptureTaskTemplateId(e.target.value)}
+            >
+              {quickCapture.taskTemplates.map(template => (
+                <option key={template.id} value={template.id}>{template.name}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             className="bwbg"
@@ -379,6 +415,26 @@ export function WorkspaceDashboardView({
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onNewDatabaseView}>
             New Database View
           </button>
+          {productivity && (
+            <>
+              <button
+                type="button"
+                className="bwbg"
+                style={{ padding: '8px', fontSize: 11 }}
+                onClick={() => { setShowJournalPicker(false); setShowTaskPicker(v => !v); }}
+              >
+                New Task
+              </button>
+              <button
+                type="button"
+                className="bwbg"
+                style={{ padding: '8px', fontSize: 11 }}
+                onClick={() => { setShowTaskPicker(false); setShowJournalPicker(v => !v); }}
+              >
+                New Journal
+              </button>
+            </>
+          )}
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenSearch}>
             Open Search
           </button>
@@ -386,6 +442,98 @@ export function WorkspaceDashboardView({
             Open Graph
           </button>
         </div>
+        {productivity && showTaskPicker && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+            <input
+              className="bwi"
+              style={{ width: '100%', fontSize: 11 }}
+              placeholder="Task title (optional)"
+              value={taskTitle}
+              onChange={e => setTaskTitle(e.target.value)}
+            />
+            {productivity.taskTemplates.map(template => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => {
+                  productivity.onCreateTask(template.id, taskTitle.trim() || undefined);
+                  setTaskTitle('');
+                  setShowTaskPicker(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: c.cardHov,
+                  border: `1px solid ${c.sideBdr}`,
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  cursor: 'pointer',
+                  color: c.text,
+                }}
+                title={template.description}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{template.name}</div>
+                <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{template.description}</div>
+              </button>
+            ))}
+            {productivity.onCreateTaskDatabase && (
+              <button
+                type="button"
+                className="bwbg"
+                style={{ padding: '6px', fontSize: 10 }}
+                onClick={productivity.onCreateTaskDatabase}
+              >
+                Create Task Database
+              </button>
+            )}
+          </div>
+        )}
+        {productivity && showJournalPicker && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+            <input
+              className="bwi"
+              style={{ width: '100%', fontSize: 11 }}
+              placeholder="Journal title (optional)"
+              value={journalTitle}
+              onChange={e => setJournalTitle(e.target.value)}
+            />
+            {productivity.journalTemplates.map(template => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => {
+                  productivity.onCreateJournal(template.id, journalTitle.trim() || undefined);
+                  setJournalTitle('');
+                  setShowJournalPicker(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: c.cardHov,
+                  border: `1px solid ${c.sideBdr}`,
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  cursor: 'pointer',
+                  color: c.text,
+                }}
+                title={template.description}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600 }}>{template.name}</div>
+                <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{template.description}</div>
+              </button>
+            ))}
+            {productivity.onCreateJournalDatabase && (
+              <button
+                type="button"
+                className="bwbg"
+                style={{ padding: '6px', fontSize: 10 }}
+                onClick={productivity.onCreateJournalDatabase}
+              >
+                Create Journal Database
+              </button>
+            )}
+          </div>
+        )}
       </Card>
     </div>
   );
