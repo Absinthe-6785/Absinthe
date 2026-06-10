@@ -17,6 +17,7 @@ export {
   type WorkspaceSessionState,
 } from './workspaceModels';
 export {
+  activateDashboardWorkspace,
   activateDatabaseViewWorkspace,
   activateRuleCollectionWorkspace,
   activateSavedViewWorkspace,
@@ -34,8 +35,19 @@ export {
   getWorkspaceActiveKind,
   getWorkspaceFilterSource,
   isDatabaseViewActive,
+  isDashboardActive,
   type WorkspaceFilterContext,
 } from './resolveWorkspaceFilter';
+export {
+  DEFAULT_RECENT_NOTES_LIMIT,
+  DEFAULT_WORKSPACE_DASHBOARD,
+  formatRecentTimestamp,
+  isDashboardActivation,
+  workspaceKindLabel,
+  type WorkspaceDashboardModel,
+  type WorkspaceDashboardWidget,
+  type WorkspaceDashboardWidgetId,
+} from './workspaceDashboardModels';
 export {
   clearWorkspaceSession,
   loadWorkspaceSession,

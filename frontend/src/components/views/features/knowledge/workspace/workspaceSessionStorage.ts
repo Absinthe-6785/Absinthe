@@ -7,9 +7,21 @@ export const WORKSPACE_SESSION_KEY = 'note-workspace-session-v1';
 
 export function workspaceSessionFromActivation(
   activation: WorkspaceSessionState['activation'],
+  previous: WorkspaceSessionState | null = null,
   updatedAt = Date.now(),
 ): WorkspaceSessionState {
-  return { activation, updatedAt };
+  const resumeActivation = activation.kind !== 'none' && activation.kind !== 'dashboard'
+    ? activation
+    : previous?.resumeActivation;
+  const session: WorkspaceSessionState = { activation, updatedAt };
+  if (
+    resumeActivation
+    && resumeActivation.kind !== 'none'
+    && resumeActivation.kind !== 'dashboard'
+  ) {
+    session.resumeActivation = resumeActivation;
+  }
+  return session;
 }
 
 export function loadWorkspaceSession(): WorkspaceSessionState | null {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/databaseViewModels';
@@ -42,6 +42,8 @@ export interface DatabaseViewsSectionProps {
   onCreateFromTemplate?: (templateId: string) => void;
   isPinned?: (id: string) => boolean;
   onTogglePin?: (view: DatabaseView) => void;
+  /** Increment to programmatically open the create form (e.g. dashboard quick action) */
+  openCreateFormSignal?: number;
 }
 
 export function DatabaseViewsSection({
@@ -59,6 +61,7 @@ export function DatabaseViewsSection({
   onCreateFromTemplate,
   isPinned,
   onTogglePin,
+  openCreateFormSignal,
 }: DatabaseViewsSectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
@@ -86,6 +89,12 @@ export function DatabaseViewsSection({
     setNewCardFields('status, priority, reviewDate');
     setShowCreateForm(true);
   };
+
+  useEffect(() => {
+    if (openCreateFormSignal) {
+      openCreateForm('');
+    }
+  }, [openCreateFormSignal]);
 
   const openTemplatePicker = () => {
     setShowCreateForm(false);

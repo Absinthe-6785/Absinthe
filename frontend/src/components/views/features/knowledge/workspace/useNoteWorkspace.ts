@@ -38,6 +38,7 @@ import {
 import { loadSavedViews, saveSavedViews } from '../views/savedViewsStorage';
 import { applyWorkspaceListFilter } from './resolveWorkspaceFilter';
 import {
+  activateDashboardWorkspace,
   activateDatabaseViewWorkspace,
   activateRuleCollectionWorkspace,
   activateSavedViewWorkspace,
@@ -48,6 +49,10 @@ import {
   isWorkspaceKindActive,
   reconcileSavedViewActivation,
 } from './workspaceActivation';
+import {
+  DEFAULT_WORKSPACE_DASHBOARD,
+  type WorkspaceDashboardModel,
+} from './workspaceDashboardModels';
 import {
   INACTIVE_WORKSPACE,
   type WorkspaceActivation,
@@ -97,6 +102,10 @@ export interface UseNoteWorkspaceResult {
   activeRuleCollection: RuleCollection | undefined;
   activeDatabaseView: DatabaseView | undefined;
   isDatabaseViewMode: boolean;
+  isDashboardMode: boolean;
+  dashboard: WorkspaceDashboardModel;
+  resumeWorkspace: WorkspaceRef | null;
+  recentNotes: readonly NoteBase[];
   shouldSkipUserSort: boolean;
   smartCollectionCounts: Readonly<Record<string, number>>;
   ruleCollectionCounts: Readonly<Record<string, number>>;
@@ -147,6 +156,10 @@ export interface UseNoteWorkspaceResult {
   handleUnpinWorkspace: (ref: WorkspaceRef) => void;
   handleMovePinnedWorkspace: (fromIndex: number, toIndex: number) => void;
   handleClearRecentWork: () => void;
+  handleActivateDashboard: () => void;
+  handleClearDashboard: () => void;
+  handleResumeLastWorkspace: () => void;
+  handleLeaveDashboardForNote: (noteId: string) => void;
 }
 
 export function useNoteWorkspace({
@@ -161,6 +174,7 @@ export function useNoteWorkspace({
   const [preferences, setPreferences] = useState(() => loadWorkspacePreferences());
   const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
   const hasRestoredSession = useRef(false);
+  const sessionSnapshotRef = useRef<ReturnType<typeof loadWorkspaceSession>>(null);
 
   const resolveContext = useMemo<WorkspaceResolveContext>(() => ({
     savedViews,
@@ -185,7 +199,9 @@ export function useNoteWorkspace({
   }, [preferences]);
 
   useEffect(() => {
-    saveWorkspaceSession(workspaceSessionFromActivation(workspaceActivation));
+    const next = workspaceSessionFromActivation(workspaceActivation, sessionSnapshotRef.current);
+    sessionSnapshotRef.current = next;
+    saveWorkspaceSession(next);
   }, [workspaceActivation]);
 
   useEffect(() => {
@@ -196,7 +212,16 @@ export function useNoteWorkspace({
   useEffect(() => {
     if (hasRestoredSession.current) return;
     const session = loadWorkspaceSession();
-    if (!session || session.activation.kind === 'none') {
+    if (!session) {
+      hasRestoredSession.current = true;
+      sessionSnapshotRef.current = workspaceSessionFromActivation({ kind: 'dashboard' });
+      resetBrowseScope();
+      setWorkspaceActivation({ kind: 'dashboard' });
+      setSearchQuery('');
+      return;
+    }
+    sessionSnapshotRef.current = session;
+    if (session.activation.kind === 'none') {
       hasRestoredSession.current = true;
       return;
     }
@@ -261,7 +286,23 @@ export function useNoteWorkspace({
   );
 
   const isDatabaseViewMode = workspaceActivation.kind === 'database-view';
+  const isDashboardMode = workspaceActivation.kind === 'dashboard';
   const shouldSkipUserSort = workspaceActivation.kind === 'smart-collection';
+
+  const recentNotes = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    return [...safeNotes]
+      .filter(note => !note.deletedAt)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [notes]);
+
+  const resumeWorkspace = useMemo(() => {
+    const activation = sessionSnapshotRef.current?.resumeActivation;
+    if (!activation || activation.kind === 'none' || activation.kind === 'dashboard') {
+      return null;
+    }
+    return workspaceRefFromActivation(activation, resolveContext);
+  }, [resolveContext, workspaceActivation]);
 
   const smartCollectionCounts = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -526,6 +567,28 @@ export function useNoteWorkspace({
     setPreferences(prev => clearRecentWork(prev));
   }, []);
 
+  const handleActivateDashboard = useCallback(() => {
+    resetBrowseScope();
+    applyActivationResult(activateDashboardWorkspace(), { recordRecent: false });
+  }, [resetBrowseScope, applyActivationResult]);
+
+  const handleClearDashboard = useCallback(() => {
+    applyActivationResult(clearWorkspaceActivation(), { recordRecent: false });
+  }, [applyActivationResult]);
+
+  const handleResumeLastWorkspace = useCallback(() => {
+    const activation = sessionSnapshotRef.current?.resumeActivation;
+    if (!activation || activation.kind === 'none' || activation.kind === 'dashboard') return;
+    const restored = restoreWorkspaceActivation(activation, resolveContext);
+    if (!restored) return;
+    resetBrowseScope();
+    applyActivationResult(restored);
+  }, [resolveContext, resetBrowseScope, applyActivationResult]);
+
+  const handleLeaveDashboardForNote = useCallback((_noteId: string) => {
+    setWorkspaceActivation(prev => (prev.kind === 'dashboard' ? INACTIVE_WORKSPACE : prev));
+  }, []);
+
   return {
     workspaceActivation,
     setWorkspaceActivation,
@@ -537,6 +600,10 @@ export function useNoteWorkspace({
     activeRuleCollection,
     activeDatabaseView,
     isDatabaseViewMode,
+    isDashboardMode,
+    dashboard: DEFAULT_WORKSPACE_DASHBOARD,
+    resumeWorkspace,
+    recentNotes,
     shouldSkipUserSort,
     smartCollectionCounts,
     ruleCollectionCounts,
@@ -577,5 +644,9 @@ export function useNoteWorkspace({
     handleUnpinWorkspace,
     handleMovePinnedWorkspace,
     handleClearRecentWork,
+    handleActivateDashboard,
+    handleClearDashboard,
+    handleResumeLastWorkspace,
+    handleLeaveDashboardForNote,
   };
 }

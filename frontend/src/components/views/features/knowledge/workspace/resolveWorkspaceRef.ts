@@ -82,6 +82,9 @@ export function restoreWorkspaceActivation(
   context: WorkspaceResolveContext,
 ): WorkspaceActivateResult | null {
   if (activation.kind === 'none') return null;
+  if (activation.kind === 'dashboard') {
+    return { activation: { kind: 'dashboard' }, searchQuery: '' };
+  }
 
   switch (activation.kind) {
     case 'saved-view': {
@@ -109,7 +112,7 @@ export function workspaceRefFromActivation(
   activation: WorkspaceActivation,
   context: WorkspaceResolveContext,
 ): WorkspaceRef | null {
-  if (activation.kind === 'none') return null;
+  if (activation.kind === 'none' || activation.kind === 'dashboard') return null;
   return resolveWorkspaceRef({ kind: activation.kind, id: activation.id, name: '' }, context);
 }
 

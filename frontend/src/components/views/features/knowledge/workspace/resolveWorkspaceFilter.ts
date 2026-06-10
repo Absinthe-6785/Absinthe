@@ -47,7 +47,7 @@ export function applyWorkspaceListFilter(
 
 /** Resolve the filter strategy for an activation — single dispatch metadata path */
 export function getWorkspaceFilterSource(activation: WorkspaceActivation): WorkspaceFilterSource {
-  if (activation.kind === 'none') return 'none';
+  if (activation.kind === 'none' || activation.kind === 'dashboard') return 'none';
   return WORKSPACE_FILTER_SOURCE[activation.kind];
 }
 
@@ -55,8 +55,13 @@ export function isDatabaseViewActive(activation: WorkspaceActivation): boolean {
   return activation.kind === 'database-view';
 }
 
+export function isDashboardActive(activation: WorkspaceActivation): boolean {
+  return activation.kind === 'dashboard';
+}
+
 export function getWorkspaceActiveId(activation: WorkspaceActivation): string | null {
-  return activation.kind === 'none' ? null : activation.id;
+  if (activation.kind === 'none' || activation.kind === 'dashboard') return null;
+  return activation.id;
 }
 
 export function getWorkspaceActiveKind(activation: WorkspaceActivation): WorkspaceActivation['kind'] {

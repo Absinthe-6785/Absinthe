@@ -62,6 +62,7 @@ describe('reconcileSavedViewActivation', () => {
 describe('getWorkspaceFilterSource', () => {
   it('maps each workspace kind to its resolution strategy', () => {
     expect(getWorkspaceFilterSource(INACTIVE_WORKSPACE)).toBe('none');
+    expect(getWorkspaceFilterSource({ kind: 'dashboard' })).toBe('none');
     expect(getWorkspaceFilterSource({ kind: 'saved-view', id: 'sv-1' })).toBe('search-query');
     expect(getWorkspaceFilterSource({ kind: 'smart-collection', id: 'recent' })).toBe('index-evaluator');
     expect(getWorkspaceFilterSource({ kind: 'rule-collection', id: 'rc-1' })).toBe('query-rule');
@@ -77,6 +78,7 @@ describe('workspace normalization helpers', () => {
 
   it('normalizes workspace activation payloads', () => {
     expect(normalizeWorkspaceActivation({ kind: 'none' })).toEqual(INACTIVE_WORKSPACE);
+    expect(normalizeWorkspaceActivation({ kind: 'dashboard' })).toEqual({ kind: 'dashboard' });
     expect(normalizeWorkspaceActivation({ kind: 'rule-collection', id: ' rc-1 ' })).toEqual({
       kind: 'rule-collection',
       id: 'rc-1',
@@ -86,6 +88,7 @@ describe('workspace normalization helpers', () => {
 
   it('detects active workspace activations', () => {
     expect(isActiveWorkspaceActivation(INACTIVE_WORKSPACE)).toBe(false);
+    expect(isActiveWorkspaceActivation({ kind: 'dashboard' })).toBe(true);
     expect(isActiveWorkspaceActivation({ kind: 'database-view', id: 'db-1' })).toBe(true);
   });
 
