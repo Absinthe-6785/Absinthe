@@ -1,3 +1,4 @@
+import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import type { RollupColumnDefinition } from '../rollups/rollupModels';
 import { BUILTIN_COLUMN_KEYS, isBuiltinColumnKey } from './databaseViewModels';
 
@@ -92,4 +93,10 @@ export function resolveVisibleRollupColumns(
   rollupColumns: readonly RollupColumnDefinition[] | undefined,
 ): RollupColumnDefinition[] {
   return (rollupColumns ?? []).filter(entry => entry.visible);
+}
+
+export function resolveVisibleFormulaColumns(
+  formulaColumns: readonly FormulaColumnDefinition[] | undefined,
+): FormulaColumnDefinition[] {
+  return (formulaColumns ?? []).filter(entry => entry.visible);
 }

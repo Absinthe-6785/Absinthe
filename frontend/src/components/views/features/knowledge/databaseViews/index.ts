@@ -21,6 +21,8 @@ export {
   normalizeDatabaseViewSort,
   resolveAllColumnKeys,
   resolveVisibleColumns,
+  resolveVisibleFormulaColumns,
+  resolveVisibleRollupColumns,
   toDatabaseColumn,
 } from './databaseViewConfig';
 export {
@@ -83,13 +85,16 @@ export {
 } from './databaseViews';
 export {
   addDatabaseViewColumn,
+  addDatabaseViewFormulaColumn,
   addDatabaseViewRollupColumn,
   addDatabaseViewRollupDefinition,
   hideDatabaseViewColumn,
   removeDatabaseViewColumn,
+  removeDatabaseViewFormulaColumn,
   removeDatabaseViewRollupColumn,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
+  setDatabaseViewFormulaColumnVisibility,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,

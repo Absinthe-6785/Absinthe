@@ -17,6 +17,8 @@ import type {
   DatabaseViewSort,
 } from './databaseViewModels';
 import { isBuiltinColumnKey } from './databaseViewModels';
+import type { FormulaColumnDefinition } from '../formulas/formulaModels';
+import { normalizeFormulaColumns } from '../formulas/formulaModels';
 import type { RollupColumnDefinition, RollupDefinition } from '../rollups/rollupModels';
 import { normalizeRollupColumns } from '../rollups/rollupModels';
 
@@ -33,6 +35,7 @@ function updateViewTable(
       columns: normalizeDatabaseViewColumns(next.columns),
       sort: next.sort,
       rollupColumns: normalizeRollupColumns(next.rollupColumns),
+      formulaColumns: normalizeFormulaColumns(next.formulaColumns),
     },
   });
 }
@@ -116,12 +119,17 @@ export function setDatabaseViewSort(
   }));
 }
 
-function rollupColumnKeyTaken(table: DatabaseTableConfig, key: string): boolean {
+function columnKeyTaken(table: DatabaseTableConfig, key: string): boolean {
   const norm = key.toLowerCase();
   return (
     table.columns.some(entry => entry.key.toLowerCase() === norm)
     || (table.rollupColumns ?? []).some(entry => entry.key.toLowerCase() === norm)
+    || (table.formulaColumns ?? []).some(entry => entry.key.toLowerCase() === norm)
   );
+}
+
+function rollupColumnKeyTaken(table: DatabaseTableConfig, key: string): boolean {
+  return columnKeyTaken(table, key);
 }
 
 export function addDatabaseViewRollupColumn(
@@ -192,6 +200,67 @@ export function setDatabaseViewRollupColumnVisibility(
   return updateViewTable(view, current => ({
     ...current,
     rollupColumns: rollupColumns.map(entry =>
+      entry.key.toLowerCase() === trimmed.toLowerCase()
+        ? { ...entry, visible }
+        : entry,
+    ),
+  }));
+}
+
+export function addDatabaseViewFormulaColumn(
+  view: DatabaseView,
+  column: FormulaColumnDefinition,
+): DatabaseView {
+  const key = column.key.trim();
+  if (!key) return view;
+
+  const table = getTableConfig(view);
+  const formulaColumns = normalizeFormulaColumns(table.formulaColumns);
+  const existing = formulaColumns.find(entry => entry.key.toLowerCase() === key.toLowerCase());
+  const nextColumns = existing
+    ? formulaColumns.map(entry =>
+      entry.key.toLowerCase() === key.toLowerCase()
+        ? { ...column, key, visible: true }
+        : entry,
+    )
+    : columnKeyTaken(table, key)
+      ? formulaColumns
+      : [...formulaColumns, { ...column, key, visible: column.visible !== false }];
+
+  return updateViewTable(view, current => ({
+    ...current,
+    formulaColumns: nextColumns,
+  }));
+}
+
+export function removeDatabaseViewFormulaColumn(view: DatabaseView, key: string): DatabaseView {
+  const trimmed = key.trim();
+  if (!trimmed) return view;
+
+  const table = getTableConfig(view);
+  return updateViewTable(view, current => ({
+    ...current,
+    formulaColumns: normalizeFormulaColumns(table.formulaColumns)
+      .filter(entry => entry.key.toLowerCase() !== trimmed.toLowerCase()),
+  }));
+}
+
+export function setDatabaseViewFormulaColumnVisibility(
+  view: DatabaseView,
+  key: string,
+  visible: boolean,
+): DatabaseView {
+  const trimmed = key.trim();
+  if (!trimmed) return view;
+
+  const table = getTableConfig(view);
+  const formulaColumns = normalizeFormulaColumns(table.formulaColumns);
+  const exists = formulaColumns.some(entry => entry.key.toLowerCase() === trimmed.toLowerCase());
+  if (!exists) return view;
+
+  return updateViewTable(view, current => ({
+    ...current,
+    formulaColumns: formulaColumns.map(entry =>
       entry.key.toLowerCase() === trimmed.toLowerCase()
         ? { ...entry, visible }
         : entry,
