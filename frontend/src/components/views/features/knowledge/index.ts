@@ -111,15 +111,22 @@ export {
   evaluateQuery,
   evaluateQueryString,
   filterNotes,
+  filterNotesByFormulaClauses,
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
+  isFormulaQueryClause,
   isKnowledgeQuery,
   normalizeQueryValue,
   parseQuery,
+  splitQueryClauses,
+  type FilterNotesOptions,
   type FilterNotesResult,
+  type FormulaQueryClause,
+  type FormulaQueryOperator,
   type ParsedQuery,
   type QueryClause,
   type QueryEvaluation,
+  type QueryEvaluationContext,
 } from './query';
 
 export {
@@ -295,10 +302,12 @@ export {
 
 export {
   buildFormulaDependencyGraph,
+  buildFormulaQueryCatalog,
   computeFormula,
   computeFormulasForNote,
   createFormulaComputeMemo,
   formulaColumnLabel,
+  formulaColumnsForKeys,
   formulaMemoKey,
   getFormulaColumnValue,
   isFormulaColumnDefinition,

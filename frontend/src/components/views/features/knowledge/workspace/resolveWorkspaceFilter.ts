@@ -3,6 +3,7 @@ import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { filterByRuleCollection } from '../collections/filterByRuleCollection';
 import type { RuleCollection } from '../collections/ruleCollectionModels';
 import { findRuleCollection } from '../collections/ruleCollections';
+import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import { filterBySmartCollection } from '../collections/filterBySmartCollection';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import type { WorkspaceActivation } from './workspaceModels';
@@ -11,6 +12,7 @@ export interface WorkspaceFilterContext {
   service: KnowledgeIndexService;
   vaultNotes: readonly NoteBase[];
   ruleCollections: readonly RuleCollection[];
+  formulaColumns?: readonly FormulaColumnDefinition[];
 }
 
 /**
@@ -33,7 +35,9 @@ export function applyWorkspaceListFilter(
     case 'rule-collection': {
       const collection = findRuleCollection(context.ruleCollections, activation.id);
       if (!collection) return [...notes];
-      return filterByRuleCollection(notes, context.service, collection).notes;
+      return filterByRuleCollection(notes, context.service, collection, {
+        formulaColumns: context.formulaColumns,
+      }).notes;
     }
     default:
       return [...notes];

@@ -27,6 +27,7 @@ import {
   filterNotes,
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
+  buildFormulaQueryCatalog,
   createSavedView,
   deleteSavedView,
   findSavedView,
@@ -299,6 +300,11 @@ export const NoteView = () => {
   const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
   const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
   const [databaseViews, setDatabaseViews] = useState(() => loadDatabaseViews());
+
+  const formulaQueryCatalog = useMemo(
+    () => buildFormulaQueryCatalog(databaseViews),
+    [databaseViews],
+  );
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -362,10 +368,15 @@ export const NoteView = () => {
     const safeNotes = Array.isArray(notes) ? notes : [];
     const counts: Record<string, number> = {};
     for (const collection of ruleCollections) {
-      counts[collection.id] = evaluateRuleCollection(collection, knowledgeIndexService, safeNotes).length;
+      counts[collection.id] = evaluateRuleCollection(
+        collection,
+        knowledgeIndexService,
+        safeNotes,
+        { formulaColumns: formulaQueryCatalog },
+      ).length;
     }
     return counts;
-  }, [notes, ruleCollections]);
+  }, [notes, ruleCollections, formulaQueryCatalog]);
 
   const databaseViewCounts = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
@@ -541,10 +552,13 @@ export const NoteView = () => {
       service: knowledgeIndexService,
       vaultNotes: safeNotes.filter(n => !n.deletedAt),
       ruleCollections,
+      formulaColumns: formulaQueryCatalog,
     });
     if (searchQuery.trim()) {
       if (knowledgeQueryInfo.active) {
-        list = filterNotes(list, knowledgeIndexService, searchQuery).notes;
+        list = filterNotes(list, knowledgeIndexService, searchQuery, {
+          formulaColumns: formulaQueryCatalog,
+        }).notes;
       } else {
         const parsed = parseNoteSearchQuery(searchQuery);
         if (parsed.mode === 'tag') {
@@ -572,7 +586,7 @@ export const NoteView = () => {
       });
     }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, workspaceActivation, ruleCollections]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, workspaceActivation, ruleCollections, formulaQueryCatalog]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(

@@ -10,6 +10,10 @@ export {
   type FormulaComputeMemo,
 } from './computeFormulas';
 export {
+  buildFormulaQueryCatalog,
+  formulaColumnsForKeys,
+} from './formulaQueryCatalog';
+export {
   buildFormulaDependencyGraph,
   formulaColumnLabel,
   isFormulaColumnDefinition,
