@@ -1,6 +1,12 @@
+import { useState } from 'react';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { RecentWorkEntry } from '../workspace/workspacePreferences';
+import type { FocusPreset } from '../workspace/focusModeModels';
+import {
+  DEFAULT_QUICK_CAPTURE_MODEL,
+  type QuickCaptureType,
+} from '../workspace/quickCaptureModels';
 import {
   DEFAULT_RECENT_NOTES_LIMIT,
   formatRecentTimestamp,
@@ -16,6 +22,24 @@ export interface WorkspaceDashboardQuickActions {
   onOpenGraph: () => void;
 }
 
+export interface WorkspaceDashboardFocusProps {
+  presets: readonly FocusPreset[];
+  presetTargets: Readonly<Record<string, WorkspaceRef | null>>;
+  activePresetId?: string;
+  workspaceOptions: readonly WorkspaceRef[];
+  onCreatePreset: (
+    name: string,
+    workspace: Pick<WorkspaceRef, 'kind' | 'id'>,
+  ) => void;
+  onDeletePreset: (id: string) => void;
+  onActivatePreset: (id: string) => void;
+  onExitPreset: () => void;
+}
+
+export interface WorkspaceDashboardQuickCaptureProps {
+  onCapture: (title: string, captureType: QuickCaptureType) => void;
+}
+
 export interface WorkspaceDashboardViewProps {
   colors: NoteChromeColors;
   dashboard: WorkspaceDashboardModel;
@@ -27,6 +51,8 @@ export interface WorkspaceDashboardViewProps {
   onResumeWorkspace: () => void;
   onSelectNote: (noteId: string) => void;
   quickActions: WorkspaceDashboardQuickActions;
+  focus?: WorkspaceDashboardFocusProps;
+  quickCapture?: WorkspaceDashboardQuickCaptureProps;
   recentNotesLimit?: number;
 }
 
@@ -104,9 +130,34 @@ export function WorkspaceDashboardView({
   onResumeWorkspace,
   onSelectNote,
   quickActions,
+  focus,
+  quickCapture,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
+  const [captureTitle, setCaptureTitle] = useState('');
+  const [captureType, setCaptureType] = useState<QuickCaptureType>('note');
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetWorkspaceKey, setNewPresetWorkspaceKey] = useState('');
+
+  const submitCapture = () => {
+    const trimmed = captureTitle.trim();
+    if (!trimmed || !quickCapture) return;
+    quickCapture.onCapture(trimmed, captureType);
+    setCaptureTitle('');
+  };
+
+  const submitPreset = () => {
+    if (!focus) return;
+    const trimmedName = newPresetName.trim();
+    const option = focus.workspaceOptions.find(
+      ref => `${ref.kind}:${ref.id}` === newPresetWorkspaceKey,
+    );
+    if (!trimmedName || !option) return;
+    focus.onCreatePreset(trimmedName, { kind: option.kind, id: option.id });
+    setNewPresetName('');
+    setNewPresetWorkspaceKey('');
+  };
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -181,6 +232,144 @@ export function WorkspaceDashboardView({
           </button>
         ))}
       </Card>
+
+      {focus && (
+        <Card colors={c} title="Focus Presets">
+          {focus.activePresetId && (
+            <button
+              type="button"
+              className="bwbg"
+              style={{ padding: '8px', fontSize: 11, width: '100%' }}
+              onClick={focus.onExitPreset}
+            >
+              Exit Focus Mode
+            </button>
+          )}
+          {focus.presets.length === 0 ? (
+            <div style={{ fontSize: 11, color: c.textFaint }}>Create a preset to start focused work.</div>
+          ) : focus.presets.map(preset => {
+            const target = focus.presetTargets[preset.id];
+            const isActive = focus.activePresetId === preset.id;
+            return (
+              <div
+                key={preset.id}
+                style={{
+                  background: c.cardHov,
+                  border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: c.text }}>{preset.name}</div>
+                  <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>
+                    {target
+                      ? `${target.name} · ${workspaceKindLabel(target.kind)}`
+                      : 'Workspace unavailable'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="bwbg"
+                    style={{ flex: 1, padding: '6px', fontSize: 11 }}
+                    disabled={!target}
+                    onClick={() => focus.onActivatePreset(preset.id)}
+                  >
+                    {isActive ? 'Active' : 'Start'}
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: 11,
+                      background: c.card,
+                      border: `1px solid ${c.sideBdr}`,
+                      borderRadius: 5,
+                      color: c.textMuted,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => focus.onDeletePreset(preset.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {focus.workspaceOptions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              <input
+                className="bwi"
+                style={{ width: '100%', fontSize: 11 }}
+                placeholder="Preset name"
+                value={newPresetName}
+                onChange={e => setNewPresetName(e.target.value)}
+              />
+              <select
+                className="bwi"
+                style={{ width: '100%', fontSize: 11 }}
+                value={newPresetWorkspaceKey}
+                onChange={e => setNewPresetWorkspaceKey(e.target.value)}
+              >
+                <option value="">Select workspace target</option>
+                {focus.workspaceOptions.map(ref => (
+                  <option key={`${ref.kind}:${ref.id}`} value={`${ref.kind}:${ref.id}`}>
+                    {ref.name} ({workspaceKindLabel(ref.kind)})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="bwbg"
+                style={{ padding: '6px', fontSize: 11 }}
+                onClick={submitPreset}
+              >
+                Create Preset
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {quickCapture && (
+        <Card colors={c} title="Quick Capture">
+          <div style={{ fontSize: 10, color: c.textFaint, marginBottom: 4 }}>
+            Creates an ordinary note tagged #{DEFAULT_QUICK_CAPTURE_MODEL.inboxTag}
+          </div>
+          <input
+            className="bwi"
+            style={{ width: '100%', fontSize: 11 }}
+            placeholder="Title"
+            value={captureTitle}
+            onChange={e => setCaptureTitle(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') submitCapture();
+            }}
+          />
+          <select
+            className="bwi"
+            style={{ width: '100%', fontSize: 11 }}
+            value={captureType}
+            onChange={e => setCaptureType(e.target.value as QuickCaptureType)}
+          >
+            {DEFAULT_QUICK_CAPTURE_MODEL.types.map(type => (
+              <option key={type.id} value={type.id}>{type.label}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="bwbg"
+            style={{ padding: '8px', fontSize: 11, width: '100%' }}
+            onClick={submitCapture}
+          >
+            Capture
+          </button>
+        </Card>
+      )}
 
       <Card colors={c} title="Quick Actions">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
