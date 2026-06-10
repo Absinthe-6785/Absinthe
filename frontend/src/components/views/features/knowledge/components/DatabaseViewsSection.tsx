@@ -13,6 +13,7 @@ import {
 } from '../databaseViews/databasePresentationMeta';
 import { parseGalleryCardFieldsInput } from '../databaseViews/galleryModels';
 import { DATABASE_TEMPLATES } from '../databaseViews/databaseTemplates';
+import { WorkspacePinToggle } from './WorkspacePinToggle';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 
@@ -39,6 +40,8 @@ export interface DatabaseViewsSectionProps {
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onCreateFromTemplate?: (templateId: string) => void;
+  isPinned?: (id: string) => boolean;
+  onTogglePin?: (view: DatabaseView) => void;
 }
 
 export function DatabaseViewsSection({
@@ -54,6 +57,8 @@ export function DatabaseViewsSection({
   onRename,
   onDelete,
   onCreateFromTemplate,
+  isPinned,
+  onTogglePin,
 }: DatabaseViewsSectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
@@ -168,6 +173,13 @@ export function DatabaseViewsSection({
               {view.name}
             </span>
             <span style={{ fontSize: 9, color: c.textMuted }}>{counts[view.id] ?? 0}</span>
+            {onTogglePin && (
+              <WorkspacePinToggle
+                colors={c}
+                pinned={isPinned?.(view.id) ?? false}
+                onToggle={e => { e.stopPropagation(); onTogglePin(view); }}
+              />
+            )}
             <button
               type="button"
               onClick={e => {

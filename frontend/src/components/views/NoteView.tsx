@@ -38,6 +38,8 @@ import {
   RuleCollectionsSection,
   DatabaseViewPanel,
   DatabaseViewsSection,
+  PinnedWorkspacesSection,
+  RecentWorkSection,
   SMART_COLLECTIONS,
   INACTIVE_WORKSPACE,
   useNoteWorkspace,
@@ -317,7 +319,18 @@ export const NoteView = () => {
     handleRenameSavedView,
     handleDeleteSavedView,
     patchActiveDatabaseView,
+    pinnedWorkspaces,
+    recentWork,
+    isWorkspacePinned,
+    handleActivateWorkspaceRef,
+    handleTogglePinWorkspace,
+    handleUnpinWorkspace,
+    handleMovePinnedWorkspace,
+    handleClearRecentWork,
   } = workspace;
+
+  const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
+  const activeWorkspaceId = workspaceActivation.kind === 'none' ? null : workspaceActivation.id;
 
   const formulaQueryCatalog = useMemo(
     () => buildFormulaQueryCatalog(databaseViews),
@@ -974,6 +987,25 @@ export const NoteView = () => {
                     </div>
                   </>
                 )}
+                <PinnedWorkspacesSection
+                  colors={c}
+                  pinned={pinnedWorkspaces}
+                  activeKind={activeWorkspaceKind}
+                  activeId={activeWorkspaceId}
+                  onActivate={handleActivateWorkspaceRef}
+                  onUnpin={handleUnpinWorkspace}
+                  onMovePinned={handleMovePinnedWorkspace}
+                />
+                <RecentWorkSection
+                  colors={c}
+                  recent={recentWork}
+                  activeKind={activeWorkspaceKind}
+                  activeId={activeWorkspaceId}
+                  isPinned={isWorkspacePinned}
+                  onActivate={entry => handleActivateWorkspaceRef(entry.workspace)}
+                  onTogglePin={entry => handleTogglePinWorkspace(entry.workspace)}
+                  onClearRecent={handleClearRecentWork}
+                />
                 <SmartCollectionsSection
                   colors={c}
                   collections={SMART_COLLECTIONS}
@@ -981,6 +1013,13 @@ export const NoteView = () => {
                   counts={smartCollectionCounts}
                   onActivate={handleActivateSmartCollection}
                   onClearActive={handleClearSmartCollection}
+                  isPinned={id => isWorkspacePinned('smart-collection', id)}
+                  onTogglePin={collection => handleTogglePinWorkspace({
+                    kind: 'smart-collection',
+                    id: collection.id,
+                    name: collection.name,
+                    subtitle: collection.description,
+                  })}
                 />
                 <RuleCollectionsSection
                   colors={c}
@@ -994,6 +1033,13 @@ export const NoteView = () => {
                   onCreate={handleCreateRuleCollection}
                   onRename={handleRenameRuleCollection}
                   onDelete={handleDeleteRuleCollection}
+                  isPinned={id => isWorkspacePinned('rule-collection', id)}
+                  onTogglePin={collection => handleTogglePinWorkspace({
+                    kind: 'rule-collection',
+                    id: collection.id,
+                    name: collection.name,
+                    subtitle: collection.query,
+                  })}
                 />
                 <DatabaseViewsSection
                   colors={c}
@@ -1008,6 +1054,13 @@ export const NoteView = () => {
                   onCreateFromTemplate={handleCreateDatabaseViewFromTemplate}
                   onRename={handleRenameDatabaseView}
                   onDelete={handleDeleteDatabaseView}
+                  isPinned={id => isWorkspacePinned('database-view', id)}
+                  onTogglePin={view => handleTogglePinWorkspace({
+                    kind: 'database-view',
+                    id: view.id,
+                    name: view.name,
+                    subtitle: view.query,
+                  })}
                 />
                 <SavedViewsSection
                   colors={c}
@@ -1019,6 +1072,13 @@ export const NoteView = () => {
                   onCreate={handleCreateSavedView}
                   onRename={handleRenameSavedView}
                   onDelete={handleDeleteSavedView}
+                  isPinned={id => isWorkspacePinned('saved-view', id)}
+                  onTogglePin={view => handleTogglePinWorkspace({
+                    kind: 'saved-view',
+                    id: view.id,
+                    name: view.name,
+                    subtitle: view.query,
+                  })}
                 />
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
                   <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>

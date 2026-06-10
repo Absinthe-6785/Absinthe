@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { RuleCollection } from '../collections/ruleCollectionModels';
+import { WorkspacePinToggle } from './WorkspacePinToggle';
 
 export interface RuleCollectionsSectionProps {
   colors: NoteChromeColors;
@@ -15,6 +16,8 @@ export interface RuleCollectionsSectionProps {
   onCreate: (name: string, query: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  isPinned?: (id: string) => boolean;
+  onTogglePin?: (collection: RuleCollection) => void;
 }
 
 export function RuleCollectionsSection({
@@ -29,6 +32,8 @@ export function RuleCollectionsSection({
   onCreate,
   onRename,
   onDelete,
+  isPinned,
+  onTogglePin,
 }: RuleCollectionsSectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -105,6 +110,13 @@ export function RuleCollectionsSection({
               {collection.name}
             </span>
             <span style={{ fontSize: 9, color: c.textMuted }}>{counts[collection.id] ?? 0}</span>
+            {onTogglePin && (
+              <WorkspacePinToggle
+                colors={c}
+                pinned={isPinned?.(collection.id) ?? false}
+                onToggle={e => { e.stopPropagation(); onTogglePin(collection); }}
+              />
+            )}
             <button
               type="button"
               onClick={e => {
