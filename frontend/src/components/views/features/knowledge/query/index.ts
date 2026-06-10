@@ -1,5 +1,6 @@
-export { evaluateQuery, evaluateQueryString, noteMatchesPropertyClause } from './evaluateQuery';
-export { filterNotes, type FilterNotesResult } from './filterNotes';
+export { evaluateQuery, evaluateQueryString, noteMatchesPropertyClause, type QueryEvaluationContext } from './evaluateQuery';
+export { filterNotesByFormulaClauses, isFormulaQueryClause, splitQueryClauses } from './evaluateFormulaQuery';
+export { filterNotes, type FilterNotesOptions, type FilterNotesResult } from './filterNotes';
 export {
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
@@ -8,4 +9,4 @@ export {
   parseQuery,
   tokenizeQuery,
 } from './parseQuery';
-export type { ParsedQuery, QueryClause, QueryEvaluation } from './queryModels';
+export type { ParsedQuery, QueryClause, QueryEvaluation, FormulaQueryClause, FormulaQueryOperator } from './queryModels';

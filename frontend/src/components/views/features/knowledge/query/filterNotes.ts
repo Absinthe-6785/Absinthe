@@ -1,8 +1,13 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { evaluateQuery } from './evaluateQuery';
+import type { FormulaColumnDefinition } from '../formulas/formulaModels';
+import { evaluateQuery, type QueryEvaluationContext } from './evaluateQuery';
 import { hasKnowledgeQuerySyntax, isKnowledgeQuery, parseQuery } from './parseQuery';
 import type { ParsedQuery } from './queryModels';
+
+export interface FilterNotesOptions {
+  formulaColumns?: readonly FormulaColumnDefinition[];
+}
 
 export interface FilterNotesResult {
   notes: NoteBase[];
@@ -11,11 +16,12 @@ export interface FilterNotesResult {
   usedKnowledgeQuery: boolean;
 }
 
-/** Filter notes using indexed metadata when query uses key:value syntax */
+/** Filter notes using indexed metadata and optional formula post-filter */
 export function filterNotes(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   query: string,
+  options: FilterNotesOptions = {},
 ): FilterNotesResult {
   const trimmed = query.trim();
   const parsed = parseQuery(trimmed);
@@ -36,7 +42,12 @@ export function filterNotes(
     return { notes: [], parsed, matchedIds: new Set(), usedKnowledgeQuery: true };
   }
 
-  const matchedIds = evaluateQuery(service, parsed);
+  const context: QueryEvaluationContext = {
+    notes,
+    formulaColumns: options.formulaColumns ?? [],
+  };
+
+  const matchedIds = evaluateQuery(service, parsed, context);
   if (!matchedIds) {
     return { notes: [...notes], parsed, matchedIds: null, usedKnowledgeQuery: true };
   }

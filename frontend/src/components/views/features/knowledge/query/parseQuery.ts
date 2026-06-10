@@ -1,9 +1,10 @@
 import { normalizePropertyKey } from '../properties/noteProperties';
 import { normalizeTagName } from '../tags/tagConstants';
-import type { ParsedQuery, QueryClause } from './queryModels';
+import type { FormulaQueryOperator, ParsedQuery, QueryClause } from './queryModels';
 
 const CLAUSE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
 const RELATION_VALUE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
+const FORMULA_PREDICATE_RE = /^([a-zA-Z][a-zA-Z0-9_]*)(>=|<=|!=|[><=])(-?\d+(?:\.\d+)?)$/;
 
 /** Normalize property/tag values for index lookup */
 export function normalizeQueryValue(value: string): string {
@@ -16,6 +17,26 @@ function unquoteValue(value: string): string {
     return trimmed.slice(1, -1);
   }
   return trimmed;
+}
+
+function parseFormulaPredicate(value: string): QueryClause | { error: string } {
+  const match = value.match(FORMULA_PREDICATE_RE);
+  if (!match) {
+    return { error: `Invalid formula clause: formula:${value}` };
+  }
+
+  const [, key, operator, rawValue] = match;
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return { error: `Invalid formula value: ${rawValue}` };
+  }
+
+  return {
+    type: 'formula',
+    key,
+    operator: operator as FormulaQueryOperator,
+    value: parsed,
+  };
 }
 
 function quoteValueIfNeeded(value: string): string {
@@ -112,6 +133,10 @@ function parseClauseToken(token: string): QueryClause | { error: string } {
     return { type: 'relation', propertyKey, title };
   }
 
+  if (normKey === 'formula') {
+    return parseFormulaPredicate(value);
+  }
+
   return { type: 'property', key, value: unquoteValue(value) };
 }
 
@@ -145,6 +170,9 @@ export function formatParsedQuery(parsed: ParsedQuery): string {
     if (clause.type === 'linkedTo') return `linkedTo:${quoteValueIfNeeded(clause.title)}`;
     if (clause.type === 'relation') {
       return `relation:${clause.propertyKey}:${quoteValueIfNeeded(clause.title)}`;
+    }
+    if (clause.type === 'formula') {
+      return `formula:${clause.key}${clause.operator}${clause.value}`;
     }
     return `${clause.key}:${quoteValueIfNeeded(clause.value)}`;
   }).join(' ');
