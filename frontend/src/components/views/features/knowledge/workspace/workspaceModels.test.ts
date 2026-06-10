@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   INACTIVE_WORKSPACE,
   isSameWorkspaceActivation,
+  normalizeWorkspaceSession,
   WORKSPACE_FILTER_SOURCE,
 } from './workspaceModels';
 
@@ -22,5 +23,16 @@ describe('workspaceModels', () => {
     expect(isSameWorkspaceActivation(a, c)).toBe(false);
     expect(isSameWorkspaceActivation(INACTIVE_WORKSPACE, INACTIVE_WORKSPACE)).toBe(true);
     expect(isSameWorkspaceActivation(a, INACTIVE_WORKSPACE)).toBe(false);
+  });
+
+  it('normalizes workspace session payloads', () => {
+    expect(normalizeWorkspaceSession(null)).toBeNull();
+    expect(normalizeWorkspaceSession({
+      activation: { kind: 'saved-view', id: 'sv-1' },
+      updatedAt: 100,
+    })).toEqual({
+      activation: { kind: 'saved-view', id: 'sv-1' },
+      updatedAt: 100,
+    });
   });
 });

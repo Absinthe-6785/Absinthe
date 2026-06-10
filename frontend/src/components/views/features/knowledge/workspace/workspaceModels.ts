@@ -53,6 +53,73 @@ export const WORKSPACE_FILTER_SOURCE: Record<WorkspaceItemKind, WorkspaceFilterS
 /** Default inactive workspace state */
 export const INACTIVE_WORKSPACE: WorkspaceActivation = { kind: 'none' };
 
+/** Alias for sidebar/dashboard references (K-19.1) */
+export type WorkspaceRef = WorkspaceItemRef;
+
+/** Persisted workspace session slice — foundation for K-19.2 restore */
+export interface WorkspaceSessionState {
+  activation: WorkspaceActivation;
+  updatedAt: number;
+}
+
+const WORKSPACE_ITEM_KINDS: readonly WorkspaceItemKind[] = [
+  'saved-view',
+  'smart-collection',
+  'rule-collection',
+  'database-view',
+];
+
+const SMART_COLLECTION_IDS = new Set<string>([
+  'recent',
+  'orphan',
+  'untagged',
+  'highly-connected',
+  'with-backlinks',
+  'with-mentions',
+]);
+
+export function isWorkspaceItemKind(value: unknown): value is WorkspaceItemKind {
+  return typeof value === 'string'
+    && WORKSPACE_ITEM_KINDS.includes(value as WorkspaceItemKind);
+}
+
+export function isWorkspaceActivation(value: unknown): value is WorkspaceActivation {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<WorkspaceActivation>;
+  if (record.kind === 'none') return true;
+  if (typeof record.kind !== 'string' || typeof record.id !== 'string') return false;
+  if (!isWorkspaceItemKind(record.kind)) return false;
+  const id = record.id.trim();
+  if (!id) return false;
+  if (record.kind === 'smart-collection' && !SMART_COLLECTION_IDS.has(id)) return false;
+  return true;
+}
+
+export function isActiveWorkspaceActivation(
+  activation: WorkspaceActivation,
+): activation is Exclude<WorkspaceActivation, { kind: 'none' }> {
+  return activation.kind !== 'none';
+}
+
+export function normalizeWorkspaceActivation(raw: unknown): WorkspaceActivation {
+  if (!isWorkspaceActivation(raw)) return INACTIVE_WORKSPACE;
+  if (raw.kind === 'none') return INACTIVE_WORKSPACE;
+  if (raw.kind === 'smart-collection') {
+    return { kind: 'smart-collection', id: raw.id.trim() as SmartCollectionId };
+  }
+  return { kind: raw.kind, id: raw.id.trim() };
+}
+
+export function normalizeWorkspaceSession(raw: unknown): WorkspaceSessionState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Partial<WorkspaceSessionState>;
+  const activation = normalizeWorkspaceActivation(record.activation);
+  const updatedAt = typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
+    ? record.updatedAt
+    : Date.now();
+  return { activation, updatedAt };
+}
+
 /** Whether two activations refer to the same workspace selection */
 export function isSameWorkspaceActivation(
   a: WorkspaceActivation,

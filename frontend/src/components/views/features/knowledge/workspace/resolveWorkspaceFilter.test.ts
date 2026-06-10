@@ -48,4 +48,19 @@ describe('applyWorkspaceListFilter', () => {
     });
     expect(filtered).toEqual([]);
   });
+
+  it('leaves saved-view and database-view activations to their dedicated paths', () => {
+    const savedViewFiltered = applyWorkspaceListFilter(notes, { kind: 'saved-view', id: 'sv-1' }, {
+      service,
+      vaultNotes: notes,
+      ruleCollections: [],
+    });
+    const databaseFiltered = applyWorkspaceListFilter(notes, { kind: 'database-view', id: 'db-1' }, {
+      service,
+      vaultNotes: notes,
+      ruleCollections: [],
+    });
+    expect(savedViewFiltered.map(n => n.id)).toEqual(['a', 'b', 'c']);
+    expect(databaseFiltered.map(n => n.id)).toEqual(['a', 'b', 'c']);
+  });
 });
