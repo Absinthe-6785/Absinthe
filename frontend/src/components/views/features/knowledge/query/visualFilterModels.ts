@@ -13,6 +13,7 @@ export type FilterFieldKind =
   | 'tag'
   | 'property'
   | 'formula'
+  | 'metadata'
   | 'hasRelation'
   | 'linkedTo'
   | 'relation';
@@ -46,6 +47,7 @@ export function isFilterFieldKind(value: unknown): value is FilterFieldKind {
   return value === 'tag'
     || value === 'property'
     || value === 'formula'
+    || value === 'metadata'
     || value === 'hasRelation'
     || value === 'linkedTo'
     || value === 'relation';
@@ -92,7 +94,14 @@ export function normalizeVisualFilterModel(raw: unknown): VisualFilterModel | nu
     for (const conditionRaw of groupRecord.conditions) {
       if (!isFilterCondition(conditionRaw)) continue;
       const field = typeof conditionRaw.field === 'string' ? conditionRaw.field.trim() : '';
-      if (conditionRaw.kind !== 'tag' && conditionRaw.kind !== 'linkedTo' && !field) continue;
+      if (
+        conditionRaw.kind !== 'tag'
+        && conditionRaw.kind !== 'linkedTo'
+        && conditionRaw.kind !== 'hasRelation'
+        && !field
+      ) {
+        continue;
+      }
 
       if (conditionRaw.kind === 'formula') {
         const operator = conditionRaw.operator;
@@ -106,6 +115,22 @@ export function normalizeVisualFilterModel(raw: unknown): VisualFilterModel | nu
           field,
           operator,
           value: numeric,
+        });
+        continue;
+      }
+
+      if (conditionRaw.kind === 'metadata') {
+        const operator = conditionRaw.operator;
+        if (!operator || !(FORMULA_OPERATORS as readonly string[]).includes(operator)) continue;
+        const value = typeof conditionRaw.value === 'number'
+          ? String(conditionRaw.value)
+          : String(conditionRaw.value).trim();
+        if (!field || !value) continue;
+        conditions.push({
+          kind: 'metadata',
+          field,
+          operator,
+          value,
         });
         continue;
       }
@@ -142,8 +167,21 @@ export function compileFilterConditionToClause(condition: FilterCondition): Quer
       const key = condition.field?.trim();
       const value = String(condition.value).trim();
       if (!key || !value) return null;
-      if (condition.operator && condition.operator !== '=') return null;
-      return { type: 'property', key, value };
+      const operator = condition.operator ?? '=';
+      if (operator === '=') {
+        return { type: 'property', key, value };
+      }
+      return { type: 'propertyCompare', key, operator, value };
+    }
+    case 'metadata': {
+      const key = condition.field?.trim();
+      const operator = condition.operator;
+      const value = String(condition.value).trim();
+      if (!key || !operator || !(FORMULA_OPERATORS as readonly string[]).includes(operator)) {
+        return null;
+      }
+      if (!value) return null;
+      return { type: 'metadata', key, operator, value };
     }
     case 'hasRelation': {
       const propertyKey = condition.field?.trim();
@@ -191,6 +229,29 @@ export function compileVisualFilterToParsedQuery(model: VisualFilterModel): Pars
 /** Canonical query string for persistence on DatabaseView / SavedView / RuleCollection */
 export function compileVisualFilterToQueryString(model: VisualFilterModel): string {
   return formatParsedQuery(compileVisualFilterToParsedQuery(model));
+}
+
+/** Alias for compileVisualFilterToQueryString — K-18.2 naming */
+export function compileVisualFilters(model: VisualFilterModel): string {
+  return compileVisualFilterToQueryString(model);
+}
+
+/** Flatten visual filter conditions from the first AND group */
+export function getVisualFilterConditions(
+  model: VisualFilterModel | null | undefined,
+): FilterCondition[] {
+  if (!model?.groups.length) return [];
+  return [...model.groups[0].conditions];
+}
+
+/** Build a visual filter model from a flat condition list */
+export function visualFilterFromConditions(
+  conditions: readonly FilterCondition[],
+): VisualFilterModel | null {
+  const normalized = normalizeVisualFilterModel({
+    groups: [{ logic: 'and', conditions: [...conditions] }],
+  });
+  return normalized;
 }
 
 /** Merge base query with visual filter — both ANDed via space-separated tokens */

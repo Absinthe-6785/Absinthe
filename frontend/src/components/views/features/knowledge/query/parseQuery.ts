@@ -5,6 +5,7 @@ import type { FormulaQueryOperator, ParsedQuery, QueryClause } from './queryMode
 const CLAUSE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
 const RELATION_VALUE_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):(.+)$/;
 const FORMULA_PREDICATE_RE = /^([a-zA-Z][a-zA-Z0-9_]*)(>=|<=|!=|[><=])(-?\d+(?:\.\d+)?)$/;
+const COMPARE_PREDICATE_RE = /^([a-zA-Z][a-zA-Z0-9_]*)(>=|<=|!=|[><=])(.+)$/;
 
 /** Normalize property/tag values for index lookup */
 export function normalizeQueryValue(value: string): string {
@@ -36,6 +37,29 @@ function parseFormulaPredicate(value: string): QueryClause | { error: string } {
     key,
     operator: operator as FormulaQueryOperator,
     value: parsed,
+  };
+}
+
+function parseComparePredicate(
+  value: string,
+  clauseType: 'metadata' | 'propertyCompare',
+): QueryClause | { error: string } {
+  const match = value.match(COMPARE_PREDICATE_RE);
+  if (!match) {
+    return { error: `Invalid ${clauseType} clause: ${value}` };
+  }
+
+  const [, key, operator, rawValue] = match;
+  const trimmedValue = unquoteValue(rawValue);
+  if (!key.trim() || !trimmedValue) {
+    return { error: `Invalid ${clauseType} clause: ${value}` };
+  }
+
+  return {
+    type: clauseType,
+    key: key.trim(),
+    operator: operator as FormulaQueryOperator,
+    value: trimmedValue,
   };
 }
 
@@ -137,6 +161,14 @@ function parseClauseToken(token: string): QueryClause | { error: string } {
     return parseFormulaPredicate(value);
   }
 
+  if (normKey === 'meta') {
+    return parseComparePredicate(value, 'metadata');
+  }
+
+  if (normKey === 'prop') {
+    return parseComparePredicate(value, 'propertyCompare');
+  }
+
   return { type: 'property', key, value: unquoteValue(value) };
 }
 
@@ -173,6 +205,12 @@ export function formatParsedQuery(parsed: ParsedQuery): string {
     }
     if (clause.type === 'formula') {
       return `formula:${clause.key}${clause.operator}${clause.value}`;
+    }
+    if (clause.type === 'metadata') {
+      return `meta:${clause.key}${clause.operator}${quoteValueIfNeeded(clause.value)}`;
+    }
+    if (clause.type === 'propertyCompare') {
+      return `prop:${clause.key}${clause.operator}${quoteValueIfNeeded(clause.value)}`;
     }
     return `${clause.key}:${quoteValueIfNeeded(clause.value)}`;
   }).join(' ');

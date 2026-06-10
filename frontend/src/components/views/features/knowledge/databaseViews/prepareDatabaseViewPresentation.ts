@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { DatabaseView } from './databaseViewModels';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import type { CalendarDateBucket } from './bucketNotesByDate';
 import type { BoardLane } from './groupNotesByProperty';
 import { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
@@ -27,6 +28,7 @@ export function prepareDatabaseViewPresentation(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): DatabaseViewPresentationData {
   const configured = withPresentationDefaults(view);
   const safeNotes = notes.filter(note => !note.deletedAt);
@@ -35,27 +37,27 @@ export function prepareDatabaseViewPresentation(
     case 'board':
       return {
         type: 'board',
-        lanes: prepareDatabaseBoardLanes(configured, safeNotes, service),
+        lanes: prepareDatabaseBoardLanes(configured, safeNotes, service, filterOptions),
       };
     case 'calendar':
       return {
         type: 'calendar',
-        buckets: prepareDatabaseCalendarBuckets(configured, safeNotes, service),
+        buckets: prepareDatabaseCalendarBuckets(configured, safeNotes, service, filterOptions),
       };
     case 'timeline':
       return {
         type: 'timeline',
-        items: prepareDatabaseTimelineItems(configured, safeNotes, service),
+        items: prepareDatabaseTimelineItems(configured, safeNotes, service, filterOptions),
       };
     case 'gallery':
       return {
         type: 'gallery',
-        items: prepareDatabaseGalleryItems(configured, safeNotes, service),
+        items: prepareDatabaseGalleryItems(configured, safeNotes, service, filterOptions),
       };
     default:
       return {
         type: 'table',
-        notes: prepareDatabaseViewRows(configured, safeNotes, service),
+        notes: prepareDatabaseViewRows(configured, safeNotes, service, filterOptions),
       };
   }
 }

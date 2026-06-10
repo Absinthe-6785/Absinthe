@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { filterByDatabaseView } from './filterByDatabaseView';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import { getBoardConfig, withPresentationDefaults } from './databasePresentationConfig';
 import { groupNotesByProperty, type BoardLane } from './groupNotesByProperty';
 import type { DatabaseView } from './databaseViewModels';
@@ -13,6 +14,7 @@ export function prepareDatabaseBoardLanes(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): BoardLane[] {
   const configured = withPresentationDefaults(view);
   const boardConfig = getBoardConfig(configured);
@@ -20,6 +22,7 @@ export function prepareDatabaseBoardLanes(
     notes.filter(note => !note.deletedAt),
     service,
     configured,
+    filterOptions,
   ).notes;
   return groupNotesByProperty(
     filtered,

@@ -2,6 +2,7 @@ import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getTableConfig, withPresentationDefaults } from './databasePresentationConfig';
 import { filterByDatabaseView } from './filterByDatabaseView';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import type { DatabaseView } from './databaseViewModels';
 import { sortDatabaseViewRows, resolveDatabaseViewSortRules } from './sortDatabaseViewRows';
 
@@ -18,6 +19,7 @@ export function prepareDatabaseViewRows(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): NoteBase[] {
   const configured = withPresentationDefaults(view);
   const table = getTableConfig(configured);
@@ -25,6 +27,7 @@ export function prepareDatabaseViewRows(
     notes.filter(note => !note.deletedAt),
     service,
     configured,
+    filterOptions,
   ).notes;
   return sortDatabaseViewRows(filtered, resolveDatabaseViewSortRules(table), service, table);
 }

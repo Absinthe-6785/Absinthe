@@ -4,6 +4,7 @@ import { getDatabaseFieldValue, getNoteDateValue } from './databaseFieldValues';
 import { getTimelineConfig, withPresentationDefaults } from './databasePresentationConfig';
 import type { DatabaseTimelineSortBy } from './databasePresentationModels';
 import { filterByDatabaseView } from './filterByDatabaseView';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import type { TimelineItem } from './timelineModels';
 import type { DatabaseView } from './databaseViewModels';
 
@@ -68,6 +69,7 @@ export function prepareDatabaseTimelineItems(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): TimelineItem[] {
   const configured = withPresentationDefaults(view);
   const timelineConfig = getTimelineConfig(configured);
@@ -75,6 +77,7 @@ export function prepareDatabaseTimelineItems(
     notes.filter(note => !note.deletedAt),
     service,
     configured,
+    filterOptions,
   ).notes;
 
   const items: TimelineItem[] = [];

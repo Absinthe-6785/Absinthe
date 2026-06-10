@@ -1,7 +1,9 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { FormulaColumnDefinition } from '../formulas/formulaModels';
-import { filterNotesByFormulaClauses, splitQueryClauses } from './evaluateFormulaQuery';
+import { filterNotesByPostFilterClauses } from './evaluateCompareQuery';
+import { splitQueryClauses } from './evaluateCompareQuery';
+import { filterNotesByFormulaClauses } from './evaluateFormulaQuery';
 import { parseQuery } from './parseQuery';
 import type { ParsedQuery, QueryClause, QueryEvaluation } from './queryModels';
 
@@ -62,21 +64,33 @@ export function evaluateQuery(
   if (parsed.error) return new Set();
   if (parsed.clauses.length === 0) return null;
 
-  const { indexed, formula } = splitQueryClauses(parsed.clauses);
+  const { indexed, formula, postFilter } = splitQueryClauses(parsed.clauses);
   const indexedResult = evaluateIndexedClauses(service, indexed);
 
-  if (formula.length === 0) {
+  const notes = context.notes;
+  const needsPostFilter = formula.length > 0 || postFilter.length > 0;
+  if (!needsPostFilter) {
     return indexedResult;
   }
 
-  const notes = context.notes;
   if (!notes || notes.length === 0) {
     return new Set();
   }
 
-  const candidateIds = indexedResult ?? new Set(notes.map(note => note.id));
+  let candidateIds = indexedResult ?? new Set(notes.map(note => note.id));
   if (candidateIds.size === 0) {
     return new Set();
+  }
+
+  if (postFilter.length > 0) {
+    candidateIds = filterNotesByPostFilterClauses(notes, candidateIds, postFilter, service);
+    if (candidateIds.size === 0) {
+      return new Set();
+    }
+  }
+
+  if (formula.length === 0) {
+    return candidateIds;
   }
 
   const formulaColumns = context.formulaColumns ?? [];

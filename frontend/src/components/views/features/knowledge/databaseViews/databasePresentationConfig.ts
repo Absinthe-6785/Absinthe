@@ -23,6 +23,7 @@ import {
   primarySortRule,
   syncTableSortConfig,
 } from './databaseSortFutureModels';
+import { normalizeVisualFilterModel } from '../query/visualFilterModels';
 
 export const DEFAULT_BOARD_GROUP_BY = 'status';
 export const DEFAULT_CALENDAR_DATE_PROPERTY = 'updatedAt';
@@ -69,6 +70,7 @@ export function normalizeTableConfig(
   ) {
     synced = syncTableSortConfig(primarySort, [primarySort]);
   }
+  const visualFilters = normalizeVisualFilterModel(record.visualFilters) ?? undefined;
   return {
     type: 'table',
     columns: normalizeDatabaseViewColumns(
@@ -78,6 +80,7 @@ export function normalizeTableConfig(
     sortRules: synced.sortRules,
     rollupColumns: normalizeRollupColumns(record.rollupColumns),
     formulaColumns: normalizeFormulaColumns(record.formulaColumns),
+    ...(visualFilters ? { visualFilters } : {}),
   };
 }
 
