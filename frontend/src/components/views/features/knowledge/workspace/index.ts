@@ -1,6 +1,11 @@
 export {
   INACTIVE_WORKSPACE,
+  isActiveWorkspaceActivation,
   isSameWorkspaceActivation,
+  isWorkspaceActivation,
+  isWorkspaceItemKind,
+  normalizeWorkspaceActivation,
+  normalizeWorkspaceSession,
   WORKSPACE_FILTER_SOURCE,
   type DatabaseView,
   type DatabaseViewPresentation,
@@ -8,6 +13,8 @@ export {
   type WorkspaceFilterSource,
   type WorkspaceItemKind,
   type WorkspaceItemRef,
+  type WorkspaceRef,
+  type WorkspaceSessionState,
 } from './workspaceModels';
 export {
   activateDatabaseViewWorkspace,
@@ -15,14 +22,25 @@ export {
   activateSavedViewWorkspace,
   activateSmartCollectionWorkspace,
   clearWorkspaceActivation,
+  clearWorkspaceActivationForItem,
   clearWorkspaceSearchBinding,
   isWorkspaceKindActive,
+  reconcileSavedViewActivation,
   type WorkspaceActivateResult,
 } from './workspaceActivation';
 export {
   applyWorkspaceListFilter,
   getWorkspaceActiveId,
   getWorkspaceActiveKind,
+  getWorkspaceFilterSource,
   isDatabaseViewActive,
   type WorkspaceFilterContext,
 } from './resolveWorkspaceFilter';
+export {
+  clearWorkspaceSession,
+  loadWorkspaceSession,
+  saveWorkspaceSession,
+  workspaceSessionFromActivation,
+  WORKSPACE_SESSION_KEY,
+} from './workspaceSessionStorage';
+export { useNoteWorkspace, type UseNoteWorkspaceOptions, type UseNoteWorkspaceResult } from './useNoteWorkspace';

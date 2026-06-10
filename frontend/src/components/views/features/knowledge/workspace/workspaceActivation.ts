@@ -5,8 +5,8 @@ import { activateRuleCollection } from '../collections/ruleCollections';
 import type { DatabaseView } from '../databaseViews/databaseViewModels';
 import { activateDatabaseView } from '../databaseViews/databaseViews';
 import type { SavedView } from '../views/savedViewModels';
-import { activateSavedView } from '../views/savedViews';
-import { INACTIVE_WORKSPACE, type WorkspaceActivation } from './workspaceModels';
+import { activateSavedView, findSavedView } from '../views/savedViews';
+import { INACTIVE_WORKSPACE, type WorkspaceActivation, type WorkspaceItemKind } from './workspaceModels';
 
 export interface WorkspaceActivateResult {
   activation: WorkspaceActivation;
@@ -68,4 +68,30 @@ export function isWorkspaceKindActive(
   if (activation.kind !== kind) return false;
   if (id === undefined) return true;
   return activation.id === id;
+}
+
+/** Clear activation when the active workspace item is deleted */
+export function clearWorkspaceActivationForItem(
+  activation: WorkspaceActivation,
+  kind: Exclude<WorkspaceItemKind, never>,
+  id: string,
+): WorkspaceActivation {
+  if (activation.kind === kind && activation.id === id) {
+    return INACTIVE_WORKSPACE;
+  }
+  return activation;
+}
+
+/** Deactivate saved-view binding when query diverges or the view is removed */
+export function reconcileSavedViewActivation(
+  activation: WorkspaceActivation,
+  savedViews: readonly SavedView[],
+  searchQuery: string,
+): WorkspaceActivation {
+  if (activation.kind !== 'saved-view') return activation;
+  const view = findSavedView(savedViews, activation.id);
+  if (!view || view.query !== searchQuery.trim()) {
+    return INACTIVE_WORKSPACE;
+  }
+  return activation;
 }

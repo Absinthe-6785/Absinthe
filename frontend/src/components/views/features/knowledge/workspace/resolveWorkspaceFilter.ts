@@ -7,6 +7,7 @@ import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import { filterBySmartCollection } from '../collections/filterBySmartCollection';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import type { WorkspaceActivation } from './workspaceModels';
+import { INACTIVE_WORKSPACE, WORKSPACE_FILTER_SOURCE, type WorkspaceFilterSource } from './workspaceModels';
 
 export interface WorkspaceFilterContext {
   service: KnowledgeIndexService;
@@ -17,7 +18,7 @@ export interface WorkspaceFilterContext {
 
 /**
  * Apply list-scoping workspace filters (smart collection, rule collection).
- * Saved views use searchQuery; database views use table presentation.
+ * Saved views use searchQuery; database views use DatabaseViewPanel.
  */
 export function applyWorkspaceListFilter(
   notes: readonly NoteBase[],
@@ -42,6 +43,12 @@ export function applyWorkspaceListFilter(
     default:
       return [...notes];
   }
+}
+
+/** Resolve the filter strategy for an activation — single dispatch metadata path */
+export function getWorkspaceFilterSource(activation: WorkspaceActivation): WorkspaceFilterSource {
+  if (activation.kind === 'none') return 'none';
+  return WORKSPACE_FILTER_SOURCE[activation.kind];
 }
 
 export function isDatabaseViewActive(activation: WorkspaceActivation): boolean {

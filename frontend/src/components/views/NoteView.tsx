@@ -28,13 +28,6 @@ import {
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
   buildFormulaQueryCatalog,
-  createSavedView,
-  deleteSavedView,
-  findSavedView,
-  isValidSavedViewQuery,
-  loadSavedViews,
-  renameSavedView,
-  saveSavedViews,
   knowledgeIndexService,
   parseQuery,
   LinkedReferencesPanel,
@@ -46,34 +39,8 @@ import {
   DatabaseViewPanel,
   DatabaseViewsSection,
   SMART_COLLECTIONS,
-  createRuleCollection,
-  evaluateSmartCollection,
-  evaluateRuleCollection,
-  evaluateDatabaseView,
-  updateDatabaseViewConfig,
-  findRuleCollection,
-  findSmartCollection,
-  findDatabaseView,
-  isValidRuleCollectionQuery,
-  isValidDatabaseViewQuery,
-  loadRuleCollections,
-  renameRuleCollection,
-  deleteRuleCollection,
-  saveRuleCollections,
-  createDatabaseView,
-  createDatabaseViewFromTemplate,
-  deleteDatabaseView,
-  loadDatabaseViews,
-  renameDatabaseView,
-  saveDatabaseViews,
   INACTIVE_WORKSPACE,
-  activateDatabaseViewWorkspace,
-  activateRuleCollectionWorkspace,
-  activateSavedViewWorkspace,
-  activateSmartCollectionWorkspace,
-  applyWorkspaceListFilter,
-  clearWorkspaceSearchBinding,
-  isWorkspaceKindActive,
+  useNoteWorkspace,
   listTags,
   noteMatchesPageTag,
   NotePropertiesPanel,
@@ -86,7 +53,6 @@ import {
   type RuleCollection,
   type DatabaseView,
   type DatabaseViewPresentation,
-  type WorkspaceActivation,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -297,10 +263,61 @@ export const NoteView = () => {
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [showAppearance, setShowAppearance] = useState(false);
-  const [savedViews, setSavedViews] = useState(() => loadSavedViews());
-  const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
-  const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
-  const [databaseViews, setDatabaseViews] = useState(() => loadDatabaseViews());
+
+  const resetBrowseScope = useCallback(() => {
+    setActiveFolderId(null);
+    setActiveTag(null);
+  }, []);
+
+  const workspace = useNoteWorkspace({
+    notes,
+    searchQuery,
+    setSearchQuery,
+    resetBrowseScope,
+  });
+
+  const {
+    workspaceActivation,
+    setWorkspaceActivation,
+    savedViews,
+    ruleCollections,
+    databaseViews,
+    activeSavedView,
+    activeSmartCollection,
+    activeRuleCollection,
+    activeDatabaseView,
+    isDatabaseViewMode,
+    shouldSkipUserSort,
+    smartCollectionCounts,
+    ruleCollectionCounts,
+    databaseViewCounts,
+    activeDatabaseViewNoteCount,
+    canSaveCurrentView,
+    canCreateRuleCollection,
+    canCreateDatabaseView,
+    safeNotesForDatabase,
+    applyWorkspaceToNotes,
+    isWorkspaceKindActive,
+    handleActivateSavedView,
+    handleClearSavedView,
+    handleActivateSmartCollection,
+    handleClearSmartCollection,
+    handleActivateRuleCollection,
+    handleClearRuleCollection,
+    handleActivateDatabaseView,
+    handleClearDatabaseView,
+    handleCreateRuleCollection,
+    handleRenameRuleCollection,
+    handleDeleteRuleCollection,
+    handleCreateDatabaseView,
+    handleCreateDatabaseViewFromTemplate,
+    handleRenameDatabaseView,
+    handleDeleteDatabaseView,
+    handleCreateSavedView,
+    handleRenameSavedView,
+    handleDeleteSavedView,
+    patchActiveDatabaseView,
+  } = workspace;
 
   const formulaQueryCatalog = useMemo(
     () => buildFormulaQueryCatalog(databaseViews),
@@ -316,197 +333,6 @@ export const NoteView = () => {
     updateNote(id, patch);
   }, [updateNote]);
 
-  useEffect(() => {
-    saveSavedViews(savedViews);
-  }, [savedViews]);
-
-  useEffect(() => {
-    saveRuleCollections(ruleCollections);
-  }, [ruleCollections]);
-
-  useEffect(() => {
-    saveDatabaseViews(databaseViews);
-  }, [databaseViews]);
-
-  useEffect(() => {
-    if (workspaceActivation.kind !== 'saved-view') return;
-    const view = findSavedView(savedViews, workspaceActivation.id);
-    if (!view || view.query !== searchQuery.trim()) {
-      setWorkspaceActivation(INACTIVE_WORKSPACE);
-    }
-  }, [searchQuery, workspaceActivation, savedViews]);
-
-  const canSaveCurrentView = useMemo(
-    () => isValidSavedViewQuery(searchQuery),
-    [searchQuery],
-  );
-
-  const canCreateRuleCollection = useMemo(
-    () => isValidRuleCollectionQuery(searchQuery),
-    [searchQuery],
-  );
-
-  const canCreateDatabaseView = useMemo(
-    () => isValidDatabaseViewQuery(searchQuery),
-    [searchQuery],
-  );
-
-  const activeRuleCollection = useMemo(
-    () => (workspaceActivation.kind === 'rule-collection'
-      ? findRuleCollection(ruleCollections, workspaceActivation.id)
-      : undefined),
-    [workspaceActivation, ruleCollections],
-  );
-
-  const activeDatabaseView = useMemo(
-    () => (workspaceActivation.kind === 'database-view'
-      ? findDatabaseView(databaseViews, workspaceActivation.id)
-      : undefined),
-    [workspaceActivation, databaseViews],
-  );
-
-  const ruleCollectionCounts = useMemo(() => {
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    const counts: Record<string, number> = {};
-    for (const collection of ruleCollections) {
-      counts[collection.id] = evaluateRuleCollection(
-        collection,
-        knowledgeIndexService,
-        safeNotes,
-        { formulaColumns: formulaQueryCatalog },
-      ).length;
-    }
-    return counts;
-  }, [notes, ruleCollections, formulaQueryCatalog]);
-
-  const databaseViewCounts = useMemo(() => {
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    const counts: Record<string, number> = {};
-    for (const view of databaseViews) {
-      counts[view.id] = evaluateDatabaseView(view, knowledgeIndexService, safeNotes).length;
-    }
-    return counts;
-  }, [notes, databaseViews]);
-
-  const activeSavedView = useMemo(
-    () => (workspaceActivation.kind === 'saved-view'
-      ? findSavedView(savedViews, workspaceActivation.id)
-      : undefined),
-    [workspaceActivation, savedViews],
-  );
-
-  const resetBrowseScope = useCallback(() => {
-    setActiveFolderId(null);
-    setActiveTag(null);
-  }, []);
-
-  const handleActivateSavedView = useCallback((view: SavedView) => {
-    resetBrowseScope();
-    const result = activateSavedViewWorkspace(view);
-    setWorkspaceActivation(result.activation);
-    setSearchQuery(result.searchQuery);
-  }, [resetBrowseScope]);
-
-  const handleClearSavedView = useCallback(() => {
-    const result = clearWorkspaceSearchBinding();
-    setWorkspaceActivation(result.activation);
-    setSearchQuery(result.searchQuery);
-  }, []);
-
-  const handleActivateSmartCollection = useCallback((collection: SmartCollection) => {
-    resetBrowseScope();
-    const result = activateSmartCollectionWorkspace(collection);
-    setWorkspaceActivation(result.activation);
-    setSearchQuery(result.searchQuery);
-  }, [resetBrowseScope]);
-
-  const handleClearSmartCollection = useCallback(() => {
-    setWorkspaceActivation(prev => (prev.kind === 'smart-collection' ? INACTIVE_WORKSPACE : prev));
-  }, []);
-
-  const handleActivateRuleCollection = useCallback((collection: RuleCollection) => {
-    resetBrowseScope();
-    const result = activateRuleCollectionWorkspace(collection);
-    setWorkspaceActivation(result.activation);
-    setSearchQuery(result.searchQuery);
-  }, [resetBrowseScope]);
-
-  const handleClearRuleCollection = useCallback(() => {
-    setWorkspaceActivation(prev => (prev.kind === 'rule-collection' ? INACTIVE_WORKSPACE : prev));
-  }, []);
-
-  const handleActivateDatabaseView = useCallback((view: DatabaseView) => {
-    resetBrowseScope();
-    const result = activateDatabaseViewWorkspace(view);
-    setWorkspaceActivation(result.activation);
-    setSearchQuery(result.searchQuery);
-  }, [resetBrowseScope]);
-
-  const handleClearDatabaseView = useCallback(() => {
-    setWorkspaceActivation(prev => (prev.kind === 'database-view' ? INACTIVE_WORKSPACE : prev));
-  }, []);
-
-  const handleCreateRuleCollection = useCallback((name: string, query: string) => {
-    setRuleCollections(prev => createRuleCollection(prev, name, query));
-  }, []);
-
-  const handleRenameRuleCollection = useCallback((id: string, name: string) => {
-    setRuleCollections(prev => renameRuleCollection(prev, id, name));
-  }, []);
-
-  const handleDeleteRuleCollection = useCallback((id: string) => {
-    setRuleCollections(prev => deleteRuleCollection(prev, id));
-    setWorkspaceActivation(prev => (prev.kind === 'rule-collection' && prev.id === id ? INACTIVE_WORKSPACE : prev));
-  }, []);
-
-  const handleCreateDatabaseView = useCallback((
-    name: string,
-    query: string,
-    presentation?: DatabaseViewPresentation,
-    groupBy?: string,
-    dateProperty?: string,
-    startDateProperty?: string,
-    endDateProperty?: string,
-    coverProperty?: string,
-    cardFields?: readonly string[],
-  ) => {
-    setDatabaseViews(prev => createDatabaseView(prev, name, query, {
-      presentation,
-      groupBy,
-      dateProperty,
-      startDateProperty,
-      endDateProperty,
-      coverProperty,
-      cardFields,
-    }));
-  }, []);
-
-  const handleCreateDatabaseViewFromTemplate = useCallback((templateId: string) => {
-    setDatabaseViews(prev => createDatabaseViewFromTemplate(prev, templateId));
-  }, []);
-
-  const handleRenameDatabaseView = useCallback((id: string, name: string) => {
-    setDatabaseViews(prev => renameDatabaseView(prev, id, name));
-  }, []);
-
-  const handleDeleteDatabaseView = useCallback((id: string) => {
-    setDatabaseViews(prev => deleteDatabaseView(prev, id));
-    setWorkspaceActivation(prev => (prev.kind === 'database-view' && prev.id === id ? INACTIVE_WORKSPACE : prev));
-  }, []);
-
-  const handleCreateSavedView = useCallback((name: string) => {
-    setSavedViews(prev => createSavedView(prev, name, searchQuery));
-  }, [searchQuery]);
-
-  const handleRenameSavedView = useCallback((id: string, name: string) => {
-    setSavedViews(prev => renameSavedView(prev, id, name));
-  }, []);
-
-  const handleDeleteSavedView = useCallback((id: string) => {
-    setSavedViews(prev => deleteSavedView(prev, id));
-    setActiveSavedViewId(prev => (prev === id ? null : prev));
-  }, []);
-
   // ── 필터링 ──────────────────────────────────────────────────────
   const knowledgeQueryInfo = useMemo(() => {
     const trimmed = searchQuery.trim();
@@ -520,40 +346,6 @@ export const NoteView = () => {
     return { active: true as const, label: formatParsedQuery(parsed), error: null };
   }, [searchQuery]);
 
-  const activeSmartCollection = useMemo(
-    () => (workspaceActivation.kind === 'smart-collection'
-      ? findSmartCollection(workspaceActivation.id)
-      : undefined),
-    [workspaceActivation],
-  );
-
-  const isDatabaseViewMode = workspaceActivation.kind === 'database-view';
-
-  const smartCollectionCounts = useMemo(() => {
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    const counts: Record<string, number> = {};
-    for (const collection of SMART_COLLECTIONS) {
-      counts[collection.id] = evaluateSmartCollection(collection.id, knowledgeIndexService, safeNotes).length;
-    }
-    return counts;
-  }, [notes]);
-
-  const activeDatabaseViewNoteCount = useMemo(() => {
-    if (!activeDatabaseView) return 0;
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    return evaluateDatabaseView(activeDatabaseView, knowledgeIndexService, safeNotes).length;
-  }, [activeDatabaseView, notes]);
-
-  const patchActiveDatabaseView = useCallback((updater: (view: DatabaseView) => DatabaseView) => {
-    if (workspaceActivation.kind !== 'database-view') return;
-    setDatabaseViews(prev => updateDatabaseViewConfig(prev, workspaceActivation.id, updater));
-  }, [workspaceActivation]);
-
-  const safeNotesForDatabase = useMemo(
-    () => (Array.isArray(notes) ? notes : []).filter(n => !n.deletedAt),
-    [notes],
-  );
-
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
     let list: Note[] =
@@ -565,12 +357,7 @@ export const NoteView = () => {
       const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
       list = list.filter(n => taggedIds.has(n.id));
     }
-    list = applyWorkspaceListFilter(list, workspaceActivation, {
-      service: knowledgeIndexService,
-      vaultNotes: safeNotes.filter(n => !n.deletedAt),
-      ruleCollections,
-      formulaColumns: formulaQueryCatalog,
-    });
+    list = applyWorkspaceToNotes(list);
     if (searchQuery.trim()) {
       if (knowledgeQueryInfo.active) {
         list = filterNotes(list, knowledgeIndexService, searchQuery, {
@@ -595,7 +382,7 @@ export const NoteView = () => {
       }
     }
     // 정렬 — smart collections with explicit ordering skip user sort preference
-    if (workspaceActivation.kind !== 'smart-collection') {
+    if (!shouldSkipUserSort) {
       list = [...list].sort((a, b) => {
         if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
         if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
@@ -603,7 +390,7 @@ export const NoteView = () => {
       });
     }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, workspaceActivation, ruleCollections, formulaQueryCatalog]);
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
   const activeNote = useMemo(
