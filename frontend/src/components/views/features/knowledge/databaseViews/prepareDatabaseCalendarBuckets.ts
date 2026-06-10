@@ -6,6 +6,7 @@ import {
 } from './bucketNotesByDate';
 import { getCalendarConfig, withPresentationDefaults } from './databasePresentationConfig';
 import { filterByDatabaseView } from './filterByDatabaseView';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import type { DatabaseView } from './databaseViewModels';
 
 /**
@@ -16,6 +17,7 @@ export function prepareDatabaseCalendarBuckets(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): CalendarDateBucket[] {
   const configured = withPresentationDefaults(view);
   const calendarConfig = getCalendarConfig(configured);
@@ -23,6 +25,7 @@ export function prepareDatabaseCalendarBuckets(
     notes.filter(note => !note.deletedAt),
     service,
     configured,
+    filterOptions,
   ).notes;
   return bucketNotesByDate(
     filtered,

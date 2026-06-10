@@ -38,9 +38,12 @@ import {
   addDatabaseViewColumn,
   addDatabaseViewFormulaColumn,
   addDatabaseViewRollupColumn,
+  addDatabaseViewFilterCondition,
   addDatabaseViewSortRule,
+  moveDatabaseViewFilterCondition,
   moveDatabaseViewSortRule,
   removeDatabaseViewColumn,
+  removeDatabaseViewFilterCondition,
   removeDatabaseViewFormulaColumn,
   removeDatabaseViewRollupColumn,
   removeDatabaseViewSortRule,
@@ -49,9 +52,11 @@ import {
   setDatabaseViewFormulaColumnVisibility,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
+  setDatabaseViewQuery,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
   setDatabaseViewSortRules,
+  updateDatabaseViewFilterCondition,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
   setDatabaseViewGalleryCoverProperty,
@@ -66,7 +71,14 @@ import { DatabaseTimelineView } from './DatabaseTimelineView';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 import { DatabaseTableView } from './DatabaseTableView';
+import { DatabaseFilterControls } from './DatabaseFilterControls';
 import { formulaColumnLabel, type FormulaInput } from '../formulas/formulaModels';
+import {
+  getVisualFilterConditions,
+  visualFilterFromConditions,
+  type FilterCondition,
+  type VisualFilterModel,
+} from '../query/visualFilterModels';
 import { ROLLUP_FUNCTIONS_PHASE1, rollupColumnLabel, type RollupFunctionPhase1 } from '../rollups/rollupModels';
 
 export interface DatabaseViewControlsProps {
@@ -718,10 +730,15 @@ export function DatabaseViewPanel({
   onSelectNote,
   onViewChange,
 }: DatabaseViewPanelProps) {
+  const [sessionFilter, setSessionFilter] = useState<VisualFilterModel | null>(null);
   const configured = useMemo(() => withDatabaseViewDefaults(view), [view]);
+  const filterOptions = useMemo(
+    () => ({ sessionFilter }),
+    [sessionFilter],
+  );
   const presentationData = useMemo(
-    () => prepareDatabaseViewPresentation(view, notes, service),
-    [view, notes, service],
+    () => prepareDatabaseViewPresentation(view, notes, service, filterOptions),
+    [view, notes, service, filterOptions],
   );
   const tableConfig = useMemo(() => getTableConfig(configured), [configured]);
   const boardConfig = useMemo(() => getBoardConfig(configured), [configured]);
@@ -743,6 +760,10 @@ export function DatabaseViewPanel({
     (updater: (current: DatabaseView) => DatabaseView) => onViewChange(updater),
     [onViewChange],
   );
+
+  const updateSessionConditions = useCallback((conditions: readonly FilterCondition[]) => {
+    setSessionFilter(visualFilterFromConditions(conditions));
+  }, []);
 
   return (
     <>
@@ -771,6 +792,49 @@ export function DatabaseViewPanel({
         onRemoveFormulaColumn={key => patch(v => removeDatabaseViewFormulaColumn(v, key))}
         onToggleFormulaColumnVisibility={(key, visible) => patch(v => setDatabaseViewFormulaColumnVisibility(v, key, visible))}
       />
+      <div style={{ padding: '0 8px 8px', borderBottom: `1px solid ${c.sideBdr}` }}>
+        <DatabaseFilterControls
+          colors={c}
+          view={view}
+          visualFilters={tableConfig.visualFilters}
+          sessionFilter={sessionFilter}
+          formulaColumns={tableConfig.formulaColumns}
+          onQueryChange={query => patch(v => setDatabaseViewQuery(v, query))}
+          onAddFilter={condition => patch(v => addDatabaseViewFilterCondition(v, condition))}
+          onUpdateFilter={(index, condition) => patch(v => updateDatabaseViewFilterCondition(v, index, condition))}
+          onRemoveFilter={index => patch(v => removeDatabaseViewFilterCondition(v, index))}
+          onMoveFilter={(fromIndex, toIndex) => patch(v => moveDatabaseViewFilterCondition(v, fromIndex, toIndex))}
+          onAddSessionFilter={condition => {
+            updateSessionConditions([...getVisualFilterConditions(sessionFilter), condition]);
+          }}
+          onUpdateSessionFilter={(index, condition) => {
+            const current = [...getVisualFilterConditions(sessionFilter)];
+            if (index < 0 || index >= current.length) return;
+            current[index] = condition;
+            updateSessionConditions(current);
+          }}
+          onRemoveSessionFilter={index => {
+            updateSessionConditions(
+              getVisualFilterConditions(sessionFilter).filter((_, i) => i !== index),
+            );
+          }}
+          onMoveSessionFilter={(fromIndex, toIndex) => {
+            const current = [...getVisualFilterConditions(sessionFilter)];
+            if (
+              fromIndex < 0
+              || fromIndex >= current.length
+              || toIndex < 0
+              || toIndex >= current.length
+            ) {
+              return;
+            }
+            const [item] = current.splice(fromIndex, 1);
+            current.splice(toIndex, 0, item);
+            updateSessionConditions(current);
+          }}
+          onClearSessionFilters={() => setSessionFilter(null)}
+        />
+      </div>
       {presentationData.type === 'board' ? (
         <DatabaseBoardView
           colors={c}

@@ -4,6 +4,7 @@
 
 import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import type { RollupColumnDefinition } from '../rollups/rollupModels';
+import type { VisualFilterModel } from '../query/visualFilterModels';
 import type {
   DatabaseViewColumnEntry,
   DatabaseViewPresentation,
@@ -28,6 +29,8 @@ export interface DatabaseTableConfig {
   rollupColumns?: RollupColumnDefinition[];
   /** Computed formula columns — K-16 */
   formulaColumns?: FormulaColumnDefinition[];
+  /** Visual filter builder rows — K-18.2 (compiled into effective query at runtime) */
+  visualFilters?: VisualFilterModel;
 }
 
 /** Board presentation config — K-10 */

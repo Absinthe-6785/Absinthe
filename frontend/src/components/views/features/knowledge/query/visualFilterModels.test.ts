@@ -92,4 +92,30 @@ describe('visualFilterModels', () => {
       'tag:japanese priority:high',
     );
   });
+
+  it('compiles metadata and property compare filters', () => {
+    expect(compileFilterConditionToClause({
+      kind: 'metadata',
+      field: 'updatedAt',
+      operator: '>',
+      value: '2026-01-01',
+    })).toEqual({
+      type: 'metadata',
+      key: 'updatedAt',
+      operator: '>',
+      value: '2026-01-01',
+    });
+
+    expect(compileFilterConditionToClause({
+      kind: 'property',
+      field: 'status',
+      operator: '!=',
+      value: 'draft',
+    })).toEqual({
+      type: 'propertyCompare',
+      key: 'status',
+      operator: '!=',
+      value: 'draft',
+    });
+  });
 });

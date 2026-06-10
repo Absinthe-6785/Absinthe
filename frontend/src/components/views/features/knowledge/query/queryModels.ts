@@ -2,15 +2,21 @@
 
 export type FormulaQueryOperator = '>' | '<' | '>=' | '<=' | '=' | '!=';
 
+export type ComparisonQueryOperator = FormulaQueryOperator;
+
 export type QueryClause =
   | { type: 'tag'; value: string }
   | { type: 'property'; key: string; value: string }
+  | { type: 'propertyCompare'; key: string; operator: ComparisonQueryOperator; value: string }
+  | { type: 'metadata'; key: string; operator: ComparisonQueryOperator; value: string }
   | { type: 'hasRelation'; propertyKey: string }
   | { type: 'linkedTo'; title: string }
   | { type: 'relation'; propertyKey: string; title: string }
   | { type: 'formula'; key: string; operator: FormulaQueryOperator; value: number };
 
 export type FormulaQueryClause = Extract<QueryClause, { type: 'formula' }>;
+export type PropertyCompareQueryClause = Extract<QueryClause, { type: 'propertyCompare' }>;
+export type MetadataQueryClause = Extract<QueryClause, { type: 'metadata' }>;
 
 export interface ParsedQuery {
   clauses: QueryClause[];

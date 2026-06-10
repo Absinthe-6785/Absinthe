@@ -8,6 +8,7 @@ import { columnLabelForKey } from './databaseViewConfig';
 import { getDatabaseFieldValue } from './databaseFieldValues';
 import { getGalleryConfig, getTableConfig, withPresentationDefaults } from './databasePresentationConfig';
 import { filterByDatabaseView } from './filterByDatabaseView';
+import type { DatabaseViewFilterOptions } from './resolveDatabaseViewQuery';
 import { isValidCoverImageUrl, type GalleryField, type GalleryItem } from './galleryModels';
 import type { DatabaseView } from './databaseViewModels';
 
@@ -95,6 +96,7 @@ export function prepareDatabaseGalleryItems(
   view: DatabaseView,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  filterOptions: DatabaseViewFilterOptions = {},
 ): GalleryItem[] {
   const configured = withPresentationDefaults(view);
   const galleryConfig = getGalleryConfig(configured);
@@ -102,6 +104,7 @@ export function prepareDatabaseGalleryItems(
     notes.filter(note => !note.deletedAt),
     service,
     configured,
+    filterOptions,
   ).notes;
   const notesById = new Map(filtered.map(note => [note.id, note]));
 

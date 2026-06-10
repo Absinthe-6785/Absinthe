@@ -1,5 +1,12 @@
 export { evaluateQuery, evaluateQueryString, noteMatchesPropertyClause, type QueryEvaluationContext } from './evaluateQuery';
-export { filterNotesByFormulaClauses, isFormulaQueryClause, splitQueryClauses } from './evaluateFormulaQuery';
+export {
+  filterNotesByPostFilterClauses,
+  isMetadataQueryClause,
+  isPostFilterQueryClause,
+  isPropertyCompareQueryClause,
+  splitQueryClauses,
+} from './evaluateCompareQuery';
+export { filterNotesByFormulaClauses, isFormulaQueryClause } from './evaluateFormulaQuery';
 export { filterNotes, type FilterNotesOptions, type FilterNotesResult } from './filterNotes';
 export {
   formatParsedQuery,
@@ -14,11 +21,14 @@ export {
   compileFilterConditionToClause,
   compileVisualFilterToParsedQuery,
   compileVisualFilterToQueryString,
+  compileVisualFilters,
+  getVisualFilterConditions,
   isFilterCondition,
   isFilterGroup,
   isVisualFilterModel,
   mergeQueryWithVisualFilter,
   normalizeVisualFilterModel,
+  visualFilterFromConditions,
   type FilterComparisonOperator,
   type FilterCondition,
   type FilterFieldKind,

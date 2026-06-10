@@ -115,6 +115,8 @@ export {
   filterNotes,
   filterNotesByFormulaClauses,
   formatParsedQuery,
+  compileVisualFilters,
+  mergeQueryWithVisualFilter,
   hasKnowledgeQuerySyntax,
   isFormulaQueryClause,
   isKnowledgeQuery,
@@ -129,6 +131,8 @@ export {
   type QueryClause,
   type QueryEvaluation,
   type QueryEvaluationContext,
+  type FilterCondition,
+  type VisualFilterModel,
 } from './query';
 
 export {

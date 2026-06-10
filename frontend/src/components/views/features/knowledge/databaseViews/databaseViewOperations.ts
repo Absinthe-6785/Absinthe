@@ -26,6 +26,12 @@ import { isBuiltinColumnKey } from './databaseViewModels';
 import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import { normalizeFormulaColumns } from '../formulas/formulaModels';
 import type { RollupColumnDefinition, RollupDefinition } from '../rollups/rollupModels';
+import type { FilterCondition, VisualFilterModel } from '../query/visualFilterModels';
+import {
+  getVisualFilterConditions,
+  normalizeVisualFilterModel,
+  visualFilterFromConditions,
+} from '../query/visualFilterModels';
 import { normalizeRollupColumns } from '../rollups/rollupModels';
 
 function updateViewTable(
@@ -43,6 +49,7 @@ function updateViewTable(
       sortRules: next.sortRules,
       rollupColumns: normalizeRollupColumns(next.rollupColumns),
       formulaColumns: normalizeFormulaColumns(next.formulaColumns),
+      ...(next.visualFilters ? { visualFilters: next.visualFilters } : {}),
     },
   });
 }
@@ -376,6 +383,88 @@ export function setDatabaseViewGalleryCoverProperty(view: DatabaseView, coverPro
 
 export function setDatabaseViewGalleryCardFields(view: DatabaseView, cardFields: readonly string[]): DatabaseView {
   return setGalleryCardFields(view, cardFields);
+}
+
+export function setDatabaseViewQuery(view: DatabaseView, query: string): DatabaseView {
+  return withPresentationDefaults({
+    ...view,
+    query: query.trim(),
+  });
+}
+
+function withVisualFilters(view: DatabaseView, model: VisualFilterModel | null): DatabaseView {
+  return updateViewTable(view, table => {
+    if (model) {
+      return { ...table, visualFilters: model };
+    }
+    const { visualFilters: _removed, ...rest } = table;
+    return rest;
+  });
+}
+
+export function setDatabaseViewVisualFilters(
+  view: DatabaseView,
+  visualFilters: VisualFilterModel | null,
+): DatabaseView {
+  const normalized = visualFilters ? normalizeVisualFilterModel(visualFilters) : null;
+  return withVisualFilters(view, normalized);
+}
+
+export function setDatabaseViewFilterConditions(
+  view: DatabaseView,
+  conditions: readonly FilterCondition[],
+): DatabaseView {
+  const model = visualFilterFromConditions(conditions);
+  return withVisualFilters(view, model);
+}
+
+export function addDatabaseViewFilterCondition(
+  view: DatabaseView,
+  condition: FilterCondition,
+): DatabaseView {
+  const table = getTableConfig(view);
+  const current = getVisualFilterConditions(table.visualFilters);
+  return setDatabaseViewFilterConditions(view, [...current, condition]);
+}
+
+export function updateDatabaseViewFilterCondition(
+  view: DatabaseView,
+  index: number,
+  condition: FilterCondition,
+): DatabaseView {
+  const table = getTableConfig(view);
+  const current = [...getVisualFilterConditions(table.visualFilters)];
+  if (index < 0 || index >= current.length) return view;
+  current[index] = condition;
+  return setDatabaseViewFilterConditions(view, current);
+}
+
+export function removeDatabaseViewFilterCondition(view: DatabaseView, index: number): DatabaseView {
+  const table = getTableConfig(view);
+  const current = getVisualFilterConditions(table.visualFilters);
+  if (index < 0 || index >= current.length) return view;
+  return setDatabaseViewFilterConditions(view, current.filter((_, i) => i !== index));
+}
+
+export function moveDatabaseViewFilterCondition(
+  view: DatabaseView,
+  fromIndex: number,
+  toIndex: number,
+): DatabaseView {
+  const table = getTableConfig(view);
+  const current = [...getVisualFilterConditions(table.visualFilters)];
+  if (
+    fromIndex < 0
+    || fromIndex >= current.length
+    || toIndex < 0
+    || toIndex >= current.length
+    || fromIndex === toIndex
+  ) {
+    return view;
+  }
+  const [item] = current.splice(fromIndex, 1);
+  current.splice(toIndex, 0, item);
+  return setDatabaseViewFilterConditions(view, current);
 }
 
 export function updateDatabaseViewConfig(

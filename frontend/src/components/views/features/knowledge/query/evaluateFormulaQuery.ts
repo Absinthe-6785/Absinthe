@@ -14,22 +14,6 @@ export function isFormulaQueryClause(clause: QueryClause): clause is FormulaQuer
   return clause.type === 'formula';
 }
 
-export function splitQueryClauses(clauses: readonly QueryClause[]): {
-  indexed: QueryClause[];
-  formula: FormulaQueryClause[];
-} {
-  const indexed: QueryClause[] = [];
-  const formula: FormulaQueryClause[] = [];
-  for (const clause of clauses) {
-    if (isFormulaQueryClause(clause)) {
-      formula.push(clause);
-    } else {
-      indexed.push(clause);
-    }
-  }
-  return { indexed, formula };
-}
-
 function compareFormulaValue(
   actual: number,
   operator: FormulaQueryClause['operator'],

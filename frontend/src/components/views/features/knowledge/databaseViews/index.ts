@@ -94,24 +94,31 @@ export {
 } from './databaseViews';
 export {
   addDatabaseViewColumn,
+  addDatabaseViewFilterCondition,
   addDatabaseViewFormulaColumn,
   addDatabaseViewRollupColumn,
   addDatabaseViewRollupDefinition,
+  addDatabaseViewSortRule,
   hideDatabaseViewColumn,
+  moveDatabaseViewFilterCondition,
+  moveDatabaseViewSortRule,
   removeDatabaseViewColumn,
+  removeDatabaseViewFilterCondition,
   removeDatabaseViewFormulaColumn,
   removeDatabaseViewRollupColumn,
+  removeDatabaseViewSortRule,
   setDatabaseViewColumnVisibility,
   setDatabaseViewDateProperty,
+  setDatabaseViewFilterConditions,
   setDatabaseViewFormulaColumnVisibility,
   setDatabaseViewGroupBy,
   setDatabaseViewPresentation,
+  setDatabaseViewQuery,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
   setDatabaseViewSortRules,
-  addDatabaseViewSortRule,
-  removeDatabaseViewSortRule,
-  moveDatabaseViewSortRule,
+  setDatabaseViewVisualFilters,
+  updateDatabaseViewFilterCondition,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
   setDatabaseViewGalleryCoverProperty,
@@ -121,6 +128,11 @@ export {
 } from './databaseViewOperations';
 export { evaluateDatabaseView } from './evaluateDatabaseView';
 export { filterByDatabaseView } from './filterByDatabaseView';
+export {
+  getDatabaseViewVisualFilters,
+  resolveDatabaseViewEffectiveQuery,
+  type DatabaseViewFilterOptions,
+} from './resolveDatabaseViewQuery';
 export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareDatabaseViewRows';
 export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 export { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
