@@ -6,7 +6,9 @@ import type { BoardLane } from './groupNotesByProperty';
 import { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 import { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
 import { prepareDatabaseTimelineItems } from './prepareDatabaseTimelineItems';
+import { prepareDatabaseGalleryItems } from './prepareDatabaseGalleryItems';
 import type { TimelineItem } from './timelineModels';
+import type { GalleryItem } from './galleryModels';
 import { prepareDatabaseViewRows } from './prepareDatabaseViewRows';
 import { withPresentationDefaults } from './databasePresentationConfig';
 
@@ -14,7 +16,8 @@ export type DatabaseViewPresentationData =
   | { type: 'table'; notes: NoteBase[] }
   | { type: 'board'; lanes: BoardLane[] }
   | { type: 'calendar'; buckets: CalendarDateBucket[] }
-  | { type: 'timeline'; items: TimelineItem[] };
+  | { type: 'timeline'; items: TimelineItem[] }
+  | { type: 'gallery'; items: GalleryItem[] };
 
 /**
  * Unified post-filter presentation dispatch.
@@ -43,6 +46,11 @@ export function prepareDatabaseViewPresentation(
       return {
         type: 'timeline',
         items: prepareDatabaseTimelineItems(configured, safeNotes, service),
+      };
+    case 'gallery':
+      return {
+        type: 'gallery',
+        items: prepareDatabaseGalleryItems(configured, safeNotes, service),
       };
     default:
       return {

@@ -55,12 +55,26 @@ export interface DatabaseTimelineConfig {
   unscheduledLabel?: string;
 }
 
+/** Gallery card size preset — K-17.75 */
+export type DatabaseGalleryCardSize = 'compact' | 'medium' | 'large';
+
+/** Gallery presentation config — K-17.75 */
+export interface DatabaseGalleryConfig {
+  type: 'gallery';
+  /** Property key for cover image URL — optional */
+  coverProperty?: string;
+  /** Property keys on cards — same semantics as board cardFields */
+  cardFields?: string[];
+  cardSize?: DatabaseGalleryCardSize;
+}
+
 /** Discriminated presentation config — recommended K-10+ shape */
 export type DatabasePresentationConfig =
   | DatabaseTableConfig
   | DatabaseBoardConfig
   | DatabaseCalendarConfig
-  | DatabaseTimelineConfig;
+  | DatabaseTimelineConfig
+  | DatabaseGalleryConfig;
 
 /** Recommended future DatabaseView core — query + presentation + config */
 export interface DatabaseViewRecord {
@@ -95,6 +109,12 @@ export function isDatabaseTimelineConfig(
   return config.type === 'timeline'
     && typeof config.startDateProperty === 'string'
     && config.startDateProperty.trim().length > 0;
+}
+
+export function isDatabaseGalleryConfig(
+  config: DatabasePresentationConfig,
+): config is DatabaseGalleryConfig {
+  return config.type === 'gallery';
 }
 
 export function presentationConfigForType(

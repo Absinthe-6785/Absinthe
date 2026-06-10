@@ -48,10 +48,10 @@ function note(
 
 describe('databasePresentationMeta', () => {
   it('exposes all presentation options', () => {
-    expect(DATABASE_PRESENTATION_OPTIONS.map(o => o.value)).toEqual(['table', 'board', 'calendar', 'timeline']);
-    expect(presentationLabel('board')).toBe('Board');
-    expect(presentationLabel('calendar')).toBe('Calendar');
-    expect(presentationLabel('timeline')).toBe('Timeline');
+    expect(DATABASE_PRESENTATION_OPTIONS.map(o => o.value)).toEqual([
+      'table', 'board', 'calendar', 'timeline', 'gallery',
+    ]);
+    expect(presentationLabel('gallery')).toBe('Gallery');
   });
 
   it('defines shared property field presets', () => {
@@ -125,6 +125,26 @@ describe('prepareDatabaseViewPresentation', () => {
       expect(data.items.some(item => item.noteId === 't')).toBe(true);
     }
   });
+
+  it('dispatches gallery presentation', () => {
+    const view = createDatabaseView([], 'Gallery', 'tag:japanese', {
+      presentation: 'gallery',
+      coverProperty: 'coverImage',
+      cardFields: ['status'],
+    })[0];
+    const notesWithCover = [
+      ...notes,
+      note('g', 'Gallery card', '', {
+        properties: { tags: 'japanese', status: 'Active', coverImage: 'https://example.com/g.jpg' },
+      }),
+    ];
+    service.buildFromNotes(notesWithCover);
+    const data = prepareDatabaseViewPresentation(view, notesWithCover, service);
+    expect(data.type).toBe('gallery');
+    if (data.type === 'gallery') {
+      expect(data.items.some(item => item.noteId === 'g')).toBe(true);
+    }
+  });
 });
 
 describe('presentation switching persistence', () => {
@@ -195,6 +215,7 @@ describe('shared control components', () => {
     expect(container.textContent).toContain('Board');
     expect(container.textContent).toContain('Calendar');
     expect(container.textContent).toContain('Timeline');
+    expect(container.textContent).toContain('Gallery');
   });
 
   it('renders property key field with preset label', () => {

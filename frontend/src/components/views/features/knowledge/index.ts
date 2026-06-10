@@ -60,6 +60,7 @@ export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, ty
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
 export { DatabaseCalendarView, type DatabaseCalendarViewProps } from './components/DatabaseCalendarView';
 export { DatabaseTimelineView, type DatabaseTimelineViewProps } from './components/DatabaseTimelineView';
+export { DatabaseGalleryView, type DatabaseGalleryViewProps } from './components/DatabaseGalleryView';
 export { DatabaseNoteCard, type DatabaseNoteCardProps } from './components/DatabaseNoteCard';
 export { DatabasePresentationSwitcher, type DatabasePresentationSwitcherProps } from './components/DatabasePresentationSwitcher';
 export { DatabasePropertyKeyField, type DatabasePropertyKeyFieldProps } from './components/DatabasePropertyKeyField';
@@ -192,6 +193,7 @@ export {
   prepareDatabaseBoardLanes,
   prepareDatabaseCalendarBuckets,
   prepareDatabaseTimelineItems,
+  prepareDatabaseGalleryItems,
   prepareDatabaseViewPresentation,
   removeDatabaseViewColumn,
   removeDatabaseViewRollupColumn,
@@ -207,6 +209,8 @@ export {
   setDatabaseViewSort,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
+  setDatabaseViewGalleryCoverProperty,
+  setDatabaseViewGalleryCardFields,
   showDatabaseViewColumn,
   sortDatabaseViewRows,
   updateDatabaseViewConfig,
@@ -216,6 +220,7 @@ export {
   getCalendarConfig,
   getTableConfig,
   getTimelineConfig,
+  getGalleryConfig,
   groupNotesByProperty,
   bucketNotesByDate,
   parseDatabaseDate,
@@ -237,6 +242,8 @@ export {
   CALENDAR_DATE_PROPERTY_FIELD,
   TIMELINE_START_DATE_FIELD,
   TIMELINE_END_DATE_FIELD,
+  GALLERY_COVER_PROPERTY_FIELD,
+  GALLERY_CARD_FIELDS_FIELD,
   SUGGESTED_PROPERTY_KEYS,
   type DatabaseViewPresentationData,
   isDatabaseBoardConfig,
@@ -270,6 +277,8 @@ export {
   type BoardLane,
   type CalendarDateBucket,
   type TimelineItem,
+  type GalleryField,
+  type GalleryItem,
   type CreateDatabaseViewOptions,
 } from './databaseViews';
 

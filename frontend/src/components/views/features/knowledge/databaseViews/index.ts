@@ -33,18 +33,23 @@ export {
   defaultBoardPresentationConfig,
   defaultCalendarPresentationConfig,
   defaultTimelinePresentationConfig,
+  defaultGalleryPresentationConfig,
   defaultPresentationConfig,
   defaultTablePresentationConfig,
   getBoardConfig,
   getCalendarConfig,
+  getGalleryConfig,
   getTableConfig,
   getTimelineConfig,
   liftLegacyTableConfig,
   normalizeBoardConfig,
   normalizeCalendarConfig,
+  normalizeGalleryConfig,
   normalizePresentationConfig,
   setBoardGroupBy,
   setCalendarDateProperty,
+  setGalleryCoverProperty,
+  setGalleryCardFields,
   setTimelineEndDateProperty,
   setTimelineStartDateProperty,
   setViewPresentation,
@@ -105,6 +110,8 @@ export {
   setDatabaseViewSort,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
+  setDatabaseViewGalleryCoverProperty,
+  setDatabaseViewGalleryCardFields,
   showDatabaseViewColumn,
   updateDatabaseViewConfig,
 } from './databaseViewOperations';
@@ -114,12 +121,20 @@ export { prepareDatabaseViewRows, withDatabaseViewDefaults } from './prepareData
 export { prepareDatabaseBoardLanes } from './prepareDatabaseBoardLanes';
 export { prepareDatabaseCalendarBuckets } from './prepareDatabaseCalendarBuckets';
 export { prepareDatabaseTimelineItems } from './prepareDatabaseTimelineItems';
+export { prepareDatabaseGalleryItems } from './prepareDatabaseGalleryItems';
 export {
   formatTimelineDateRange,
   timelineItemOverlapsMonth,
   daysInMonth,
   type TimelineItem,
 } from './timelineModels';
+export {
+  formatGalleryCardFieldsInput,
+  isValidCoverImageUrl,
+  parseGalleryCardFieldsInput,
+  type GalleryField,
+  type GalleryItem,
+} from './galleryModels';
 export {
   prepareDatabaseViewPresentation,
   type DatabaseViewPresentationData,
@@ -131,6 +146,8 @@ export {
   CALENDAR_DATE_PROPERTY_FIELD,
   TIMELINE_START_DATE_FIELD,
   TIMELINE_END_DATE_FIELD,
+  GALLERY_COVER_PROPERTY_FIELD,
+  GALLERY_CARD_FIELDS_FIELD,
   presentationLabel,
   SUGGESTED_PROPERTY_KEYS,
 } from './databasePresentationMeta';
@@ -139,29 +156,29 @@ export { loadDatabaseViews, saveDatabaseViews, DATABASE_VIEWS_KEY } from './data
 export type {
   DatabaseBoardConfig,
   DatabaseCalendarConfig,
+  DatabaseGalleryCardSize,
+  DatabaseGalleryConfig,
   DatabasePresentationConfig,
   DatabaseTableConfig,
+  DatabaseTimelineConfig,
+  DatabaseTimelineSortBy,
   DatabaseViewRecord,
 } from './databasePresentationModels';
 export {
   isDatabaseBoardConfig,
   isDatabaseCalendarConfig,
+  isDatabaseGalleryConfig,
   isDatabaseTableConfig,
+  isDatabaseTimelineConfig,
   presentationConfigForType,
 } from './databasePresentationModels';
 export {
-  isDatabaseGalleryConfig,
   isDatabasePresentationConfigFuture,
-  isDatabaseTimelineConfig,
-  normalizeGalleryConfig,
-  normalizeTimelineConfig,
+  normalizeGalleryConfig as normalizeGalleryConfigFuture,
+  normalizeTimelineConfig as normalizeTimelineConfigFuture,
   presentationConfigTypeForPresentation,
-  type DatabaseGalleryCardSize,
-  type DatabaseGalleryConfig,
   type DatabasePresentationConfigFuture,
   type DatabaseTableGroupConfig,
-  type DatabaseTimelineConfig,
-  type DatabaseTimelineSortBy,
   type DatabaseViewPresentationFuture,
   type DatabaseViewSortRule,
   type ImplementedPresentationConfigMap,

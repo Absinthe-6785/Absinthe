@@ -12,6 +12,8 @@ import {
 import {
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
+  GALLERY_CARD_FIELDS_FIELD,
+  GALLERY_COVER_PROPERTY_FIELD,
   TABLE_ADD_COLUMN_FIELD,
   TIMELINE_END_DATE_FIELD,
   TIMELINE_START_DATE_FIELD,
@@ -19,9 +21,11 @@ import {
 import {
   getBoardConfig,
   getCalendarConfig,
+  getGalleryConfig,
   getTableConfig,
   getTimelineConfig,
 } from '../databaseViews/databasePresentationConfig';
+import { formatGalleryCardFieldsInput, parseGalleryCardFieldsInput } from '../databaseViews/galleryModels';
 import type {
   DatabaseView,
   DatabaseViewPresentation,
@@ -44,11 +48,14 @@ import {
   setDatabaseViewSort,
   setDatabaseViewTimelineEndProperty,
   setDatabaseViewTimelineStartProperty,
+  setDatabaseViewGalleryCoverProperty,
+  setDatabaseViewGalleryCardFields,
 } from '../databaseViews/databaseViewOperations';
 import { prepareDatabaseViewPresentation } from '../databaseViews/prepareDatabaseViewPresentation';
 import { withDatabaseViewDefaults } from '../databaseViews/prepareDatabaseViewRows';
 import { DatabaseBoardView } from './DatabaseBoardView';
 import { DatabaseCalendarView } from './DatabaseCalendarView';
+import { DatabaseGalleryView } from './DatabaseGalleryView';
 import { DatabaseTimelineView } from './DatabaseTimelineView';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
@@ -64,6 +71,8 @@ export interface DatabaseViewControlsProps {
   onDatePropertyChange: (dateProperty: string) => void;
   onTimelineStartChange: (startDateProperty: string) => void;
   onTimelineEndChange: (endDateProperty: string) => void;
+  onGalleryCoverChange: (coverProperty: string) => void;
+  onGalleryCardFieldsChange: (cardFields: readonly string[]) => void;
   onAddColumn: (key: string) => void;
   onRemoveColumn: (key: string) => void;
   onToggleColumnVisibility: (key: string, visible: boolean) => void;
@@ -102,6 +111,8 @@ export function DatabaseViewControls({
   onDatePropertyChange,
   onTimelineStartChange,
   onTimelineEndChange,
+  onGalleryCoverChange,
+  onGalleryCardFieldsChange,
   onAddColumn,
   onRemoveColumn,
   onToggleColumnVisibility,
@@ -134,6 +145,7 @@ export function DatabaseViewControls({
   const boardConfig = getBoardConfig(configured);
   const calendarConfig = getCalendarConfig(configured);
   const timelineConfig = getTimelineConfig(configured);
+  const galleryConfig = getGalleryConfig(configured);
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
   const rollupColumns = tableConfig.rollupColumns ?? [];
   const formulaColumns = tableConfig.formulaColumns ?? [];
@@ -275,6 +287,31 @@ export function DatabaseViewControls({
             onChange={onTimelineEndChange}
             listId="database-timeline-end-suggestions"
           />
+        </>
+      ) : configured.presentation === 'gallery' ? (
+        <>
+          <DatabasePropertyKeyField
+            preset={GALLERY_COVER_PROPERTY_FIELD}
+            value={galleryConfig.coverProperty ?? ''}
+            onChange={onGalleryCoverChange}
+            listId="database-gallery-cover-suggestions"
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontWeight: 700 }}>{GALLERY_CARD_FIELDS_FIELD.label}</span>
+            <input
+              className="bwi"
+              style={{ fontSize: 10 }}
+              placeholder={GALLERY_CARD_FIELDS_FIELD.placeholder}
+              value={formatGalleryCardFieldsInput(galleryConfig.cardFields)}
+              list="database-gallery-card-fields-suggestions"
+              onChange={event => onGalleryCardFieldsChange(parseGalleryCardFieldsInput(event.target.value))}
+            />
+            <datalist id="database-gallery-card-fields-suggestions">
+              {columnKeys.map(key => (
+                <option key={key} value={key} />
+              ))}
+            </datalist>
+          </div>
         </>
       ) : (
         <>
@@ -618,6 +655,7 @@ export function DatabaseViewPanel({
   );
   const tableConfig = useMemo(() => getTableConfig(configured), [configured]);
   const boardConfig = useMemo(() => getBoardConfig(configured), [configured]);
+  const galleryConfig = useMemo(() => getGalleryConfig(configured), [configured]);
   const visibleColumns = useMemo(
     () => resolveVisibleColumns(tableConfig.columns),
     [tableConfig.columns],
@@ -646,6 +684,8 @@ export function DatabaseViewPanel({
         onDatePropertyChange={dateProperty => patch(v => setDatabaseViewDateProperty(v, dateProperty))}
         onTimelineStartChange={startDateProperty => patch(v => setDatabaseViewTimelineStartProperty(v, startDateProperty))}
         onTimelineEndChange={endDateProperty => patch(v => setDatabaseViewTimelineEndProperty(v, endDateProperty))}
+        onGalleryCoverChange={coverProperty => patch(v => setDatabaseViewGalleryCoverProperty(v, coverProperty))}
+        onGalleryCardFieldsChange={cardFields => patch(v => setDatabaseViewGalleryCardFields(v, cardFields))}
         onAddColumn={key => patch(v => addDatabaseViewColumn(v, key))}
         onRemoveColumn={key => patch(v => removeDatabaseViewColumn(v, key))}
         onToggleColumnVisibility={(key, visible) => patch(v => setDatabaseViewColumnVisibility(v, key, visible))}
@@ -680,6 +720,16 @@ export function DatabaseViewPanel({
           items={presentationData.items}
           service={service}
           activeNoteId={activeNoteId}
+          onSelectNote={onSelectNote}
+        />
+      ) : presentationData.type === 'gallery' ? (
+        <DatabaseGalleryView
+          colors={c}
+          items={presentationData.items}
+          service={service}
+          activeNoteId={activeNoteId}
+          cardSize={galleryConfig.cardSize}
+          showCoverPlaceholder={Boolean(galleryConfig.coverProperty)}
           onSelectNote={onSelectNote}
         />
       ) : (
