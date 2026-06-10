@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SavedView } from '../views/savedViewModels';
+import { WorkspacePinToggle } from './WorkspacePinToggle';
 
 export interface SavedViewsSectionProps {
   colors: NoteChromeColors;
@@ -13,6 +14,8 @@ export interface SavedViewsSectionProps {
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  isPinned?: (id: string) => boolean;
+  onTogglePin?: (view: SavedView) => void;
 }
 
 export function SavedViewsSection({
@@ -25,6 +28,8 @@ export function SavedViewsSection({
   onCreate,
   onRename,
   onDelete,
+  isPinned,
+  onTogglePin,
 }: SavedViewsSectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -92,6 +97,13 @@ export function SavedViewsSection({
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {view.name}
             </span>
+            {onTogglePin && (
+              <WorkspacePinToggle
+                colors={c}
+                pinned={isPinned?.(view.id) ?? false}
+                onToggle={e => { e.stopPropagation(); onTogglePin(view); }}
+              />
+            )}
             <button
               type="button"
               onClick={e => {

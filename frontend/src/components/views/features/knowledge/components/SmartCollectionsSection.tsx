@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollection } from '../collections/smartCollectionModels';
+import { WorkspacePinToggle } from './WorkspacePinToggle';
 
 export interface SmartCollectionsSectionProps {
   colors: NoteChromeColors;
@@ -9,6 +10,8 @@ export interface SmartCollectionsSectionProps {
   counts: Readonly<Record<string, number>>;
   onActivate: (collection: SmartCollection) => void;
   onClearActive: () => void;
+  isPinned?: (id: string) => boolean;
+  onTogglePin?: (collection: SmartCollection) => void;
 }
 
 export function SmartCollectionsSection({
@@ -18,6 +21,8 @@ export function SmartCollectionsSection({
   counts,
   onActivate,
   onClearActive,
+  isPinned,
+  onTogglePin,
 }: SmartCollectionsSectionProps) {
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
@@ -48,6 +53,13 @@ export function SmartCollectionsSection({
             {collection.name}
           </span>
           <span style={{ fontSize: 9, color: c.textMuted }}>{counts[collection.id] ?? 0}</span>
+          {onTogglePin && (
+            <WorkspacePinToggle
+              colors={c}
+              pinned={isPinned?.(collection.id) ?? false}
+              onToggle={e => { e.stopPropagation(); onTogglePin(collection); }}
+            />
+          )}
         </div>
       ))}
     </div>

@@ -56,6 +56,9 @@ export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './compon
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
+export { PinnedWorkspacesSection, type PinnedWorkspacesSectionProps } from './components/PinnedWorkspacesSection';
+export { RecentWorkSection, type RecentWorkSectionProps } from './components/RecentWorkSection';
+export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
 export { DatabaseCalendarView, type DatabaseCalendarViewProps } from './components/DatabaseCalendarView';
@@ -403,23 +406,40 @@ export {
   isWorkspaceActivation,
   isWorkspaceItemKind,
   isWorkspaceKindActive,
+  isValidWorkspaceRef,
+  loadWorkspacePreferences,
   loadWorkspaceSession,
   normalizeWorkspaceActivation,
+  normalizeWorkspacePreferences,
   normalizeWorkspaceSession,
+  pruneWorkspacePreferences,
   reconcileSavedViewActivation,
+  recordRecentWorkspace,
+  removePinnedWorkspace,
+  reorderPinnedWorkspaces,
+  resolveWorkspaceRef,
+  restoreWorkspaceActivation,
+  saveWorkspacePreferences,
   saveWorkspaceSession,
+  togglePinnedWorkspace,
   useNoteWorkspace,
   WORKSPACE_FILTER_SOURCE,
+  WORKSPACE_PREFS_KEY,
   WORKSPACE_SESSION_KEY,
+  workspaceRefFromActivation,
   workspaceSessionFromActivation,
   type DatabaseView,
   type DatabaseViewPresentation,
+  type PinnedWorkspaceRef,
+  type RecentWorkEntry,
   type UseNoteWorkspaceOptions,
   type UseNoteWorkspaceResult,
   type WorkspaceActivation,
   type WorkspaceFilterSource,
   type WorkspaceItemKind,
   type WorkspaceItemRef,
+  type WorkspacePreferences,
   type WorkspaceRef,
+  type WorkspaceResolveContext,
   type WorkspaceSessionState,
 } from './workspace';

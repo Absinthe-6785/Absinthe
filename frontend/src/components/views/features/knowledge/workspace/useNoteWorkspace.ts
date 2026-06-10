@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { NoteBase } from '../../../noteUtils';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
@@ -51,11 +51,33 @@ import {
 import {
   INACTIVE_WORKSPACE,
   type WorkspaceActivation,
+  type WorkspaceRef,
 } from './workspaceModels';
 import {
+  loadWorkspaceSession,
   saveWorkspaceSession,
   workspaceSessionFromActivation,
 } from './workspaceSessionStorage';
+import {
+  addPinnedWorkspace,
+  clearRecentWork,
+  isWorkspacePinned,
+  pruneWorkspacePreferences,
+  recordRecentWorkspace,
+  removePinnedWorkspace,
+  reorderPinnedWorkspaces,
+  togglePinnedWorkspace,
+  type RecentWorkEntry,
+  type WorkspacePreferences,
+} from './workspacePreferences';
+import { loadWorkspacePreferences, saveWorkspacePreferences } from './workspacePreferencesStorage';
+import {
+  isValidWorkspaceRef,
+  resolveWorkspaceRef,
+  restoreWorkspaceActivation,
+  workspaceRefFromActivation,
+  type WorkspaceResolveContext,
+} from './resolveWorkspaceRef';
 
 export interface UseNoteWorkspaceOptions {
   notes: readonly NoteBase[];
@@ -116,6 +138,15 @@ export interface UseNoteWorkspaceResult {
   handleDeleteSavedView: (id: string) => void;
   patchActiveDatabaseView: (updater: (view: DatabaseView) => DatabaseView) => void;
   clearWorkspace: () => void;
+  preferences: WorkspacePreferences;
+  pinnedWorkspaces: readonly WorkspaceRef[];
+  recentWork: readonly RecentWorkEntry[];
+  isWorkspacePinned: (kind: WorkspaceRef['kind'], id: string) => boolean;
+  handleActivateWorkspaceRef: (ref: WorkspaceRef) => void;
+  handleTogglePinWorkspace: (ref: WorkspaceRef) => void;
+  handleUnpinWorkspace: (ref: WorkspaceRef) => void;
+  handleMovePinnedWorkspace: (fromIndex: number, toIndex: number) => void;
+  handleClearRecentWork: () => void;
 }
 
 export function useNoteWorkspace({
@@ -127,7 +158,15 @@ export function useNoteWorkspace({
   const [savedViews, setSavedViews] = useState(() => loadSavedViews());
   const [ruleCollections, setRuleCollections] = useState(() => loadRuleCollections());
   const [databaseViews, setDatabaseViews] = useState(() => loadDatabaseViews());
+  const [preferences, setPreferences] = useState(() => loadWorkspacePreferences());
   const [workspaceActivation, setWorkspaceActivation] = useState<WorkspaceActivation>(INACTIVE_WORKSPACE);
+  const hasRestoredSession = useRef(false);
+
+  const resolveContext = useMemo<WorkspaceResolveContext>(() => ({
+    savedViews,
+    ruleCollections,
+    databaseViews,
+  }), [savedViews, ruleCollections, databaseViews]);
 
   useEffect(() => {
     saveSavedViews(savedViews);
@@ -142,8 +181,32 @@ export function useNoteWorkspace({
   }, [databaseViews]);
 
   useEffect(() => {
+    saveWorkspacePreferences(preferences);
+  }, [preferences]);
+
+  useEffect(() => {
     saveWorkspaceSession(workspaceSessionFromActivation(workspaceActivation));
   }, [workspaceActivation]);
+
+  useEffect(() => {
+    setPreferences(prev => pruneWorkspacePreferences(prev, (kind, id) =>
+      isValidWorkspaceRef(kind, id, resolveContext)));
+  }, [resolveContext]);
+
+  useEffect(() => {
+    if (hasRestoredSession.current) return;
+    const session = loadWorkspaceSession();
+    if (!session || session.activation.kind === 'none') {
+      hasRestoredSession.current = true;
+      return;
+    }
+    const restored = restoreWorkspaceActivation(session.activation, resolveContext);
+    hasRestoredSession.current = true;
+    if (!restored) return;
+    resetBrowseScope();
+    setWorkspaceActivation(restored.activation);
+    setSearchQuery(restored.searchQuery);
+  }, [resolveContext, resetBrowseScope, setSearchQuery]);
 
   useEffect(() => {
     setWorkspaceActivation(prev => reconcileSavedViewActivation(prev, savedViews, searchQuery));
@@ -253,10 +316,19 @@ export function useNoteWorkspace({
     });
   }, [notes, workspaceActivation, ruleCollections, formulaQueryCatalog]);
 
-  const applyActivationResult = useCallback((result: { activation: WorkspaceActivation; searchQuery: string }) => {
+  const applyActivationResult = useCallback((
+    result: { activation: WorkspaceActivation; searchQuery: string },
+    options: { recordRecent?: boolean } = { recordRecent: true },
+  ) => {
     setWorkspaceActivation(result.activation);
     setSearchQuery(result.searchQuery);
-  }, [setSearchQuery]);
+    if (options.recordRecent !== false && result.activation.kind !== 'none') {
+      const ref = workspaceRefFromActivation(result.activation, resolveContext);
+      if (ref) {
+        setPreferences(prev => recordRecentWorkspace(prev, ref));
+      }
+    }
+  }, [setSearchQuery, resolveContext]);
 
   const handleActivateSavedView = useCallback((view: SavedView) => {
     resetBrowseScope();
@@ -361,8 +433,98 @@ export function useNoteWorkspace({
   }, [workspaceActivation]);
 
   const clearWorkspace = useCallback(() => {
-    applyActivationResult(clearWorkspaceActivation());
+    applyActivationResult(clearWorkspaceActivation(), { recordRecent: false });
   }, [applyActivationResult]);
+
+  const attachCount = useCallback((ref: WorkspaceRef): WorkspaceRef => {
+    if (ref.kind === 'smart-collection') {
+      return { ...ref, count: smartCollectionCounts[ref.id] ?? 0 };
+    }
+    if (ref.kind === 'rule-collection') {
+      return { ...ref, count: ruleCollectionCounts[ref.id] ?? 0 };
+    }
+    if (ref.kind === 'database-view') {
+      return { ...ref, count: databaseViewCounts[ref.id] ?? 0 };
+    }
+    return ref;
+  }, [smartCollectionCounts, ruleCollectionCounts, databaseViewCounts]);
+
+  const pinnedWorkspaces = useMemo(
+    () => preferences.pinned
+      .map(ref => resolveWorkspaceRef(ref, resolveContext))
+      .filter((ref): ref is WorkspaceRef => ref !== null)
+      .map(attachCount),
+    [preferences.pinned, resolveContext, attachCount],
+  );
+
+  const recentWork = useMemo(
+    () => preferences.recent
+      .map(entry => {
+        const resolved = resolveWorkspaceRef(entry.workspace, resolveContext);
+        if (!resolved) return null;
+        return {
+          workspace: attachCount(resolved),
+          lastOpenedAt: entry.lastOpenedAt,
+        };
+      })
+      .filter((entry): entry is RecentWorkEntry => entry !== null),
+    [preferences.recent, resolveContext, attachCount],
+  );
+
+  const checkPinned = useCallback(
+    (kind: WorkspaceRef['kind'], id: string) => isWorkspacePinned(preferences, kind, id),
+    [preferences],
+  );
+
+  const handleActivateWorkspaceRef = useCallback((ref: WorkspaceRef) => {
+    const resolved = resolveWorkspaceRef(ref, resolveContext);
+    if (!resolved) return;
+    resetBrowseScope();
+    if (resolved.kind === 'saved-view') {
+      const view = findSavedView(savedViews, resolved.id);
+      if (view) applyActivationResult(activateSavedViewWorkspace(view));
+      return;
+    }
+    if (resolved.kind === 'rule-collection') {
+      const collection = findRuleCollection(ruleCollections, resolved.id);
+      if (collection) applyActivationResult(activateRuleCollectionWorkspace(collection));
+      return;
+    }
+    if (resolved.kind === 'database-view') {
+      const view = findDatabaseView(databaseViews, resolved.id);
+      if (view) applyActivationResult(activateDatabaseViewWorkspace(view));
+      return;
+    }
+    if (resolved.kind === 'smart-collection') {
+      const collection = findSmartCollection(resolved.id);
+      if (collection) applyActivationResult(activateSmartCollectionWorkspace(collection));
+    }
+  }, [
+    resolveContext,
+    resetBrowseScope,
+    savedViews,
+    ruleCollections,
+    databaseViews,
+    applyActivationResult,
+  ]);
+
+  const handleTogglePinWorkspace = useCallback((ref: WorkspaceRef) => {
+    const resolved = resolveWorkspaceRef(ref, resolveContext);
+    if (!resolved) return;
+    setPreferences(prev => togglePinnedWorkspace(prev, resolved));
+  }, [resolveContext]);
+
+  const handleUnpinWorkspace = useCallback((ref: WorkspaceRef) => {
+    setPreferences(prev => removePinnedWorkspace(prev, ref.kind, ref.id));
+  }, []);
+
+  const handleMovePinnedWorkspace = useCallback((fromIndex: number, toIndex: number) => {
+    setPreferences(prev => reorderPinnedWorkspaces(prev, fromIndex, toIndex));
+  }, []);
+
+  const handleClearRecentWork = useCallback(() => {
+    setPreferences(prev => clearRecentWork(prev));
+  }, []);
 
   return {
     workspaceActivation,
@@ -406,5 +568,14 @@ export function useNoteWorkspace({
     handleDeleteSavedView,
     patchActiveDatabaseView,
     clearWorkspace,
+    preferences,
+    pinnedWorkspaces,
+    recentWork,
+    isWorkspacePinned: checkPinned,
+    handleActivateWorkspaceRef,
+    handleTogglePinWorkspace,
+    handleUnpinWorkspace,
+    handleMovePinnedWorkspace,
+    handleClearRecentWork,
   };
 }
