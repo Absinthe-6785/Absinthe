@@ -10,6 +10,7 @@ export const DATABASE_PRESENTATION_OPTIONS: readonly DatabasePresentationOption[
   { value: 'table', label: 'Table' },
   { value: 'board', label: 'Board' },
   { value: 'calendar', label: 'Calendar' },
+  { value: 'timeline', label: 'Timeline' },
 ];
 
 export function presentationLabel(presentation: DatabaseViewPresentation): string {
@@ -34,6 +35,18 @@ export const CALENDAR_DATE_PROPERTY_FIELD: DatabasePropertyFieldPreset = {
   defaultValue: 'reviewDate',
 };
 
+export const TIMELINE_START_DATE_FIELD: DatabasePropertyFieldPreset = {
+  label: 'Start date property',
+  placeholder: 'Property key (e.g. startDate)',
+  defaultValue: 'startDate',
+};
+
+export const TIMELINE_END_DATE_FIELD: DatabasePropertyFieldPreset = {
+  label: 'End date property',
+  placeholder: 'Property key (e.g. endDate)',
+  defaultValue: 'endDate',
+};
+
 export const TABLE_ADD_COLUMN_FIELD: DatabasePropertyFieldPreset = {
   label: 'Columns',
   placeholder: 'Property key (e.g. status)',
@@ -48,6 +61,8 @@ export const SUGGESTED_PROPERTY_KEYS = [
   'reviewDate',
   'dueDate',
   'examDate',
+  'startDate',
+  'endDate',
   'updatedAt',
   'createdAt',
 ] as const;

@@ -13,11 +13,14 @@ import {
   BOARD_GROUP_BY_FIELD,
   CALENDAR_DATE_PROPERTY_FIELD,
   TABLE_ADD_COLUMN_FIELD,
+  TIMELINE_END_DATE_FIELD,
+  TIMELINE_START_DATE_FIELD,
 } from '../databaseViews/databasePresentationMeta';
 import {
   getBoardConfig,
   getCalendarConfig,
   getTableConfig,
+  getTimelineConfig,
 } from '../databaseViews/databasePresentationConfig';
 import type {
   DatabaseView,
@@ -39,11 +42,14 @@ import {
   setDatabaseViewPresentation,
   setDatabaseViewRollupColumnVisibility,
   setDatabaseViewSort,
+  setDatabaseViewTimelineEndProperty,
+  setDatabaseViewTimelineStartProperty,
 } from '../databaseViews/databaseViewOperations';
 import { prepareDatabaseViewPresentation } from '../databaseViews/prepareDatabaseViewPresentation';
 import { withDatabaseViewDefaults } from '../databaseViews/prepareDatabaseViewRows';
 import { DatabaseBoardView } from './DatabaseBoardView';
 import { DatabaseCalendarView } from './DatabaseCalendarView';
+import { DatabaseTimelineView } from './DatabaseTimelineView';
 import { DatabasePresentationSwitcher } from './DatabasePresentationSwitcher';
 import { DatabasePropertyKeyField } from './DatabasePropertyKeyField';
 import { DatabaseTableView } from './DatabaseTableView';
@@ -56,6 +62,8 @@ export interface DatabaseViewControlsProps {
   onPresentationChange: (presentation: DatabaseViewPresentation) => void;
   onGroupByChange: (groupBy: string) => void;
   onDatePropertyChange: (dateProperty: string) => void;
+  onTimelineStartChange: (startDateProperty: string) => void;
+  onTimelineEndChange: (endDateProperty: string) => void;
   onAddColumn: (key: string) => void;
   onRemoveColumn: (key: string) => void;
   onToggleColumnVisibility: (key: string, visible: boolean) => void;
@@ -92,6 +100,8 @@ export function DatabaseViewControls({
   onPresentationChange,
   onGroupByChange,
   onDatePropertyChange,
+  onTimelineStartChange,
+  onTimelineEndChange,
   onAddColumn,
   onRemoveColumn,
   onToggleColumnVisibility,
@@ -123,6 +133,7 @@ export function DatabaseViewControls({
   const tableConfig = getTableConfig(configured);
   const boardConfig = getBoardConfig(configured);
   const calendarConfig = getCalendarConfig(configured);
+  const timelineConfig = getTimelineConfig(configured);
   const columnKeys = resolveAllColumnKeys(tableConfig.columns);
   const rollupColumns = tableConfig.rollupColumns ?? [];
   const formulaColumns = tableConfig.formulaColumns ?? [];
@@ -250,6 +261,21 @@ export function DatabaseViewControls({
           onChange={onDatePropertyChange}
           listId="database-calendar-date-suggestions"
         />
+      ) : configured.presentation === 'timeline' ? (
+        <>
+          <DatabasePropertyKeyField
+            preset={TIMELINE_START_DATE_FIELD}
+            value={timelineConfig.startDateProperty}
+            onChange={onTimelineStartChange}
+            listId="database-timeline-start-suggestions"
+          />
+          <DatabasePropertyKeyField
+            preset={TIMELINE_END_DATE_FIELD}
+            value={timelineConfig.endDateProperty ?? ''}
+            onChange={onTimelineEndChange}
+            listId="database-timeline-end-suggestions"
+          />
+        </>
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -618,6 +644,8 @@ export function DatabaseViewPanel({
         onPresentationChange={presentation => patch(v => setDatabaseViewPresentation(v, presentation))}
         onGroupByChange={groupBy => patch(v => setDatabaseViewGroupBy(v, groupBy))}
         onDatePropertyChange={dateProperty => patch(v => setDatabaseViewDateProperty(v, dateProperty))}
+        onTimelineStartChange={startDateProperty => patch(v => setDatabaseViewTimelineStartProperty(v, startDateProperty))}
+        onTimelineEndChange={endDateProperty => patch(v => setDatabaseViewTimelineEndProperty(v, endDateProperty))}
         onAddColumn={key => patch(v => addDatabaseViewColumn(v, key))}
         onRemoveColumn={key => patch(v => removeDatabaseViewColumn(v, key))}
         onToggleColumnVisibility={(key, visible) => patch(v => setDatabaseViewColumnVisibility(v, key, visible))}
@@ -642,6 +670,14 @@ export function DatabaseViewPanel({
         <DatabaseCalendarView
           colors={c}
           buckets={presentationData.buckets}
+          service={service}
+          activeNoteId={activeNoteId}
+          onSelectNote={onSelectNote}
+        />
+      ) : presentationData.type === 'timeline' ? (
+        <DatabaseTimelineView
+          colors={c}
+          items={presentationData.items}
           service={service}
           activeNoteId={activeNoteId}
           onSelectNote={onSelectNote}

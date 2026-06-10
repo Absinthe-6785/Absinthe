@@ -464,8 +464,16 @@ export const NoteView = () => {
     presentation?: DatabaseViewPresentation,
     groupBy?: string,
     dateProperty?: string,
+    startDateProperty?: string,
+    endDateProperty?: string,
   ) => {
-    setDatabaseViews(prev => createDatabaseView(prev, name, query, { presentation, groupBy, dateProperty }));
+    setDatabaseViews(prev => createDatabaseView(prev, name, query, {
+      presentation,
+      groupBy,
+      dateProperty,
+      startDateProperty,
+      endDateProperty,
+    }));
   }, []);
 
   const handleRenameDatabaseView = useCallback((id: string, name: string) => {

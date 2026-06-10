@@ -11,11 +11,15 @@ import type {
   DatabaseCalendarConfig,
   DatabasePresentationConfig,
   DatabaseTableConfig,
+  DatabaseTimelineConfig,
+  DatabaseTimelineSortBy,
 } from './databasePresentationModels';
 import type { DatabaseView, DatabaseViewPresentation } from './databaseViewModels';
 
 export const DEFAULT_BOARD_GROUP_BY = 'status';
 export const DEFAULT_CALENDAR_DATE_PROPERTY = 'updatedAt';
+export const DEFAULT_TIMELINE_START_PROPERTY = 'startDate';
+export const DEFAULT_TIMELINE_END_PROPERTY = 'endDate';
 export const UNASSIGNED_LANE_KEY = '__unassigned__';
 export const UNASSIGNED_LANE_LABEL = 'No value';
 
@@ -47,6 +51,17 @@ export function defaultCalendarPresentationConfig(
   };
 }
 
+export function defaultTimelinePresentationConfig(
+  startDateProperty = DEFAULT_TIMELINE_START_PROPERTY,
+  endDateProperty = DEFAULT_TIMELINE_END_PROPERTY,
+): DatabaseTimelineConfig {
+  return {
+    type: 'timeline',
+    startDateProperty,
+    endDateProperty,
+  };
+}
+
 export function defaultPresentationConfig(
   presentation: DatabaseViewPresentation,
 ): DatabasePresentationConfig {
@@ -55,6 +70,8 @@ export function defaultPresentationConfig(
       return defaultBoardPresentationConfig();
     case 'calendar':
       return defaultCalendarPresentationConfig();
+    case 'timeline':
+      return defaultTimelinePresentationConfig();
     default:
       return defaultTablePresentationConfig();
   }
@@ -114,6 +131,31 @@ export function normalizeCalendarConfig(raw: unknown): DatabaseCalendarConfig {
   return defaultCalendarPresentationConfig();
 }
 
+const TIMELINE_SORT_KEYS: readonly DatabaseTimelineSortBy[] = ['start', 'end', 'title'];
+
+export function normalizeTimelineConfig(raw: unknown): DatabaseTimelineConfig {
+  if (raw && typeof raw === 'object') {
+    const record = raw as Partial<DatabaseTimelineConfig>;
+    if (record.type === 'timeline' && typeof record.startDateProperty === 'string' && record.startDateProperty.trim()) {
+      const config: DatabaseTimelineConfig = {
+        type: 'timeline',
+        startDateProperty: record.startDateProperty.trim(),
+      };
+      if (typeof record.endDateProperty === 'string' && record.endDateProperty.trim()) {
+        config.endDateProperty = record.endDateProperty.trim();
+      }
+      if (record.sortBy && (TIMELINE_SORT_KEYS as readonly string[]).includes(record.sortBy)) {
+        config.sortBy = record.sortBy;
+      }
+      if (typeof record.unscheduledLabel === 'string' && record.unscheduledLabel.trim()) {
+        config.unscheduledLabel = record.unscheduledLabel.trim();
+      }
+      return config;
+    }
+  }
+  return defaultTimelinePresentationConfig();
+}
+
 export function normalizePresentationConfig(
   raw: unknown,
   presentation: DatabaseViewPresentation,
@@ -141,6 +183,9 @@ export function normalizePresentationConfig(
     if (record.type === 'calendar') {
       return normalizeCalendarConfig(raw);
     }
+    if (record.type === 'timeline') {
+      return normalizeTimelineConfig(raw);
+    }
   }
 
   if (presentation === 'board') {
@@ -148,6 +193,9 @@ export function normalizePresentationConfig(
   }
   if (presentation === 'calendar') {
     return defaultCalendarPresentationConfig();
+  }
+  if (presentation === 'timeline') {
+    return defaultTimelinePresentationConfig();
   }
   return liftLegacyTableConfig(legacyView ?? {});
 }
@@ -174,6 +222,14 @@ export function getCalendarConfig(view: DatabaseView): DatabaseCalendarConfig {
     return normalized.presentationConfig;
   }
   return defaultCalendarPresentationConfig();
+}
+
+export function getTimelineConfig(view: DatabaseView): DatabaseTimelineConfig {
+  const normalized = withPresentationDefaults(view);
+  if (normalized.presentationConfig.type === 'timeline') {
+    return normalized.presentationConfig;
+  }
+  return defaultTimelinePresentationConfig();
 }
 
 /** Sync legacy root columns/sort from table config for backward-compatible persistence */
@@ -228,6 +284,18 @@ export function withPresentationDefaults(view: DatabaseView): DatabaseView {
     };
   }
 
+  if (presentation === 'timeline' && presentationConfig.type === 'timeline') {
+    const tableCache = view.presentationConfig?.type === 'table'
+      ? view.presentationConfig
+      : liftLegacyTableConfig(view);
+    return {
+      ...view,
+      presentation,
+      presentationConfig,
+      ...syncLegacyTableFields(view, tableCache),
+    };
+  }
+
   return {
     ...view,
     presentation,
@@ -261,6 +329,10 @@ export function setViewPresentation(
     presentationConfig = current.presentationConfig.type === 'calendar'
       ? current.presentationConfig
       : defaultCalendarPresentationConfig();
+  } else if (presentation === 'timeline') {
+    presentationConfig = current.presentationConfig.type === 'timeline'
+      ? current.presentationConfig
+      : defaultTimelinePresentationConfig();
   } else {
     presentationConfig = defaultPresentationConfig(presentation);
   }
@@ -312,5 +384,57 @@ export function setCalendarDateProperty(view: DatabaseView, dateProperty: string
     ...current,
     presentation: 'calendar',
     presentationConfig: calendarConfig,
+  });
+}
+
+export function setTimelineStartDateProperty(view: DatabaseView, startDateProperty: string): DatabaseView {
+  const trimmed = startDateProperty.trim();
+  if (!trimmed) return view;
+
+  const current = withPresentationDefaults(view);
+  const timelineConfig: DatabaseTimelineConfig = {
+    type: 'timeline',
+    startDateProperty: trimmed,
+    ...(current.presentationConfig.type === 'timeline' && current.presentationConfig.endDateProperty
+      ? { endDateProperty: current.presentationConfig.endDateProperty }
+      : { endDateProperty: DEFAULT_TIMELINE_END_PROPERTY }),
+    ...(current.presentationConfig.type === 'timeline' && current.presentationConfig.sortBy
+      ? { sortBy: current.presentationConfig.sortBy }
+      : {}),
+    ...(current.presentationConfig.type === 'timeline' && current.presentationConfig.unscheduledLabel
+      ? { unscheduledLabel: current.presentationConfig.unscheduledLabel }
+      : {}),
+  };
+
+  return withPresentationDefaults({
+    ...current,
+    presentation: 'timeline',
+    presentationConfig: timelineConfig,
+  });
+}
+
+export function setTimelineEndDateProperty(view: DatabaseView, endDateProperty: string): DatabaseView {
+  const trimmed = endDateProperty.trim();
+  if (!trimmed) return view;
+
+  const current = withPresentationDefaults(view);
+  const timelineConfig: DatabaseTimelineConfig = {
+    type: 'timeline',
+    startDateProperty: current.presentationConfig.type === 'timeline'
+      ? current.presentationConfig.startDateProperty
+      : DEFAULT_TIMELINE_START_PROPERTY,
+    endDateProperty: trimmed,
+    ...(current.presentationConfig.type === 'timeline' && current.presentationConfig.sortBy
+      ? { sortBy: current.presentationConfig.sortBy }
+      : {}),
+    ...(current.presentationConfig.type === 'timeline' && current.presentationConfig.unscheduledLabel
+      ? { unscheduledLabel: current.presentationConfig.unscheduledLabel }
+      : {}),
+  };
+
+  return withPresentationDefaults({
+    ...current,
+    presentation: 'timeline',
+    presentationConfig: timelineConfig,
   });
 }

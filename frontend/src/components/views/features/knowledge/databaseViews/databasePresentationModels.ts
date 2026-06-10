@@ -41,11 +41,26 @@ export interface DatabaseCalendarConfig {
   unscheduledLabel?: string;
 }
 
+/** Timeline bar sort key — K-17.5 */
+export type DatabaseTimelineSortBy = 'start' | 'end' | 'title';
+
+/** Timeline presentation config — K-17.5 */
+export interface DatabaseTimelineConfig {
+  type: 'timeline';
+  /** Property or metadata key for range start */
+  startDateProperty: string;
+  /** Optional range end — single-day when omitted or equal to start */
+  endDateProperty?: string;
+  sortBy?: DatabaseTimelineSortBy;
+  unscheduledLabel?: string;
+}
+
 /** Discriminated presentation config — recommended K-10+ shape */
 export type DatabasePresentationConfig =
   | DatabaseTableConfig
   | DatabaseBoardConfig
-  | DatabaseCalendarConfig;
+  | DatabaseCalendarConfig
+  | DatabaseTimelineConfig;
 
 /** Recommended future DatabaseView core — query + presentation + config */
 export interface DatabaseViewRecord {
@@ -72,6 +87,14 @@ export function isDatabaseCalendarConfig(
   config: DatabasePresentationConfig,
 ): config is DatabaseCalendarConfig {
   return config.type === 'calendar';
+}
+
+export function isDatabaseTimelineConfig(
+  config: DatabasePresentationConfig,
+): config is DatabaseTimelineConfig {
+  return config.type === 'timeline'
+    && typeof config.startDateProperty === 'string'
+    && config.startDateProperty.trim().length > 0;
 }
 
 export function presentationConfigForType(

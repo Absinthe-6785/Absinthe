@@ -6,6 +6,8 @@ import {
   getTableConfig,
   setBoardGroupBy,
   setCalendarDateProperty,
+  setTimelineEndDateProperty,
+  setTimelineStartDateProperty,
   setViewPresentation,
   withPresentationDefaults,
 } from './databasePresentationConfig';
@@ -281,6 +283,14 @@ export function setDatabaseViewGroupBy(view: DatabaseView, groupBy: string): Dat
 
 export function setDatabaseViewDateProperty(view: DatabaseView, dateProperty: string): DatabaseView {
   return setCalendarDateProperty(view, dateProperty);
+}
+
+export function setDatabaseViewTimelineStartProperty(view: DatabaseView, startDateProperty: string): DatabaseView {
+  return setTimelineStartDateProperty(view, startDateProperty);
+}
+
+export function setDatabaseViewTimelineEndProperty(view: DatabaseView, endDateProperty: string): DatabaseView {
+  return setTimelineEndDateProperty(view, endDateProperty);
 }
 
 export function updateDatabaseViewConfig(
