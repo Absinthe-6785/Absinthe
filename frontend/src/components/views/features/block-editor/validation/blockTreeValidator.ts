@@ -1,5 +1,6 @@
 import type { Block, BlockType } from '../../../blockUtils';
 import { isKnownBlockType } from '../../../blockTypeGuards';
+import { isListType } from '../../../listBlocks';
 
 export type ViolationSeverity = 'error' | 'warning';
 
@@ -122,36 +123,28 @@ function validateListContinuity(
   parentPath: string,
   violations: BlockTreeViolation[],
 ): void {
-  let index = 0;
-  while (index < blocks.length) {
-    const block = blocks[index];
-    if (block.type !== 'numbered') {
-      index++;
-      continue;
-    }
+  const counters = new Map<number, number>();
 
-    const indent = block.indent ?? 0;
-    let expected = 1;
-    while (
-      index < blocks.length
-      && blocks[index].type === 'numbered'
-      && (blocks[index].indent ?? 0) === indent
-    ) {
-      const current = blocks[index];
-      const actual = current.listIndex ?? expected;
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    if (block.type === 'numbered') {
+      const indent = block.indent ?? 0;
+      const expected = (counters.get(indent) ?? 0) + 1;
+      counters.set(indent, expected);
+      const actual = block.listIndex ?? expected;
       if (actual !== expected) {
         pushViolation(violations, {
           code: 'LIST_CONTINUITY',
           severity: 'warning',
-          blockId: current.id,
+          blockId: block.id,
           path: `${parentPath}[${index}]`,
           message: `Numbered list index ${actual} breaks continuity (expected ${expected})`,
           expected: String(expected),
           actual: String(actual),
         });
       }
-      expected++;
-      index++;
+    } else if (!isListType(block.type)) {
+      counters.clear();
     }
   }
 }

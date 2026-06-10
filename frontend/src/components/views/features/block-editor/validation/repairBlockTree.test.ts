@@ -68,14 +68,14 @@ describe('repairBlockTree — LIST_CONTINUITY', () => {
     expect(result.repairsApplied).toEqual(['renumber_lists']);
   });
 
-  it('restarts numbering per indent level', () => {
+  it('continues numbering at parent indent after nested items', () => {
     const blocks = [
       makeBlock('numbered', { id: 'n1', content: 'one', listIndex: 1, indent: 0 }),
       makeBlock('numbered', { id: 'n2', content: 'nested', listIndex: 9, indent: 1 }),
       makeBlock('numbered', { id: 'n3', content: 'top', listIndex: 9, indent: 0 }),
     ];
     const result = repairBlockTree(blocks);
-    expect(result.blocks.map(b => b.listIndex)).toEqual([1, 1, 1]);
+    expect(result.blocks.map(b => b.listIndex)).toEqual([1, 1, 2]);
     expect(result.repairsApplied).toContain('renumber_lists');
   });
 });

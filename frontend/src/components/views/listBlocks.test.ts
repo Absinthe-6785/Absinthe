@@ -22,6 +22,18 @@ describe('listBlocks', () => {
     expect(next[0].indent).toBe(0);
   });
 
+  it('renumberNumberedLists continues across bullet interruptions (Notion-style)', () => {
+    const blocks = [
+      makeBlock('numbered', { id: 'a', content: 'one', listIndex: 1 }),
+      makeBlock('bullet', { id: 'b', content: 'bullet' }),
+      makeBlock('numbered', { id: 'c', content: 'two', listIndex: 1 }),
+      makeBlock('paragraph', { id: 'd', content: 'break' }),
+      makeBlock('numbered', { id: 'e', content: 'three', listIndex: 1 }),
+    ];
+    const next = renumberNumberedLists(blocks);
+    expect(next.filter(b => b.type === 'numbered').map(b => b.listIndex)).toEqual([1, 2, 1]);
+  });
+
   it('renumberNumberedLists', () => {
     const blocks = [
       makeBlock('numbered', { id: 'a', content: 'one', listIndex: 9 }),
