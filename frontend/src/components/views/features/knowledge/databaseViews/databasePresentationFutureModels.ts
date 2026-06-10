@@ -61,10 +61,7 @@ export interface DatabaseGalleryConfig {
 }
 
 /** Multi-column sort rule — K-18+ */
-export interface DatabaseViewSortRule {
-  key: string;
-  direction: 'asc' | 'desc';
-}
+export type { DatabaseViewSortRule } from './databasePresentationModels';
 
 /** Table grouped-section config — K-18+ optional enhancement */
 export interface DatabaseTableGroupConfig {

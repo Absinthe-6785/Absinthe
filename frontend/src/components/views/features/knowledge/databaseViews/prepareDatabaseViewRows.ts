@@ -3,7 +3,7 @@ import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getTableConfig, withPresentationDefaults } from './databasePresentationConfig';
 import { filterByDatabaseView } from './filterByDatabaseView';
 import type { DatabaseView } from './databaseViewModels';
-import { sortDatabaseViewRows } from './sortDatabaseViewRows';
+import { sortDatabaseViewRows, resolveDatabaseViewSortRules } from './sortDatabaseViewRows';
 
 /** Apply defaults to a database view config */
 export function withDatabaseViewDefaults(view: DatabaseView): DatabaseView {
@@ -26,5 +26,5 @@ export function prepareDatabaseViewRows(
     service,
     configured,
   ).notes;
-  return sortDatabaseViewRows(filtered, table.sort, service);
+  return sortDatabaseViewRows(filtered, resolveDatabaseViewSortRules(table), service, table);
 }

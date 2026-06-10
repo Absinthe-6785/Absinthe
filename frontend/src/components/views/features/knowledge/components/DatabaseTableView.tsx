@@ -4,6 +4,7 @@ import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
+import type { DatabaseViewSortRule } from '../databaseViews/databasePresentationModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
 import {
   computeFormulasForNote,
@@ -22,6 +23,7 @@ export interface DatabaseTableViewProps {
   rollupColumns?: readonly RollupColumnDefinition[];
   formulaColumns?: readonly FormulaColumnDefinition[];
   sort?: DatabaseViewSort;
+  sortRules?: readonly DatabaseViewSortRule[];
   service: KnowledgeIndexService;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
@@ -65,9 +67,16 @@ export function getDatabaseFormulaCellValue(
   return getFormulaColumnValue(column.key, values).display;
 }
 
-function sortIndicator(sort: DatabaseViewSort | undefined, columnKey: string): string {
-  if (!sort || sort.key !== columnKey) return '';
-  return sort.direction === 'asc' ? ' ↑' : ' ↓';
+function sortIndicator(
+  sortRules: readonly DatabaseViewSortRule[] | undefined,
+  columnKey: string,
+): string {
+  if (!sortRules?.length) return '';
+  const index = sortRules.findIndex(rule => rule.key === columnKey);
+  if (index < 0) return '';
+  const rule = sortRules[index];
+  const prefix = sortRules.length > 1 ? `${index + 1}` : '';
+  return `${prefix}${rule.direction === 'asc' ? ' ↑' : ' ↓'}`;
 }
 
 export function DatabaseTableView({
@@ -77,6 +86,7 @@ export function DatabaseTableView({
   rollupColumns = [],
   formulaColumns = [],
   sort,
+  sortRules,
   service,
   activeNoteId,
   onSelectNote,
@@ -84,6 +94,7 @@ export function DatabaseTableView({
   const notesById = new Map(notes.map(note => [note.id, note]));
   const formulaMemo = createFormulaComputeMemo();
   const totalColumns = columns.length + rollupColumns.length + formulaColumns.length;
+  const effectiveSortRules = sortRules ?? (sort ? [sort] : []);
 
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist }}>
@@ -101,7 +112,7 @@ export function DatabaseTableView({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {column.label}{sortIndicator(sort, column.key)}
+                {column.label}{sortIndicator(effectiveSortRules, column.key)}
               </th>
             ))}
             {rollupColumns.map(column => (
@@ -115,7 +126,7 @@ export function DatabaseTableView({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {rollupColumnLabel(column)}
+                {rollupColumnLabel(column)}{sortIndicator(effectiveSortRules, column.key)}
               </th>
             ))}
             {formulaColumns.map(column => (
@@ -130,7 +141,7 @@ export function DatabaseTableView({
                   fontStyle: 'italic',
                 }}
               >
-                {formulaColumnLabel(column)}
+                {formulaColumnLabel(column)}{sortIndicator(effectiveSortRules, column.key)}
               </th>
             ))}
           </tr>

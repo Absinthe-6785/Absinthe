@@ -20,6 +20,8 @@ import type {
   DatabaseViewPresentation,
   DatabaseViewSort,
 } from './databaseViewModels';
+import type { DatabaseViewSortRule } from './databasePresentationModels';
+import { syncTableSortConfig } from './databaseSortFutureModels';
 import { isBuiltinColumnKey } from './databaseViewModels';
 import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import { normalizeFormulaColumns } from '../formulas/formulaModels';
@@ -38,6 +40,7 @@ function updateViewTable(
       type: 'table',
       columns: normalizeDatabaseViewColumns(next.columns),
       sort: next.sort,
+      sortRules: next.sortRules,
       rollupColumns: normalizeRollupColumns(next.rollupColumns),
       formulaColumns: normalizeFormulaColumns(next.formulaColumns),
     },
@@ -110,17 +113,89 @@ export function hideDatabaseViewColumn(view: DatabaseView, key: string): Databas
   return setDatabaseViewColumnVisibility(view, key, false);
 }
 
+function syncTableSortFields(table: DatabaseTableConfig): DatabaseTableConfig {
+  const synced = syncTableSortConfig(table.sort, table.sortRules);
+  return { ...table, sort: synced.sort, sortRules: synced.sortRules };
+}
+
 export function setDatabaseViewSort(
   view: DatabaseView,
   sort: DatabaseViewSort,
 ): DatabaseView {
   const key = sort.key.trim();
   if (!key) return view;
+
+  const table = getTableConfig(view);
+  const rules = table.sortRules ?? [];
   const direction = sort.direction === 'asc' ? 'asc' : 'desc';
-  return updateViewTable(view, table => ({
+  const nextRules: DatabaseViewSortRule[] = rules.length > 0
+    ? [{ key, direction }, ...rules.slice(1)]
+    : [{ key, direction }];
+  return setDatabaseViewSortRules(view, nextRules);
+}
+
+export function setDatabaseViewSortRules(
+  view: DatabaseView,
+  sortRules: readonly DatabaseViewSortRule[],
+): DatabaseView {
+  const normalized = sortRules
+    .map(rule => ({
+      key: rule.key.trim(),
+      direction: rule.direction === 'asc' ? 'asc' as const : 'desc' as const,
+    }))
+    .filter(rule => rule.key);
+  if (normalized.length === 0) return view;
+
+  const synced = syncTableSortConfig(normalized[0], normalized);
+  return updateViewTable(view, table => syncTableSortFields({
     ...table,
-    sort: { key, direction },
+    sort: synced.sort,
+    sortRules: synced.sortRules,
   }));
+}
+
+export function addDatabaseViewSortRule(
+  view: DatabaseView,
+  rule: DatabaseViewSortRule,
+): DatabaseView {
+  const key = rule.key.trim();
+  if (!key) return view;
+
+  const table = getTableConfig(view);
+  const current = table.sortRules ?? syncTableSortConfig(table.sort, table.sortRules).sortRules;
+  return setDatabaseViewSortRules(view, [
+    ...current,
+    { key, direction: rule.direction === 'asc' ? 'asc' : 'desc' },
+  ]);
+}
+
+export function removeDatabaseViewSortRule(view: DatabaseView, index: number): DatabaseView {
+  const table = getTableConfig(view);
+  const current = table.sortRules ?? syncTableSortConfig(table.sort, table.sortRules).sortRules;
+  if (index < 0 || index >= current.length || current.length <= 1) return view;
+  return setDatabaseViewSortRules(view, current.filter((_, i) => i !== index));
+}
+
+export function moveDatabaseViewSortRule(
+  view: DatabaseView,
+  fromIndex: number,
+  toIndex: number,
+): DatabaseView {
+  const table = getTableConfig(view);
+  const current = [...(table.sortRules ?? syncTableSortConfig(table.sort, table.sortRules).sortRules)];
+  if (
+    fromIndex < 0
+    || fromIndex >= current.length
+    || toIndex < 0
+    || toIndex >= current.length
+    || fromIndex === toIndex
+  ) {
+    return view;
+  }
+
+  const [moved] = current.splice(fromIndex, 1);
+  current.splice(toIndex, 0, moved);
+  return setDatabaseViewSortRules(view, current);
 }
 
 function columnKeyTaken(table: DatabaseTableConfig, key: string): boolean {
