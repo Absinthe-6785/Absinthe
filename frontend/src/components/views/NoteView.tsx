@@ -66,6 +66,10 @@ import {
   type RuleCollection,
   type DatabaseView,
   type DatabaseViewPresentation,
+  DailyTraceDayView,
+  toDateKey,
+  formatTraceDayHeading,
+  buildDailyTraceProjection,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -277,10 +281,12 @@ export const NoteView = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
+  const [traceDate, setTraceDate] = useState<string | null>(null);
 
   const resetBrowseScope = useCallback(() => {
     setActiveFolderId(null);
     setActiveTag(null);
+    setTraceDate(null);
   }, []);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
@@ -375,6 +381,34 @@ export const NoteView = () => {
     handleCreateJournalDatabase,
   } = workspace;
 
+  const todayTraceKey = toDateKey(new Date());
+
+  const openTraceDay = useCallback((dateKey: string) => {
+    setTraceDate(dateKey);
+    setWorkspaceActivation(INACTIVE_WORKSPACE);
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery('');
+  }, [setWorkspaceActivation, setSearchQuery]);
+
+  const closeTraceDay = useCallback(() => {
+    setTraceDate(null);
+  }, []);
+
+  const isTraceDayMode = traceDate !== null;
+
+  const traceDayProjection = useMemo(
+    () => (traceDate ? buildDailyTraceProjection(traceDate, notes.filter(n => !n.deletedAt)) : null),
+    [traceDate, notes],
+  );
+
+  const traceDayMarkCount = useMemo(() => {
+    if (!traceDayProjection) return 0;
+    return traceDayProjection.milestones.length
+      + traceDayProjection.events.length
+      + traceDayProjection.activities.length;
+  }, [traceDayProjection]);
+
   const openCreatedNote = useCallback((id: string) => {
     handleLeaveDashboardForNote(id);
     setActiveNoteId(id);
@@ -434,6 +468,11 @@ export const NoteView = () => {
     return openCreatedNote(id);
   };
 
+  const handleActivateDashboardWithTraceClear = useCallback(() => {
+    setTraceDate(null);
+    handleActivateDashboard();
+  }, [handleActivateDashboard]);
+
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
   const hideLeftChrome = focusMode || hideSidebarByFocus;
@@ -445,7 +484,7 @@ export const NoteView = () => {
     }
   }, [isFocusPresetActive, focusUiPreferences.hideGraph, viewMode]);
 
-  const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode;
+  const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode || isTraceDayMode;
   const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
   const activeWorkspaceId = workspaceActivation.kind === 'none' || workspaceActivation.kind === 'dashboard'
     ? null
@@ -1069,15 +1108,21 @@ export const NoteView = () => {
                 </div>
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceDayMode ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
                   </span>
                 </div>
+                <div
+                  className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
+                  onClick={() => openTraceDay(todayTraceKey)}
+                >
+                  <span style={{ flex: 1 }}>Today</span>
+                </div>
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
+                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
                   <span style={{ flex: 1 }}>Starred</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
@@ -1085,7 +1130,7 @@ export const NoteView = () => {
                 <div className="bseclbl">Folders</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}
+                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); }}
                     onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
                     onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
                     onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
@@ -1124,7 +1169,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1146,7 +1191,7 @@ export const NoteView = () => {
                     <>
                       <div
                         className={`bfi ${isDashboardMode ? 'active' : ''}`}
-                        onClick={handleActivateDashboard}
+                        onClick={handleActivateDashboardWithTraceClear}
                         style={{ gap: 4, fontSize: 11 }}
                       >
                         <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
@@ -1276,7 +1321,9 @@ export const NoteView = () => {
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {isDashboardMode
+            {isTraceDayMode && traceDate
+              ? formatTraceDayHeading(traceDate)
+              : isDashboardMode
               ? dashboard.name
               : activeDatabaseView
               ? activeDatabaseView.name
@@ -1290,12 +1337,15 @@ export const NoteView = () => {
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
-              ({isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
+              ({isTraceDayMode ? traceDayMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
             </span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
+            )}
+            {isTraceDayMode && (
+              <button onClick={closeTraceDay} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave date view">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
               <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave dashboard">✕</button>
@@ -1348,7 +1398,16 @@ export const NoteView = () => {
             )}
           </div>
         </div>
-        {isDashboardMode ? (
+        {isTraceDayMode && traceDate ? (
+          <DailyTraceDayView
+            colors={c}
+            date={traceDate}
+            notes={notes.filter(n => !n.deletedAt)}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+            onDateChange={setTraceDate}
+          />
+        ) : isDashboardMode ? (
           <WorkspaceDashboardView
             colors={c}
             dashboard={dashboard}

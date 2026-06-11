@@ -18,6 +18,8 @@ export interface NoteBase {
   id: string;
   title: string;
   body: string;
+  /** First creation time — optional on legacy notes; set on create in useNotesStore */
+  createdAt?: number;
   updatedAt: number;
   folderId: string | null;
   deletedAt: number | null;

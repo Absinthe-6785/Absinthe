@@ -9,3 +9,10 @@ export {
 } from './dailyTraceModels';
 
 export { buildDailyTraceProjection } from './buildDailyTraceProjection';
+export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
+export {
+  findDailyAnchorNote,
+  formatTraceDayHeading,
+  hasDailyTraceMarks,
+  shiftDateKey,
+} from './dailyTraceDayHelpers';

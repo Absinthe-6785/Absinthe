@@ -311,8 +311,14 @@ export {
 
 export {
   buildDailyTraceProjection,
+  DailyTraceDayView,
   EVENT_TYPE_VALUE,
+  findDailyAnchorNote,
+  formatTraceDayHeading,
+  hasDailyTraceMarks,
+  shiftDateKey,
   TRACE_PROPERTY_KEYS,
+  type DailyTraceDayViewProps,
   type DailyTraceProjection,
   type TraceActivity,
   type TraceActivityKind,

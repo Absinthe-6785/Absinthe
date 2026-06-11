@@ -334,6 +334,8 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
     authFetchMock.mockResolvedValue(okJson({}));
     const id = useNotesStore.getState().createNote({ title: 'T', body: '' });
     const created = useNotesStore.getState().notes.find(n => n.id === id)!;
+    expect(created.createdAt).toBeDefined();
+    expect(created.createdAt).toBe(created.updatedAt);
     const prevUpdatedAt = created.updatedAt;
 
     useNotesStore.getState().updateNote(id, { folderId: 'folder-x' });
