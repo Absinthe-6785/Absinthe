@@ -310,6 +310,17 @@ export {
 } from './databaseViews';
 
 export {
+  buildDailyTraceProjection,
+  EVENT_TYPE_VALUE,
+  TRACE_PROPERTY_KEYS,
+  type DailyTraceProjection,
+  type TraceActivity,
+  type TraceActivityKind,
+  type TraceEventRef,
+  type TraceMilestoneRef,
+} from './trace';
+
+export {
   isRelationEdge,
   isRelationRecord,
   type ExplicitGraphRelationshipType,
