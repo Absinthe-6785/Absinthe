@@ -65,6 +65,8 @@ export function RuleCollectionsSection({
     setRenameValue('');
   };
 
+  if (collections.length === 0 && !canCreateFromCurrent && !showCreateForm) return null;
+
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

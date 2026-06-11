@@ -33,7 +33,7 @@ const THEME_COLORS: ThemeColor[] = [
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting } = useAppStore();
   const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
-  const [activeTab, setActiveTab] = useState<TabId>('planner');
+  const [activeTab, setActiveTab] = useState<TabId>('note');
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
