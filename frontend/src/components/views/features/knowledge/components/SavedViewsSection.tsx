@@ -53,6 +53,8 @@ export function SavedViewsSection({
     setRenameValue('');
   };
 
+  if (views.length === 0 && !canSaveCurrent && !showCreateForm) return null;
+
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

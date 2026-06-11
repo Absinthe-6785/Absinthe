@@ -311,9 +311,8 @@ export function useNoteWorkspace({
     const session = loadWorkspaceSession();
     if (!session) {
       hasRestoredSession.current = true;
-      sessionSnapshotRef.current = workspaceSessionFromActivation({ kind: 'dashboard' });
+      sessionSnapshotRef.current = workspaceSessionFromActivation(INACTIVE_WORKSPACE);
       resetBrowseScope();
-      setWorkspaceActivation({ kind: 'dashboard' });
       setSearchQuery('');
       return;
     }

@@ -275,6 +275,7 @@ export const NoteView = () => {
   const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
 
   const resetBrowseScope = useCallback(() => {
@@ -462,6 +463,17 @@ export const NoteView = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
+
+  useEffect(() => {
+    if (isDashboardMode || isWorkspaceKindActive(workspaceActivation, 'smart-collection')) {
+      setWorkspaceExpanded(true);
+    }
+  }, [isDashboardMode, workspaceActivation, isWorkspaceKindActive]);
+
+  useEffect(() => {
+    if (databaseCreateSignal > 0) setWorkspaceExpanded(true);
+  }, [databaseCreateSignal]);
+
   const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
     updateNote(id, patch);
   }, [updateNote]);
@@ -1046,7 +1058,7 @@ export const NoteView = () => {
                   ref={searchInputRef}
                   className="bwsi"
                   style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined }}
-                  placeholder="tag:japanese status:active"
+                  placeholder="Search notes..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
@@ -1120,15 +1132,43 @@ export const NoteView = () => {
                   </>
                 )}
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                  <div className="bseclbl">Workspace</div>
                   <div
-                    className={`bfi ${isDashboardMode ? 'active' : ''}`}
-                    onClick={handleActivateDashboard}
-                    style={{ gap: 4, fontSize: 11 }}
+                    className="bseclbl"
+                    onClick={() => setWorkspaceExpanded(v => !v)}
+                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                   >
-                    <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
-                    <span style={{ flex: 1 }}>Dashboard</span>
+                    {workspaceExpanded
+                      ? <ChevronDown size={10} style={{ flexShrink: 0, color: c.textFaint }} />
+                      : <ChevronRight size={10} style={{ flexShrink: 0, color: c.textFaint }} />}
+                    <span>Workspace</span>
                   </div>
+                  {workspaceExpanded && (
+                    <>
+                      <div
+                        className={`bfi ${isDashboardMode ? 'active' : ''}`}
+                        onClick={handleActivateDashboard}
+                        style={{ gap: 4, fontSize: 11 }}
+                      >
+                        <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
+                        <span style={{ flex: 1 }}>Dashboard</span>
+                      </div>
+                      <SmartCollectionsSection
+                        colors={c}
+                        collections={SMART_COLLECTIONS}
+                        activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') ? workspaceActivation.id : null}
+                        counts={smartCollectionCounts}
+                        onActivate={handleActivateSmartCollection}
+                        onClearActive={handleClearSmartCollection}
+                        isPinned={id => isWorkspacePinned('smart-collection', id)}
+                        onTogglePin={collection => handleTogglePinWorkspace({
+                          kind: 'smart-collection',
+                          id: collection.id,
+                          name: collection.name,
+                          subtitle: collection.description,
+                        })}
+                      />
+                    </>
+                  )}
                 </div>
                 <PinnedWorkspacesSection
                   colors={c}
@@ -1148,21 +1188,6 @@ export const NoteView = () => {
                   onActivate={entry => handleActivateWorkspaceRef(entry.workspace)}
                   onTogglePin={entry => handleTogglePinWorkspace(entry.workspace)}
                   onClearRecent={handleClearRecentWork}
-                />
-                <SmartCollectionsSection
-                  colors={c}
-                  collections={SMART_COLLECTIONS}
-                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') ? workspaceActivation.id : null}
-                  counts={smartCollectionCounts}
-                  onActivate={handleActivateSmartCollection}
-                  onClearActive={handleClearSmartCollection}
-                  isPinned={id => isWorkspacePinned('smart-collection', id)}
-                  onTogglePin={collection => handleTogglePinWorkspace({
-                    kind: 'smart-collection',
-                    id: collection.id,
-                    name: collection.name,
-                    subtitle: collection.description,
-                  })}
                 />
                 <RuleCollectionsSection
                   colors={c}
