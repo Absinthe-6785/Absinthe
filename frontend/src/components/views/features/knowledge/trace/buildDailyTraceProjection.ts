@@ -2,7 +2,6 @@ import type { NoteBase } from '../../../noteUtils';
 import { getProperty } from '../properties/noteProperties';
 import { dateKeyFromTimestamp, parseDateKey, parseDatabaseDate, toDateKey } from '../databaseViews/parseDatabaseDate';
 import {
-  EVENT_TYPE_VALUE,
   TRACE_PROPERTY_KEYS,
   type DailyTraceProjection,
   type TraceActivity,
@@ -10,6 +9,7 @@ import {
   type TraceEventRef,
   type TraceMilestoneRef,
 } from './dailyTraceModels';
+import { isEventNote } from './eventNotes';
 
 type NoteWithCreatedAt = NoteBase & { createdAt?: number };
 
@@ -34,10 +34,6 @@ function propertyDateKey(note: NoteBase, key: string): string | null {
   if (!raw) return null;
   const parsed = parseDatabaseDate(raw);
   return parsed ? toDateKey(parsed) : null;
-}
-
-function isEventNote(note: NoteBase): boolean {
-  return getProperty(note, TRACE_PROPERTY_KEYS.TYPE)?.trim().toLowerCase() === EVENT_TYPE_VALUE;
 }
 
 function formatLocalTime(timestamp: number): string | undefined {

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Eye, Type,
-  RotateCcw, AlertTriangle, Star,
+  RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
   SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder,
@@ -67,9 +67,15 @@ import {
   type DatabaseView,
   type DatabaseViewPresentation,
   DailyTraceDayView,
+  EventNoteDialog,
   toDateKey,
   formatTraceDayHeading,
   buildDailyTraceProjection,
+  applyEventToNote,
+  clearEventFromNote,
+  isEventNote,
+  eventFormValuesFromNote,
+  type EventFormValues,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -283,6 +289,14 @@ export const NoteView = () => {
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);
 
+  type EventDialogState = {
+    mode: 'create' | 'edit';
+    noteId?: string;
+    initialValues: EventFormValues;
+  };
+  const [eventDialog, setEventDialog] = useState<EventDialogState | null>(null);
+  const openCreateEventDialogRef = useRef<(defaults?: Partial<EventFormValues>) => void>(() => {});
+
   const resetBrowseScope = useCallback(() => {
     setActiveFolderId(null);
     setActiveTag(null);
@@ -409,6 +423,29 @@ export const NoteView = () => {
       + traceDayProjection.activities.length;
   }, [traceDayProjection]);
 
+  const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
+    setEventDialog({
+      mode: 'create',
+      initialValues: {
+        title: defaults?.title?.trim() ?? '',
+        eventDate: defaults?.eventDate ?? toDateKey(new Date()),
+        eventTime: defaults?.eventTime,
+        eventEndDate: defaults?.eventEndDate,
+        eventEndTime: defaults?.eventEndTime,
+      },
+    });
+  }, []);
+
+  const openEditEventDialog = useCallback((note: Note) => {
+    setEventDialog({
+      mode: 'edit',
+      noteId: note.id,
+      initialValues: eventFormValuesFromNote(note, toDateKey(new Date())),
+    });
+  }, []);
+
+  openCreateEventDialogRef.current = openCreateEventDialog;
+
   const openCreatedNote = useCallback((id: string) => {
     handleLeaveDashboardForNote(id);
     setActiveNoteId(id);
@@ -416,7 +453,45 @@ export const NoteView = () => {
     return id;
   }, [handleLeaveDashboardForNote, setActiveNoteId]);
 
+  const handleEventDialogSave = useCallback((values: EventFormValues) => {
+    if (!eventDialog) return;
+
+    if (eventDialog.mode === 'create') {
+      const id = storeCreateNote({ title: values.title.trim() || 'Untitled', body: '' });
+      const created = useNotesStore.getState().notes.find(n => n.id === id);
+      if (created) {
+        const withEvent = applyEventToNote(created, values);
+        updateNote(id, { title: withEvent.title, properties: withEvent.properties });
+      }
+      openCreatedNote(id);
+    } else if (eventDialog.noteId) {
+      const note = useNotesStore.getState().notes.find(n => n.id === eventDialog.noteId);
+      if (note) {
+        const withEvent = applyEventToNote(note, values);
+        updateNote(note.id, { title: withEvent.title, properties: withEvent.properties });
+      }
+    }
+
+    setEventDialog(null);
+  }, [eventDialog, storeCreateNote, updateNote, openCreatedNote]);
+
+  const handleRemoveEventStatus = useCallback(() => {
+    if (!eventDialog?.noteId) return;
+    const note = useNotesStore.getState().notes.find(n => n.id === eventDialog.noteId);
+    if (!note) return;
+    const cleared = clearEventFromNote(note);
+    updateNote(note.id, { properties: cleared.properties });
+    setEventDialog(null);
+  }, [eventDialog, updateNote]);
+
   createQuickCaptureRef.current = (input: QuickCaptureInput) => {
+    if (input.captureType === 'event') {
+      openCreateEventDialogRef.current({
+        title: input.title,
+        eventDate: toDateKey(new Date()),
+      });
+      return;
+    }
     const id = storeCreateNote({ title: input.title, body: '' });
     const created = notes.find(n => n.id === id);
     if (created) {
@@ -1390,6 +1465,11 @@ export const NoteView = () => {
               </button>
             )}
             {!isTrash && (
+              <button onClick={() => openCreateEventDialog()} className="btbtn" title="Create event">
+                <CalendarDays size={11}/>
+              </button>
+            )}
+            {!isTrash && (
               <button onClick={() => createNote()} style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
                 <Plus size={12}/>
               </button>
@@ -1575,6 +1655,18 @@ export const NoteView = () => {
                   </button>
                 ))}
               </div>
+              {/* Event note actions */}
+              {!isTrash && (
+                <button
+                  type="button"
+                  onClick={() => openEditEventDialog(activeNote)}
+                  className="btbtn"
+                  style={{ fontSize: 10, color: isEventNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+                  title={isEventNote(activeNote) ? 'Edit event' : 'Mark as event'}
+                >
+                  {isEventNote(activeNote) ? 'Edit Event' : 'Mark Event'}
+                </button>
+              )}
               {/* Star */}
               {!isTrash && (
                 <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
@@ -1983,6 +2075,16 @@ export const NoteView = () => {
             </div>
           )}
         </div>
+      )}
+      {eventDialog && (
+        <EventNoteDialog
+          colors={c}
+          mode={eventDialog.mode}
+          initialValues={eventDialog.initialValues}
+          onSave={handleEventDialogSave}
+          onRemoveEvent={eventDialog.mode === 'edit' ? handleRemoveEventStatus : undefined}
+          onClose={() => setEventDialog(null)}
+        />
       )}
       {confirm && (
         <ConfirmModal

@@ -1,5 +1,5 @@
 /** Quick capture type — maps to optional type tag on ordinary notes */
-export type QuickCaptureType = 'note' | 'idea' | 'vocabulary' | 'task' | 'research';
+export type QuickCaptureType = 'note' | 'idea' | 'vocabulary' | 'task' | 'research' | 'event';
 
 export interface QuickCaptureTypeOption {
   id: QuickCaptureType;
@@ -20,6 +20,7 @@ export const QUICK_CAPTURE_TYPES: readonly QuickCaptureTypeOption[] = [
   { id: 'vocabulary', label: 'Vocabulary', typeTag: 'vocabulary' },
   { id: 'task', label: 'Task', typeTag: 'task' },
   { id: 'research', label: 'Research', typeTag: 'research' },
+  { id: 'event', label: 'Event', typeTag: 'event' },
 ];
 
 export const DEFAULT_QUICK_CAPTURE_MODEL: QuickCaptureModel = {
