@@ -4,6 +4,8 @@ export type { DayHeaderProps } from './DayHeader';
 export { DayHeader } from './DayHeader';
 export type { DayEventsSectionProps } from './DayEventsSection';
 export { DayEventsSection } from './DayEventsSection';
+export type { DayScheduleActions } from './dayScheduleActions';
+export { dayScheduleActionsEnabled } from './dayScheduleActions';
 export type { DayScheduleTimelineProps } from './DayScheduleTimeline';
 export { DayScheduleTimeline } from './DayScheduleTimeline';
 export type { DayTemplateHintsProps } from './DayTemplateHints';

@@ -294,6 +294,14 @@ export const PlannerView = ({
         routineExceptionDates={routineExceptionDates}
         onEventNoteClick={setActiveNoteId}
         onAnchorDateChange={handleCalendarAnchorChange}
+        dayScheduleActions={{
+          onAdd: () => openModal(),
+          onEdit: (id: string) => {
+            const sch = schedules.find(s => s.id === id);
+            if (sch) openModal(sch);
+          },
+          onDelete: handleDeleteSchedule,
+        }}
       />
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
