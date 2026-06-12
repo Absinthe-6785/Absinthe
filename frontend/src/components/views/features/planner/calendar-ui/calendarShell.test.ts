@@ -228,10 +228,21 @@ describe('CalendarShell', () => {
 
     expect(html).toContain('data-planner-calendar-shell');
     expect(html).toContain('data-planner-calendar-mode="month"');
+    expect(html).toContain('data-planner-calendar-period-nav');
     expect(html).toContain('data-planner-calendar-month');
     expect(html).toContain('data-planner-month-grid');
     expect(html).toContain('Month View');
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="month"');
+  });
+
+  it('renders period navigation controls when onAnchorDateChange is provided', () => {
+    const html = renderToStaticMarkup(
+      createElement(CalendarShell, shellProps({ onAnchorDateChange: () => {} })),
+    );
+
+    expect(html).toContain('data-planner-calendar-nav-prev');
+    expect(html).toContain('data-planner-calendar-nav-next');
+    expect(html).toContain('data-planner-calendar-period-label');
   });
 
   it('honours initial mode override for week view', () => {

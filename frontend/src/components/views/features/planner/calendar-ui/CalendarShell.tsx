@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, DDay, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
+import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
+import { resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
 import { DayCalendarView } from './day';
@@ -25,11 +27,13 @@ export interface CalendarShellProps {
   routineExceptionDates?: ReadonlySet<string>;
   initialMode?: PlannerCalendarViewMode;
   onEventNoteClick?: (noteId: string) => void;
+  /** Sync planner anchor date (selected day) when using period navigation. */
+  onAnchorDateChange?: (dateKey: string) => void;
 }
 
 /**
  * Planner Calendar surface host — Month · Week · Day · Agenda.
- * K-30.25: projection wiring + placeholders; real views replace placeholders later.
+ * Month, Week, and Day mount projection views; Agenda remains placeholder until K-30.29.
  */
 export function CalendarShell({
   now,
@@ -46,6 +50,7 @@ export function CalendarShell({
   routineExceptionDates,
   initialMode = DEFAULT_PLANNER_CALENDAR_MODE,
   onEventNoteClick,
+  onAnchorDateChange,
 }: CalendarShellProps) {
   const [viewMode, setViewMode] = useState<PlannerCalendarViewMode>(initialMode);
 
@@ -69,6 +74,11 @@ export function CalendarShell({
     [viewMode, projection.meta.generatedAt],
   );
 
+  const periodLabel = useMemo(
+    () => resolveCalendarPeriodLabel(viewMode, presentation),
+    [viewMode, presentation],
+  );
+
   return (
     <section
       className="w-full shrink-0 flex flex-col gap-3 lg:gap-4 mb-4 lg:mb-5"
@@ -79,6 +89,15 @@ export function CalendarShell({
         activeMode={viewMode}
         onModeChange={setViewMode}
         theme={theme}
+      />
+
+      <CalendarPeriodNav
+        viewMode={viewMode}
+        anchorDate={anchorDate}
+        now={now}
+        periodLabel={periodLabel}
+        theme={theme}
+        onAnchorDateChange={onAnchorDateChange}
       />
 
       {viewMode === 'month' ? (

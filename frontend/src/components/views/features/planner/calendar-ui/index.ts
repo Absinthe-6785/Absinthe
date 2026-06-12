@@ -2,6 +2,9 @@ export type { CalendarShellProps } from './CalendarShell';
 export { CalendarShell } from './CalendarShell';
 export type { CalendarModeSwitcherProps } from './CalendarModeSwitcher';
 export { CalendarModeSwitcher } from './CalendarModeSwitcher';
+export type { CalendarPeriodNavProps } from './CalendarPeriodNav';
+export { CalendarPeriodNav } from './CalendarPeriodNav';
+export { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
 export type { CalendarViewPlaceholderProps } from './CalendarViewPlaceholder';
 export { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
 export {

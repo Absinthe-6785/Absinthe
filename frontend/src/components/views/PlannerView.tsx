@@ -270,6 +270,13 @@ export const PlannerView = ({
     [routines, selectedDate, formatDate],
   );
 
+  const handleCalendarAnchorChange = useCallback((dateKey: string) => {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    if (!y || !m || !d) return;
+    setSelectedDate(new Date(y, m - 1, d));
+    setCurrentDate(new Date(y, m - 1, 1));
+  }, [setSelectedDate, setCurrentDate]);
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
       <CalendarShell
@@ -286,6 +293,7 @@ export const PlannerView = ({
         theme={theme}
         routineExceptionDates={routineExceptionDates}
         onEventNoteClick={setActiveNoteId}
+        onAnchorDateChange={handleCalendarAnchorChange}
       />
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
