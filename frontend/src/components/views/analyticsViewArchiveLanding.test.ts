@@ -92,6 +92,7 @@ function analyticsProps(overrides: Partial<AnalyticsProps> = {}): AnalyticsProps
     formatDate,
     schedules: [],
     routines: [],
+    weeklySchedules: [],
     showToast: vi.fn(),
     appSettings,
     updateSetting: vi.fn(),
