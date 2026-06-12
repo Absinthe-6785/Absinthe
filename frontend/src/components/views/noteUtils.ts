@@ -6,6 +6,12 @@
  */
 
 import { normalizeNoteRelations } from './features/knowledge/relations/relationNormalize';
+import {
+  isTagsPropertyKey,
+  TAGS_PROPERTY_KEY,
+  tagsFromPropertyValue,
+  tagsToPropertyValue,
+} from './features/knowledge/tags/tagConstants';
 declare global {
   interface Window {
     katex?: { renderToString: (expr: string, opts?: object) => string };
@@ -59,16 +65,31 @@ const LEGACY_PL_FOLDERS = 'planner-note-folders';
 const LEGACY_PL_ACTIVE  = 'planner-active-note';
 const LEGACY_PL_NOTES_V1 = 'planner-notes';
 
+function normalizeTagsPropertyValue(raw: unknown): string | undefined {
+  const tags = tagsFromPropertyValue(raw);
+  if (tags.length === 0) return undefined;
+  return tagsToPropertyValue(tags);
+}
+
 export function normalizeNoteProperties(
-  properties: Record<string, string> | null | undefined,
+  properties: Record<string, unknown> | null | undefined,
 ): Record<string, string> | undefined {
   if (!properties || typeof properties !== 'object') return undefined;
 
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (typeof key !== 'string' || !key.trim()) continue;
-    if (typeof value !== 'string') continue;
-    result[key.trim()] = value;
+    const trimmedKey = key.trim();
+
+    if (isTagsPropertyKey(trimmedKey)) {
+      const normalizedTags = normalizeTagsPropertyValue(value);
+      if (normalizedTags) result[TAGS_PROPERTY_KEY] = normalizedTags;
+      continue;
+    }
+
+    if (typeof value === 'string') {
+      result[trimmedKey] = value;
+    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined;

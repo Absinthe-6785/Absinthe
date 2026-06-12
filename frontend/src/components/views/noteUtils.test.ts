@@ -14,18 +14,62 @@ import {
   mergeNotesFromStorageJson,
   mergeFoldersFromStorageJson,
   normalizeNoteFolderId,
+  normalizeNote,
+  normalizeNoteProperties,
   noteSyncPayload,
   saveNotes,
   LOCAL_NOTES_SAVE_ERROR,
   NOTES_KEY,
   type NoteBase,
 } from './noteUtils';
+import { listTags } from './features/knowledge/tags/noteTags';
 
 const notes: NoteBase[] = [
   { id: '1', title: 'Hello World', body: 'See [[Target Note]] here.', updatedAt: 0, folderId: null, deletedAt: null },
   { id: '2', title: 'Target Note', body: '#work content', updatedAt: 0, folderId: null, deletedAt: null },
   { id: '3', title: 'Deleted', body: '[[Target Note]]', updatedAt: 0, folderId: null, deletedAt: 1 },
 ];
+
+describe('normalizeNoteProperties tags hardening', () => {
+  function hydrate(properties: Record<string, unknown>) {
+    return normalizeNote({
+      id: 'n1',
+      title: 'Note',
+      body: '',
+      updatedAt: 0,
+      folderId: null,
+      deletedAt: null,
+      properties: properties as NoteBase['properties'],
+    });
+  }
+
+  it('preserves valid tag arrays through note hydration', () => {
+    const normalized = normalizeNoteProperties({ tags: ['Japanese', 'grammar'] });
+    expect(normalized?.tags).toBe('["Japanese","grammar"]');
+    expect(listTags(hydrate({ tags: ['Japanese', 'grammar'] }))).toEqual(['Japanese', 'grammar']);
+  });
+
+  it('preserves legacy string tag values through normalization', () => {
+    const normalized = normalizeNoteProperties({ tags: 'japanese, grammar' });
+    expect(normalized?.tags).toBe('["japanese","grammar"]');
+    expect(listTags(hydrate({ tags: 'japanese, grammar' }))).toEqual(['japanese', 'grammar']);
+  });
+
+  it('drops null tag values without removing other properties', () => {
+    expect(normalizeNoteProperties({ tags: null, status: 'active' })).toEqual({ status: 'active' });
+    expect(listTags(hydrate({ tags: null, status: 'active' }))).toEqual([]);
+  });
+
+  it('degrades object tag values safely to empty tags', () => {
+    expect(normalizeNoteProperties({ tags: {} })).toBeUndefined();
+    expect(listTags(hydrate({ tags: {} }))).toEqual([]);
+  });
+
+  it('degrades numeric tag values safely to empty tags', () => {
+    expect(normalizeNoteProperties({ tags: 123 })).toBeUndefined();
+    expect(listTags(hydrate({ tags: 123 }))).toEqual([]);
+  });
+});
 
 describe('wiki link helpers', () => {
   it('extractLinks deduplicates', () => {
