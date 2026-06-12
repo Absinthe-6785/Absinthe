@@ -117,6 +117,7 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
   routines: Routine[];
   ddays: DDay[];
   markedDates: string[];
+  weeklySchedules: WeeklySchedule[];
 }
 
 export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
@@ -132,7 +133,6 @@ export interface AnalyticsProps extends BaseViewProps {
   formatDate: (d: Date | DateTime) => string;
   schedules: Schedule[];
   routines: Routine[];
-  weeklySchedules: WeeklySchedule[];
 }
 
 export interface SettingsProps extends BaseViewProps, MutateProps {

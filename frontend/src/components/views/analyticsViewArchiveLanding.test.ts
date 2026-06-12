@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
@@ -10,8 +10,15 @@ import { AnalyticsView } from './AnalyticsView';
 import { ARCHIVE_SHELL_ENABLED } from './features/archive';
 import { buildArchiveHomeProjection } from './features/knowledge/archive';
 
+const swrState = vi.hoisted(() => ({
+  keys: [] as unknown[],
+}));
+
 vi.mock('swr', () => ({
-  default: () => ({ data: undefined, isLoading: false, error: undefined }),
+  default: (key: unknown) => {
+    swrState.keys.push(key);
+    return { data: undefined, isLoading: false, error: undefined };
+  },
 }));
 
 vi.mock('../../hooks/useConfirm', () => ({
@@ -109,6 +116,23 @@ describe('ARCHIVE_SHELL_ENABLED', () => {
 });
 
 describe('AnalyticsView archive landing', () => {
+  beforeEach(() => {
+    swrState.keys.length = 0;
+  });
+
+  it('does not mount legacy Analytics SWR subscriptions when Archive is enabled', () => {
+    renderAnalyticsView();
+
+    const legacyKeys = swrState.keys.filter(
+      (key): key is string => typeof key === 'string',
+    );
+
+    expect(legacyKeys.some(key => key.includes('/api/routine_exceptions'))).toBe(false);
+    expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(false);
+    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(false);
+    expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(false);
+  });
+
   it('renders ArchiveShell with Archive Home as the default surface', () => {
     const html = renderAnalyticsView();
 
@@ -126,6 +150,8 @@ describe('AnalyticsView archive landing', () => {
     expect(html).not.toContain('Activity This Week');
     expect(html).not.toContain('Scheduled Time by Category');
     expect(html).not.toContain('Weekly Timetable');
+    expect(html).not.toContain('data-planner-weekly-timetable');
+    expect(html).not.toContain('weeklyTimetable');
   });
 
   it('renders an empty Archive Home when the vault has no marks', () => {

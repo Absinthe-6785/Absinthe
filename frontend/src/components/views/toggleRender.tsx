@@ -32,6 +32,7 @@ export function toggleSharedEditProps(block: Block, ctx: BlockRenderContext) {
     onActivate: ctx.onActivateBlock
       ? (offset?: 'start' | 'end' | number) => ctx.onActivateBlock!(block.id, offset)
       : undefined,
+    onClearBlockSelection: ctx.onClearBlockSelection,
   };
 }
 

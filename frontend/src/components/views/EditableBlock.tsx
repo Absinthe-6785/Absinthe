@@ -57,6 +57,7 @@ export interface EditableBlockProps {
   /** When false in edit mode, renders static selectable text for cross-block selection. */
   isActive?: boolean;
   onActivate?: (offset?: 'start' | 'end' | number) => void;
+  onClearBlockSelection?: () => void;
 }
 
 export function EditableBlock({
@@ -75,6 +76,7 @@ export function EditableBlock({
   persistentPlaceholder = false,
   isActive = true,
   onActivate,
+  onClearBlockSelection,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -299,6 +301,12 @@ export function EditableBlock({
     }
   }, [block.content, editableRef, block.id, onActiveBlockChange, c, wikiTargets, searchQuery]);
 
+  const handleEditableMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      onClearBlockSelection?.();
+    }
+  }, [onClearBlockSelection]);
+
   const handleBlur = useCallback((e: React.FocusEvent<HTMLElement>) => {
     const el = e.currentTarget;
     const text = getElText(el);
@@ -413,6 +421,7 @@ export function EditableBlock({
       onInput={handleInput}
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
+      onMouseDown={handleEditableMouseDown}
       onBlur={handleBlur}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}

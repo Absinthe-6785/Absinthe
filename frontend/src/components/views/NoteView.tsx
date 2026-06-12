@@ -1459,7 +1459,13 @@ export const NoteView = () => {
                   <div
                     key={area.id}
                     className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
-                    onClick={() => openTraceArea(area.id)}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.altKey) {
+                        openTraceArea(area.id);
+                      } else {
+                        openCreatedNote(area.id);
+                      }
+                    }}
                   >
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {area.title.trim() || 'Untitled'}
@@ -1518,7 +1524,7 @@ export const NoteView = () => {
                   <>
                     <div className="bseclbl" style={{ marginTop: 4 }}>Tags</div>
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                      {allTags.map(([tag, count]) => (
+                      {allTags.map(({ tag, count }) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
                           onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
@@ -1797,7 +1803,7 @@ export const NoteView = () => {
             onSelectNote={setActiveNoteId}
             onDateChange={setTraceDate}
           />
-        ) : isDashboardMode ? (
+        ) : isDashboardMode && !searchQuery.trim() ? (
           <WorkspaceDashboardView
             colors={c}
             dashboard={dashboard}

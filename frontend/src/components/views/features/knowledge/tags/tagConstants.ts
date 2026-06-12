@@ -16,12 +16,21 @@ export function tagsToPropertyValue(tags: readonly string[]): string {
 }
 
 /** Parse tag list from properties.tags value */
-export function tagsFromPropertyValue(raw: string | undefined): string[] {
-  if (!raw?.trim()) return [];
+export function tagsFromPropertyValue(raw: unknown): string[] {
+  if (raw == null) return [];
 
-  if (raw.startsWith('[')) {
+  if (Array.isArray(raw)) {
+    return dedupeTags(raw.filter((t): t is string => typeof t === 'string'));
+  }
+
+  if (typeof raw !== 'string') return [];
+
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(trimmed);
       if (!Array.isArray(parsed)) return [];
       return dedupeTags(parsed.filter((t): t is string => typeof t === 'string'));
     } catch {
@@ -29,7 +38,7 @@ export function tagsFromPropertyValue(raw: string | undefined): string[] {
     }
   }
 
-  return dedupeTags(raw.split(',').map(t => t.trim()).filter(Boolean));
+  return dedupeTags(trimmed.split(',').map(t => t.trim()).filter(Boolean));
 }
 
 /** Deduplicate tags case-insensitively, preserving first-seen display casing */

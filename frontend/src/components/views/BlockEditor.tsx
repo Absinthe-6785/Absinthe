@@ -596,6 +596,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       searchQueryFor={searchQueryFor}
       renderToggleNested={renderToggleNested}
       showPersistentPlaceholder={showPersistentPlaceholder}
+      onClearBlockSelection={clearSelection}
     />
   );
 

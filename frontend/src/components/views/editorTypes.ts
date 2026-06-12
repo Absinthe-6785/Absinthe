@@ -106,4 +106,6 @@ export interface BlockRenderContext {
   /** When false, block renders as static selectable text (enables cross-block selection). */
   isActiveBlock?: boolean;
   onActivateBlock?: (blockId: string, offset?: 'start' | 'end' | number) => void;
+  /** Clears gutter/handle block selection when the user clicks into text. */
+  onClearBlockSelection?: () => void;
 }

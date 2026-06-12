@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { describe, expect, it, vi } from 'vitest';
 import { shouldDeleteSelectedBlocks } from './blockKeyboard';
+import * as selection from './features/block-editor/features/selection';
 
 function keyEvt(
   key: string,
@@ -27,11 +29,31 @@ describe('shouldDeleteSelectedBlocks', () => {
     )).toBe(true);
   });
 
-  it('returns false for Backspace in editable (merge path)', () => {
+  it('returns true for Delete in editable when block is selected and no text range', () => {
+    const spy = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', { isContentEditable: true }),
+      new Set(['a']),
+    )).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('returns true for Backspace in editable when block is selected and no text range', () => {
+    const spy = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     expect(shouldDeleteSelectedBlocks(
       keyEvt('Backspace', { isContentEditable: true }),
       new Set(['a']),
+    )).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('returns false when a text range is selected inside editable', () => {
+    const spy = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue({ start: 0, end: 3 });
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', { isContentEditable: true }),
+      new Set(['a']),
     )).toBe(false);
+    spy.mockRestore();
   });
 
   it('returns true for Backspace when shell focused (e.g. divider)', () => {

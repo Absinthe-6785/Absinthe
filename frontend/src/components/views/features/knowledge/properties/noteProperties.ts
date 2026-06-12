@@ -22,8 +22,13 @@ export function getProperty(note: NoteBase, key: string): string | undefined {
   if (!props) return undefined;
 
   const target = normalizePropertyKey(key);
-  for (const [k, v] of Object.entries(props)) {
-    if (normalizePropertyKey(k) === target) return v;
+  for (const [k, v] of Object.entries(props as Record<string, unknown>)) {
+    if (normalizePropertyKey(k) !== target) continue;
+    if (typeof v === 'string') return v;
+    if (isTagsPropertyKey(k) && Array.isArray(v)) {
+      return tagsToPropertyValue(v.filter((t: unknown): t is string => typeof t === 'string'));
+    }
+    return undefined;
   }
   return undefined;
 }

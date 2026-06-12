@@ -284,8 +284,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     updateNote: (id, patch) => {
+      const normalizedPatch = 'properties' in patch
+        ? { ...patch, properties: normalizeNoteProperties(patch.properties) }
+        : patch;
       const notes = get().notes.map(n =>
-        n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
+        n.id === id ? { ...n, ...normalizedPatch, updatedAt: Date.now() } : n
       );
       set({ notes });
       persistNotes(notes);
