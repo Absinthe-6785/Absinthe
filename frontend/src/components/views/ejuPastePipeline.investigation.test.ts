@@ -7,12 +7,24 @@ import { createElement } from 'react';
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+import { flushSync } from 'react-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
-import { blocksToCopyHtml } from './features/block-editor/features/clipboard';
-import { getLastPastePipelineTrace } from './pastePipelineTrace';
+import { blocksToCopyHtml, clipboardToBlocks, isDocumentLevelPaste } from './features/block-editor/features/clipboard';
+import { applyPasteBlocksAt } from './features/block-editor/features/clipboard/paste/blockPaste';
+import { getPasteBlockContext } from './features/block-editor/utils/blockEditorMutations';
+import {
+  beginPastePipelineTrace,
+  finishPastePipelineTrace,
+  getLastPastePipelineTrace,
+  traceApplyPasteBlocksAtInput,
+  traceApplyPasteBlocksAtOutput,
+  traceClipboardToBlocks,
+  traceStateAfterSetStateCallback,
+  traceStateBeforeSetState,
+} from './pastePipelineTrace';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
-import { makeBlock, markdownToBlocks, type Block } from './blockUtils';
+import { findBlockById, makeBlock, markdownToBlocks, type Block } from './blockUtils';
 
 const EJU_NOTE_MD = `# EJU Study Timeline
 
@@ -78,21 +90,44 @@ function mountNewNote(initialBlocks: Block[]) {
   return {
     root,
     getBlocks: () => currentBlocks,
+    setBlocks: (blocks: Block[]) => act(() => { onChangeRef(blocks); }),
   };
 }
 
-function dispatchPasteOnEditable(editable: HTMLElement, html: string, plain: string) {
-  const dt = new DataTransfer();
-  dt.setData('text/html', html);
-  dt.setData('text/plain', plain);
-  act(() => {
-    editable.focus();
-    editable.dispatchEvent(new ClipboardEvent('paste', {
-      clipboardData: dt,
-      bubbles: true,
-      cancelable: true,
-    }));
-  });
+/** Mirrors EditableBlock.handlePaste → useEditorPaste.handlePasteBlocksAt (happy-dom lacks React paste). */
+function simulateDocumentPaste(
+  editor: ReturnType<typeof mountNewNote>,
+  targetBlockId: string,
+  html: string,
+  plain: string,
+) {
+  const dt = {
+    getData: (type: string) => (type === 'text/html' ? html : type === 'text/plain' ? plain : ''),
+  };
+  const docBlocks = clipboardToBlocks(dt);
+  if (!docBlocks || !isDocumentLevelPaste(dt, docBlocks)) {
+    throw new Error('Expected document-level paste');
+  }
+
+  beginPastePipelineTrace(`paste-at-${targetBlockId}`);
+  traceClipboardToBlocks(docBlocks);
+
+  const cur = editor.getBlocks();
+  const target = findBlockById(cur, targetBlockId);
+  const context = getPasteBlockContext(target);
+  traceApplyPasteBlocksAtInput(targetBlockId, target?.type ?? '(missing)', 0, 0, docBlocks);
+
+  const result = applyPasteBlocksAt(cur, targetBlockId, 0, 0, docBlocks, context);
+  if (!result) {
+    finishPastePipelineTrace();
+    throw new Error('applyPasteBlocksAt returned null');
+  }
+
+  traceApplyPasteBlocksAtOutput(result.blocks);
+  traceStateBeforeSetState(result.blocks);
+  flushSync(() => { editor.setBlocks(result.blocks); });
+  traceStateAfterSetStateCallback(editor.getBlocks());
+  finishPastePipelineTrace();
 }
 
 describe('EJU paste pipeline trace — gutter copy → paste new note', () => {
@@ -118,10 +153,7 @@ describe('EJU paste pipeline trace — gutter copy → paste new note', () => {
     editor = mountNewNote([newNoteHost]);
     root = editor.root;
 
-    const editable = document.querySelector('.be-editable') as HTMLElement;
-    expect(editable).toBeTruthy();
-
-    dispatchPasteOnEditable(editable, semanticHtml, semanticPlain);
+    simulateDocumentPaste(editor, newNoteHost.id, semanticHtml, semanticPlain);
 
     const trace = getLastPastePipelineTrace()!;
     const docAfterPaste = editor.getBlocks();
@@ -163,8 +195,7 @@ describe('EJU paste pipeline trace — gutter copy → paste new note', () => {
     editor = mountNewNote([newNoteHost]);
     root = editor.root;
 
-    const editable = document.querySelector('.be-editable') as HTMLElement;
-    dispatchPasteOnEditable(editable, malformedHtml, '');
+    simulateDocumentPaste(editor, newNoteHost.id, malformedHtml, '');
 
     const trace = getLastPastePipelineTrace()!;
     const docAfterPaste = editor.getBlocks();

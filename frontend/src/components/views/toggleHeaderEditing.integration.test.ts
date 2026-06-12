@@ -65,9 +65,10 @@ function setTextAndCaret(el: HTMLElement, text: string, offset: number) {
 }
 
 function fireEnter(blockId: string, text: string, caretOffset: number) {
-  const el = editableFor(blockId);
   act(() => {
+    let el = editableFor(blockId);
     el.focus();
+    el = editableFor(blockId);
     setTextAndCaret(el, text, caretOffset);
     el.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', bubbles: true, cancelable: true,

@@ -41,12 +41,12 @@ export function useEditorDocumentFocus({
 }: UseEditorDocumentFocusOptions): UseEditorDocumentFocusResult {
   const applyDocumentFocusAction = useCallback((action: DocumentFocusAction) => {
     if (action.kind === 'toggle-footer') {
+      onActiveBlockChange(action.focusBlockId);
       if (action.created) {
         flushSync(() => {
           onRootChange(action.blocks);
         });
       }
-      onActiveBlockChange(action.focusBlockId);
       onFocusCmd({ blockId: action.focusBlockId, offset: 'start' });
       return;
     }

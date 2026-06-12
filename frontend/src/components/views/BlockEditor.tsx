@@ -156,11 +156,20 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     })));
   }, [getRootBlocks, onRootChange]);
 
-  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(() => (
+    !readOnly && depth === 0 ? (blocks[0]?.id ?? null) : null
+  ));
   const handleActiveBlockChange = useCallback((id: string | null) => {
     setActiveBlockId(id);
     onActiveBlockChange?.(id);
   }, [onActiveBlockChange]);
+
+  useEffect(() => {
+    if (readOnly || depth !== 0) return;
+    if (activeBlockId && findBlockById(getRootBlocks(), activeBlockId)) return;
+    const first = getRootBlocks()[0];
+    if (first) handleActiveBlockChange(first.id);
+  }, [readOnly, depth, activeBlockId, getRootBlocks, handleActiveBlockChange, blocks]);
 
   const searchQueryFor = useCallback((blockId: string) => {
     if (!searchQuery.trim()) return '';

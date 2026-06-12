@@ -75,10 +75,11 @@ function setCaret(el: HTMLElement, offset: number) {
 }
 
 function fireEnter(blockId: string) {
-  const el = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement | null;
-  if (!el) throw new Error(`block not found: ${blockId}`);
   act(() => {
+    let el = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement | null;
+    if (!el) throw new Error(`block not found: ${blockId}`);
     el.focus();
+    el = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement;
     setCaret(el, (el.textContent ?? '').length);
     el.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', bubbles: true, cancelable: true,

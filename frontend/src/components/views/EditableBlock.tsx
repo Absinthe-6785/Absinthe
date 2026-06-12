@@ -80,7 +80,7 @@ export function EditableBlock({
   const composingRef = useRef(false);
   const liveRafRef = useRef<number | null>(null);
   const staticMouseRef = useRef<{ x: number; y: number } | null>(null);
-  const isEditing = isActive || readOnly;
+  const isEditing = isActive;
 
   const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
     const plain = getElText(el);
@@ -371,7 +371,7 @@ export function EditableBlock({
     onActivate?.('end');
   }, [onActivate]);
 
-  if (!readOnly && !isActive) {
+  if (!isActive) {
     return (
       <Tag
         ref={(el: HTMLElement | null) => { editableRef.current = el; }}
@@ -389,6 +389,8 @@ export function EditableBlock({
         onMouseDown={handleStaticMouseDown}
         onMouseUp={handleStaticMouseUp}
         onDoubleClick={handleStaticDoubleClick}
+        onFocus={() => { onActivate?.('end'); }}
+        tabIndex={-1}
         data-block-id={block.id}
         data-block-type={block.type}
         data-placeholder={placeholder}

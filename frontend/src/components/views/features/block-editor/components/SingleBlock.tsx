@@ -2,6 +2,7 @@ import React, {
   useState, useRef, useCallback, useEffect,
   type CSSProperties,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
   type Block, type BlockType,
   updateBlockById,
@@ -199,10 +200,11 @@ export const SingleBlock = React.memo(function SingleBlock({
 
   const handleActivateBlock = useCallback((blockId: string, offset?: 'start' | 'end' | number) => {
     if (blockId !== block.id) return;
-    onBlockSelect(blockId, { shiftKey: false, metaKey: false, ctrlKey: false } as React.MouseEvent);
-    onActiveBlockChange?.(blockId);
+    flushSync(() => {
+      onActiveBlockChange?.(blockId);
+    });
     applyFocusCommand({ blockId, offset: offset ?? 'end' });
-  }, [block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
+  }, [block.id, onActiveBlockChange, applyFocusCommand]);
 
   // 포커스 레지스트리 + pending queue replay on mount (virtualization-safe)
   useEffect(() => {
