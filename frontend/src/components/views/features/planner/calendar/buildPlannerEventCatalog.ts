@@ -25,7 +25,7 @@ export function buildPlannerEventCatalog(notes: readonly NoteBase[]): PlannerEve
   const definitions: PlannerEventDefinition[] = [];
   const byNoteId = new Map<string, PlannerEventDefinition>();
 
-  for (const note of notes) {
+  for (const note of notes ?? []) {
     if (note.deletedAt != null || !isEventNote(note)) continue;
 
     const parsed = readEventFromNote(note);
@@ -110,7 +110,7 @@ export function buildPlannerMilestoneRows(
 ): PlannerMilestoneRow[] {
   const rows: PlannerMilestoneRow[] = [];
 
-  for (const note of notes) {
+  for (const note of notes ?? []) {
     if (note.deletedAt != null || !isMilestoneNote(note)) continue;
 
     const milestone = readMilestoneFromNote(note);

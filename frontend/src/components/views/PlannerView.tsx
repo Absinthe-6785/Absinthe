@@ -14,6 +14,7 @@ import { PlannerProps, Schedule, Todo, Routine, DDay } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
+import { CalendarShell } from './features/planner/calendar-ui';
 
 // timeSlots는 currentDate/schedules와 무관한 고정 값(00:00~23:30, 48개).
 // useMemo 내부에 두면 schedules 변경마다 불필요하게 재생성됨 → 모듈 레벨 상수로 분리.
@@ -264,8 +265,28 @@ export const PlannerView = ({
   }, []);
 
 
+  const routineExceptionDates = useMemo(
+    () => (routines[0]?.is_exception_day ? new Set([formatDate(selectedDate)]) : undefined),
+    [routines, selectedDate, formatDate],
+  );
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
+      <CalendarShell
+        now={now}
+        anchorDate={formatDate(selectedDate)}
+        schedules={schedules}
+        previousDaySchedules={prevSchedules}
+        previousDayDate={prevDateStr}
+        todos={todos}
+        routines={routines}
+        weeklySchedules={weeklySchedules}
+        legacyDdays={ddays}
+        appSettings={appSettings}
+        theme={theme}
+        routineExceptionDates={routineExceptionDates}
+      />
+
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
       {/* ── 모바일 탭 바 ── */}

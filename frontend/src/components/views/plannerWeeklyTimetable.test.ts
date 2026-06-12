@@ -31,8 +31,8 @@ vi.mock('swr', () => ({
   default: () => ({ data: undefined, isLoading: false, error: undefined }),
 }));
 
-vi.mock('../../store/useNotesStore', () => ({
-  useNotesStore: () => ({
+vi.mock('../../store/useNotesStore', () => {
+  const state = {
     notes: [],
     folders: [],
     activeNoteId: null,
@@ -47,8 +47,12 @@ vi.mock('../../store/useNotesStore', () => ({
     renameFolder: vi.fn(),
     deleteFolder: vi.fn(),
     setActiveFolderId: vi.fn(),
-  }),
-}));
+  };
+  return {
+    useNotesStore: (selector?: (value: typeof state) => unknown) =>
+      (selector ? selector(state) : state),
+  };
+});
 
 const theme = {
   card: 'bg-surface',
@@ -152,5 +156,7 @@ describe('PlannerView weekly timetable integration', () => {
     expect(html).toContain('data-planner-weekly-timetable');
     expect(html).toContain('data-planner-weekly-block="ws-1"');
     expect(html).toContain('Morning Study');
+    expect(html).toContain('data-planner-calendar-shell');
+    expect(html).toContain('data-planner-calendar-mode="month"');
   });
 });
