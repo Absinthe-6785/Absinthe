@@ -254,11 +254,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     createNote: (opts) => {
       const id = `note-${Date.now()}`;
+      const now = Date.now();
       const note: Note = {
         id,
         title: opts?.title ?? '',
         body: opts?.body ?? '',
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
         folderId: resolveFolderId(opts),
         deletedAt: null,
         starred: false,
@@ -310,7 +312,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     duplicateNote: (note) => {
       const id = `note-${Date.now()}`;
-      const copy: Note = { ...note, id, title: note.title + ' (copy)', updatedAt: Date.now(), deletedAt: null };
+      const now = Date.now();
+      const copy: Note = {
+        ...note,
+        id,
+        title: note.title + ' (copy)',
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      };
       const notes = [copy, ...get().notes];
       set({ notes, activeNoteId: id });
       persistNotes(notes);

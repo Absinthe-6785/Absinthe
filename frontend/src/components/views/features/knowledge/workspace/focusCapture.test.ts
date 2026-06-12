@@ -185,7 +185,7 @@ describe('quick capture', () => {
   it('exposes capture model defaults', () => {
     expect(DEFAULT_QUICK_CAPTURE_MODEL.inboxTag).toBe('inbox');
     expect(DEFAULT_QUICK_CAPTURE_MODEL.types.map(t => t.id)).toEqual([
-      'note', 'idea', 'vocabulary', 'task', 'research',
+      'note', 'idea', 'vocabulary', 'task', 'research', 'event',
     ]);
     expect(getCaptureTypeTag('note')).toBeUndefined();
     expect(getCaptureTypeTag('task')).toBe('task');
