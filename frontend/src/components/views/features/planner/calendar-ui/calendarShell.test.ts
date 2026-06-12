@@ -221,15 +221,17 @@ describe('CalendarShell', () => {
     vi.clearAllMocks();
   });
 
-  it('renders shell with default month mode and projection placeholder', () => {
+  it('renders shell with default month mode and month calendar grid', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps()),
     );
 
     expect(html).toContain('data-planner-calendar-shell');
     expect(html).toContain('data-planner-calendar-mode="month"');
-    expect(html).toContain('data-planner-calendar-placeholder-mode="month"');
+    expect(html).toContain('data-planner-calendar-month');
+    expect(html).toContain('data-planner-month-grid');
     expect(html).toContain('Month View');
+    expect(html).not.toContain('data-planner-calendar-placeholder-mode="month"');
   });
 
   it('honours initial mode override', () => {

@@ -3,6 +3,7 @@ import type { DateTime } from 'luxon';
 import type { AppSettings, DDay, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
+import { MonthCalendarView } from './month';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import type { PlannerCalendarViewMode } from '../calendar';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
@@ -76,13 +77,22 @@ export function CalendarShell({
         theme={theme}
       />
 
-      <CalendarViewPlaceholder
-        key={activeViewKey}
-        mode={viewMode}
-        projection={projection}
-        presentation={presentation}
-        theme={theme}
-      />
+      {viewMode === 'month' ? (
+        <MonthCalendarView
+          key={activeViewKey}
+          projection={projection}
+          presentation={presentation}
+          theme={theme}
+        />
+      ) : (
+        <CalendarViewPlaceholder
+          key={activeViewKey}
+          mode={viewMode}
+          projection={projection}
+          presentation={presentation}
+          theme={theme}
+        />
+      )}
     </section>
   );
 }

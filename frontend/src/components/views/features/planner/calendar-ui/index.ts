@@ -24,3 +24,13 @@ export {
   buildPlannerCalendarShellProjection,
   usePlannerCalendarProjection,
 } from './usePlannerCalendarProjection';
+
+export {
+  MonthCalendarView,
+  MonthCalendarGrid,
+  MonthCalendarCell,
+  buildMonthCellDisplayModel,
+  formatMonthOverflowLabel,
+  groupLegacyDdayCountdownsByDate,
+  monthGridHasAnchors,
+} from './month';
