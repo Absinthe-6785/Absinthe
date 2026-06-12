@@ -87,9 +87,19 @@ export type {
   AreaTraceEventRef,
   AreaTraceLinkedNote,
   AreaTraceProjection,
+  AreaRangeTraceProjection,
 } from './areaTraceModels';
+export {
+  areaRangeTraceMarkCount,
+  buildAreaRangeLensProjection,
+  buildAreaRangeTraceProjection,
+  formatAreaRangeHeading,
+  hasAreaRangeTraceMarks,
+} from './buildAreaRangeTraceProjection';
 export {
   areaTraceMarkCount,
   buildAreaTraceProjection,
   hasAreaTraceMarks,
+  resolveAreaMembership,
+  type AreaMembership,
 } from './buildAreaTraceProjection';

@@ -54,14 +54,16 @@ function collectTraceNotes(
   return [...byId.values()];
 }
 
-/**
- * Reconstruct an area trace from backlink membership and K-28 property conventions.
- * Pure projection — no persistence, scoring, or interpretation.
- */
-export function buildAreaTraceProjection(
+export interface AreaMembership {
+  areaNote: NoteBase;
+  linkedNoteRecords: NoteBase[];
+  memberNotes: NoteBase[];
+}
+
+export function resolveAreaMembership(
   areaNoteId: string,
   notes: readonly NoteBase[],
-): AreaTraceProjection {
+): AreaMembership {
   const activeNotes = notes.filter(note => note.deletedAt == null);
   const areaNote = activeNotes.find(note => note.id === areaNoteId);
   if (!areaNote) {
@@ -80,6 +82,23 @@ export function buildAreaTraceProjection(
   const linkedNoteRecords = incoming
     .map(ref => notesById.get(ref.noteId))
     .filter((note): note is NoteBase => note != null);
+
+  return {
+    areaNote,
+    linkedNoteRecords,
+    memberNotes: collectTraceNotes(areaNote, linkedNoteRecords),
+  };
+}
+
+/**
+ * Reconstruct an area trace from backlink membership and K-28 property conventions.
+ * Pure projection — no persistence, scoring, or interpretation.
+ */
+export function buildAreaTraceProjection(
+  areaNoteId: string,
+  notes: readonly NoteBase[],
+): AreaTraceProjection {
+  const { areaNote, linkedNoteRecords } = resolveAreaMembership(areaNoteId, notes);
 
   const linkedNotes = linkedNoteRecords
     .map(note => ({

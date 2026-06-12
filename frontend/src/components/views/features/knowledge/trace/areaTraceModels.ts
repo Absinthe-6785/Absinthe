@@ -18,3 +18,16 @@ export interface AreaTraceProjection {
   milestones: TraceMilestoneRef[];
   events: AreaTraceEventRef[];
 }
+
+/** Area scoped to a calendar range — derived only */
+export interface AreaRangeTraceProjection {
+  areaNoteId: string;
+  areaTitle: string;
+  startDate: string;
+  endDate: string;
+  linkedNotes: AreaTraceLinkedNote[];
+  milestones: TraceMilestoneRef[];
+  events: AreaTraceEventRef[];
+  notesTouched: number;
+  notesCreated: number;
+}
