@@ -49,6 +49,7 @@ export {
 export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
 export { RangeTraceLensView, type RangeTraceLensViewProps } from './RangeTraceLensView';
 export { AreaTraceView, type AreaTraceViewProps } from './AreaTraceView';
+export { AreaDiscoveryView, type AreaDiscoveryViewProps } from './AreaDiscoveryView';
 export { EventNoteDialog, type EventNoteDialogProps } from './EventNoteDialog';
 export { MilestoneNoteDialog, type MilestoneNoteDialogProps } from './MilestoneNoteDialog';
 export {
@@ -96,6 +97,22 @@ export {
   formatAreaRangeHeading,
   hasAreaRangeTraceMarks,
 } from './buildAreaRangeTraceProjection';
+export {
+  areaDiscoveryObservationCount,
+  buildAreaDiscoveryProjection,
+  hasAreaDiscoveryObservations,
+} from './buildAreaDiscoveryProjection';
+export type {
+  AreaClusterSuggestion,
+  AreaDiscoveryProjection,
+  AreaHubSuggestion,
+} from './areaDiscoveryModels';
+export {
+  MAX_DISCOVERY_CLUSTERS,
+  MAX_DISCOVERY_HUBS,
+  MIN_CLUSTER_SIZE,
+  MIN_HUB_REFERENCES,
+} from './areaDiscoveryModels';
 export {
   areaTraceMarkCount,
   buildAreaTraceProjection,
