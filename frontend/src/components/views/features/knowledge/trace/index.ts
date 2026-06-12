@@ -17,7 +17,10 @@ export type {
 
 export { MAX_RANGE_DAYS } from './rangeTraceModels';
 
-export { buildDailyTraceProjection } from './buildDailyTraceProjection';
+export {
+  buildDailyTraceProjection,
+  collectNoteActivityDateKeys,
+} from './buildDailyTraceProjection';
 export {
   buildRangeTraceProjection,
   buildRangeLensProjection,
