@@ -12,12 +12,14 @@ export interface DayCalendarViewProps {
   projection: PlannerCalendarProjection;
   presentation: PlannerCalendarPresentation;
   theme: Theme;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 export function DayCalendarView({
   projection,
   presentation,
   theme,
+  onEventNoteClick,
 }: DayCalendarViewProps) {
   const day = projection.views.day;
   const model = buildDayDisplayModel(day);
@@ -48,6 +50,7 @@ export function DayCalendarView({
         <DayEventsSection
           allDayEvents={model.allDayEvents}
           timedEvents={model.timedEvents}
+          onEventNoteClick={onEventNoteClick}
         />
         <DayScheduleTimeline
           blocks={model.timelineBlocks}

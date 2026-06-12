@@ -13,6 +13,7 @@ export interface MonthCalendarGridProps {
   legacyDdayByDate: ReadonlyMap<string, readonly PlannerCountdownRow[]>;
   theme: Theme;
   countdownLabels: ReadonlyMap<string, string>;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 export function MonthCalendarGrid({
@@ -21,6 +22,7 @@ export function MonthCalendarGrid({
   legacyDdayByDate,
   theme,
   countdownLabels,
+  onEventNoteClick,
 }: MonthCalendarGridProps) {
   const weeks = chunkMonthCells(month.cells, 7);
 
@@ -50,6 +52,7 @@ export function MonthCalendarGrid({
                 model={model}
                 theme={theme}
                 countdownLabels={countdownLabels}
+                onEventNoteClick={onEventNoteClick}
               />
             );
           }),

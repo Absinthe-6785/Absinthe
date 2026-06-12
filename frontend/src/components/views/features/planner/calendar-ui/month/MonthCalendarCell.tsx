@@ -9,12 +9,14 @@ export interface MonthCalendarCellProps {
   model: MonthCellDisplayModel;
   theme: Theme;
   countdownLabels: ReadonlyMap<string, string>;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 export function MonthCalendarCell({
   model,
   theme,
   countdownLabels,
+  onEventNoteClick,
 }: MonthCalendarCellProps) {
   const overflowLabel = formatMonthOverflowLabel(model.overflowCount);
 
@@ -49,10 +51,19 @@ export function MonthCalendarCell({
         {model.eventRows.map(({ occurrence, showTitle }) => (
           <div
             key={occurrence.occurrenceId}
-            className={`px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(occurrence.spanPosition)}`}
+            className={`px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-month-event={occurrence.noteId}
             data-planner-month-event-span={occurrence.spanPosition}
             title={occurrence.title}
+            onClick={onEventNoteClick ? () => onEventNoteClick(occurrence.noteId) : undefined}
+            onKeyDown={onEventNoteClick ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onEventNoteClick(occurrence.noteId);
+              }
+            } : undefined}
+            role={onEventNoteClick ? 'button' : undefined}
+            tabIndex={onEventNoteClick ? 0 : undefined}
           >
             {showTitle ? occurrence.title : '\u00a0'}
           </div>

@@ -35,7 +35,7 @@ export function useEditorKeyboard({
       e.preventDefault();
       onDeleteSelected();
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [readOnly, depth, onDeleteSelected, onClearSelection, getSelectedIds, documentRootRef]);
 }

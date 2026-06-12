@@ -82,6 +82,7 @@ interface SingleBlockProps {
   searchQueryFor: (blockId: string) => string;
   renderToggleNested: ToggleNestedRenderer;
   showPersistentPlaceholder?: (blockId: string) => boolean;
+  onClearBlockSelection?: () => void;
 }
 
 function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): boolean {
@@ -158,6 +159,7 @@ export const SingleBlock = React.memo(function SingleBlock({
   searchQueryFor,
   renderToggleNested,
   showPersistentPlaceholder,
+  onClearBlockSelection,
 }: SingleBlockProps) {
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
@@ -271,6 +273,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     showPersistentPlaceholder,
     isActiveBlock: isActive,
     onActivateBlock: handleActivateBlock,
+    onClearBlockSelection,
   };
 
   const inner = (

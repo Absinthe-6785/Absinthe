@@ -1,8 +1,7 @@
 /**
  * blockKeyboard.ts — When Delete/Backspace should delete selected blocks (not edit text)
  */
-import { readBlockText } from './editableDom';
-import { getCaretOffset, getSelectionOffsets } from './features/block-editor/features/selection';
+import { getSelectionOffsets } from './features/block-editor/features/selection';
 
 export function shouldDeleteSelectedBlocks(
   e: KeyboardEvent,
@@ -17,17 +16,12 @@ export function shouldDeleteSelectedBlocks(
   // Non-text focus (divider shell, image shell, …) → block delete
   if (!t.isContentEditable) return true;
 
-  // Backspace in text block → merge / char delete (EditableBlock). Shell focus → delete block.
-  if (e.key === 'Backspace') {
-    return !t.isContentEditable;
-  }
-
-  if (e.key === 'Delete') {
+  // Text range inside CE → char delete (EditableBlock). Collapsed caret + block selected → delete block.
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    if (!t.isContentEditable) return true;
     const sel = getSelectionOffsets(t);
     if (sel) return false;
-    const text = readBlockText(t);
-    if (text.trim() === '') return true;
-    return false;
+    return true;
   }
 
   return false;

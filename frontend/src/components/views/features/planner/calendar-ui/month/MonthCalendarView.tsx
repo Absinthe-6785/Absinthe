@@ -7,12 +7,14 @@ export interface MonthCalendarViewProps {
   projection: PlannerCalendarProjection;
   presentation: PlannerCalendarPresentation;
   theme: Theme;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 export function MonthCalendarView({
   projection,
   presentation,
   theme,
+  onEventNoteClick,
 }: MonthCalendarViewProps) {
   const month = projection.views.month;
   const legacyDdayByDate = groupLegacyDdayCountdownsByDate(projection.core.countdowns);
@@ -50,6 +52,7 @@ export function MonthCalendarView({
         legacyDdayByDate={legacyDdayByDate}
         theme={theme}
         countdownLabels={presentation.labels.countdownLabels}
+        onEventNoteClick={onEventNoteClick}
       />
     </div>
   );

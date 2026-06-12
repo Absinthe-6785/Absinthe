@@ -24,6 +24,7 @@ export interface CalendarShellProps {
   theme: Theme;
   routineExceptionDates?: ReadonlySet<string>;
   initialMode?: PlannerCalendarViewMode;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 /**
@@ -44,6 +45,7 @@ export function CalendarShell({
   theme,
   routineExceptionDates,
   initialMode = DEFAULT_PLANNER_CALENDAR_MODE,
+  onEventNoteClick,
 }: CalendarShellProps) {
   const [viewMode, setViewMode] = useState<PlannerCalendarViewMode>(initialMode);
 
@@ -85,6 +87,7 @@ export function CalendarShell({
           projection={projection}
           presentation={presentation}
           theme={theme}
+          onEventNoteClick={onEventNoteClick}
         />
       ) : viewMode === 'week' ? (
         <WeekCalendarView
@@ -92,6 +95,7 @@ export function CalendarShell({
           projection={projection}
           presentation={presentation}
           theme={theme}
+          onEventNoteClick={onEventNoteClick}
         />
       ) : viewMode === 'day' ? (
         <DayCalendarView
@@ -99,6 +103,7 @@ export function CalendarShell({
           projection={projection}
           presentation={presentation}
           theme={theme}
+          onEventNoteClick={onEventNoteClick}
         />
       ) : (
         <CalendarViewPlaceholder

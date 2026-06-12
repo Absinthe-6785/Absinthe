@@ -1459,7 +1459,13 @@ export const NoteView = () => {
                   <div
                     key={area.id}
                     className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
-                    onClick={() => openTraceArea(area.id)}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.altKey) {
+                        openTraceArea(area.id);
+                      } else {
+                        openCreatedNote(area.id);
+                      }
+                    }}
                   >
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {area.title.trim() || 'Untitled'}
@@ -1797,7 +1803,7 @@ export const NoteView = () => {
             onSelectNote={setActiveNoteId}
             onDateChange={setTraceDate}
           />
-        ) : isDashboardMode ? (
+        ) : isDashboardMode && !searchQuery.trim() ? (
           <WorkspaceDashboardView
             colors={c}
             dashboard={dashboard}

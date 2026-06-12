@@ -8,12 +8,14 @@ export interface WeekCalendarViewProps {
   projection: PlannerCalendarProjection;
   presentation: PlannerCalendarPresentation;
   theme: Theme;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
 export function WeekCalendarView({
   projection,
   presentation,
   theme,
+  onEventNoteClick,
 }: WeekCalendarViewProps) {
   const week = projection.views.week;
   const todayKey = resolveTodayKeyFromProjection(projection.meta.generatedAt);
@@ -44,6 +46,7 @@ export function WeekCalendarView({
         todayKey={todayKey}
         anchorDate={projection.meta.anchorDate}
         theme={theme}
+        onEventNoteClick={onEventNoteClick}
       />
     </div>
   );

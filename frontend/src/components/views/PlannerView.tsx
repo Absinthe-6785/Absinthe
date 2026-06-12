@@ -285,6 +285,7 @@ export const PlannerView = ({
         appSettings={appSettings}
         theme={theme}
         routineExceptionDates={routineExceptionDates}
+        onEventNoteClick={setActiveNoteId}
       />
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">

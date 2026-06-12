@@ -7,9 +7,10 @@ import { formatWeekRoutineSummary, type WeekDayDisplayModel } from './weekCalend
 export interface WeekDayColumnProps {
   model: WeekDayDisplayModel;
   theme: Theme;
+  onEventNoteClick?: (noteId: string) => void;
 }
 
-export function WeekDayColumn({ model, theme }: WeekDayColumnProps) {
+export function WeekDayColumn({ model, theme, onEventNoteClick }: WeekDayColumnProps) {
   const routineLabel = formatWeekRoutineSummary(model.routineSummary);
 
   return (
@@ -49,6 +50,7 @@ export function WeekDayColumn({ model, theme }: WeekDayColumnProps) {
         <WeekEventRows
           allDayEvents={model.allDayEvents}
           timedEvents={model.timedEvents}
+          onEventNoteClick={onEventNoteClick}
         />
         <WeekScheduleBlockRows blocks={model.blocks} />
         <WeekTemplateHints templateSlots={model.templateSlots} />
