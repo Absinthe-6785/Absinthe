@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
+import { useState, useMemo, useCallback, ReactNode } from 'react';
 import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays, CheckCircle, Plus, X, Moon, Users, User, ChevronDown } from 'lucide-react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
@@ -27,6 +27,34 @@ const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 const parseTime = (timeStr: string): number => {
   const [h, m] = timeStr.split(':');
   return parseInt(h || '0') + parseInt(m || '0') / 60;
+};
+
+type HeatmapDay = {
+  date: string;
+  workout_count: number;
+  routine_done: number;
+  routine_total: number;
+  study_mins: number;
+  is_exception: boolean;
+};
+
+/** Count distinct mark types present on a day — not a productivity score. */
+const getMarkLevel = (d: HeatmapDay | undefined): number => {
+  if (!d || d.is_exception) return 0;
+  let types = 0;
+  if (d.workout_count > 0) types++;
+  if (d.routine_done > 0) types++;
+  if (d.study_mins > 0) types++;
+  return types;
+};
+
+const formatHeatmapTooltip = (d: HeatmapDay): string => {
+  const parts = [d.date];
+  if (d.workout_count > 0) parts.push(`${d.workout_count} workout record${d.workout_count > 1 ? 's' : ''}`);
+  if (d.routine_total > 0) parts.push(`Routine marks: ${d.routine_done} of ${d.routine_total}`);
+  if (d.study_mins > 0) parts.push(`${Math.round(d.study_mins / 6) / 10}h scheduled study`);
+  if (d.is_exception) parts.push('Exception day noted');
+  return parts.join(' · ');
 };
 
 export const AnalyticsView = ({
@@ -176,9 +204,8 @@ export const AnalyticsView = ({
   const isExceptionDay = routineExceptions.some(exc =>
     exc.start_date <= todayStr && exc.end_date >= todayStr
   );
-  const routineCompletionRate = (routines?.length && !isExceptionDay)
-    ? Math.round((routines.filter((r: Routine) => r.done).length / routines.length) * 100)
-    : 0;
+  const routinesMarkedToday = routines?.filter((r: Routine) => r.done).length ?? 0;
+  const routinesTotalToday = routines?.length ?? 0;
 
   const computedStats = useMemo(() => {
     if (!analyticsSchedules?.length) return [];
@@ -221,7 +248,7 @@ export const AnalyticsView = ({
     return { items: items.sort((a, b) => a.start.localeCompare(b.start)), totalHrs: Math.round(totalMins / 6) / 10 };
   }, [analyticsSchedules]);
 
-  // ── Weekly Review narrative ───────────────────────────────────────
+  // ── Weekly activity summary (factual marks, no scoring) ───────────
   const weeklyReview = useMemo(() => {
     if (!heatmapData.length) return null;
     const today = now.toJSDate();
@@ -234,22 +261,12 @@ export const AnalyticsView = ({
     const workoutDays   = thisWeek.filter(d => d.workout_count > 0 && !d.is_exception).length;
     const totalWorkouts = thisWeek.reduce((s, d) => s + d.workout_count, 0);
     const routineDays   = thisWeek.filter(d => d.routine_total > 0 && !d.is_exception);
-    const totalDone     = routineDays.reduce((s, d) => s + d.routine_done, 0);
-    const totalTotal    = routineDays.reduce((s, d) => s + d.routine_total, 0);
-    const routineRate   = totalTotal > 0 ? Math.round((totalDone / totalTotal) * 100) : null;
+    const routineDone   = routineDays.reduce((s, d) => s + d.routine_done, 0);
+    const routineTotal  = routineDays.reduce((s, d) => s + d.routine_total, 0);
     const studyHrs      = Math.round(thisWeek.reduce((s, d) => s + d.study_mins, 0) / 6) / 10;
     const topCat        = computedStats[0] ?? null;
-    const missedDays    = routineDays.filter(d => d.routine_done < d.routine_total).length;
     const exceptionDays = thisWeek.filter(d => d.is_exception).length;
-    let streak = 0;
-    const sorted = [...heatmapData].sort((a, b) => b.date.localeCompare(a.date));
-    for (const d of sorted) {
-      if (d.date > todayStr) continue;
-      if (d.is_exception) { streak++; continue; }
-      if (d.workout_count > 0) streak++;
-      else break;
-    }
-    return { workoutDays, totalWorkouts, routineRate, studyHrs, topCat, missedDays, exceptionDays, streak, daysElapsed: dow + 1 };
+    return { workoutDays, totalWorkouts, routineDone, routineTotal, studyHrs, topCat, exceptionDays, daysElapsed: dow + 1 };
   }, [heatmapData, computedStats, now, formatDate]);
 
   return (
@@ -257,7 +274,7 @@ export const AnalyticsView = ({
       {/* ── 헤더 + 기간 선택 ── */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-6 px-2 lg:pl-2 lg:pr-6 shrink-0 gap-4 lg:gap-0">
         <div>
-          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-white' : 'text-gray-900'}`}>{t('yourAnalytics')}</h1>
+          <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${appSettings.darkMode ? 'text-white' : 'text-gray-900'}`}>Period Overview</h1>
           <p className={`text-sm lg:text-base font-medium mt-1 ${theme.textMuted}`}>{analyticsStart} ~ {analyticsEnd}</p>
         </div>
         <div className="flex flex-col items-start lg:items-end gap-3 w-full lg:w-auto">
@@ -292,92 +309,67 @@ export const AnalyticsView = ({
         {/* ── 좌측: 통계 카드 3개 ── */}
         <div className="w-full lg:flex-[3.5] flex flex-col gap-5 shrink-0">
 
-          {/* ── Weekly Review ── */}
+          {/* ── Weekly activity summary ── */}
           {weeklyReview && (
             <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors ${theme.card}`}>
               <h2 className="font-heading text-base font-bold flex items-center gap-2">
-                <CheckCircle size={16} className="text-green-500"/> This Week
-                <span className={`text-xs font-normal ${theme.textMuted}`}>{weeklyReview.daysElapsed}d in</span>
+                <Activity size={16} className="text-primary"/> Activity This Week
+                <span className={`text-xs font-normal ${theme.textMuted}`}>{weeklyReview.daysElapsed} days in period</span>
               </h2>
               <div className="grid grid-cols-2 gap-2.5">
-                {/* 운동 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Workout</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Workout records</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.workoutDays}</span>
                     <span className={`text-xs font-semibold mb-0.5 ${theme.textMuted}`}>days</span>
                   </div>
-                  <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.totalWorkouts} sessions total</span>
-                  {weeklyReview.streak > 1 && <span className="text-[10px] font-bold text-orange-400">🔥 {weeklyReview.streak}-day streak</span>}
+                  <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.totalWorkouts} session{weeklyReview.totalWorkouts === 1 ? '' : 's'} recorded</span>
                 </div>
-                {/* 루틴 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Routine</span>
-                  {weeklyReview.routineRate !== null ? (
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Routine marks</span>
+                  {weeklyReview.routineTotal > 0 ? (
                     <>
-                      <span className={`text-2xl font-black tabular-nums ${weeklyReview.routineRate >= 80 ? 'text-green-500' : weeklyReview.routineRate >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
-                        {weeklyReview.routineRate}%
+                      <span className="text-2xl font-black tabular-nums">
+                        {weeklyReview.routineDone}
+                        <span className={`text-base font-bold ${theme.textMuted}`}> / {weeklyReview.routineTotal}</span>
                       </span>
-                      <div className={`w-full h-1.5 rounded-full ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                        <div className={`h-full rounded-full transition-all duration-700 ${weeklyReview.routineRate >= 80 ? 'bg-green-500' : weeklyReview.routineRate >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
-                          style={{ width: `${weeklyReview.routineRate}%` }}/>
-                      </div>
-                      {weeklyReview.missedDays > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.missedDays} day{weeklyReview.missedDays > 1 ? 's' : ''} missed</span>}
+                      <span className={`text-[10px] font-medium ${theme.textMuted}`}>marks recorded this week</span>
                     </>
-                  ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>No data</span>}
+                  ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>No routine marks</span>}
                 </div>
-                {/* 공부 */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Study</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Scheduled study</span>
                   <div className="flex items-end gap-1.5">
                     <span className="text-2xl font-black tabular-nums">{weeklyReview.studyHrs}</span>
                     <span className={`text-xs font-semibold mb-0.5 ${theme.textMuted}`}>hrs</span>
                   </div>
-                  {weeklyReview.studyHrs > 0 && <span className={`text-[10px] font-medium ${theme.textMuted}`}>avg {Math.round(weeklyReview.studyHrs / weeklyReview.daysElapsed * 10) / 10}h/day</span>}
+                  <span className={`text-[10px] font-medium ${theme.textMuted}`}>in schedule blocks</span>
                 </div>
-                {/* Top Focus */}
                 <div className={`rounded-2xl p-3.5 flex flex-col gap-1 bg-surface-alt`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Top Focus</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${theme.textMuted}`}>Scheduled attention</span>
                   {weeklyReview.topCat ? (
                     <>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <div className={`w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] shrink-0 ${weeklyReview.topCat.color}`}>{weeklyReview.topCat.icon}</div>
                         <span className="text-sm font-black truncate">{weeklyReview.topCat.cat}</span>
                       </div>
-                      <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.topCat.hrs}h · {weeklyReview.topCat.percent}%</span>
+                      <span className={`text-[10px] font-medium ${theme.textMuted}`}>{weeklyReview.topCat.hrs}h recorded in period</span>
                     </>
                   ) : <span className={`text-sm font-semibold ${theme.textMuted}`}>—</span>}
                 </div>
               </div>
-              {/* Narrative */}
-              {(() => {
-                const { workoutDays, routineRate, studyHrs, streak, missedDays, exceptionDays } = weeklyReview;
-                const msgs: string[] = [];
-                if (streak >= 3) msgs.push(`🔥 ${streak}-day workout streak`);
-                else if (workoutDays >= 4) msgs.push('💪 Strong workout week');
-                else if (workoutDays === 0) msgs.push('😴 No workouts yet');
-                if (routineRate !== null) {
-                  if (routineRate === 100) msgs.push('✅ Perfect routine week');
-                  else if (routineRate >= 80) msgs.push('✅ Routine on track');
-                  else if (missedDays >= 3) msgs.push('⚠️ Routine needs attention');
-                }
-                if (studyHrs >= 20) msgs.push('📚 Heavy study week');
-                else if (studyHrs >= 10) msgs.push('📖 Good study load');
-                if (exceptionDays > 0) msgs.push(`🏖 ${exceptionDays} exception day${exceptionDays > 1 ? 's' : ''}`);
-                if (!msgs.length) return null;
-                return (
-                  <div className={`rounded-xl px-3.5 py-2.5 text-xs font-semibold leading-relaxed ${appSettings.darkMode ? 'bg-[#1C1C1E] text-gray-300' : 'bg-gray-50 text-gray-600'}`}>
-                    {msgs.join(' · ')}
-                  </div>
-                );
-              })()}
+              {weeklyReview.exceptionDays > 0 && (
+                <p className={`text-[10px] font-medium ${theme.textMuted}`}>
+                  {weeklyReview.exceptionDays} exception day{weeklyReview.exceptionDays > 1 ? 's' : ''} noted this week
+                </p>
+              )}
             </div>
           )}
 
           {/* ── 시간 분포 ── */}
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative transition-colors ${theme.card}`}>
             <h2 className={`font-heading text-lg font-bold mb-6 flex items-center gap-2 ${appSettings.darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-              <Clock size={20} className="text-blue-500"/> Time Distribution
+              <Clock size={20} className="text-blue-500"/> Scheduled Time by Category
             </h2>
             <div className="flex flex-col space-y-4 max-h-[320px] lg:max-h-[400px] overflow-y-auto pr-1">
               {isRangeLoading && <p className={`text-sm ${theme.textMuted} text-center`}>Loading…</p>}
@@ -391,7 +383,6 @@ export const AnalyticsView = ({
                     </div>
                     <div className="text-right">
                       <span className="text-base font-bold">{stat.hrs}h</span>
-                      <span className={`text-xs font-semibold ml-2 ${theme.textMuted}`}>({stat.percent}%)</span>
                     </div>
                   </div>
                   <div className={`w-full h-3 rounded-full overflow-hidden ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
@@ -432,19 +423,11 @@ export const AnalyticsView = ({
           {heatmapData.length > 0 && (() => {
             const todayStr = formatDate(now.toJSDate());
             const dataMap = Object.fromEntries(heatmapData.map(d => [d.date, d]));
-            const getLevel = (d: typeof heatmapData[0] | undefined): number => {
-              if (!d || d.is_exception) return 0;
-              let score = 0;
-              if (d.workout_count > 0) score += 2;
-              if (d.workout_count >= 3) score += 1;
-              if (d.routine_total > 0) score += d.routine_done / d.routine_total >= 0.8 ? 2 : d.routine_done / d.routine_total >= 0.5 ? 1 : 0;
-              if (d.study_mins >= 120) score += 1;
-              return Math.min(4, score);
-            };
             const cellColor = (level: number, isExc: boolean): string => {
               if (isExc) return appSettings.darkMode ? 'bg-blue-900/40' : 'bg-blue-100';
               const dk = appSettings.darkMode;
-              return ['bg-gray-800','bg-green-900/60','bg-green-700/70','bg-green-500/80','bg-green-400'][level] || (dk ? 'bg-gray-100' : 'bg-green-600');
+              return ['bg-gray-800', dk ? 'bg-primary/25' : 'bg-primary/20', dk ? 'bg-primary/45' : 'bg-primary/35', dk ? 'bg-primary/65' : 'bg-primary/50'][level]
+                ?? (dk ? 'bg-gray-800' : 'bg-gray-200');
             };
             const endDate = new Date(now.toJSDate());
             const dow = (endDate.getDay() + 6) % 7;
@@ -470,7 +453,7 @@ export const AnalyticsView = ({
             return (
               <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
                 <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2">
-                  <Activity size={16} className="text-green-500"/> Activity
+                  <Activity size={16} className="text-primary"/> Activity Calendar
                   <span className={`text-xs font-normal ${theme.textMuted}`}>16 weeks</span>
                 </h2>
                 <div className="overflow-x-auto">
@@ -491,9 +474,9 @@ export const AnalyticsView = ({
                         <div key={wi} className="flex flex-col gap-0.5 flex-1">
                           {week.map((dateStr, di) => {
                             const d = dataMap[dateStr];
-                            const level = d?.is_exception ? -1 : getLevel(d);
+                            const level = d?.is_exception ? -1 : getMarkLevel(d);
                             const isFuture = dateStr > todayStr;
-                            const tooltip = d ? [dateStr, d.workout_count > 0 ? `💪 ${d.workout_count} workout(s)` : '', d.routine_total > 0 ? `✅ ${d.routine_done}/${d.routine_total} routines` : '', d.study_mins > 0 ? `📚 ${Math.round(d.study_mins / 6) / 10}h study` : '', d.is_exception ? '🏖 Exception' : ''].filter(Boolean).join(' · ') : dateStr;
+                            const tooltip = d ? formatHeatmapTooltip(d) : dateStr;
                             return (
                               <div key={di} title={tooltip}
                                 className={`h-3.5 rounded-[3px] transition-colors ${isFuture ? (appSettings.darkMode ? 'bg-gray-800/40' : 'bg-gray-50') : cellColor(level, d?.is_exception ?? false)}`}/>
@@ -503,9 +486,9 @@ export const AnalyticsView = ({
                       ))}
                     </div>
                     <div className="flex items-center justify-end gap-1.5 mt-3">
-                      <span className={`text-[10px] ${theme.textMuted}`}>Less</span>
-                      {[0,1,2,3,4].map(l => <div key={l} className={`w-3 h-3 rounded-[3px] ${cellColor(l, false)}`}/>)}
-                      <span className={`text-[10px] ${theme.textMuted}`}>More</span>
+                      <span className={`text-[10px] ${theme.textMuted}`}>Fewer marks</span>
+                      {[0, 1, 2, 3].map(l => <div key={l} className={`w-3 h-3 rounded-[3px] ${cellColor(l, false)}`}/>)}
+                      <span className={`text-[10px] ${theme.textMuted}`}>More marks</span>
                     </div>
                   </div>
                 </div>
@@ -516,7 +499,7 @@ export const AnalyticsView = ({
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col relative transition-colors ${theme.card}`}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-heading text-base font-bold flex items-center gap-2">
-                <Activity size={18} className="text-green-500"/> Workout Days
+                <Activity size={18} className="text-primary"/> Workout Records
               </h2>
               <span className={`text-xs font-semibold ${theme.textMuted}`}>
                 {thisWeekDates[0]?.slice(5)} ~ {thisWeekDates[6]?.slice(5)}
@@ -551,26 +534,27 @@ export const AnalyticsView = ({
               })}
             </div>
             <p className={`text-[10px] mt-3 text-center ${theme.textMuted}`}>
-              Tap to mark · Synced from workout records · resets on sign-out
+              Days with workout records · Tap to toggle display · Resets on sign-out
             </p>
           </div>
 
           {/* 루틴 달성률 */}
           <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col transition-colors ${theme.card}`}>
-            <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2"><Calendar size={18} className="text-primary"/> Routine Success</h2>
+            <h2 className="font-heading text-base font-bold mb-4 flex items-center gap-2"><Calendar size={18} className="text-primary"/> Today&apos;s Routine Marks</h2>
             <div className="flex-1 overflow-y-auto space-y-5 pr-1">
               <div>
                 <div className="flex justify-between items-end mb-2">
-                  <span className={`text-sm font-semibold ${theme.textMuted}`}>Today's Routine Rate</span>
+                  <span className={`text-sm font-semibold ${theme.textMuted}`}>Routines marked today</span>
                   {isExceptionDay
                     ? <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>{t('exception')}</span>
-                    : <span className="text-sm font-bold">{routineCompletionRate}%</span>
+                    : routinesTotalToday > 0
+                      ? <span className="text-sm font-bold tabular-nums">{routinesMarkedToday} of {routinesTotalToday}</span>
+                      : <span className={`text-sm font-semibold ${theme.textMuted}`}>No routines</span>
                   }
                 </div>
-                <div className={`w-full h-3 rounded-full overflow-hidden ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                  <div className={`h-full rounded-full transition-all duration-1000 ${routineCompletionRate >= 80 ? 'bg-primary' : routineCompletionRate > 0 ? 'bg-yellow-400' : 'bg-gray-400'}`}
-                    style={{ width: `${routineCompletionRate}%` }}/>
-                </div>
+                {!isExceptionDay && routinesTotalToday > 0 && (
+                  <p className={`text-[10px] font-medium ${theme.textMuted}`}>routine marks recorded</p>
+                )}
               </div>
             </div>
           </div>
@@ -579,7 +563,7 @@ export const AnalyticsView = ({
             <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 flex flex-col transition-colors ${theme.card}`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-heading text-base font-bold flex items-center gap-2">
-                  <Clock size={18} className="text-primary"/> Today's Detail
+                  <Clock size={18} className="text-primary"/> Today&apos;s Schedule
                 </h2>
                 <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-primary/10 text-primary' : 'bg-yellow-50 text-yellow-700'}`}>
                   {dailyStats.totalHrs}h total
