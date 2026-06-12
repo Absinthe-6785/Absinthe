@@ -67,11 +67,16 @@ import {
   type DatabaseView,
   type DatabaseViewPresentation,
   DailyTraceDayView,
+  MonthTraceView,
   EventNoteDialog,
   MilestoneNoteDialog,
   toDateKey,
   formatTraceDayHeading,
+  formatTraceMonthHeading,
   buildDailyTraceProjection,
+  buildMonthTraceProjection,
+  currentTraceMonth,
+  monthTraceMarkCount,
   applyEventToNote,
   applyMilestoneToNote,
   clearEventFromNote,
@@ -82,6 +87,7 @@ import {
   milestoneFormValuesFromNote,
   type EventFormValues,
   type MilestoneFormValues,
+  type TraceMonthKey,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -294,6 +300,7 @@ export const NoteView = () => {
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);
+  const [traceMonth, setTraceMonth] = useState<TraceMonthKey | null>(null);
 
   type EventDialogState = {
     mode: 'create' | 'edit';
@@ -315,6 +322,7 @@ export const NoteView = () => {
     setActiveFolderId(null);
     setActiveTag(null);
     setTraceDate(null);
+    setTraceMonth(null);
   }, []);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
@@ -411,31 +419,56 @@ export const NoteView = () => {
 
   const todayTraceKey = toDateKey(new Date());
 
+  const currentTraceMonthKey = currentTraceMonth();
+
   const openTraceDay = useCallback((dateKey: string) => {
     setTraceDate(dateKey);
+    setTraceMonth(null);
     setWorkspaceActivation(INACTIVE_WORKSPACE);
     setActiveFolderId(null);
     setActiveTag(null);
     setSearchQuery('');
   }, [setWorkspaceActivation, setSearchQuery]);
 
-  const closeTraceDay = useCallback(() => {
+  const openTraceMonth = useCallback((month: TraceMonthKey) => {
+    setTraceMonth(month);
     setTraceDate(null);
+    setWorkspaceActivation(INACTIVE_WORKSPACE);
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery('');
+  }, [setWorkspaceActivation, setSearchQuery]);
+
+  const closeTraceLens = useCallback(() => {
+    setTraceDate(null);
+    setTraceMonth(null);
   }, []);
 
   const isTraceDayMode = traceDate !== null;
+  const isTraceMonthMode = traceMonth !== null;
+  const isTraceLensMode = isTraceDayMode || isTraceMonthMode;
 
   const traceDayProjection = useMemo(
     () => (traceDate ? buildDailyTraceProjection(traceDate, notes.filter(n => !n.deletedAt)) : null),
     [traceDate, notes],
   );
 
-  const traceDayMarkCount = useMemo(() => {
-    if (!traceDayProjection) return 0;
-    return traceDayProjection.milestones.length
-      + traceDayProjection.events.length
-      + traceDayProjection.activities.length;
-  }, [traceDayProjection]);
+  const traceMonthProjection = useMemo(
+    () => (traceMonth
+      ? buildMonthTraceProjection(traceMonth.year, traceMonth.month, notes.filter(n => !n.deletedAt))
+      : null),
+    [traceMonth, notes],
+  );
+
+  const traceLensMarkCount = useMemo(() => {
+    if (traceMonthProjection) return monthTraceMarkCount(traceMonthProjection);
+    if (traceDayProjection) {
+      return traceDayProjection.milestones.length
+        + traceDayProjection.events.length
+        + traceDayProjection.activities.length;
+    }
+    return 0;
+  }, [traceMonthProjection, traceDayProjection]);
 
   const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
     setEventDialog({
@@ -586,6 +619,7 @@ export const NoteView = () => {
 
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
+    setTraceMonth(null);
     handleActivateDashboard();
   }, [handleActivateDashboard]);
 
@@ -600,7 +634,7 @@ export const NoteView = () => {
     }
   }, [isFocusPresetActive, focusUiPreferences.hideGraph, viewMode]);
 
-  const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode || isTraceDayMode;
+  const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode || isTraceLensMode;
   const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
   const activeWorkspaceId = workspaceActivation.kind === 'none' || workspaceActivation.kind === 'dashboard'
     ? null
@@ -1224,8 +1258,8 @@ export const NoteView = () => {
                 </div>
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceDayMode ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); }}>
+                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceMonth(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -1237,8 +1271,14 @@ export const NoteView = () => {
                 >
                   <span style={{ flex: 1 }}>Today</span>
                 </div>
+                <div
+                  className={`bfi ${isTraceMonthMode && traceMonth?.year === currentTraceMonthKey.year && traceMonth?.month === currentTraceMonthKey.month ? 'active' : ''}`}
+                  onClick={() => openTraceMonth(currentTraceMonthKey)}
+                >
+                  <span style={{ flex: 1 }}>This Month</span>
+                </div>
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); }}>
+                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceMonth(null); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
                   <span style={{ flex: 1 }}>Starred</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
@@ -1246,7 +1286,7 @@ export const NoteView = () => {
                 <div className="bseclbl">Folders</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); }}
+                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceMonth(null); }}
                     onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
                     onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
                     onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
@@ -1285,7 +1325,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceMonth(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1437,7 +1477,9 @@ export const NoteView = () => {
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {isTraceDayMode && traceDate
+            {isTraceMonthMode && traceMonth
+              ? formatTraceMonthHeading(traceMonth.year, traceMonth.month)
+              : isTraceDayMode && traceDate
               ? formatTraceDayHeading(traceDate)
               : isDashboardMode
               ? dashboard.name
@@ -1453,15 +1495,15 @@ export const NoteView = () => {
               ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
-              ({isTraceDayMode ? traceDayMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
+              ({isTraceLensMode ? traceLensMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
             </span>
           </span>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
             )}
-            {isTraceDayMode && (
-              <button onClick={closeTraceDay} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave date view">✕</button>
+            {isTraceLensMode && (
+              <button onClick={closeTraceLens} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave trace view">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
               <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave dashboard">✕</button>
@@ -1519,7 +1561,16 @@ export const NoteView = () => {
             )}
           </div>
         </div>
-        {isTraceDayMode && traceDate ? (
+        {isTraceMonthMode && traceMonth ? (
+          <MonthTraceView
+            colors={c}
+            month={traceMonth}
+            notes={notes.filter(n => !n.deletedAt)}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+            onMonthChange={setTraceMonth}
+          />
+        ) : isTraceDayMode && traceDate ? (
           <DailyTraceDayView
             colors={c}
             date={traceDate}

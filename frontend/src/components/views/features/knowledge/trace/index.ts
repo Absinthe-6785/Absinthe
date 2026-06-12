@@ -8,8 +8,25 @@ export {
   type DailyTraceProjection,
 } from './dailyTraceModels';
 
+export type {
+  MonthTraceActivityOverview,
+  MonthTraceEventRef,
+  MonthTraceProjection,
+} from './monthTraceModels';
+
 export { buildDailyTraceProjection } from './buildDailyTraceProjection';
+export {
+  buildMonthTraceProjection,
+  currentTraceMonth,
+  formatTraceMonthHeading,
+  hasMonthTraceMarks,
+  monthTraceMarkCount,
+  shiftTraceMonth,
+  toMonthKey,
+  type TraceMonthKey,
+} from './buildMonthTraceProjection';
 export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
+export { MonthTraceView, type MonthTraceViewProps } from './MonthTraceView';
 export { EventNoteDialog, type EventNoteDialogProps } from './EventNoteDialog';
 export { MilestoneNoteDialog, type MilestoneNoteDialogProps } from './MilestoneNoteDialog';
 export {
