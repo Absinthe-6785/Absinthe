@@ -49,6 +49,25 @@ function getCreatedAt(note: NoteBase): number | undefined {
   return typeof createdAt === 'number' && createdAt > 0 ? createdAt : undefined;
 }
 
+/**
+ * Calendar days on which this note contributes note-activity marks.
+ * Mirrors resolveActivityKind rules without scanning day-by-day.
+ */
+export function collectNoteActivityDateKeys(note: NoteBase): readonly string[] {
+  const traceDate = propertyDateKey(note, TRACE_PROPERTY_KEYS.TRACE_DATE);
+  if (traceDate) return [traceDate];
+
+  const keys: string[] = [];
+  const createdAt = getCreatedAt(note);
+  const createdDay = createdAt ? dateKeyFromTimestamp(createdAt) : null;
+  const updatedDay = dateKeyFromTimestamp(note.updatedAt);
+
+  if (createdDay) keys.push(createdDay);
+  if (updatedDay && updatedDay !== createdDay) keys.push(updatedDay);
+
+  return keys;
+}
+
 function resolveActivityKind(note: NoteBase, dateKey: string): TraceActivityKind | null {
   const traceDate = propertyDateKey(note, TRACE_PROPERTY_KEYS.TRACE_DATE);
   if (traceDate) {

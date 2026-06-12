@@ -312,6 +312,7 @@ export {
 
 export {
   buildDailyTraceProjection,
+  collectNoteActivityDateKeys,
   buildRangeLensProjection,
   buildMonthTraceProjection,
   buildQuarterTraceProjection,
@@ -391,6 +392,44 @@ export {
   type TraceQuarterKey,
   type TraceRangeLens,
 } from './trace';
+
+export {
+  DEFAULT_ARCHIVE_HOME_OPTIONS,
+  archiveCalendarBounds,
+  archivePeriodRefFromDateKey,
+  archivePeriodRefFromMonth,
+  archivePeriodRefFromQuarter,
+  archivePeriodRefFromYear,
+  archivePeriodRefToTraceRangeLens,
+  buildArchiveAreaPills,
+  buildArchiveBrowseLinks,
+  buildArchiveHomeProjection,
+  buildArchiveMarkCalendarProjection,
+  buildArchiveRecentMilestones,
+  buildArchiveYouAreHere,
+  buildNoteMarkIndex,
+  computeMarkDensity,
+  domainMarkDayToTypes,
+  resolveArchivePeriodBounds,
+  traceRangeLensToArchivePeriodRef,
+  type ArchiveAreaPill,
+  type ArchiveAreaRef,
+  type ArchiveBrowseProjection,
+  type ArchiveDomainMarkDay,
+  type ArchiveHomeEmptyFlags,
+  type ArchiveHomeFrame,
+  type ArchiveHomeProjection,
+  type ArchiveHomeProjectionInput,
+  type ArchiveHomeProjectionOptions,
+  type ArchiveMarkCalendarProjection,
+  type ArchiveMarkDay,
+  type ArchiveMarkType,
+  type ArchiveMilestoneEntry,
+  type ArchiveMonthLabel,
+  type ArchivePeriodKind,
+  type ArchivePeriodRef,
+  type ArchiveYouAreHere,
+} from './archive';
 
 export {
   isRelationEdge,

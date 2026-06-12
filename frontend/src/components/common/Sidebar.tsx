@@ -29,7 +29,7 @@ export const Sidebar = ({
   >
     {/* ── 주요 탭 ── */}
     <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
-      {(['planner', 'health', 'analytics', 'note', 'recipe'] as const).map((tab) => {
+      {(['note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {
         const Icon =
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
