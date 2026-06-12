@@ -59,7 +59,8 @@ describe('ArchiveHomeView', () => {
     expect(html).toContain('Archive');
     expect(html).toContain('What remains when you look back.');
     expect(html).toContain('data-archive-home="true"');
-    expect(html).toContain('Archive Home is under construction.');
+    expect(html).toContain('data-archive-mark-calendar');
+    expect(html).toContain('Milestones, areas, and browse paths');
   });
 
   it('shows empty-state hint when projection is empty', () => {
@@ -84,7 +85,7 @@ describe('ArchiveHomeView', () => {
     );
 
     expect(html).toContain('data-archive-home-shell="true"');
-    expect(html).not.toContain('Activity Calendar');
+    expect(html).toContain('data-archive-mark-calendar');
   });
 });
 

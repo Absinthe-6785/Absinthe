@@ -9,6 +9,16 @@ export {
 export { ArchiveShell, type ArchiveShellProps } from './ArchiveShell';
 export { ArchivePlaceholderView, type ArchivePlaceholderViewProps } from './ArchivePlaceholderView';
 export { ArchiveHomeView, type ArchiveHomeViewProps } from './home/ArchiveHomeView';
+export { ArchiveMarkCalendar, type ArchiveMarkCalendarProps } from './home/ArchiveMarkCalendar';
+export {
+  archiveMarkCellColorClass,
+  archiveMarkCellDensityLevel,
+  archiveMarkCellIsException,
+  formatArchiveMarkCalendarYearSpan,
+  formatArchiveMarkDayTooltip,
+  isArchiveMarkCalendarFuture,
+  isArchiveMarkCalendarInRange,
+} from './home/archiveMarkCalendarPresentation';
 export { useArchiveDomainMarks } from './hooks/useArchiveDomainMarks';
 export {
   buildArchiveHomeProjectionForHook,
