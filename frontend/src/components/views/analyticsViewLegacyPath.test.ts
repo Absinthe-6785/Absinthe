@@ -79,7 +79,6 @@ function analyticsProps(): AnalyticsProps {
     formatDate,
     schedules: [],
     routines: [],
-    weeklySchedules: [],
     showToast: vi.fn(),
     appSettings,
     updateSetting: vi.fn(),
@@ -117,5 +116,16 @@ describe('AnalyticsView legacy rollback path', () => {
     expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
+  });
+
+  it('does not render Weekly Timetable planning surface on legacy Analytics', async () => {
+    const { AnalyticsView } = await import('./AnalyticsView');
+    const html = renderToStaticMarkup(
+      createElement(AnalyticsView, analyticsProps()),
+    );
+
+    expect(html).not.toContain('data-planner-weekly-timetable');
+    expect(html).not.toContain('weeklyTimetable');
+    expect(html).not.toContain('data-planner-weekly-timetable-add');
   });
 });

@@ -92,7 +92,6 @@ function analyticsProps(overrides: Partial<AnalyticsProps> = {}): AnalyticsProps
     formatDate,
     schedules: [],
     routines: [],
-    weeklySchedules: [],
     showToast: vi.fn(),
     appSettings,
     updateSetting: vi.fn(),
@@ -150,6 +149,8 @@ describe('AnalyticsView archive landing', () => {
     expect(html).not.toContain('Activity This Week');
     expect(html).not.toContain('Scheduled Time by Category');
     expect(html).not.toContain('Weekly Timetable');
+    expect(html).not.toContain('data-planner-weekly-timetable');
+    expect(html).not.toContain('weeklyTimetable');
   });
 
   it('renders an empty Archive Home when the vault has no marks', () => {
