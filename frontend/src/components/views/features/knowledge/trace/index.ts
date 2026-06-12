@@ -48,6 +48,7 @@ export {
 } from './buildRangeTraceProjection';
 export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
 export { RangeTraceLensView, type RangeTraceLensViewProps } from './RangeTraceLensView';
+export { AreaTraceView, type AreaTraceViewProps } from './AreaTraceView';
 export { EventNoteDialog, type EventNoteDialogProps } from './EventNoteDialog';
 export { MilestoneNoteDialog, type MilestoneNoteDialogProps } from './MilestoneNoteDialog';
 export {
@@ -74,3 +75,21 @@ export {
   hasDailyTraceMarks,
   shiftDateKey,
 } from './dailyTraceDayHelpers';
+export {
+  AREA_TYPE_VALUE,
+  applyAreaToNote,
+  canMarkAsArea,
+  clearAreaFromNote,
+  isAreaNote,
+  listAreaNotes,
+} from './areaNotes';
+export type {
+  AreaTraceEventRef,
+  AreaTraceLinkedNote,
+  AreaTraceProjection,
+} from './areaTraceModels';
+export {
+  areaTraceMarkCount,
+  buildAreaTraceProjection,
+  hasAreaTraceMarks,
+} from './buildAreaTraceProjection';

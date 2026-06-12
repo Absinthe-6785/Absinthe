@@ -68,6 +68,7 @@ import {
   type DatabaseViewPresentation,
   DailyTraceDayView,
   RangeTraceLensView,
+  AreaTraceView,
   EventNoteDialog,
   MilestoneNoteDialog,
   toDateKey,
@@ -75,10 +76,17 @@ import {
   formatRangeLensHeading,
   buildDailyTraceProjection,
   buildRangeLensProjection,
+  buildAreaTraceProjection,
   currentTraceMonth,
   currentTraceQuarter,
   currentTraceYear,
   rangeTraceMarkCount,
+  areaTraceMarkCount,
+  applyAreaToNote,
+  clearAreaFromNote,
+  canMarkAsArea,
+  isAreaNote,
+  listAreaNotes,
   applyEventToNote,
   applyMilestoneToNote,
   clearEventFromNote,
@@ -303,6 +311,7 @@ export const NoteView = () => {
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);
   const [traceRange, setTraceRange] = useState<TraceRangeLens | null>(null);
+  const [traceAreaId, setTraceAreaId] = useState<string | null>(null);
 
   type EventDialogState = {
     mode: 'create' | 'edit';
@@ -325,6 +334,7 @@ export const NoteView = () => {
     setActiveTag(null);
     setTraceDate(null);
     setTraceRange(null);
+    setTraceAreaId(null);
   }, []);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
@@ -428,6 +438,7 @@ export const NoteView = () => {
   const openTraceDay = useCallback((dateKey: string) => {
     setTraceDate(dateKey);
     setTraceRange(null);
+    setTraceAreaId(null);
     setWorkspaceActivation(INACTIVE_WORKSPACE);
     setActiveFolderId(null);
     setActiveTag(null);
@@ -437,6 +448,17 @@ export const NoteView = () => {
   const openTraceRange = useCallback((lens: TraceRangeLens) => {
     setTraceRange(lens);
     setTraceDate(null);
+    setTraceAreaId(null);
+    setWorkspaceActivation(INACTIVE_WORKSPACE);
+    setActiveFolderId(null);
+    setActiveTag(null);
+    setSearchQuery('');
+  }, [setWorkspaceActivation, setSearchQuery]);
+
+  const openTraceArea = useCallback((areaNoteId: string) => {
+    setTraceAreaId(areaNoteId);
+    setTraceDate(null);
+    setTraceRange(null);
     setWorkspaceActivation(INACTIVE_WORKSPACE);
     setActiveFolderId(null);
     setActiveTag(null);
@@ -446,15 +468,20 @@ export const NoteView = () => {
   const closeTraceLens = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
+    setTraceAreaId(null);
   }, []);
 
   const isTraceDayMode = traceDate !== null;
   const isTraceRangeMode = traceRange !== null;
-  const isTraceLensMode = isTraceDayMode || isTraceRangeMode;
+  const isTraceAreaMode = traceAreaId !== null;
+  const isTraceLensMode = isTraceDayMode || isTraceRangeMode || isTraceAreaMode;
+
+  const activeNotes = useMemo(() => notes.filter(n => !n.deletedAt), [notes]);
+  const areaNotes = useMemo(() => listAreaNotes(activeNotes), [activeNotes]);
 
   const traceDayProjection = useMemo(
-    () => (traceDate ? buildDailyTraceProjection(traceDate, notes.filter(n => !n.deletedAt)) : null),
-    [traceDate, notes],
+    () => (traceDate ? buildDailyTraceProjection(traceDate, activeNotes) : null),
+    [traceDate, activeNotes],
   );
 
   const traceRangeProjection = useMemo(() => {
@@ -463,13 +490,23 @@ export const NoteView = () => {
       return null;
     }
     try {
-      return buildRangeLensProjection(traceRange, notes.filter(n => !n.deletedAt));
+      return buildRangeLensProjection(traceRange, activeNotes);
     } catch {
       return null;
     }
-  }, [traceRange, notes]);
+  }, [traceRange, activeNotes]);
+
+  const traceAreaProjection = useMemo(() => {
+    if (!traceAreaId) return null;
+    try {
+      return buildAreaTraceProjection(traceAreaId, activeNotes);
+    } catch {
+      return null;
+    }
+  }, [traceAreaId, activeNotes]);
 
   const traceLensMarkCount = useMemo(() => {
+    if (traceAreaProjection) return areaTraceMarkCount(traceAreaProjection);
     if (traceRangeProjection) return rangeTraceMarkCount(traceRangeProjection);
     if (traceDayProjection) {
       return traceDayProjection.milestones.length
@@ -477,7 +514,7 @@ export const NoteView = () => {
         + traceDayProjection.activities.length;
     }
     return 0;
-  }, [traceRangeProjection, traceDayProjection]);
+  }, [traceAreaProjection, traceRangeProjection, traceDayProjection]);
 
   const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
     setEventDialog({
@@ -629,6 +666,7 @@ export const NoteView = () => {
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
+    setTraceAreaId(null);
     handleActivateDashboard();
   }, [handleActivateDashboard]);
 
@@ -1038,6 +1076,17 @@ export const NoteView = () => {
   const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
   const isTrash      = activeFolderId === 'trash';
 
+  const handleToggleAreaNote = useCallback(() => {
+    if (!activeNote || isTrash) return;
+    if (isAreaNote(activeNote)) {
+      updateNote(activeNote.id, { properties: clearAreaFromNote(activeNote).properties });
+      if (traceAreaId === activeNote.id) setTraceAreaId(null);
+      return;
+    }
+    if (!canMarkAsArea(activeNote)) return;
+    updateNote(activeNote.id, { properties: applyAreaToNote(activeNote).properties });
+  }, [activeNote, isTrash, traceAreaId, updateNote]);
+
   const folderLabel = useMemo(() =>
     activeFolderId === null    ? 'All Notes' :
     activeFolderId === 'trash' ? '🗑 Trash' :
@@ -1268,7 +1317,7 @@ export const NoteView = () => {
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); }}>
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -1304,8 +1353,24 @@ export const NoteView = () => {
                 >
                   <span style={{ flex: 1 }}>Custom Range</span>
                 </div>
+                {areaNotes.length > 0 && (
+                  <>
+                    <div className="bseclbl">Areas</div>
+                    {areaNotes.map(area => (
+                      <div
+                        key={area.id}
+                        className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
+                        onClick={() => openTraceArea(area.id)}
+                      >
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {area.title.trim() || 'Untitled'}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); }}>
+                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
                   <span style={{ flex: 1 }}>Starred</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
@@ -1313,7 +1378,7 @@ export const NoteView = () => {
                 <div className="bseclbl">Folders</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); }}
+                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); }}
                     onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
                     onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
                     onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
@@ -1352,7 +1417,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1504,7 +1569,9 @@ export const NoteView = () => {
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {isTraceRangeMode && traceRange
+            {isTraceAreaMode && traceAreaProjection
+              ? traceAreaProjection.areaTitle
+              : isTraceRangeMode && traceRange
               ? formatRangeLensHeading(traceRange)
               : isTraceDayMode && traceDate
               ? formatTraceDayHeading(traceDate)
@@ -1588,11 +1655,19 @@ export const NoteView = () => {
             )}
           </div>
         </div>
-        {isTraceRangeMode && traceRange ? (
+        {isTraceAreaMode && traceAreaId ? (
+          <AreaTraceView
+            colors={c}
+            areaNoteId={traceAreaId}
+            notes={activeNotes}
+            activeNoteId={activeNoteId}
+            onSelectNote={setActiveNoteId}
+          />
+        ) : isTraceRangeMode && traceRange ? (
           <RangeTraceLensView
             colors={c}
             lens={traceRange}
-            notes={notes.filter(n => !n.deletedAt)}
+            notes={activeNotes}
             activeNoteId={activeNoteId}
             onSelectNote={setActiveNoteId}
             onLensChange={setTraceRange}
@@ -1601,7 +1676,7 @@ export const NoteView = () => {
           <DailyTraceDayView
             colors={c}
             date={traceDate}
-            notes={notes.filter(n => !n.deletedAt)}
+            notes={activeNotes}
             activeNoteId={activeNoteId}
             onSelectNote={setActiveNoteId}
             onDateChange={setTraceDate}
@@ -1795,6 +1870,17 @@ export const NoteView = () => {
                   title={isMilestoneNote(activeNote) ? 'Edit milestone' : 'Mark as milestone'}
                 >
                   {isMilestoneNote(activeNote) ? 'Edit Milestone' : 'Mark Milestone'}
+                </button>
+              )}
+              {!isTrash && (isAreaNote(activeNote) || canMarkAsArea(activeNote)) && (
+                <button
+                  type="button"
+                  onClick={handleToggleAreaNote}
+                  className="btbtn"
+                  style={{ fontSize: 10, color: isAreaNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+                  title={isAreaNote(activeNote) ? 'Clear area designation' : 'Mark as area hub'}
+                >
+                  {isAreaNote(activeNote) ? 'Clear Area' : 'Mark Area'}
                 </button>
               )}
               {/* Star */}
