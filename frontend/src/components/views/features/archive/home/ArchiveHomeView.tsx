@@ -1,6 +1,7 @@
 import type { AppSettings, Theme } from '../../../../../types';
 import type { ArchiveHomeProjection } from '../../knowledge/archive';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
+import { ArchiveRecentMilestones } from './ArchiveRecentMilestones';
 
 export interface ArchiveHomeViewProps {
   projection: ArchiveHomeProjection;
@@ -10,7 +11,7 @@ export interface ArchiveHomeViewProps {
 }
 
 /**
- * Archive Home — frame, mark calendar, and placeholders for upcoming sections.
+ * Archive Home — frame, mark calendar, recent milestones, and placeholders for upcoming sections.
  */
 export function ArchiveHomeView({
   projection,
@@ -42,6 +43,12 @@ export function ArchiveHomeView({
         appSettings={appSettings}
       />
 
+      <ArchiveRecentMilestones
+        milestones={projection.recentMilestones}
+        theme={theme}
+        appSettings={appSettings}
+      />
+
       {projection.empty.isEmpty && !isLoading && (
         <p className={`text-sm ${theme.textMuted}`} data-archive-empty-message>
           Marks will accumulate here over time.
@@ -54,7 +61,7 @@ export function ArchiveHomeView({
         aria-label="Upcoming Archive Home sections"
       >
         <p className={`text-sm font-medium ${theme.textMuted}`}>
-          Milestones, areas, and browse paths arrive in upcoming milestones.
+          Areas and browse paths arrive in upcoming milestones.
         </p>
       </section>
     </div>

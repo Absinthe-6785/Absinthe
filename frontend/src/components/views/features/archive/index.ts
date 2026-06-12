@@ -10,6 +10,7 @@ export { ArchiveShell, type ArchiveShellProps } from './ArchiveShell';
 export { ArchivePlaceholderView, type ArchivePlaceholderViewProps } from './ArchivePlaceholderView';
 export { ArchiveHomeView, type ArchiveHomeViewProps } from './home/ArchiveHomeView';
 export { ArchiveMarkCalendar, type ArchiveMarkCalendarProps } from './home/ArchiveMarkCalendar';
+export { ArchiveRecentMilestones, type ArchiveRecentMilestonesProps } from './home/ArchiveRecentMilestones';
 export {
   archiveMarkCellColorClass,
   archiveMarkCellDensityLevel,

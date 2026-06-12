@@ -60,7 +60,7 @@ describe('ArchiveHomeView', () => {
     expect(html).toContain('What remains when you look back.');
     expect(html).toContain('data-archive-home="true"');
     expect(html).toContain('data-archive-mark-calendar');
-    expect(html).toContain('Milestones, areas, and browse paths');
+    expect(html).toContain('Areas and browse paths');
   });
 
   it('shows empty-state hint when projection is empty', () => {
