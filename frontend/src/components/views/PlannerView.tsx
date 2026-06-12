@@ -641,8 +641,11 @@ export const PlannerView = ({
 
       {/* ── 우측 컬럼: 캘린더 / 타임라인 ── */}
       <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 lg:min-h-0 shrink-0 ${mobilePlannerTab === "calendar" || mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
-        {/* 캘린더 */}
-        <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
+        {/* Legacy mini calendar — mobile Calendar tab only; CalendarShell covers desktop browsing (K-30.32). */}
+        <div
+          data-planner-legacy-mini-calendar="true"
+          className={`h-[auto] rounded-[24px] p-4 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden"} lg:hidden`}
+        >
           <div className="flex justify-between items-center mb-2">
             <h2 className="font-heading text-sm lg:text-base font-bold tabular-nums">
               {currentDate.toLocaleString(lang, { month: 'long', year: 'numeric' })}
