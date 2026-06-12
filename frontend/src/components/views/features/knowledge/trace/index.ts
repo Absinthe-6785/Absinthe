@@ -11,6 +11,7 @@ export {
 export { buildDailyTraceProjection } from './buildDailyTraceProjection';
 export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
 export { EventNoteDialog, type EventNoteDialogProps } from './EventNoteDialog';
+export { MilestoneNoteDialog, type MilestoneNoteDialogProps } from './MilestoneNoteDialog';
 export {
   applyEventToNote,
   clearEventFromNote,
@@ -20,6 +21,15 @@ export {
   validateEventForm,
   type EventFormValues,
 } from './eventNotes';
+export {
+  applyMilestoneToNote,
+  clearMilestoneFromNote,
+  isMilestoneNote,
+  milestoneFormValuesFromNote,
+  readMilestoneFromNote,
+  validateMilestoneForm,
+  type MilestoneFormValues,
+} from './milestoneNotes';
 export {
   findDailyAnchorNote,
   formatTraceDayHeading,

@@ -68,14 +68,20 @@ import {
   type DatabaseViewPresentation,
   DailyTraceDayView,
   EventNoteDialog,
+  MilestoneNoteDialog,
   toDateKey,
   formatTraceDayHeading,
   buildDailyTraceProjection,
   applyEventToNote,
+  applyMilestoneToNote,
   clearEventFromNote,
+  clearMilestoneFromNote,
   isEventNote,
+  isMilestoneNote,
   eventFormValuesFromNote,
+  milestoneFormValuesFromNote,
   type EventFormValues,
+  type MilestoneFormValues,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -297,6 +303,14 @@ export const NoteView = () => {
   const [eventDialog, setEventDialog] = useState<EventDialogState | null>(null);
   const openCreateEventDialogRef = useRef<(defaults?: Partial<EventFormValues>) => void>(() => {});
 
+  type MilestoneDialogState = {
+    noteId: string;
+    noteTitle: string;
+    initialValues: MilestoneFormValues;
+    hasExistingMilestone: boolean;
+  };
+  const [milestoneDialog, setMilestoneDialog] = useState<MilestoneDialogState | null>(null);
+
   const resetBrowseScope = useCallback(() => {
     setActiveFolderId(null);
     setActiveTag(null);
@@ -444,6 +458,15 @@ export const NoteView = () => {
     });
   }, []);
 
+  const openMilestoneDialog = useCallback((note: Note) => {
+    setMilestoneDialog({
+      noteId: note.id,
+      noteTitle: note.title.trim() || 'Untitled',
+      initialValues: milestoneFormValuesFromNote(note, toDateKey(new Date())),
+      hasExistingMilestone: isMilestoneNote(note),
+    });
+  }, []);
+
   openCreateEventDialogRef.current = openCreateEventDialog;
 
   const openCreatedNote = useCallback((id: string) => {
@@ -483,6 +506,24 @@ export const NoteView = () => {
     updateNote(note.id, { properties: cleared.properties });
     setEventDialog(null);
   }, [eventDialog, updateNote]);
+
+  const handleMilestoneDialogSave = useCallback((values: MilestoneFormValues) => {
+    if (!milestoneDialog) return;
+    const note = useNotesStore.getState().notes.find(n => n.id === milestoneDialog.noteId);
+    if (!note) return;
+    const withMilestone = applyMilestoneToNote(note, values);
+    updateNote(note.id, { properties: withMilestone.properties });
+    setMilestoneDialog(null);
+  }, [milestoneDialog, updateNote]);
+
+  const handleRemoveMilestone = useCallback(() => {
+    if (!milestoneDialog) return;
+    const note = useNotesStore.getState().notes.find(n => n.id === milestoneDialog.noteId);
+    if (!note) return;
+    const cleared = clearMilestoneFromNote(note);
+    updateNote(note.id, { properties: cleared.properties });
+    setMilestoneDialog(null);
+  }, [milestoneDialog, updateNote]);
 
   createQuickCaptureRef.current = (input: QuickCaptureInput) => {
     if (input.captureType === 'event') {
@@ -1655,7 +1696,7 @@ export const NoteView = () => {
                   </button>
                 ))}
               </div>
-              {/* Event note actions */}
+              {/* Event / milestone note actions */}
               {!isTrash && (
                 <button
                   type="button"
@@ -1665,6 +1706,17 @@ export const NoteView = () => {
                   title={isEventNote(activeNote) ? 'Edit event' : 'Mark as event'}
                 >
                   {isEventNote(activeNote) ? 'Edit Event' : 'Mark Event'}
+                </button>
+              )}
+              {!isTrash && (
+                <button
+                  type="button"
+                  onClick={() => openMilestoneDialog(activeNote)}
+                  className="btbtn"
+                  style={{ fontSize: 10, color: isMilestoneNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+                  title={isMilestoneNote(activeNote) ? 'Edit milestone' : 'Mark as milestone'}
+                >
+                  {isMilestoneNote(activeNote) ? 'Edit Milestone' : 'Mark Milestone'}
                 </button>
               )}
               {/* Star */}
@@ -2084,6 +2136,17 @@ export const NoteView = () => {
           onSave={handleEventDialogSave}
           onRemoveEvent={eventDialog.mode === 'edit' ? handleRemoveEventStatus : undefined}
           onClose={() => setEventDialog(null)}
+        />
+      )}
+      {milestoneDialog && (
+        <MilestoneNoteDialog
+          colors={c}
+          noteTitle={milestoneDialog.noteTitle}
+          initialValues={milestoneDialog.initialValues}
+          hasExistingMilestone={milestoneDialog.hasExistingMilestone}
+          onSave={handleMilestoneDialogSave}
+          onRemoveMilestone={milestoneDialog.hasExistingMilestone ? handleRemoveMilestone : undefined}
+          onClose={() => setMilestoneDialog(null)}
         />
       )}
       {confirm && (
