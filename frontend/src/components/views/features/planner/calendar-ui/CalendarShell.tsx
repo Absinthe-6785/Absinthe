@@ -5,6 +5,7 @@ import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
+import { DayCalendarView } from './day';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import type { PlannerCalendarViewMode } from '../calendar';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
@@ -87,6 +88,13 @@ export function CalendarShell({
         />
       ) : viewMode === 'week' ? (
         <WeekCalendarView
+          key={activeViewKey}
+          projection={projection}
+          presentation={presentation}
+          theme={theme}
+        />
+      ) : viewMode === 'day' ? (
+        <DayCalendarView
           key={activeViewKey}
           projection={projection}
           presentation={presentation}

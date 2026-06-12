@@ -46,3 +46,15 @@ export {
   buildWeekDayDisplayModel,
   weekHasContent,
 } from './week';
+
+export {
+  DayCalendarView,
+  DayHeader,
+  DayEventsSection,
+  DayScheduleTimeline,
+  DayTemplateHints,
+  DayRoutineSummary,
+  DayTodoSummary,
+  buildDayDisplayModel,
+  dayHasContent,
+} from './day';
