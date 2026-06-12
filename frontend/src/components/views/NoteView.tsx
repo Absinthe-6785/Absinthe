@@ -1518,7 +1518,7 @@ export const NoteView = () => {
                   <>
                     <div className="bseclbl" style={{ marginTop: 4 }}>Tags</div>
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                      {allTags.map(([tag, count]) => (
+                      {allTags.map(({ tag, count }) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
                           onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>

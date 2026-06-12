@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { NoteBase } from '../../../noteUtils';
 import { parseNoteMarkdown, serializeNoteMarkdown, setProperty } from '../properties/noteProperties';
-import { TAGS_PROPERTY_KEY, tagsToPropertyValue } from './tagConstants';
+import { TAGS_PROPERTY_KEY, tagsFromPropertyValue, tagsToPropertyValue } from './tagConstants';
 import {
   addTag,
   hasTag,
@@ -72,6 +72,12 @@ describe('tags markdown frontmatter', () => {
     const parsed = parseNoteMarkdown(raw);
     expect(listTags({ ...note(), properties: parsed.properties })).toEqual(['japanese', 'grammar']);
     expect(parsed.body).toBe('# Hello');
+  });
+
+  it('parses tags from array-shaped property values', () => {
+    expect(tagsFromPropertyValue(['Japanese', 'grammar'])).toEqual(['Japanese', 'grammar']);
+    expect(tagsFromPropertyValue(null)).toEqual([]);
+    expect(tagsFromPropertyValue({ tags: ['x'] })).toEqual([]);
   });
 });
 
