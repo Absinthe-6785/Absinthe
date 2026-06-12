@@ -44,8 +44,8 @@ describe('toggleFooterInsertion', () => {
     const result = insertToggleFooterParagraph(rootBlocks, 'econ');
     expect(result!.created).toBe(false);
     expect(result!.focusBlockId).toBe('empty');
-    expect(result!.blocks).toBe(rootBlocks);
     expect(result!.blocks[0].children).toHaveLength(2);
+    expect(result!.blocks[0].collapsed).toBe(false);
   });
 
   it('no-op for collapsed toggle', () => {
