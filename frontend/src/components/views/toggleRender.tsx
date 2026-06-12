@@ -85,7 +85,19 @@ export function renderToggleChildren(
       style={{ '--be-toggle-depth': ctx.depth + 1 } as CSSProperties}
     >
       {block.children.length > 0 ? (
-        renderNested(block)
+        <>
+          {renderNested(block)}
+          {!ctx.readOnly && (
+            <button
+              type="button"
+              className="be-toggle-add-child"
+              data-toggle-add-child={block.id}
+              onClick={e => { e.stopPropagation(); ctx.onToggleAddChild(block.id); }}
+            >
+              블록 추가…
+            </button>
+          )}
+        </>
       ) : !ctx.readOnly && (
         <div
           className="be-toggle-empty"

@@ -11,6 +11,7 @@ import {
   applyToggleChildMergeIntoHeader,
   applyToggleHeaderEnter,
 } from '../../../toggleNesting';
+import { appendToggleChildParagraph } from '../../../toggleFooterInsertion';
 import { getFocusHandler } from '../features/selection';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import type { BlockEditorInnerProps } from '../types/blockEditorTypes';
@@ -55,17 +56,14 @@ export function useEditorToggle({
   searchMatchIndex,
 }: UseEditorToggleOptions): UseEditorToggleResult {
   const handleToggleAddChild = useCallback((toggleBlockId: string) => {
-    const newChild = makeBlock('paragraph');
-    onChange(updateBlockById(getBlocks(), toggleBlockId, b => ({
-      ...b,
-      collapsed: false,
-      children: [newChild],
-    })));
+    const result = appendToggleChildParagraph(getBlocks(), toggleBlockId);
+    if (!result) return;
+    onChange(result.blocks);
     requestAnimationFrame(() => {
-      const handler = getFocusHandler(newChild.id);
-      if (handler) handler({ blockId: newChild.id, offset: 'start' });
+      const handler = getFocusHandler(result.focusBlockId);
+      if (handler) handler({ blockId: result.focusBlockId, offset: 'start' });
     });
-  }, [onChange]);
+  }, [getBlocks, onChange]);
 
   const handleToggleEnter = useCallback((toggleBlockId: string, before: string, after: string) => {
     const toggle = findBlockById(getBlocks(), toggleBlockId);

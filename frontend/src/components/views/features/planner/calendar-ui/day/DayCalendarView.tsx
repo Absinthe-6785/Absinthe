@@ -7,12 +7,14 @@ import { DayScheduleTimeline } from './DayScheduleTimeline';
 import { DayTemplateHints } from './DayTemplateHints';
 import { DayTodoSummary } from './DayTodoSummary';
 import { buildDayDisplayModel, dayHasContent } from './dayCalendarPresentation';
+import type { DayScheduleActions } from './dayScheduleActions';
 
 export interface DayCalendarViewProps {
   projection: PlannerCalendarProjection;
   presentation: PlannerCalendarPresentation;
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
+  scheduleActions?: DayScheduleActions;
 }
 
 export function DayCalendarView({
@@ -20,6 +22,7 @@ export function DayCalendarView({
   presentation,
   theme,
   onEventNoteClick,
+  scheduleActions,
 }: DayCalendarViewProps) {
   const day = projection.views.day;
   const model = buildDayDisplayModel(day);
@@ -55,6 +58,7 @@ export function DayCalendarView({
         <DayScheduleTimeline
           blocks={model.timelineBlocks}
           carryOverBlocks={model.carryOverBlocks}
+          scheduleActions={scheduleActions}
         />
         <DayTemplateHints templateSlots={model.templateSlots} />
         <DayRoutineSummary

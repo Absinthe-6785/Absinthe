@@ -13,6 +13,38 @@ export interface ToggleFooterInsertionResult {
 }
 
 /**
+ * Append or focus trailing empty paragraph inside an expanded toggle.
+ * Works on any block tree level where toggleId is findable in `blocks`.
+ */
+export function appendToggleChildParagraph(
+  blocks: Block[],
+  toggleId: string,
+): { blocks: Block[]; focusBlockId: string; created: boolean } | null {
+  const toggle = findBlockById(blocks, toggleId);
+  if (!toggle || toggle.type !== 'toggle' || isCollapsedToggle(toggle)) return null;
+
+  const lastChild = toggle.children[toggle.children.length - 1];
+  if (lastChild?.type === 'paragraph' && !lastChild.content.trim()) {
+    return {
+      blocks: updateBlockById(blocks, toggleId, t => ({ ...t, collapsed: false })),
+      focusBlockId: lastChild.id,
+      created: false,
+    };
+  }
+
+  const newParagraph = makeBlock('paragraph');
+  return {
+    blocks: updateBlockById(blocks, toggleId, t => ({
+      ...t,
+      collapsed: false,
+      children: [...t.children, newParagraph],
+    })),
+    focusBlockId: newParagraph.id,
+    created: true,
+  };
+}
+
+/**
  * Append or reuse trailing empty paragraph inside an expanded toggle.
  * Returns null for collapsed toggles or missing blocks.
  */
@@ -20,31 +52,13 @@ export function insertToggleFooterParagraph(
   rootBlocks: Block[],
   toggleId: string,
 ): ToggleFooterInsertionResult | null {
-  const toggle = findBlockById(rootBlocks, toggleId);
-  if (!toggle || toggle.type !== 'toggle' || isCollapsedToggle(toggle)) return null;
-
-  const lastChild = toggle.children[toggle.children.length - 1];
-  if (lastChild?.type === 'paragraph' && !lastChild.content.trim()) {
-    return {
-      toggleId,
-      focusBlockId: lastChild.id,
-      blocks: rootBlocks,
-      created: false,
-    };
-  }
-
-  const newParagraph = makeBlock('paragraph');
-  const blocks = updateBlockById(rootBlocks, toggleId, t => ({
-    ...t,
-    collapsed: false,
-    children: [...t.children, newParagraph],
-  }));
-
+  const result = appendToggleChildParagraph(rootBlocks, toggleId);
+  if (!result) return null;
   return {
     toggleId,
-    focusBlockId: newParagraph.id,
-    blocks,
-    created: true,
+    focusBlockId: result.focusBlockId,
+    blocks: result.blocks,
+    created: result.created,
   };
 }
 

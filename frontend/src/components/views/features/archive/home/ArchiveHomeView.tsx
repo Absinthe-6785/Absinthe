@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type { AppSettings, Theme } from '../../../../../types';
 import type { ArchiveHomeProjection } from '../../knowledge/archive';
-import { useNotesStore } from '../../../../../store/useNotesStore';
+import { openNote } from '../../../../../lib/noteNavigation';
 import { ArchiveAreaPills } from './ArchiveAreaPills';
 import { ArchiveBrowseLinks } from './ArchiveBrowseLinks';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
@@ -23,14 +23,13 @@ export function ArchiveHomeView({
   appSettings,
   isLoading = false,
 }: ArchiveHomeViewProps) {
-  const setActiveNoteId = useNotesStore(s => s.setActiveNoteId);
   const onMilestoneClick = useCallback(
-    (entry: { noteId: string }) => setActiveNoteId(entry.noteId),
-    [setActiveNoteId],
+    (entry: { noteId: string }) => openNote(entry.noteId),
+    [],
   );
   const onAreaClick = useCallback(
-    (pill: { areaNoteId: string }) => setActiveNoteId(pill.areaNoteId),
-    [setActiveNoteId],
+    (pill: { areaNoteId: string }) => openNote(pill.areaNoteId),
+    [],
   );
   const headingClass = appSettings.darkMode ? 'text-white' : 'text-gray-900';
 

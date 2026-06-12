@@ -15,6 +15,7 @@ import { useTranslation } from '../../lib/i18n';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
 import { CalendarShell } from './features/planner/calendar-ui';
+import { openNote } from '../../lib/noteNavigation';
 
 // timeSlots는 currentDate/schedules와 무관한 고정 값(00:00~23:30, 48개).
 // useMemo 내부에 두면 schedules 변경마다 불필요하게 재생성됨 → 모듈 레벨 상수로 분리.
@@ -32,7 +33,7 @@ export const PlannerView = ({
   const {
     notes, folders, activeNoteId, activeFolderId,
     createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
-    setActiveNoteId, createFolder, renameFolder, deleteFolder, setActiveFolderId,
+    createFolder, renameFolder, deleteFolder, setActiveFolderId,
   } = useNotesStore();
 
   // 현재 폴더/휴지통 기준 필터링
@@ -270,6 +271,13 @@ export const PlannerView = ({
     [routines, selectedDate, formatDate],
   );
 
+  const handleCalendarAnchorChange = useCallback((dateKey: string) => {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    if (!y || !m || !d) return;
+    setSelectedDate(new Date(y, m - 1, d));
+    setCurrentDate(new Date(y, m - 1, 1));
+  }, [setSelectedDate, setCurrentDate]);
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
       <CalendarShell
@@ -285,7 +293,16 @@ export const PlannerView = ({
         appSettings={appSettings}
         theme={theme}
         routineExceptionDates={routineExceptionDates}
-        onEventNoteClick={setActiveNoteId}
+        onEventNoteClick={openNote}
+        onAnchorDateChange={handleCalendarAnchorChange}
+        dayScheduleActions={{
+          onAdd: () => openModal(),
+          onEdit: (id: string) => {
+            const sch = schedules.find(s => s.id === id);
+            if (sch) openModal(sch);
+          },
+          onDelete: handleDeleteSchedule,
+        }}
       />
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
@@ -548,7 +565,7 @@ export const PlannerView = ({
                 </p>
               )}
               {visibleNotes.map(n => (
-                <div key={n.id} onClick={() => setActiveNoteId(n.id)}
+                <div key={n.id} onClick={() => openNote(n.id)}
                   className={`w-full text-left px-3 py-2.5 transition-colors group relative cursor-pointer
                     ${n.id === activeNoteId
                       ? appSettings.darkMode ? 'bg-surface-alt' : 'bg-[#F5F0DC]'
@@ -625,8 +642,11 @@ export const PlannerView = ({
 
       {/* ── 우측 컬럼: 캘린더 / 타임라인 ── */}
       <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 lg:min-h-0 shrink-0 ${mobilePlannerTab === "calendar" || mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
-        {/* 캘린더 */}
-        <div className={`h-[auto] lg:h-[32%] rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden lg:flex"}`}>
+        {/* Legacy mini calendar — mobile Calendar tab only; CalendarShell covers desktop browsing (K-30.32). */}
+        <div
+          data-planner-legacy-mini-calendar="true"
+          className={`h-[auto] rounded-[24px] p-4 flex-col transition-colors shrink-0 ${theme.card} ${mobilePlannerTab === "calendar" ? "flex" : "hidden"} lg:hidden`}
+        >
           <div className="flex justify-between items-center mb-2">
             <h2 className="font-heading text-sm lg:text-base font-bold tabular-nums">
               {currentDate.toLocaleString(lang, { month: 'long', year: 'numeric' })}

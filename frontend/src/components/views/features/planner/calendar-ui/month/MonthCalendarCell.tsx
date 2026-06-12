@@ -10,6 +10,7 @@ export interface MonthCalendarCellProps {
   theme: Theme;
   countdownLabels: ReadonlyMap<string, string>;
   onEventNoteClick?: (noteId: string) => void;
+  onDateSelect?: (dateKey: string) => void;
 }
 
 export function MonthCalendarCell({
@@ -17,6 +18,7 @@ export function MonthCalendarCell({
   theme,
   countdownLabels,
   onEventNoteClick,
+  onDateSelect,
 }: MonthCalendarCellProps) {
   const overflowLabel = formatMonthOverflowLabel(model.overflowCount);
 
@@ -33,8 +35,17 @@ export function MonthCalendarCell({
     >
       <div className="flex items-start justify-between gap-1">
         <span
-          className={`text-[11px] lg:text-xs font-bold tabular-nums ${model.inMonth ? '' : theme.textMuted}`}
+          className={`text-[11px] lg:text-xs font-bold tabular-nums ${model.inMonth ? '' : theme.textMuted}${onDateSelect && model.inMonth ? ' cursor-pointer hover:underline' : ''}`}
           data-planner-month-cell-day
+          onClick={onDateSelect && model.inMonth ? () => onDateSelect(model.dateKey) : undefined}
+          onKeyDown={onDateSelect && model.inMonth ? (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onDateSelect(model.dateKey);
+            }
+          } : undefined}
+          role={onDateSelect && model.inMonth ? 'button' : undefined}
+          tabIndex={onDateSelect && model.inMonth ? 0 : undefined}
         >
           {model.day}
         </span>

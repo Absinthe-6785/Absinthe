@@ -3,6 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
+import { registerNotesTabSwitcher } from '../lib/noteNavigation';
 import { useAppStore } from '../store/useAppStore';
 import { useNotesStore } from '../store/useNotesStore';
 import { useNow } from '../hooks/useNow';
@@ -46,6 +47,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     hydrateFromDB();
   }, [hydrateFromDB]);
+
+  useEffect(() => {
+    return registerNotesTabSwitcher(() => setActiveTab('note'));
+  }, []);
 
   // ── 3. Toast — useToast 훅으로 분리 ──────────────────────────────
   // 개선 전: toast state + useRef 타이머가 AppContent에 인라인
