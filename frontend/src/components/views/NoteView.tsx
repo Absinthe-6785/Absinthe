@@ -67,16 +67,18 @@ import {
   type DatabaseView,
   type DatabaseViewPresentation,
   DailyTraceDayView,
-  MonthTraceView,
+  RangeTraceLensView,
   EventNoteDialog,
   MilestoneNoteDialog,
   toDateKey,
   formatTraceDayHeading,
-  formatTraceMonthHeading,
+  formatRangeLensHeading,
   buildDailyTraceProjection,
-  buildMonthTraceProjection,
+  buildRangeLensProjection,
   currentTraceMonth,
-  monthTraceMarkCount,
+  currentTraceQuarter,
+  currentTraceYear,
+  rangeTraceMarkCount,
   applyEventToNote,
   applyMilestoneToNote,
   clearEventFromNote,
@@ -87,7 +89,7 @@ import {
   milestoneFormValuesFromNote,
   type EventFormValues,
   type MilestoneFormValues,
-  type TraceMonthKey,
+  type TraceRangeLens,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import type { AppSettings } from '../../types';
@@ -300,7 +302,7 @@ export const NoteView = () => {
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);
-  const [traceMonth, setTraceMonth] = useState<TraceMonthKey | null>(null);
+  const [traceRange, setTraceRange] = useState<TraceRangeLens | null>(null);
 
   type EventDialogState = {
     mode: 'create' | 'edit';
@@ -322,7 +324,7 @@ export const NoteView = () => {
     setActiveFolderId(null);
     setActiveTag(null);
     setTraceDate(null);
-    setTraceMonth(null);
+    setTraceRange(null);
   }, []);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
@@ -420,18 +422,20 @@ export const NoteView = () => {
   const todayTraceKey = toDateKey(new Date());
 
   const currentTraceMonthKey = currentTraceMonth();
+  const currentTraceQuarterKey = currentTraceQuarter();
+  const currentTraceYearKey = currentTraceYear();
 
   const openTraceDay = useCallback((dateKey: string) => {
     setTraceDate(dateKey);
-    setTraceMonth(null);
+    setTraceRange(null);
     setWorkspaceActivation(INACTIVE_WORKSPACE);
     setActiveFolderId(null);
     setActiveTag(null);
     setSearchQuery('');
   }, [setWorkspaceActivation, setSearchQuery]);
 
-  const openTraceMonth = useCallback((month: TraceMonthKey) => {
-    setTraceMonth(month);
+  const openTraceRange = useCallback((lens: TraceRangeLens) => {
+    setTraceRange(lens);
     setTraceDate(null);
     setWorkspaceActivation(INACTIVE_WORKSPACE);
     setActiveFolderId(null);
@@ -441,34 +445,39 @@ export const NoteView = () => {
 
   const closeTraceLens = useCallback(() => {
     setTraceDate(null);
-    setTraceMonth(null);
+    setTraceRange(null);
   }, []);
 
   const isTraceDayMode = traceDate !== null;
-  const isTraceMonthMode = traceMonth !== null;
-  const isTraceLensMode = isTraceDayMode || isTraceMonthMode;
+  const isTraceRangeMode = traceRange !== null;
+  const isTraceLensMode = isTraceDayMode || isTraceRangeMode;
 
   const traceDayProjection = useMemo(
     () => (traceDate ? buildDailyTraceProjection(traceDate, notes.filter(n => !n.deletedAt)) : null),
     [traceDate, notes],
   );
 
-  const traceMonthProjection = useMemo(
-    () => (traceMonth
-      ? buildMonthTraceProjection(traceMonth.year, traceMonth.month, notes.filter(n => !n.deletedAt))
-      : null),
-    [traceMonth, notes],
-  );
+  const traceRangeProjection = useMemo(() => {
+    if (!traceRange) return null;
+    if (traceRange.kind === 'custom' && (!traceRange.startDate.trim() || !traceRange.endDate.trim())) {
+      return null;
+    }
+    try {
+      return buildRangeLensProjection(traceRange, notes.filter(n => !n.deletedAt));
+    } catch {
+      return null;
+    }
+  }, [traceRange, notes]);
 
   const traceLensMarkCount = useMemo(() => {
-    if (traceMonthProjection) return monthTraceMarkCount(traceMonthProjection);
+    if (traceRangeProjection) return rangeTraceMarkCount(traceRangeProjection);
     if (traceDayProjection) {
       return traceDayProjection.milestones.length
         + traceDayProjection.events.length
         + traceDayProjection.activities.length;
     }
     return 0;
-  }, [traceMonthProjection, traceDayProjection]);
+  }, [traceRangeProjection, traceDayProjection]);
 
   const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
     setEventDialog({
@@ -619,7 +628,7 @@ export const NoteView = () => {
 
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
-    setTraceMonth(null);
+    setTraceRange(null);
     handleActivateDashboard();
   }, [handleActivateDashboard]);
 
@@ -1259,7 +1268,7 @@ export const NoteView = () => {
               )}
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceMonth(null); }}>
+                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); }}>
                   <span style={{ flex: 1 }}>All Notes</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
@@ -1272,13 +1281,31 @@ export const NoteView = () => {
                   <span style={{ flex: 1 }}>Today</span>
                 </div>
                 <div
-                  className={`bfi ${isTraceMonthMode && traceMonth?.year === currentTraceMonthKey.year && traceMonth?.month === currentTraceMonthKey.month ? 'active' : ''}`}
-                  onClick={() => openTraceMonth(currentTraceMonthKey)}
+                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
+                  onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                 >
                   <span style={{ flex: 1 }}>This Month</span>
                 </div>
+                <div
+                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
+                  onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey })}
+                >
+                  <span style={{ flex: 1 }}>This Quarter</span>
+                </div>
+                <div
+                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active' : ''}`}
+                  onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
+                >
+                  <span style={{ flex: 1 }}>This Year</span>
+                </div>
+                <div
+                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active' : ''}`}
+                  onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
+                >
+                  <span style={{ flex: 1 }}>Custom Range</span>
+                </div>
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceMonth(null); }}>
+                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
                   <span style={{ flex: 1 }}>Starred</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
@@ -1286,7 +1313,7 @@ export const NoteView = () => {
                 <div className="bseclbl">Folders</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceMonth(null); }}
+                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); }}
                     onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
                     onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
                     onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
@@ -1325,7 +1352,7 @@ export const NoteView = () => {
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(([tag, count]) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceMonth(null); }}>
+                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); }}>
                           #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
                         </span>
                       ))}
@@ -1477,8 +1504,8 @@ export const NoteView = () => {
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {isTraceMonthMode && traceMonth
-              ? formatTraceMonthHeading(traceMonth.year, traceMonth.month)
+            {isTraceRangeMode && traceRange
+              ? formatRangeLensHeading(traceRange)
               : isTraceDayMode && traceDate
               ? formatTraceDayHeading(traceDate)
               : isDashboardMode
@@ -1561,14 +1588,14 @@ export const NoteView = () => {
             )}
           </div>
         </div>
-        {isTraceMonthMode && traceMonth ? (
-          <MonthTraceView
+        {isTraceRangeMode && traceRange ? (
+          <RangeTraceLensView
             colors={c}
-            month={traceMonth}
+            lens={traceRange}
             notes={notes.filter(n => !n.deletedAt)}
             activeNoteId={activeNoteId}
             onSelectNote={setActiveNoteId}
-            onMonthChange={setTraceMonth}
+            onLensChange={setTraceRange}
           />
         ) : isTraceDayMode && traceDate ? (
           <DailyTraceDayView

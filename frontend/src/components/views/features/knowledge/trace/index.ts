@@ -9,24 +9,45 @@ export {
 } from './dailyTraceModels';
 
 export type {
-  MonthTraceActivityOverview,
-  MonthTraceEventRef,
-  MonthTraceProjection,
-} from './monthTraceModels';
+  RangeTraceEventRef,
+  RangeTraceProjection,
+  TraceCustomRangeDraft,
+  TraceRangeLens,
+} from './rangeTraceModels';
+
+export { MAX_RANGE_DAYS } from './rangeTraceModels';
 
 export { buildDailyTraceProjection } from './buildDailyTraceProjection';
 export {
+  buildRangeTraceProjection,
+  buildRangeLensProjection,
   buildMonthTraceProjection,
+  buildQuarterTraceProjection,
+  buildYearTraceProjection,
   currentTraceMonth,
+  currentTraceQuarter,
+  currentTraceYear,
+  enumerateDateKeys,
+  formatRangeLensHeading,
   formatTraceMonthHeading,
+  formatTraceQuarterHeading,
+  formatTraceYearHeading,
+  getQuarterBounds,
+  getYearBounds,
+  hasRangeTraceMarks,
   hasMonthTraceMarks,
+  rangeTraceMarkCount,
   monthTraceMarkCount,
+  resolveRangeLensBounds,
   shiftTraceMonth,
+  shiftTraceQuarter,
+  shiftTraceYear,
   toMonthKey,
   type TraceMonthKey,
-} from './buildMonthTraceProjection';
+  type TraceQuarterKey,
+} from './buildRangeTraceProjection';
 export { DailyTraceDayView, type DailyTraceDayViewProps } from './DailyTraceDayView';
-export { MonthTraceView, type MonthTraceViewProps } from './MonthTraceView';
+export { RangeTraceLensView, type RangeTraceLensViewProps } from './RangeTraceLensView';
 export { EventNoteDialog, type EventNoteDialogProps } from './EventNoteDialog';
 export { MilestoneNoteDialog, type MilestoneNoteDialogProps } from './MilestoneNoteDialog';
 export {
