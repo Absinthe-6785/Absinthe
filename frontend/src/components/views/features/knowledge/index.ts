@@ -312,6 +312,7 @@ export {
 
 export {
   buildDailyTraceProjection,
+  buildRangeLensProjection,
   buildMonthTraceProjection,
   buildQuarterTraceProjection,
   buildRangeTraceProjection,
