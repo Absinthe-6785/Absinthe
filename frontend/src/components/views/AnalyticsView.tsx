@@ -271,6 +271,7 @@ export const AnalyticsView = ({
   }, [heatmapData, computedStats, now, formatDate]);
 
   if (ARCHIVE_SHELL_ENABLED) {
+    // K-30.16 — Archive Home is the default Analytics landing; legacy body preserved below for rollback.
     return <ArchiveShell now={now} appSettings={appSettings} theme={theme} />;
   }
 

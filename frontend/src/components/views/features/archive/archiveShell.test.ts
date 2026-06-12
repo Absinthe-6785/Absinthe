@@ -44,8 +44,8 @@ function emptyProjection() {
 }
 
 describe('ARCHIVE_SHELL_ENABLED', () => {
-  it('remains false so legacy Analytics widgets stay default in K-30.11', () => {
-    expect(ARCHIVE_SHELL_ENABLED).toBe(false);
+  it('is true so Archive Home is the default Analytics landing in K-30.16', () => {
+    expect(ARCHIVE_SHELL_ENABLED).toBe(true);
   });
 });
 
