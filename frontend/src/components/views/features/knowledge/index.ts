@@ -248,6 +248,7 @@ export {
   groupNotesByProperty,
   bucketNotesByDate,
   parseDatabaseDate,
+  toDateKey,
   getNoteDateValue,
   getDatabaseFieldValue,
   getNoteGroupValue,
