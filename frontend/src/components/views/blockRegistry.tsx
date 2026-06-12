@@ -40,6 +40,7 @@ function readingCopyProps(block: Block) {
 }
 
 function sharedEditProps(block: Block, ctx: BlockRenderContext) {
+  const isActive = ctx.isActiveBlock !== false;
   return {
     editableRef: ctx.editableRef,
     onSplitBlock: ctx.onSplitBlock,
@@ -60,6 +61,10 @@ function sharedEditProps(block: Block, ctx: BlockRenderContext) {
     onOutdentBlock: ctx.onOutdentBlock,
     onPasteAt: ctx.onPasteAt,
     onPasteBlocksAt: ctx.onPasteBlocksAt,
+    isActive,
+    onActivate: ctx.onActivateBlock
+      ? (offset?: 'start' | 'end' | number) => ctx.onActivateBlock!(block.id, offset)
+      : undefined,
   };
 }
 

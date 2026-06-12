@@ -531,6 +531,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getSelectedIds: () => selectedBlockIdsRef.current,
     onClearSelection: clearSelection,
     onDeleteSelected: handleDeleteSelected,
+    documentRootRef: editorRootRef,
   });
 
   useEditorCopyEffects({

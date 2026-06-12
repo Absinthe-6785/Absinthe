@@ -54,6 +54,9 @@ export interface EditableBlockProps {
   onPasteAt?: (id: string, start: number, end: number, text: string) => void;
   onPasteBlocksAt?: (id: string, start: number, end: number, blocks: import('./blockUtils').Block[]) => void;
   persistentPlaceholder?: boolean;
+  /** When false in edit mode, renders static selectable text for cross-block selection. */
+  isActive?: boolean;
+  onActivate?: (offset?: 'start' | 'end' | number) => void;
 }
 
 export function EditableBlock({
@@ -70,10 +73,14 @@ export function EditableBlock({
   onPasteAt,
   onPasteBlocksAt,
   persistentPlaceholder = false,
+  isActive = true,
+  onActivate,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
   const liveRafRef = useRef<number | null>(null);
+  const staticMouseRef = useRef<{ x: number; y: number } | null>(null);
+  const isEditing = isActive || readOnly;
 
   const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
     const plain = getElText(el);
@@ -86,12 +93,12 @@ export function EditableBlock({
     const el = editableRef.current;
     if (!el) return;
     if (block.content !== lastContent.current) {
-      if (document.activeElement !== el) {
+      if (!isEditing || document.activeElement !== el) {
         paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
         lastContent.current = block.content;
       }
     }
-  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
+  }, [block.content, editableRef, c, wikiTargets, searchQuery, isEditing]);
 
   useEffect(() => {
     const el = editableRef.current;
@@ -343,6 +350,51 @@ export function EditableBlock({
       onWikiNavigate(title);
     }
   }, [onWikiNavigate]);
+
+  const handleStaticMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    staticMouseRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const handleStaticMouseUp = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (!onActivate) return;
+    const start = staticMouseRef.current;
+    staticMouseRef.current = null;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
+    requestAnimationFrame(() => {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return;
+      onActivate('end');
+    });
+  }, [onActivate]);
+
+  const handleStaticDoubleClick = useCallback(() => {
+    onActivate?.('end');
+  }, [onActivate]);
+
+  if (!readOnly && !isActive) {
+    return (
+      <Tag
+        ref={(el: HTMLElement | null) => { editableRef.current = el; }}
+        contentEditable={false}
+        suppressContentEditableWarning
+        className={`be-editable be-editable-static${className ? ` ${className}` : ''}`}
+        style={{
+          outline: 'none',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          cursor: 'text',
+          userSelect: 'text',
+          ...style,
+        }}
+        onMouseDown={handleStaticMouseDown}
+        onMouseUp={handleStaticMouseUp}
+        onDoubleClick={handleStaticDoubleClick}
+        data-block-id={block.id}
+        data-block-type={block.type}
+        data-placeholder={placeholder}
+      />
+    );
+  }
 
   return (
     <Tag

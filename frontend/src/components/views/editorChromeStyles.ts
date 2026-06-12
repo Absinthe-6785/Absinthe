@@ -215,6 +215,10 @@ export const EDITOR_CHROME_STYLES = `
   }
   [contenteditable] { position: relative; }
   [contenteditable]:focus { outline: none; }
+  .be-editable-static {
+    user-select: text;
+    -webkit-user-select: text;
+  }
   .be-toggle-wrap {
     margin: 4px 0;
     position: relative;

@@ -197,6 +197,13 @@ export const SingleBlock = React.memo(function SingleBlock({
     }
   }, [block.type]);
 
+  const handleActivateBlock = useCallback((blockId: string, offset?: 'start' | 'end' | number) => {
+    if (blockId !== block.id) return;
+    onBlockSelect(blockId, { shiftKey: false, metaKey: false, ctrlKey: false } as React.MouseEvent);
+    onActiveBlockChange?.(blockId);
+    applyFocusCommand({ blockId, offset: offset ?? 'end' });
+  }, [block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
+
   // 포커스 레지스트리 + pending queue replay on mount (virtualization-safe)
   useEffect(() => {
     const handler = (cmd: FocusCmd) => { applyFocusCommand(cmd); };
@@ -260,6 +267,8 @@ export const SingleBlock = React.memo(function SingleBlock({
     onRootChange: onRootChange ?? onChange,
     searchQueryFor,
     showPersistentPlaceholder,
+    isActiveBlock: isActive,
+    onActivateBlock: handleActivateBlock,
   };
 
   const inner = (
@@ -277,7 +286,8 @@ export const SingleBlock = React.memo(function SingleBlock({
     if (readOnly) return;
     const t = e.target as HTMLElement;
     if (t.closest('.be-handles, .be-block-handle-menu, .be-grip, button, input, label, a, table')) return;
-    if (t.isContentEditable || t.closest('.be-editable, [contenteditable="true"]')) return;
+    if (t.closest('.be-editable-static')) return;
+    if (t.isContentEditable || t.closest('.be-editable[contenteditable="true"]')) return;
     e.preventDefault();
     onBlockSelect(block.id, e);
     onActiveBlockChange?.(block.id);

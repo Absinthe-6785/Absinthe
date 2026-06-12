@@ -32,6 +32,12 @@ export {
   type FocusCmd,
 } from './utils/selectionState';
 
+export {
+  handleSelectAllKeydown,
+  isFocusInEditableText,
+  selectAllDocumentContent,
+} from './utils/documentSelectAll';
+
 // Caret/selection offset math
 export {
   getCaretOffset,

@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, type RefObject } from 'react';
 import { shouldDeleteSelectedBlocks } from '../../../blockKeyboard';
+import { handleSelectAllKeydown } from '../features/selection/utils/documentSelectAll';
 
 export interface UseEditorKeyboardOptions {
   readOnly: boolean;
@@ -7,6 +8,7 @@ export interface UseEditorKeyboardOptions {
   getSelectedIds: () => Set<string>;
   onClearSelection: () => void;
   onDeleteSelected: () => void;
+  documentRootRef?: RefObject<HTMLElement | null>;
 }
 
 export function useEditorKeyboard({
@@ -15,10 +17,13 @@ export function useEditorKeyboard({
   getSelectedIds,
   onClearSelection,
   onDeleteSelected,
+  documentRootRef,
 }: UseEditorKeyboardOptions): void {
   useEffect(() => {
     if (readOnly || depth !== 0) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (handleSelectAllKeydown(e, documentRootRef?.current ?? null)) return;
+
       if (e.key === 'Escape') {
         if (getSelectedIds().size > 0) {
           onClearSelection();
@@ -32,5 +37,5 @@ export function useEditorKeyboard({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [readOnly, depth, onDeleteSelected]);
+  }, [readOnly, depth, onDeleteSelected, onClearSelection, getSelectedIds, documentRootRef]);
 }

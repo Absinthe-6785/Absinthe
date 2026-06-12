@@ -7,6 +7,7 @@ import { EditableBlock } from './EditableBlock';
 import { ChevronRight } from 'lucide-react';
 
 export function toggleSharedEditProps(block: Block, ctx: BlockRenderContext) {
+  const isActive = ctx.isActiveBlock !== false;
   return {
     editableRef: ctx.editableRef,
     onSplitBlock: ctx.onSplitBlock,
@@ -27,6 +28,10 @@ export function toggleSharedEditProps(block: Block, ctx: BlockRenderContext) {
     onOutdentBlock: ctx.onOutdentBlock,
     onPasteAt: ctx.onPasteAt,
     onPasteBlocksAt: ctx.onPasteBlocksAt,
+    isActive,
+    onActivate: ctx.onActivateBlock
+      ? (offset?: 'start' | 'end' | number) => ctx.onActivateBlock!(block.id, offset)
+      : undefined,
   };
 }
 
