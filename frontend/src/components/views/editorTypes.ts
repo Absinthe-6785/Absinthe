@@ -103,4 +103,7 @@ export interface BlockRenderContext {
   onRootChange: (b: Block[]) => void;
   searchQueryFor: (blockId: string) => string;
   showPersistentPlaceholder?: (blockId: string) => boolean;
+  /** When false, block renders as static selectable text (enables cross-block selection). */
+  isActiveBlock?: boolean;
+  onActivateBlock?: (blockId: string, offset?: 'start' | 'end' | number) => void;
 }

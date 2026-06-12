@@ -11,6 +11,7 @@ describe('editorQa production gating (UX-4E)', () => {
 
   it('skips clipboard verification hooks when DEV is false', async () => {
     vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { scheduleBrowserClipboardCapture, verifyCopyClipboardSync } = await import(
       './features/block-editor/features/clipboard'
@@ -24,6 +25,7 @@ describe('editorQa production gating (UX-4E)', () => {
 
   it('skips paste pipeline trace when DEV is false', async () => {
     vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { beginPastePipelineTrace, finishPastePipelineTrace, isPasteTraceActive } =
       await import('./pastePipelineTrace');
@@ -36,6 +38,7 @@ describe('editorQa production gating (UX-4E)', () => {
 
   it('copy listener performs semantic copy without QA console output when DEV is false', async () => {
     vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
     vi.resetModules();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { installEditorCopyListener } = await import('./features/block-editor/features/clipboard');

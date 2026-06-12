@@ -17,6 +17,8 @@ const HISTORY_LIMIT = 200;
 export interface BlockEditorHandle {
   insertImage: (src?: string, alt?: string) => void;
   insertEmptyImageBlock: () => void;
+  getBlocks: () => Block[];
+  copyDocument: () => Promise<boolean>;
 }
 
 export function useBlockEditor(body: string, onBodyChange: (md: string) => void) {
@@ -100,8 +102,18 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
 
   const clearExternalFocus = useCallback(() => setExternalFocusId(null), []);
 
+  const getBlocks = useCallback(() => blocks, [blocks]);
+
+  const copyDocument = useCallback(async () => {
+    const { copyBlocksToClipboard } = await import(
+      './features/block-editor/features/clipboard/copy/copyToClipboard'
+    );
+    return copyBlocksToClipboard(blocks);
+  }, [blocks]);
+
   return {
     blocks, handleBlockChange, undo, redo,
     insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
+    getBlocks, copyDocument,
   };
 }

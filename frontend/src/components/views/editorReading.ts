@@ -23,6 +23,36 @@ export const EDITOR_READING_STYLES = `
     line-height: ${READING_LINE_HEIGHT};
     padding-left: 0 !important;
   }
+  @media (max-width: 767px) {
+    .be-editor-root.be-reading,
+    .be-editor-root.be-document {
+      max-width: 100%;
+      padding-left: 12px !important;
+      padding-right: 12px !important;
+    }
+    .be-editor-root.be-reading .be-block,
+    .be-editor-root.be-document .be-block {
+      margin-bottom: 2px;
+    }
+    .be-editor-root.be-reading p,
+    .be-editor-root.be-reading .be-editable,
+    .be-editor-root.be-reading .be-block-text,
+    .be-editor-root.be-document.be-reading p,
+    .be-editor-root.be-document.be-reading .be-editable,
+    .be-editor-root.be-document.be-reading .be-block-text {
+      font-size: 16px;
+      line-height: 1.85;
+    }
+    .be-editor-root.be-document-edit {
+      padding-left: 12px !important;
+      padding-right: 8px !important;
+    }
+    .be-editor-root.be-document-edit .be-gutter {
+      flex-basis: 32px;
+      width: 32px;
+      margin-left: -32px;
+    }
+  }
   .be-editor-root.be-reading .be-handles,
   .be-editor-root.be-reading .be-block-handle-menu,
   .be-editor-root.be-reading .be-slash-menu,

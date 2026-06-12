@@ -3,11 +3,12 @@ import {
   Search, Plus, Trash2, FolderPlus, Eye, Type,
   RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
-  ChevronDown, ChevronUp, ChevronRight, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder,
+  ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore } from '../../store/useNotesStore';
@@ -167,9 +168,15 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
   const {
     blocks, handleBlockChange, undo, redo,
     insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
+    getBlocks, copyDocument,
   } = useBlockEditor(body, onBodyChange);
 
-  useImperativeHandle(ref, () => ({ insertImage, insertEmptyImageBlock }), [insertImage, insertEmptyImageBlock]);
+  useImperativeHandle(ref, () => ({
+    insertImage,
+    insertEmptyImageBlock,
+    getBlocks,
+    copyDocument,
+  }), [insertImage, insertEmptyImageBlock, getBlocks, copyDocument]);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
   // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
@@ -320,6 +327,12 @@ export const NoteView = () => {
   const [traceAreaId, setTraceAreaId] = useState<string | null>(null);
   const [traceAreaRange, setTraceAreaRange] = useState<TraceRangeLens | null>(null);
   const [traceDiscoveryMode, setTraceDiscoveryMode] = useState(false);
+  const isMobile = useIsMobile();
+  const [mobileShowEditor, setMobileShowEditor] = useState(false);
+  const [docCopied, setDocCopied] = useState(false);
+  const titleComposingRef = useRef(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const docCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   type EventDialogState = {
     mode: 'create' | 'edit';
@@ -719,8 +732,10 @@ export const NoteView = () => {
 
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
-  const hideLeftChrome = focusMode || hideSidebarByFocus;
-  const hideSecondaryChrome = focusMode || hideSecondaryByFocus;
+  const hideLeftChrome = focusMode || hideSidebarByFocus || isMobile;
+  const hideSecondaryChrome = focusMode || hideSecondaryByFocus || isMobile;
+  const hideNoteList = isMobile && mobileShowEditor && !!activeNoteId;
+  const hideEditorArea = isMobile && !mobileShowEditor;
 
   useEffect(() => {
     if (isFocusPresetActive && focusUiPreferences.hideGraph && viewMode === 'graph') {
@@ -825,6 +840,42 @@ export const NoteView = () => {
     () => notes.find(n => n.id === activeNoteId) ?? null,
     [notes, activeNoteId]
   );
+
+  useEffect(() => {
+    if (!titleComposingRef.current) {
+      setTitleDraft(activeNote?.title ?? '');
+    }
+  }, [activeNote?.id, activeNote?.title]);
+
+  useEffect(() => {
+    if (activeNoteId) setMobileShowEditor(true);
+    else setMobileShowEditor(false);
+  }, [activeNoteId]);
+
+  useEffect(() => () => {
+    if (docCopyTimerRef.current) clearTimeout(docCopyTimerRef.current);
+  }, []);
+
+  const handleCopyDocument = useCallback(async () => {
+    const ok = await blockEditorRef.current?.copyDocument();
+    if (!ok) return;
+    setDocCopied(true);
+    if (docCopyTimerRef.current) clearTimeout(docCopyTimerRef.current);
+    docCopyTimerRef.current = setTimeout(() => setDocCopied(false), 1500);
+  }, []);
+
+  const handleTitleChange = useCallback((value: string) => {
+    setTitleDraft(value);
+    if (!titleComposingRef.current && activeNoteId) {
+      noteUpdate(activeNoteId, { title: value });
+    }
+  }, [activeNoteId, noteUpdate]);
+
+  const handleTitleCompositionEnd = useCallback((value: string) => {
+    titleComposingRef.current = false;
+    setTitleDraft(value);
+    if (activeNoteId) noteUpdate(activeNoteId, { title: value });
+  }, [activeNoteId, noteUpdate]);
 
   const handleActiveBodyChange = useCallback(
     (md: string) => { if (activeNoteId) noteUpdate(activeNoteId, { body: md }); },
@@ -1251,7 +1302,7 @@ export const NoteView = () => {
   `, [c]);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ display: 'flex', height: '100%', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
       <style>{CSS}</style>
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
@@ -1608,8 +1659,8 @@ export const NoteView = () => {
       )}
       {/* ── Note List / Database Table ── */}
       <div style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome ? 0 : (isWorkspacePanelMode ? '45%' : 200)),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome ? 0 : (isWorkspacePanelMode ? 280 : 200)),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? '45%' : (isMobile ? '100%' : 200))),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? 280 : (isMobile ? 0 : 200))),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
@@ -1820,7 +1871,7 @@ export const NoteView = () => {
             return (
               <div key={n.id}
                 className={`bni ${n.id === activeNoteId ? 'active' : ''} ${dragNoteId === n.id ? 'bnote-drag' : ''}`}
-                onClick={() => setActiveNoteId(n.id)}
+                onClick={() => { setActiveNoteId(n.id); if (isMobile) setMobileShowEditor(true); }}
                 draggable={!isTrash}
                 onDragStart={() => setDragNoteId(n.id)}
                 onDragEnd={() => setDragNoteId(null)}
@@ -1849,11 +1900,17 @@ export const NoteView = () => {
       </div>
 
       {/* ── Editor Area ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
+      <div style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
         {activeNote ? (
           <>
             {/* Note Header */}
-            <div style={{ padding: '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0 }}>
+            <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+              {isMobile && (
+                <button type="button" className="btbtn" onClick={() => { setMobileShowEditor(false); setActiveNoteId(null); }}
+                  style={{ padding: '2px 4px', color: c.textMuted }} title="Back to notes">
+                  <ChevronLeft size={14}/>
+                </button>
+              )}
               {isFocusPresetActive && activeFocusPreset && (
                 <button
                   type="button"
@@ -1865,9 +1922,11 @@ export const NoteView = () => {
                   Exit Focus
                 </button>
               )}
-              <input ref={titleInputRef} value={activeNote.title} readOnly={isTrash}
-                onChange={e => noteUpdate(activeNote.id, { title: e.target.value })}
-                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: 15, fontWeight: 700 }}
+              <input ref={titleInputRef} value={titleDraft} readOnly={isTrash}
+                onChange={e => handleTitleChange(e.target.value)}
+                onCompositionStart={() => { titleComposingRef.current = true; }}
+                onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
+                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
                 placeholder="Title"/>
               {!isTrash && (
                 <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
@@ -1965,6 +2024,14 @@ export const NoteView = () => {
                 style={{ color: showRightPanel ? c.accent : c.textMuted }}>
                 <AlignLeft size={12}/>
               </button>
+              {/* Copy document */}
+              {!isTrash && (
+                <button onClick={() => void handleCopyDocument()} className="btbtn"
+                  title={docCopied ? 'Copied' : 'Copy document'}
+                  style={{ color: docCopied ? c.green : c.textMuted }}>
+                  <Copy size={12}/>
+                </button>
+              )}
               {/* Export */}
               <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
                 <Save size={12}/>
@@ -2123,9 +2190,9 @@ export const NoteView = () => {
                     ) : (
                       <div
                         onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
-                        style={{ minHeight: '100%', padding: '24px 0 80px' }}>
+                        style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
                         {viewMode === 'reading' && (
-                          <div style={{ maxWidth: 720, margin: '0 auto 8px', padding: '0 16px', fontSize: 11, color: c.textMuted }}>
+                          <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
                             Reading mode — double-click or <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> to edit
                           </div>
                         )}
