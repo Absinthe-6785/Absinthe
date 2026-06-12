@@ -200,10 +200,10 @@ describe('ArchiveHomeView mark calendar integration', () => {
 
     const archiveIndex = html.indexOf('data-archive-home=');
     const calendarIndex = html.indexOf('data-archive-mark-calendar');
-    const shellIndex = html.indexOf('data-archive-home-shell');
+    const milestonesIndex = html.indexOf('data-archive-recent-milestones');
 
     expect(calendarIndex).toBeGreaterThan(archiveIndex);
-    expect(calendarIndex).toBeLessThan(shellIndex);
+    expect(calendarIndex).toBeLessThan(milestonesIndex);
     expect(html).toContain('Mark Calendar');
   });
 

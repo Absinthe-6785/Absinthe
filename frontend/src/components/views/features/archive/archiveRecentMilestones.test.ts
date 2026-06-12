@@ -178,10 +178,10 @@ describe('ArchiveHomeView recent milestones integration', () => {
 
     const calendarIndex = html.indexOf('data-archive-mark-calendar');
     const milestonesIndex = html.indexOf('data-archive-recent-milestones');
-    const shellIndex = html.indexOf('data-archive-home-shell');
+    const browseIndex = html.indexOf('data-archive-browse');
 
     expect(calendarIndex).toBeGreaterThan(-1);
     expect(milestonesIndex).toBeGreaterThan(calendarIndex);
-    expect(shellIndex).toBeGreaterThan(milestonesIndex);
+    expect(browseIndex).toBeGreaterThan(milestonesIndex);
   });
 });

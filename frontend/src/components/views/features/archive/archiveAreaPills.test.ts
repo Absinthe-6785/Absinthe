@@ -184,10 +184,10 @@ describe('ArchiveHomeView area pills integration', () => {
 
     const milestonesIndex = html.indexOf('data-archive-recent-milestones');
     const areasIndex = html.indexOf('data-archive-area-pills');
-    const shellIndex = html.indexOf('data-archive-home-shell');
+    const browseIndex = html.indexOf('data-archive-browse');
 
     expect(milestonesIndex).toBeGreaterThan(-1);
     expect(areasIndex).toBeGreaterThan(milestonesIndex);
-    expect(shellIndex).toBeGreaterThan(areasIndex);
+    expect(browseIndex).toBeGreaterThan(areasIndex);
   });
 });

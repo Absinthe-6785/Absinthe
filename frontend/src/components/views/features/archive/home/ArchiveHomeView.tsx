@@ -1,6 +1,7 @@
 import type { AppSettings, Theme } from '../../../../../types';
 import type { ArchiveHomeProjection } from '../../knowledge/archive';
 import { ArchiveAreaPills } from './ArchiveAreaPills';
+import { ArchiveBrowseLinks } from './ArchiveBrowseLinks';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
 import { ArchiveRecentMilestones } from './ArchiveRecentMilestones';
 
@@ -12,7 +13,7 @@ export interface ArchiveHomeViewProps {
 }
 
 /**
- * Archive Home — frame, calendar, milestones, areas, and browse placeholder.
+ * Archive Home — frame, calendar, milestones, areas, and browse wayfinding.
  */
 export function ArchiveHomeView({
   projection,
@@ -26,6 +27,7 @@ export function ArchiveHomeView({
     <div
       className="flex flex-col gap-6 px-2 lg:px-4 py-2"
       data-archive-home
+      data-archive-home-complete="true"
       data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
     >
       <header className="flex flex-col gap-1">
@@ -56,21 +58,17 @@ export function ArchiveHomeView({
         appSettings={appSettings}
       />
 
+      <ArchiveBrowseLinks
+        browse={projection.browse}
+        theme={theme}
+        appSettings={appSettings}
+      />
+
       {projection.empty.isEmpty && !isLoading && (
         <p className={`text-sm ${theme.textMuted}`} data-archive-empty-message>
           Marks will accumulate here over time.
         </p>
       )}
-
-      <section
-        className={`rounded-[24px] shadow-sm p-6 ${theme.card}`}
-        data-archive-home-shell
-        aria-label="Upcoming Archive Home sections"
-      >
-        <p className={`text-sm font-medium ${theme.textMuted}`}>
-          Browse paths arrive in an upcoming milestone.
-        </p>
-      </section>
     </div>
   );
 }

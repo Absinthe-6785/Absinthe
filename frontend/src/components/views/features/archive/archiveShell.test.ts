@@ -60,7 +60,7 @@ describe('ArchiveHomeView', () => {
     expect(html).toContain('What remains when you look back.');
     expect(html).toContain('data-archive-home="true"');
     expect(html).toContain('data-archive-mark-calendar');
-    expect(html).toContain('Browse paths arrive');
+    expect(html).toContain('data-archive-browse');
   });
 
   it('shows empty-state hint when projection is empty', () => {
@@ -75,7 +75,7 @@ describe('ArchiveHomeView', () => {
     expect(html).toContain('Marks will accumulate here over time.');
   });
 
-  it('reserves a section shell for future widgets', () => {
+  it('marks Archive Home structurally complete', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveHomeView, {
         projection: emptyProjection(),
@@ -84,8 +84,10 @@ describe('ArchiveHomeView', () => {
       }),
     );
 
-    expect(html).toContain('data-archive-home-shell="true"');
+    expect(html).toContain('data-archive-home-complete="true"');
     expect(html).toContain('data-archive-mark-calendar');
+    expect(html).toContain('data-archive-browse');
+    expect(html).not.toContain('data-archive-home-shell');
   });
 });
 
