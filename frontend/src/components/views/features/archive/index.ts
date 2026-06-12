@@ -11,6 +11,7 @@ export { ArchivePlaceholderView, type ArchivePlaceholderViewProps } from './Arch
 export { ArchiveHomeView, type ArchiveHomeViewProps } from './home/ArchiveHomeView';
 export { ArchiveMarkCalendar, type ArchiveMarkCalendarProps } from './home/ArchiveMarkCalendar';
 export { ArchiveRecentMilestones, type ArchiveRecentMilestonesProps } from './home/ArchiveRecentMilestones';
+export { ArchiveAreaPills, type ArchiveAreaPillsProps } from './home/ArchiveAreaPills';
 export {
   archiveMarkCellColorClass,
   archiveMarkCellDensityLevel,
