@@ -3,8 +3,8 @@ import type { DateTime } from 'luxon';
 import type { AppSettings, DDay, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
-import { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
 import { resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
+import { AgendaCalendarView } from './agenda';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
 import { DayCalendarView } from './day';
@@ -33,7 +33,7 @@ export interface CalendarShellProps {
 
 /**
  * Planner Calendar surface host — Month · Week · Day · Agenda.
- * Month, Week, and Day mount projection views; Agenda remains placeholder until K-30.29.
+ * All four modes mount projection-backed views (K-30.29 Agenda complete).
  */
 export function CalendarShell({
   now,
@@ -124,15 +124,15 @@ export function CalendarShell({
           theme={theme}
           onEventNoteClick={onEventNoteClick}
         />
-      ) : (
-        <CalendarViewPlaceholder
+      ) : viewMode === 'agenda' ? (
+        <AgendaCalendarView
           key={activeViewKey}
-          mode={viewMode}
           projection={projection}
           presentation={presentation}
           theme={theme}
+          onEventNoteClick={onEventNoteClick}
         />
-      )}
+      ) : null}
     </section>
   );
 }

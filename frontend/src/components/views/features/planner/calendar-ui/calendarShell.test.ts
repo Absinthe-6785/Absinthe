@@ -268,13 +268,15 @@ describe('CalendarShell', () => {
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
   });
 
-  it('honours initial mode override for agenda placeholder', () => {
+  it('honours initial mode override for agenda view', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps({ initialMode: 'agenda' })),
     );
 
     expect(html).toContain('data-planner-calendar-mode="agenda"');
+    expect(html).toContain('data-planner-calendar-agenda');
     expect(html).toContain('Agenda View');
+    expect(html).not.toContain('data-planner-calendar-placeholder-mode="agenda"');
   });
 });
 
