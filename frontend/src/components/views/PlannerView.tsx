@@ -15,6 +15,7 @@ import { useTranslation } from '../../lib/i18n';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
 import { CalendarShell } from './features/planner/calendar-ui';
+import { openNote } from '../../lib/noteNavigation';
 
 // timeSlots는 currentDate/schedules와 무관한 고정 값(00:00~23:30, 48개).
 // useMemo 내부에 두면 schedules 변경마다 불필요하게 재생성됨 → 모듈 레벨 상수로 분리.
@@ -32,7 +33,7 @@ export const PlannerView = ({
   const {
     notes, folders, activeNoteId, activeFolderId,
     createNote, updateNote, moveNoteToTrash, restoreNote, permanentDeleteNote,
-    setActiveNoteId, createFolder, renameFolder, deleteFolder, setActiveFolderId,
+    createFolder, renameFolder, deleteFolder, setActiveFolderId,
   } = useNotesStore();
 
   // 현재 폴더/휴지통 기준 필터링
@@ -292,7 +293,7 @@ export const PlannerView = ({
         appSettings={appSettings}
         theme={theme}
         routineExceptionDates={routineExceptionDates}
-        onEventNoteClick={setActiveNoteId}
+        onEventNoteClick={openNote}
         onAnchorDateChange={handleCalendarAnchorChange}
         dayScheduleActions={{
           onAdd: () => openModal(),
@@ -564,7 +565,7 @@ export const PlannerView = ({
                 </p>
               )}
               {visibleNotes.map(n => (
-                <div key={n.id} onClick={() => setActiveNoteId(n.id)}
+                <div key={n.id} onClick={() => openNote(n.id)}
                   className={`w-full text-left px-3 py-2.5 transition-colors group relative cursor-pointer
                     ${n.id === activeNoteId
                       ? appSettings.darkMode ? 'bg-surface-alt' : 'bg-[#F5F0DC]'
