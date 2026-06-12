@@ -34,3 +34,15 @@ export {
   groupLegacyDdayCountdownsByDate,
   monthGridHasAnchors,
 } from './month';
+
+export {
+  WeekCalendarView,
+  WeekHeader,
+  WeekDayColumns,
+  WeekDayColumn,
+  WeekEventRows,
+  WeekScheduleBlockRows,
+  WeekTemplateHints,
+  buildWeekDayDisplayModel,
+  weekHasContent,
+} from './week';
