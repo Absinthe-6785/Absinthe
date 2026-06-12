@@ -14,6 +14,7 @@ export interface MonthCalendarGridProps {
   theme: Theme;
   countdownLabels: ReadonlyMap<string, string>;
   onEventNoteClick?: (noteId: string) => void;
+  onDateSelect?: (dateKey: string) => void;
 }
 
 export function MonthCalendarGrid({
@@ -23,6 +24,7 @@ export function MonthCalendarGrid({
   theme,
   countdownLabels,
   onEventNoteClick,
+  onDateSelect,
 }: MonthCalendarGridProps) {
   const weeks = chunkMonthCells(month.cells, 7);
 
@@ -53,6 +55,7 @@ export function MonthCalendarGrid({
                 theme={theme}
                 countdownLabels={countdownLabels}
                 onEventNoteClick={onEventNoteClick}
+                onDateSelect={onDateSelect}
               />
             );
           }),

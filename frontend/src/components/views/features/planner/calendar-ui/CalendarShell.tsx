@@ -107,6 +107,7 @@ export function CalendarShell({
           presentation={presentation}
           theme={theme}
           onEventNoteClick={onEventNoteClick}
+          onDateSelect={onAnchorDateChange}
         />
       ) : viewMode === 'week' ? (
         <WeekCalendarView

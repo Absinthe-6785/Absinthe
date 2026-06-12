@@ -210,6 +210,21 @@ describe('MonthCalendarView', () => {
     expect(html).toContain(`+${busyCell!.bundle.hints.overflowEventCount} more`);
   });
 
+  it('exposes date pick controls when onDateSelect is provided', () => {
+    const { projection, presentation } = buildMonthFixture();
+    const html = renderToStaticMarkup(
+      createElement(MonthCalendarView, {
+        projection,
+        presentation,
+        theme,
+        onDateSelect: () => {},
+      }),
+    );
+
+    expect(html).toContain('data-planner-month-cell-day');
+    expect(html).toContain('role="button"');
+  });
+
   it('keeps the month grid visible when no events exist', () => {
     const { projection, presentation } = buildMonthFixture();
     const html = renderToStaticMarkup(
