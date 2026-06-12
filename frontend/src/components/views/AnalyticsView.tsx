@@ -9,6 +9,7 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { useTranslation } from '../../lib/i18n';
 import { AnalyticsProps, Schedule, Routine, WeeklySchedule } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { ARCHIVE_SHELL_ENABLED, ArchiveShell } from './features/archive';
 
 const CATEGORY_META: Record<string, { icon: ReactNode; color: string; tw: string }> = {
   Study:    { icon: <BookOpen size={16}/>,  color: 'bg-blue-500',    tw: 'text-blue-500'    },
@@ -268,6 +269,10 @@ export const AnalyticsView = ({
     const exceptionDays = thisWeek.filter(d => d.is_exception).length;
     return { workoutDays, totalWorkouts, routineDone, routineTotal, studyHrs, topCat, exceptionDays, daysElapsed: dow + 1 };
   }, [heatmapData, computedStats, now, formatDate]);
+
+  if (ARCHIVE_SHELL_ENABLED) {
+    return <ArchiveShell now={now} appSettings={appSettings} theme={theme} />;
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
