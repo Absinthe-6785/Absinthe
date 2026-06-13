@@ -9,6 +9,7 @@ import { CodeBlock } from './CodeBlock';
 import { MathBlock } from './MathBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { AudioBlock } from './AudioBlock';
+import { CitationBlock } from './CitationBlock';
 import { FootnoteBlock } from './FootnoteBlock';
 import { ImageBlock } from './ImageBlock';
 import { TableBlock } from './TableBlock';
@@ -285,6 +286,22 @@ registerBlockRenderer('audio', (block, c, ctx) => (
     colors={c}
     readOnly={ctx.readOnly}
     onChange={patch => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, ...patch })))}
+  />
+));
+
+registerBlockRenderer('citation', (block, c, ctx) => (
+  <CitationBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    onChange={fields => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({
+      ...b,
+      citationTitle: fields.title,
+      citationAuthor: fields.author,
+      citationYear: fields.year,
+      citationPage: fields.page,
+      citationUrl: fields.url,
+    })))}
   />
 ));
 

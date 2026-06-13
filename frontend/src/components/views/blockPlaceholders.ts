@@ -21,6 +21,7 @@ export const BLOCK_PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   footnote:  '각주 내용',
   mermaid:   'flowchart TD\\n  A --> B',
   audio:     '오디오 URL',
+  citation:  'Title | Author | Year',
 };
 
 export function blockPlaceholder(type: BlockType): string {

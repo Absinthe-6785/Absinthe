@@ -52,6 +52,17 @@ export function applySlashMenuTypeChange(block: Block, meta: BlockTypeMeta, quer
   if (type === 'footnote') {
     return { ...block, type, content: cleaned, footnoteId: meta.createDefaults?.footnoteId ?? block.footnoteId ?? '1', ...meta.createDefaults };
   }
+  if (type === 'citation') {
+    return {
+      ...block,
+      type,
+      content: '',
+      citationTitle: block.citationTitle ?? '',
+      citationAuthor: block.citationAuthor ?? '',
+      citationYear: block.citationYear ?? '',
+      ...meta.createDefaults,
+    };
+  }
   const next: Block = { ...block, type, content: cleaned, ...meta.createDefaults };
   if (isToggleBlockType(type)) next.collapsed = next.collapsed ?? false;
   if (type === 'callout' && !next.calloutIcon) next.calloutIcon = DEFAULT_CALLOUT_ICON;

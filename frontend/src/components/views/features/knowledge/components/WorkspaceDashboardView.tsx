@@ -22,6 +22,8 @@ import type { KnowledgeReviewLists } from '../review/buildKnowledgeReview';
 import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
 import type { KnowledgeMaintenanceData } from './KnowledgeMaintenancePanel';
 import { KnowledgeMaintenancePanel } from './KnowledgeMaintenancePanel';
+import type { ResearchDashboardData } from '../research/buildResearchDashboard';
+import { ResearchDashboardPanel } from './ResearchDashboardPanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -30,6 +32,11 @@ export interface WorkspaceDashboardReviewProps {
 
 export interface WorkspaceDashboardMaintenanceProps {
   data: KnowledgeMaintenanceData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardResearchProps {
+  data: ResearchDashboardData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -64,6 +71,7 @@ export interface WorkspaceDashboardProductivityProps {
   journalTemplates: readonly JournalTemplateDefinition[];
   onCreateTask: (templateId: string, title?: string) => void;
   onCreateJournal: (templateId: string, title?: string) => void;
+  onCreateReadingNote?: (title?: string) => void;
   onCreateTaskDatabase?: () => void;
   onCreateJournalDatabase?: () => void;
 }
@@ -84,6 +92,7 @@ export interface WorkspaceDashboardViewProps {
   productivity?: WorkspaceDashboardProductivityProps;
   review?: WorkspaceDashboardReviewProps;
   maintenance?: WorkspaceDashboardMaintenanceProps;
+  research?: WorkspaceDashboardResearchProps;
   recentNotesLimit?: number;
 }
 
@@ -166,6 +175,7 @@ export function WorkspaceDashboardView({
   productivity,
   review,
   maintenance,
+  research,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -282,6 +292,16 @@ export function WorkspaceDashboardView({
             colors={c}
             data={maintenance.data}
             onNavigateToNote={maintenance.onSelectNote}
+          />
+        </Card>
+      )}
+
+      {research && (
+        <Card colors={c} title="연구 대시보드">
+          <ResearchDashboardPanel
+            colors={c}
+            data={research.data}
+            onNavigateToNote={research.onSelectNote}
           />
         </Card>
       )}
@@ -473,6 +493,16 @@ export function WorkspaceDashboardView({
               >
                 새 저널
               </button>
+              {productivity.onCreateReadingNote && (
+                <button
+                  type="button"
+                  className="bwbg"
+                  style={{ padding: '8px', fontSize: 11, gridColumn: '1 / -1' }}
+                  onClick={() => productivity.onCreateReadingNote?.()}
+                >
+                  새 읽기 노트
+                </button>
+              )}
             </>
           )}
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenSearch}>

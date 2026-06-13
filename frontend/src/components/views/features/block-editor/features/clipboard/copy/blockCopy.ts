@@ -79,6 +79,10 @@ function blockBodyHtml(block: Block): string {
       return `<pre class="bmermaid" data-mermaid="1">${escapeHtml(block.mermaid ?? '')}</pre>`;
     case 'audio':
       return `<figure class="baudio"><audio controls src="${escapeHtml(block.src ?? '')}"></audio>${block.caption ? `<figcaption>${escapeHtml(block.caption)}</figcaption>` : ''}</figure>`;
+    case 'citation': {
+      const cite = [block.citationAuthor, block.citationYear, block.citationTitle].filter(Boolean).join(', ');
+      return `<aside class="bcitation">${escapeHtml(cite)}</aside>`;
+    }
     default:
       if (block.content) return `<p>${inlineHtml(block.content)}</p>`;
       return '';
