@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import {
   MILESTONE_STATUSES,
   MILESTONE_STATUS_LABELS_KO,
@@ -30,6 +32,8 @@ export function MilestoneEditorPanel({
   onUpdateTargetDate,
   onNavigateToProject,
 }: MilestoneEditorPanelProps) {
+  const { isMobile } = useViewportLayout();
+  const touch = touchMinSize(isMobile);
   const [dateDraft, setDateDraft] = useState(targetDate ?? '');
 
   useEffect(() => {
@@ -86,6 +90,8 @@ export function MilestoneEditorPanel({
           border: `1px solid ${c.inputBdr}`,
           background: c.input,
           color: c.text,
+          minHeight: touch,
+          boxSizing: 'border-box',
         }}
       >
         {MILESTONE_STATUSES.map(s => (
@@ -109,6 +115,7 @@ export function MilestoneEditorPanel({
           background: c.input,
           color: c.text,
           boxSizing: 'border-box',
+          minHeight: touch,
         }}
       />
       <div style={{ fontSize: 9, color: c.textFaint }}>

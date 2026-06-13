@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { ProjectEditorData } from '../academic/buildProjectEditorData';
 import {
   STUDY_PROJECT_STATUSES,
@@ -73,6 +75,8 @@ export function ProjectEditorPanel({
   onNavigateToNote,
   onCreateMilestone,
 }: ProjectEditorPanelProps) {
+  const { isMobile } = useViewportLayout();
+  const touch = touchMinSize(isMobile);
   const [descriptionDraft, setDescriptionDraft] = useState(data.description);
 
   useEffect(() => {
@@ -105,6 +109,8 @@ export function ProjectEditorPanel({
           border: `1px solid ${c.inputBdr}`,
           background: c.input,
           color: c.text,
+          minHeight: touch,
+          boxSizing: 'border-box',
         }}
       >
         {STUDY_PROJECT_STATUSES.map(status => (

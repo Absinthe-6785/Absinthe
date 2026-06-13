@@ -386,6 +386,7 @@ export const NoteView = () => {
   const [traceAreaRange, setTraceAreaRange] = useState<TraceRangeLens | null>(null);
   const [traceDiscoveryMode, setTraceDiscoveryMode] = useState(false);
   const isMobile = useIsMobile();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileShowEditor, setMobileShowEditor] = useState(false);
   const [docCopied, setDocCopied] = useState(false);
   const titleComposingRef = useRef(false);
@@ -927,10 +928,14 @@ export const NoteView = () => {
 
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
-  const hideLeftChrome = focusMode || hideSidebarByFocus || isMobile;
-  const hideSecondaryChrome = focusMode || hideSecondaryByFocus || isMobile;
+  const hideLeftChrome = focusMode || hideSidebarByFocus;
+  const hideSecondaryChrome = hideSecondaryByFocus;
   const hideNoteList = isMobile && mobileShowEditor && !!activeNoteId;
   const hideEditorArea = isMobile && !mobileShowEditor;
+
+  useEffect(() => {
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [isMobile, activeFolderId, activeTag, workspaceActivation.kind, workspaceActivation.id]);
 
   useEffect(() => {
     if (isFocusPresetActive && focusUiPreferences.hideGraph && viewMode === 'graph') {
@@ -1627,6 +1632,11 @@ export const NoteView = () => {
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
+    .mobile-drawer-backdrop{position:fixed;inset:0;background:#00000055;z-index:140}
+    .mobile-sidebar-drawer{position:fixed;top:0;left:0;bottom:0;width:min(280px,88vw);z-index:150;box-shadow:4px 0 24px #00000025}
+    .mobile-panel-drawer{position:fixed;top:0;right:0;bottom:0;width:min(320px,92vw);z-index:150;box-shadow:-4px 0 24px #00000025}
+    .mobile-sidebar-drawer .bfi{min-height:44px;padding:10px 11px}
+    .btbtn-mobile{min-height:44px;min-width:44px}
     .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000015;z-index:100;overflow:hidden;min-width:130px}
     .bsort-item{padding:7px 12px;font-size:12px;cursor:pointer;color:${c.text};display:flex;align-items:center;gap:6px}
     .bsort-item:hover{background:${c.cardHov}}
@@ -1659,6 +1669,22 @@ export const NoteView = () => {
         if (isFocusPresetActive) handleExitFocusPreset();
         else setFocusMode(false);
       }}/>}
+
+      {isMobile && mobileSidebarOpen && (
+        <div
+          className="mobile-drawer-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {isMobile && showRightPanel && activeNote && viewMode !== 'graph' && !hideSecondaryByFocus && (
+        <div
+          className="mobile-drawer-backdrop"
+          onClick={() => setShowRightPanel(false)}
+          aria-hidden
+        />
+      )}
 
       {/* ── 단축키 모달 ── */}
       {showShortcuts && (
@@ -1704,8 +1730,22 @@ export const NoteView = () => {
       )}
 
       {/* ── Left Sidebar ── */}
-      {!hideLeftChrome && (
-        <div style={{ width: sidebarCollapsed ? 44 : 185, minWidth: sidebarCollapsed ? 44 : 185, background: c.sidebar, borderRight: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width .2s, min-width .2s', overflow: 'hidden', zIndex: 99 }}>
+      {(!hideLeftChrome || (isMobile && mobileSidebarOpen)) && (
+        <div
+          className={isMobile ? 'mobile-sidebar-drawer' : undefined}
+          style={{
+            width: isMobile ? undefined : (sidebarCollapsed ? 44 : 185),
+            minWidth: isMobile ? undefined : (sidebarCollapsed ? 44 : 185),
+            background: c.sidebar,
+            borderRight: `1px solid ${c.sideBdr}`,
+            display: isMobile && !mobileSidebarOpen ? 'none' : 'flex',
+            flexDirection: 'column',
+            flexShrink: 0,
+            transition: isMobile ? undefined : 'width .2s, min-width .2s',
+            overflow: 'hidden',
+            zIndex: isMobile ? 150 : 99,
+          }}
+        >
           {sidebarCollapsed ? (
             <div className="bicon-bar" style={{ flex: 1 }}>
               <button className="bicon-btn" onClick={() => setSidebarCollapsed(false)} style={{ marginBottom: 4 }}>
@@ -2047,8 +2087,8 @@ export const NoteView = () => {
       )}
       {/* ── Note List / Database Table ── */}
       <div style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? '45%' : (isMobile ? '100%' : 200))),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? 280 : (isMobile ? 0 : 200))),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : '45%') : (isMobile ? '100%' : 200))),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : 280) : (isMobile ? 0 : 200))),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
@@ -2058,8 +2098,21 @@ export const NoteView = () => {
         transition: 'width .2s, min-width .2s',
         zIndex: 99,
       }}>
-        <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
-          <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+        <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}`, gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+            {isMobile && (
+              <button
+                type="button"
+                className="btbtn btbtn-mobile"
+                onClick={() => setMobileSidebarOpen(true)}
+                title="메뉴"
+                aria-label="메뉴 열기"
+                style={{ padding: '4px 6px', color: c.textMuted, flexShrink: 0 }}
+              >
+                <AlignLeft size={16} />
+              </button>
+            )}
+          <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
             {isTraceDiscoveryMode
               ? '패턴 탐색'
               : isTraceAreaMode && traceAreaProjection
@@ -2087,7 +2140,8 @@ export const NoteView = () => {
               ({isTraceLensMode ? traceLensMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
             </span>
           </span>
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative' }}>
+          </div>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative', flexShrink: 0 }}>
             {searchQuery.trim() && (
               <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
             )}
@@ -2501,7 +2555,7 @@ export const NoteView = () => {
                 </button>
               )}
               {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className="btbtn" title="Toggle sidebar"
+              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`} title="Toggle sidebar"
                 style={{ color: showRightPanel ? c.accent : c.textMuted }}>
                 <AlignLeft size={12}/>
               </button>
@@ -2757,7 +2811,19 @@ export const NoteView = () => {
 
       {/* ── Right Panel ── */}
       {activeNote && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
-        <div style={{ width: 210, minWidth: 210, background: c.sidebar, borderLeft: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div
+          className={isMobile ? 'mobile-panel-drawer' : undefined}
+          style={{
+            width: isMobile ? undefined : 210,
+            minWidth: isMobile ? undefined : 210,
+            background: c.sidebar,
+            borderLeft: `1px solid ${c.sideBdr}`,
+            display: 'flex',
+            flexDirection: 'column',
+            flexShrink: 0,
+            zIndex: isMobile ? 150 : undefined,
+          }}
+        >
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
             {RIGHT_PANELS.map(({ key, label, icon }) => (
               <button key={key} onClick={() => setRightPanel(key)}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
@@ -23,6 +24,7 @@ export interface UnifiedWorkspaceDashboardProps {
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
   learningPathOverview?: React.ComponentProps<typeof LearningPathOverviewPanel>;
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
+  compact?: boolean;
 }
 
 const SECTION_LABELS: Record<UnifiedDashboardSection, string> = {
@@ -36,14 +38,17 @@ function TabBar({
   c,
   active,
   onChange,
+  compact,
 }: {
   c: NoteChromeColors;
   active: UnifiedDashboardSection;
   onChange: (section: UnifiedDashboardSection) => void;
+  compact?: boolean;
 }) {
+  const touch = touchMinSize(!!compact);
   const sections: UnifiedDashboardSection[] = ['overview', 'learning', 'research', 'projects'];
   return (
-    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+    <div style={{ display: 'flex', gap: compact ? 6 : 4, flexWrap: 'wrap', marginBottom: compact ? 12 : 10 }}>
       {sections.map(section => {
         const isActive = section === active;
         return (
@@ -52,14 +57,16 @@ function TabBar({
             type="button"
             onClick={() => onChange(section)}
             style={{
-              padding: '4px 10px',
-              fontSize: 10,
+              padding: compact ? '8px 12px' : '4px 10px',
+              fontSize: compact ? 11 : 10,
               fontWeight: isActive ? 700 : 500,
               borderRadius: 6,
               border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
               background: isActive ? c.accentBg : c.cardHov,
               color: isActive ? c.accent : c.textMuted,
               cursor: 'pointer',
+              minHeight: touch,
+              flex: compact ? '1 1 45%' : undefined,
             }}
           >
             {SECTION_LABELS[section]}
@@ -79,12 +86,13 @@ export function UnifiedWorkspaceDashboard({
   projectQuickActions,
   learningPathOverview,
   learningPathEditor,
+  compact,
 }: UnifiedWorkspaceDashboardProps) {
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
 
   return (
-    <div className="be-unified-workspace-dashboard" aria-label="통합 워크스페이스 대시보드">
-      <TabBar c={c} active={section} onChange={setSection} />
+    <div className="be-unified-workspace-dashboard" aria-label="통합 워크스페이스 대시보드" style={{ overflowX: 'hidden' }}>
+      <TabBar c={c} active={section} onChange={setSection} compact={compact} />
 
       {section === 'overview' && (
         <div>
@@ -139,7 +147,7 @@ export function UnifiedWorkspaceDashboard({
       {section === 'projects' && (
         <div>
           {projectQuickActions && (
-            <ProjectQuickActions colors={c} {...projectQuickActions} />
+            <ProjectQuickActions colors={c} {...projectQuickActions} compact={compact} />
           )}
           <ProjectDashboardPanel colors={c} data={data.projects} onNavigateToNote={onNavigateToNote} />
         </div>

@@ -35,7 +35,7 @@ export function CalendarModeSwitcher({
           aria-selected={activeMode === mode}
           data-planner-calendar-mode-option={mode}
           onClick={() => onModeChange(mode)}
-          className={`flex-1 py-2 px-3 rounded-xl text-[11px] lg:text-xs font-bold transition-colors
+          className={`flex-1 py-2.5 px-3 min-h-[44px] rounded-xl text-[11px] lg:text-xs font-bold transition-colors
             ${activeMode === mode
               ? 'bg-primary text-primary-foreground'
               : `${theme.input} ${theme.textMuted}`}`}
