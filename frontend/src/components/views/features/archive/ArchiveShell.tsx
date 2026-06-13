@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../types';
 import { ArchiveBranchView } from './ArchiveBranchView';
+import { ArchiveModeSwitcher } from './ArchiveModeSwitcher';
 import {
   DEFAULT_ARCHIVE_VIEW_MODE,
   type ArchiveViewMode,
@@ -19,7 +20,7 @@ export interface ArchiveShellProps {
 
 /**
  * Archive surface host — Home · Period · Area · Timeline.
- * K-30.11: Home shell only; other branches render placeholders.
+ * K-30.11+: Home shell with in-app mode tabs for Period · Area · Timeline.
  */
 export function ArchiveShell({
   now,
@@ -27,9 +28,9 @@ export function ArchiveShell({
   theme,
   initialMode = DEFAULT_ARCHIVE_VIEW_MODE,
 }: ArchiveShellProps) {
-  const [mode] = useState<ArchiveViewMode>(initialMode);
+  const [mode, setMode] = useState<ArchiveViewMode>(initialMode);
   const nowDate = useMemo(() => now.toJSDate(), [now]);
-  const { projection, isLoading } = useArchiveHomeProjection(nowDate);
+  const { projection, isLoading } = useArchiveHomeProjection(nowDate, appSettings.language);
 
   return (
     <div
@@ -37,6 +38,12 @@ export function ArchiveShell({
       data-archive-shell
       data-archive-mode={mode}
     >
+      <ArchiveModeSwitcher
+        mode={mode}
+        onModeChange={setMode}
+        theme={theme}
+        appSettings={appSettings}
+      />
       {mode === 'home' && (
         <ArchiveHomeView
           projection={projection}

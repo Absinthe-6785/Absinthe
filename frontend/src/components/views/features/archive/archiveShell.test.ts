@@ -94,7 +94,7 @@ describe('ArchiveHomeView', () => {
 });
 
 describe('ArchiveShell', () => {
-  it('defaults to home mode', () => {
+  it('defaults to home mode with in-app mode switcher', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
@@ -105,6 +105,8 @@ describe('ArchiveShell', () => {
 
     expect(html).toContain('data-archive-mode="home"');
     expect(html).toContain('data-archive-home="true"');
+    expect(html).toContain('data-archive-mode-switcher');
+    expect(html).toContain('role="tablist"');
     expect(DEFAULT_ARCHIVE_VIEW_MODE).toBe('home');
   });
 

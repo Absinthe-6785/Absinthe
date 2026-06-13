@@ -7,6 +7,7 @@ export {
   type ArchiveViewMode,
 } from './archiveNavigationModels';
 export { ArchiveBranchView, type ArchiveBranchViewProps } from './ArchiveBranchView';
+export { ArchiveModeSwitcher, type ArchiveModeSwitcherProps } from './ArchiveModeSwitcher';
 export { ArchiveShell, type ArchiveShellProps } from './ArchiveShell';
 export { ArchivePlaceholderView, type ArchivePlaceholderViewProps } from './ArchivePlaceholderView';
 export { ArchiveHomeView, type ArchiveHomeViewProps } from './home/ArchiveHomeView';

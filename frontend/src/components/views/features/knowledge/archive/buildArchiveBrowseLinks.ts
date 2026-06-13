@@ -1,4 +1,5 @@
 import type { ArchiveBrowseProjection, ArchiveMarkCalendarProjection } from './archiveHomeModels';
+import { resolveArchiveBrowseStaticLabels } from './archiveBrowseLabels';
 import {
   archivePeriodRefFromMonth,
   archivePeriodRefFromNow,
@@ -9,11 +10,13 @@ import {
 export function buildArchiveBrowseLinks(
   now: Date,
   markCalendar?: ArchiveMarkCalendarProjection,
+  locale?: string,
 ): ArchiveBrowseProjection {
   const { year, quarter, month } = archivePeriodRefFromNow(now);
-  const thisMonth = archivePeriodRefFromMonth(year, month);
-  const thisQuarter = archivePeriodRefFromQuarter(year, quarter);
-  const thisYear = archivePeriodRefFromYear(year);
+  const staticLabels = resolveArchiveBrowseStaticLabels(locale);
+  const thisMonth = archivePeriodRefFromMonth(year, month, locale);
+  const thisQuarter = archivePeriodRefFromQuarter(year, quarter, locale);
+  const thisYear = archivePeriodRefFromYear(year, locale);
 
   const yearsWithMarks = new Set<number>();
   for (const day of markCalendar?.days ?? []) {
@@ -25,18 +28,18 @@ export function buildArchiveBrowseLinks(
   const recentYearsWithMarks = [...yearsWithMarks]
     .sort((a, b) => b - a)
     .slice(0, 3)
-    .map(y => archivePeriodRefFromYear(y));
+    .map(y => archivePeriodRefFromYear(y, locale));
 
   return {
     thisYear,
     thisQuarter,
     thisMonth,
-    custom: { kind: 'custom', label: '사용자 지정' },
-    allAreas: { kind: 'areas-index', label: '전체 영역' },
+    custom: { kind: 'custom', label: staticLabels.custom },
+    allAreas: { kind: 'areas-index', label: staticLabels.allAreas },
     timeline: {
       kind: 'timeline',
       defaultPeriod: thisMonth,
-      label: '타임라인',
+      label: staticLabels.timeline,
     },
     ...(recentYearsWithMarks.length > 0 ? { recentYearsWithMarks } : {}),
   };

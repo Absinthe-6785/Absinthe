@@ -12,6 +12,11 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
+import {
+  graphRepulsionStrength,
+  graphSimulationAlphaFloor,
+  shouldShowGraphNodeLabel,
+} from './graphScalePolicy';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -181,12 +186,15 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
     let alpha = 1.0;
-    const REPEL = 3200, ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
+    const nodeCount = nodesRef.current.length;
+    const REPEL = graphRepulsionStrength(nodeCount);
+    const alphaFloor = graphSimulationAlphaFloor(nodeCount);
+    const ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
 
     const step = () => {
       const ns = nodesRef.current;
       const es = edgesRef.current;
-      if (ns.length === 0 || alpha < 0.005) { setTick(t => t + 1); return; }
+      if (ns.length === 0 || alpha < alphaFloor) { setTick(t => t + 1); return; }
 
       alpha *= 0.97;
 
@@ -375,6 +383,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const visibleEdges = es.filter(e => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to));
 
   const isolatedCount = ns.filter(n => n.links === 0).length;
+  const graphNodeCount = ns.length;
 
   const focusId = hovered ?? activeNoteId;
   const focusNeighborhood = useMemo(() => {
@@ -574,7 +583,15 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               ? !matchedIds.has(node.id)
               : !inFocusCluster;
             const label   = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
-            const showLabel = isAct || isHov || isMatch || (focusNeighborhood !== null && inFocusCluster && isHub);
+            const showLabel = shouldShowGraphNodeLabel({
+              nodeCount: graphNodeCount,
+              isActive: isAct,
+              isHovered: isHov,
+              isSearchMatch: isMatch,
+              isHub,
+              inFocusCluster,
+              hasSearchFilter: matchedIds !== null,
+            });
 
             // 폴더 색상
             const folderColor = getFolderColor(node.folderId, folderIds);

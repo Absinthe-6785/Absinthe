@@ -16,6 +16,14 @@ export function resolveAppLanguage(language?: Language | null): Language {
   return DEFAULT_APP_LANGUAGE;
 }
 
+/** BCP-47 locale for Intl / toLocaleDateString from app language. */
+export function resolveIntlLocale(language?: Language | null): string {
+  const lang = resolveAppLanguage(language);
+  if (lang === 'ko') return 'ko-KR';
+  if (lang === 'ja') return 'ja-JP';
+  return 'en-US';
+}
+
 // ── 번역 사전 ────────────────────────────────────────────────────────
 const translations = {
   // ── 공통 ──────────────────────────────────────────────────────────
@@ -66,6 +74,7 @@ const translations = {
   archiveViewPeriod:   { en: 'Period', ko: '기간', ja: '期間' },
   archiveViewArea:     { en: 'Area', ko: '영역', ja: 'エリア' },
   archiveViewTimeline: { en: 'Timeline', ko: '타임라인', ja: 'タイムライン' },
+  archiveBrowseAllAreas: { en: 'All areas', ko: '전체 영역', ja: '全エリア' },
   archiveViewUnavailable: { en: '{view} view is not available yet. Browse from Archive Home or open Notes to add marks.', ko: '{view} 보기는 아직 준비 중입니다. 아카이브 홈에서 탐색하거나 노트에서 마크를 추가하세요.', ja: '{view}ビューはまだ利用できません。アーカイブホームから探索するか、ノートでマークを追加してください。' },
   archiveEmptyCta:   { en: 'Go to Notes to start writing', ko: '노트로 이동해 작성 시작', ja: 'ノートへ移動して書き始める' },
   graphHoverHint:      { en: 'Hover or select a node to see its title', ko: '노드에 마우스를 올리거나 선택하면 제목이 표시됩니다', ja: 'ノードにホバーまたは選択でタイトル表示' },
@@ -484,6 +493,7 @@ const translations = {
   nvSearchScopeAll:         { en: 'All notes', ko: '전체 노트', ja: 'すべてのノート' },
   nvExpandSection:          { en: 'Expand section', ko: '섹션 펼치기', ja: 'セクションを展開' },
   nvCollapseSection:        { en: 'Collapse section', ko: '섹션 접기', ja: 'セクションを折りたたむ' },
+  nvTocKeyboardHint:        { en: 'j/k navigate · Enter open', ko: 'j/k 이동 · Enter 열기', ja: 'j/k 移動 · Enter で開く' },
   nvStatWords:              { en: 'Words', ko: '단어', ja: '語数' },
   nvStatChars:              { en: 'Characters', ko: '글자', ja: '文字数' },
   nvStatLines:              { en: 'Lines', ko: '줄', ja: '行数' },

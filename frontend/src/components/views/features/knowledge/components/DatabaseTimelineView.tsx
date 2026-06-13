@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useTranslation } from '../../../../../lib/i18n';
+import { resolveIntlLocale, useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
@@ -32,6 +32,7 @@ export function DatabaseTimelineView({
   onSelectNote,
 }: DatabaseTimelineViewProps) {
   const { t, lang } = useTranslation();
+  const intlLocale = resolveIntlLocale(lang);
   const emptyMessage = getDatabaseEmptyMessage(lang);
   const today = new Date();
   const [visibleYear, setVisibleYear] = useState(today.getFullYear());
@@ -84,7 +85,7 @@ export function DatabaseTimelineView({
           <ChevronLeft size={14} />
         </button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: 700, color: c.text }}>
-          {formatCalendarMonthLabel(visibleYear, visibleMonth)}
+          {formatCalendarMonthLabel(visibleYear, visibleMonth, intlLocale)}
         </div>
         <button type="button" className="btbtn" onClick={goNextMonth} aria-label="Next month">
           <ChevronRight size={14} />

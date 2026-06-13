@@ -206,6 +206,7 @@ describe('AnalyticsView projection-driven home content', () => {
     const projection = buildArchiveHomeProjection({
       notes,
       now: NOW.toJSDate(),
+      options: { locale: 'en-US' },
     });
 
     const html = renderAnalyticsView();
