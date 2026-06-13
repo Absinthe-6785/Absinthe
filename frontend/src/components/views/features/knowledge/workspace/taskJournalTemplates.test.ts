@@ -183,11 +183,11 @@ describe('WorkspaceDashboardView productivity integration', () => {
       }));
     });
 
-    expect(container.textContent).toContain('New Task');
-    expect(container.textContent).toContain('New Journal');
+    expect(container.textContent).toContain('새 작업');
+    expect(container.textContent).toContain('새 저널');
 
     const newTaskButton = [...container.querySelectorAll('button')].find(
-      b => b.textContent === 'New Task',
+      b => b.textContent === '새 작업',
     );
     act(() => { newTaskButton?.click(); });
     expect(container.textContent).toContain('Study Task');
@@ -199,7 +199,7 @@ describe('WorkspaceDashboardView productivity integration', () => {
     expect(onCreateTask).toHaveBeenCalledWith('study-task', undefined);
 
     const newJournalButton = [...container.querySelectorAll('button')].find(
-      b => b.textContent === 'New Journal',
+      b => b.textContent === '새 저널',
     );
     act(() => { newJournalButton?.click(); });
     const dailyReviewButton = [...container.querySelectorAll('button')].find(
