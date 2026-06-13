@@ -445,6 +445,15 @@ describe('useNotesStore — delete failure & local save errors', () => {
 
     setItem.mockRestore();
   });
+
+  it('renameFolder updates folder name and persists', () => {
+    useNotesStore.setState({ notes: [], folders: [] });
+    const id = useNotesStore.getState().createFolder('Old Name');
+    useNotesStore.getState().renameFolder(id, 'Renamed');
+    expect(useNotesStore.getState().folders.find(f => f.id === id)?.name).toBe('Renamed');
+    const stored = JSON.parse(localStorageMock.getItem(FOLDERS_KEY) ?? '[]') as { id: string; name: string }[];
+    expect(stored.find(f => f.id === id)?.name).toBe('Renamed');
+  });
 });
 
 describe('useNotesStore — multi-tab storage merge', () => {

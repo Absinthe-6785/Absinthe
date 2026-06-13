@@ -5,6 +5,7 @@ import {
   READING_MAX_WIDTH_PX,
   readingRootClass,
   shouldShowBlockChrome,
+  EDITOR_READING_STYLES,
 } from './editorReading';
 
 describe('editorMode', () => {
@@ -34,5 +35,10 @@ describe('editorReading', () => {
   it('focus mode constants', () => {
     expect(READING_LINE_HEIGHT).toBe(1.8);
     expect(READING_MAX_WIDTH_PX).toBe(720);
+  });
+
+  it('hides editor affordances in reading styles', () => {
+    expect(EDITOR_READING_STYLES).toContain('.be-toggle-empty');
+    expect(EDITOR_READING_STYLES).toContain('.be-heading-flash');
   });
 });

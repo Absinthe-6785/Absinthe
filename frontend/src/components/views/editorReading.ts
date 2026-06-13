@@ -77,4 +77,17 @@ export const EDITOR_READING_STYLES = `
     pointer-events: auto;
     cursor: pointer;
   }
+  .be-editor-root.be-reading .be-toggle-empty,
+  .be-editor-root.be-reading .be-toggle-add-child,
+  .be-editor-root.be-reading .be-document-bottom-strip,
+  .be-editor-root.be-reading .be-empty-document-hint {
+    display: none !important;
+  }
+  .be-editor-root .be-block.be-heading-flash {
+    animation: be-heading-flash 1.2s ease-out;
+  }
+  @keyframes be-heading-flash {
+    0% { background: rgba(124, 58, 237, 0.14); }
+    100% { background: transparent; }
+  }
 `;
