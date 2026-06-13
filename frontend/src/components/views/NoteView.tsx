@@ -302,6 +302,11 @@ export const NoteView = () => {
   const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
   const retrySync = useNotesStore(s => s.retrySync);
 
+  const activeNote = useMemo(
+    () => notes.find(n => n.id === activeNoteId) ?? null,
+    [notes, activeNoteId],
+  );
+
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -1115,10 +1120,6 @@ export const NoteView = () => {
   }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
 
   // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
-  const activeNote = useMemo(
-    () => notes.find(n => n.id === activeNoteId) ?? null,
-    [notes, activeNoteId]
-  );
 
   useEffect(() => {
     if (!titleComposingRef.current) {
