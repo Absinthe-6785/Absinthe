@@ -13,28 +13,44 @@ import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledg
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
 import {
-  graphRepulsionStrength,
-  graphSimulationAlphaFloor,
-  shouldShowGraphNodeLabel,
-} from './graphScalePolicy';
-import {
   applyGalaxyCohesion,
-  buildFocusUniverse,
+  buildFocusUniverseDepthMap,
+  buildGalaxyVisuals,
+  buildOrbitPaths,
   computeDisplayPosition,
   computeGalaxyCenters,
+  computeUniverseHudStats,
   DEFAULT_FOCUS_DEPTH,
   enrichGraphNodeMeta,
+  EMPTY_UNIVERSE_HEADLINE,
+  EMPTY_UNIVERSE_SUBLINE,
+  edgeStrokeColor,
+  EDGE_LEGEND,
+  focusUniverseEdgeOpacity,
   focusUniverseNodeOpacity,
+  focusUniverseNodeOpacityByDepth,
+  formatUniverseUpdatedAt,
+  galaxyColor,
   getEdgeVisualStyle,
+  getTierVisualStyle,
   interGalaxyRepulsionMultiplier,
   isUniverseMode,
   loadGraphViewMode,
   resolveEdgeStrokeOpacity,
   saveGraphViewMode,
+  shouldShowEmptyUniverse,
   usePrefersReducedMotion,
+  type EdgeSemanticKind,
   type GraphNodeTier,
   type GraphViewMode,
 } from './features/knowledge/graph/knowledgeUniverse';
+import {
+  graphRepulsionStrength,
+  graphSimulationAlphaFloor,
+  shouldRenderGalaxyLabels,
+  shouldRenderGalaxyNebula,
+  shouldShowGraphNodeLabel,
+} from './graphScalePolicy';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -57,6 +73,7 @@ interface GraphNode {
   orbitRadius: number;
   orbitAngle: number;
   orbitSpeed: number;
+  updatedAt: number | null;
   starred?: boolean;
 }
 
@@ -124,6 +141,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const [searchQuery, setSearchQuery]   = useState('');
   const [relationshipFilter, setRelationshipFilter] = useState<GlobalGraphRelationshipFilter>('all');
   const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>(() => loadGraphViewMode());
+  const [hoveredEdgeKind, setHoveredEdgeKind] = useState<EdgeSemanticKind | null>(null);
 
   const reducedMotion = usePrefersReducedMotion();
   const graphViewModeRef = useRef(graphViewMode);
@@ -231,6 +249,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         orbitRadius: 0,
         orbitAngle: 0,
         orbitSpeed: 0,
+        updatedAt: null,
       };
       if (meta) {
         base.backlinkCount = meta.backlinkCount;
@@ -254,6 +273,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       nd.title = note?.title ?? nd.title;
       nd.starred = note?.starred ?? false;
       nd.folderId = note?.folderId ?? null;
+      nd.updatedAt = note?.updatedAt ?? null;
     });
   }, [graphData, noteById, size.w, size.h]);
 
@@ -478,10 +498,13 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   const hasActiveSelection = activeNoteId != null;
   const focusId = hovered ?? activeNoteId;
+  const focusDepthMap = useMemo(() => {
+    if (!activeNoteId) return null;
+    return buildFocusUniverseDepthMap(activeNoteId, visibleEdges, DEFAULT_FOCUS_DEPTH);
+  }, [activeNoteId, visibleEdges, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const focusNeighborhood = useMemo(() => {
-    if (activeNoteId) {
-      return buildFocusUniverse(activeNoteId, visibleEdges, DEFAULT_FOCUS_DEPTH);
-    }
+    if (focusDepthMap) return new Set(focusDepthMap.keys());
     if (!focusId) return null;
     const ids = new Set<string>([focusId]);
     visibleEdges.forEach(edge => {
@@ -489,8 +512,48 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       if (edge.to === focusId) ids.add(edge.from);
     });
     return ids;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeNoteId, focusId, tick, visibleEdges.length]);
+  }, [focusDepthMap, focusId, tick, visibleEdges.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showGalaxyNebula = shouldRenderGalaxyNebula(graphNodeCount, transform.k, isUniverseMode(graphViewMode));
+  const showGalaxyLabels = shouldRenderGalaxyLabels(graphNodeCount, transform.k, isUniverseMode(graphViewMode));
+
+  const galaxyVisuals = useMemo(() => {
+    if (!showGalaxyNebula) return [];
+    const anchorByGalaxy = new Map<string, string | null>();
+    for (const node of visibleNodes) {
+      if (node.isAreaNote) anchorByGalaxy.set(node.galaxyId, node.id);
+    }
+    return buildGalaxyVisuals(
+      visibleNodes.map(node => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        galaxyId: node.galaxyId,
+        galaxyLabel: node.galaxyLabel,
+        tier: node.tier,
+      })),
+      anchorByGalaxy,
+    );
+  }, [showGalaxyNebula, visibleNodes.length, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const orbitPaths = useMemo(() => {
+    if (!isUniverseMode(graphViewMode)) return [];
+    const positions = new Map(visibleNodes.map(node => [node.id, { x: node.x, y: node.y }]));
+    return buildOrbitPaths(visibleNodes, positions);
+  }, [graphViewMode, visibleNodes.length, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hudStats = useMemo(
+    () => computeUniverseHudStats(visibleNodes, visibleEdges.length),
+    [visibleNodes, visibleEdges.length],
+  );
+
+  const selectedNode = activeNoteId ? renderMap.get(activeNoteId) : null;
+  const showEmptyUniverse = shouldShowEmptyUniverse({
+    nodeCount: visibleNodes.length,
+    linkCount: visibleEdges.length,
+    hasSearchFilter: matchedIds !== null,
+    searchHasMatches: matchedIds === null || matchedIds.size > 0,
+  });
 
   const getDisplayPos = useCallback((node: GraphNode) => {
     const parent = node.orbitParentId
@@ -671,8 +734,22 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         onMouseDown={onSvgMouseDown}
       >
         <defs>
-          <filter id="ku-star-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
+          <filter id="ku-star-glow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="ku-planet-glow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="2.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="ku-edge-glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="2" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -690,6 +767,75 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         </defs>
 
         <g transform={transformStr}>
+          {/* Galaxy nebula + boundaries (universe mode) */}
+          {galaxyVisuals.map(galaxy => (
+            <g key={galaxy.galaxyId} data-ku-galaxy={galaxy.galaxyId}>
+              <circle
+                cx={galaxy.centerX}
+                cy={galaxy.centerY}
+                r={galaxy.nebulaRadius}
+                fill={galaxyColor(galaxy.hue, dark ? 0.14 : 0.1, dark)}
+                stroke="none"
+              />
+              <circle
+                cx={galaxy.centerX}
+                cy={galaxy.centerY}
+                r={galaxy.boundaryRadius}
+                fill="none"
+                stroke={galaxyColor(galaxy.hue, dark ? 0.35 : 0.28, dark)}
+                strokeWidth={1}
+                strokeDasharray="6 8"
+                opacity={0.55}
+              />
+              {galaxy.anchorNodeId && (
+                <g>
+                  <circle
+                    cx={galaxy.centerX}
+                    cy={galaxy.centerY}
+                    r={6}
+                    fill={galaxyColor(galaxy.hue, 0.55, dark)}
+                    stroke={colors.act}
+                    strokeWidth={1}
+                  />
+                  <path
+                    d={`M ${galaxy.centerX - 10} ${galaxy.centerY} L ${galaxy.centerX + 10} ${galaxy.centerY} M ${galaxy.centerX} ${galaxy.centerY - 10} L ${galaxy.centerX} ${galaxy.centerY + 10}`}
+                    stroke={galaxyColor(galaxy.hue, 0.7, dark)}
+                    strokeWidth={0.75}
+                    opacity={0.6}
+                  />
+                </g>
+              )}
+              {showGalaxyLabels && (
+                <text
+                  x={galaxy.centerX}
+                  y={galaxy.centerY - galaxy.boundaryRadius - 8}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fontWeight={700}
+                  fill={galaxyColor(galaxy.hue, dark ? 0.9 : 0.75, dark)}
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
+                >
+                  {galaxy.displayTitle}
+                </text>
+              )}
+            </g>
+          ))}
+
+          {/* Orbit tracks */}
+          {orbitPaths.map(path => (
+            <circle
+              key={path.id}
+              cx={path.cx}
+              cy={path.cy}
+              r={path.radius}
+              fill="none"
+              stroke={path.tier === 'moon' ? colors.dimEdge : colors.act}
+              strokeWidth={path.tier === 'moon' ? 0.75 : 1}
+              strokeOpacity={path.tier === 'moon' ? 0.18 : 0.28}
+              strokeDasharray={path.tier === 'moon' ? '2 5' : '4 6'}
+            />
+          ))}
+
           {/* 엣지 */}
           {visibleEdges.map((e, i) => {
             const a = renderMap.get(e.from), b = renderMap.get(e.to);
@@ -698,33 +844,37 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             const posB = getDisplayPos(b);
             const isAct  = e.from === activeNoteId || e.to === activeNoteId;
             const isHovEdge = hovered === e.from || hovered === e.to;
+            const depthA = focusDepthMap?.get(e.from);
+            const depthB = focusDepthMap?.get(e.to);
             const inFocusCluster = focusNeighborhood === null
               || (focusNeighborhood.has(e.from) && focusNeighborhood.has(e.to));
             const isDim  = matchedIds !== null
               ? !matchedIds.has(e.from) && !matchedIds.has(e.to)
               : !inFocusCluster;
             const edgeStyle = getEdgeVisualStyle(e.relationshipType, e.weight);
+            const focusOpacity = hasActiveSelection
+              ? focusUniverseEdgeOpacity(depthA, depthB, true)
+              : 1;
             const strokeOpacity = resolveEdgeStrokeOpacity(edgeStyle, {
               isActive: isAct,
               isHovered: isHovEdge,
               isDim,
+              focusOpacity,
             });
             const strokeColor = isDim
               ? colors.dimEdge
-              : edgeStyle.category === 'strong'
-                ? '#8B5CF6'
-                : edgeStyle.category === 'reference'
-                  ? '#06B6D4'
-                  : isAct
-                    ? colors.act
-                    : colors.edge;
+              : edgeStrokeColor(edgeStyle.kind, dark, colors.act);
             return (
               <line key={i} x1={posA.x} y1={posA.y} x2={posB.x} y2={posB.y}
                 stroke={strokeColor}
                 strokeWidth={isAct || isHovEdge ? edgeStyle.strokeWidth + 0.75 : edgeStyle.strokeWidth}
                 strokeOpacity={strokeOpacity}
                 strokeDasharray={edgeStyle.strokeDasharray}
+                filter={edgeStyle.glow && !isDim ? 'url(#ku-edge-glow)' : undefined}
                 markerEnd={isDim ? 'url(#garr-dim)' : isAct ? 'url(#garr-act)' : 'url(#garr)'}
+                onMouseEnter={() => setHoveredEdgeKind(edgeStyle.kind)}
+                onMouseLeave={() => setHoveredEdgeKind(null)}
+                style={{ pointerEvents: 'stroke' }}
               />
             );
           })}
@@ -732,47 +882,58 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           {/* 노드 */}
           {visibleNodes.map(node => {
             const pos = getDisplayPos(node);
-            const r = node.radius;
+            const tierVisual = getTierVisualStyle(node.radius, node.tier, dark);
+            const r = tierVisual.renderRadius;
             const isAct   = node.id === activeNoteId;
             const isHov   = node.id === hovered;
             const isMatch = matchedIds !== null && matchedIds.has(node.id);
+            const focusDepth = focusDepthMap?.get(node.id);
             const inFocusCluster = focusNeighborhood === null || focusNeighborhood.has(node.id);
             const isDim   = matchedIds !== null
               ? !matchedIds.has(node.id)
               : !inFocusCluster;
             const nodeOpacity = isDim
-              ? focusUniverseNodeOpacity(false, hasActiveSelection)
-              : 1;
+              ? (hasActiveSelection
+                ? focusUniverseNodeOpacity(false, true)
+                : focusUniverseNodeOpacity(false, false))
+              : (hasActiveSelection
+                ? focusUniverseNodeOpacityByDepth(focusDepth, true)
+                : tierVisual.bodyOpacity);
             const label   = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
             const showLabel = shouldShowGraphNodeLabel({
               nodeCount: graphNodeCount,
+              zoomK: transform.k,
               isActive: isAct,
               isHovered: isHov,
               isSearchMatch: isMatch,
               isHub: node.tier === 'star',
               nodeTier: node.tier,
               inFocusCluster,
+              focusDepth,
               hasSearchFilter: matchedIds !== null,
             });
             const tierLabel = node.tier === 'star' ? 'Star' : node.tier === 'planet' ? 'Planet' : 'Moon';
             const ariaLabel = `${node.title.trim() || 'Untitled'}, ${tierLabel}, ${node.backlinkCount} backlinks, importance ${Math.round(node.importance)}`;
 
-            // 폴더 색상
             const folderColor = getFolderColor(node.folderId, folderIds);
             const nodeFill = isDim
               ? colors.dimNode
               : isAct
                 ? colors.act
-                : folderColor
-                  ? (dark ? folderColor + '55' : folderColor + '22')
-                  : colors.node;
+                : tierVisual.fillTint
+                  ? (dark ? tierVisual.fillTint + 'AA' : tierVisual.fillTint)
+                  : folderColor
+                    ? (dark ? folderColor + '55' : folderColor + '22')
+                    : colors.node;
             const nodeStroke = isDim
               ? colors.dimEdge
               : isAct || isHov
                 ? colors.act
                 : isMatch
                   ? '#10B981'
-                  : folderColor ?? colors.nodeB;
+                  : tierVisual.simplifiedOutline
+                    ? (dark ? '#71717A' : '#A8A29E')
+                    : folderColor ?? colors.nodeB;
 
             return (
               <g
@@ -794,21 +955,43 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 onFocus={() => setHovered(node.id)}
                 onBlur={() => setHovered(null)}
               >
-                {/* Star glow + slow pulse */}
-                {node.tier === 'star' && !isDim && (
+                {tierVisual.showCorona && !isDim && (
+                  <>
+                    <circle
+                      cx={pos.x}
+                      cy={pos.y}
+                      r={r + 14}
+                      fill="none"
+                      stroke={colors.act}
+                      strokeWidth={1.5}
+                      strokeOpacity={0.2}
+                      filter="url(#ku-star-glow)"
+                      className={reducedMotion ? undefined : 'ku-star-pulse'}
+                    />
+                    <circle
+                      cx={pos.x}
+                      cy={pos.y}
+                      r={r + 8}
+                      fill="none"
+                      stroke={colors.act}
+                      strokeWidth={1}
+                      strokeOpacity={0.45}
+                      className={reducedMotion ? undefined : 'ku-star-pulse'}
+                    />
+                  </>
+                )}
+                {tierVisual.showOrbitRing && !isDim && (
                   <circle
                     cx={pos.x}
                     cy={pos.y}
-                    r={r + 8}
+                    r={r + 5}
                     fill="none"
                     stroke={colors.act}
                     strokeWidth={1}
                     strokeOpacity={0.35}
-                    filter="url(#ku-star-glow)"
-                    className={reducedMotion ? undefined : 'ku-star-pulse'}
+                    strokeDasharray="3 4"
                   />
                 )}
-                {/* 호버 글로우 */}
                 {isHov && !isDim && (
                   <circle cx={pos.x} cy={pos.y} r={r + 9} fill={colors.hovBg}/>
                 )}
@@ -823,42 +1006,42 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                     />
                   </>
                 )}
-                {/* 검색 매치 링 */}
                 {isMatch && (
                   <circle cx={pos.x} cy={pos.y} r={r + 5}
                     fill="none" stroke="#10B981" strokeWidth={1.5} strokeOpacity={0.6}
                     strokeDasharray="3 2"
                   />
                 )}
-                {/* 노드 본체 */}
                 <circle
                   cx={pos.x} cy={pos.y} r={r}
                   fill={nodeFill}
                   stroke={nodeStroke}
-                  strokeWidth={isAct || isHov || isMatch ? 2.5 : 1.5}
+                  strokeWidth={isAct || isHov || isMatch ? tierVisual.strokeWidth + 0.5 : tierVisual.strokeWidth}
+                  filter={tierVisual.glowFilter === 'star'
+                    ? 'url(#ku-star-glow)'
+                    : tierVisual.glowFilter === 'planet'
+                      ? 'url(#ku-planet-glow)'
+                      : undefined}
                 >
                   <title>{`${node.title.trim() || '제목 없음'}\n${node.galaxyLabel} · ${node.backlinkCount} backlinks · score ${Math.round(node.importance)}`}</title>
                 </circle>
-                {/* 폴더 색상 점 (우측 상단) */}
-                {folderColor && !isAct && !isDim && (
+                {folderColor && !isAct && !isDim && node.tier !== 'moon' && (
                   <circle cx={pos.x + r * 0.65} cy={pos.y - r * 0.65} r={3}
                     fill={folderColor} opacity={0.9}
                   />
                 )}
-                {/* 즐겨찾기 별 */}
                 {node.starred && !isDim && (
                   <text x={pos.x - r * 0.6} y={pos.y - r * 0.5}
                     fontSize="9" textAnchor="middle"
                     style={{ pointerEvents: 'none' }}>★</text>
                 )}
-                {/* 라벨 — tier-aware density (K-33) */}
                 {showLabel && (
                 <text
                   x={pos.x} y={pos.y + r + 16}
                   textAnchor="middle" fontSize={node.tier === 'star' ? 11 : 10}
                   fill={isDim ? colors.dimTxt : isAct ? colors.act : colors.txt}
                   fontWeight={isAct || isMatch || node.tier === 'star' ? '700' : '400'}
-                  opacity={isDim ? 0.4 : 1}
+                  opacity={isDim ? 0.35 : 1}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {label}
@@ -904,6 +1087,89 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         </div>
       )}
 
+      {/* ── Universe HUD ───────────────────────────────────────── */}
+      <div style={{
+        position: 'absolute', top: 48, right: 10,
+        fontSize: 10, lineHeight: 1.45,
+        color: colors.toolTxt,
+        background: colors.toolbar,
+        border: `1px solid ${colors.toolbarB}`,
+        borderRadius: 8,
+        padding: '8px 10px',
+        backdropFilter: 'blur(8px)',
+        pointerEvents: 'none',
+        maxWidth: 220,
+      }} data-ku-universe-hud>
+        <div style={{ fontWeight: 700, color: colors.txt, marginBottom: 4 }}>
+          Knowledge Universe
+        </div>
+        <div>
+          {hudStats.nodeCount} nodes · {hudStats.linkCount} links · {hudStats.galaxyCount} galaxies
+        </div>
+        <div style={{ opacity: 0.85 }}>
+          {hudStats.starCount} stars · {hudStats.planetCount} planets · {hudStats.moonCount} moons
+        </div>
+        {selectedNode && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
+            <div style={{ fontWeight: 600, color: colors.act, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedNode.title.trim() || 'Untitled'}
+            </div>
+            <div style={{ opacity: 0.8 }}>
+              {selectedNode.backlinkCount} backlinks · {selectedNode.galaxyLabel}
+            </div>
+            <div style={{ opacity: 0.7 }}>
+              Updated {formatUniverseUpdatedAt(selectedNode.updatedAt)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edge hover legend */}
+      {hoveredEdgeKind && (
+        <div style={{
+          position: 'absolute', bottom: 48, left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', gap: 10, alignItems: 'center',
+          background: colors.toolbar,
+          border: `1px solid ${colors.toolbarB}`,
+          borderRadius: 8, padding: '6px 10px',
+          fontSize: 10, color: colors.toolTxt,
+          pointerEvents: 'none',
+        }}>
+          {EDGE_LEGEND.map(entry => (
+            <span key={entry.kind} style={{
+              opacity: entry.kind === hoveredEdgeKind ? 1 : 0.45,
+              fontWeight: entry.kind === hoveredEdgeKind ? 700 : 400,
+            }}>
+              {entry.sample} {entry.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Empty universe onboarding */}
+      {showEmptyUniverse && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', zIndex: 5,
+        }} data-ku-empty-universe>
+          <svg width="120" height="80" viewBox="0 0 120 80" aria-hidden>
+            <circle cx="60" cy="40" r="8" fill={colors.act} opacity="0.9" />
+            <circle cx="60" cy="40" r="16" fill="none" stroke={colors.act} strokeOpacity="0.35" />
+            <circle cx="30" cy="28" r="4" fill={colors.toolTxt} opacity="0.5" />
+            <circle cx="88" cy="52" r="3" fill={colors.toolTxt} opacity="0.4" />
+            <circle cx="95" cy="22" r="2.5" fill={colors.toolTxt} opacity="0.35" />
+            <ellipse cx="60" cy="40" rx="42" ry="28" fill="none" stroke={colors.act} strokeOpacity="0.15" strokeDasharray="4 6" />
+          </svg>
+          <p style={{ marginTop: 12, fontSize: 14, fontWeight: 700, color: colors.txt }}>
+            {EMPTY_UNIVERSE_HEADLINE}
+          </p>
+          <p style={{ marginTop: 4, fontSize: 11, color: colors.toolTxt, maxWidth: 280, textAlign: 'center' }}>
+            {EMPTY_UNIVERSE_SUBLINE}
+          </p>
+        </div>
+      )}
+
       {/* ── 하단 상태바 ──────────────────────────────────────────── */}
       <div style={{
         position: 'absolute', bottom: 10, right: 12,
@@ -913,10 +1179,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         {visibleNodes.length} notes · {visibleEdges.length} links
         {graphViewMode === 'universe' ? ' · Universe' : ' · Network'}
         {!showIsolated && isolatedCount > 0 && ` · ${isolatedCount} hidden`}
-        {' · '}<span style={{ opacity: 0.6 }}>scroll=줌 · drag=팬 · hover=제목</span>
+        {' · '}<span style={{ opacity: 0.6 }}>scroll=zoom · drag=pan</span>
       </div>
 
-      {hoveredNode && (
+      {hoveredNode && !selectedNode && (
         <div style={{
           position: 'absolute', bottom: 10, left: 10,
           fontSize: 10, color: colors.act, fontWeight: 600,
@@ -932,7 +1198,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         </div>
       )}
 
-      {activeNoteId && !hovered && (
+      {activeNoteId && !hovered && selectedNode && (
         <div style={{
           position: 'absolute', bottom: 10, left: 10,
           fontSize: 10, color: colors.act, fontWeight: 600,
@@ -940,13 +1206,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           maxWidth: 280,
         }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            ◉ {renderMap.get(activeNoteId)?.title}
+            ◉ Local universe · depth {DEFAULT_FOCUS_DEPTH}
           </div>
-          {renderMap.get(activeNoteId) && (
-            <div style={{ opacity: 0.75, fontWeight: 500, marginTop: 2 }}>
-              Focus depth {DEFAULT_FOCUS_DEPTH} · local universe
-            </div>
-          )}
         </div>
       )}
 

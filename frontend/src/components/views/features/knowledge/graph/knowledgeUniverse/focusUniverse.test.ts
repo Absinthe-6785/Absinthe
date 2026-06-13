@@ -1,23 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { buildFocusUniverse, focusUniverseNodeOpacity } from './focusUniverse';
+import { buildFocusUniverseDepthMap, focusUniverseEdgeOpacity, focusUniverseNodeOpacityByDepth } from './focusUniverse';
 
-describe('focusUniverse', () => {
+describe('focusUniverse depth (K-33.1)', () => {
   const edges = [
     { from: 'a', to: 'b' },
     { from: 'b', to: 'c' },
     { from: 'c', to: 'd' },
   ];
 
-  it('expands neighborhood by depth', () => {
-    expect(buildFocusUniverse('a', edges, 0)).toEqual(new Set(['a']));
-    expect(buildFocusUniverse('a', edges, 1)).toEqual(new Set(['a', 'b']));
-    expect(buildFocusUniverse('a', edges, 2)).toEqual(new Set(['a', 'b', 'c']));
+  it('maps depth 0/1/2 from selected node', () => {
+    const map = buildFocusUniverseDepthMap('a', edges, 2);
+    expect(map.get('a')).toBe(0);
+    expect(map.get('b')).toBe(1);
+    expect(map.get('c')).toBe(2);
+    expect(map.has('d')).toBe(false);
   });
 
-  it('fades unrelated nodes more when selection is active', () => {
-    expect(focusUniverseNodeOpacity(false, true)).toBeLessThan(
-      focusUniverseNodeOpacity(false, false),
+  it('fades distant nodes more aggressively', () => {
+    expect(focusUniverseNodeOpacityByDepth(0, true)).toBe(1);
+    expect(focusUniverseNodeOpacityByDepth(2, true)).toBeLessThan(focusUniverseNodeOpacityByDepth(1, true));
+    expect(focusUniverseNodeOpacityByDepth(undefined, true)).toBe(0.06);
+  });
+
+  it('dims edges outside focus shell', () => {
+    expect(focusUniverseEdgeOpacity(0, 1, true)).toBeGreaterThan(
+      focusUniverseEdgeOpacity(undefined, 1, true),
     );
-    expect(focusUniverseNodeOpacity(true, true)).toBe(1);
   });
 });
