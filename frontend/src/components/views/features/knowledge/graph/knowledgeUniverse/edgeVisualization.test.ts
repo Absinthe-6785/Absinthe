@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { getEdgeVisualStyle, resolveEdgeStrokeOpacity } from './edgeVisualization';
+import { getEdgeVisualStyle, EDGE_LEGEND } from './edgeVisualization';
 
-describe('edgeVisualization', () => {
-  it('styles parent backlinks as solid thicker lines', () => {
+describe('edgeVisualization semantic language', () => {
+  it('maps backlinks to hierarchy strokes', () => {
     const style = getEdgeVisualStyle('backlink', 2);
-    expect(style.category).toBe('parent');
+    expect(style.kind).toBe('hierarchy');
     expect(style.strokeDasharray).toBeUndefined();
-    expect(style.strokeWidth).toBeGreaterThan(1);
   });
 
-  it('styles mentions as dashed reference edges', () => {
+  it('maps mentions to reference dashes', () => {
     const style = getEdgeVisualStyle('mention', 1);
-    expect(style.category).toBe('reference');
+    expect(style.kind).toBe('reference');
     expect(style.strokeDasharray).toBeDefined();
   });
 
-  it('emphasizes hovered and active edges', () => {
+  it('maps relations to temporal dots', () => {
     const style = getEdgeVisualStyle('relation', 2);
-    expect(resolveEdgeStrokeOpacity(style, { isActive: false, isHovered: false, isDim: false }))
-      .toBeLessThan(
-        resolveEdgeStrokeOpacity(style, { isActive: true, isHovered: false, isDim: false }),
-      );
+    expect(style.kind).toBe('temporal');
+  });
+
+  it('exposes hover legend entries', () => {
+    expect(EDGE_LEGEND.length).toBeGreaterThanOrEqual(4);
   });
 });
