@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from '../../../../../../lib/i18n';
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import {
   columnLabelForKey,
   resolveAllColumnKeys,

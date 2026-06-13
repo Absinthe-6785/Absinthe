@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { AreaRangeTraceProjection, AreaTraceProjection } from './areaTraceModels';
 import {
   buildAreaRangeLensProjection,
   buildAreaRangeTraceProjection,
@@ -22,7 +23,6 @@ import {
   shiftTraceYear,
   toMonthKey,
 } from './buildRangeTraceProjection';
-import type { AreaRangeTraceProjection, AreaTraceProjection } from './areaTraceModels';
 import type { TraceRangeLens } from './rangeTraceModels';
 import { useTranslation } from '../../../../../lib/i18n';
 
@@ -237,8 +237,14 @@ export function AreaTraceView({
     }
   }, [areaNoteId, areaRange, notes]);
 
+  function isAreaRangeProjection(
+    value: AreaTraceProjection | AreaRangeTraceProjection,
+  ): value is AreaRangeTraceProjection {
+    return 'startDate' in value && 'endDate' in value;
+  }
+
   const hasMarks = projection
-    ? ('notesTouched' in projection ? hasAreaRangeTraceMarks(projection) : hasAreaTraceMarks(projection))
+    ? (isAreaRangeProjection(projection) ? hasAreaRangeTraceMarks(projection) : hasAreaTraceMarks(projection))
     : false;
 
   const handleCustomGenerate = () => {

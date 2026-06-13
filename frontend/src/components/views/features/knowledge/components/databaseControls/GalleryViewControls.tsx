@@ -1,4 +1,4 @@
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import { useTranslation } from '../../../../../../lib/i18n';
 import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseGalleryConfig } from '../../databaseViews/databasePresentationModels';

@@ -82,7 +82,7 @@ export function isWorkspaceActivation(value: unknown): value is WorkspaceActivat
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<WorkspaceActivation>;
   if (record.kind === 'none' || record.kind === 'dashboard') return true;
-  if (typeof record.kind !== 'string' || typeof record.id !== 'string') return false;
+  if (typeof record.kind !== 'string' || !('id' in record) || typeof record.id !== 'string') return false;
   if (!isWorkspaceItemKind(record.kind)) return false;
   const id = record.id.trim();
   if (!id) return false;

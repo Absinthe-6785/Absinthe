@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { SmartCollection } from '../collections/smartCollectionModels';
+import type { SmartCollection, SmartCollectionId } from '../collections/smartCollectionModels';
 import {
   SMART_COLLECTION_GROUPS,
   getSmartCollectionIcon,
@@ -208,7 +208,7 @@ export function SmartCollectionsSection({
       </div>
 
       {SMART_COLLECTION_GROUPS.map(group => {
-        const resolve = (ids: readonly string[]) => ids
+        const resolve = (ids: readonly SmartCollectionId[]) => ids
           .map(id => byId.get(id))
           .filter((col): col is SmartCollection => col !== undefined);
         const primaryCollections = resolve(group.primaryCollectionIds);

@@ -159,6 +159,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './
 import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
+import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
@@ -284,7 +285,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const katexReady = useKaTeX();
 
   const { appSettings, updateSetting } = useAppStore();
@@ -1257,8 +1258,8 @@ export const NoteView = () => {
   );
 
   const unifiedWorkspaceDashboard = useMemo(
-    () => buildUnifiedWorkspaceDashboard(notes, { limit: 6, service: knowledgeIndexService }),
-    [notes],
+    () => buildUnifiedWorkspaceDashboard(notes, { limit: 6, service: knowledgeIndexService, language: lang }),
+    [notes, lang],
   );
 
   const learningPathOverview = useMemo(
@@ -2604,9 +2605,11 @@ export const NoteView = () => {
                 </div>
                 <div style={{ fontSize: 10, color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 3 }}
                   dangerouslySetInnerHTML={{ __html: hlPreview }}/>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
-                  {folder && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 3, padding: '1px 4px' }}>{folder.name}</span>}
-                  {tags.map(t => <span key={t} style={{ fontSize: 9, color: c.tagTxt, background: c.tag, borderRadius: 3, padding: '1px 4px' }}>#{t}</span>)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap', minWidth: 0 }}>
+                  {folder && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>{folder.name}</span>}
+                  {tags.map(tag => (
+                    <TagChip key={tag} colors={c} tag={tag} size="sm" />
+                  ))}
                   <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto' }}>
                     {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
@@ -2780,6 +2783,27 @@ export const NoteView = () => {
                 : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
               }
             </div>
+            {!isTrash && noteTags.length > 0 && (
+              <div style={{ padding: '5px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
+                <TagChipRow>
+                  {noteTags.map(tag => (
+                    <TagChip
+                      key={tag}
+                      colors={c}
+                      tag={tag}
+                      size="sm"
+                      wrap
+                      selected={activeTag?.toLowerCase() === tag.toLowerCase()}
+                      onClick={() => {
+                        setActiveFolderId(null);
+                        setSearchQuery('');
+                        setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag);
+                      }}
+                    />
+                  ))}
+                </TagChipRow>
+              </div>
+            )}
             {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
               <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
                 <LiteratureWorkflowIndicator
@@ -2802,9 +2826,9 @@ export const NoteView = () => {
                   <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
-                      블록 추가 ·
-                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
-                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
+                      {t('editorToolbarSlash')} ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> {t('editorToolbarBold')} ·
+                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                     </span>
                     {activeNote && (
                       <button
@@ -3008,7 +3032,7 @@ export const NoteView = () => {
               <button className="bwbg" onClick={() => createNote()}>{t('nvNewNoteBtn')}</button>
               <button onClick={() => setViewMode('graph')}
                 style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <GitFork size={12}/> 그래프 보기
+                <GitFork size={12}/> {t('nvScGraph')}
               </button>
             </div>
           )

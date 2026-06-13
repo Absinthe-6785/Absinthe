@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
@@ -32,6 +33,7 @@ export function ReadingSourceLinkPanel({
   onLinkSource,
   onUnlinkSource,
 }: ReadingSourceLinkPanelProps) {
+  const { t } = useTranslation();
   const linkedSourceId = getLinkedSourceNoteId(note);
   const linkedReadingIds = getLinkedReadingNoteIds(note);
   const showReadingLink = isReadingNote(note) || linkedSourceId;
@@ -40,14 +42,14 @@ export function ReadingSourceLinkPanel({
   if (!showReadingLink && !showSourceReadings) return null;
 
   return (
-    <section className="be-reading-source-link" style={{ padding: '0 0 8px' }} aria-label="읽기-출처 연결">
+    <section className="be-reading-source-link" style={{ padding: '0 0 8px' }} aria-label={t('knReadingSourceLink')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
-        읽기 ↔ 출처
+        {t('knReadingSourceLink')}
       </div>
 
       {showReadingLink && (
         <div style={{ padding: '4px 10px 8px' }}>
-          <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 4 }}>연결된 출처</div>
+          <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 4 }}>{t('knLinkedSource')}</div>
           {linkedSourceId ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button
@@ -68,7 +70,7 @@ export function ReadingSourceLinkPanel({
                 {noteTitleById(notes, linkedSourceId)}
               </button>
               <button type="button" className="btbtn" style={{ fontSize: 9 }} onClick={onUnlinkSource}>
-                해제
+                {t('knUnlink')}
               </button>
             </div>
           ) : (
@@ -82,7 +84,7 @@ export function ReadingSourceLinkPanel({
               }}
               style={{ width: '100%', fontSize: 11 }}
             >
-              <option value="">출처 노트 선택…</option>
+              <option value="">{t('knSelectSourceNote')}</option>
               {sourceNoteCandidates.map(candidate => (
                 <option key={candidate.id} value={candidate.id}>
                   {displayNoteTitle(candidate.title)}
@@ -95,7 +97,7 @@ export function ReadingSourceLinkPanel({
 
       {showSourceReadings && linkedReadingIds.length > 0 && (
         <div style={{ padding: '4px 10px 8px' }}>
-          <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 4 }}>연결된 읽기 노트</div>
+          <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 4 }}>{t('knLinkedReadingNotes')}</div>
           {linkedReadingIds.map(readingId => (
             <button
               key={readingId}

@@ -1,4 +1,4 @@
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import { resolveAllColumnKeys } from '../../databaseViews/databaseViewConfig';
 import {
   getBoardConfig,

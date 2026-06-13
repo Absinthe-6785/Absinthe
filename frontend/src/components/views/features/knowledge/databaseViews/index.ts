@@ -186,7 +186,6 @@ export type {
   DatabaseTableConfig,
   DatabaseTimelineConfig,
   DatabaseTimelineSortBy,
-  DatabaseViewSortRule,
   DatabaseViewRecord,
 } from './databasePresentationModels';
 export {

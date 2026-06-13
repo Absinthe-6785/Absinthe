@@ -1,4 +1,6 @@
 import type { BlockType } from '../../../../../blockUtils';
+import type { Language } from '../../../../../../../lib/i18n';
+import { slashDisplayLabel as localizedSlashLabel } from '../../../blockEditorLabels';
 
 /** Exact slash shortcuts — `/h1`, `/todo`, `/number`, etc. */
 export const SLASH_COMMAND_MAP: Record<string, BlockType> = {
@@ -80,8 +82,9 @@ export const SLASH_DISPLAY_LABELS: Partial<Record<BlockType, string>> = {
   table: '표',
 };
 
-export function slashDisplayLabel(type: BlockType): string {
-  return SLASH_DISPLAY_LABELS[type] ?? type;
+/** Display label for slash menu — localized via blockEditorLabels */
+export function slashDisplayLabel(type: BlockType, lang: Language = 'en'): string {
+  return localizedSlashLabel(type, lang);
 }
 
 export function slashShortcutFor(type: BlockType): string | undefined {

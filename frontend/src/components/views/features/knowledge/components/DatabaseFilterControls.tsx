@@ -104,13 +104,13 @@ function FilterRuleList({
 }) {
   return (
     <div style={{ marginTop: 6 }}>
-      <div style={{ fontSize: 10, color: c.muted, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 4 }}>{title}</div>
       {conditions.map((condition, index) => (
         <div
           key={`${title}-${index}-${condition.kind}`}
           style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}
         >
-          <span style={{ fontSize: 10, color: c.muted, minWidth: 14 }}>{index + 1}.</span>
+          <span style={{ fontSize: 10, color: c.textMuted, minWidth: 14 }}>{index + 1}.</span>
           <select
             className="bwi"
             style={{ fontSize: 10, minWidth: 88 }}
@@ -260,10 +260,10 @@ export function DatabaseFilterControls({
 
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${c.sideBdr}` }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: c.fg, marginBottom: 4 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: c.text, marginBottom: 4 }}>
         Filters
       </div>
-      <div style={{ fontSize: 10, color: c.muted, marginBottom: 4 }}>
+      <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 4 }}>
         Base query (manual)
       </div>
       <input
@@ -302,20 +302,20 @@ export function DatabaseFilterControls({
           Clear session filters
         </button>
       )}
-      <div style={{ fontSize: 10, color: c.muted, marginTop: 8 }}>
+      <div style={{ fontSize: 10, color: c.textMuted, marginTop: 8 }}>
         Effective query
       </div>
       <div style={{
         fontSize: 10,
         fontFamily: 'monospace',
-        color: queryError ? '#c0392b' : c.fg,
+        color: queryError ? '#c0392b' : c.text,
         wordBreak: 'break-word',
       }}
       >
         {effectiveQuery || '(none)'}
       </div>
       {compiledPersisted && (
-        <div style={{ fontSize: 10, color: c.muted, marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4 }}>
           Saved filters compile to: {compiledPersisted}
         </div>
       )}

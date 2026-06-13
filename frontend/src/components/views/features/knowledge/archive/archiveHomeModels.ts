@@ -98,8 +98,8 @@ export interface ArchiveBrowseProjection {
 }
 
 export interface ArchiveHomeFrame {
-  title: '아카이브';
-  subtitle: 'What remains when you look back.';
+  title: string;
+  subtitle: string;
   generatedAt: string;
 }
 

@@ -1,4 +1,4 @@
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import type { DatabaseViewPresentation } from '../../databaseViews/databaseViewModels';
 import { DatabasePresentationSwitcher } from '../DatabasePresentationSwitcher';
 

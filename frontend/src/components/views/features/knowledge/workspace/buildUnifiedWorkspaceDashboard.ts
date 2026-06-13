@@ -1,3 +1,4 @@
+import type { Language } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { KnowledgeReviewLists } from '../review/buildKnowledgeReview';
@@ -26,6 +27,7 @@ export interface UnifiedWorkspaceDashboardData {
 export interface BuildUnifiedWorkspaceDashboardOptions {
   limit?: number;
   service?: KnowledgeIndexService;
+  language?: Language;
 }
 
 /** Composes existing dashboard builders — no new scoring or workflow logic. */
@@ -34,6 +36,7 @@ export function buildUnifiedWorkspaceDashboard(
   opts: BuildUnifiedWorkspaceDashboardOptions = {},
 ): UnifiedWorkspaceDashboardData {
   const limit = opts.limit ?? 6;
+  const language = opts.language;
   const service = opts.service;
   const subjects = SUBJECT_DASHBOARDS
     .map(s => buildSubjectDashboard(notes, s.id, { limit }))
@@ -42,7 +45,7 @@ export function buildUnifiedWorkspaceDashboard(
   return {
     review: buildKnowledgeReviewLists(notes, { limit }),
     insights: buildAcademicInsights(notes, { limit }),
-    research: buildResearchDashboard(notes, { limit }),
+    research: buildResearchDashboard(notes, { limit, language }),
     study: buildStudyDashboard(notes, { limit }),
     subjects,
     clusters: service

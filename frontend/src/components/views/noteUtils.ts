@@ -560,7 +560,7 @@ export function normalizeWikiTitle(title: string): string {
 }
 
 /** 제목으로 노트 찾기 (대소문자 무시, 삭제된 노트 제외) */
-export function findNoteByTitle(title: string, notes: NoteBase[]): NoteBase | undefined {
+export function findNoteByTitle(title: string, notes: readonly NoteBase[]): NoteBase | undefined {
   const key = normalizeWikiTitle(title);
   if (!key) return undefined;
   return notes.find(n => !n.deletedAt && normalizeWikiTitle(n.title ?? '') === key);

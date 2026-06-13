@@ -1,6 +1,8 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteReferenceSummary } from '../references/extractNoteReferenceSummary';
 import type { PageReference } from '../backlinks';
+import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface ReferenceExplorerPanelProps {
   colors: NoteChromeColors;
@@ -35,18 +37,22 @@ export function ReferenceExplorerPanel({
   onNavigateToNote,
   onNavigateToWiki,
 }: ReferenceExplorerPanelProps) {
+  const { t } = useTranslation();
   const resolvedOutgoing = summary.outgoing.filter(o => o.targetNoteId);
   const brokenOutgoing = summary.outgoing.filter(o => !o.targetNoteId);
 
   return (
     <section className="be-reference-explorer" style={{ paddingBottom: 4 }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textFaint }}>
-        참조 탐색 · 인용 {summary.citationCount}건
+        {t('knReferenceExplorer')} · {t('knCitationCount').replace('{count}', String(summary.citationCount))}
       </div>
 
-      <SectionHeader c={c} title="나가는 링크" count={summary.outgoing.length} />
+      <SectionHeader c={c} title={t('knOutgoingLinksSection')} count={summary.outgoing.length} />
       {summary.outgoing.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>없음</p>
+        <>
+          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>{t('knNone')}</p>
+          <CosmosEmptyHint colors={c}>{t('knCosmosHintReferences')}</CosmosEmptyHint>
+        </>
       ) : (
         summary.outgoing.map(link => (
           <ReferenceRow
@@ -56,7 +62,7 @@ export function ReferenceExplorerPanel({
             prefix="→"
             color={link.targetNoteId ? c.green : c.textMuted}
             italic={!link.targetNoteId}
-            suffix={!link.targetNoteId ? '+ 만들기' : undefined}
+            suffix={!link.targetNoteId ? t('knCreateNote') : undefined}
             onClick={() => (
               link.targetNoteId
                 ? onNavigateToNote(link.targetNoteId)
@@ -66,9 +72,9 @@ export function ReferenceExplorerPanel({
         ))
       )}
 
-      <SectionHeader c={c} title="들어오는 링크" count={summary.incoming.length} />
+      <SectionHeader c={c} title={t('knIncomingLinksSection')} count={summary.incoming.length} />
       {summary.incoming.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>없음</p>
+        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>{t('knNone')}</p>
       ) : (
         summary.incoming.map(ref => (
           <ReferenceRow
@@ -82,9 +88,9 @@ export function ReferenceExplorerPanel({
         ))
       )}
 
-      <SectionHeader c={c} title="각주" count={summary.footnotes.length} />
+      <SectionHeader c={c} title={t('knFootnotes')} count={summary.footnotes.length} />
       {summary.footnotes.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>없음</p>
+        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>{t('knNone')}</p>
       ) : (
         summary.footnotes.map(fn => (
           <div
@@ -108,13 +114,13 @@ export function ReferenceExplorerPanel({
 
       {summary.inlineFootnoteRefs.length > 0 && (
         <div style={{ padding: '4px 10px 0', fontSize: 10, color: c.textFaint }}>
-          본문 각주 참조: {summary.inlineFootnoteRefs.map(id => `[^${id}]`).join(', ')}
+          {t('knBodyFootnoteRefs')}: {summary.inlineFootnoteRefs.map(id => `[^${id}]`).join(', ')}
         </div>
       )}
 
-      <SectionHeader c={c} title="언급 (링크 없음)" count={mentioning.length} />
+      <SectionHeader c={c} title={t('knMentionsUnlinked')} count={mentioning.length} />
       {mentioning.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>없음</p>
+        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>{t('knNone')}</p>
       ) : (
         mentioning.map(ref => (
           <ReferenceRow
@@ -130,7 +136,9 @@ export function ReferenceExplorerPanel({
 
       {(resolvedOutgoing.length > 0 || brokenOutgoing.length > 0) && (
         <div style={{ padding: '6px 10px 0', fontSize: 9, color: c.textFaint }}>
-          해결됨 {resolvedOutgoing.length} · 미생성 {brokenOutgoing.length}
+          {t('knResolvedUnresolved')
+            .replace('{resolved}', String(resolvedOutgoing.length))
+            .replace('{unresolved}', String(brokenOutgoing.length))}
         </div>
       )}
     </section>

@@ -34,6 +34,8 @@ function evaluateIndexedClause(service: KnowledgeIndexService, clause: QueryClau
       return service.getNotesWithRelationToTitle(clause.propertyKey, clause.title);
     case 'formula':
       return [];
+    default:
+      return [];
   }
 }
 

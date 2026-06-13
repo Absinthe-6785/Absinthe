@@ -75,6 +75,7 @@ export function isWorkspaceKindActive(
 ): boolean {
   if (activation.kind !== kind) return false;
   if (id === undefined) return true;
+  if (activation.kind === 'none' || activation.kind === 'dashboard') return false;
   return activation.id === id;
 }
 
@@ -84,9 +85,8 @@ export function clearWorkspaceActivationForItem(
   kind: Exclude<WorkspaceItemKind, never>,
   id: string,
 ): WorkspaceActivation {
-  if (activation.kind === kind && activation.id === id) {
-    return INACTIVE_WORKSPACE;
-  }
+  if (activation.kind !== kind) return activation;
+  if ('id' in activation && activation.id === id) return INACTIVE_WORKSPACE;
   return activation;
 }
 

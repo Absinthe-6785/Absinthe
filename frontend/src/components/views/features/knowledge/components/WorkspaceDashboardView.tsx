@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { dashboardOuterPadding } from '../../../../../lib/responsiveLayout';
@@ -297,6 +298,7 @@ export function WorkspaceDashboardView({
   const [newPresetName, setNewPresetName] = useState('');
   const [newPresetWorkspaceKey, setNewPresetWorkspaceKey] = useState('');
   const [showTaskPicker, setShowTaskPicker] = useState(false);
+  const { t } = useTranslation();
   const [showJournalPicker, setShowJournalPicker] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [journalTitle, setJournalTitle] = useState('');
@@ -328,12 +330,12 @@ export function WorkspaceDashboardView({
     <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: outerPadding, display: 'flex', flexDirection: 'column', gap: panelGap }}>
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{dashboard.name}</div>
-        <div style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>생산성 시작점</div>
+        <div style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>{t('wsProductivityHub')}</div>
       </div>
 
-      <Card colors={c} title="고정된 작업공간">
+      <Card colors={c} title={t('wsPinnedWorkspaces')}>
         {pinned.length === 0 ? (
-          <div style={{ fontSize: 11, color: c.textFaint }}>사이드바에서 작업공간을 고정하면 여기에 표시됩니다.</div>
+          <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsPinnedEmpty')}</div>
         ) : pinned.map(ref => (
           <WorkspaceRow
             key={`${ref.kind}:${ref.id}`}
@@ -344,9 +346,9 @@ export function WorkspaceDashboardView({
         ))}
       </Card>
 
-      <Card colors={c} title="최근 작업">
+      <Card colors={c} title={t('wsRecentWork')}>
         {recent.length === 0 ? (
-          <div style={{ fontSize: 11, color: c.textFaint }}>최근에 연 작업공간이 여기에 표시됩니다.</div>
+          <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsRecentWorkEmpty')}</div>
         ) : recent.map(entry => (
           <WorkspaceRow
             key={`${entry.workspace.kind}:${entry.workspace.id}`}
@@ -358,22 +360,22 @@ export function WorkspaceDashboardView({
         ))}
       </Card>
 
-      <Card colors={c} title="마지막 작업공간 이어하기">
+      <Card colors={c} title={t('wsResumeWorkspace')}>
         {resumeWorkspace ? (
           <WorkspaceRow
             colors={c}
             workspaceRef={resumeWorkspace}
-            meta="이전 작업을 이어갑니다"
+            meta={t('wsResumeMeta')}
             onClick={onResumeWorkspace}
           />
         ) : (
-          <div style={{ fontSize: 11, color: c.textFaint }}>이어할 작업공간이 없습니다.</div>
+          <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsResumeEmpty')}</div>
         )}
       </Card>
 
-      <Card colors={c} title="최근 노트">
+      <Card colors={c} title={t('wsRecentNotes')}>
         {notes.length === 0 ? (
-          <div style={{ fontSize: 11, color: c.textFaint }}>노트가 없습니다.</div>
+          <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsRecentNotesEmpty')}</div>
         ) : notes.map(note => (
           <button
             key={note.id}
@@ -392,14 +394,14 @@ export function WorkspaceDashboardView({
           >
             <div style={{ fontSize: 12, fontWeight: 600 }}>{displayNoteTitle(note.title)}</div>
             <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>
-              수정 {formatRecentTimestamp(note.updatedAt)}
+              {t('wsEdited').replace('{time}', formatRecentTimestamp(note.updatedAt))}
             </div>
           </button>
         ))}
       </Card>
 
       {maintenance && (
-        <Card colors={c} title="지식 유지보수">
+        <Card colors={c} title={t('wsKnowledgeMaintenance')}>
           <KnowledgeMaintenancePanel
             colors={c}
             data={maintenance.data}
@@ -409,7 +411,7 @@ export function WorkspaceDashboardView({
       )}
 
       {unified && (
-        <Card colors={c} title="작업공간">
+        <Card colors={c} title={t('wsWorkspace')}>
           <UnifiedWorkspaceDashboard
             colors={c}
             data={unified.data}
@@ -426,7 +428,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && academicInsights && (
-        <Card colors={c} title="학습 인사이트">
+        <Card colors={c} title={t('wsLearningInsights')}>
           <AcademicInsightsPanel
             colors={c}
             data={academicInsights.data}
@@ -436,7 +438,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && academic && (
-        <Card colors={c} title="학술 대시보드">
+        <Card colors={c} title={t('wsAcademicDashboard')}>
           <AcademicDashboardPanel
             colors={c}
             data={academic.data}
@@ -446,7 +448,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && project && (
-        <Card colors={c} title="프로젝트 대시보드">
+        <Card colors={c} title={t('wsProjectDashboard')}>
           <ProjectDashboardPanel
             colors={c}
             data={project.data}
@@ -456,7 +458,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && research && (
-        <Card colors={c} title="연구 대시보드">
+        <Card colors={c} title={t('wsResearchDashboard')}>
           <ResearchDashboardPanel
             colors={c}
             data={research.data}
@@ -466,7 +468,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && study && (
-        <Card colors={c} title="학습 대시보드">
+        <Card colors={c} title={t('wsStudyDashboard')}>
           <StudyDashboardPanel
             colors={c}
             data={study.data}
@@ -477,7 +479,7 @@ export function WorkspaceDashboardView({
 
       {!unified && knowledgeMaps && (
         <>
-          <Card colors={c} title="주제 지식">
+          <Card colors={c} title={t('wsSubjectKnowledge')}>
             <SubjectMapsDashboardPanel
               colors={c}
               subjects={knowledgeMaps.subjects}
@@ -485,7 +487,7 @@ export function WorkspaceDashboardView({
               onActivateSubjectWorkspace={knowledgeMaps.onActivateSubjectWorkspace}
             />
           </Card>
-          <Card colors={c} title="지식 클러스터">
+          <Card colors={c} title={t('wsKnowledgeClusters')}>
             <KnowledgeClusterPanel
               colors={c}
               data={knowledgeMaps.clusters}
@@ -496,7 +498,7 @@ export function WorkspaceDashboardView({
       )}
 
       {!unified && review && (
-        <Card colors={c} title="지식 검토">
+        <Card colors={c} title={t('wsKnowledgeReview')}>
           <KnowledgeReviewPanel
             colors={c}
             lists={review.lists}
@@ -507,7 +509,7 @@ export function WorkspaceDashboardView({
       )}
 
       {learningPath && (
-        <Card colors={c} title="학습 경로">
+        <Card colors={c} title={t('wsLearningPaths')}>
           <LearningPathOverviewPanel
             colors={c}
             data={learningPath.data}
@@ -531,7 +533,7 @@ export function WorkspaceDashboardView({
       )}
 
       {subjectWorkspaces && (
-        <Card colors={c} title="주제 작업공간">
+        <Card colors={c} title={t('wsSubjectWorkspaces')}>
           <SubjectWorkspacesPanel
             colors={c}
             subjects={subjectWorkspaces.subjects}
@@ -543,7 +545,7 @@ export function WorkspaceDashboardView({
       )}
 
       {focus && (
-        <Card colors={c} title="집중 프리셋">
+        <Card colors={c} title={t('wsFocusPresets')}>
           {focus.activePresetId && (
             <button
               type="button"
@@ -551,11 +553,11 @@ export function WorkspaceDashboardView({
               style={{ padding: '8px', fontSize: 11, width: '100%' }}
               onClick={focus.onExitPreset}
             >
-              집중 모드 종료
+              {t('wsExitFocus')}
             </button>
           )}
           {focus.presets.length === 0 ? (
-            <div style={{ fontSize: 11, color: c.textFaint }}>집중 작업을 시작하려면 프리셋을 만드세요.</div>
+            <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsFocusEmpty')}</div>
           ) : focus.presets.map(preset => {
             const target = focus.presetTargets[preset.id];
             const isActive = focus.activePresetId === preset.id;
@@ -577,7 +579,7 @@ export function WorkspaceDashboardView({
                   <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>
                     {target
                       ? `${target.name} · ${workspaceKindLabel(target.kind)}`
-                      : '작업공간을 사용할 수 없음'}
+                      : t('wsWorkspaceUnavailable')}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -588,7 +590,7 @@ export function WorkspaceDashboardView({
                     disabled={!target}
                     onClick={() => focus.onActivatePreset(preset.id)}
                   >
-                    {isActive ? '활성' : '시작'}
+                    {isActive ? t('wsActive') : t('wsStart')}
                   </button>
                   <button
                     type="button"
@@ -603,7 +605,7 @@ export function WorkspaceDashboardView({
                     }}
                     onClick={() => focus.onDeletePreset(preset.id)}
                   >
-                    삭제
+                    {t('delete')}
                   </button>
                 </div>
               </div>
@@ -614,7 +616,7 @@ export function WorkspaceDashboardView({
               <input
                 className="bwi"
                 style={{ width: '100%', fontSize: 11 }}
-                placeholder="프리셋 이름"
+                placeholder={t('wsPresetName')}
                 value={newPresetName}
                 onChange={e => setNewPresetName(e.target.value)}
               />
@@ -624,7 +626,7 @@ export function WorkspaceDashboardView({
                 value={newPresetWorkspaceKey}
                 onChange={e => setNewPresetWorkspaceKey(e.target.value)}
               >
-                <option value="">작업공간 선택</option>
+                <option value="">{t('wsSelectWorkspace')}</option>
                 {focus.workspaceOptions.map(ref => (
                   <option key={`${ref.kind}:${ref.id}`} value={`${ref.kind}:${ref.id}`}>
                     {ref.name} ({workspaceKindLabel(ref.kind)})
@@ -637,7 +639,7 @@ export function WorkspaceDashboardView({
                 style={{ padding: '6px', fontSize: 11 }}
                 onClick={submitPreset}
               >
-                프리셋 만들기
+                {t('wsCreatePreset')}
               </button>
             </div>
           )}
@@ -645,14 +647,14 @@ export function WorkspaceDashboardView({
       )}
 
       {quickCapture && (
-        <Card colors={c} title="빠른 캡처">
+        <Card colors={c} title={t('wsQuickCapture')}>
           <div style={{ fontSize: 10, color: c.textFaint, marginBottom: 4 }}>
-            #{DEFAULT_QUICK_CAPTURE_MODEL.inboxTag} 태그가 붙은 일반 노트를 만듭니다
+            {t('wsQuickCaptureHint').replace('{tag}', DEFAULT_QUICK_CAPTURE_MODEL.inboxTag)}
           </div>
           <input
             className="bwi"
             style={{ width: '100%', fontSize: 11 }}
-            placeholder="제목"
+            placeholder={t('title')}
             value={captureTitle}
             onChange={e => setCaptureTitle(e.target.value)}
             onKeyDown={e => {
@@ -687,18 +689,18 @@ export function WorkspaceDashboardView({
             style={{ padding: '8px', fontSize: 11, width: '100%' }}
             onClick={submitCapture}
           >
-            캡처
+            {t('wsCapture')}
           </button>
         </Card>
       )}
 
-      <Card colors={c} title="빠른 작업">
+      <Card colors={c} title={t('wsQuickActions')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onNewNote}>
-            새 노트
+            {t('wsNewNote')}
           </button>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onNewDatabaseView}>
-            새 데이터베이스 보기
+            {t('wsNewDatabaseView')}
           </button>
           {productivity && (
             <>
@@ -708,7 +710,7 @@ export function WorkspaceDashboardView({
                 style={{ padding: '8px', fontSize: 11 }}
                 onClick={() => { setShowJournalPicker(false); setShowTaskPicker(v => !v); }}
               >
-                새 작업
+                {t('wsNewTask')}
               </button>
               <button
                 type="button"
@@ -716,7 +718,7 @@ export function WorkspaceDashboardView({
                 style={{ padding: '8px', fontSize: 11 }}
                 onClick={() => { setShowTaskPicker(false); setShowJournalPicker(v => !v); }}
               >
-                새 저널
+                {t('wsNewJournal')}
               </button>
               {productivity.onCreateReadingNote && (
                 <button
@@ -725,7 +727,7 @@ export function WorkspaceDashboardView({
                   style={{ padding: '8px', fontSize: 11, gridColumn: '1 / -1' }}
                   onClick={() => productivity.onCreateReadingNote?.()}
                 >
-                  새 읽기 노트
+                  {t('wsNewReadingNote')}
                 </button>
               )}
               {productivity.onCreateStudyNote && (
@@ -735,16 +737,16 @@ export function WorkspaceDashboardView({
                   style={{ padding: '8px', fontSize: 11, gridColumn: '1 / -1' }}
                   onClick={() => productivity.onCreateStudyNote?.()}
                 >
-                  새 학습 노트
+                  {t('wsNewStudyNote')}
                 </button>
               )}
             </>
           )}
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenSearch}>
-            검색 열기
+            {t('wsOpenSearch')}
           </button>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenGraph}>
-            그래프 열기
+            {t('wsOpenGraph')}
           </button>
         </div>
         {productivity && showTaskPicker && (
@@ -752,7 +754,7 @@ export function WorkspaceDashboardView({
             <input
               className="bwi"
               style={{ width: '100%', fontSize: 11 }}
-              placeholder="작업 제목 (선택)"
+              placeholder={t('wsTaskTitleOptional')}
               value={taskTitle}
               onChange={e => setTaskTitle(e.target.value)}
             />
@@ -788,7 +790,7 @@ export function WorkspaceDashboardView({
                 style={{ padding: '6px', fontSize: 10 }}
                 onClick={productivity.onCreateTaskDatabase}
               >
-                작업 데이터베이스 만들기
+                {t('wsCreateTaskDb')}
               </button>
             )}
           </div>
@@ -798,7 +800,7 @@ export function WorkspaceDashboardView({
             <input
               className="bwi"
               style={{ width: '100%', fontSize: 11 }}
-              placeholder="저널 제목 (선택)"
+              placeholder={t('wsJournalTitleOptional')}
               value={journalTitle}
               onChange={e => setJournalTitle(e.target.value)}
             />
@@ -834,7 +836,7 @@ export function WorkspaceDashboardView({
                 style={{ padding: '6px', fontSize: 10 }}
                 onClick={productivity.onCreateJournalDatabase}
               >
-                저널 데이터베이스 만들기
+                {t('wsCreateJournalDb')}
               </button>
             )}
           </div>

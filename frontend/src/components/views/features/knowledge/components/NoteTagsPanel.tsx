@@ -1,9 +1,10 @@
-import { useCallback, useState, type CSSProperties } from 'react';
-import { Plus, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import { addTag, listTags, removeTag, renameTag } from '../tags';
+import { TagChip, TagChipRow } from './TagChip';
 
 export interface NoteTagsPanelProps {
   colors: NoteChromeColors;
@@ -64,19 +65,6 @@ export function NoteTagsPanel({
     setRenameValue('');
   }, [commitNote, note, renameValue, renamingTag]);
 
-  const pillStyle = (selected: boolean): CSSProperties => ({
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    fontSize: 10,
-    color: selected ? c.accent : c.tagTxt,
-    background: selected ? c.cardAct : c.tag,
-    border: `1px solid ${selected ? c.cardActBdr : 'transparent'}`,
-    borderRadius: 999,
-    padding: '2px 8px',
-    cursor: 'pointer',
-  });
-
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>
@@ -88,7 +76,7 @@ export function NoteTagsPanel({
           {t('tagNone')}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
+        <TagChipRow style={{ marginBottom: 12 }}>
           {tags.map(tag => (
             renamingTag === tag ? (
               <input
@@ -109,38 +97,24 @@ export function NoteTagsPanel({
                   background: c.input,
                   color: c.text,
                   minWidth: 60,
+                  maxWidth: '100%',
                 }}
               />
             ) : (
-              <span
+              <TagChip
                 key={tag}
-                style={pillStyle(activeTag?.toLowerCase() === tag.toLowerCase())}
+                colors={c}
+                tag={tag}
+                wrap
+                selected={activeTag?.toLowerCase() === tag.toLowerCase()}
+                title={t('tagClickFilterHint')}
                 onClick={() => onSelectTag(activeTag?.toLowerCase() === tag.toLowerCase() ? null : tag)}
                 onDoubleClick={() => startRename(tag)}
-                title={t('tagClickFilterHint')}
-              >
-                #{tag}
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    handleRemove(tag);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    display: 'flex',
-                    color: c.textMuted,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <X size={10} />
-                </button>
-              </span>
+                onRemove={() => handleRemove(tag)}
+              />
             )
           ))}
-        </div>
+        </TagChipRow>
       )}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
@@ -195,20 +169,21 @@ export function NoteTagsPanel({
               paddingTop: 10,
             }}
           >
-            All Tags
+            {t('knAllTags')}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <TagChipRow>
             {allTags.map(({ tag, count }) => (
-              <span
+              <TagChip
                 key={tag}
-                style={pillStyle(activeTag?.toLowerCase() === tag.toLowerCase())}
+                colors={c}
+                tag={tag}
+                size="sm"
+                selected={activeTag?.toLowerCase() === tag.toLowerCase()}
+                suffix={<span style={{ color: c.textMuted, fontSize: 9, flexShrink: 0 }}>{count}</span>}
                 onClick={() => onSelectTag(activeTag?.toLowerCase() === tag.toLowerCase() ? null : tag)}
-              >
-                #{tag}{' '}
-                <span style={{ color: c.textMuted }}>{count}</span>
-              </span>
+              />
             ))}
-          </div>
+          </TagChipRow>
         </>
       )}
     </div>

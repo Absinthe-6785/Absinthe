@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { NoteBase } from '../../../noteUtils';
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteBase } from '../../../../noteUtils';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
 import {
   addDatabaseViewColumn,

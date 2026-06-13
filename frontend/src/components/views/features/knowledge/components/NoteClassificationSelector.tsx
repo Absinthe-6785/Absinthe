@@ -1,13 +1,13 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteKind } from '../research/noteClassification';
 import {
   NOTE_KINDS,
-  NOTE_KIND_LABELS_KO,
-  canPromoteNoteKind,
   canPromoteKind,
+  nextNoteKind,
   noteKindWorkflowStep,
-  promoteNoteKindLabel,
 } from '../research/noteClassification';
+import { noteKindLabel } from '../knowledgeLabels';
 
 export interface NoteClassificationSelectorProps {
   colors: NoteChromeColors;
@@ -22,6 +22,8 @@ export function NoteClassificationSelector({
   onChange,
   disabled,
 }: NoteClassificationSelectorProps) {
+  const { t, lang } = useTranslation();
+
   return (
     <select
       value={value ?? ''}
@@ -30,7 +32,7 @@ export function NoteClassificationSelector({
         const v = e.target.value;
         onChange(v && NOTE_KINDS.includes(v as NoteKind) ? v as NoteKind : null);
       }}
-      title="노트 분류"
+      title={t('knNoteClassification')}
       style={{
         background: c.input,
         border: `1px solid ${c.inputBdr}`,
@@ -40,12 +42,12 @@ export function NoteClassificationSelector({
         fontSize: 10,
         outline: 'none',
         cursor: disabled ? 'default' : 'pointer',
-        maxWidth: 88,
+        maxWidth: 120,
       }}
     >
-      <option value="">분류 없음</option>
+      <option value="">{t('knNoClassification')}</option>
       {NOTE_KINDS.map(kind => (
-        <option key={kind} value={kind}>{NOTE_KIND_LABELS_KO[kind]}</option>
+        <option key={kind} value={kind}>{noteKindLabel(kind, lang)}</option>
       ))}
     </select>
   );
@@ -57,30 +59,27 @@ export interface LiteratureWorkflowIndicatorProps {
   onPromote?: () => void;
 }
 
-const STEPS: { kind: NoteKind; label: string }[] = [
-  { kind: 'source', label: 'Source' },
-  { kind: 'literature', label: 'Literature' },
-  { kind: 'permanent', label: 'Permanent' },
-];
+const WORKFLOW_KINDS: NoteKind[] = ['source', 'literature', 'permanent'];
 
 /** Visual knowledge progression with optional one-click promote. */
 export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: LiteratureWorkflowIndicatorProps) {
+  const { t, lang } = useTranslation();
   const activeStep = noteKindWorkflowStep(kind);
-  const promoteLabel = promoteNoteKindLabel(kind);
+  const nextKind = nextNoteKind(kind);
   const showPromote = onPromote && canPromoteKind(kind);
 
   return (
     <div
       className="be-literature-workflow"
-      aria-label="지식 진행 단계"
+      aria-label={t('knKnowledgeProgress')}
       style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 9, color: c.textMuted, flexWrap: 'wrap' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        {STEPS.map((step, idx) => {
+        {WORKFLOW_KINDS.map((stepKind, idx) => {
           const isActive = activeStep === idx;
           const isPast = activeStep > idx;
           return (
-            <span key={step.kind} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span key={stepKind} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {idx > 0 && (
                 <span style={{ color: c.textFaint, fontSize: 8 }}>↓</span>
               )}
@@ -94,13 +93,13 @@ export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: Lite
                   border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
                 }}
               >
-                {step.label}
+                {noteKindLabel(stepKind, lang)}
               </span>
             </span>
           );
         })}
       </div>
-      {showPromote && promoteLabel && (
+      {showPromote && nextKind && (
         <button
           type="button"
           className="btbtn"
@@ -114,7 +113,7 @@ export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: Lite
             background: c.accentBg,
           }}
         >
-          → {promoteLabel} 승격
+          → {t('knPromoteTo').replace('{kind}', noteKindLabel(nextKind, lang))}
         </button>
       )}
     </div>
