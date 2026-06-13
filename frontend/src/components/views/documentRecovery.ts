@@ -92,6 +92,14 @@ export function repairBlock(raw: unknown): Block | null {
   if (type === 'callout' && typeof o.calloutIcon === 'string') {
     partial.calloutIcon = o.calloutIcon;
   }
+  if (type === 'footnote' && typeof o.footnoteId === 'string') {
+    partial.footnoteId = o.footnoteId;
+  }
+  if (type === 'mermaid') partial.mermaid = asString(o.mermaid);
+  if (type === 'audio') {
+    partial.src = asString(o.src);
+    if (typeof o.caption === 'string') partial.caption = o.caption;
+  }
   if (typeof o.listIndex === 'number') partial.listIndex = o.listIndex;
 
   return makeBlock(type as BlockType, partial);

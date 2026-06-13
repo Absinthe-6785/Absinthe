@@ -43,6 +43,15 @@ export function applySlashMenuTypeChange(block: Block, meta: BlockTypeMeta, quer
   if (type === 'image') {
     return { ...block, type, content: '', src: '', alt: '', caption: undefined, width: undefined, ...meta.createDefaults };
   }
+  if (type === 'mermaid') {
+    return { ...block, type, content: '', mermaid: block.mermaid || cleaned, ...meta.createDefaults };
+  }
+  if (type === 'audio') {
+    return { ...block, type, content: '', src: '', caption: undefined, ...meta.createDefaults };
+  }
+  if (type === 'footnote') {
+    return { ...block, type, content: cleaned, footnoteId: meta.createDefaults?.footnoteId ?? block.footnoteId ?? '1', ...meta.createDefaults };
+  }
   const next: Block = { ...block, type, content: cleaned, ...meta.createDefaults };
   if (isToggleBlockType(type)) next.collapsed = next.collapsed ?? false;
   if (type === 'callout' && !next.calloutIcon) next.calloutIcon = DEFAULT_CALLOUT_ICON;

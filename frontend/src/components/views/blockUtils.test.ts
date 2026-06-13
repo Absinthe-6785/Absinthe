@@ -115,6 +115,31 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
 
+  it('roundtrips footnote definition and inline reference', () => {
+    const md = 'See note[^1] here.\n\n[^1]: First reference.';
+    const blocks = markdownToBlocks(md);
+    expect(blocks.some(b => b.type === 'footnote')).toBe(true);
+    expect(blocks.find(b => b.type === 'paragraph')?.content).toContain('[^1]');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips mermaid fenced block', () => {
+    const md = '```mermaid\nflowchart TD\n  A --> B\n```';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('mermaid');
+    expect(blocks[0].mermaid).toContain('flowchart TD');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips audio fenced block with caption', () => {
+    const md = '```audio\nhttps://example.com/audio.mp3\nLesson clip\n```';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('audio');
+    expect(blocks[0].src).toBe('https://example.com/audio.mp3');
+    expect(blocks[0].caption).toBe('Lesson clip');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
   it('roundtrips toggle with children', () => {
     const md = '> Toggle title\n  child line';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
