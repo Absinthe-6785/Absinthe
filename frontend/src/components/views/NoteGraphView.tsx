@@ -552,6 +552,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             const isMatch = matchedIds !== null && matchedIds.has(node.id);
             const isDim  = matchedIds !== null && !matchedIds.has(node.id);
             const label  = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
+            const showLabel = isAct || isHov || matchedIds === null || isMatch;
 
             // 폴더 색상
             const folderColor = getFolderColor(node.folderId, folderIds);
@@ -595,9 +596,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                   cx={node.x} cy={node.y} r={r}
                   fill={nodeFill}
                   stroke={nodeStroke}
-                  strokeWidth={isAct || isHov || isMatch ? 2 : 1.5}
+                  strokeWidth={isAct || isHov || isMatch ? 2.5 : 1.5}
                   opacity={isDim ? 0.3 : 1}
-                />
+                >
+                  <title>{node.title.trim() || '제목 없음'}</title>
+                </circle>
                 {/* 폴더 색상 점 (우측 상단) */}
                 {folderColor && !isAct && !isDim && (
                   <circle cx={node.x + r * 0.65} cy={node.y - r * 0.65} r={3}
@@ -610,9 +613,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                     fontSize="9" textAnchor="middle"
                     style={{ pointerEvents: 'none' }}>★</text>
                 )}
-                {/* 라벨 */}
+                {/* 라벨 — hover/active/search only to reduce overlap (K-31) */}
+                {showLabel && (
                 <text
-                  x={node.x} y={node.y + r + 14}
+                  x={node.x} y={node.y + r + 16}
                   textAnchor="middle" fontSize="10"
                   fill={isDim ? colors.dimTxt : isAct ? colors.act : colors.txt}
                   fontWeight={isAct || isMatch ? '700' : '400'}
@@ -621,6 +625,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 >
                   {label}
                 </text>
+                )}
               </g>
             );
           })}
@@ -669,7 +674,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       }}>
         {visibleNodes.length} notes · {visibleEdges.length} links
         {!showIsolated && isolatedCount > 0 && ` · ${isolatedCount} hidden`}
-        {' · '}<span style={{ opacity: 0.6 }}>scroll=줌 · drag=팬</span>
+        {' · '}<span style={{ opacity: 0.6 }}>scroll=줌 · drag=팬 · hover=제목</span>
       </div>
 
       {activeNoteId && (

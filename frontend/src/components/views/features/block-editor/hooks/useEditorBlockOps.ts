@@ -11,7 +11,7 @@ import {
   findBlockById,
   convertBlock,
 } from '../../../blockUtils';
-import { deleteSelectedBlocks, duplicateSelectedBlocks } from '../../../multiBlockOps';
+import { deleteSelectedBlocks, duplicateSelectedBlocks, resolveFocusAfterBlockDelete } from '../../../multiBlockOps';
 import type { TurnIntoMenuState } from '../../../editorTypes';
 import type { FocusCmd } from '../features/selection';
 import { insertBlockAtIndex, moveBlockInList } from '../utils/blockEditorMutations';
@@ -80,11 +80,21 @@ export function useEditorBlockOps({
   const handleDeleteSelected = useCallback(() => {
     const ids = getSelectedIds();
     if (!ids.size) return;
-    const updated = deleteSelectedBlocks(getRootBlocks(), ids);
+    const before = getRootBlocks();
+    const updated = deleteSelectedBlocks(before, ids);
     onRootChange(updated);
     clearSelection();
-    onActiveBlockChange(null);
-  }, [getRootBlocks, onRootChange, onActiveBlockChange, clearSelection]);
+
+    const focus = resolveFocusAfterBlockDelete(before, ids, updated);
+    if (!focus) {
+      onActiveBlockChange(null);
+      return;
+    }
+
+    selectBlock(focus.blockId);
+    onActiveBlockChange(focus.blockId);
+    onFocusCmd({ blockId: focus.blockId, offset: focus.offset });
+  }, [getRootBlocks, onRootChange, onActiveBlockChange, clearSelection, selectBlock, onFocusCmd]);
 
   const handleDuplicateSelected = useCallback(() => {
     const ids = getSelectedIds();

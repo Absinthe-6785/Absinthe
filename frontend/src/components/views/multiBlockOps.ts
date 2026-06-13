@@ -7,9 +7,47 @@ import {
   findBlockById,
   flattenBlockIds,
   insertBlockAfter,
+  isTextBlockType,
   makeBlock,
   type Block,
 } from './blockUtils';
+import { isToggleBlockType } from './toggleBlockTypes';
+
+export type BlockFocusOffset = 'start' | 'end' | number;
+
+function focusOffsetAfterDelete(block: Block): BlockFocusOffset {
+  if (isTextBlockType(block.type) || isToggleBlockType(block.type)) {
+    return block.content.length;
+  }
+  return 'end';
+}
+
+/** Nearest editable block to focus after deleting one or more blocks. */
+export function resolveFocusAfterBlockDelete(
+  blocksBefore: Block[],
+  deletedIds: Iterable<string>,
+  blocksAfter: Block[],
+): { blockId: string; offset: BlockFocusOffset } | null {
+  const deleted = new Set(deletedIds);
+  const flatBefore = flattenBlockIds(blocksBefore);
+  const flatAfter = flattenBlockIds(blocksAfter);
+  if (flatAfter.length === 0) return null;
+
+  const firstDeletedIdx = flatBefore.findIndex(id => deleted.has(id));
+  if (firstDeletedIdx < 0) return null;
+
+  for (let i = firstDeletedIdx - 1; i >= 0; i--) {
+    const id = flatBefore[i];
+    if (deleted.has(id)) continue;
+    const block = findBlockById(blocksAfter, id);
+    if (block) {
+      return { blockId: id, offset: focusOffsetAfterDelete(block) };
+    }
+  }
+
+  const firstId = flatAfter[0];
+  return { blockId: firstId, offset: 'start' };
+}
 
 function orderedIds(blocks: Block[], ids: Iterable<string>): string[] {
   const want = new Set(ids);

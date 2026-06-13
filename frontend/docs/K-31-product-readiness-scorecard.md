@@ -1,57 +1,58 @@
 # K-31 — Product Readiness Scorecard
 
 **Branch:** `k31-product-stabilization`  
-**Scope:** Phase 5 — 0–10 scoring
-
-Scoring reflects post-K-31 fixes on top of K-30.56 baseline.
+**Scope:** Phase 5 — 0–10 scoring (updated after pass 2)
 
 ---
 
 ## Scores
 
-| Area | Score | Rationale | Blockers |
-| ---- | ----- | --------- | -------- |
-| **Navigation** | 7 | Outline TOC scroll fixed for virtualization; Archive tab label corrected | Archive→Note tab switch; browse links |
-| **Discoverability** | 6 | Sidebar IA clearer; graph/timetable still below fold | Hidden weekly timetable; dual planner nav |
-| **Localization** | 6 | Planner calendar headers + Archive tab; default lang still `en` | Workspace panels; archive period labels |
-| **Planner** | 6 | Four calendar modes solid; legacy duplication remains | Timeline vs Day CRUD split |
-| **Archive** | 4 | Beautiful shell, sparse interactions | Heatmap/browse not wired |
-| **Workspace** | 7 | Smart collections grouped (K-30.49); search polished | English section titles |
-| **Graph** | 5 | Local panel useful; full graph raw | Overlap, no type styling |
-| **Accessibility** | 6.5 | K-30.56 modal/skip baseline | TOC keyboard; archive grid |
-| **Visual Consistency** | 6 | Planner/Archive cohesive; NoteView dialect separate | Inline styles in NoteView |
-| **Mobile Experience** | 6 | Drawers + touch targets OK | Dual planner tabs; small heatmap cells |
+| Area | Pass 1 | Pass 2 | Rationale | Blockers |
+| ---- | ------ | ------ | --------- | -------- |
+| **Navigation** | 7 | **7.5** | Outline virtualization fixed; backspace focus chain fixed | Archive period branches |
+| **Discoverability** | 6 | 6 | Archive CTA; graph hover labels | Weekly timetable below fold |
+| **Localization** | 6 | **6.5** | Archive placeholders + empty CTA i18n | Database panel English |
+| **Planner** | 6 | 6 | Calendar headers i18n (pass 1) | Legacy column duplication |
+| **Archive** | 4 | **5.5** | Empty CTA, placeholder guidance, tab rename | Period/area/timeline shells |
+| **Workspace** | 7 | 7 | Unchanged | Section title i18n |
+| **Graph** | 5 | **6** | Label-on-hover, title tooltip, stroke polish | Layout engine unchanged |
+| **Accessibility** | 6.5 | 6.5 | Graph `<title>` tooltips help SR hover | TOC keyboard |
+| **Visual Consistency** | 6 | **6.5** | Archive + graph hierarchy tweaks | NoteView inline styles |
+| **Mobile Experience** | 6 | 6 | Unchanged | Dual planner nav |
 
 ---
 
 ## Overall Readiness
 
-**6.1 / 10** — Stabilization fixes remove P0 regressions (outline nav, misleading Analytics label) and close obvious i18n gaps. Product still feels like a mature editor + beta archive/planner fusion.
+**6.1 / 10 → 6.4 / 10**
+
+Stabilization pass 2 closes a critical editor regression (backspace focus) and raises Archive/Graph from “visual-only” toward actionable surfaces.
 
 ---
 
-## K-31 Deliverables Completed
+## K-31 Pass 2 Deliverables
 
-- ✅ Task A: Outline navigation + virtualization + scroll-spy hybrid + tests
-- ✅ Task B: Sidebar Archive label + icon
-- ✅ Task C: Localization fixes + audit doc
-- ✅ Tasks D–J: Audit documents
-- ✅ This scorecard
+- ✅ Backspace navigation fix + tests + audit
+- ✅ Archive recovery (empty CTA, placeholder i18n) + audit
+- ✅ Graph quick wins + audit
+- ✅ Localization pass 2 + audit
+- ✅ Visual consistency pass + audit
+- ✅ Scorecard update
 
 ---
 
-## Recommended Next Milestone (K-31.1 or K-32)
+## Recommended Next Milestone
 
-1. **Archive activation** — wire heatmap/browse → filtered views; switch tab on note open.
-2. **Planner consolidation** — demote legacy column; Day view schedule CRUD.
-3. **i18n completion** — NoteView panels + workspace; default language policy (ko for KR users?).
-4. **Graph quick wins** — hub sizing, label threshold, type colors.
-5. **TOC keyboard** — j/k section navigation.
+1. Archive Period branch → trace range view
+2. Database/properties panel i18n batch
+3. Planner legacy column demotion
+4. Default locale policy (ko for primary market)
+5. TOC keyboard navigation (j/k)
 
 ---
 
 ## Regression Watchlist
 
-- Outline scroll-spy with edited documents (cache invalidation on body string reuse).
-- Virtual list remeasure after toggle collapse changing heading positions.
-- Sidebar tab id remains `analytics` internally — tests/docs should reference Archive label.
+- Backspace on empty **first** root block (merge no-op at pos 0)
+- Delete key on empty block still uses delete path — focus restore verified via `resolveFocusAfterBlockDelete`
+- Graph labels hidden until hover — users must discover via status hint

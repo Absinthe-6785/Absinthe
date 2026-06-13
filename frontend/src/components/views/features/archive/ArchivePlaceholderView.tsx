@@ -1,22 +1,34 @@
-import type { Theme } from '../../../../types';
-import { archiveViewModeLabel, type ArchiveViewMode } from './archiveNavigationModels';
+import type { AppSettings, Theme } from '../../../../types';
+import { getTranslator } from '../../../../lib/i18n';
+import { type ArchiveViewMode } from './archiveNavigationModels';
 
 export interface ArchivePlaceholderViewProps {
   mode: Exclude<ArchiveViewMode, 'home'>;
   theme: Theme;
+  appSettings: AppSettings;
 }
 
-export function ArchivePlaceholderView({ mode, theme }: ArchivePlaceholderViewProps) {
+function archiveViewKey(mode: Exclude<ArchiveViewMode, 'home'>): 'archiveViewPeriod' | 'archiveViewArea' | 'archiveViewTimeline' {
+  switch (mode) {
+    case 'period': return 'archiveViewPeriod';
+    case 'area': return 'archiveViewArea';
+    case 'timeline': return 'archiveViewTimeline';
+  }
+}
+
+export function ArchivePlaceholderView({ mode, theme, appSettings }: ArchivePlaceholderViewProps) {
+  const t = getTranslator((appSettings.language ?? 'en') as 'en' | 'ko' | 'ja');
+  const viewLabel = t(archiveViewKey(mode));
   return (
     <div
       className="flex flex-col gap-3 px-2 lg:px-4 py-2"
       data-archive-placeholder={mode}
     >
       <h2 className="font-heading text-xl font-bold">
-        {archiveViewModeLabel(mode)}
+        {viewLabel}
       </h2>
       <p className={`text-sm ${theme.textMuted}`}>
-        {archiveViewModeLabel(mode)} view is not available yet.
+        {t('archiveViewUnavailable').replace('{view}', viewLabel)}
       </p>
     </div>
   );

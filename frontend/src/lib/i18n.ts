@@ -52,6 +52,15 @@ const translations = {
   plannerToday:   { en: 'Today',          ko: '오늘',         ja: '今日'         },
   plannerMilestone: { en: 'Milestone',    ko: '마일스톤',     ja: 'マイルストーン' },
   calendarEmptyRange: { en: 'No planning items in this range yet.', ko: '이 기간에 계획 항목이 없습니다.', ja: 'この期間の予定はまだありません。' },
+
+  // ── Archive (K-31) ────────────────────────────────────────────────
+  archiveViewHome:     { en: 'Home', ko: '홈', ja: 'ホーム' },
+  archiveViewPeriod:   { en: 'Period', ko: '기간', ja: '期間' },
+  archiveViewArea:     { en: 'Area', ko: '영역', ja: 'エリア' },
+  archiveViewTimeline: { en: 'Timeline', ko: '타임라인', ja: 'タイムライン' },
+  archiveViewUnavailable: { en: '{view} view is not available yet. Browse from Archive Home or open Notes to add marks.', ko: '{view} 보기는 아직 준비 중입니다. 아카이브 홈에서 탐색하거나 노트에서 마크를 추가하세요.', ja: '{view}ビューはまだ利用できません。アーカイブホームから探索するか、ノートでマークを追加してください。' },
+  archiveEmptyCta:   { en: 'Go to Notes to start writing', ko: '노트로 이동해 작성 시작', ja: 'ノートへ移動して書き始める' },
+  graphHoverHint:      { en: 'Hover or select a node to see its title', ko: '노드에 마우스를 올리거나 선택하면 제목이 표시됩니다', ja: 'ノードにホバーまたは選択でタイトル表示' },
   timeline:       { en: 'Timeline',       ko: '타임라인',     ja: 'タイムライン' },
   dday:           { en: 'D-Day',          ko: 'D-Day',        ja: 'D-Day'        },
   newFolder:      { en: 'New Folder',     ko: '새 폴더',      ja: '新フォルダ'   },

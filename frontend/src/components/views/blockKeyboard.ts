@@ -29,6 +29,8 @@ export function shouldDeleteSelectedBlocks(
       // Never delete a non-empty text block from the capture handler — EditableBlock handles merge/chars.
       if (!isEditableEmpty(t)) return false;
       if (e.key === 'Backspace' && getCaretOffset(t) !== 0) return false;
+      // Single empty text block: EditableBlock merge focuses the previous block at caret end.
+      if (e.key === 'Backspace' && selectedIds.size === 1) return false;
       return true;
     }
     return true;

@@ -45,9 +45,9 @@ export function ArchiveShell({
           isLoading={isLoading}
         />
       )}
-      {mode === 'period' && <ArchivePlaceholderView mode="period" theme={theme} />}
-      {mode === 'area' && <ArchivePlaceholderView mode="area" theme={theme} />}
-      {mode === 'timeline' && <ArchivePlaceholderView mode="timeline" theme={theme} />}
+      {mode === 'period' && <ArchivePlaceholderView mode="period" theme={theme} appSettings={appSettings} />}
+      {mode === 'area' && <ArchivePlaceholderView mode="area" theme={theme} appSettings={appSettings} />}
+      {mode === 'timeline' && <ArchivePlaceholderView mode="timeline" theme={theme} appSettings={appSettings} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { flattenBlockIds, makeBlock } from './blockUtils';
-import { deleteSelectedBlocks, duplicateSelectedBlocks } from './multiBlockOps';
+import { deleteSelectedBlocks, duplicateSelectedBlocks, resolveFocusAfterBlockDelete } from './multiBlockOps';
 
 describe('multiBlockOps', () => {
   const blocks = [
@@ -27,5 +27,24 @@ describe('multiBlockOps', () => {
     expect(ids.slice(0, 3)).toEqual(['a', 'b', 'c']);
     expect(ids[3]).not.toBe('a');
     expect(ids[4]).not.toBe('c');
+  });
+
+  it('resolveFocusAfterBlockDelete focuses previous block at content end', () => {
+    const next = deleteSelectedBlocks(blocks, ['b']);
+    const focus = resolveFocusAfterBlockDelete(blocks, ['b'], next);
+    expect(focus).toEqual({ blockId: 'a', offset: 1 });
+  });
+
+  it('resolveFocusAfterBlockDelete focuses next block at start when deleting the first', () => {
+    const next = deleteSelectedBlocks(blocks, ['a']);
+    const focus = resolveFocusAfterBlockDelete(blocks, ['a'], next);
+    expect(focus).toEqual({ blockId: 'b', offset: 'start' });
+  });
+
+  it('resolveFocusAfterBlockDelete focuses replacement paragraph when all removed', () => {
+    const next = deleteSelectedBlocks(blocks, ['a', 'b', 'c']);
+    const focus = resolveFocusAfterBlockDelete(blocks, ['a', 'b', 'c'], next);
+    expect(focus?.blockId).toBe(next[0].id);
+    expect(focus?.offset).toBe('start');
   });
 });

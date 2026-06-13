@@ -73,6 +73,7 @@ describe('ArchiveHomeView', () => {
 
     expect(html).toContain('data-archive-empty="true"');
     expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
+    expect(html).toContain('Go to Notes to start writing');
   });
 
   it('marks Archive Home structurally complete', () => {
@@ -124,7 +125,7 @@ describe('ArchiveShell', () => {
 describe('ArchivePlaceholderView', () => {
   it('renders timeline placeholder copy', () => {
     const html = renderToStaticMarkup(
-      createElement(ArchivePlaceholderView, { mode: 'timeline', theme }),
+      createElement(ArchivePlaceholderView, { mode: 'timeline', theme, appSettings }),
     );
     expect(html).toContain('data-archive-placeholder="timeline"');
     expect(html).toContain('Timeline view is not available yet.');

@@ -41,12 +41,25 @@ describe('shouldDeleteSelectedBlocks', () => {
     spyText.mockRestore();
   });
 
-  it('returns true for empty editable block at caret start', () => {
+  it('delegates single empty Backspace to EditableBlock merge (not block delete)', () => {
     const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('');
     const spyCaret = vi.spyOn(selection, 'getCaretOffset').mockReturnValue(0);
     expect(shouldDeleteSelectedBlocks(
       keyEvt('Backspace', { isContentEditable: true }),
+      new Set(['a']),
+    )).toBe(false);
+    spySel.mockRestore();
+    spyText.mockRestore();
+    spyCaret.mockRestore();
+  });
+
+  it('returns true for Delete on empty editable block at caret start', () => {
+    const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
+    const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('');
+    const spyCaret = vi.spyOn(selection, 'getCaretOffset').mockReturnValue(0);
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', { isContentEditable: true }),
       new Set(['a']),
     )).toBe(true);
     spySel.mockRestore();
