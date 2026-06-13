@@ -37,7 +37,7 @@ export function deriveToolbarFormats(
     code: selectionHasFormat(text, start, end, '`', '`'),
     wiki: selectionHasFormat(text, start, end, '[[', ']]'),
     tag: text[start] === '#' && end > start && !selected.includes(' '),
-    heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3'
+    heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3' || blockType === 'heading4'
       ? blockType
       : null,
   };

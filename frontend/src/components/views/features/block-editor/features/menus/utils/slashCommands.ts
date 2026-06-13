@@ -8,9 +8,11 @@ export const SLASH_COMMAND_MAP: Record<string, BlockType> = {
   h1: 'heading1',
   h2: 'heading2',
   h3: 'heading3',
+  h4: 'heading4',
   heading1: 'heading1',
   heading2: 'heading2',
   heading3: 'heading3',
+  heading4: 'heading4',
   todo: 'todo',
   task: 'todo',
   toggle: 'toggle',
@@ -30,23 +32,24 @@ export const SLASH_COMMAND_MAP: Record<string, BlockType> = {
   table: 'table',
 };
 
-/** Display label for slash menu (Notion-style English) */
+/** Display label for slash menu — Korean, aligned with BLOCK_TYPE_MENU */
 export const SLASH_DISPLAY_LABELS: Partial<Record<BlockType, string>> = {
-  paragraph: 'Text',
-  heading1: 'Heading 1',
-  heading2: 'Heading 2',
-  heading3: 'Heading 3',
-  todo: 'Todo',
-  toggle: 'Toggle',
-  bullet: 'Bullet List',
-  numbered: 'Numbered List',
-  code: 'Code Block',
-  math: 'Math Block',
-  quote: 'Quote',
-  divider: 'Divider',
-  image: 'Image',
-  callout: 'Callout',
-  table: 'Table',
+  paragraph: '텍스트',
+  heading1: '제목 1',
+  heading2: '제목 2',
+  heading3: '제목 3',
+  heading4: '제목 4',
+  todo: '할 일',
+  toggle: '토글',
+  bullet: '불릿 목록',
+  numbered: '번호 목록',
+  code: '코드',
+  math: '수식',
+  quote: '인용',
+  divider: '구분선',
+  image: '이미지',
+  callout: '콜아웃',
+  table: '표',
 };
 
 export function slashDisplayLabel(type: BlockType): string {

@@ -30,16 +30,16 @@ describe('htmlDocumentToBlocks', () => {
     expect(blocks![4].content).toBe('C');
   });
 
-  it('maps h1–h4 headings (h4 → heading3)', () => {
+  it('maps h1–h4 headings (h4 → heading4)', () => {
     const html = '<h1>H1</h1><h2>H2</h2><h3>H3</h3><h4>H4</h4>';
     const blocks = htmlDocumentToBlocks(html)!;
-    expect(blocks.map(b => b.type)).toEqual(['heading1', 'heading2', 'heading3', 'heading3']);
+    expect(blocks.map(b => b.type)).toEqual(['heading1', 'heading2', 'heading3', 'heading4']);
     expect(blocks[3].content).toBe('H4');
   });
 
-  it('maps h5/h6 to heading3', () => {
+  it('maps h5/h6 to heading4', () => {
     const blocks = htmlDocumentToBlocks('<h5>H5</h5><h6>H6</h6>')!;
-    expect(blocks.every(b => b.type === 'heading3')).toBe(true);
+    expect(blocks.every(b => b.type === 'heading4')).toBe(true);
   });
 
   it('parses details/summary as toggle blocks (UX-3A)', () => {

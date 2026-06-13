@@ -106,6 +106,11 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
       return readOnly
         ? <h3 {...readingCopyProps(block)} style={{ fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }}>{inline(block.content)}</h3>
         : ep('h3', { fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text });
+    case 'heading4':
+      if (readOnly && !block.content?.trim()) return null;
+      return readOnly
+        ? <h4 {...readingCopyProps(block)} style={{ fontSize:15, fontWeight:700, margin:'8px 0 2px', lineHeight:1.45, color:c.text }}>{inline(block.content)}</h4>
+        : ep('h4', { fontSize:15, fontWeight:700, margin:'8px 0 2px', lineHeight:1.45, color:c.text });
     case 'bullet':
       if (readOnly && !block.content?.trim()) return null;
       return (
@@ -206,7 +211,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
 }
 
 const TEXT_TYPES = new Set<BlockType>([
-  'paragraph', 'heading1', 'heading2', 'heading3',
+  'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
   'bullet', 'numbered', 'todo', 'quote', 'callout', 'divider',
 ]);
 

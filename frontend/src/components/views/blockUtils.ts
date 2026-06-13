@@ -14,6 +14,7 @@ export type BlockType =
   | 'heading1'
   | 'heading2'
   | 'heading3'
+  | 'heading4'
   | 'bullet'
   | 'numbered'
   | 'todo'
@@ -95,7 +96,7 @@ export interface Block {
 
 /** contentEditable로 편집되는 텍스트 계열 블록 */
 export const TEXT_BLOCK_TYPES = new Set<BlockType>([
-  'paragraph', 'heading1', 'heading2', 'heading3',
+  'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
   'bullet', 'numbered', 'todo', 'quote', 'callout',
 ]);
 
@@ -382,6 +383,10 @@ export function markdownToBlocks(md: string): Block[] {
     }
 
     // 제목
+    if (/^#### (.+)$/.test(line)) {
+      blocks.push(makeBlock('heading4', { content: line.replace(/^#### /, '') }));
+      i++; continue;
+    }
     if (/^### (.+)$/.test(line)) {
       blocks.push(makeBlock('heading3', { content: line.replace(/^### /, '') }));
       i++; continue;
@@ -440,6 +445,9 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
       case 'heading3':
         lines.push(`### ${block.content}`);
+        break;
+      case 'heading4':
+        lines.push(`#### ${block.content}`);
         break;
 
       case 'bullet': {
@@ -627,6 +635,7 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'heading1',   label: '제목 1',      desc: '큰 제목',                 icon: 'H1', keywords: ['h1', 'heading', '제목'],                                 group: 'text' },
   { type: 'heading2',   label: '제목 2',      desc: '중간 제목',               icon: 'H2', keywords: ['h2', 'heading', '제목'],                                 group: 'text' },
   { type: 'heading3',   label: '제목 3',      desc: '작은 제목',               icon: 'H3', keywords: ['h3', 'heading', '제목'],                                 group: 'text' },
+  { type: 'heading4',   label: '제목 4',      desc: '세부 제목',               icon: 'H4', keywords: ['h4', 'heading', '제목'],                                 group: 'text' },
   { type: 'quote',      label: '인용',        desc: '인용 블록',               icon: '"',  keywords: ['quote', 'blockquote', '인용'],                           group: 'text' },
   { type: 'callout',    label: '콜아웃',      desc: '강조 박스',               icon: '💡', keywords: ['callout', 'note', 'info', '콜아웃', '강조'],               group: 'text' },
   { type: 'divider',    label: '구분선',      desc: '수평 구분선',             icon: '—',  keywords: ['divider', 'hr', 'separator', '구분선'],                   group: 'text' },
@@ -644,20 +653,20 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
 
 /** 슬래시 메뉴 상단 고정 (쿼리 없을 때 우선 표시) */
 export const SLASH_PINNED_TYPES: BlockType[] = [
-  'paragraph', 'heading1', 'heading2', 'heading3',
+  'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
   'todo', 'toggle', 'bullet', 'numbered', 'code',
 ];
 
 /** 블록 hover ⋮⋮ → Turn Into 빠른 변환 */
 export const TURN_INTO_TYPES: BlockType[] = [
-  'paragraph', 'heading1', 'heading2', 'heading3',
+  'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
   'todo', 'toggle', 'bullet', 'numbered', 'callout', 'code',
 ];
 
 const SLASH_ALIASES: Record<string, string[]> = {
-  heading: ['heading1', 'heading2', 'heading3'],
-  h:       ['heading1', 'heading2', 'heading3'],
-  title:   ['heading1', 'heading2', 'heading3'],
+  heading: ['heading1', 'heading2', 'heading3', 'heading4'],
+  h:       ['heading1', 'heading2', 'heading3', 'heading4'],
+  title:   ['heading1', 'heading2', 'heading3', 'heading4'],
   list:    ['bullet', 'numbered', 'todo'],
   task:    ['todo'],
   checkbox:['todo'],

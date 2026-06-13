@@ -29,6 +29,7 @@ const ZERO_INDENT_TYPES = new Set<BlockType>([
   'heading1',
   'heading2',
   'heading3',
+  'heading4',
   'divider',
   'code',
   'image',

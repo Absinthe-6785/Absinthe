@@ -441,6 +441,7 @@ export function processInline(text: string, allNotes: NoteBase[]): string {
 export function processLine(line: string, allNotes: NoteBase[]): string {
   if (!line.trim()) return '<div class="bempty"></div>';
   const inl = processInline(line, allNotes);
+  if (/^#### /.test(line)) return `<h4 class="bh4">${processInline(line.replace(/^#### /, ''), allNotes)}</h4>`;
   if (/^### /.test(line)) return `<h3 class="bh3">${processInline(line.replace(/^### /, ''), allNotes)}</h3>`;
   if (/^## /.test(line))  return `<h2 class="bh2">${processInline(line.replace(/^## /, ''), allNotes)}</h2>`;
   if (/^# /.test(line))   return `<h1 class="bh1">${processInline(line.replace(/^# /, ''), allNotes)}</h1>`;
@@ -457,7 +458,7 @@ export function extractTOC(body: string): TocItem[] {
   if (!body) return [];
   return body.split('\n')
     .map((line, i) => {
-      const m = line.match(/^(#{1,3}) (.+)$/);
+      const m = line.match(/^(#{1,4}) (.+)$/);
       return m ? { level: m[1].length, text: m[2], line: i, collapsed: false } : null;
     })
     .filter((x): x is TocItem => x !== null);

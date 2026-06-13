@@ -184,6 +184,7 @@ export function EditableBlock({
         if (key === '1') { e.preventDefault(); onConvertBlock(block.id, 'heading1'); return; }
         if (key === '2') { e.preventDefault(); onConvertBlock(block.id, 'heading2'); return; }
         if (key === '3') { e.preventDefault(); onConvertBlock(block.id, 'heading3'); return; }
+        if (key === '4') { e.preventDefault(); onConvertBlock(block.id, 'heading4'); return; }
         if (key === '7') { e.preventDefault(); onConvertBlock(block.id, 'todo'); return; }
         if (key === '8') { e.preventDefault(); onConvertBlock(block.id, 'toggle'); return; }
         if (key === '9') { e.preventDefault(); onConvertBlock(block.id, 'callout'); return; }

@@ -38,6 +38,8 @@ function blockBodyHtml(block: Block): string {
       return `<h2>${inlineHtml(block.content)}</h2>`;
     case 'heading3':
       return `<h3>${inlineHtml(block.content)}</h3>`;
+    case 'heading4':
+      return `<h4>${inlineHtml(block.content)}</h4>`;
     case 'quote':
       return `<blockquote>${inlineHtml(block.content)}</blockquote>`;
     case 'bullet':

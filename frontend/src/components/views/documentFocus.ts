@@ -51,6 +51,7 @@ export function isBlockEmptyForFocus(block: Block): boolean {
     || block.type === 'heading1'
     || block.type === 'heading2'
     || block.type === 'heading3'
+    || block.type === 'heading4'
     || block.type === 'quote'
     || block.type === 'callout'
     || block.type === 'toggle') {

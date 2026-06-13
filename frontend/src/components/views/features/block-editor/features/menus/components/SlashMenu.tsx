@@ -80,11 +80,11 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           </span>
         </div>
         <div style={{ fontSize: 11, color: c.textMuted }}>
-          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · todo · toggle · bullet · code …'}
+          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · h4 · todo · toggle · bullet · code …'}
         </div>
       </div>
       {flatItems.length === 0 && (
-        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>No results</div>
+        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>결과 없음</div>
       )}
       {palette.recent.length > 0 && (
         <div>
@@ -92,7 +92,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
             padding: '4px 12px 2px', fontSize: 9, color: c.textFaint, fontWeight: 700,
             letterSpacing: 1, textTransform: 'uppercase',
           }}>
-            Recent
+            최근
           </div>
           {palette.recent.map((item, idx) => {
             const active = cursor === idx;
