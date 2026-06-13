@@ -246,7 +246,16 @@ export const useNotesStore = create<NotesState>((set, get) => {
     syncError: null,
 
     setActiveNoteId: (id) => {
-      set({ activeNoteId: id });
+      if (id) {
+        const now = Date.now();
+        const notes = get().notes.map(n =>
+          n.id === id ? { ...n, lastOpenedAt: now } : n,
+        );
+        set({ activeNoteId: id, notes });
+        persistNotes(notes);
+      } else {
+        set({ activeNoteId: id });
+      }
       saveActiveNoteId(id);
     },
 
@@ -260,6 +269,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         title: opts?.title ?? '',
         body: opts?.body ?? '',
         createdAt: now,
+        lastOpenedAt: now,
         updatedAt: now,
         folderId: resolveFolderId(opts),
         deletedAt: null,

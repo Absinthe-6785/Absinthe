@@ -20,9 +20,16 @@ import {
 import type { WorkspaceRef } from '../workspace/workspaceModels';
 import type { KnowledgeReviewLists } from '../review/buildKnowledgeReview';
 import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
+import type { KnowledgeMaintenanceData } from './KnowledgeMaintenancePanel';
+import { KnowledgeMaintenancePanel } from './KnowledgeMaintenancePanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardMaintenanceProps {
+  data: KnowledgeMaintenanceData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -76,6 +83,7 @@ export interface WorkspaceDashboardViewProps {
   quickCapture?: WorkspaceDashboardQuickCaptureProps;
   productivity?: WorkspaceDashboardProductivityProps;
   review?: WorkspaceDashboardReviewProps;
+  maintenance?: WorkspaceDashboardMaintenanceProps;
   recentNotesLimit?: number;
 }
 
@@ -157,6 +165,7 @@ export function WorkspaceDashboardView({
   quickCapture,
   productivity,
   review,
+  maintenance,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -266,6 +275,16 @@ export function WorkspaceDashboardView({
           </button>
         ))}
       </Card>
+
+      {maintenance && (
+        <Card colors={c} title="지식 유지보수">
+          <KnowledgeMaintenancePanel
+            colors={c}
+            data={maintenance.data}
+            onNavigateToNote={maintenance.onSelectNote}
+          />
+        </Card>
+      )}
 
       {review && (
         <Card colors={c} title="지식 검토">

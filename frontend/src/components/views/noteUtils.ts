@@ -26,6 +26,8 @@ export interface NoteBase {
   body: string;
   /** First creation time — optional on legacy notes; set on create in useNotesStore */
   createdAt?: number;
+  /** Last time the note was opened in the editor — K-30.42 review maintenance */
+  lastOpenedAt?: number;
   updatedAt: number;
   folderId: string | null;
   deletedAt: number | null;
@@ -101,6 +103,8 @@ export function normalizeNote(n: Partial<NoteBase>): NoteBase {
     title: n.title ?? '',
     body: n.body ?? '',
     updatedAt: n.updatedAt ?? Date.now(),
+    createdAt: typeof n.createdAt === 'number' ? n.createdAt : undefined,
+    lastOpenedAt: typeof n.lastOpenedAt === 'number' ? n.lastOpenedAt : undefined,
     folderId: n.folderId ?? null,
     deletedAt: n.deletedAt ?? null,
     starred: n.starred ?? false,

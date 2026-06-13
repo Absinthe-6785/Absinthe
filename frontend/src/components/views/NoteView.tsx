@@ -35,6 +35,7 @@ import {
   ReferenceExplorerPanel,
   KnowledgeReviewPanel,
   buildKnowledgeReviewLists,
+  buildKnowledgeMaintenanceData,
   extractNoteReferenceSummary,
   LocalGraphView,
   RelatedNotesPanel,
@@ -970,6 +971,11 @@ export const NoteView = () => {
 
   const knowledgeReviewLists = useMemo(
     () => buildKnowledgeReviewLists(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const knowledgeMaintenance = useMemo(
+    () => buildKnowledgeMaintenanceData(notes),
     [notes],
   );
 
@@ -1970,6 +1976,13 @@ export const NoteView = () => {
               onCreateJournal: handleCreateJournal,
               onCreateTaskDatabase: handleCreateTaskDatabase,
               onCreateJournalDatabase: handleCreateJournalDatabase,
+            }}
+            maintenance={{
+              data: knowledgeMaintenance,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
             }}
             review={{
               lists: knowledgeReviewLists,
