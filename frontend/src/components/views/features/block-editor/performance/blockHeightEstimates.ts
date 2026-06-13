@@ -23,6 +23,9 @@ const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
   toggleHeading2: 56,
   toggleHeading3: 52,
   toggleHeading4: 46,
+  footnote: 40,
+  mermaid: 120,
+  audio: 56,
 };
 
 const LINE_HEIGHT_PX = 22;

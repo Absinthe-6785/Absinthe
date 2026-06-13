@@ -308,7 +308,7 @@ export const SingleBlock = React.memo(function SingleBlock({
   );
 
   // 토글은 내부 EditableBlock이 있으므로 shell 제외
-  const SHELL_NAV_TYPES = new Set<BlockType>(['image', 'divider', 'code', 'math', 'table']);
+  const SHELL_NAV_TYPES = new Set<BlockType>(['image', 'divider', 'code', 'math', 'mermaid', 'audio', 'table']);
   const needsShell = !readOnly && SHELL_NAV_TYPES.has(block.type);
   const body = needsShell ? (
     <div

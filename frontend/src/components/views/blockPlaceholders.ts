@@ -18,6 +18,9 @@ export const BLOCK_PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   quote:     '인용',
   callout:   '콜아웃',
   math:      'LaTeX 수식',
+  footnote:  '각주 내용',
+  mermaid:   'flowchart TD\\n  A --> B',
+  audio:     '오디오 URL',
 };
 
 export function blockPlaceholder(type: BlockType): string {

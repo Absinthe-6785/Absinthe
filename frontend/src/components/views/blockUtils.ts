@@ -36,7 +36,10 @@ export type BlockType =
   | 'table'
   | 'quote'
   | 'callout'
-  | 'math';
+  | 'math'
+  | 'footnote'
+  | 'mermaid'
+  | 'audio';
 
 /** 인라인 서식 스팬 — contentEditable 렌더링에 사용 */
 export interface InlineSpan {
@@ -48,6 +51,7 @@ export interface InlineSpan {
   mark?:   boolean;        // ==highlight==
   wikiLink?: string;       // [[NoteName]] → note id
   tag?: string;            // #태그
+  footnoteRef?: string;    // [^1] inline reference
 }
 
 /** 표 셀 */
@@ -97,6 +101,14 @@ export interface Block {
   // math
   math?: string;           // LaTeX 표현식
   mathBlock?: boolean;     // true → $$...$$ 블록, false/undefined → $...$ 인라인
+
+  // footnote definition block
+  footnoteId?: string;
+
+  // mermaid diagram source
+  mermaid?: string;
+
+  // audio (src shared with image; caption optional)
 
   // numbered list — 원본 번호 보존 (2., 3. 등)
   listIndex?: number;
@@ -211,6 +223,14 @@ export function markdownToBlocks(md: string): Block[] {
       i++;
     }
     i++; // 닫는 ```
+    if (lang === 'mermaid') {
+      return makeBlock('mermaid', { mermaid: codeLines.join('\n') });
+    }
+    if (lang === 'audio') {
+      const src = codeLines[0]?.trim() ?? '';
+      const caption = codeLines.slice(1).join('\n').trim() || undefined;
+      return makeBlock('audio', { src, caption, content: '' });
+    }
     return makeBlock('code', { language: lang, code: codeLines.join('\n') });
   };
 
@@ -246,6 +266,14 @@ export function markdownToBlocks(md: string): Block[] {
       i++;
     }
     return makeBlock('table', { tableHeaders: headers, tableRows: rows });
+  };
+
+  // ── 각주 정의 [^1]: text ───────────────────────────────────────────
+  const tryFootnote = (): Block | null => {
+    const m = lines[i].match(/^\[\^([^\]]+)\]:\s?(.*)$/);
+    if (!m) return null;
+    i++;
+    return makeBlock('footnote', { footnoteId: m[1], content: m[2] ?? '' });
   };
 
   // ── Obsidian 콜아웃 (> [!tip] …) ─────────────────────────────────
@@ -414,6 +442,10 @@ export function markdownToBlocks(md: string): Block[] {
     // 테이블
     const table = tryTable();
     if (table) { blocks.push(table); continue; }
+
+    // 각주 정의
+    const footnote = tryFootnote();
+    if (footnote) { blocks.push(footnote); continue; }
 
     // Obsidian 콜아웃
     const obsidianCallout = tryObsidianCallout();
@@ -608,6 +640,24 @@ export function blocksToMarkdown(blocks: Block[]): string {
         }
         break;
 
+      case 'footnote':
+        lines.push(`[^${block.footnoteId ?? '1'}]: ${block.content}`);
+        break;
+
+      case 'mermaid':
+        lines.push('```mermaid');
+        lines.push(block.mermaid ?? '');
+        lines.push('```');
+        break;
+
+      case 'audio': {
+        lines.push('```audio');
+        lines.push(block.src ?? '');
+        if (block.caption?.trim()) lines.push(block.caption);
+        lines.push('```');
+        break;
+      }
+
       default:
         lines.push(block.content);
     }
@@ -765,6 +815,9 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'image',      label: '이미지',      desc: '이미지 삽입',             icon: '🖼',  keywords: ['image', 'img', 'photo', '이미지', '사진'],                 group: 'media' },
   { type: 'code',       label: '코드',        desc: '코드 블록',               icon: '</>', keywords: ['code', 'snippet', '코드'],                               group: 'media' },
   { type: 'math',       label: '수식',        desc: 'LaTeX 수식',             icon: '∑',  keywords: ['math', 'latex', 'equation', '수식'],                     group: 'media' },
+  { type: 'mermaid',    label: '다이어그램',  desc: 'Mermaid 차트',           icon: '◇',  keywords: ['mermaid', 'diagram', 'flowchart', '다이어그램'], menuKey: 'mermaid', group: 'media' },
+  { type: 'audio',      label: '오디오',      desc: '오디오 URL',             icon: '🔊', keywords: ['audio', 'sound', '오디오', '듣기'], menuKey: 'audio', group: 'media' },
+  { type: 'footnote',   label: '각주',        desc: '각주 정의',              icon: '†',  keywords: ['footnote', 'fn', '각주', '참고'], menuKey: 'footnote', createDefaults: { footnoteId: '1' }, group: 'text' },
   { type: 'table',      label: '표',          desc: '테이블',                  icon: '⊞',  keywords: ['table', 'grid', '표', '테이블'],                          group: 'media' },
 ];
 
@@ -845,6 +898,7 @@ export function parseInline(text: string): InlineSpan[] {
   const spans: InlineSpan[] = [];
   // 간단한 순차 파서 — 중첩 서식은 단일 패스로 처리
   const patterns: [RegExp, Partial<InlineSpan>][] = [
+    [/\[\^([^\]]+)\]/,         { footnoteRef: '' }],
     [/\[\[(.+?)\]\]/,          { wikiLink: '' }],
     [/(^|\s)#([\w\uAC00-\uD7A3]+)/, {}],          // tag — 별도 처리
     [/\*\*\*(.+?)\*\*\*/,      { bold: true, italic: true }],
@@ -879,8 +933,12 @@ export function parseInline(text: string): InlineSpan[] {
     const m = earliest.match;
     const src = earliest.meta;
 
+    // 각주 참조
+    if (/\[\^/.test(m[0])) {
+      spans.push({ text: m[0], footnoteRef: m[1] });
+    }
     // 위키링크
-    if (/\[\[/.test(m[0])) {
+    else if (/\[\[/.test(m[0])) {
       spans.push({ text: `[[${m[1]}]]`, wikiLink: m[1] });
     }
     // 해시태그
@@ -913,6 +971,12 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   if (newType === 'todo')                   base.checked = base.checked ?? false;
   if (isToggleBlockType(newType))             base.collapsed = base.collapsed ?? false;
   if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = DEFAULT_CALLOUT_ICON;
+  if (newType === 'footnote' && !base.footnoteId) base.footnoteId = '1';
+  if (newType === 'mermaid' && !base.mermaid) base.mermaid = base.content;
+  if (newType === 'audio') {
+    base.src = base.src ?? '';
+    base.content = '';
+  }
   if (newType === 'image') {
     base.src = base.src ?? '';
     base.alt = base.alt ?? '';

@@ -73,6 +73,12 @@ function blockBodyHtml(block: Block): string {
       return '<hr>';
     case 'table':
       return tableBlockToHtml(block);
+    case 'footnote':
+      return `<aside class="bfootnote" data-footnote-id="${escapeHtml(block.footnoteId ?? '1')}"><sup>[${escapeHtml(block.footnoteId ?? '1')}]</sup> ${inlineHtml(block.content)}</aside>`;
+    case 'mermaid':
+      return `<pre class="bmermaid" data-mermaid="1">${escapeHtml(block.mermaid ?? '')}</pre>`;
+    case 'audio':
+      return `<figure class="baudio"><audio controls src="${escapeHtml(block.src ?? '')}"></audio>${block.caption ? `<figcaption>${escapeHtml(block.caption)}</figcaption>` : ''}</figure>`;
     default:
       if (block.content) return `<p>${inlineHtml(block.content)}</p>`;
       return '';

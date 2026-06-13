@@ -88,6 +88,8 @@ export function renderInlineMarkdownHtml(
     .replace(/~~(.+?)~~/g, '<del>$1</del>')
     .replace(/==(.+?)==/g, `<mark style="background:${c.accentBg};color:${c.accent}">$1</mark>`)
     .replace(/`([^`]+)`/g, `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">$1</code>`)
+    .replace(/\[\^([^\]]+)\]/g, (_m, id: string) =>
+      `<sup class="be-footnote-ref" data-footnote-id="${escAttr(id)}" style="color:${c.accent};cursor:pointer;font-size:.75em">[${escHtml(id)}]</sup>`)
     .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
       const broken = isWikiBroken(t, wikiSet);
       const color = broken ? c.textMuted : c.accent;
@@ -128,7 +130,9 @@ export function liveInlineHtml(
     .replace(/\+\+(.+?)\+\+/g, '<u><span class="be-mark">++</span>$1<span class="be-mark">++</span></u>')
     .replace(/~~(.+?)~~/g, '<del><span class="be-mark">~~</span>$1<span class="be-mark">~~</span></del>')
     .replace(/==(.+?)==/g, `<mark class="be-live-mark"><span class="be-mark">==</span>$1<span class="be-mark">==</span></mark>`)
-    .replace(/`([^`]+)`/g, `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`);
+    .replace(/`([^`]+)`/g, `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`)
+    .replace(/\[\^([^\]]+)\]/g, (_m, id: string) =>
+      `<sup class="be-footnote-ref" data-footnote-id="${escAttr(id)}"><span class="be-mark">[</span>^${escHtml(id)}<span class="be-mark">]</span></sup>`);
 
   html = applySearchHighlight(html, searchQuery);
   return restoreMathPlaceholders(html, math);

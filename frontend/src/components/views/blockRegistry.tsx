@@ -7,6 +7,9 @@ import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
 import { EditableBlock, type EditableBlockProps } from './EditableBlock';
 import { CodeBlock } from './CodeBlock';
 import { MathBlock } from './MathBlock';
+import { MermaidBlock } from './MermaidBlock';
+import { AudioBlock } from './AudioBlock';
+import { FootnoteBlock } from './FootnoteBlock';
 import { ImageBlock } from './ImageBlock';
 import { TableBlock } from './TableBlock';
 
@@ -255,6 +258,33 @@ registerBlockRenderer('table', (block, c, ctx) => (
     readOnly={ctx.readOnly} searchQuery={ctx.searchQuery}
     inline={ctx.inline}
     onTableChange={ctx.onTableChange}
+  />
+));
+
+registerBlockRenderer('footnote', (block, c, ctx) => (
+  <FootnoteBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    editProps={sharedEditProps(block, ctx)}
+  />
+));
+
+registerBlockRenderer('mermaid', (block, c, ctx) => (
+  <MermaidBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    onChange={source => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, mermaid: source })))}
+  />
+));
+
+registerBlockRenderer('audio', (block, c, ctx) => (
+  <AudioBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    onChange={patch => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, ...patch })))}
   />
 ));
 

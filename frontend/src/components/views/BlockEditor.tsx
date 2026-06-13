@@ -43,6 +43,9 @@ import type {
 } from './editorTypes';
 import { loadValidatedBlocks } from './documentRecovery';
 import { readingRootClass } from './editorReading';
+import { ShortcutHelpOverlay, isShortcutHelpKey } from './ShortcutHelpOverlay';
+import { FootnoteReferenceSection } from './FootnoteBlock';
+import { collectFootnoteBlocks, footnoteAnchorId } from './footnoteUtils';
 import { EditorChromeStyles } from './EditorChrome';
 import {
   isFirstEmptyRootParagraph,
@@ -164,6 +167,28 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     onActiveBlockChange?.(id);
   }, [onActiveBlockChange]);
 
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const footnotes = useMemo(
+    () => (readOnly && depth === 0 ? collectFootnoteBlocks(getRootBlocks()) : []),
+    [readOnly, depth, getRootBlocks, blocks],
+  );
+
+  useEffect(() => {
+    if (depth !== 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && shortcutHelpOpen) {
+        setShortcutHelpOpen(false);
+        return;
+      }
+      if (isShortcutHelpKey(e)) {
+        e.preventDefault();
+        setShortcutHelpOpen(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [depth, shortcutHelpOpen]);
+
   useEffect(() => {
     if (readOnly || depth !== 0) return;
     if (activeBlockId && findBlockById(getRootBlocks(), activeBlockId)) return;
@@ -203,6 +228,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const assignEditorRootRef = useCallback((node: HTMLDivElement | null) => {
     editorRootRef.current = node;
   }, []);
+
+  const handleFootnoteClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (depth !== 0) return;
+    const ref = (e.target as HTMLElement).closest('.be-footnote-ref') as HTMLElement | null;
+    if (!ref?.dataset.footnoteId) return;
+    e.preventDefault();
+    const anchor = footnoteAnchorId(ref.dataset.footnoteId);
+    const scrollRoot = editorRootRef.current?.closest('.editor-drop-zone') as HTMLElement | null;
+    const el = scrollRoot?.querySelector(`#${CSS.escape(anchor)}`) ?? document.getElementById(anchor);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [depth]);
 
   const virtualRootEnabled = isVirtualBlocksPocEnabled(virtualBlocksPoc) && depth === 0;
   const [virtualScrollElement, setVirtualScrollElement] = useState<HTMLElement | null>(null);
@@ -615,11 +651,15 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
+        onClick={depth === 0 ? handleFootnoteClick : undefined}
       >
         {depth === 0 && !readOnly && (
           <EmptyDocumentHint visible={isEmptyDocument(getRootBlocks())} colors={c} />
         )}
         {blockList}
+        {depth === 0 && readOnly && footnotes.length > 0 && (
+          <FootnoteReferenceSection footnotes={footnotes} colors={c} />
+        )}
         {depth === 0 && !readOnly && (
           <div className="be-document-bottom-strip" aria-hidden />
         )}
@@ -668,6 +708,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           colors={c}
           onSelect={handleWikiSelect}
           onClose={closeWikiMenu}
+        />
+      )}
+      {depth === 0 && (
+        <ShortcutHelpOverlay
+          open={shortcutHelpOpen}
+          colors={c}
+          onClose={() => setShortcutHelpOpen(false)}
         />
       )}
     </>

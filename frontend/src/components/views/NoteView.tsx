@@ -129,6 +129,8 @@ import {
   headingScrollSelector,
   scrollToHeadingTarget,
 } from './outlineNavigation';
+import { useTocScrollSpy } from './useTocScrollSpy';
+import { footnoteAnchorId } from './footnoteUtils';
 import { registerTraceNavigation } from '../../lib/traceNavigation';
 
 
@@ -780,6 +782,7 @@ export const NoteView = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const tocScrollSpyPausedRef = useRef(false);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
   useEffect(() => {
@@ -1110,6 +1113,20 @@ export const NoteView = () => {
       const { showSortMenu: sm, activeNote: an, createNote: cn, duplicateNote: dn } = shortcutRef.current;
       const mod = e.ctrlKey || e.metaKey;
       if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
+
+      const target = e.target;
+      if (!mod && e.key === '?') {
+        if (
+          target instanceof HTMLElement
+          && !target.closest('[contenteditable="true"], .be-editable, input, textarea')
+          && !target.closest('.be-editor-root')
+        ) {
+          e.preventDefault();
+          setShowShortcuts(v => !v);
+        }
+        return;
+      }
+
       if (!mod) return;
 
       // ── Save (Ctrl+S) — debounce flush + 즉시 cloud sync ─────
@@ -1122,7 +1139,6 @@ export const NoteView = () => {
         return;
       }
 
-      const target = e.target;
       if (
         target instanceof HTMLElement
         && target.closest('[contenteditable="true"], .be-editable')
@@ -1140,7 +1156,11 @@ export const NoteView = () => {
           if (e.shiftKey) setFocusMode(v => !v);
           else shortcutRef.current.focusSearch();
           break;
-        case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
+        case '/':
+          if (target instanceof HTMLElement && target.closest('.be-editor-root')) break;
+          e.preventDefault();
+          setShowShortcuts(v => !v);
+          break;
       }
     };
     window.addEventListener('keydown', handler);
@@ -1163,20 +1183,39 @@ export const NoteView = () => {
 
   useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
 
+  useTocScrollSpy(
+    editorScrollRef,
+    activeNote?.body ?? '',
+    toc,
+    viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
+    tocScrollSpyPausedRef,
+    setActiveTocIdx,
+  );
+
   // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/reading 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
     setActiveTocIdx(headingIdx);
+    tocScrollSpyPausedRef.current = true;
     const body = activeNote?.body ?? '';
     scrollToHeadingTarget(
       editorScrollRef.current,
       headingScrollSelector(body, headingIdx),
       flashHeadingElement,
     );
+    window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
   }, [activeNote?.body]);
 
   // Reading mode click delegation — be-wikilink / be-tag data attributes
   const handleReadingModeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+    const fnRef = target.closest('.be-footnote-ref') as HTMLElement | null;
+    if (fnRef?.dataset.footnoteId) {
+      e.preventDefault();
+      const anchor = footnoteAnchorId(fnRef.dataset.footnoteId);
+      const root = editorScrollRef.current;
+      root?.querySelector(`#${CSS.escape(anchor)}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     const wl = target.closest('.be-wikilink') as HTMLElement | null;
     if (wl?.dataset.wiki) {
       navigateToWiki(wl.dataset.wiki, { preferReading: true });
