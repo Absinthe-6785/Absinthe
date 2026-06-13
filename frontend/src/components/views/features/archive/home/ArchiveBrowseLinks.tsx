@@ -26,15 +26,15 @@ export function ArchiveBrowseLinks({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-browse
       data-archive-browse-empty={isEmpty ? 'true' : 'false'}
-      aria-label="Browse archive"
+      aria-label="아카이브 탐색"
     >
       <h2 className="font-heading text-base font-bold mb-4">
-        Browse
+        탐색
       </h2>
 
       {isEmpty ? (
         <p className={`text-sm ${theme.textMuted}`} data-archive-browse-empty-message>
-          No archive destinations available.
+          탐색할 항목이 없습니다.
         </p>
       ) : (
         <ul className="flex flex-col gap-1.5" data-archive-browse-list>

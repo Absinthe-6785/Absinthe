@@ -17,11 +17,16 @@ export function registerNotesTabSwitcher(switcher: NotesTabSwitcher): () => void
   };
 }
 
+/** Switch to the Notes tab when a switcher is registered. */
+export function switchToNotesTab(): void {
+  notesTabSwitcher?.();
+}
+
 /** Select note globally and switch to the Notes tab when a switcher is registered. */
 export function openNote(noteId: string): void {
   if (!noteId) return;
   useNotesStore.getState().setActiveNoteId(noteId);
-  notesTabSwitcher?.();
+  switchToNotesTab();
 }
 
 /** Test-only visibility into registration state. */

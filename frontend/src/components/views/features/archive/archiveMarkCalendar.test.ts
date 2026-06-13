@@ -87,7 +87,7 @@ describe('ArchiveMarkCalendar', () => {
     );
 
     expect(html).toContain('data-archive-mark-calendar-empty="true"');
-    expect(html).toContain('No marks recorded yet.');
+    expect(html).toContain('아직 기록된 마크가 없습니다.');
     expect(html).not.toContain('Fewer marks');
   });
 
@@ -114,7 +114,7 @@ describe('ArchiveMarkCalendar', () => {
     expect(html).toContain('data-archive-mark-date="2026-06-11"');
     expect(html).toContain('data-archive-mark-density="3"');
     expect(html).toContain('data-archive-mark-types="milestone,workout,note-activity"');
-    expect(html).toContain('Fewer marks');
+    expect(html).toContain('마크 적음');
     expect(html).not.toContain('Activity Calendar');
     expect(html).not.toContain('productivity');
   });
@@ -204,7 +204,7 @@ describe('ArchiveHomeView mark calendar integration', () => {
 
     expect(calendarIndex).toBeGreaterThan(archiveIndex);
     expect(calendarIndex).toBeLessThan(milestonesIndex);
-    expect(html).toContain('Mark Calendar');
+    expect(html).toContain('마크 캘린더');
   });
 
   it('consumes projection markCalendar without Activity Calendar copy', () => {

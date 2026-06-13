@@ -52,12 +52,12 @@ export function ArchiveMarkCalendar({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-mark-calendar
       data-archive-mark-calendar-empty={markCalendar.hasAnyMarks ? 'false' : 'true'}
-      aria-label="Mark calendar"
+      aria-label="마크 캘린더"
     >
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="font-heading text-base font-bold flex items-center gap-2">
           <CalendarDays size={16} className="text-primary" />
-          Mark Calendar
+          마크 캘린더
         </h2>
         {yearSpan && (
           <span className={`text-xs font-semibold ${theme.textMuted}`}>{yearSpan}</span>
@@ -66,7 +66,7 @@ export function ArchiveMarkCalendar({
 
       {!markCalendar.hasAnyMarks ? (
         <p className={`text-sm ${theme.textMuted}`} data-archive-mark-calendar-empty-message>
-          No marks recorded yet.
+          아직 기록된 마크가 없습니다.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -144,14 +144,14 @@ export function ArchiveMarkCalendar({
             </div>
 
             <div className="flex items-center justify-end gap-1.5 mt-3">
-              <span className={`text-[10px] ${theme.textMuted}`}>Fewer marks</span>
+              <span className={`text-[10px] ${theme.textMuted}`}>마크 적음</span>
               {[0, 1, 2, 3].map(level => (
                 <div
                   key={level}
                   className={`w-3 h-3 rounded-[3px] ${archiveMarkCellColorClass(level, false, darkMode)}`}
                 />
               ))}
-              <span className={`text-[10px] ${theme.textMuted}`}>More marks</span>
+              <span className={`text-[10px] ${theme.textMuted}`}>마크 많음</span>
             </div>
           </div>
         </div>

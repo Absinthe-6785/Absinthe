@@ -158,8 +158,8 @@ describe('AnalyticsView archive landing', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('Marks will accumulate here over time.');
-    expect(html).toContain('No marks recorded yet.');
+    expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
+    expect(html).toContain('아직 기록된 마크가 없습니다.');
     expect(html).toContain('No milestones recorded yet.');
     expect(html).toContain('No areas recorded yet.');
   });
@@ -208,6 +208,6 @@ describe('AnalyticsView projection-driven home content', () => {
     expect(html).toContain(projection.browse.thisMonth.label);
     expect(html).toContain('Recent transitions');
     expect(html).toContain('Concerns');
-    expect(html).toContain('Browse');
+    expect(html).toContain('탐색');
   });
 });

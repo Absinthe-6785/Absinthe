@@ -128,6 +128,7 @@ import {
   headingScrollSelector,
   scrollToHeadingTarget,
 } from './outlineNavigation';
+import { registerTraceNavigation } from '../../lib/traceNavigation';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -510,6 +511,14 @@ export const NoteView = () => {
     setActiveTag(null);
     setSearchQuery('');
   }, [setWorkspaceActivation, setSearchQuery]);
+
+  useEffect(() => {
+    return registerTraceNavigation({
+      openTraceDay,
+      openTraceRange,
+      openTraceDiscovery,
+    });
+  }, [openTraceDay, openTraceRange, openTraceDiscovery]);
 
   const closeTraceLens = useCallback(() => {
     setTraceDate(null);
@@ -1073,6 +1082,7 @@ export const NoteView = () => {
   // 가변 값은 ref에 저장해 stale closure 없이 항상 최신 값 읽기
   const shortcutRef = useRef({
     showSortMenu, viewMode, activeNote, createNote, duplicateNote,
+    focusSearch: () => {},
   });
   const syncShortcutRef = useRef({
     flushPendingSync,
@@ -1080,7 +1090,13 @@ export const NoteView = () => {
     getActiveNote: () => null as Note | null,
   });
   useEffect(() => {
-    shortcutRef.current = { showSortMenu, viewMode, activeNote, createNote, duplicateNote };
+    shortcutRef.current = {
+      showSortMenu, viewMode, activeNote, createNote, duplicateNote,
+      focusSearch: () => {
+        searchInputRef.current?.focus();
+        if (activeNote) setSearchScope('document');
+      },
+    };
     syncShortcutRef.current = {
       flushPendingSync,
       syncNoteToDB,
@@ -1118,7 +1134,11 @@ export const NoteView = () => {
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
         case 'e': e.preventDefault(); setViewMode(v => toggleEditReading(v)); break;
         case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
-        case 'f': e.preventDefault(); setFocusMode(v => !v); break;
+        case 'f':
+          e.preventDefault();
+          if (e.shiftKey) setFocusMode(v => !v);
+          else shortcutRef.current.focusSearch();
+          break;
         case '/': e.preventDefault(); setShowShortcuts(v => !v); break;
       }
     };
@@ -1424,7 +1444,7 @@ export const NoteView = () => {
                   ref={searchInputRef}
                   className="bwsi"
                   style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined }}
-                  placeholder="Search notes..."
+                  placeholder="노트 검색… (Ctrl+F)"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
@@ -1556,19 +1576,19 @@ export const NoteView = () => {
                 ))}
                 {showFolderForm ? (
                   <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder="Folder name"
+                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder="폴더 이름"
                       value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addFolder(); if (e.key === 'Escape') setShowFolderForm(false); }}
                       autoFocus/>
                     <div style={{ display: 'flex', gap: 3 }}>
-                      <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={addFolder}>Add</button>
+                      <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={addFolder}>추가</button>
                       <button onClick={() => setShowFolderForm(false)}
-                        style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}>Cancel</button>
+                        style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}>취소</button>
                     </div>
                   </div>
                 ) : (
                   <div className="bfi" onClick={() => setShowFolderForm(true)} style={{ color: c.textMuted, fontSize: 10 }}>
-                    <FolderPlus size={10} color={c.textMuted}/><span>New Folder</span>
+                    <FolderPlus size={10} color={c.textMuted}/><span>새 폴더</span>
                   </div>
                 )}
                 {allTags.length > 0 && (
@@ -2115,6 +2135,19 @@ export const NoteView = () => {
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> 굵게 ·
                       <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> 제목
                     </span>
+                    {activeNote && (
+                      <button
+                        type="button"
+                        className="btbtn"
+                        title="노트 검색 (Ctrl+F)"
+                        onClick={() => {
+                          searchInputRef.current?.focus();
+                          setSearchScope('document');
+                        }}
+                        style={{ fontSize: 10, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Search size={11}/> 검색
+                      </button>
+                    )}
                     {searchQuery.trim() && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, flexWrap: 'wrap' }}>
                         {(['block', 'document', 'all'] as const).map(scope => (
@@ -2251,7 +2284,7 @@ export const NoteView = () => {
                         style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
                         {viewMode === 'reading' && (
                           <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
-                            Reading mode — double-click or <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd> to edit
+                            Reading mode — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd>로 편집
                           </div>
                         )}
                         <NoteBlockEditor
@@ -2310,7 +2343,7 @@ export const NoteView = () => {
           {rightPanel === 'toc' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
               {visibleToc.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>No headings<br/><span style={{ fontSize: 10 }}># ## ###</span></p>
+                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># ## ### 로 추가</span></p>
                 : visibleToc.map(item => (
                   <div
                     key={item.idx}
