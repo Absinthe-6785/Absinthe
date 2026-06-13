@@ -5,6 +5,7 @@ const EMPTY_TEXT_TYPES = new Set<Block['type']>([
   'heading1',
   'heading2',
   'heading3',
+  'heading4',
   'bullet',
   'numbered',
   'quote',

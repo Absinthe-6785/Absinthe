@@ -8,6 +8,9 @@ export function parseSingleLineMarkdown(line: string): Block[] | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
 
+  const heading4 = trimmed.match(/^#### (.+)$/);
+  if (heading4) return [makeBlock('heading4', { content: heading4[1] })];
+
   const heading3 = trimmed.match(/^### (.+)$/);
   if (heading3) return [makeBlock('heading3', { content: heading3[1] })];
 

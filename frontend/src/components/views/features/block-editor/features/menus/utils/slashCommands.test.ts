@@ -6,6 +6,7 @@ describe('resolveSlashCommand', () => {
     ['h1', 'heading1'],
     ['h2', 'heading2'],
     ['h3', 'heading3'],
+    ['h4', 'heading4'],
     ['todo', 'todo'],
     ['toggle', 'toggle'],
     ['bullet', 'bullet'],
@@ -34,8 +35,9 @@ describe('slashCommandKeysMatching', () => {
 });
 
 describe('slashDisplayLabel', () => {
-  it('returns English labels', () => {
-    expect(slashDisplayLabel('heading1')).toBe('Heading 1');
-    expect(slashDisplayLabel('todo')).toBe('Todo');
+  it('returns Korean labels', () => {
+    expect(slashDisplayLabel('heading1')).toBe('제목 1');
+    expect(slashDisplayLabel('heading4')).toBe('제목 4');
+    expect(slashDisplayLabel('todo')).toBe('할 일');
   });
 });

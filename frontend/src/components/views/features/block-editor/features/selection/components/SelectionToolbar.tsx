@@ -3,7 +3,7 @@
  */
 import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import {
-  Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3,
+  Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3, Heading4,
 } from 'lucide-react';
 import { readBlockText } from '../../../../../editableDom';
 import type { BlockType } from '../../../../../blockUtils';
@@ -199,21 +199,22 @@ export function SelectionToolbar({
       }}
       onMouseDown={e => e.preventDefault()}
     >
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>Format</span>
-      {iconBtn(<Bold size={14}/>, 'Bold', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
-      {iconBtn(<Italic size={14}/>, 'Italic', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
-      {iconBtn(<Code2 size={14}/>, 'Code', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>서식</span>
+      {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
+      {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>Heading</span>
-      {iconBtn(<Heading1 size={14}/>, 'Heading 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
-      {iconBtn(<Heading2 size={14}/>, 'Heading 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
-      {iconBtn(<Heading3 size={14}/>, 'Heading 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>제목</span>
+      {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
+      {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
+      {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
+      {iconBtn(<Heading4 size={14}/>, '제목 4', 'Ctrl+Shift+4', formats.heading === 'heading4', () => convertHeading('heading4'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>Link</span>
-      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, 'Wiki Link', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>링크</span>
+      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>Tag</span>
-      {iconBtn(<Hash size={14}/>, 'Tag', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>태그</span>
+      {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
   );
 }

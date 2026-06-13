@@ -51,7 +51,7 @@ export function applyToggleChildEnter(
   }
 
   const updatedCur: Block = { ...cur, content: before };
-  const newType: BlockType = ['heading1', 'heading2', 'heading3'].includes(cur.type)
+  const newType: BlockType = ['heading1', 'heading2', 'heading3', 'heading4'].includes(cur.type)
     ? 'paragraph'
     : cur.type;
   const newBlock = makeBlock(newType, {

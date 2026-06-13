@@ -6,6 +6,7 @@ const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
   heading1: 64,
   heading2: 56,
   heading3: 52,
+  heading4: 46,
   bullet: 46,
   numbered: 46,
   todo: 46,

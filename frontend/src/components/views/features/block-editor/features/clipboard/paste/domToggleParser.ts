@@ -14,10 +14,11 @@ export function isDomToggleHtml(html: string): boolean {
   return /\bbe-toggle-wrap\b/i.test(html);
 }
 
-const HEADING_TAGS: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
+const HEADING_TAGS: Record<string, 'heading1' | 'heading2' | 'heading3' | 'heading4'> = {
   H1: 'heading1',
   H2: 'heading2',
   H3: 'heading3',
+  H4: 'heading4',
 };
 
 function parseTypedBlock(type: string, content: string): Block | null {
@@ -27,6 +28,7 @@ function parseTypedBlock(type: string, content: string): Block | null {
     case 'heading1':
     case 'heading2':
     case 'heading3':
+    case 'heading4':
     case 'quote':
     case 'bullet':
     case 'numbered':

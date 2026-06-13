@@ -227,7 +227,7 @@ export const SingleBlock = React.memo(function SingleBlock({
 
   if (isPasteTraceActive() && depth === 0) {
     const rendered = block.type === 'toggle' ? 'ToggleBlock'
-      : block.type === 'heading1' || block.type === 'heading2' || block.type === 'heading3'
+      : block.type === 'heading1' || block.type === 'heading2' || block.type === 'heading3' || block.type === 'heading4'
         ? `EditableBlock/${block.type}`
         : block.type === 'paragraph' ? 'EditableBlock/paragraph'
           : `SingleBlock/${block.type}`;

@@ -6,6 +6,7 @@ export const BLOCK_PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   heading1:  '제목 1',
   heading2:  '제목 2',
   heading3:  '제목 3',
+  heading4:  '제목 4',
   bullet:    '목록 항목',
   numbered:  '번호 항목',
   todo:      '할 일',

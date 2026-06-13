@@ -156,6 +156,14 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('roundtrips heading4', () => {
+    const md = '#### Detail section';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('heading4');
+    expect(blocks[0].content).toBe('Detail section');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
   it('preserves unicode symbols through round-trip', () => {
     const md = '→ ⇒ ≤ ≥ √ ∑ ∞';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
@@ -221,7 +229,7 @@ describe('block helpers', () => {
 describe('filterBlockMenu', () => {
   it('pins common types first when query is empty', () => {
     const types = filterBlockMenu('').map(m => m.type);
-    expect(types.slice(0, 5)).toEqual(['paragraph', 'heading1', 'heading2', 'heading3', 'todo']);
+    expect(types.slice(0, 5)).toEqual(['paragraph', 'heading1', 'heading2', 'heading3', 'heading4']);
   });
 
   it('filters by english alias heading', () => {

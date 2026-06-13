@@ -1226,16 +1226,17 @@ export const NoteView = () => {
   }, [activeNote, isTrash, traceAreaId, updateNote]);
 
   const folderLabel = useMemo(() =>
-    activeFolderId === null    ? 'All Notes' :
-    activeFolderId === 'trash' ? '🗑 Trash' :
+    activeFolderId === null    ? '전체 노트' :
+    activeFolderId === 'trash' ? '🗑 휴지통' :
+    activeFolderId === 'starred' ? '즐겨찾기' :
     (folders.find(f => f.id === activeFolderId)?.name ?? ''),
     [activeFolderId, folders]
   );
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'reading' as const, icon: <Eye size={11}/>,     label: 'Read' },
-    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: 'Graph' },
+    { key: 'reading' as const, icon: <Eye size={11}/>,     label: '읽기' },
+    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: '그래프' },
   ], []);
   const RIGHT_PANELS = useMemo(() => [
     { key: 'toc'        as const, label: 'Outline', icon: <AlignLeft size={11}/> },
@@ -1356,26 +1357,27 @@ export const NoteView = () => {
           onClick={() => setShowShortcuts(false)}>
           <div style={{ background: c.card, borderRadius: 12, padding: '20px 24px', width: 340, boxShadow: '0 8px 32px #00000030' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>Keyboard Shortcuts</div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>키보드 단축키</div>
             {[
-              ['Ctrl + N',         'New Note'],
-              ['Ctrl + D',         'Duplicate Note'],
-              ['Ctrl + E',         'Toggle Reading Mode'],
-              ['Ctrl + G',         'Toggle Graph View'],
-              ['Ctrl + F',         'Focus Mode'],
-              ['Ctrl + /',         'Show Shortcuts'],
+              ['Ctrl + N',         '새 노트'],
+              ['Ctrl + D',         '노트 복제'],
+              ['Ctrl + E',         '읽기/편집 전환'],
+              ['Ctrl + G',         '그래프 보기'],
+              ['Ctrl + F',         '노트 검색'],
+              ['Ctrl + Shift + F', '집중 모드'],
+              ['Ctrl + /',         '단축키 보기'],
               [null, null],
-              ['Ctrl + S',         'Save (instant)'],
-              ['Ctrl + Z',         'Undo (edit mode)'],
-              ['Ctrl + Y / ⇧+Z',  'Redo (edit mode)'],
+              ['Ctrl + S',         '저장'],
+              ['Ctrl + Z',         '실행 취소 (편집)'],
+              ['Ctrl + Y / ⇧+Z',  '다시 실행 (편집)'],
               [null, null],
-              ['/',                'Slash command — insert block'],
-              ['[[...]]',          'Wiki link autocomplete'],
-              ['Ctrl + Click',     'Follow wiki link (edit mode)'],
-              ['Click [[link]]',   'Follow link · create if missing (reading mode)'],
-              ['#tag in search',   'Filter notes by tag'],
-              ['↑ ↓ Enter',        'Navigate menus'],
-              ['Esc',              'Close / cancel'],
+              ['/',                '슬래시 명령 — 블록 삽입'],
+              ['[[...]]',          '위키 링크 자동완성'],
+              ['Ctrl + Click',     '위키 링크 이동 (편집)'],
+              ['[[링크]] 클릭',     '링크 이동 · 없으면 생성 (읽기)'],
+              ['검색창 #태그',       '태그로 노트 필터'],
+              ['↑ ↓ Enter',        '메뉴 탐색'],
+              ['Esc',              '닫기 / 취소'],
             ].map(([key, desc], i) => (
               key === null
                 ? <div key={i} style={{ height: 1, background: c.textFaint, margin: '6px 0' }} />
@@ -1386,7 +1388,7 @@ export const NoteView = () => {
             ))}
             <button onClick={() => setShowShortcuts(false)}
               style={{ marginTop: 14, width: '100%', background: c.accentBg, border: 'none', borderRadius: 7, padding: '8px', color: c.accent, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-              Close
+              닫기
             </button>
           </div>
         </div>
@@ -1399,18 +1401,18 @@ export const NoteView = () => {
             <div className="bicon-bar" style={{ flex: 1 }}>
               <button className="bicon-btn" onClick={() => setSidebarCollapsed(false)} style={{ marginBottom: 4 }}>
                 <ChevronRight size={14}/>
-                <span className="bicon-tooltip">Expand sidebar</span>
+                <span className="bicon-tooltip">사이드바 펼치기</span>
               </button>
               <div style={{ width: 20, height: 1, background: c.sideBdr, margin: '2px 0 6px' }}/>
               <button className={`bicon-btn ${activeFolderId === null && !activeTag ? 'active' : ''}`}
                 onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
                 <AlignLeft size={14}/>
-                <span className="bicon-tooltip">All Notes ({activeNoteCount})</span>
+                <span className="bicon-tooltip">전체 노트 ({activeNoteCount})</span>
               </button>
               <button className={`bicon-btn ${activeFolderId === 'starred' ? 'active' : ''}`}
                 onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
                 <Star size={14} fill={activeFolderId === 'starred' ? c.accent : 'none'} color={activeFolderId === 'starred' ? c.accent : c.textMuted}/>
-                <span className="bicon-tooltip">Starred</span>
+                <span className="bicon-tooltip">즐겨찾기</span>
               </button>
               {folders.map(f => (
                 <button key={f.id} className={`bicon-btn ${activeFolderId === f.id ? 'active' : ''}`}
@@ -1423,18 +1425,18 @@ export const NoteView = () => {
               <button className={`bicon-btn ${isTrash ? 'active' : ''}`}
                 onClick={() => setActiveFolderId('trash')} style={{ color: isTrash ? c.danger : c.textMuted }}>
                 <Trash2 size={14}/>
-                {trashCount > 0 && <span className="bicon-tooltip">Trash ({trashCount})</span>}
-                {trashCount === 0 && <span className="bicon-tooltip">Trash</span>}
+                {trashCount > 0 && <span className="bicon-tooltip">휴지통 ({trashCount})</span>}
+                {trashCount === 0 && <span className="bicon-tooltip">휴지통</span>}
               </button>
             </div>
           ) : (
             <>
               <div style={{ padding: '10px 10px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>Note</span>
+                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>노트</span>
                 <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
                 <div style={{ flex: 1 }}/>
-                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Shortcuts"><Keyboard size={11}/></button>
-                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="Collapse">
+                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="단축키"><Keyboard size={11}/></button>
+                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="접기">
                   <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
                 </button>
               </div>
@@ -1457,7 +1459,7 @@ export const NoteView = () => {
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                  <span style={{ flex: 1 }}>All Notes</span>
+                  <span style={{ flex: 1 }}>전체 노트</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
                   </span>
@@ -1466,33 +1468,33 @@ export const NoteView = () => {
                   className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
                   onClick={() => openTraceDay(todayTraceKey)}
                 >
-                  <span style={{ flex: 1 }}>Today</span>
+                  <span style={{ flex: 1 }}>오늘</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                 >
-                  <span style={{ flex: 1 }}>This Month</span>
+                  <span style={{ flex: 1 }}>이번 달</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey })}
                 >
-                  <span style={{ flex: 1 }}>This Quarter</span>
+                  <span style={{ flex: 1 }}>이번 분기</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
                 >
-                  <span style={{ flex: 1 }}>This Year</span>
+                  <span style={{ flex: 1 }}>올해</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
                 >
-                  <span style={{ flex: 1 }}>Custom Range</span>
+                  <span style={{ flex: 1 }}>사용자 지정</span>
                 </div>
-                <div className="bseclbl">Areas</div>
+                <div className="bseclbl">영역</div>
                 {areaNotes.map(area => (
                   <div
                     key={area.id}
@@ -1506,7 +1508,7 @@ export const NoteView = () => {
                     }}
                   >
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {area.title.trim() || 'Untitled'}
+                      {area.title.trim() || '제목 없음'}
                     </span>
                   </div>
                 ))}
@@ -1514,15 +1516,15 @@ export const NoteView = () => {
                   className={`bfi ${isTraceDiscoveryMode ? 'active' : ''}`}
                   onClick={openTraceDiscovery}
                 >
-                  <span style={{ flex: 1 }}>Discover Patterns</span>
+                  <span style={{ flex: 1 }}>패턴 탐색</span>
                 </div>
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-                  <span style={{ flex: 1 }}>Starred</span>
+                  <span style={{ flex: 1 }}>즐겨찾기</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
                 </div>
-                <div className="bseclbl">Folders</div>
+                <div className="bseclbl">폴더</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
                     onClick={() => {
@@ -1593,7 +1595,7 @@ export const NoteView = () => {
                 )}
                 {allTags.length > 0 && (
                   <>
-                    <div className="bseclbl" style={{ marginTop: 4 }}>Tags</div>
+                    <div className="bseclbl" style={{ marginTop: 4 }}>태그</div>
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(({ tag, count }) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
@@ -1613,7 +1615,7 @@ export const NoteView = () => {
                     {workspaceExpanded
                       ? <ChevronDown size={10} style={{ flexShrink: 0, color: c.textFaint }} />
                       : <ChevronRight size={10} style={{ flexShrink: 0, color: c.textFaint }} />}
-                    <span>Workspace</span>
+                    <span>작업공간</span>
                   </div>
                   {workspaceExpanded && (
                     <>
@@ -1750,7 +1752,7 @@ export const NoteView = () => {
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}` }}>
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
             {isTraceDiscoveryMode
-              ? 'Discover Patterns'
+              ? '패턴 탐색'
               : isTraceAreaMode && traceAreaProjection
               ? (traceAreaRange
                 ? formatAreaRangeHeading(traceAreaProjection.areaTitle, traceAreaRange)
@@ -2343,7 +2345,7 @@ export const NoteView = () => {
           {rightPanel === 'toc' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
               {visibleToc.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># ## ### 로 추가</span></p>
+                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># ## ### #### 로 추가</span></p>
                 : visibleToc.map(item => (
                   <div
                     key={item.idx}

@@ -60,7 +60,7 @@ export const PlannerView = ({
   });
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('todo');
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'calendar' | 'timeline'>('calendar');
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [showExceptionModal, setShowExceptionModal] = useState(false);
@@ -309,7 +309,7 @@ export const PlannerView = ({
 
       {/* ── 모바일 탭 바 ── */}
       <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}>
-        {(['todo', 'memo', 'calendar', 'timeline'] as const).map(tab => (
+        {(['calendar', 'todo', 'memo', 'timeline'] as const).map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
             className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>

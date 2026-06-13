@@ -16,11 +16,13 @@ import {
   parseMathElement,
 } from '../special/specialBlockClipboard';
 
-const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3'> = {
+const HEADING_MAP: Record<string, 'heading1' | 'heading2' | 'heading3' | 'heading4'> = {
   H1: 'heading1',
   H2: 'heading2',
   H3: 'heading3',
-  H4: 'heading3', // app has no heading4 type; H4 maps to smallest heading
+  H4: 'heading4',
+  H5: 'heading4',
+  H6: 'heading4',
 };
 
 function inlineText(el: Element): string {
