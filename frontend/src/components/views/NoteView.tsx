@@ -280,6 +280,7 @@ export const NoteView = () => {
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
+  // ── A. Store selectors ────────────────────────────────────────────
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const activeNoteId = useNotesStore(s => s.activeNoteId);
@@ -302,11 +303,18 @@ export const NoteView = () => {
   const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
   const retrySync = useNotesStore(s => s.retrySync);
 
+  // ── B. Derived state (note identity) ──────────────────────────────
   const activeNote = useMemo(
     () => notes.find(n => n.id === activeNoteId) ?? null,
     [notes, activeNoteId],
   );
 
+  // ── C. Helper functions ───────────────────────────────────────────
+  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
+    updateNote(id, patch);
+  }, [updateNote]);
+
+  // ── Local UI state ────────────────────────────────────────────────
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -667,6 +675,69 @@ export const NoteView = () => {
     return 0;
   }, [traceDiscoveryProjection, traceAreaProjection, traceAreaRange, traceRangeProjection, traceDayProjection]);
 
+  const formulaQueryCatalog = useMemo(
+    () => buildFormulaQueryCatalog(databaseViews),
+    [databaseViews],
+  );
+
+  const knowledgeQueryInfo = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || !hasKnowledgeQuerySyntax(trimmed)) {
+      return { active: false as const, label: null, error: null as string | null };
+    }
+    const parsed = parseQuery(trimmed);
+    if (parsed.error) {
+      return { active: true as const, label: null, error: parsed.error };
+    }
+    return { active: true as const, label: formatParsedQuery(parsed), error: null };
+  }, [searchQuery]);
+
+  const visibleNotes = useMemo(() => {
+    const safeNotes = Array.isArray(notes) ? notes : [];
+    let list: Note[] =
+      activeFolderId === 'trash'   ? safeNotes.filter(n => n.deletedAt) :
+      activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
+      activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
+                                     safeNotes.filter(n => !n.deletedAt);
+    if (activeTag) {
+      const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
+      list = list.filter(n => taggedIds.has(n.id));
+    }
+    list = applyWorkspaceToNotes(list);
+    if (searchQuery.trim()) {
+      if (knowledgeQueryInfo.active) {
+        list = filterNotes(list, knowledgeIndexService, searchQuery, {
+          formulaColumns: formulaQueryCatalog,
+        }).notes;
+      } else {
+        const parsed = parseNoteSearchQuery(searchQuery);
+        if (parsed.mode === 'tag') {
+          list = list.filter(n =>
+            noteMatchesTagSearch(n.body ?? '', parsed.value) ||
+            noteMatchesPageTag(n, parsed.value),
+          );
+        } else {
+          const q = parsed.value.toLowerCase();
+          list = list.filter(n =>
+            (n.title ?? '').toLowerCase().includes(q) ||
+            (n.body ?? '').toLowerCase().includes(q) ||
+            extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
+            noteMatchesPageTag(n, q)
+          );
+        }
+      }
+    }
+    if (!shouldSkipUserSort) {
+      list = [...list].sort((a, b) => {
+        if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
+        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
+        return b.updatedAt - a.updatedAt;
+      });
+    }
+    return list;
+  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
+
+  // ── D. Callbacks (event / capture / productivity) ───────────────
   const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
     setEventDialog({
       mode: 'create',
@@ -901,6 +972,11 @@ export const NoteView = () => {
     if (collection) handleActivateSmartCollection(collection);
   }, [handleActivateSmartCollection]);
 
+  const handleActivateSubjectWorkspace = useCallback((collectionId: SmartCollectionId) => {
+    const collection = findSmartCollection(collectionId);
+    if (collection) handleActivateSmartCollection(collection);
+  }, [handleActivateSmartCollection]);
+
   const handleWorkspaceSearchNote = useCallback((noteId: string) => {
     handleLeaveDashboardForNote(noteId);
     setActiveNoteId(noteId);
@@ -1008,6 +1084,7 @@ export const NoteView = () => {
     handleActivateDashboard();
   }, [handleActivateDashboard]);
 
+  // ── E. Layout-derived constants ───────────────────────────────────
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
   const hideLeftChrome = focusMode || hideSidebarByFocus;
@@ -1031,10 +1108,6 @@ export const NoteView = () => {
     ? null
     : workspaceActivation.id;
 
-  const formulaQueryCatalog = useMemo(
-    () => buildFormulaQueryCatalog(databaseViews),
-    [databaseViews],
-  );
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1056,71 +1129,7 @@ export const NoteView = () => {
     if (databaseCreateSignal > 0) setWorkspaceExpanded(true);
   }, [databaseCreateSignal]);
 
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
-    updateNote(id, patch);
-  }, [updateNote]);
-
-  // ── 필터링 ──────────────────────────────────────────────────────
-  const knowledgeQueryInfo = useMemo(() => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed || !hasKnowledgeQuerySyntax(trimmed)) {
-      return { active: false as const, label: null, error: null as string | null };
-    }
-    const parsed = parseQuery(trimmed);
-    if (parsed.error) {
-      return { active: true as const, label: null, error: parsed.error };
-    }
-    return { active: true as const, label: formatParsedQuery(parsed), error: null };
-  }, [searchQuery]);
-
-  const visibleNotes = useMemo(() => {
-    const safeNotes = Array.isArray(notes) ? notes : [];
-    let list: Note[] =
-      activeFolderId === 'trash'   ? safeNotes.filter(n => n.deletedAt) :
-      activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
-      activeFolderId               ? safeNotes.filter(n => n.folderId === activeFolderId && !n.deletedAt) :
-                                     safeNotes.filter(n => !n.deletedAt);
-    if (activeTag) {
-      const taggedIds = new Set(knowledgeIndexService.getNotesWithTag(activeTag));
-      list = list.filter(n => taggedIds.has(n.id));
-    }
-    list = applyWorkspaceToNotes(list);
-    if (searchQuery.trim()) {
-      if (knowledgeQueryInfo.active) {
-        list = filterNotes(list, knowledgeIndexService, searchQuery, {
-          formulaColumns: formulaQueryCatalog,
-        }).notes;
-      } else {
-        const parsed = parseNoteSearchQuery(searchQuery);
-        if (parsed.mode === 'tag') {
-          list = list.filter(n =>
-            noteMatchesTagSearch(n.body ?? '', parsed.value) ||
-            noteMatchesPageTag(n, parsed.value),
-          );
-        } else {
-          const q = parsed.value.toLowerCase();
-          list = list.filter(n =>
-            (n.title ?? '').toLowerCase().includes(q) ||
-            (n.body ?? '').toLowerCase().includes(q) ||
-            extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
-            noteMatchesPageTag(n, q)
-          );
-        }
-      }
-    }
-    // 정렬 — smart collections with explicit ordering skip user sort preference
-    if (!shouldSkipUserSort) {
-      list = [...list].sort((a, b) => {
-        if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
-        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
-        return b.updatedAt - a.updatedAt;
-      });
-    }
-    return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
-
-  // ── 파생 상태 — 모두 useMemo로 메모화 ─────────────────────────────
-
+  // ── B. Derived state (active note panels) ─────────────────────────
   useEffect(() => {
     if (!titleComposingRef.current) {
       setTitleDraft(activeNote?.title ?? '');
@@ -1256,11 +1265,6 @@ export const NoteView = () => {
     const project = notes.find(n => n.id === projectId);
     return project ? displayNoteTitle(project.title) : '';
   }, [activeNote, notes]);
-
-  const handleActivateSubjectWorkspace = useCallback((collectionId: SmartCollectionId) => {
-    const collection = findSmartCollection(collectionId);
-    if (collection) handleActivateSmartCollection(collection);
-  }, [handleActivateSmartCollection]);
 
   const conceptHub = useMemo(
     () => (activeNote
