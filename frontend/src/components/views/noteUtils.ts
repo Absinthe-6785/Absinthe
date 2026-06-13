@@ -464,13 +464,14 @@ export interface TocItem {
   isToggleHeading?: boolean;
 }
 
-export function extractTOC(body: string): TocItem[] {
+export function extractTOC(body: string, options?: { untitledLabel?: string }): TocItem[] {
   if (!body) return [];
+  const untitled = options?.untitledLabel ?? '(Untitled)';
   return body.split('\n')
     .map((line, i) => {
       const toggleM = line.match(/^(#{1,4})>!?\s?(.*)$/);
       if (toggleM) {
-        const text = toggleM[2].trim() || '(제목 없음)';
+        const text = toggleM[2].trim() || untitled;
         return {
           level: toggleM[1].length,
           text,

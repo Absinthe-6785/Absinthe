@@ -1192,7 +1192,10 @@ export const NoteView = () => {
 
   const editorSearchQuery = searchScope === 'all' ? '' : searchQuery;
 
-  const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
+  const toc = useMemo(
+    () => (activeNote ? extractTOC(activeNote.body, { untitledLabel: t('outlineUntitled') }) : []),
+    [activeNote?.body, t],
+  );
 
   // TOC 접기 - 해당 heading 아래 낮은 레벨 모두 collapse
   const toggleTocCollapse = (idx: number) => {

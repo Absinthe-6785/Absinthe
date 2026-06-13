@@ -53,12 +53,14 @@ export function buildArchiveHomeProjection(
   const recentMilestones = buildArchiveRecentMilestones(input.notes, {
     limit: recentMilestoneLimit,
     now: input.now,
+    locale,
   });
 
   const areaPills = buildArchiveAreaPills(input.notes, {
     now: input.now,
     lookbackMonths: areaLookbackMonths,
     limit: areaPillLimit,
+    locale,
   });
 
   const browse = buildArchiveBrowseLinks(input.now, markCalendar, locale);

@@ -24,6 +24,16 @@ export function resolveIntlLocale(language?: Language | null): string {
   return 'en-US';
 }
 
+/** Map BCP-47 locale (or Intl output) back to app Language. */
+export function languageFromIntlLocale(locale?: string | null): Language {
+  if (!locale) return DEFAULT_APP_LANGUAGE;
+  const base = locale.split('-')[0]?.toLowerCase();
+  if (base === 'ja') return 'ja';
+  if (base === 'ko') return 'ko';
+  if (base === 'en') return 'en';
+  return DEFAULT_APP_LANGUAGE;
+}
+
 // ── 번역 사전 ────────────────────────────────────────────────────────
 const translations = {
   // ── 공통 ──────────────────────────────────────────────────────────
@@ -44,6 +54,8 @@ const translations = {
   noFolder:       { en: 'No Folder',      ko: '폴더 없음',    ja: 'フォルダなし' },
   allNotes:       { en: 'All Notes',      ko: '전체 노트',    ja: 'すべてのノート' },
   title:          { en: 'Title',          ko: '제목',         ja: 'タイトル'     },
+  untitledNote:   { en: 'Untitled',       ko: '제목 없음',    ja: '無題'         },
+  outlineUntitled:{ en: '(Untitled)',     ko: '(제목 없음)',  ja: '(無題)'       },
   date:           { en: 'Date',           ko: '날짜',         ja: '日付'         },
   reason:         { en: 'Reason',         ko: '사유',         ja: '理由'         },
   optional:       { en: 'optional',       ko: '선택',         ja: '任意'         },
