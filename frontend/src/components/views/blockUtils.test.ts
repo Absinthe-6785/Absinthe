@@ -140,6 +140,17 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('roundtrips citation fenced block with page and url', () => {
+    const md = '```citation\nDeep Work | Newport | 2016\npage: 42\nurl: https://example.com\n```';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('citation');
+    expect(blocks[0].citationTitle).toBe('Deep Work');
+    expect(blocks[0].citationAuthor).toBe('Newport');
+    expect(blocks[0].citationPage).toBe('42');
+    expect(blocks[0].citationUrl).toBe('https://example.com');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
   it('roundtrips toggle with children', () => {
     const md = '> Toggle title\n  child line';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);

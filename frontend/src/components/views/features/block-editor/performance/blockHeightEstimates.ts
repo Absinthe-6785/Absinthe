@@ -26,6 +26,7 @@ const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
   footnote: 40,
   mermaid: 120,
   audio: 56,
+  citation: 72,
 };
 
 const LINE_HEIGHT_PX = 22;

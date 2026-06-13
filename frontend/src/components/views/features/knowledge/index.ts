@@ -75,6 +75,7 @@ export {
   type WorkspaceDashboardProductivityProps,
   type WorkspaceDashboardReviewProps,
   type WorkspaceDashboardMaintenanceProps,
+  type WorkspaceDashboardResearchProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -96,6 +97,36 @@ export { NotePropertiesPanel, type NotePropertiesPanelProps } from './components
 export { NoteRelationsPanel, type NoteRelationsPanelProps, type IncomingRelationDisplay } from './components/NoteRelationsPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/RelatedNotesPanel';
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
+export { NoteClassificationSelector, LiteratureWorkflowIndicator, type NoteClassificationSelectorProps, type LiteratureWorkflowIndicatorProps } from './components/NoteClassificationSelector';
+export { BibliographyPanel, type BibliographyPanelProps } from './components/BibliographyPanel';
+export { ResearchDashboardPanel, type ResearchDashboardPanelProps } from './components/ResearchDashboardPanel';
+
+export {
+  NOTE_KIND_PROPERTY,
+  NOTE_KINDS,
+  NOTE_KIND_LABELS,
+  NOTE_KIND_LABELS_KO,
+  getNoteKind,
+  setNoteKind,
+  filterNotesByKind,
+  noteKindWorkflowStep,
+  isNoteKind,
+  type NoteKind,
+} from './research/noteClassification';
+
+export {
+  buildResearchDashboard,
+  type ResearchDashboardData,
+  type ResearchNoteEntry,
+  type BuildResearchDashboardOptions,
+} from './research/buildResearchDashboard';
+
+export {
+  READING_NOTE_TAG,
+  READING_NOTE_TEMPLATE_BODY,
+  buildReadingNote,
+  type BuildReadingNoteOptions,
+} from './research/readingNoteTemplate';
 
 export {
   buildExpandedGraphData,

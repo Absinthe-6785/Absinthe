@@ -100,6 +100,13 @@ export function repairBlock(raw: unknown): Block | null {
     partial.src = asString(o.src);
     if (typeof o.caption === 'string') partial.caption = o.caption;
   }
+  if (type === 'citation') {
+    partial.citationTitle = asString(o.citationTitle);
+    partial.citationAuthor = asString(o.citationAuthor);
+    partial.citationYear = asString(o.citationYear);
+    if (typeof o.citationPage === 'string') partial.citationPage = o.citationPage;
+    if (typeof o.citationUrl === 'string') partial.citationUrl = o.citationUrl;
+  }
   if (typeof o.listIndex === 'number') partial.listIndex = o.listIndex;
 
   return makeBlock(type as BlockType, partial);

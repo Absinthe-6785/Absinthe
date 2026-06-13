@@ -21,6 +21,7 @@ import {
   normalizeNoteFolderId,
 } from './noteUtils';
 import { displayNoteTitle } from './noteDisplayTitle';
+import { collectCitationsFromMarkdown } from './citationUtils';
 import {
   buildExpandedGraphData,
   collapseNode,
@@ -36,7 +37,14 @@ import {
   KnowledgeReviewPanel,
   buildKnowledgeReviewLists,
   buildKnowledgeMaintenanceData,
+  buildResearchDashboard,
   extractNoteReferenceSummary,
+  getNoteKind,
+  setNoteKind,
+  buildReadingNote,
+  BibliographyPanel,
+  NoteClassificationSelector,
+  LiteratureWorkflowIndicator,
   LocalGraphView,
   RelatedNotesPanel,
   SavedViewsSection,
@@ -747,6 +755,20 @@ export const NoteView = () => {
     return openCreatedNote(id);
   };
 
+  const handleCreateReadingNote = useCallback((title?: string) => {
+    const id = storeCreateNote({ title: title?.trim() || 'Reading Notes', body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const readingNote = buildReadingNote(created, { title });
+      updateNote(id, {
+        title: readingNote.title,
+        body: readingNote.body,
+        properties: readingNote.properties,
+      });
+    }
+    return openCreatedNote(id);
+  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
+
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
@@ -978,6 +1000,18 @@ export const NoteView = () => {
     () => buildKnowledgeMaintenanceData(notes),
     [notes],
   );
+
+  const researchDashboard = useMemo(
+    () => buildResearchDashboard(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const noteBibliography = useMemo(
+    () => (activeNote ? collectCitationsFromMarkdown(activeNote.body ?? '') : []),
+    [activeNote?.body, activeNote?.id],
+  );
+
+  const activeNoteKind = activeNote ? getNoteKind(activeNote) : null;
 
   useEffect(() => {
     setExpandedGraphNodes([]);
@@ -1974,11 +2008,19 @@ export const NoteView = () => {
               journalTemplates,
               onCreateTask: handleCreateTask,
               onCreateJournal: handleCreateJournal,
+              onCreateReadingNote: handleCreateReadingNote,
               onCreateTaskDatabase: handleCreateTaskDatabase,
               onCreateJournalDatabase: handleCreateJournalDatabase,
             }}
             maintenance={{
               data: knowledgeMaintenance,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
+            research={{
+              data: researchDashboard,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
@@ -2081,6 +2123,16 @@ export const NoteView = () => {
                   <option value="">폴더 없음</option>
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
+              )}
+              {!isTrash && (
+                <NoteClassificationSelector
+                  colors={c}
+                  value={activeNoteKind}
+                  onChange={kind => {
+                    const updated = setNoteKind(activeNote, kind);
+                    noteUpdate(activeNote.id, { properties: updated.properties });
+                  }}
+                />
               )}
               {/* Cloud sync status */}
               {!isTrash && (
@@ -2188,6 +2240,11 @@ export const NoteView = () => {
                 : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
               }
             </div>
+            {!isTrash && activeNoteKind && (
+              <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
+                <LiteratureWorkflowIndicator colors={c} kind={activeNoteKind} />
+              </div>
+            )}
 
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
@@ -2472,6 +2529,7 @@ export const NoteView = () => {
                 related={relatedNotes}
                 onNavigateToNote={setActiveNoteId}
               />
+              <BibliographyPanel colors={c} citations={noteBibliography} />
             </div>
           )}
 

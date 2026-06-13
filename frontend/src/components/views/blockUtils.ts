@@ -5,6 +5,7 @@
  * React 의존성 없음 — 순수 TypeScript
  */
 import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
+import { citationFieldsToBlockPatch, parseCitationBody, serializeCitationBody } from './citationUtils';
 import type { BlockTint } from './blockColors';
 import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON, calloutIconForObsidianAlias } from './calloutPresets';
 import {
@@ -39,7 +40,8 @@ export type BlockType =
   | 'math'
   | 'footnote'
   | 'mermaid'
-  | 'audio';
+  | 'audio'
+  | 'citation';
 
 /** 인라인 서식 스팬 — contentEditable 렌더링에 사용 */
 export interface InlineSpan {
@@ -109,6 +111,13 @@ export interface Block {
   mermaid?: string;
 
   // audio (src shared with image; caption optional)
+
+  // citation block
+  citationTitle?: string;
+  citationAuthor?: string;
+  citationYear?: string;
+  citationPage?: string;
+  citationUrl?: string;
 
   // numbered list — 원본 번호 보존 (2., 3. 등)
   listIndex?: number;
@@ -230,6 +239,10 @@ export function markdownToBlocks(md: string): Block[] {
       const src = codeLines[0]?.trim() ?? '';
       const caption = codeLines.slice(1).join('\n').trim() || undefined;
       return makeBlock('audio', { src, caption, content: '' });
+    }
+    if (lang === 'citation') {
+      const fields = parseCitationBody(codeLines.join('\n'));
+      return makeBlock('citation', { content: '', ...citationFieldsToBlockPatch(fields) });
     }
     return makeBlock('code', { language: lang, code: codeLines.join('\n') });
   };
@@ -658,6 +671,19 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
       }
 
+      case 'citation': {
+        lines.push('```citation');
+        lines.push(serializeCitationBody({
+          title: block.citationTitle ?? '',
+          author: block.citationAuthor ?? '',
+          year: block.citationYear ?? '',
+          page: block.citationPage,
+          url: block.citationUrl,
+        }));
+        lines.push('```');
+        break;
+      }
+
       default:
         lines.push(block.content);
     }
@@ -817,6 +843,7 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'math',       label: '수식',        desc: 'LaTeX 수식',             icon: '∑',  keywords: ['math', 'latex', 'equation', '수식'],                     group: 'media' },
   { type: 'mermaid',    label: '다이어그램',  desc: 'Mermaid 차트',           icon: '◇',  keywords: ['mermaid', 'diagram', 'flowchart', '다이어그램'], menuKey: 'mermaid', group: 'media' },
   { type: 'audio',      label: '오디오',      desc: '오디오 URL',             icon: '🔊', keywords: ['audio', 'sound', '오디오', '듣기'], menuKey: 'audio', group: 'media' },
+  { type: 'citation',   label: '인용',        desc: '출처 인용 블록',         icon: '📚', keywords: ['citation', 'cite', 'reference', '인용', '출처'], menuKey: 'citation', group: 'text' },
   { type: 'footnote',   label: '각주',        desc: '각주 정의',              icon: '†',  keywords: ['footnote', 'fn', '각주', '참고'], menuKey: 'footnote', createDefaults: { footnoteId: '1' }, group: 'text' },
   { type: 'table',      label: '표',          desc: '테이블',                  icon: '⊞',  keywords: ['table', 'grid', '표', '테이블'],                          group: 'media' },
 ];
@@ -975,6 +1002,12 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   if (newType === 'mermaid' && !base.mermaid) base.mermaid = base.content;
   if (newType === 'audio') {
     base.src = base.src ?? '';
+    base.content = '';
+  }
+  if (newType === 'citation') {
+    base.citationTitle = base.citationTitle ?? '';
+    base.citationAuthor = base.citationAuthor ?? '';
+    base.citationYear = base.citationYear ?? '';
     base.content = '';
   }
   if (newType === 'image') {
