@@ -3,6 +3,22 @@ import { HEADING_BLOCK_TYPES } from './features/block-editor/constants/blockEdit
 
 const HEADING_FLASH_MS = 1200;
 
+let cachedOutlineBody = '';
+let cachedOutlineBlocks: Block[] | null = null;
+
+function blocksForOutline(body: string): Block[] {
+  if (body === cachedOutlineBody && cachedOutlineBlocks) return cachedOutlineBlocks;
+  cachedOutlineBlocks = markdownToBlocks(body);
+  cachedOutlineBody = body;
+  return cachedOutlineBlocks;
+}
+
+/** Test-only: clear parsed-body cache between cases. */
+export function clearOutlineBodyCache(): void {
+  cachedOutlineBody = '';
+  cachedOutlineBlocks = null;
+}
+
 function rootHeadingBlockId(blocks: Block[], headingIdx: number): string | null {
   let h = 0;
   for (const block of blocks) {
@@ -17,13 +33,22 @@ function rootHeadingBlockId(blocks: Block[], headingIdx: number): string | null 
 /** Resolve TOC index (extractTOC order) to a root-level heading block id. */
 export function resolveHeadingBlockIdAtIndex(body: string, headingIdx: number): string | null {
   if (headingIdx < 0) return null;
-  return rootHeadingBlockId(markdownToBlocks(body), headingIdx);
+  return rootHeadingBlockId(blocksForOutline(body), headingIdx);
+}
+
+export function resolveHeadingScrollTarget(
+  body: string,
+  headingIdx: number,
+): { blockId: string | null; selector: string } {
+  const blockId = resolveHeadingBlockIdAtIndex(body, headingIdx);
+  return {
+    blockId,
+    selector: blockId ? `[data-block-id="${blockId}"]` : `[data-be-heading="${headingIdx}"]`,
+  };
 }
 
 export function headingScrollSelector(body: string, headingIdx: number): string {
-  const blockId = resolveHeadingBlockIdAtIndex(body, headingIdx);
-  if (blockId) return `[data-block-id="${blockId}"]`;
-  return `[data-be-heading="${headingIdx}"]`;
+  return resolveHeadingScrollTarget(body, headingIdx).selector;
 }
 
 export function flashHeadingElement(el: Element): void {
@@ -54,5 +79,46 @@ export function scrollToHeadingTarget(
   }
 
   onFlash?.(el);
+  return true;
+}
+
+const HEADING_SCROLL_RETRY_MAX = 16;
+
+function retryHeadingScroll(
+  scrollRoot: HTMLElement | null,
+  selector: string,
+  onFlash?: (el: Element) => void,
+): void {
+  let attempts = 0;
+  const tryScroll = () => {
+    if (scrollToHeadingTarget(scrollRoot, selector, onFlash)) return;
+    if (++attempts >= HEADING_SCROLL_RETRY_MAX) return;
+    requestAnimationFrame(tryScroll);
+  };
+  requestAnimationFrame(tryScroll);
+}
+
+export interface NavigateToHeadingOptions {
+  scrollRoot: HTMLElement | null;
+  body: string;
+  headingIdx: number;
+  scrollToBlockId?: (blockId: string) => boolean;
+  onFlash?: (el: Element) => void;
+}
+
+/**
+ * Scroll the editor to a TOC heading. Uses virtual list scroll when the target
+ * block is not mounted (root block virtualization).
+ */
+export function navigateToHeading(options: NavigateToHeadingOptions): boolean {
+  const { scrollRoot, body, headingIdx, scrollToBlockId, onFlash } = options;
+  const { blockId, selector } = resolveHeadingScrollTarget(body, headingIdx);
+
+  if (scrollToHeadingTarget(scrollRoot, selector, onFlash)) return true;
+
+  if (!blockId || !scrollToBlockId?.(blockId)) return false;
+
+  scrollToBlockId(blockId);
+  retryHeadingScroll(scrollRoot, selector, onFlash);
   return true;
 }

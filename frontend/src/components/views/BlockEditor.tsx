@@ -84,6 +84,7 @@ import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboa
 import {
   collectVirtualizationStats,
   DragOverlay,
+  estimateBlockHeight,
   getRowMetrics,
   isVirtualBlocksPocEnabled,
   listVirtualBlockRows,
@@ -329,18 +330,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   }, [navigationApi]);
 
   useEffect(() => {
-    if (!virtualScrollApiRef) return;
-    if (virtualRootEnabled) {
-      virtualScrollApiRef.current = { scrollToBlockId: navigationApi.scrollToBlockId };
-    } else {
-      virtualScrollApiRef.current = null;
-    }
-    return () => {
-      virtualScrollApiRef.current = null;
-    };
-  }, [virtualRootEnabled, navigationApi, virtualScrollApiRef]);
-
-  useEffect(() => {
     if (depth !== 0) return;
     setVirtualizationStatsSource(() => collectVirtualizationStats(
       virtualRootEnabled,
@@ -363,6 +352,34 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (!scrollEl) return [];
     return listVirtualBlockRows(virtualList.virtualizer, blocksRef.current, scrollEl);
   }, [getVirtualScrollElement, virtualList.virtualizer]);
+
+  const getBlockScrollTop = useCallback((blockId: string): number | null => {
+    const blocks = blocksRef.current;
+    const index = blocks.findIndex(b => b.id === blockId);
+    if (index < 0) return null;
+    const block = blocks[index];
+    const measurement = virtualList.virtualizer.measurementsCache[index];
+    const offsetInfo = virtualList.virtualizer.getOffsetForIndex(index, 'start');
+    const start = measurement?.start
+      ?? (Array.isArray(offsetInfo) ? offsetInfo[0] : undefined)
+      ?? index * estimateBlockHeight(block);
+    return start;
+  }, [virtualList.virtualizer]);
+
+  useEffect(() => {
+    if (!virtualScrollApiRef) return;
+    if (virtualRootEnabled) {
+      virtualScrollApiRef.current = {
+        scrollToBlockId: navigationApi.scrollToBlockId,
+        getBlockScrollTop,
+      };
+    } else {
+      virtualScrollApiRef.current = null;
+    }
+    return () => {
+      virtualScrollApiRef.current = null;
+    };
+  }, [virtualRootEnabled, navigationApi, getBlockScrollTop, virtualScrollApiRef]);
 
   const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
     readOnly,

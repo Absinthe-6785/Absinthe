@@ -1,6 +1,7 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
+import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseGalleryCardSize } from '../databaseViews/databasePresentationModels';
 import { GALLERY_CARD_SIZE_MIN_WIDTH, type GalleryItem } from '../databaseViews/galleryModels';
 import { DatabaseNoteCard } from './DatabaseNoteCard';
@@ -43,13 +44,15 @@ export function DatabaseGalleryView({
   showCoverPlaceholder = false,
   onSelectNote,
 }: DatabaseGalleryViewProps) {
+  const { lang } = useTranslation();
+  const emptyMessage = getDatabaseEmptyMessage(lang);
   const minWidth = GALLERY_CARD_SIZE_MIN_WIDTH[cardSize];
 
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist, padding: 8 }}>
       {items.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-          {DATABASE_EMPTY_MESSAGE}
+          {emptyMessage}
         </div>
       ) : (
         <div style={{

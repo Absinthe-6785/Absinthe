@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -22,6 +22,11 @@ import { createDatabaseView } from './databaseViews';
 import { setDatabaseViewPresentation } from './databaseViewOperations';
 import { withPresentationDefaults } from './databasePresentationConfig';
 import type { DatabaseView } from './databaseViewModels';
+
+vi.mock('../../../../../store/useAppStore', () => ({
+  useAppStore: (selector: (state: { appSettings: { language: 'en' } }) => unknown) =>
+    selector({ appSettings: { language: 'en' } }),
+}));
 
 const colors = {
   wrap: '#fff',

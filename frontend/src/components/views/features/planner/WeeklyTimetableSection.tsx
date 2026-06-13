@@ -84,26 +84,42 @@ export function WeeklyTimetableSection({
 
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const ROW_H = 48;
+  const [expanded, setExpanded] = useState(weeklySchedules.length > 0);
 
   return (
     <>
       <section
-        className={`w-full min-h-[420px] lg:min-h-[480px] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card}`}
+        className={`w-full rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card} ${expanded ? 'min-h-[420px] lg:min-h-[480px]' : ''}`}
         data-planner-weekly-timetable
+        data-planner-weekly-timetable-expanded={expanded ? 'true' : 'false'}
       >
         <div className="flex justify-between items-center mb-6">
-          <h2 className="font-heading text-lg lg:text-xl font-bold flex items-center gap-2">
-            <CalendarDays size={22} className="text-primary"/>{t('weeklyTimetable')}
+          <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
+            <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
           </h2>
-          <button
-            type="button"
-            onClick={() => openWeeklyModal()}
-            className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
-            data-planner-weekly-timetable-add
-          >
-            <Plus size={16} strokeWidth={3}/> 추가
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setExpanded(v => !v)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${theme.input} ${theme.textMuted} hover:text-primary`}
+              data-planner-weekly-timetable-toggle
+              aria-expanded={expanded}
+            >
+              {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
+            </button>
+            {expanded && (
+            <button
+              type="button"
+              onClick={() => openWeeklyModal()}
+              className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
+              data-planner-weekly-timetable-add
+            >
+              <Plus size={16} strokeWidth={3}/> 추가
+            </button>
+            )}
+          </div>
         </div>
+        {expanded && (
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
@@ -167,6 +183,7 @@ export function WeeklyTimetableSection({
             </div>
           </div>
         </div>
+        )}
       </section>
 
       {showWeeklyModal && (

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../../types';
 import { buildArchiveHomeProjection } from '../knowledge/archive';
+import { ArchiveBranchView } from './ArchiveBranchView';
 import { ArchiveHomeView } from './home/ArchiveHomeView';
 import { ArchivePlaceholderView } from './ArchivePlaceholderView';
 import { ArchiveShell } from './ArchiveShell';
@@ -73,6 +74,7 @@ describe('ArchiveHomeView', () => {
 
     expect(html).toContain('data-archive-empty="true"');
     expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
+    expect(html).toContain('Go to Notes to start writing');
   });
 
   it('marks Archive Home structurally complete', () => {
@@ -92,7 +94,7 @@ describe('ArchiveHomeView', () => {
 });
 
 describe('ArchiveShell', () => {
-  it('defaults to home mode', () => {
+  it('defaults to home mode with in-app mode switcher', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
@@ -103,10 +105,12 @@ describe('ArchiveShell', () => {
 
     expect(html).toContain('data-archive-mode="home"');
     expect(html).toContain('data-archive-home="true"');
+    expect(html).toContain('data-archive-mode-switcher');
+    expect(html).toContain('role="tablist"');
     expect(DEFAULT_ARCHIVE_VIEW_MODE).toBe('home');
   });
 
-  it('renders branch placeholders when mode is overridden', () => {
+  it('renders actionable period branch when mode is overridden', () => {
     const periodHtml = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
@@ -116,15 +120,33 @@ describe('ArchiveShell', () => {
       }),
     );
     expect(periodHtml).toContain('data-archive-mode="period"');
-    expect(periodHtml).toContain('data-archive-placeholder="period"');
-    expect(periodHtml).toContain('Period view is not available yet.');
+    expect(periodHtml).toContain('data-archive-branch="period"');
+    expect(periodHtml).toContain('data-archive-branch-period-links');
+    expect(periodHtml).toContain('data-archive-branch-open-current-period');
+    expect(periodHtml).not.toContain('not available yet');
   });
 });
 
-describe('ArchivePlaceholderView', () => {
+describe('ArchiveBranchView', () => {
+  it('renders timeline branch with milestones and trace CTA', () => {
+    const html = renderToStaticMarkup(
+      createElement(ArchiveBranchView, {
+        mode: 'timeline',
+        projection: emptyProjection(),
+        theme,
+        appSettings,
+      }),
+    );
+    expect(html).toContain('data-archive-branch="timeline"');
+    expect(html).toContain('data-archive-recent-milestones');
+    expect(html).toContain('data-archive-branch-open-timeline-range');
+  });
+});
+
+describe('ArchivePlaceholderView (legacy)', () => {
   it('renders timeline placeholder copy', () => {
     const html = renderToStaticMarkup(
-      createElement(ArchivePlaceholderView, { mode: 'timeline', theme }),
+      createElement(ArchivePlaceholderView, { mode: 'timeline', theme, appSettings }),
     );
     expect(html).toContain('data-archive-placeholder="timeline"');
     expect(html).toContain('Timeline view is not available yet.');

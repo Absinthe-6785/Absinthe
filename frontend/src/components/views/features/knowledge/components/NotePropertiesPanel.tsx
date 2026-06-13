@@ -1,4 +1,5 @@
 import { useCallback, useState, type CSSProperties } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { Plus, Trash2 } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
@@ -19,6 +20,7 @@ export function NotePropertiesPanel({
   note,
   onUpdateProperties,
 }: NotePropertiesPanelProps) {
+  const { t } = useTranslation();
   const properties = listUserProperties(note);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -83,12 +85,12 @@ export function NotePropertiesPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>
-        페이지 속성
+        {t('propPageProperties')}
       </div>
 
       {properties.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 12px' }}>
-          속성 없음
+          {t('propNone')}
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
@@ -109,7 +111,7 @@ export function NotePropertiesPanel({
                 <button
                   type="button"
                   onClick={() => handleDelete(key)}
-                  title="Delete property"
+                  title={t('propDeleteProperty')}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textFaint, padding: 2, display: 'flex' }}
                 >
                   <Trash2 size={11} />
@@ -142,19 +144,19 @@ export function NotePropertiesPanel({
 
       <div style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 10 }}>
         <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 6 }}>
-          Add property
+          {t('propAddProperty')}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <input
             value={newKey}
             onChange={e => setNewKey(e.target.value)}
-            placeholder="Key"
+            placeholder={t('propKey')}
             style={inputStyle}
           />
           <input
             value={newValue}
             onChange={e => setNewValue(e.target.value)}
-            placeholder="Value"
+            placeholder={t('propValue')}
             onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
             style={inputStyle}
           />
@@ -177,7 +179,7 @@ export function NotePropertiesPanel({
               opacity: !newKey.trim() || !newValue.trim() ? 0.5 : 1,
             }}
           >
-            <Plus size={11} /> Add
+            <Plus size={11} /> {t('add')}
           </button>
         </div>
       </div>

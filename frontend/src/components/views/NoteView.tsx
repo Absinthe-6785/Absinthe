@@ -178,10 +178,14 @@ import {
 import { type EditorMode, toggleEditReading } from './editorMode';
 import {
   flashHeadingElement,
-  headingScrollSelector,
-  scrollToHeadingTarget,
+  navigateToHeading,
 } from './outlineNavigation';
+import {
+  resolveNextTocKeyboardIndex,
+  resolveTocOpenIndex,
+} from './tocKeyboardNavigation';
 import { useTocScrollSpy } from './useTocScrollSpy';
+import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { registerTraceNavigation } from '../../lib/traceNavigation';
 
@@ -221,9 +225,14 @@ interface NoteBlockEditorProps {
   searchMatchIndex: number;
   wikiTargets: string[];
   onWikiNavigate?: (title: string) => void;
+  virtualScrollApiRef?: VirtualScrollApiRef;
+  virtualScrollParentRef?: React.RefObject<HTMLElement | null>;
 }
 const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
-  { body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex, wikiTargets, onWikiNavigate },
+  {
+    body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex,
+    wikiTargets, onWikiNavigate, virtualScrollApiRef, virtualScrollParentRef,
+  },
   ref,
 ) {
   const {
@@ -267,6 +276,8 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
       onActiveBlockChange={setActiveBlockId}
       externalFocusId={externalFocusId}
       onExternalFocusConsumed={clearExternalFocus}
+      virtualScrollApiRef={virtualScrollApiRef}
+      virtualScrollParentRef={virtualScrollParentRef}
     />
   );
 });
@@ -389,6 +400,7 @@ export const NoteView = () => {
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState('');
   const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
+  const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
   const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
@@ -1116,7 +1128,12 @@ export const NoteView = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const virtualScrollApiRef = useRef<{
+    scrollToBlockId: (blockId: string) => boolean;
+    getBlockScrollTop?: (blockId: string) => number | null;
+  } | null>(null);
   const tocScrollSpyPausedRef = useRef(false);
+  const tocPanelRef = useRef<HTMLDivElement>(null);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
   useEffect(() => {
@@ -1543,6 +1560,11 @@ export const NoteView = () => {
 
   useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
 
+  const getHeadingBlockScrollTop = useCallback(
+    (blockId: string) => virtualScrollApiRef.current?.getBlockScrollTop?.(blockId) ?? null,
+    [],
+  );
+
   useTocScrollSpy(
     editorScrollRef,
     activeNote?.body ?? '',
@@ -1550,20 +1572,72 @@ export const NoteView = () => {
     viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
     tocScrollSpyPausedRef,
     setActiveTocIdx,
+    getHeadingBlockScrollTop,
   );
 
-  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/reading 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
     setActiveTocIdx(headingIdx);
     tocScrollSpyPausedRef.current = true;
     const body = activeNote?.body ?? '';
-    scrollToHeadingTarget(
-      editorScrollRef.current,
-      headingScrollSelector(body, headingIdx),
-      flashHeadingElement,
-    );
+    const scrollApi = virtualScrollApiRef.current;
+    navigateToHeading({
+      scrollRoot: editorScrollRef.current,
+      body,
+      headingIdx,
+      scrollToBlockId: scrollApi?.scrollToBlockId,
+      onFlash: flashHeadingElement,
+    });
     window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
   }, [activeNote?.body]);
+
+  const highlightedTocIdx = tocKeyboardIdx ?? activeTocIdx;
+
+  useEffect(() => {
+    setTocKeyboardIdx(null);
+  }, [activeNoteId, tocCollapsed]);
+
+  const scrollTocRowIntoView = useCallback((headingIdx: number) => {
+    const panel = tocPanelRef.current;
+    if (!panel) return;
+    const row = panel.querySelector(`[data-toc-idx="${headingIdx}"]`);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
+  const handleTocKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (visibleToc.length === 0) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    const current = tocKeyboardIdx ?? activeTocIdx;
+
+    if (e.key === 'j') {
+      e.preventDefault();
+      const next = resolveNextTocKeyboardIndex(visibleToc, current, 'next');
+      if (next !== null) {
+        setTocKeyboardIdx(next);
+        scrollTocRowIntoView(next);
+      }
+      return;
+    }
+
+    if (e.key === 'k') {
+      e.preventDefault();
+      const prev = resolveNextTocKeyboardIndex(visibleToc, current, 'prev');
+      if (prev !== null) {
+        setTocKeyboardIdx(prev);
+        scrollTocRowIntoView(prev);
+      }
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const openIdx = resolveTocOpenIndex(visibleToc, tocKeyboardIdx, activeTocIdx);
+      if (openIdx !== null) {
+        setTocKeyboardIdx(null);
+        scrollToHeading(openIdx);
+      }
+    }
+  }, [visibleToc, tocKeyboardIdx, activeTocIdx, scrollToHeading, scrollTocRowIntoView]);
 
   // Reading mode click delegation — be-wikilink / be-tag data attributes
   const handleReadingModeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -2903,6 +2977,8 @@ export const NoteView = () => {
                           searchMatchIndex={searchMatchIdx}
                           wikiTargets={wikiTargets}
                           onWikiNavigate={navigateToWiki}
+                          virtualScrollApiRef={virtualScrollApiRef}
+                          virtualScrollParentRef={editorScrollRef}
                         />
                       </div>
                     )
@@ -2958,10 +3034,18 @@ export const NoteView = () => {
 
           {/* Outline (TOC) with collapse */}
           {rightPanel === 'toc' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+            <div
+              ref={tocPanelRef}
+              role="listbox"
+              tabIndex={0}
+              aria-label={t('nvTocKeyboardHint')}
+              onKeyDown={handleTocKeyDown}
+              style={{ flex: 1, overflowY: 'auto', padding: '8px 0', outline: 'none' }}
+            >
               {visibleToc.length > 0 && (
                 <div style={{ fontSize: 10, color: c.textFaint, padding: '0 10px 6px', fontWeight: 600 }}>
                   목차 ({visibleToc.length})
+                  <span style={{ fontWeight: 400, marginLeft: 6, opacity: 0.85 }}>{t('nvTocKeyboardHint')}</span>
                 </div>
               )}
               {visibleToc.length === 0
@@ -2969,7 +3053,10 @@ export const NoteView = () => {
                 : visibleToc.map(item => (
                   <div
                     key={item.idx}
-                    className={`btoc${activeTocIdx === item.idx ? ' active' : ''}`}
+                    role="option"
+                    aria-selected={highlightedTocIdx === item.idx}
+                    data-toc-idx={item.idx}
+                    className={`btoc${highlightedTocIdx === item.idx ? ' active' : ''}`}
                     style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
                     onClick={() => scrollToHeading(item.idx)}>
                     {item.hasChildren ? (

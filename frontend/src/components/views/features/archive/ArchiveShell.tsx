@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../types';
-import { ArchivePlaceholderView } from './ArchivePlaceholderView';
+import { ArchiveBranchView } from './ArchiveBranchView';
+import { ArchiveModeSwitcher } from './ArchiveModeSwitcher';
 import {
   DEFAULT_ARCHIVE_VIEW_MODE,
   type ArchiveViewMode,
@@ -19,7 +20,7 @@ export interface ArchiveShellProps {
 
 /**
  * Archive surface host — Home · Period · Area · Timeline.
- * K-30.11: Home shell only; other branches render placeholders.
+ * K-30.11+: Home shell with in-app mode tabs for Period · Area · Timeline.
  */
 export function ArchiveShell({
   now,
@@ -27,16 +28,22 @@ export function ArchiveShell({
   theme,
   initialMode = DEFAULT_ARCHIVE_VIEW_MODE,
 }: ArchiveShellProps) {
-  const [mode] = useState<ArchiveViewMode>(initialMode);
+  const [mode, setMode] = useState<ArchiveViewMode>(initialMode);
   const nowDate = useMemo(() => now.toJSDate(), [now]);
-  const { projection, isLoading } = useArchiveHomeProjection(nowDate);
+  const { projection, isLoading } = useArchiveHomeProjection(nowDate, appSettings.language);
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300"
+      className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden py-1 pr-1 animate-in fade-in duration-300"
       data-archive-shell
       data-archive-mode={mode}
     >
+      <ArchiveModeSwitcher
+        mode={mode}
+        onModeChange={setMode}
+        theme={theme}
+        appSettings={appSettings}
+      />
       {mode === 'home' && (
         <ArchiveHomeView
           projection={projection}
@@ -45,9 +52,33 @@ export function ArchiveShell({
           isLoading={isLoading}
         />
       )}
-      {mode === 'period' && <ArchivePlaceholderView mode="period" theme={theme} />}
-      {mode === 'area' && <ArchivePlaceholderView mode="area" theme={theme} />}
-      {mode === 'timeline' && <ArchivePlaceholderView mode="timeline" theme={theme} />}
+      {mode === 'period' && (
+        <ArchiveBranchView
+          mode="period"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
+      {mode === 'area' && (
+        <ArchiveBranchView
+          mode="area"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
+      {mode === 'timeline' && (
+        <ArchiveBranchView
+          mode="timeline"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
     </div>
   );
 }

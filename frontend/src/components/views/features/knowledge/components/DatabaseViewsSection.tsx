@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DatabaseView, DatabaseViewPresentation } from '../databaseViews/databaseViewModels';
 import {
-  BOARD_GROUP_BY_FIELD,
-  CALENDAR_DATE_PROPERTY_FIELD,
-  GALLERY_CARD_FIELDS_FIELD,
-  GALLERY_COVER_PROPERTY_FIELD,
-  TIMELINE_END_DATE_FIELD,
-  TIMELINE_START_DATE_FIELD,
+  getDatabasePropertyFieldPreset,
   presentationLabel,
 } from '../databaseViews/databasePresentationMeta';
 import { parseGalleryCardFieldsInput } from '../databaseViews/galleryModels';
@@ -63,6 +59,13 @@ export function DatabaseViewsSection({
   onTogglePin,
   openCreateFormSignal,
 }: DatabaseViewsSectionProps) {
+  const { lang } = useTranslation();
+  const boardGroupByField = getDatabasePropertyFieldPreset('boardGroupBy', lang);
+  const calendarDateField = getDatabasePropertyFieldPreset('calendarDate', lang);
+  const timelineStartField = getDatabasePropertyFieldPreset('timelineStart', lang);
+  const timelineEndField = getDatabasePropertyFieldPreset('timelineEnd', lang);
+  const galleryCoverField = getDatabasePropertyFieldPreset('galleryCover', lang);
+  const galleryCardFieldsField = getDatabasePropertyFieldPreset('galleryCardFields', lang);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [newName, setNewName] = useState('');
@@ -135,7 +138,7 @@ export function DatabaseViewsSection({
     setRenameValue('');
   };
 
-  const presentationLabelForView = (view: DatabaseView) => presentationLabel(view.presentation);
+  const presentationLabelForView = (view: DatabaseView) => presentationLabel(view.presentation, lang);
 
   if (
     views.length === 0
@@ -248,7 +251,7 @@ export function DatabaseViewsSection({
               <div style={{ fontSize: 11, fontWeight: 600 }}>{template.name}</div>
               <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{template.description}</div>
               <div style={{ fontSize: 9, color: c.textFaint, marginTop: 4 }}>
-                {presentationLabel(template.presentation)}
+                {presentationLabel(template.presentation, lang)}
               </div>
             </button>
           ))}
@@ -294,7 +297,7 @@ export function DatabaseViewsSection({
           {newPresentation === 'board' && (
             <div style={{ width: '100%' }}>
               <DatabasePropertyKeyField
-                preset={BOARD_GROUP_BY_FIELD}
+                preset={boardGroupByField}
                 value={newGroupBy}
                 onChange={setNewGroupBy}
                 onSubmit={submitCreate}
@@ -308,7 +311,7 @@ export function DatabaseViewsSection({
           {newPresentation === 'calendar' && (
             <div style={{ width: '100%' }}>
               <DatabasePropertyKeyField
-                preset={CALENDAR_DATE_PROPERTY_FIELD}
+                preset={calendarDateField}
                 value={newDateProperty}
                 onChange={setNewDateProperty}
                 onSubmit={submitCreate}
@@ -323,7 +326,7 @@ export function DatabaseViewsSection({
             <>
               <div style={{ width: '100%' }}>
                 <DatabasePropertyKeyField
-                  preset={TIMELINE_START_DATE_FIELD}
+                  preset={timelineStartField}
                   value={newStartDateProperty}
                   onChange={setNewStartDateProperty}
                   onSubmit={submitCreate}
@@ -335,7 +338,7 @@ export function DatabaseViewsSection({
               </div>
               <div style={{ width: '100%' }}>
                 <DatabasePropertyKeyField
-                  preset={TIMELINE_END_DATE_FIELD}
+                  preset={timelineEndField}
                   value={newEndDateProperty}
                   onChange={setNewEndDateProperty}
                   onSubmit={submitCreate}
@@ -351,7 +354,7 @@ export function DatabaseViewsSection({
             <>
               <div style={{ width: '100%' }}>
                 <DatabasePropertyKeyField
-                  preset={GALLERY_COVER_PROPERTY_FIELD}
+                  preset={galleryCoverField}
                   value={newCoverProperty}
                   onChange={setNewCoverProperty}
                   onSubmit={submitCreate}
@@ -364,7 +367,7 @@ export function DatabaseViewsSection({
               <input
                 className="bwi"
                 style={{ width: '100%', fontSize: 11 }}
-                placeholder={GALLERY_CARD_FIELDS_FIELD.placeholder}
+                placeholder={galleryCardFieldsField.placeholder}
                 value={newCardFields}
                 onChange={e => setNewCardFields(e.target.value)}
                 onKeyDown={e => {

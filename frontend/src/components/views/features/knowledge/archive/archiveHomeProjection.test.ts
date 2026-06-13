@@ -239,6 +239,14 @@ describe('buildArchiveBrowseLinks', () => {
     expect(browse.timeline.defaultPeriod).toEqual(browse.thisMonth);
   });
 
+  it('uses English browse labels when locale is en-US', () => {
+    const browse = buildArchiveBrowseLinks(NOW, undefined, 'en-US');
+    expect(browse.custom.label).toBe('Custom range');
+    expect(browse.allAreas.label).toBe('All areas');
+    expect(browse.timeline.label).toBe('Timeline');
+    expect(browse.thisMonth.label).toMatch(/June|6/);
+  });
+
   it('includes recentYearsWithMarks when calendar has marks', () => {
     const calendar = buildArchiveMarkCalendarProjection(
       [applyMilestoneToNote(note('m1'), { milestoneDate: '2025-03-01' })],

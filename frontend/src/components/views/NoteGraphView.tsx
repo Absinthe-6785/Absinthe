@@ -12,6 +12,11 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
+import {
+  graphRepulsionStrength,
+  graphSimulationAlphaFloor,
+  shouldShowGraphNodeLabel,
+} from './graphScalePolicy';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -181,12 +186,15 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
     let alpha = 1.0;
-    const REPEL = 3200, ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
+    const nodeCount = nodesRef.current.length;
+    const REPEL = graphRepulsionStrength(nodeCount);
+    const alphaFloor = graphSimulationAlphaFloor(nodeCount);
+    const ATTRACT = 0.05, CENTER = 0.008, DAMPING = 0.85, LINK_DIST = 130;
 
     const step = () => {
       const ns = nodesRef.current;
       const es = edgesRef.current;
-      if (ns.length === 0 || alpha < 0.005) { setTick(t => t + 1); return; }
+      if (ns.length === 0 || alpha < alphaFloor) { setTick(t => t + 1); return; }
 
       alpha *= 0.97;
 
@@ -375,6 +383,21 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const visibleEdges = es.filter(e => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to));
 
   const isolatedCount = ns.filter(n => n.links === 0).length;
+  const graphNodeCount = ns.length;
+
+  const focusId = hovered ?? activeNoteId;
+  const focusNeighborhood = useMemo(() => {
+    if (!focusId) return null;
+    const ids = new Set<string>([focusId]);
+    visibleEdges.forEach(edge => {
+      if (edge.from === focusId) ids.add(edge.to);
+      if (edge.to === focusId) ids.add(edge.from);
+    });
+    return ids;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, tick, visibleEdges.length]);
+
+  const hoveredNode = hovered ? renderMap.get(hovered) : null;
 
   const transformStr = `translate(${transform.x}, ${transform.y}) scale(${transform.k})`;
 
@@ -523,8 +546,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             const a = renderMap.get(e.from), b = renderMap.get(e.to);
             if (!a || !b) return null;
             const isAct  = e.from === activeNoteId || e.to === activeNoteId;
+            const isHovEdge = hovered === e.from || hovered === e.to;
+            const inFocusCluster = focusNeighborhood === null
+              || (focusNeighborhood.has(e.from) && focusNeighborhood.has(e.to));
             const isDim  = matchedIds !== null
-              && !matchedIds.has(e.from) && !matchedIds.has(e.to);
+              ? !matchedIds.has(e.from) && !matchedIds.has(e.to)
+              : !inFocusCluster;
             const isRelation = e.relationshipType === 'relation';
             const strokeColor = isDim
               ? colors.dimEdge
@@ -536,8 +563,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             return (
               <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={strokeColor}
-                strokeWidth={isAct ? 1.5 : isRelation ? 1.75 : 1}
-                strokeOpacity={isDim ? 0.15 : isAct ? 0.9 : 0.45}
+                strokeWidth={isAct || isHovEdge ? 2 : isRelation ? 1.75 : 1}
+                strokeOpacity={isDim ? 0.12 : isAct || isHovEdge ? 0.95 : 0.45}
                 strokeDasharray={isRelation ? '4 3' : undefined}
                 markerEnd={isDim ? 'url(#garr-dim)' : isAct ? 'url(#garr-act)' : 'url(#garr)'}
               />
@@ -546,12 +573,25 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
           {/* 노드 */}
           {visibleNodes.map(node => {
-            const r      = 7 + Math.min(node.links * 2, 10);
-            const isAct  = node.id === activeNoteId;
-            const isHov  = node.id === hovered;
+            const isHub   = node.links >= 4;
+            const r       = (isHub ? 9 : 7) + Math.min(node.links * 2, isHub ? 14 : 10);
+            const isAct   = node.id === activeNoteId;
+            const isHov   = node.id === hovered;
             const isMatch = matchedIds !== null && matchedIds.has(node.id);
-            const isDim  = matchedIds !== null && !matchedIds.has(node.id);
-            const label  = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
+            const inFocusCluster = focusNeighborhood === null || focusNeighborhood.has(node.id);
+            const isDim   = matchedIds !== null
+              ? !matchedIds.has(node.id)
+              : !inFocusCluster;
+            const label   = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
+            const showLabel = shouldShowGraphNodeLabel({
+              nodeCount: graphNodeCount,
+              isActive: isAct,
+              isHovered: isHov,
+              isSearchMatch: isMatch,
+              isHub,
+              inFocusCluster,
+              hasSearchFilter: matchedIds !== null,
+            });
 
             // 폴더 색상
             const folderColor = getFolderColor(node.folderId, folderIds);
@@ -581,7 +621,18 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               >
                 {/* 호버 글로우 */}
                 {isHov && !isDim && (
-                  <circle cx={node.x} cy={node.y} r={r + 7} fill={colors.hovBg}/>
+                  <circle cx={node.x} cy={node.y} r={r + 9} fill={colors.hovBg}/>
+                )}
+                {isAct && (
+                  <circle cx={node.x} cy={node.y} r={r + 6}
+                    fill="none" stroke={colors.act} strokeWidth={2} strokeOpacity={0.55}
+                  />
+                )}
+                {isHub && !isDim && (
+                  <circle cx={node.x} cy={node.y} r={r + 4}
+                    fill="none" stroke={colors.act} strokeWidth={1} strokeOpacity={0.35}
+                    strokeDasharray="2 3"
+                  />
                 )}
                 {/* 검색 매치 링 */}
                 {isMatch && (
@@ -595,9 +646,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                   cx={node.x} cy={node.y} r={r}
                   fill={nodeFill}
                   stroke={nodeStroke}
-                  strokeWidth={isAct || isHov || isMatch ? 2 : 1.5}
+                  strokeWidth={isAct || isHov || isMatch ? 2.5 : 1.5}
                   opacity={isDim ? 0.3 : 1}
-                />
+                >
+                  <title>{node.title.trim() || '제목 없음'}</title>
+                </circle>
                 {/* 폴더 색상 점 (우측 상단) */}
                 {folderColor && !isAct && !isDim && (
                   <circle cx={node.x + r * 0.65} cy={node.y - r * 0.65} r={3}
@@ -610,9 +663,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                     fontSize="9" textAnchor="middle"
                     style={{ pointerEvents: 'none' }}>★</text>
                 )}
-                {/* 라벨 */}
+                {/* 라벨 — hover/active/search only to reduce overlap (K-31) */}
+                {showLabel && (
                 <text
-                  x={node.x} y={node.y + r + 14}
+                  x={node.x} y={node.y + r + 16}
                   textAnchor="middle" fontSize="10"
                   fill={isDim ? colors.dimTxt : isAct ? colors.act : colors.txt}
                   fontWeight={isAct || isMatch ? '700' : '400'}
@@ -621,6 +675,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 >
                   {label}
                 </text>
+                )}
               </g>
             );
           })}
@@ -669,10 +724,24 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       }}>
         {visibleNodes.length} notes · {visibleEdges.length} links
         {!showIsolated && isolatedCount > 0 && ` · ${isolatedCount} hidden`}
-        {' · '}<span style={{ opacity: 0.6 }}>scroll=줌 · drag=팬</span>
+        {' · '}<span style={{ opacity: 0.6 }}>scroll=줌 · drag=팬 · hover=제목</span>
       </div>
 
-      {activeNoteId && (
+      {hoveredNode && (
+        <div style={{
+          position: 'absolute', bottom: 10, left: 10,
+          fontSize: 10, color: colors.act, fontWeight: 600,
+          pointerEvents: 'none',
+          maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          ◉ {hoveredNode.title}
+          {hoveredNode.links >= 4 && (
+            <span style={{ opacity: 0.7, fontWeight: 500 }}> · hub · {hoveredNode.links}</span>
+          )}
+        </div>
+      )}
+
+      {activeNoteId && !hovered && (
         <div style={{
           position: 'absolute', bottom: 10, left: 10,
           fontSize: 10, color: colors.act, fontWeight: 600,

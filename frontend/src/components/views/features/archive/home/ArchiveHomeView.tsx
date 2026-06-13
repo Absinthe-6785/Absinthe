@@ -1,12 +1,13 @@
 import { useCallback } from 'react';
 import type { AppSettings, Theme } from '../../../../../types';
 import type { ArchiveHomeProjection } from '../../knowledge/archive';
-import { openNote } from '../../../../../lib/noteNavigation';
+import { openNote, switchToNotesTab } from '../../../../../lib/noteNavigation';
 import {
   openArchiveBrowseDestination,
   openArchiveMarkMonthNavigation,
   openTraceDayNavigation,
 } from '../../../../../lib/traceNavigation';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { ArchiveAreaPills } from './ArchiveAreaPills';
 import { ArchiveBrowseLinks } from './ArchiveBrowseLinks';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
@@ -28,6 +29,7 @@ export function ArchiveHomeView({
   appSettings,
   isLoading = false,
 }: ArchiveHomeViewProps) {
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const onMilestoneClick = useCallback(
     (entry: { noteId: string }) => openNote(entry.noteId),
     [],
@@ -99,9 +101,18 @@ export function ArchiveHomeView({
       />
 
       {projection.empty.isEmpty && !isLoading && (
-        <p className={`text-sm ${theme.textMuted}`} data-archive-empty-message>
-          시간이 지나면 마크가 이곳에 쌓입니다.
-        </p>
+        <div className="flex flex-col items-start gap-3" data-archive-empty-message>
+          <p className={`text-sm ${theme.textMuted}`}>
+            시간이 지나면 마크가 이곳에 쌓입니다.
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary hover:underline"
+            onClick={() => switchToNotesTab()}
+          >
+            {t('archiveEmptyCta')}
+          </button>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import type { Theme } from '../../../../../types';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
+import { useTranslation } from '../../../../../../lib/i18n';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { groupLegacyDdayCountdownsByDate, monthGridHasAnchors } from './monthCalendarPresentation';
 
@@ -18,6 +19,7 @@ export function MonthCalendarView({
   onEventNoteClick,
   onDateSelect,
 }: MonthCalendarViewProps) {
+  const { t } = useTranslation();
   const month = projection.views.month;
   const legacyDdayByDate = groupLegacyDdayCountdownsByDate(projection.core.countdowns);
   const hasAnchors = monthGridHasAnchors(month.cells);
@@ -28,7 +30,7 @@ export function MonthCalendarView({
       data-planner-calendar-month
     >
       <div className="flex flex-col gap-1 mb-4">
-        <h3 className="font-heading text-base lg:text-lg font-bold">Month View</h3>
+        <h3 className="font-heading text-base lg:text-lg font-bold">{t('monthView')}</h3>
         {presentation.labels.monthTitle ? (
           <p
             className={`text-sm font-semibold ${theme.textMuted}`}

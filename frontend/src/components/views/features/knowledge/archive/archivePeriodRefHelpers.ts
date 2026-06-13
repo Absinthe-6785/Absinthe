@@ -6,18 +6,23 @@ import {
 } from '../trace/buildRangeTraceProjection';
 import type { ArchivePeriodRef } from './archiveHomeModels';
 
-export function archivePeriodRefFromMonth(year: number, month: number): ArchivePeriodRef {
+export function archivePeriodRefFromMonth(
+  year: number,
+  month: number,
+  locale?: string,
+): ArchivePeriodRef {
   return {
     kind: 'month',
     year,
     month,
-    label: formatTraceMonthHeading(year, month),
+    label: formatTraceMonthHeading(year, month, locale),
   };
 }
 
 export function archivePeriodRefFromQuarter(
   year: number,
   quarter: 1 | 2 | 3 | 4,
+  _locale?: string,
 ): ArchivePeriodRef {
   return {
     kind: 'quarter',
@@ -27,7 +32,7 @@ export function archivePeriodRefFromQuarter(
   };
 }
 
-export function archivePeriodRefFromYear(year: number): ArchivePeriodRef {
+export function archivePeriodRefFromYear(year: number, _locale?: string): ArchivePeriodRef {
   return {
     kind: 'year',
     year,
@@ -35,10 +40,10 @@ export function archivePeriodRefFromYear(year: number): ArchivePeriodRef {
   };
 }
 
-export function archivePeriodRefFromDateKey(dateKey: string): ArchivePeriodRef {
+export function archivePeriodRefFromDateKey(dateKey: string, locale?: string): ArchivePeriodRef {
   const year = Number(dateKey.slice(0, 4));
   const month = Number(dateKey.slice(5, 7));
-  return archivePeriodRefFromMonth(year, month);
+  return archivePeriodRefFromMonth(year, month, locale);
 }
 
 export function archivePeriodRefFromNow(now: Date): {
@@ -60,7 +65,7 @@ export function formatArchiveCombinedLabel(
   month: number,
   locale?: string,
 ): { year: string; quarter: string; month: string; combined: string } {
-  const monthLabel = formatCalendarMonthLabel(year, month);
+  const monthLabel = formatCalendarMonthLabel(year, month, locale);
   const monthOnly = new Date(year, month - 1, 1).toLocaleDateString(locale, { month: 'long' });
   const quarterLabel = `Q${quarter}`;
   const yearLabel = String(year);

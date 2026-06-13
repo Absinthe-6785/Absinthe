@@ -8,6 +8,22 @@
 
 export type Language = 'en' | 'ko' | 'ja';
 
+/** Primary product locale — new sessions and unresolved settings fall back here. */
+export const DEFAULT_APP_LANGUAGE: Language = 'ko';
+
+export function resolveAppLanguage(language?: Language | null): Language {
+  if (language === 'en' || language === 'ko' || language === 'ja') return language;
+  return DEFAULT_APP_LANGUAGE;
+}
+
+/** BCP-47 locale for Intl / toLocaleDateString from app language. */
+export function resolveIntlLocale(language?: Language | null): string {
+  const lang = resolveAppLanguage(language);
+  if (lang === 'ko') return 'ko-KR';
+  if (lang === 'ja') return 'ja-JP';
+  return 'en-US';
+}
+
 // ── 번역 사전 ────────────────────────────────────────────────────────
 const translations = {
   // ── 공통 ──────────────────────────────────────────────────────────
@@ -36,7 +52,7 @@ const translations = {
   // ── Sidebar ────────────────────────────────────────────────────────
   planner:        { en: 'Planner',        ko: '플래너',       ja: 'プランナー'   },
   health:         { en: 'Health',         ko: '헬스',         ja: 'フィットネス'       },
-  analytics:      { en: 'Analytics',      ko: '분석',         ja: '分析'         },
+  analytics:      { en: 'Archive',      ko: '아카이브',     ja: 'アーカイブ'   },
   note:           { en: 'Note',           ko: '노트',         ja: 'ノート'       },
   out:            { en: 'Out',            ko: '나가기',       ja: '退出'         },
 
@@ -45,6 +61,23 @@ const translations = {
   todoList:       { en: 'To-do list',     ko: '할 일',        ja: 'ToDo'         },
   memo:           { en: 'Memo',           ko: '메모',         ja: 'メモ'         },
   calendar:       { en: 'Calendar',       ko: '캘린더',       ja: 'カレンダー'   },
+  dayView:        { en: 'Day View',       ko: '일간 보기',    ja: '日ビュー'     },
+  weekView:       { en: 'Week View',      ko: '주간 보기',    ja: '週ビュー'     },
+  monthView:      { en: 'Month View',     ko: '월간 보기',    ja: '月ビュー'     },
+  agendaView:     { en: 'Agenda View',    ko: '아젠다 보기',  ja: 'アジェンダ'   },
+  plannerToday:   { en: 'Today',          ko: '오늘',         ja: '今日'         },
+  plannerMilestone: { en: 'Milestone',    ko: '마일스톤',     ja: 'マイルストーン' },
+  calendarEmptyRange: { en: 'No planning items in this range yet.', ko: '이 기간에 계획 항목이 없습니다.', ja: 'この期間の予定はまだありません。' },
+
+  // ── Archive (K-31) ────────────────────────────────────────────────
+  archiveViewHome:     { en: 'Home', ko: '홈', ja: 'ホーム' },
+  archiveViewPeriod:   { en: 'Period', ko: '기간', ja: '期間' },
+  archiveViewArea:     { en: 'Area', ko: '영역', ja: 'エリア' },
+  archiveViewTimeline: { en: 'Timeline', ko: '타임라인', ja: 'タイムライン' },
+  archiveBrowseAllAreas: { en: 'All areas', ko: '전체 영역', ja: '全エリア' },
+  archiveViewUnavailable: { en: '{view} view is not available yet. Browse from Archive Home or open Notes to add marks.', ko: '{view} 보기는 아직 준비 중입니다. 아카이브 홈에서 탐색하거나 노트에서 마크를 추가하세요.', ja: '{view}ビューはまだ利用できません。アーカイブホームから探索するか、ノートでマークを追加してください。' },
+  archiveEmptyCta:   { en: 'Go to Notes to start writing', ko: '노트로 이동해 작성 시작', ja: 'ノートへ移動して書き始める' },
+  graphHoverHint:      { en: 'Hover or select a node to see its title', ko: '노드에 마우스를 올리거나 선택하면 제목이 표시됩니다', ja: 'ノードにホバーまたは選択でタイトル表示' },
   timeline:       { en: 'Timeline',       ko: '타임라인',     ja: 'タイムライン' },
   dday:           { en: 'D-Day',          ko: 'D-Day',        ja: 'D-Day'        },
   newFolder:      { en: 'New Folder',     ko: '새 폴더',      ja: '新フォルダ'   },
@@ -460,6 +493,7 @@ const translations = {
   nvSearchScopeAll:         { en: 'All notes', ko: '전체 노트', ja: 'すべてのノート' },
   nvExpandSection:          { en: 'Expand section', ko: '섹션 펼치기', ja: 'セクションを展開' },
   nvCollapseSection:        { en: 'Collapse section', ko: '섹션 접기', ja: 'セクションを折りたたむ' },
+  nvTocKeyboardHint:        { en: 'j/k navigate · Enter open', ko: 'j/k 이동 · Enter 열기', ja: 'j/k 移動 · Enter で開く' },
   nvStatWords:              { en: 'Words', ko: '단어', ja: '語数' },
   nvStatChars:              { en: 'Characters', ko: '글자', ja: '文字数' },
   nvStatLines:              { en: 'Lines', ko: '줄', ja: '行数' },
@@ -533,6 +567,54 @@ const translations = {
   plannerCalendarRegion:    { en: 'Planner calendar', ko: '플래너 캘린더', ja: 'プランナーカレンダー' },
   confirmDialogTitle:       { en: 'Confirm action', ko: '작업 확인', ja: '操作の確認' },
 
+  // ── Database views (K-31 pass 3) ───────────────────────────────────
+  dbViewTable:              { en: 'Table',    ko: '표',       ja: 'テーブル'   },
+  dbViewBoard:              { en: 'Board',    ko: '보드',     ja: 'ボード'     },
+  dbViewCalendar:           { en: 'Calendar', ko: '캘린더',   ja: 'カレンダー' },
+  dbViewTimeline:           { en: 'Timeline', ko: '타임라인', ja: 'タイムライン' },
+  dbViewGallery:            { en: 'Gallery',  ko: '갤러리',   ja: 'ギャラリー' },
+  dbViewLabel:              { en: 'View',     ko: '보기',     ja: '表示'       },
+  dbEmptyMessage:           { en: 'No matching notes', ko: '일치하는 노트 없음', ja: '一致するノートがありません' },
+  dbTimelineEmptyMonth:     { en: 'No timeline items this month', ko: '이번 달 타임라인 항목 없음', ja: '今月のタイムライン項目なし' },
+  dbGroupBy:                { en: 'Group by', ko: '그룹 기준', ja: 'グループ化' },
+  dbDateProperty:           { en: 'Date property', ko: '날짜 속성', ja: '日付プロパティ' },
+  dbStartDateProperty:      { en: 'Start date property', ko: '시작일 속성', ja: '開始日プロパティ' },
+  dbEndDateProperty:        { en: 'End date property', ko: '종료일 속성', ja: '終了日プロパティ' },
+  dbCoverProperty:          { en: 'Cover image property', ko: '커버 이미지 속성', ja: 'カバー画像プロパティ' },
+  dbCardFields:             { en: 'Card fields', ko: '카드 필드', ja: 'カードフィールド' },
+  dbColumns:                { en: 'Columns', ko: '열', ja: '列' },
+  dbPropertyKeyPlaceholder: { en: 'Property key (e.g. status)', ko: '속성 키 (예: status)', ja: 'プロパティキー (例: status)' },
+  dbCardFieldsPlaceholder:  { en: 'Comma-separated keys (e.g. status, priority)', ko: '쉼표로 구분 (예: status, priority)', ja: 'カンマ区切り (例: status, priority)' },
+
+  // ── Note properties (K-31 pass 3) ──────────────────────────────────
+  propPageProperties:       { en: 'Page properties', ko: '페이지 속성', ja: 'ページプロパティ' },
+  propNone:                 { en: 'No properties', ko: '속성 없음', ja: 'プロパティなし' },
+  propAddProperty:          { en: 'Add property', ko: '속성 추가', ja: 'プロパティ追加' },
+  propKey:                  { en: 'Key', ko: '키', ja: 'キー' },
+  propValue:                { en: 'Value', ko: '값', ja: '値' },
+  propDeleteProperty:       { en: 'Delete property', ko: '속성 삭제', ja: 'プロパティ削除' },
+  tagPageTags:              { en: 'Page tags', ko: '페이지 태그', ja: 'ページタグ' },
+  tagNone:                  { en: 'No tags', ko: '태그 없음', ja: 'タグなし' },
+  tagAddPlaceholder:        { en: 'Add tag', ko: '태그 추가', ja: 'タグ追加' },
+  tagClickFilterHint:       { en: 'Click to filter · double-click to rename', ko: '클릭: 필터 · 더블클릭: 이름 변경', ja: 'クリック: フィルター · ダブルクリック: 名前変更' },
+
+  // ── Archive pass 2 (K-31) ──────────────────────────────────────────
+  archiveMilestoneEmptyHint:   { en: 'Mark milestones on notes to see transitions here.', ko: '노트에 마일스톤을 표시하면 여기에 나타납니다.', ja: 'ノートにマイルストーンを付けるとここに表示されます。' },
+  archiveBrowseEmptyHint:        { en: 'Browse links appear as your archive grows.', ko: '아카이브가 쌓이면 탐색 링크가 표시됩니다.', ja: 'アーカイブが増えるとリンクが表示されます。' },
+  archiveMarkCalendarEmptyHint:  { en: 'Daily marks on notes will fill this calendar.', ko: '노트의 일일 마크가 이 캘린더를 채웁니다.', ja: 'ノートの日次マークでカレンダーが埋まります。' },
+  archiveAreaEmptyHint:          { en: 'Area notes with marks appear here.', ko: '마크가 있는 영역 노트가 여기 표시됩니다.', ja: 'マーク付きエリアノートがここに表示されます。' },
+  archiveMarkCalendarClickHint:  { en: 'Click a day to open its trace', ko: '날짜를 클릭하면 해당 trace 열기', ja: '日付をクリックで trace を開く' },
+  archiveBranchPeriodHint:       { en: 'Jump into a time range in Notes trace — no extra setup required.', ko: '노트 trace에서 기간별 기록을 바로 엽니다.', ja: 'ノート trace で期間記録をすぐ開きます。' },
+  archiveBranchAreaHint:         { en: 'Open an area note or browse all areas in trace discovery.', ko: '영역 노트를 열거나 trace 탐색에서 전체 영역을 봅니다.', ja: 'エリアノートを開くか、trace探索で全体を見ます。' },
+  archiveBranchTimelineHint:     { en: 'Follow milestones and daily marks into their source notes.', ko: '마일스톤과 일일 마크에서 원본 노트로 이동합니다.', ja: 'マイルストーンと日次マークから元ノートへ移動します。' },
+  archiveOpenDiscovery:          { en: 'Browse all areas in trace', ko: 'trace에서 전체 영역 탐색', ja: 'traceで全エリアを探索' },
+  archiveOpenCurrentPeriod:      { en: 'Open current month in trace', ko: '이번 달 trace 열기', ja: '今月の trace を開く' },
+  archiveOpenTimelineRange:      { en: 'Open timeline range in trace', ko: '타임라인 기간 trace 열기', ja: 'タイムライン期間 trace を開く' },
+  plannerWeeklyTimetableExpand:  { en: 'Show weekly timetable', ko: '주간 타임테이블 펼치기', ja: '週間タイムテーブルを表示' },
+  plannerWeeklyTimetableCollapse:{ en: 'Hide weekly timetable', ko: '주간 타임테이블 접기', ja: '週間タイムテーブルを隠す' },
+  graphHoverConnected:           { en: '{count} links', ko: '연결 {count}개', ja: 'リンク {count}件' },
+  graphHubLabel:                 { en: 'hub', ko: '허브', ja: 'ハブ' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
@@ -555,6 +637,6 @@ export function getTranslator(lang: Language) {
 import { useAppStore } from '../store/useAppStore';
 
 export function useTranslation() {
-  const lang = (useAppStore(s => s.appSettings.language) ?? 'en') as Language;
+  const lang = resolveAppLanguage(useAppStore(s => s.appSettings.language));
   return { t: getTranslator(lang), lang };
 }

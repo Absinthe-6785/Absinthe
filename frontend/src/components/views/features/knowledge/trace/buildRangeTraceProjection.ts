@@ -180,8 +180,8 @@ export function shiftTraceMonth(
   return { year: next.year, month: next.month };
 }
 
-export function formatTraceMonthHeading(year: number, month: number): string {
-  return formatCalendarMonthLabel(year, month);
+export function formatTraceMonthHeading(year: number, month: number, locale?: string): string {
+  return formatCalendarMonthLabel(year, month, locale);
 }
 
 export function buildMonthTraceProjection(

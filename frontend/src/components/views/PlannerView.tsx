@@ -326,7 +326,7 @@ export const PlannerView = ({
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <h2 className={`font-heading text-base lg:text-lg font-bold flex items-center gap-2 ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
-              <Activity size={18} className="text-green-500"/> {t('routines')}
+              <Activity size={16} strokeWidth={2.25} className="text-green-500"/> {t('routines')}
             </h2>
             <button
               onClick={() => { setExceptionForm({ start_date: formatDate(selectedDate), end_date: formatDate(selectedDate), reason: '' }); setShowExceptionModal(true); }}

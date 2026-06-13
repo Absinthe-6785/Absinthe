@@ -28,6 +28,11 @@ vi.mock('../../../../../store/useNotesStore', () => ({
   useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes: [] }),
 }));
 
+vi.mock('../../../../../store/useAppStore', () => ({
+  useAppStore: (selector: (state: { appSettings: { language: 'en' } }) => unknown) =>
+    selector({ appSettings: { language: 'en' } }),
+}));
+
 const theme: Theme = {
   card: 'bg-surface',
   input: 'bg-surface-alt',

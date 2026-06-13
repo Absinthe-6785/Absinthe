@@ -60,7 +60,7 @@ export function buildArchiveHomeProjection(
     limit: areaPillLimit,
   });
 
-  const browse = buildArchiveBrowseLinks(input.now, markCalendar);
+  const browse = buildArchiveBrowseLinks(input.now, markCalendar, locale);
 
   const empty = buildArchiveEmptyFlags(
     markCalendar.hasAnyMarks,

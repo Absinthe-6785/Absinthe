@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { resolveAppLanguage } from '../../../../../lib/i18n';
+import { useAppStore } from '../../../../../store/useAppStore';
 import type { NoteBase } from '../../../noteUtils';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
@@ -256,11 +258,13 @@ export function useNoteWorkspace({
   const sessionSnapshotRef = useRef<ReturnType<typeof loadWorkspaceSession>>(null);
   const preFocusActivationRef = useRef<WorkspaceActivation | null>(null);
 
+  const language = useAppStore(s => resolveAppLanguage(s.appSettings.language));
   const resolveContext = useMemo<WorkspaceResolveContext>(() => ({
     savedViews,
     ruleCollections,
     databaseViews,
-  }), [savedViews, ruleCollections, databaseViews]);
+    language,
+  }), [savedViews, ruleCollections, databaseViews, language]);
 
   useEffect(() => {
     saveSavedViews(savedViews);

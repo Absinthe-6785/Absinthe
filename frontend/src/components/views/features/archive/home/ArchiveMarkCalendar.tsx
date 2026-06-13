@@ -1,5 +1,7 @@
 import { CalendarDays } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
+import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveMarkCalendarProjection, ArchiveMarkDay } from '../../knowledge/archive';
 import {
   archiveMarkCellColorClass,
@@ -35,6 +37,7 @@ export function ArchiveMarkCalendar({
   onDayClick,
   onMonthClick,
 }: ArchiveMarkCalendarProps) {
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const weeks = markCalendar.weeks ?? [];
   const dayLookup = buildMarkDayLookup(markCalendar.days);
   const yearSpan = formatArchiveMarkCalendarYearSpan(markCalendar.years);
@@ -56,7 +59,7 @@ export function ArchiveMarkCalendar({
     >
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="font-heading text-base font-bold flex items-center gap-2">
-          <CalendarDays size={16} className="text-primary" />
+          <CalendarDays size={16} className="text-primary" strokeWidth={2.25} />
           마크 캘린더
         </h2>
         {yearSpan && (
@@ -65,11 +68,26 @@ export function ArchiveMarkCalendar({
       </div>
 
       {!markCalendar.hasAnyMarks ? (
-        <p className={`text-sm ${theme.textMuted}`} data-archive-mark-calendar-empty-message>
-          아직 기록된 마크가 없습니다.
-        </p>
+        <div className="flex flex-col items-start gap-2" data-archive-mark-calendar-empty-message>
+          <p className={`text-sm ${theme.textMuted}`}>
+            아직 기록된 마크가 없습니다.
+          </p>
+          <p className={`text-xs ${theme.textMuted}`}>
+            {t('archiveMarkCalendarEmptyHint')}
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary hover:underline"
+            onClick={() => switchToNotesTab()}
+          >
+            {t('archiveEmptyCta')}
+          </button>
+        </div>
       ) : (
         <div className="overflow-x-auto">
+          <p className={`text-xs mb-3 ${theme.textMuted}`} data-archive-mark-calendar-click-hint>
+            {t('archiveMarkCalendarClickHint')}
+          </p>
           <div className="min-w-[280px]">
             <div className="flex mb-1 pl-5">
               {weeks.map((_, weekIndex) => {

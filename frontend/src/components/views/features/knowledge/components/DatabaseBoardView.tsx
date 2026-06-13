@@ -1,7 +1,8 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
+import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
 import type { BoardLane } from '../databaseViews/groupNotesByProperty';
 import { DatabaseNoteCard } from './DatabaseNoteCard';
 
@@ -22,13 +23,15 @@ export function DatabaseBoardView({
   cardFields,
   onSelectNote,
 }: DatabaseBoardViewProps) {
+  const { lang } = useTranslation();
+  const emptyMessage = getDatabaseEmptyMessage(lang);
   const hasNotes = lanes.some(lane => lane.notes.length > 0);
 
   return (
     <div style={{ flex: 1, overflow: 'auto', background: c.notelist, padding: 8 }}>
       {!hasNotes && lanes.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-          {DATABASE_EMPTY_MESSAGE}
+          {emptyMessage}
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minHeight: '100%' }}>

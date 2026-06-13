@@ -1,8 +1,6 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import {
-  GALLERY_CARD_FIELDS_FIELD,
-  GALLERY_COVER_PROPERTY_FIELD,
-} from '../../databaseViews/databasePresentationMeta';
+import { useTranslation } from '../../../../../../lib/i18n';
+import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseGalleryConfig } from '../../databaseViews/databasePresentationModels';
 import { formatGalleryCardFieldsInput, parseGalleryCardFieldsInput } from '../../databaseViews/galleryModels';
 import { DatabasePropertyKeyField } from '../DatabasePropertyKeyField';
@@ -16,26 +14,29 @@ export interface GalleryViewControlsProps {
 }
 
 export function GalleryViewControls({
-  colors: c,
   galleryConfig,
   columnKeys,
   onGalleryCoverChange,
   onGalleryCardFieldsChange,
 }: GalleryViewControlsProps) {
+  const { lang } = useTranslation();
+  const coverField = getDatabasePropertyFieldPreset('galleryCover', lang);
+  const cardFieldsPreset = getDatabasePropertyFieldPreset('galleryCardFields', lang);
+
   return (
     <>
       <DatabasePropertyKeyField
-        preset={GALLERY_COVER_PROPERTY_FIELD}
+        preset={coverField}
         value={galleryConfig.coverProperty ?? ''}
         onChange={onGalleryCoverChange}
         listId="database-gallery-cover-suggestions"
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontWeight: 700 }}>{GALLERY_CARD_FIELDS_FIELD.label}</span>
+        <span style={{ fontWeight: 700 }}>{cardFieldsPreset.label}</span>
         <input
           className="bwi"
           style={{ fontSize: 10 }}
-          placeholder={GALLERY_CARD_FIELDS_FIELD.placeholder}
+          placeholder={cardFieldsPreset.placeholder}
           value={formatGalleryCardFieldsInput(galleryConfig.cardFields)}
           list="database-gallery-card-fields-suggestions"
           onChange={event => onGalleryCardFieldsChange(parseGalleryCardFieldsInput(event.target.value))}

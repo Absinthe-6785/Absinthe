@@ -1,3 +1,4 @@
+import type { Language } from '../../../../../lib/i18n';
 import { findSmartCollection, SMART_COLLECTIONS } from '../collections/smartCollections';
 import type { RuleCollection } from '../collections/ruleCollectionModels';
 import { findRuleCollection } from '../collections/ruleCollections';
@@ -24,6 +25,7 @@ export interface WorkspaceResolveContext {
   savedViews: readonly SavedView[];
   ruleCollections: readonly RuleCollection[];
   databaseViews: readonly DatabaseView[];
+  language?: Language;
 }
 
 export function isValidWorkspaceRef(
@@ -59,7 +61,7 @@ export function resolveWorkspaceRef(
         kind: 'database-view',
         id: view.id,
         name: view.name,
-        subtitle: `${view.query} · ${presentationLabel(view.presentation)}`,
+        subtitle: `${view.query} · ${presentationLabel(view.presentation, context.language)}`,
       };
     }
     case 'smart-collection': {

@@ -1,3 +1,9 @@
+import {
+  getTranslator,
+  resolveAppLanguage,
+  type Language,
+  type TranslationKey,
+} from '../../../../../lib/i18n';
 import type { DatabaseViewPresentation } from './databaseViewModels';
 
 export interface DatabasePresentationOption {
@@ -5,7 +11,15 @@ export interface DatabasePresentationOption {
   label: string;
 }
 
-/** Canonical presentation options — single source for controls and create form */
+const PRESENTATION_I18N: Record<DatabaseViewPresentation, TranslationKey> = {
+  table: 'dbViewTable',
+  board: 'dbViewBoard',
+  calendar: 'dbViewCalendar',
+  timeline: 'dbViewTimeline',
+  gallery: 'dbViewGallery',
+};
+
+/** @deprecated Use getDatabasePresentationOptions(lang) for localized labels */
 export const DATABASE_PRESENTATION_OPTIONS: readonly DatabasePresentationOption[] = [
   { value: 'table', label: 'Table' },
   { value: 'board', label: 'Board' },
@@ -14,8 +28,20 @@ export const DATABASE_PRESENTATION_OPTIONS: readonly DatabasePresentationOption[
   { value: 'gallery', label: 'Gallery' },
 ];
 
-export function presentationLabel(presentation: DatabaseViewPresentation): string {
-  return DATABASE_PRESENTATION_OPTIONS.find(option => option.value === presentation)?.label ?? presentation;
+export function getDatabasePresentationOptions(lang?: Language): DatabasePresentationOption[] {
+  const t = getTranslator(resolveAppLanguage(lang));
+  return (Object.keys(PRESENTATION_I18N) as DatabaseViewPresentation[]).map(value => ({
+    value,
+    label: t(PRESENTATION_I18N[value]),
+  }));
+}
+
+export function presentationLabel(
+  presentation: DatabaseViewPresentation,
+  lang?: Language,
+): string {
+  const t = getTranslator(resolveAppLanguage(lang));
+  return t(PRESENTATION_I18N[presentation]);
 }
 
 export interface DatabasePropertyFieldPreset {
@@ -24,6 +50,61 @@ export interface DatabasePropertyFieldPreset {
   defaultValue: string;
 }
 
+export type DatabasePropertyFieldPresetKey =
+  | 'boardGroupBy'
+  | 'calendarDate'
+  | 'timelineStart'
+  | 'timelineEnd'
+  | 'galleryCover'
+  | 'galleryCardFields'
+  | 'tableAddColumn';
+
+const PROPERTY_FIELD_DEFAULTS: Record<DatabasePropertyFieldPresetKey, string> = {
+  boardGroupBy: 'status',
+  calendarDate: 'reviewDate',
+  timelineStart: 'startDate',
+  timelineEnd: 'endDate',
+  galleryCover: 'coverImage',
+  galleryCardFields: 'status, priority, reviewDate',
+  tableAddColumn: '',
+};
+
+const PROPERTY_FIELD_LABEL_KEYS: Record<DatabasePropertyFieldPresetKey, TranslationKey> = {
+  boardGroupBy: 'dbGroupBy',
+  calendarDate: 'dbDateProperty',
+  timelineStart: 'dbStartDateProperty',
+  timelineEnd: 'dbEndDateProperty',
+  galleryCover: 'dbCoverProperty',
+  galleryCardFields: 'dbCardFields',
+  tableAddColumn: 'dbColumns',
+};
+
+const PROPERTY_FIELD_PLACEHOLDER_KEYS: Record<
+  DatabasePropertyFieldPresetKey,
+  TranslationKey
+> = {
+  boardGroupBy: 'dbPropertyKeyPlaceholder',
+  calendarDate: 'dbPropertyKeyPlaceholder',
+  timelineStart: 'dbPropertyKeyPlaceholder',
+  timelineEnd: 'dbPropertyKeyPlaceholder',
+  galleryCover: 'dbPropertyKeyPlaceholder',
+  galleryCardFields: 'dbCardFieldsPlaceholder',
+  tableAddColumn: 'dbPropertyKeyPlaceholder',
+};
+
+export function getDatabasePropertyFieldPreset(
+  key: DatabasePropertyFieldPresetKey,
+  lang?: Language,
+): DatabasePropertyFieldPreset {
+  const t = getTranslator(resolveAppLanguage(lang));
+  return {
+    label: t(PROPERTY_FIELD_LABEL_KEYS[key]),
+    placeholder: t(PROPERTY_FIELD_PLACEHOLDER_KEYS[key]),
+    defaultValue: PROPERTY_FIELD_DEFAULTS[key],
+  };
+}
+
+/** English presets retained for tests and defaultValue references */
 export const BOARD_GROUP_BY_FIELD: DatabasePropertyFieldPreset = {
   label: 'Group by',
   placeholder: 'Property key (e.g. status)',
@@ -81,4 +162,9 @@ export const SUGGESTED_PROPERTY_KEYS = [
   'createdAt',
 ] as const;
 
+/** @deprecated Use getDatabaseEmptyMessage(lang) */
 export const DATABASE_EMPTY_MESSAGE = 'No matching notes';
+
+export function getDatabaseEmptyMessage(lang?: Language): string {
+  return getTranslator(resolveAppLanguage(lang))('dbEmptyMessage');
+}

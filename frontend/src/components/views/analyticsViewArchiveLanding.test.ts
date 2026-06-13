@@ -38,9 +38,13 @@ vi.mock('../../hooks/useEscapeKey', () => ({
   useEscapeKey: () => {},
 }));
 
-vi.mock('../../lib/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock('../../lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/i18n')>();
+  return {
+    ...actual,
+    useTranslation: () => ({ t: (key: string) => key, lang: 'en' as const }),
+  };
+});
 
 vi.mock('../../store/useNotesStore', () => ({
   useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes: [] }),
@@ -202,6 +206,7 @@ describe('AnalyticsView projection-driven home content', () => {
     const projection = buildArchiveHomeProjection({
       notes,
       now: NOW.toJSDate(),
+      options: { locale: 'en-US' },
     });
 
     const html = renderAnalyticsView();

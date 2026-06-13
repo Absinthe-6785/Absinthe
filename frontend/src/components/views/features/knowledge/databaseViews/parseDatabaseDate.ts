@@ -80,8 +80,8 @@ export function formatCalendarDayLabel(dateKey: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function formatCalendarMonthLabel(year: number, month: number): string {
-  return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+export function formatCalendarMonthLabel(year: number, month: number, locale?: string): string {
+  return new Date(year, month - 1, 1).toLocaleDateString(locale, {
     month: 'long',
     year: 'numeric',
   });

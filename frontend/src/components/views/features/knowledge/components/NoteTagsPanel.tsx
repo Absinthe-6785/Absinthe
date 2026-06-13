@@ -1,5 +1,6 @@
 import { useCallback, useState, type CSSProperties } from 'react';
 import { Plus, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import { addTag, listTags, removeTag, renameTag } from '../tags';
@@ -21,6 +22,7 @@ export function NoteTagsPanel({
   onUpdateTags,
   onSelectTag,
 }: NoteTagsPanelProps) {
+  const { t } = useTranslation();
   const tags = listTags(note);
   const [newTag, setNewTag] = useState('');
   const [renamingTag, setRenamingTag] = useState<string | null>(null);
@@ -78,12 +80,12 @@ export function NoteTagsPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>
-        페이지 태그
+        {t('tagPageTags')}
       </div>
 
       {tags.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 12px' }}>
-          태그 없음
+          {t('tagNone')}
         </p>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
@@ -115,7 +117,7 @@ export function NoteTagsPanel({
                 style={pillStyle(activeTag?.toLowerCase() === tag.toLowerCase())}
                 onClick={() => onSelectTag(activeTag?.toLowerCase() === tag.toLowerCase() ? null : tag)}
                 onDoubleClick={() => startRename(tag)}
-                title="Click to filter · double-click to rename"
+                title={t('tagClickFilterHint')}
               >
                 #{tag}
                 <button
@@ -145,7 +147,7 @@ export function NoteTagsPanel({
         <input
           value={newTag}
           onChange={e => setNewTag(e.target.value)}
-          placeholder="Add tag"
+          placeholder={t('tagAddPlaceholder')}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
           style={{
             flex: 1,
