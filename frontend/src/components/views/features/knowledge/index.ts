@@ -81,7 +81,15 @@ export {
   type WorkspaceDashboardProjectProps,
   type WorkspaceDashboardAcademicProps,
   type WorkspaceDashboardAcademicInsightsProps,
+  type WorkspaceDashboardUnifiedProps,
+  type WorkspaceDashboardLearningPathProps,
+  type WorkspaceDashboardSubjectWorkspacesProps,
 } from './components/WorkspaceDashboardView';
+export { UnifiedWorkspaceDashboard, type UnifiedWorkspaceDashboardProps, type UnifiedDashboardSection } from './components/UnifiedWorkspaceDashboard';
+export { ProjectQuickActions, type ProjectQuickActionsProps } from './components/ProjectQuickActions';
+export { LearningPathOverviewPanel, type LearningPathOverviewPanelProps } from './components/LearningPathOverviewPanel';
+export { SubjectWorkspacePanel, type SubjectWorkspacePanelProps } from './components/SubjectWorkspacePanel';
+export { SubjectWorkspacesPanel, type SubjectWorkspacesPanelProps } from './components/SubjectWorkspacesPanel';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
 export { DatabaseBoardView, type DatabaseBoardViewProps } from './components/DatabaseBoardView';
@@ -149,6 +157,20 @@ export {
   type SubjectDashboardEntry,
   type SubjectDashboardData,
 } from './maps/subjectDashboards';
+
+export {
+  buildSubjectWorkspace,
+  buildAllSubjectWorkspaces,
+  type SubjectWorkspaceData,
+  type BuildSubjectWorkspaceOptions,
+} from './maps/buildSubjectWorkspace';
+
+export {
+  buildLearningPathOverview,
+  type LearningPathOverviewData,
+  type LearningPathOverviewEntry,
+  type BuildLearningPathOverviewOptions,
+} from './maps/buildLearningPathOverview';
 
 export {
   buildKnowledgeClusters,
@@ -495,6 +517,9 @@ export {
   SMART_COLLECTION_GROUPS,
   getSmartCollectionIcon,
   getSmartCollectionGroup,
+  isPrimarySmartCollection,
+  isSecondarySmartCollection,
+  PRIMARY_COLLECTION_GROUP_IDS,
   type SmartCollectionGroup,
 } from './collections/smartCollectionGroups';
 
@@ -870,6 +895,7 @@ export {
   createInboxNote,
   buildTaskNote,
   buildJournalNote,
+  buildUnifiedWorkspaceDashboard,
   createFocusPreset,
   deleteFocusPreset,
   findFocusPreset,
@@ -921,6 +947,8 @@ export {
   type WorkspaceDashboardModel,
   type WorkspaceDashboardWidget,
   type WorkspaceDashboardWidgetId,
+  type UnifiedWorkspaceDashboardData,
+  type BuildUnifiedWorkspaceDashboardOptions,
   type WorkspaceActivation,
   type WorkspaceFilterSource,
   type WorkspaceItemKind,

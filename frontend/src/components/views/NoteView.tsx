@@ -35,21 +35,19 @@ import {
   BacklinkPanel,
   ReferenceExplorerPanel,
   KnowledgeReviewPanel,
-  buildKnowledgeReviewLists,
   buildKnowledgeMaintenanceData,
-  buildResearchDashboard,
-  buildStudyDashboard,
+  buildUnifiedWorkspaceDashboard,
   buildStudyNote,
   buildConceptHub,
   buildLearningPath,
   getLearningPathId,
-  buildKnowledgeClusters,
-  SUBJECT_DASHBOARDS,
-  buildSubjectDashboard,
-  buildProjectDashboard,
-  buildAcademicDashboard,
-  buildAcademicInsights,
+  buildAllSubjectWorkspaces,
+  buildLearningPathOverview,
   findSmartCollection,
+  setStudyProjectContainer,
+  isStudyProjectContainer,
+  filterStudyProjectContainers,
+  setProjectMilestone,
   setWeakTopic,
   isWeakTopic,
   extractNoteReferenceSummary,
@@ -818,6 +816,35 @@ export const NoteView = () => {
     return openCreatedNote(id);
   }, [notes, storeCreateNote, updateNote, openCreatedNote]);
 
+  const handleCreateProject = useCallback(() => {
+    const id = storeCreateNote({ title: 'New Project', body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const project = setStudyProjectContainer(created, 'active');
+      updateNote(id, { title: 'New Project', properties: project.properties });
+    }
+    return openCreatedNote(id);
+  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
+
+  const handleCreateProjectMilestone = useCallback(() => {
+    const activeProject = activeNote && isStudyProjectContainer(activeNote) ? activeNote : null;
+    const projectId = activeProject?.id
+      ?? filterStudyProjectContainers(notes, 'active')[0]?.id
+      ?? filterStudyProjectContainers(notes)[0]?.id;
+    const id = storeCreateNote({ title: 'New Milestone', body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created && projectId) {
+      const milestone = setProjectMilestone(created, projectId, 'planned');
+      updateNote(id, { title: 'New Milestone', properties: milestone.properties });
+    }
+    return openCreatedNote(id);
+  }, [activeNote, notes, storeCreateNote, updateNote, openCreatedNote]);
+
+  const handleOpenProjectNotes = useCallback(() => {
+    const collection = findSmartCollection('academic-active-projects');
+    if (collection) handleActivateSmartCollection(collection);
+  }, [handleActivateSmartCollection]);
+
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
@@ -1040,50 +1067,23 @@ export const NoteView = () => {
     [activeNote, notes],
   );
 
-  const knowledgeReviewLists = useMemo(
-    () => buildKnowledgeReviewLists(notes, { limit: 6 }),
-    [notes],
-  );
-
   const knowledgeMaintenance = useMemo(
     () => buildKnowledgeMaintenanceData(notes),
     [notes],
   );
 
-  const researchDashboard = useMemo(
-    () => buildResearchDashboard(notes, { limit: 6 }),
+  const unifiedWorkspaceDashboard = useMemo(
+    () => buildUnifiedWorkspaceDashboard(notes, { limit: 6, service: knowledgeIndexService }),
     [notes],
   );
 
-  const studyDashboard = useMemo(
-    () => buildStudyDashboard(notes, { limit: 6 }),
+  const learningPathOverview = useMemo(
+    () => buildLearningPathOverview(notes),
     [notes],
   );
 
-  const subjectMapsDashboard = useMemo(
-    () => SUBJECT_DASHBOARDS
-      .map(s => buildSubjectDashboard(notes, s.id, { limit: 6 }))
-      .filter((d): d is NonNullable<typeof d> => d !== null),
-    [notes],
-  );
-
-  const knowledgeClusters = useMemo(
-    () => buildKnowledgeClusters(notes, knowledgeIndexService, { limit: 8 }),
-    [notes],
-  );
-
-  const projectDashboard = useMemo(
-    () => buildProjectDashboard(notes, { limit: 6 }),
-    [notes],
-  );
-
-  const academicDashboard = useMemo(
-    () => buildAcademicDashboard(notes, { limit: 6 }),
-    [notes],
-  );
-
-  const academicInsights = useMemo(
-    () => buildAcademicInsights(notes, { limit: 6 }),
+  const subjectWorkspaces = useMemo(
+    () => buildAllSubjectWorkspaces(notes, { limit: 6 }),
     [notes],
   );
 
@@ -2155,44 +2155,8 @@ export const NoteView = () => {
                 setActiveNoteId(noteId);
               },
             }}
-            research={{
-              data: researchDashboard,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            study={{
-              data: studyDashboard,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            academic={{
-              data: academicDashboard,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            academicInsights={{
-              data: academicInsights,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            project={{
-              data: projectDashboard,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            knowledgeMaps={{
-              subjects: subjectMapsDashboard,
-              clusters: knowledgeClusters,
+            unified={{
+              data: unifiedWorkspaceDashboard,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
@@ -2201,12 +2165,28 @@ export const NoteView = () => {
                 handleActivateSubjectWorkspace(collectionId);
                 handleLeaveDashboardForNote('');
               },
+              projectQuickActions: {
+                onCreateProject: handleCreateProject,
+                onCreateMilestone: handleCreateProjectMilestone,
+                onOpenProjectNotes: handleOpenProjectNotes,
+              },
             }}
-            review={{
-              lists: knowledgeReviewLists,
+            learningPath={{
+              data: learningPathOverview,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
+              },
+            }}
+            subjectWorkspaces={{
+              subjects: subjectWorkspaces,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+              onActivateSubjectWorkspace: collectionId => {
+                handleActivateSubjectWorkspace(collectionId);
+                handleLeaveDashboardForNote('');
               },
             }}
           />
