@@ -158,6 +158,7 @@ import { WorkspaceSearchPalette } from './features/knowledge/components/Workspac
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
 import type { AppSettings } from '../../types';
+import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
 import {
   BlockEditor,
@@ -270,6 +271,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
+  const { t } = useTranslation();
   const katexReady = useKaTeX();
 
   const { appSettings, updateSetting } = useAppStore();
@@ -1609,27 +1611,27 @@ export const NoteView = () => {
   }, [activeNote, isTrash, traceAreaId, updateNote]);
 
   const folderLabel = useMemo(() =>
-    activeFolderId === null    ? '전체 노트' :
-    activeFolderId === 'trash' ? '🗑 휴지통' :
-    activeFolderId === 'starred' ? '즐겨찾기' :
+    activeFolderId === null    ? t('nvAllNotes') :
+    activeFolderId === 'trash' ? t('nvTrashLabel') :
+    activeFolderId === 'starred' ? t('starred') :
     (folders.find(f => f.id === activeFolderId)?.name ?? ''),
-    [activeFolderId, folders]
+    [activeFolderId, folders, t]
   );
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'reading' as const, icon: <Eye size={11}/>,     label: '읽기' },
-    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: '그래프' },
-  ], []);
+    { key: 'reading' as const, icon: <Eye size={11}/>,     label: t('nvReading') },
+    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: t('nvGraph') },
+  ], [t]);
   const RIGHT_PANELS = useMemo(() => [
-    { key: 'toc'        as const, label: '목차', icon: <AlignLeft size={11}/> },
-    { key: 'links'      as const, label: '링크',   icon: <Link size={11}/> },
-    { key: 'graph'      as const, label: '그래프',   icon: <GitFork size={11}/> },
-    { key: 'properties' as const, label: '속성',   icon: <SlidersHorizontal size={11}/> },
-    { key: 'tags'       as const, label: '태그',    icon: <Tag size={11}/> },
-    { key: 'relations'  as const, label: '관계', icon: <ArrowRightLeft size={11}/> },
-    { key: 'stats'      as const, label: '통계',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
-  ], []);
+    { key: 'toc'        as const, label: t('nvPanelToc'), icon: <AlignLeft size={11}/> },
+    { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={11}/> },
+    { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={11}/> },
+    { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={11}/> },
+    { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={11}/> },
+    { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={11}/> },
+    { key: 'stats'      as const, label: t('nvPanelStats'),   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
+  ], [t]);
 
   // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
   const CSS = useMemo(() => `
@@ -1761,28 +1763,28 @@ export const NoteView = () => {
           onClick={() => setShowShortcuts(false)}>
           <div style={{ background: c.card, borderRadius: 12, padding: '20px 24px', width: 340, boxShadow: '0 8px 32px #00000030' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>키보드 단축키</div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>{t('nvShortcuts')}</div>
             {[
-              ['Ctrl + N',         '새 노트'],
-              ['Ctrl + D',         '노트 복제'],
-              ['Ctrl + E',         '읽기/편집 전환'],
-              ['Ctrl + G',         '그래프 보기'],
-              ['Ctrl + K',         '작업공간 검색'],
-              ['Ctrl + F',         '노트 검색'],
-              ['Ctrl + Shift + F', '집중 모드'],
-              ['Ctrl + /',         '단축키 보기'],
+              ['Ctrl + N',         t('nvScNewNote')],
+              ['Ctrl + D',         t('nvScDuplicate')],
+              ['Ctrl + E',         t('nvScToggleRead')],
+              ['Ctrl + G',         t('nvScGraph')],
+              ['Ctrl + K',         t('nvScWorkspaceSearch')],
+              ['Ctrl + F',         t('nvScNoteSearch')],
+              ['Ctrl + Shift + F', t('nvScFocus')],
+              ['Ctrl + /',         t('nvScShowShortcuts')],
               [null, null],
-              ['Ctrl + S',         '저장'],
-              ['Ctrl + Z',         '실행 취소 (편집)'],
-              ['Ctrl + Y / ⇧+Z',  '다시 실행 (편집)'],
+              ['Ctrl + S',         t('nvScSave')],
+              ['Ctrl + Z',         t('nvScUndo')],
+              ['Ctrl + Y / ⇧+Z',  t('nvScRedo')],
               [null, null],
-              ['/',                '슬래시 명령 — 블록 삽입'],
-              ['[[...]]',          '위키 링크 자동완성'],
-              ['Ctrl + Click',     '위키 링크 이동 (편집)'],
-              ['[[링크]] 클릭',     '링크 이동 · 없으면 생성 (읽기)'],
-              ['검색창 #태그',       '태그로 노트 필터'],
-              ['↑ ↓ Enter',        '메뉴 탐색'],
-              ['Esc',              '닫기 / 취소'],
+              ['/',                t('nvScSlash')],
+              ['[[...]]',          t('nvScWikiLink')],
+              ['Ctrl + Click',     t('nvScWikiNav')],
+              ['[[link]]',         t('nvScWikiClick')],
+              ['#tag in search',   t('nvScTagFilter')],
+              ['↑ ↓ Enter',        t('nvScMenuNav')],
+              ['Esc',              t('nvScEsc')],
             ].map(([key, desc], i) => (
               key === null
                 ? <div key={i} style={{ height: 1, background: c.textFaint, margin: '6px 0' }} />
@@ -1793,7 +1795,7 @@ export const NoteView = () => {
             ))}
             <button onClick={() => setShowShortcuts(false)}
               style={{ marginTop: 14, width: '100%', background: c.accentBg, border: 'none', borderRadius: 7, padding: '8px', color: c.accent, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-              닫기
+              {t('close')}
             </button>
           </div>
         </div>
@@ -1820,18 +1822,18 @@ export const NoteView = () => {
             <div className="bicon-bar" style={{ flex: 1 }}>
               <button className="bicon-btn" onClick={() => setSidebarCollapsed(false)} style={{ marginBottom: 4 }}>
                 <ChevronRight size={14}/>
-                <span className="bicon-tooltip">사이드바 펼치기</span>
+                <span className="bicon-tooltip">{t('nvExpandSidebar')}</span>
               </button>
               <div style={{ width: 20, height: 1, background: c.sideBdr, margin: '2px 0 6px' }}/>
               <button className={`bicon-btn ${activeFolderId === null && !activeTag ? 'active' : ''}`}
                 onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
                 <AlignLeft size={14}/>
-                <span className="bicon-tooltip">전체 노트 ({activeNoteCount})</span>
+                <span className="bicon-tooltip">{t('nvAllNotes')} ({activeNoteCount})</span>
               </button>
               <button className={`bicon-btn ${activeFolderId === 'starred' ? 'active' : ''}`}
                 onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
                 <Star size={14} fill={activeFolderId === 'starred' ? c.accent : 'none'} color={activeFolderId === 'starred' ? c.accent : c.textMuted}/>
-                <span className="bicon-tooltip">즐겨찾기</span>
+                <span className="bicon-tooltip">{t('starred')}</span>
               </button>
               {folders.map(f => (
                 <button key={f.id} className={`bicon-btn ${activeFolderId === f.id ? 'active' : ''}`}
@@ -1844,8 +1846,8 @@ export const NoteView = () => {
               <button className={`bicon-btn ${isTrash ? 'active' : ''}`}
                 onClick={() => setActiveFolderId('trash')} style={{ color: isTrash ? c.danger : c.textMuted }}>
                 <Trash2 size={14}/>
-                {trashCount > 0 && <span className="bicon-tooltip">휴지통 ({trashCount})</span>}
-                {trashCount === 0 && <span className="bicon-tooltip">휴지통</span>}
+                {trashCount > 0 && <span className="bicon-tooltip">{t('trash')} ({trashCount})</span>}
+                {trashCount === 0 && <span className="bicon-tooltip">{t('trash')}</span>}
               </button>
             </div>
           ) : (
@@ -1854,8 +1856,8 @@ export const NoteView = () => {
                 <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>노트</span>
                 <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
                 <div style={{ flex: 1 }}/>
-                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }} title="단축키"><Keyboard size={11}/></button>
-                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title="접기">
+                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }}                 title={t('nvShortcuts')}><Keyboard size={11}/></button>
+                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title={t('nvCollapseSidebar')}>
                   <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
                 </button>
               </div>
@@ -1866,7 +1868,7 @@ export const NoteView = () => {
                   ref={searchInputRef}
                   className="bwsi"
                   style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined, width: '100%' }}
-                  placeholder="노트 검색… (Ctrl+F)"
+                  placeholder={t('nvNoteSearchPlaceholder')}
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
@@ -1874,7 +1876,7 @@ export const NoteView = () => {
                 <button
                   type="button"
                   className="btbtn"
-                  title="작업공간 검색 (Ctrl+K)"
+                  title={t('nvWorkspaceSearchBtn')}
                   onClick={() => setWorkspaceSearchOpen(true)}
                   style={{ padding: '4px 6px', flexShrink: 0, color: c.accent }}
                 >
@@ -1889,7 +1891,7 @@ export const NoteView = () => {
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                  <span style={{ flex: 1 }}>전체 노트</span>
+                  <span style={{ flex: 1 }}>{t('nvAllNotes')}</span>
                   <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
                     {notes.filter(n => !n.deletedAt).length}
                   </span>
@@ -1898,33 +1900,33 @@ export const NoteView = () => {
                   className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
                   onClick={() => openTraceDay(todayTraceKey)}
                 >
-                  <span style={{ flex: 1 }}>오늘</span>
+                  <span style={{ flex: 1 }}>{t('nvToday')}</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                 >
-                  <span style={{ flex: 1 }}>이번 달</span>
+                  <span style={{ flex: 1 }}>{t('nvThisMonth')}</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey })}
                 >
-                  <span style={{ flex: 1 }}>이번 분기</span>
+                  <span style={{ flex: 1 }}>{t('nvThisQuarter')}</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
                 >
-                  <span style={{ flex: 1 }}>올해</span>
+                  <span style={{ flex: 1 }}>{t('nvThisYear')}</span>
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
                 >
-                  <span style={{ flex: 1 }}>사용자 지정</span>
+                  <span style={{ flex: 1 }}>{t('nvCustomRange')}</span>
                 </div>
-                <div className="bseclbl">영역</div>
+                <div className="bseclbl">{t('nvAreas')}</div>
                 {areaNotes.map(area => (
                   <div
                     key={area.id}
@@ -1946,15 +1948,15 @@ export const NoteView = () => {
                   className={`bfi ${isTraceDiscoveryMode ? 'active' : ''}`}
                   onClick={openTraceDiscovery}
                 >
-                  <span style={{ flex: 1 }}>패턴 탐색</span>
+                  <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
                 </div>
                 <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-                  <span style={{ flex: 1 }}>즐겨찾기</span>
+                  <span style={{ flex: 1 }}>{t('starred')}</span>
                   {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
                 </div>
-                <div className="bseclbl">폴더</div>
+                <div className="bseclbl">{t('nvFolders')}</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
                     onClick={() => {
@@ -2008,7 +2010,7 @@ export const NoteView = () => {
                 ))}
                 {showFolderForm ? (
                   <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder="폴더 이름"
+                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder={t('nvFolderName')}
                       value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') addFolder(); if (e.key === 'Escape') setShowFolderForm(false); }}
                       autoFocus/>
@@ -2020,12 +2022,12 @@ export const NoteView = () => {
                   </div>
                 ) : (
                   <div className="bfi" onClick={() => setShowFolderForm(true)} style={{ color: c.textMuted, fontSize: 10 }}>
-                    <FolderPlus size={10} color={c.textMuted}/><span>새 폴더</span>
+                    <FolderPlus size={10} color={c.textMuted}/><span>{t('nvNewFolder')}</span>
                   </div>
                 )}
                 {allTags.length > 0 && (
                   <>
-                    <div className="bseclbl" style={{ marginTop: 4 }}>태그</div>
+                    <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvPanelTags')}</div>
                     <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                       {allTags.map(({ tag, count }) => (
                         <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
@@ -2045,7 +2047,7 @@ export const NoteView = () => {
                     {workspaceExpanded
                       ? <ChevronDown size={10} style={{ flexShrink: 0, color: c.textFaint }} />
                       : <ChevronRight size={10} style={{ flexShrink: 0, color: c.textFaint }} />}
-                    <span>작업공간</span>
+                    <span>{t('nvWorkspace')}</span>
                   </div>
                   {workspaceExpanded && (
                     <>
@@ -2157,7 +2159,7 @@ export const NoteView = () => {
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
                   <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
                     <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
-                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>휴지통</span>
+                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>{t('trash')}</span>
                     {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
                   </div>
                 </div>
@@ -2186,8 +2188,8 @@ export const NoteView = () => {
                 type="button"
                 className="btbtn btbtn-mobile"
                 onClick={() => setWorkspaceSearchOpen(true)}
-                title="작업공간 검색 (Ctrl+K)"
-                aria-label="작업공간 검색"
+                title={t('nvWorkspaceSearchBtn')}
+                aria-label={t('nvScWorkspaceSearch')}
                 style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
               >
                 <Search size={16} />
@@ -2198,8 +2200,8 @@ export const NoteView = () => {
                 type="button"
                 className="btbtn btbtn-mobile"
                 onClick={() => setMobileSidebarOpen(true)}
-                title="메뉴"
-                aria-label="메뉴 열기"
+                title={t('nvOpenMenu')}
+                aria-label={t('nvOpenMenu')}
                 style={{ padding: '4px 6px', color: c.textMuted, flexShrink: 0 }}
               >
                 <AlignLeft size={16} />
@@ -2207,7 +2209,7 @@ export const NoteView = () => {
             )}
           <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
             {isTraceDiscoveryMode
-              ? '패턴 탐색'
+              ? t('nvPatternDiscovery')
               : isTraceAreaMode && traceAreaProjection
               ? (traceAreaRange
                 ? formatAreaRangeHeading(traceAreaProjection.areaTitle, traceAreaRange)
@@ -2227,7 +2229,7 @@ export const NoteView = () => {
               : activeSavedView
               ? activeSavedView.name
               : knowledgeQueryInfo.active
-              ? (knowledgeQueryInfo.error ? '잘못된 쿼리' : knowledgeQueryInfo.label)
+              ? (knowledgeQueryInfo.error ? t('nvInvalidQuery') : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
               ({isTraceLensMode ? traceLensMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
@@ -2236,22 +2238,22 @@ export const NoteView = () => {
           </div>
           <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative', flexShrink: 0 }}>
             {searchQuery.trim() && (
-              <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear query">✕</button>
+              <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearQuery')}>✕</button>
             )}
             {isTraceLensMode && (
-              <button onClick={closeTraceLens} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave trace view">✕</button>
+              <button onClick={closeTraceLens} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvLeaveTrace')}>✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
-              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="대시보드 나가기">✕</button>
+              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvLeaveDashboard')}>✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'database-view') && !searchQuery.trim() && (
-              <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear database view">✕</button>
+              <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearDbView')}>✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'smart-collection') && !searchQuery.trim() && (
-              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="컬렉션 해제">✕</button>
+              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearCollection')}>✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'rule-collection') && !searchQuery.trim() && !isWorkspaceKindActive(workspaceActivation, 'smart-collection') && (
-              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="컬렉션 해제">✕</button>
+              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearCollection')}>✕</button>
             )}
             {activeTag && workspaceActivation.kind === 'none' && !searchQuery.trim() && (
               <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>
@@ -2260,7 +2262,7 @@ export const NoteView = () => {
               <>
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
-              title="Sort">
+              title={t('nvSort')}>
               {sortOrder === 'updated' ? '⏱' : sortOrder === 'title' ? 'Az' : '📅'}
             </button>
             {showSortMenu && (
@@ -2268,13 +2270,13 @@ export const NoteView = () => {
                 {(['updated', 'title', 'created'] as const).map(s => (
                   <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
                     onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? '⏱ 최근 수정' : s === 'title' ? 'Az 제목' : '📅 생성일'}
+                    {s === 'updated' ? `⏱ ${t('nvSortUpdated')}` : s === 'title' ? t('nvSortTitle') : `📅 ${t('nvSortCreated')}`}
                   </div>
                 ))}
               </div>
             )}
             {!isTrash && (
-              <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files">
+              <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')}>
                 <Upload size={11}/>
               </button>
             )}
@@ -2284,7 +2286,7 @@ export const NoteView = () => {
               </button>
             )}
             {!isTrash && (
-              <button onClick={() => openCreateEventDialog()} className="btbtn" title="Create event">
+              <button onClick={() => openCreateEventDialog()} className="btbtn" title={t('nvCreateEvent')}>
                 <CalendarDays size={11}/>
               </button>
             )}
@@ -2469,7 +2471,7 @@ export const NoteView = () => {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-              {isTrash ? '휴지통이 비어 있습니다' : '노트 없음'}
+              {isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}
             </div>
           ) : visibleNotes.map(n => {
             const folder  = folders.find(f => f.id === n.folderId);
@@ -2485,7 +2487,7 @@ export const NoteView = () => {
                 draggable={!isTrash}
                 onDragStart={() => setDragNoteId(n.id)}
                 onDragEnd={() => setDragNoteId(null)}
-                title="Drag to folder · Ctrl+D to duplicate"
+                title={t('nvDragHint')}
                 onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNote(n); } }}
                 tabIndex={0}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
@@ -2517,7 +2519,7 @@ export const NoteView = () => {
             <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
               {isMobile && (
                 <button type="button" className="btbtn" onClick={() => { setMobileShowEditor(false); setActiveNoteId(null); }}
-                  style={{ padding: '2px 4px', color: c.textMuted }} title="Back to notes">
+                  style={{ padding: '2px 4px', color: c.textMuted }} title={t('nvBackToNotes')}>
                   <ChevronLeft size={14}/>
                 </button>
               )}
@@ -2527,7 +2529,7 @@ export const NoteView = () => {
                   className="btbtn"
                   onClick={handleExitFocusPreset}
                   style={{ fontSize: 10, color: c.accent, whiteSpace: 'nowrap' }}
-                  title="Exit focus mode"
+                  title={t('nvExitFocus')}
                 >
                   Exit Focus
                 </button>
@@ -2537,11 +2539,11 @@ export const NoteView = () => {
                 onCompositionStart={() => { titleComposingRef.current = true; }}
                 onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
-                placeholder="제목"/>
+                placeholder={t('title')}/>
               {!isTrash && (
                 <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
                   style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer' }}>
-                  <option value="">폴더 없음</option>
+                  <option value="">{t('nvNoFolder')}</option>
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               )}
@@ -2568,7 +2570,7 @@ export const NoteView = () => {
               {/* Cloud sync status */}
               {!isTrash && (
                 syncError ? (
-                  <button type="button" onClick={retrySync} className="btbtn" title="Retry cloud sync"
+                  <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
                     style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
                     <AlertTriangle size={10}/> {syncError}
                   </button>
@@ -2588,7 +2590,7 @@ export const NoteView = () => {
                 {VIEW_MODES.map(({ key, icon }) => (
                   <button
                     key={key}
-                    title={key === 'reading' ? '읽기 모드 (Ctrl+E)' : '그래프 (Ctrl+G)'}
+                    title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
                     onClick={() => {
                       if (key === 'reading') setViewMode(v => toggleEditReading(v));
                       else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
@@ -2612,7 +2614,7 @@ export const NoteView = () => {
                   style={{ fontSize: 10, color: isEventNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
                   title={isEventNote(activeNote) ? 'Edit event' : 'Mark as event'}
                 >
-                  {isEventNote(activeNote) ? 'Edit Event' : 'Mark Event'}
+                  {isEventNote(activeNote) ? t('nvEditEvent') : t('nvMarkEvent')}
                 </button>
               )}
               {!isTrash && (
@@ -2623,7 +2625,7 @@ export const NoteView = () => {
                   style={{ fontSize: 10, color: isMilestoneNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
                   title={isMilestoneNote(activeNote) ? 'Edit milestone' : 'Mark as milestone'}
                 >
-                  {isMilestoneNote(activeNote) ? 'Edit Milestone' : 'Mark Milestone'}
+                  {isMilestoneNote(activeNote) ? t('nvEditMilestone') : t('nvMarkMilestone')}
                 </button>
               )}
               {!isTrash && (isAreaNote(activeNote) || canMarkAsArea(activeNote)) && (
@@ -2634,7 +2636,7 @@ export const NoteView = () => {
                   style={{ fontSize: 10, color: isAreaNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
                   title={isAreaNote(activeNote) ? 'Clear area designation' : 'Mark as area hub'}
                 >
-                  {isAreaNote(activeNote) ? 'Clear Area' : 'Mark Area'}
+                  {isAreaNote(activeNote) ? t('nvClearArea') : t('nvMarkArea')}
                 </button>
               )}
               {/* Star */}
@@ -2645,12 +2647,12 @@ export const NoteView = () => {
               )}
               {/* Duplicate */}
               {!isTrash && (
-                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title="Duplicate (Ctrl+D)">
+                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title={t('nvDuplicate')}>
                   <span style={{ fontSize: 11 }}>⎘</span>
                 </button>
               )}
               {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`} title="Toggle sidebar"
+              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
                 style={{ color: showRightPanel ? c.accent : c.textMuted }}>
                 <AlignLeft size={12}/>
               </button>
@@ -2663,7 +2665,7 @@ export const NoteView = () => {
                 </button>
               )}
               {/* Export */}
-              <button onClick={() => exportNote(activeNote)} className="btbtn" title="Export as .md">
+              <button onClick={() => exportNote(activeNote)} className="btbtn" title={t('nvExportMd')}>
                 <Save size={12}/>
               </button>
               {isTrash
@@ -2701,7 +2703,7 @@ export const NoteView = () => {
                       <button
                         type="button"
                         className="btbtn"
-                        title="노트 검색 (Ctrl+F)"
+                        title={t('nvNoteSearchPlaceholder')}
                         onClick={() => {
                           searchInputRef.current?.focus();
                           setSearchScope('document');
@@ -2722,25 +2724,25 @@ export const NoteView = () => {
                               border: `1px solid ${searchScope === scope ? c.accent : c.toolBdr}`,
                               borderRadius: 5, cursor: 'pointer',
                             }}>
-                            {scope === 'block' ? '현재 블록' : scope === 'document' ? '현재 문서' : '전체 노트'}
+                            {scope === 'block' ? t('nvSearchScopeBlock') : scope === 'document' ? t('nvSearchScopeDocument') : t('nvSearchScopeAll')}
                           </button>
                         ))}
                         {searchScope !== 'all' && (
                           <>
-                            <button type="button" className="btbtn" title="이전 (↑)"
+                            <button type="button" className="btbtn" title={t('nvSearchPrev')}
                               onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
                               style={{ padding: '2px 5px' }}><ChevronUp size={12}/></button>
-                            <button type="button" className="btbtn" title="다음 (↓)"
+                            <button type="button" className="btbtn" title={t('nvSearchNext')}
                               onClick={() => setSearchMatchIdx(i => i + 1)}
                               style={{ padding: '2px 5px' }}><ChevronDown size={12}/></button>
                           </>
                         )}
                       </div>
                     )}
-                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title="Import .md files" style={{ marginLeft: 4 }}>
+                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')} style={{ marginLeft: 4 }}>
                       <Upload size={13}/>
                     </button>
-                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title="커서 위치에 이미지 블록 삽입">
+                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title={t('nvInsertImage')}>
                       <ImageIcon size={13}/>
                     </button>
                     <div
@@ -2752,7 +2754,7 @@ export const NoteView = () => {
                         type="button"
                         onClick={() => setShowAppearance(v => !v)}
                         className="btbtn"
-                        title="글꼴·색상 설정"
+                        title={t('nvAppearance')}
                         style={{ color: showAppearance ? c.accent : c.textMuted }}>
                         <Type size={13}/>
                       </button>
@@ -2851,7 +2853,7 @@ export const NoteView = () => {
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
-                          <AlertTriangle size={14}/> 휴지통에 있음 — 복원 후 편집
+                          <AlertTriangle size={14}/> {t('nvInTrashRestore')}
                         </div>
                         <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                       </div>
@@ -2861,7 +2863,7 @@ export const NoteView = () => {
                         style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
                         {viewMode === 'reading' && (
                           <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
-                            읽기 모드 — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd>로 편집
+                            {t('nvReadingModeHint')}
                           </div>
                         )}
                         <NoteBlockEditor
@@ -2893,8 +2895,8 @@ export const NoteView = () => {
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
               <div style={{ fontSize: 32 }}>📋</div>
-              <p style={{ fontSize: 13 }}>노트를 선택하거나 새 노트를 만드세요</p>
-              <button className="bwbg" onClick={() => createNote()}>+ 새 노트</button>
+              <p style={{ fontSize: 13 }}>{t('nvSelectNoteEmpty')}</p>
+              <button className="bwbg" onClick={() => createNote()}>{t('nvNewNoteBtn')}</button>
               <button onClick={() => setViewMode('graph')}
                 style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <GitFork size={12}/> 그래프 보기
@@ -2947,7 +2949,7 @@ export const NoteView = () => {
                     {item.hasChildren ? (
                       <button
                         type="button"
-                        aria-label={tocCollapsed[item.idx] ? '섹션 펼치기' : '섹션 접기'}
+                        aria-label={tocCollapsed[item.idx] ? t('nvExpandSection') : t('nvCollapseSection')}
                         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', flexShrink: 0 }}
                         onClick={e => { e.stopPropagation(); toggleTocCollapse(item.idx); }}>
                         {tocCollapsed[item.idx]
@@ -3126,16 +3128,16 @@ export const NoteView = () => {
             const created = Number(activeNote.id.split('-')[1] || 0);
             return (
               <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>노트 통계</div>
+                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvNoteStats')}</div>
                 {[
-                  ['단어', words],
-                  ['글자', chars],
-                  ['줄', lines],
-                  ['읽기 시간', `~${readMin}분`],
-                  ['제목', headings],
-                  ['위키 링크', linkCount],
-                  ['태그', tagCount],
-                  ['코드 블록', Math.floor(codeBlocks)],
+                  [t('nvStatWords'), words],
+                  [t('nvStatChars'), chars],
+                  [t('nvStatLines'), lines],
+                  [t('nvStatReadTime'), t('nvStatReadMin').replace('{min}', String(readMin))],
+                  [t('nvStatHeadings'), headings],
+                  [t('nvStatWikiLinks'), linkCount],
+                  [t('nvStatTags'), tagCount],
+                  [t('nvStatCodeBlocks'), Math.floor(codeBlocks)],
                 ].map(([label, val]) => (
                   <div key={label as string} className="bstat-row">
                     <span style={{ color: c.textMuted }}>{label}</span>
@@ -3144,13 +3146,13 @@ export const NoteView = () => {
                 ))}
                 {created > 0 && (
                   <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
-                    Created {new Date(created).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </div>
                 )}
                 {/* 태그 클라우드 */}
                 {allTags.length > 0 && (
                   <>
-                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>태그 클라우드</div>
+                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvTagCloud')}</div>
                     <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                       {allTags.slice(0, 20).map(({ tag, count }) => {
                         const maxCount = allTags[0]?.count ?? 1;

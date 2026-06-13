@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import {
   type MilestoneFormValues,
   validateMilestoneForm,
@@ -25,6 +26,7 @@ export function MilestoneNoteDialog({
   onRemoveMilestone,
   onClose,
 }: MilestoneNoteDialogProps) {
+  const { t } = useTranslation();
   const [milestoneDate, setMilestoneDate] = useState(initialValues.milestoneDate);
   const [milestoneLabel, setMilestoneLabel] = useState(initialValues.milestoneLabel ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -100,15 +102,15 @@ export function MilestoneNoteDialog({
           id="milestone-note-dialog-title"
           style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: c.text }}
         >
-          {hasExistingMilestone ? 'Edit Milestone' : 'Mark Milestone'}
+          {hasExistingMilestone ? t('nvEditMilestone') : t('nvMarkMilestone')}
         </h2>
         <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 12 }}>
-          노트: {displayNoteTitle(noteTitle)}
+          {t('milestoneNoteFor').replace('{title}', displayNoteTitle(noteTitle))}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <label>
-            <span style={labelStyle}>Milestone date</span>
+            <span style={labelStyle}>{t('milestoneDateLabel')}</span>
             <input
               type="date"
               className="bwi"
@@ -119,13 +121,13 @@ export function MilestoneNoteDialog({
           </label>
 
           <label>
-            <span style={labelStyle}>Label (optional)</span>
+            <span style={labelStyle}>{t('milestoneLabelOptional')}</span>
             <input
               className="bwi"
               style={inputStyle}
               value={milestoneLabel}
               onChange={e => setMilestoneLabel(e.target.value)}
-              placeholder="Defaults to note title"
+              placeholder={t('milestoneDefaultTitle')}
             />
           </label>
 
@@ -155,13 +157,13 @@ export function MilestoneNoteDialog({
                   textDecoration: 'underline',
                 }}
               >
-                Remove milestone
+                {t('milestoneRemoveStatus')}
               </button>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 11, padding: '6px 12px' }} onClick={onClose}>
-              Cancel
+              {t('cancel')}
             </button>
             <button
               type="button"
@@ -177,7 +179,7 @@ export function MilestoneNoteDialog({
               }}
               onClick={handleSave}
             >
-              Save
+              {t('save')}
             </button>
           </div>
         </div>

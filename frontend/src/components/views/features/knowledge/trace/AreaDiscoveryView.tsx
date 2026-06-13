@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import {
   areaDiscoveryObservationCount,
   buildAreaDiscoveryProjection,
@@ -89,6 +90,7 @@ export function AreaDiscoveryView({
   activeNoteId,
   onSelectNote,
 }: AreaDiscoveryViewProps) {
+  const { t } = useTranslation();
   const projection = useMemo(
     () => buildAreaDiscoveryProjection(notes),
     [notes],
@@ -109,10 +111,10 @@ export function AreaDiscoveryView({
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>
-          Discover Patterns
+          {t('traceDiscoverTitle')}
         </div>
         <div style={{ fontSize: 11, color: c.textMuted, lineHeight: 1.5 }}>
-          Observations from links — not recommendations.
+          {t('traceDiscoverSubtitle')}
         </div>
       </div>
 
@@ -124,12 +126,12 @@ export function AreaDiscoveryView({
           fontSize: 12,
           lineHeight: 1.5,
         }}>
-          No recurring patterns observed yet.
+          {t('traceDiscoveryEmpty')}
         </div>
       ) : (
         <>
           {projection.potentialHubs.length > 0 && (
-            <TraceSection colors={c} title="Potential Hubs">
+            <TraceSection colors={c} title={t('traceDiscoveryHubs')}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {projection.potentialHubs.map(item => (
                   <ObservationButton
@@ -137,7 +139,7 @@ export function AreaDiscoveryView({
                     colors={c}
                     active={item.noteId === activeNoteId}
                     title={item.title}
-                    detail={`Referenced by ${item.referenceCount} notes`}
+                    detail={t('traceReferencedBy').replace('{count}', String(item.referenceCount))}
                     onClick={() => onSelectNote(item.noteId)}
                   />
                 ))}
@@ -146,7 +148,7 @@ export function AreaDiscoveryView({
           )}
 
           {projection.recurringConnections.length > 0 && (
-            <TraceSection colors={c} title="Recurring Connections">
+            <TraceSection colors={c} title={t('traceDiscoveryConnections')}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {projection.recurringConnections.map((cluster, index) => (
                   <div
@@ -179,7 +181,7 @@ export function AreaDiscoveryView({
 
       {hasObservations && (
         <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.5 }}>
-          {observationCount} observation{observationCount === 1 ? '' : 's'} — meaning belongs to you.
+          {t('traceObservationFooter').replace('{count}', String(observationCount))}
         </div>
       )}
     </div>
