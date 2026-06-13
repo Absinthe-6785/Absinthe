@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
-import { useViewportLayout } from '../../../../hooks/useViewportLayout';
-import { dashboardOuterPadding } from '../../../../lib/responsiveLayout';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { dashboardOuterPadding } from '../../../../../lib/responsiveLayout';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { RecentWorkEntry } from '../workspace/workspacePreferences';

@@ -1,8 +1,8 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import type { SubjectDashboardEntry } from '../maps/subjectDashboards';
-import { useViewportLayout } from '../../../../hooks/useViewportLayout';
-import { responsiveStatGridColumns, touchMinSize } from '../../../../lib/responsiveLayout';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { responsiveStatGridColumns, touchMinSize } from '../../../../../lib/responsiveLayout';
 
 export interface SubjectWorkspacePanelProps {
   colors: NoteChromeColors;

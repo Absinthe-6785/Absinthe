@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
-import { useViewportLayout } from '../../../../hooks/useViewportLayout';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollection } from '../collections/smartCollectionModels';
 import {

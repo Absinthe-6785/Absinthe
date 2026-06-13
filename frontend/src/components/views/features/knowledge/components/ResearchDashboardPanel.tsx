@@ -1,7 +1,7 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { ResearchDashboardData, ResearchNoteEntry } from '../research/buildResearchDashboard';
-import { useViewportLayout } from '../../../../hooks/useViewportLayout';
-import { responsiveMetricGridColumns } from '../../../../lib/responsiveLayout';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { responsiveMetricGridColumns } from '../../../../../lib/responsiveLayout';
 
 export interface ResearchDashboardPanelProps {
   colors: NoteChromeColors;

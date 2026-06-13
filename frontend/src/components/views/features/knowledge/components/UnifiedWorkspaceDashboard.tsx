@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import { touchMinSize } from '../../../../lib/responsiveLayout';
+import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';

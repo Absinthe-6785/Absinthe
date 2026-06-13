@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import { useViewportLayout } from '../../../../hooks/useViewportLayout';
-import { touchMinSize } from '../../../../lib/responsiveLayout';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import {
   MILESTONE_STATUSES,
   MILESTONE_STATUS_LABELS_KO,
