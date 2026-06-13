@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SavedView } from '../views/savedViewModels';
 import { WorkspacePinToggle } from './WorkspacePinToggle';
@@ -31,6 +32,7 @@ export function SavedViewsSection({
   isPinned,
   onTogglePin,
 }: SavedViewsSectionProps) {
+  const { t } = useTranslation();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -58,14 +60,14 @@ export function SavedViewsSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>저장된 보기</span>
+        <span>{t('knSavedViews')}</span>
         {activeViewId && (
           <button
             type="button"
             onClick={onClearActive}
             className="btbtn"
             style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-            title="보기 선택 해제"
+            title={t('knClearViewActive')}
           >
             <X size={10} />
           </button>
@@ -86,7 +88,7 @@ export function SavedViewsSection({
               }}
               autoFocus
             />
-            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>저장</button>
+            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>{t('save')}</button>
           </div>
         ) : (
           <div
@@ -114,7 +116,7 @@ export function SavedViewsSection({
                 setRenameValue(view.name);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="보기 이름 변경"
+              title={t('knRenameView')}
             >
               <Pencil size={9} />
             </button>
@@ -125,7 +127,7 @@ export function SavedViewsSection({
                 onDelete(view.id);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="보기 삭제"
+              title={t('knDeleteView')}
             >
               <Trash2 size={9} />
             </button>
@@ -138,7 +140,7 @@ export function SavedViewsSection({
           <input
             className="bwi"
             style={{ width: '100%', fontSize: 11 }}
-            placeholder="보기 이름"
+            placeholder={t('knViewName')}
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => {
@@ -148,12 +150,12 @@ export function SavedViewsSection({
             autoFocus
           />
           <div style={{ display: 'flex', gap: 3 }}>
-            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>저장</button>
+            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>{t('save')}</button>
             <button
               onClick={() => setShowCreateForm(false)}
               style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}
             >
-              취소
+              {t('cancel')}
             </button>
           </div>
         </div>
@@ -165,7 +167,7 @@ export function SavedViewsSection({
             style={{ color: c.textMuted, fontSize: 10 }}
           >
             <Plus size={10} color={c.textMuted} />
-            <span>현재 검색 저장</span>
+            <span>{t('dbSaveCurrentSearch')}</span>
           </div>
         )
       )}

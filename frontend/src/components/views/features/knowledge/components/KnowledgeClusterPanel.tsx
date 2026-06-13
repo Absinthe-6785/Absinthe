@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeClusterData } from '../maps/buildKnowledgeClusters';
 
@@ -9,18 +10,21 @@ export interface KnowledgeClusterPanelProps {
 
 /** Identify major topic areas from graph/index infrastructure. */
 export function KnowledgeClusterPanel({ colors: c, data, onNavigateToNote }: KnowledgeClusterPanelProps) {
+  const { t } = useTranslation();
   return (
-    <section className="be-knowledge-clusters" style={{ padding: '0 0 8px' }} aria-label="지식 클러스터">
+    <section className="be-knowledge-clusters" style={{ padding: '0 0 8px' }} aria-label={t('wsKnowledgeClusters')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
-        지식 클러스터
+        {t('wsKnowledgeClusters')}
         <span style={{ color: c.accent, marginLeft: 6 }}>{data.conceptCount} concepts</span>
       </div>
       <div style={{ fontSize: 9, color: c.textFaint, padding: '0 10px 6px' }}>
-        태그 그룹 {data.clusterCount} · 고연결 개념 {data.highlyConnected.length}
+        {t('knClusterSummary')
+          .replace('{clusters}', String(data.clusterCount))
+          .replace('{connected}', String(data.highlyConnected.length))}
       </div>
       {data.highlyConnected.length > 0 && (
         <div style={{ padding: '0 8px 8px' }}>
-          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>고연결 개념</div>
+          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('knHighlyConnectedConcepts')}</div>
           {data.highlyConnected.map(item => (
             <button
               key={item.noteId}
@@ -46,7 +50,7 @@ export function KnowledgeClusterPanel({ colors: c, data, onNavigateToNote }: Kno
       )}
       {data.tagClusters.length > 0 && (
         <div style={{ padding: '0 8px 8px' }}>
-          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>개념 그룹 (태그)</div>
+          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('knConceptGroupsByTag')}</div>
           {data.tagClusters.map(cluster => (
             <div
               key={cluster.tag}
@@ -68,7 +72,7 @@ export function KnowledgeClusterPanel({ colors: c, data, onNavigateToNote }: Kno
         </div>
       )}
       {data.highlyConnected.length === 0 && data.tagClusters.length === 0 && (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px' }}>클러스터 없음</p>
+        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px' }}>{t('knNoClusters')}</p>
       )}
     </section>
   );

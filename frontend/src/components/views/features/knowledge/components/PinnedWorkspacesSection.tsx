@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { WorkspaceRef } from '../workspace/workspaceModels';
 import { WorkspacePinToggle } from './WorkspacePinToggle';
@@ -22,12 +23,13 @@ export function PinnedWorkspacesSection({
   onUnpin,
   onMovePinned,
 }: PinnedWorkspacesSectionProps) {
+  const { t } = useTranslation();
   if (pinned.length === 0) return null;
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl">
-        <span>고정</span>
+        <span>{t('knPinnedShort')}</span>
       </div>
       {pinned.map((ref, index) => {
         const isActive = activeKind === ref.kind && activeId === ref.id;
@@ -50,7 +52,7 @@ export function PinnedWorkspacesSection({
                 type="button"
                 onClick={e => { e.stopPropagation(); onMovePinned(index, index - 1); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-                title="위로"
+                title={t('knMoveUp')}
               >
                 <ChevronUp size={9} />
               </button>
@@ -60,7 +62,7 @@ export function PinnedWorkspacesSection({
                 type="button"
                 onClick={e => { e.stopPropagation(); onMovePinned(index, index + 1); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-                title="아래로"
+                title={t('knMoveDown')}
               >
                 <ChevronDown size={9} />
               </button>
@@ -68,7 +70,7 @@ export function PinnedWorkspacesSection({
             <WorkspacePinToggle
               colors={c}
               pinned
-              title="작업공간 고정 해제"
+              title={t('knUnpinWorkspace')}
               onToggle={e => { e.stopPropagation(); onUnpin(ref); }}
             />
           </div>

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Code2, Copy, Check } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { insertTabAt } from './codeBlockUtils';
@@ -13,6 +14,7 @@ export interface CodeBlockProps {
 }
 
 export function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockProps) {
+  const { t } = useTranslation();
   const code = block.code ?? '';
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(code);
@@ -82,7 +84,7 @@ export function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockPro
         ref={taRef}
         value={draft}
         spellCheck={false}
-        placeholder="코드 입력…"
+        placeholder={t('blockCodePlaceholder')}
         onChange={e => { setDraft(e.target.value); onChange({ code: e.target.value }); }}
         onKeyDown={e => {
           if (e.key === 'Tab') {

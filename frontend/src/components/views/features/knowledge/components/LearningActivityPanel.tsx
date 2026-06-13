@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { LearningActivityData, LearningActivityKind } from '../analytics/buildLearningActivity';
 
@@ -7,20 +8,21 @@ export interface LearningActivityPanelProps {
   onNavigateToNote: (noteId: string) => void;
 }
 
-const KIND_LABELS: Record<LearningActivityKind, string> = {
-  study: '학습',
-  research: '연구',
-  review: '복습',
-  project: '프로젝트',
+const KIND_KEYS: Record<LearningActivityKind, 'knActivityStudy' | 'knActivityResearch' | 'knActivityReview' | 'knActivityProject'> = {
+  study: 'knActivityStudy',
+  research: 'knActivityResearch',
+  review: 'knActivityReview',
+  project: 'knActivityProject',
 };
 
 /** Recent learning activity timeline from note timestamps. */
 export function LearningActivityPanel({ colors: c, data, onNavigateToNote }: LearningActivityPanelProps) {
+  const { t } = useTranslation();
   if (data.items.length === 0) {
-    return <div style={{ fontSize: 10, color: c.textFaint }}>최근 학습 활동 없음</div>;
+    return <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNoRecentLearningActivity')}</div>;
   }
   return (
-    <div className="be-learning-activity" aria-label="학습 활동">
+    <div className="be-learning-activity" aria-label={t('knStudyActivity')}>
       {data.items.map(item => (
         <button
           key={`${item.kind}-${item.noteId}`}
@@ -42,7 +44,7 @@ export function LearningActivityPanel({ colors: c, data, onNavigateToNote }: Lea
             {item.noteTitle}
           </div>
           <div style={{ fontSize: 9, color: c.textMuted, marginTop: 1 }}>
-            {KIND_LABELS[item.kind]} · {item.meta}
+            {t(KIND_KEYS[item.kind])} · {item.meta}
           </div>
         </button>
       ))}

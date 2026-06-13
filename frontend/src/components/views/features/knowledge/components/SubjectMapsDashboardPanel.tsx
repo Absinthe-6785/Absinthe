@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { SUBJECT_DASHBOARDS, type SubjectDashboardData } from '../maps/subjectDashboards';
@@ -16,9 +17,10 @@ export function SubjectMapsDashboardPanel({
   onNavigateToNote,
   onActivateSubjectWorkspace,
 }: SubjectMapsDashboardPanelProps) {
+  const { t } = useTranslation();
   const active = subjects.filter(s => s.noteCount > 0);
   return (
-    <div className="be-subject-maps" aria-label="주제 대시보드">
+    <div className="be-subject-maps" aria-label={t('knSubjectMapsAria')}>
       {SUBJECT_DASHBOARDS.map(def => {
         const data = subjects.find(s => s.subject.id === def.id);
         const noteCount = data?.noteCount ?? 0;
@@ -47,12 +49,15 @@ export function SubjectMapsDashboardPanel({
                     cursor: 'pointer',
                   }}
                 >
-                  작업공간
+                  {t('knOpenWorkspaceShort')}
                 </button>
               )}
             </div>
             <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 6 }}>
-              노트 {noteCount} · 개념 {conceptCount} · 프로젝트 {projectCount}
+              {t('knSubjectMapsStats')
+                .replace('{notes}', String(noteCount))
+                .replace('{concepts}', String(conceptCount))
+                .replace('{projects}', String(projectCount))}
             </div>
             {data && data.recentNotes.length > 0 ? (
               data.recentNotes.slice(0, 3).map(entry => (
@@ -77,13 +82,13 @@ export function SubjectMapsDashboardPanel({
                 </button>
               ))
             ) : (
-              <div style={{ fontSize: 10, color: c.textFaint }}>태그된 노트 없음</div>
+              <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNoTaggedNotes')}</div>
             )}
           </div>
         );
       })}
       {active.length === 0 && (
-        <div style={{ fontSize: 10, color: c.textFaint }}>주제 태그를 노트에 추가하면 여기에 표시됩니다.</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knAddSubjectTagsHint')}</div>
       )}
     </div>
   );

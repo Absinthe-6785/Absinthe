@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { ProjectEditorData } from '../academic/buildProjectEditorData';
 import {
   STUDY_PROJECT_STATUSES,
-  STUDY_PROJECT_STATUS_LABELS_KO,
   type StudyProjectStatus,
 } from '../academic/studyProjectModels';
 
@@ -18,6 +18,12 @@ export interface ProjectEditorPanelProps {
   onCreateMilestone?: () => void;
 }
 
+const PROJECT_STATUS_KEYS: Record<StudyProjectStatus, 'projectStatusPlanned' | 'projectStatusActive' | 'projectStatusCompleted'> = {
+  planned: 'projectStatusPlanned',
+  active: 'projectStatusActive',
+  completed: 'projectStatusCompleted',
+};
+
 function EntryList({
   c,
   title,
@@ -29,6 +35,7 @@ function EntryList({
   items: ProjectEditorData['linkedNotes'];
   onNavigate: (noteId: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>
@@ -36,7 +43,7 @@ function EntryList({
         {items.length > 0 && <span style={{ color: c.accent, marginLeft: 4 }}>({items.length})</span>}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         items.map(item => (
           <button
@@ -75,6 +82,7 @@ export function ProjectEditorPanel({
   onNavigateToNote,
   onCreateMilestone,
 }: ProjectEditorPanelProps) {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useViewportLayout();
   const touch = touchMinSize(isMobile, isTablet);
   const [descriptionDraft, setDescriptionDraft] = useState(data.description);
@@ -89,14 +97,16 @@ export function ProjectEditorPanel({
     }
   };
 
+  const statusLabel = t(PROJECT_STATUS_KEYS[data.status]);
+
   return (
-    <section className="be-project-editor" aria-label="프로젝트 편집" style={{ padding: '8px 10px' }}>
+    <section className="be-project-editor" aria-label={t('knProjectEditorAria')} style={{ padding: '8px 10px' }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 8, borderTop: `1px solid ${c.sideBdr}`, paddingTop: 8 }}>
-        프로젝트 편집
+        {t('knProjectEditorAria')}
       </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: c.text, marginBottom: 8 }}>{data.title}</div>
 
-      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>상태</label>
+      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('createProjectStatus')}</label>
       <select
         value={data.status}
         onChange={e => onUpdateStatus(e.target.value as StudyProjectStatus)}
@@ -114,17 +124,17 @@ export function ProjectEditorPanel({
         }}
       >
         {STUDY_PROJECT_STATUSES.map(status => (
-          <option key={status} value={status}>{STUDY_PROJECT_STATUS_LABELS_KO[status]}</option>
+          <option key={status} value={status}>{t(PROJECT_STATUS_KEYS[status])}</option>
         ))}
       </select>
 
-      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>설명</label>
+      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('createProjectDescription')}</label>
       <textarea
         value={descriptionDraft}
         onChange={e => setDescriptionDraft(e.target.value)}
         onBlur={commitDescription}
         rows={3}
-        placeholder="프로젝트 설명"
+        placeholder={t('createProjectDescriptionPlaceholder')}
         style={{
           width: '100%',
           marginBottom: 10,
@@ -140,7 +150,10 @@ export function ProjectEditorPanel({
       />
 
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 10 }}>
-        {STUDY_PROJECT_STATUS_LABELS_KO[data.status]} · {data.summary.progressPercent}% · {data.summary.linkedNoteCount} 연결 노트
+        {t('knLinkedNotesSummary')
+          .replace('{status}', statusLabel)
+          .replace('{percent}', String(data.summary.progressPercent))
+          .replace('{count}', String(data.summary.linkedNoteCount))}
       </div>
 
       {onCreateMilestone && (
@@ -160,13 +173,13 @@ export function ProjectEditorPanel({
             cursor: 'pointer',
           }}
         >
-          + 마일스톤 추가
+          {t('knAddMilestone')}
         </button>
       )}
 
-      <EntryList c={c} title="마일스톤" items={data.milestones} onNavigate={onNavigateToNote} />
-      <EntryList c={c} title="연결 노트" items={data.linkedNotes} onNavigate={onNavigateToNote} />
-      <EntryList c={c} title="관련 개념" items={data.concepts} onNavigate={onNavigateToNote} />
+      <EntryList c={c} title={t('traceSectionMilestones')} items={data.milestones} onNavigate={onNavigateToNote} />
+      <EntryList c={c} title={t('traceSectionLinkedNotes')} items={data.linkedNotes} onNavigate={onNavigateToNote} />
+      <EntryList c={c} title={t('knRelatedConcepts')} items={data.concepts} onNavigate={onNavigateToNote} />
     </section>
   );
 }

@@ -1,6 +1,6 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { ReviewQueueEntry } from '../review/reviewQueue';
-import { reviewQueueReasonLabel } from '../review/reviewQueue';
+import type { ReviewQueueEntry, ReviewQueueReason } from '../review/reviewQueue';
 
 export interface ReviewQueuePanelProps {
   colors: NoteChromeColors;
@@ -9,6 +9,13 @@ export interface ReviewQueuePanelProps {
   compact?: boolean;
 }
 
+const REASON_KEYS: Record<ReviewQueueReason, 'knReviewReasonStale' | 'knReviewReasonLinked' | 'knReviewReasonRecent' | 'knReviewReasonMilestone'> = {
+  stale: 'knReviewReasonStale',
+  linked: 'knReviewReasonLinked',
+  recent: 'knReviewReasonRecent',
+  milestone: 'knReviewReasonMilestone',
+};
+
 /** Manual review queue — no flashcards, no SRS. */
 export function ReviewQueuePanel({
   colors: c,
@@ -16,16 +23,17 @@ export function ReviewQueuePanel({
   onNavigateToNote,
   compact,
 }: ReviewQueuePanelProps) {
+  const { t } = useTranslation();
   return (
-    <section className="be-review-queue" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label="검토 대기열">
+    <section className="be-review-queue" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label={t('knReviewQueueAria')}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>
-        검토 대기열 {queue.length > 0 && <span style={{ color: c.accent }}>({queue.length})</span>}
+        {t('knReviewQueueTitle')} {queue.length > 0 && <span style={{ color: c.accent }}>({queue.length})</span>}
       </div>
       <p style={{ fontSize: 9, color: c.textFaint, margin: '0 0 6px' }}>
-        오래됨 · 허브 · 최근 편집 · 마일스톤 후보
+        {t('knReviewQueueHint')}
       </p>
       {queue.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>검토 후보 없음 — 최근 편집·연결 기준으로 모두 양호합니다.</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knReviewQueueEmpty')}</div>
       ) : (
         queue.map(item => (
           <button
@@ -56,7 +64,7 @@ export function ReviewQueuePanel({
                   flexShrink: 0,
                 }}
               >
-                {reviewQueueReasonLabel(item.reason)}
+                {t(REASON_KEYS[item.reason])}
               </span>
               <span
                 style={{

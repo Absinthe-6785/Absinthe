@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { RecentWorkEntry } from '../workspace/workspacePreferences';
 import { WorkspacePinToggle } from './WorkspacePinToggle';
@@ -24,18 +25,19 @@ export function RecentWorkSection({
   onTogglePin,
   onClearRecent,
 }: RecentWorkSectionProps) {
+  const { t } = useTranslation();
   if (recent.length === 0) return null;
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>최근</span>
+        <span>{t('searchRecent')}</span>
         <button
           type="button"
           onClick={onClearRecent}
           className="btbtn"
           style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-          title="최근 작업공간 지우기"
+          title={t('knClearRecentWorkspaces')}
         >
           <X size={10} />
         </button>

@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
 export interface WeakTopicToggleProps {
@@ -9,12 +10,13 @@ export interface WeakTopicToggleProps {
 
 /** Manual weak-topic flag — property + tag, no automation. */
 export function WeakTopicToggle({ colors: c, active, onChange, disabled }: WeakTopicToggleProps) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onChange(!active)}
-      title="약점 주제 표시"
+      title={t('knWeakTopicToggleTitle')}
       className="btbtn"
       style={{
         fontSize: 10,
@@ -27,7 +29,7 @@ export function WeakTopicToggle({ colors: c, active, onChange, disabled }: WeakT
         whiteSpace: 'nowrap',
       }}
     >
-      {active ? '약점 ✓' : '약점'}
+      {active ? t('knWeakTopicActive') : t('knWeakTopicInactive')}
     </button>
   );
 }

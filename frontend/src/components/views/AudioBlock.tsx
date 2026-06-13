@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Play, Pause, Volume2 } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 
@@ -23,6 +24,7 @@ export interface AudioBlockProps {
 }
 
 export function AudioBlock({ block, colors: c, readOnly, onChange }: AudioBlockProps) {
+  const { t } = useTranslation();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [urlDraft, setUrlDraft] = useState(block.src ?? '');
@@ -77,7 +79,7 @@ export function AudioBlock({ block, colors: c, readOnly, onChange }: AudioBlockP
         <input
           value={captionDraft}
           onChange={e => setCaptionDraft(e.target.value)}
-          placeholder="캡션 (선택)"
+          placeholder={t('blockCaptionOptional')}
           style={{
             width: '100%', boxSizing: 'border-box', marginBottom: 8,
             background: c.input, border: `1px solid ${c.inputBdr}`, borderRadius: 6,

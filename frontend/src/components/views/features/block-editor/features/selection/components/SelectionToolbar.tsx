@@ -2,6 +2,7 @@
  * SelectionToolbar.tsx — Floating format toolbar for text selection (extracted from BlockEditor)
  */
 import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useTranslation } from '../../../../../../../lib/i18n';
 import {
   Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3, Heading4,
   Strikethrough, Highlighter,
@@ -57,6 +58,7 @@ function ToolbarTip({
 export function SelectionToolbar({
   colors: c, wikiTargets, searchQuery, activeBlockId, onContentChange, onConvertBlock, getBlockType,
 }: SelectionToolbarProps) {
+  const { t } = useTranslation();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [formats, setFormats] = useState<ToolbarFormatState>(EMPTY_FORMATS);
   const blockIdRef = useRef<string | null>(null);
@@ -205,26 +207,26 @@ export function SelectionToolbar({
       }}
       onMouseDown={e => e.preventDefault()}
     >
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>서식</span>
-      {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
-      {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
-      {iconBtn(<Strikethrough size={14}/>, '취소선', 'Ctrl+Shift+S', formats.strike, () => applyFormat('~~', '~~'))}
-      {iconBtn(<Highlighter size={14}/>, '강조', 'Ctrl+Shift+M', formats.highlight, () => applyFormat('==', '=='))}
-      {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('selectionFormat')}</span>
+      {iconBtn(<Bold size={14}/>, t('editorToolbarBold'), 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
+      {iconBtn(<Italic size={14}/>, t('editorToolbarItalic'), 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {iconBtn(<Strikethrough size={14}/>, t('editorToolbarStrike'), 'Ctrl+Shift+S', formats.strike, () => applyFormat('~~', '~~'))}
+      {iconBtn(<Highlighter size={14}/>, t('editorToolbarHighlight'), 'Ctrl+Shift+M', formats.highlight, () => applyFormat('==', '=='))}
+      {iconBtn(<Code2 size={14}/>, t('editorToolbarCode'), 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>
-        {formats.isToggleHeading ? '토글 제목' : '제목'}
+        {formats.isToggleHeading ? t('editorToolbarToggleHeading') : t('editorToolbarHeading')}
       </span>
-      {iconBtn(<Heading1 size={14}/>, formats.isToggleHeading ? '토글 제목 1' : '제목 1', 'Ctrl+Shift+1', headingActive(1), () => convertHeading(1))}
-      {iconBtn(<Heading2 size={14}/>, formats.isToggleHeading ? '토글 제목 2' : '제목 2', 'Ctrl+Shift+2', headingActive(2), () => convertHeading(2))}
-      {iconBtn(<Heading3 size={14}/>, formats.isToggleHeading ? '토글 제목 3' : '제목 3', 'Ctrl+Shift+3', headingActive(3), () => convertHeading(3))}
-      {iconBtn(<Heading4 size={14}/>, formats.isToggleHeading ? '토글 제목 4' : '제목 4', 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
+      {iconBtn(<Heading1 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '1') : t('editorToolbarHeadingN').replace('{n}', '1'), 'Ctrl+Shift+1', headingActive(1), () => convertHeading(1))}
+      {iconBtn(<Heading2 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '2') : t('editorToolbarHeadingN').replace('{n}', '2'), 'Ctrl+Shift+2', headingActive(2), () => convertHeading(2))}
+      {iconBtn(<Heading3 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '3') : t('editorToolbarHeadingN').replace('{n}', '3'), 'Ctrl+Shift+3', headingActive(3), () => convertHeading(3))}
+      {iconBtn(<Heading4 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '4') : t('editorToolbarHeadingN').replace('{n}', '4'), 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>링크</span>
-      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarLinks')}</span>
+      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, t('editorToolbarWikiLink'), 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>태그</span>
-      {iconBtn(<Hash size={14}/>, '태그', 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarTags')}</span>
+      {iconBtn(<Hash size={14}/>, t('editorToolbarTags'), 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
   );
 }

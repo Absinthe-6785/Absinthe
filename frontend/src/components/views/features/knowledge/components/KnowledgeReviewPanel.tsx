@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeReviewLists, ReviewNoteEntry } from '../review/buildKnowledgeReview';
 
@@ -19,13 +20,14 @@ function ReviewSection({
   items: readonly ReviewNoteEntry[];
   onNavigate: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>
         {title}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>해당 노트 없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knReviewNoNotes')}</div>
       ) : (
         items.map(item => (
           <button
@@ -70,13 +72,14 @@ export function KnowledgeReviewPanel({
   onNavigateToNote,
   compact = false,
 }: KnowledgeReviewPanelProps) {
+  const { t } = useTranslation();
   const padding = compact ? '8px 10px' : '10px 12px';
 
   return (
     <section
       className="be-knowledge-review"
       style={{ padding, overflowY: 'auto' }}
-      aria-label="지식 검토"
+      aria-label={t('wsKnowledgeReview')}
     >
       {!compact && (
         <div
@@ -89,31 +92,31 @@ export function KnowledgeReviewPanel({
             marginBottom: 10,
           }}
         >
-          지식 검토
+          {t('wsKnowledgeReview')}
         </div>
       )}
 
       <ReviewSection
         c={c}
-        title="최근 편집"
+        title={t('nvSortUpdated')}
         items={lists.recentlyEdited}
         onNavigate={onNavigateToNote}
       />
       <ReviewSection
         c={c}
-        title="최근 생성"
+        title={t('nvSortCreated')}
         items={lists.recentlyCreated}
         onNavigate={onNavigateToNote}
       />
       <ReviewSection
         c={c}
-        title="연결 많음"
+        title={t('knMostLinked')}
         items={lists.mostLinked}
         onNavigate={onNavigateToNote}
       />
       <ReviewSection
         c={c}
-        title="오래된 노트"
+        title={t('knStaleNotesTitle')}
         items={lists.leastRevisited}
         onNavigate={onNavigateToNote}
       />

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GitBranch } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { mermaidFallbackLabel, renderMermaidSvg } from './mermaidRendering';
@@ -13,6 +14,7 @@ export interface MermaidBlockProps {
 }
 
 export function MermaidBlock({ block, colors: c, readOnly, onChange }: MermaidBlockProps) {
+  const { t } = useTranslation();
   const mermaidReady = useMermaid();
   const source = block.mermaid ?? '';
   const [editing, setEditing] = useState(!readOnly && !source.trim());
@@ -87,7 +89,7 @@ export function MermaidBlock({ block, colors: c, readOnly, onChange }: MermaidBl
   return (
     <div
       onClick={e => { e.stopPropagation(); setEditing(true); }}
-      title="클릭해서 다이어그램 편집"
+      title={t('blockClickEditMermaid')}
       style={{ cursor: 'text', padding: '4px 0', borderRadius: 6 }}
     >
       {renderDiagram()}

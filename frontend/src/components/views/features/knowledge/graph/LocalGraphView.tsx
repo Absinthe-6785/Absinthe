@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { GraphData, GraphNode, GraphRelationshipType, LocalGraphRelationshipFilter } from './graphModels';
@@ -131,6 +132,7 @@ export function LocalGraphView({
   onExpandNode,
   onCollapseNode,
 }: LocalGraphViewProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [relationshipFilter, setRelationshipFilter] = useState<LocalGraphRelationshipFilter>('all');
@@ -340,17 +342,17 @@ export function LocalGraphView({
                     flexShrink: 0,
                   }}
                 >
-                  열기
+                  {t('graphLocalOpen')}
                 </button>
               )}
               <span style={{ fontSize: 9, color: c.textFaint, flexShrink: 0 }}>
-                {selectedEdgeCount} 연결
+                {t('graphConnectionCount').replace('{count}', String(selectedEdgeCount))}
               </span>
             </div>
           )}
           {hoveredNode && hoveredNode.noteId !== selectedNode?.noteId && (
             <div style={{ marginTop: selectedNode ? 3 : 0, color: c.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              미리보기: {displayNoteTitle(hoveredNode.title)}
+              {t('graphPreview').replace('{title}', displayNoteTitle(hoveredNode.title))}
             </div>
           )}
         </div>
@@ -358,7 +360,7 @@ export function LocalGraphView({
 
       {isEmpty ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '24px 8px' }}>
-          연결된 노트 없음
+          {t('graphNoConnectedNotes')}
         </p>
       ) : (
         <svg

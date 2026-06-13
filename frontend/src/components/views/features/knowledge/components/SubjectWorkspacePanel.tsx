@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import type { SubjectDashboardEntry } from '../maps/subjectDashboards';
@@ -12,21 +13,33 @@ export interface SubjectWorkspacePanelProps {
   onEditProject?: (projectId: string) => void;
 }
 
+type EntrySectionId = 'projects' | 'weakTopics' | 'studyNotes' | 'concepts' | 'recentActivity';
+
+const ENTRY_SECTION_TITLE_KEYS: Record<EntrySectionId, 'createMilestoneProject' | 'studyWeakTopics' | 'knStudyNotes' | 'knConceptShort' | 'knRecentActivity'> = {
+  projects: 'createMilestoneProject',
+  weakTopics: 'studyWeakTopics',
+  studyNotes: 'knStudyNotes',
+  concepts: 'knConceptShort',
+  recentActivity: 'knRecentActivity',
+};
+
 function EntryList({
   c,
-  title,
+  sectionId,
   items,
   onNavigate,
   onEditProject,
   touch,
 }: {
   c: NoteChromeColors;
-  title: string;
+  sectionId: EntrySectionId;
   items: readonly SubjectDashboardEntry[];
   onNavigate: (noteId: string) => void;
   onEditProject?: (projectId: string) => void;
   touch?: number;
 }) {
+  const { t } = useTranslation();
+  const title = t(ENTRY_SECTION_TITLE_KEYS[sectionId]);
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>
@@ -34,10 +47,10 @@ function EntryList({
         {items.length > 0 && <span style={{ color: c.accent, marginLeft: 4 }}>({items.length})</span>}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         items.map(item => (
-          <div key={`${title}-${item.noteId}`} style={{ display: 'flex', gap: 4, marginBottom: 3 }}>
+          <div key={`${sectionId}-${item.noteId}`} style={{ display: 'flex', gap: 4, marginBottom: 3 }}>
             <button
               type="button"
               onClick={() => onNavigate(item.noteId)}
@@ -57,11 +70,11 @@ function EntryList({
               </div>
               <div style={{ fontSize: 9, color: c.textMuted, marginTop: 1 }}>{item.meta}</div>
             </button>
-            {onEditProject && title === '프로젝트' && (
+            {onEditProject && sectionId === 'projects' && (
               <button
                 type="button"
                 onClick={() => onEditProject(item.noteId)}
-                title="프로젝트 편집"
+                title={t('knEditProject')}
                 style={{
                   flexShrink: 0,
                   padding: '5px 10px',
@@ -74,7 +87,7 @@ function EntryList({
                   minHeight: touch ?? undefined,
                 }}
               >
-                편집
+                {t('edit')}
               </button>
             )}
           </div>
@@ -92,10 +105,11 @@ export function SubjectWorkspacePanel({
   onOpenWorkspace,
   onEditProject,
 }: SubjectWorkspacePanelProps) {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useViewportLayout();
   const touch = touchMinSize(isMobile, isTablet);
   return (
-    <div className="be-subject-workspace" aria-label={`${data.subject.name} 작업공간`}>
+    <div className="be-subject-workspace" aria-label={t('knSubjectWorkspaceAria').replace('{name}', data.subject.name)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{data.subject.name}</div>
@@ -117,16 +131,16 @@ export function SubjectWorkspacePanel({
               minHeight: touch,
             }}
           >
-            작업공간 열기
+            {t('knOpenWorkspace')}
           </button>
         )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: responsiveStatGridColumns(isMobile, isTablet, 4), gap: 4, marginBottom: 10 }}>
         {[
-          { label: '노트', count: data.noteCount },
-          { label: '개념', count: data.conceptCount },
-          { label: '프로젝트', count: data.linkedProjectCount },
-          { label: '약점', count: data.weakTopics.length },
+          { label: t('note'), count: data.noteCount },
+          { label: t('knConceptShort'), count: data.conceptCount },
+          { label: t('createMilestoneProject'), count: data.linkedProjectCount },
+          { label: t('knWeakShort'), count: data.weakTopics.length },
         ].map(row => (
           <div
             key={row.label}
@@ -143,11 +157,11 @@ export function SubjectWorkspacePanel({
           </div>
         ))}
       </div>
-      <EntryList c={c} title="프로젝트" items={data.linkedProjects} onNavigate={onNavigateToNote} onEditProject={onEditProject} touch={touch} />
-      <EntryList c={c} title="약점 주제" items={data.weakTopics} onNavigate={onNavigateToNote} touch={touch} />
-      <EntryList c={c} title="학습 노트" items={data.studyNotes} onNavigate={onNavigateToNote} touch={touch} />
-      <EntryList c={c} title="개념" items={data.conceptNotes} onNavigate={onNavigateToNote} touch={touch} />
-      <EntryList c={c} title="최근 활동" items={data.activity} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} sectionId="projects" items={data.linkedProjects} onNavigate={onNavigateToNote} onEditProject={onEditProject} touch={touch} />
+      <EntryList c={c} sectionId="weakTopics" items={data.weakTopics} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} sectionId="studyNotes" items={data.studyNotes} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} sectionId="concepts" items={data.conceptNotes} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} sectionId="recentActivity" items={data.activity} onNavigate={onNavigateToNote} touch={touch} />
     </div>
   );
 }

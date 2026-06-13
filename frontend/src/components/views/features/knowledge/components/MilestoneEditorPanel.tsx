@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import {
   MILESTONE_STATUSES,
-  MILESTONE_STATUS_LABELS_KO,
   type MilestoneStatus,
 } from '../academic/projectMilestoneModels';
 
@@ -20,6 +20,12 @@ export interface MilestoneEditorPanelProps {
   onNavigateToProject?: () => void;
 }
 
+const MILESTONE_STATUS_KEYS: Record<MilestoneStatus, 'projectStatusPlanned' | 'projectStatusActive' | 'projectStatusCompleted'> = {
+  planned: 'projectStatusPlanned',
+  active: 'projectStatusActive',
+  completed: 'projectStatusCompleted',
+};
+
 /** Milestone editor — title via note header; status/date via properties. */
 export function MilestoneEditorPanel({
   colors: c,
@@ -32,6 +38,7 @@ export function MilestoneEditorPanel({
   onUpdateTargetDate,
   onNavigateToProject,
 }: MilestoneEditorPanelProps) {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useViewportLayout();
   const touch = touchMinSize(isMobile, isTablet);
   const [dateDraft, setDateDraft] = useState(targetDate ?? '');
@@ -46,15 +53,15 @@ export function MilestoneEditorPanel({
   };
 
   return (
-    <section className="be-milestone-editor" aria-label="마일스톤 편집" style={{ padding: '8px 10px' }}>
+    <section className="be-milestone-editor" aria-label={t('knMilestoneEditorAria')} style={{ padding: '8px 10px' }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 8, borderTop: `1px solid ${c.sideBdr}`, paddingTop: 8 }}>
-        마일스톤 편집
+        {t('knMilestoneEditorAria')}
       </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: c.text, marginBottom: 8 }}>{title}</div>
 
       {projectId && (
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 2 }}>프로젝트</div>
+          <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 2 }}>{t('createMilestoneProject')}</div>
           {onNavigateToProject ? (
             <button
               type="button"
@@ -77,7 +84,7 @@ export function MilestoneEditorPanel({
         </div>
       )}
 
-      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>상태</label>
+      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('createProjectStatus')}</label>
       <select
         value={status}
         onChange={e => onUpdateStatus(e.target.value as MilestoneStatus)}
@@ -95,11 +102,11 @@ export function MilestoneEditorPanel({
         }}
       >
         {MILESTONE_STATUSES.map(s => (
-          <option key={s} value={s}>{MILESTONE_STATUS_LABELS_KO[s]}</option>
+          <option key={s} value={s}>{t(MILESTONE_STATUS_KEYS[s])}</option>
         ))}
       </select>
 
-      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>목표 날짜</label>
+      <label style={{ display: 'block', fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('knTargetDate')}</label>
       <input
         type="date"
         value={dateDraft}
@@ -119,8 +126,8 @@ export function MilestoneEditorPanel({
         }}
       />
       <div style={{ fontSize: 9, color: c.textFaint }}>
-        {MILESTONE_STATUS_LABELS_KO[status]}
-        {targetDate ? ` · 목표 ${targetDate}` : ''}
+        {t(MILESTONE_STATUS_KEYS[status])}
+        {targetDate ? ` · ${t('knTargetDateValue').replace('{date}', targetDate)}` : ''}
       </div>
     </section>
   );

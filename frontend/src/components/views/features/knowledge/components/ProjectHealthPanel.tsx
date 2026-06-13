@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { ProjectHealthData, ProjectHealthEntry } from '../analytics/buildProjectHealth';
 
@@ -7,10 +8,10 @@ export interface ProjectHealthPanelProps {
   onNavigateToNote: (noteId: string) => void;
 }
 
-const INDICATOR_LABELS: Record<ProjectHealthEntry['indicator'], string> = {
-  active: '활동 중',
-  stalled: '정체',
-  'on-track': '진행',
+const INDICATOR_KEYS: Record<ProjectHealthEntry['indicator'], 'knProjectIndicatorActive' | 'knProjectIndicatorStalled' | 'knProjectIndicatorOnTrack'> = {
+  active: 'knProjectIndicatorActive',
+  stalled: 'knProjectIndicatorStalled',
+  'on-track': 'knProjectIndicatorOnTrack',
 };
 
 function ProjectRow({
@@ -22,6 +23,7 @@ function ProjectRow({
   entry: ProjectHealthEntry;
   onNavigate: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const indicatorColor = entry.indicator === 'stalled' ? c.accent : c.textMuted;
   return (
     <button
@@ -41,7 +43,7 @@ function ProjectRow({
     >
       <div style={{ fontSize: 11, fontWeight: 600 }}>{entry.title}</div>
       <div style={{ fontSize: 9, color: indicatorColor, marginTop: 1 }}>
-        {INDICATOR_LABELS[entry.indicator]} · {entry.milestoneLabel} · {entry.daysSinceActivity}일 전
+        {t(INDICATOR_KEYS[entry.indicator])} · {entry.milestoneLabel} · {t('knDaysAgo').replace('{days}', String(entry.daysSinceActivity))}
       </div>
     </button>
   );
@@ -49,19 +51,20 @@ function ProjectRow({
 
 /** Project health indicators — no health score. */
 export function ProjectHealthPanel({ colors: c, data, onNavigateToNote }: ProjectHealthPanelProps) {
+  const { t } = useTranslation();
   return (
-    <div className="be-project-health" aria-label="프로젝트 상태">
-      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>진행 중</div>
+    <div className="be-project-health" aria-label={t('knProjectHealthAria')}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>{t('knInProgress')}</div>
       {data.activeProjects.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint, marginBottom: 8 }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint, marginBottom: 8 }}>{t('knNone')}</div>
       ) : (
         data.activeProjects.map(p => (
           <ProjectRow key={p.noteId} c={c} entry={p} onNavigate={onNavigateToNote} />
         ))
       )}
-      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4, marginTop: 6 }}>정체 프로젝트</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4, marginTop: 6 }}>{t('knStalledProjects')}</div>
       {data.stalledProjects.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         data.stalledProjects.map(p => (
           <ProjectRow key={`stalled-${p.noteId}`} c={c} entry={p} onNavigate={onNavigateToNote} />

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { renderKatexHtml } from './mathRendering';
@@ -12,6 +13,7 @@ export interface MathBlockProps {
 }
 
 export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockProps) {
+  const { t } = useTranslation();
   const expr = block.math ?? '';
   const [editing, setEditing] = useState(!readOnly && !expr.trim());
   const [draft, setDraft] = useState(expr);
@@ -102,7 +104,7 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
   return (
     <div
       onClick={e => { e.stopPropagation(); setEditing(true); }}
-      title="클릭해서 수식 편집"
+      title={t('blockClickEditMath')}
       style={{ cursor:'text', padding:'6px 0', borderRadius:6 }}>
       {rendered
         ? <div style={{ textAlign:'center', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { EditableBlock, type EditableBlockProps } from './EditableBlock';
@@ -19,6 +20,7 @@ export function FootnoteBlock({
   readOnly,
   editProps,
 }: FootnoteBlockProps) {
+  const { t } = useTranslation();
   const id = normalizeFootnoteId(block.footnoteId ?? '1');
   const label = `[^${id}]`;
 
@@ -47,7 +49,7 @@ export function FootnoteBlock({
           block={block}
           colors={c}
           tag="span"
-          placeholder="각주 내용"
+          placeholder={t('blockFootnoteContent')}
           style={{ flex: 1, color: c.text, minHeight: 24 }}
           {...editProps}
         />

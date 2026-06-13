@@ -63,6 +63,7 @@ function ProjectCard({
   project: ProjectDashboardEntry;
   onNavigate: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -96,9 +97,9 @@ function ProjectCard({
           <span style={{ color: c.accent, marginLeft: 4 }}>{project.progressPercent}%</span>
         )}
       </div>
-      <Section c={c} title="연결 노트" items={project.linkedNotes} onNavigate={onNavigate} />
-      <Section c={c} title="관련 개념" items={project.conceptNotes} onNavigate={onNavigate} />
-      <Section c={c} title="학습 활동" items={project.studyNotes} onNavigate={onNavigate} />
+      <Section c={c} title={t('traceSectionLinkedNotes')} items={project.linkedNotes} onNavigate={onNavigate} />
+      <Section c={c} title={t('knRelatedConcepts')} items={project.conceptNotes} onNavigate={onNavigate} />
+      <Section c={c} title={t('knStudyActivity')} items={project.studyNotes} onNavigate={onNavigate} />
     </div>
   );
 }
@@ -108,7 +109,7 @@ export function ProjectDashboardPanel({ colors: c, data, onNavigateToNote, onCre
   const { t } = useTranslation();
   const isEmpty = data.activeProjects.length === 0 && data.plannedProjects.length === 0;
   return (
-    <div className="be-project-dashboard" aria-label="프로젝트 대시보드">
+    <div className="be-project-dashboard" aria-label={t('wsProjectDashboard')}>
       {isEmpty ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>
           <div style={{ marginBottom: 8 }}>{t('emptyProjectsTitle')}</div>

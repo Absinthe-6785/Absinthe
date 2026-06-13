@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SubjectProgressData } from '../analytics/buildSubjectProgress';
 
@@ -8,14 +9,15 @@ export interface SubjectProgressPanelProps {
 
 /** Informational subject-level progress metrics. */
 export function SubjectProgressPanel({ colors: c, data }: SubjectProgressPanelProps) {
+  const { t } = useTranslation();
   const visible = data.subjects.filter(
     s => s.noteCount > 0 || s.projectCount > 0,
   );
   if (visible.length === 0) {
-    return <div style={{ fontSize: 10, color: c.textFaint }}>주제 태그가 있는 노트가 없습니다.</div>;
+    return <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNoSubjectTaggedNotes')}</div>;
   }
   return (
-    <div className="be-subject-progress" aria-label="주제별 진행">
+    <div className="be-subject-progress" aria-label={t('knSubjectProgressAria')}>
       {visible.map(s => (
         <div
           key={s.subjectId}
@@ -29,7 +31,12 @@ export function SubjectProgressPanel({ colors: c, data }: SubjectProgressPanelPr
         >
           <div style={{ fontSize: 11, fontWeight: 700, color: c.text }}>{s.subjectName}</div>
           <div style={{ fontSize: 9, color: c.textMuted, marginTop: 3 }}>
-            노트 {s.noteCount} · 학습 {s.studyNoteCount} · 약점 {s.weakTopicCount} · 개념 {s.conceptCount} · 프로젝트 {s.projectCount}
+            {t('knSubjectProgressMeta')
+              .replace('{notes}', String(s.noteCount))
+              .replace('{study}', String(s.studyNoteCount))
+              .replace('{weak}', String(s.weakTopicCount))
+              .replace('{concepts}', String(s.conceptCount))
+              .replace('{projects}', String(s.projectCount))}
           </div>
         </div>
       ))}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { normalizeQuestionText } from './studyBlockUtils';
@@ -12,6 +13,7 @@ export interface QuestionBlockProps {
 }
 
 export function QuestionBlock({ block, colors: c, readOnly, onChange }: QuestionBlockProps) {
+  const { t } = useTranslation();
   const text = normalizeQuestionText(block.content ?? '');
   const [editing, setEditing] = useState(!readOnly && !text.trim());
   const [draft, setDraft] = useState(text);
@@ -89,7 +91,7 @@ export function QuestionBlock({ block, colors: c, readOnly, onChange }: Question
   return (
     <div
       onClick={e => { e.stopPropagation(); setEditing(true); setDraft(text); }}
-      title="클릭해서 질문 편집"
+      title={t('blockClickEditQuestion')}
       style={{
         padding: '8px 12px',
         borderLeft: `3px solid ${c.accent}`,
