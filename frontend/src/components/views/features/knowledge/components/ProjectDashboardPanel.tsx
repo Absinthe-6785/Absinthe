@@ -1,4 +1,5 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import {
   formatProjectStatusLabel,
   type ProjectDashboardData,
@@ -10,6 +11,7 @@ export interface ProjectDashboardPanelProps {
   colors: NoteChromeColors;
   data: ProjectDashboardData;
   onNavigateToNote: (noteId: string) => void;
+  onCreateProject?: () => void;
 }
 
 function Section({
@@ -102,12 +104,32 @@ function ProjectCard({
 }
 
 /** Project-level progress dashboard — no task manager. */
-export function ProjectDashboardPanel({ colors: c, data, onNavigateToNote }: ProjectDashboardPanelProps) {
+export function ProjectDashboardPanel({ colors: c, data, onNavigateToNote, onCreateProject }: ProjectDashboardPanelProps) {
+  const { t } = useTranslation();
+  const isEmpty = data.activeProjects.length === 0 && data.plannedProjects.length === 0;
   return (
     <div className="be-project-dashboard" aria-label="프로젝트 대시보드">
-      {data.activeProjects.length === 0 && data.plannedProjects.length === 0 ? (
+      {isEmpty ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>
-          studyProject 속성이 있는 노트로 장기 프로젝트를 만드세요. 사이드바 → 프로젝트 컬렉션에서 시작할 수 있습니다.
+          <div style={{ marginBottom: 8 }}>{t('emptyProjectsTitle')}</div>
+          {onCreateProject && (
+            <button
+              type="button"
+              onClick={onCreateProject}
+              style={{
+                fontSize: 10,
+                padding: '6px 10px',
+                borderRadius: 6,
+                border: `1px solid ${c.sideBdr}`,
+                background: c.accentBg,
+                color: c.accent,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {t('emptyProjectsAction')}
+            </button>
+          )}
         </div>
       ) : (
         <>

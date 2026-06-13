@@ -1,4 +1,5 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { ResearchDashboardData, ResearchNoteEntry } from '../research/buildResearchDashboard';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { responsiveMetricGridColumns } from '../../../../../lib/responsiveLayout';
@@ -7,6 +8,7 @@ export interface ResearchDashboardPanelProps {
   colors: NoteChromeColors;
   data: ResearchDashboardData;
   onNavigateToNote: (noteId: string) => void;
+  onOpenResearchCollection?: () => void;
 }
 
 function Section({
@@ -15,13 +17,16 @@ function Section({
   count,
   items,
   onNavigate,
+  emptyAction,
 }: {
   c: NoteChromeColors;
   title: string;
   count?: number;
   items: readonly ResearchNoteEntry[];
   onNavigate: (id: string) => void;
+  emptyAction?: { label: string; onClick: () => void };
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>
@@ -31,7 +36,29 @@ function Section({
         )}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        emptyAction ? (
+          <div>
+            <div style={{ fontSize: 10, color: c.textFaint, marginBottom: 6 }}>{t('emptyResearchSources')}</div>
+            <button
+              type="button"
+              onClick={emptyAction.onClick}
+              style={{
+                fontSize: 10,
+                padding: '5px 8px',
+                borderRadius: 6,
+                border: `1px solid ${c.sideBdr}`,
+                background: c.accentBg,
+                color: c.accent,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {emptyAction.label}
+            </button>
+          </div>
+        ) : (
+          <div style={{ fontSize: 10, color: c.textFaint }}>{t('emptySectionNone')}</div>
+        )
       ) : (
         items.map(item => (
           <button
@@ -97,8 +124,12 @@ function PipelineOverview({ c, data, isMobile }: { c: NoteChromeColors; data: Re
 }
 
 /** Informational research dashboard — no AI, no external APIs. */
-export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote }: ResearchDashboardPanelProps) {
+export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote, onOpenResearchCollection }: ResearchDashboardPanelProps) {
   const { isMobile } = useViewportLayout();
+  const { t } = useTranslation();
+  const researchEmptyAction = onOpenResearchCollection
+    ? { label: t('emptyResearchAction'), onClick: onOpenResearchCollection }
+    : undefined;
   return (
     <div className="be-research-dashboard" aria-label="연구 대시보드" style={{ overflowX: 'hidden' }}>
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
@@ -107,7 +138,7 @@ export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote }: Re
       <PipelineOverview c={c} data={data.sourcePipeline} isMobile={isMobile} />
       <Section c={c} title="인용 활동" count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
       <Section c={c} title="승격 활동" count={data.promotionActivity.length} items={data.promotionActivity} onNavigate={onNavigateToNote} />
-      <Section c={c} title="최근 출처" items={data.recentSources} onNavigate={onNavigateToNote} />
+      <Section c={c} title="최근 출처" items={data.recentSources} onNavigate={onNavigateToNote} emptyAction={researchEmptyAction} />
       <Section c={c} title="읽기 노트" items={data.readingNotes} onNavigate={onNavigateToNote} />
       <Section c={c} title="문헌 노트" items={data.literatureNotes} onNavigate={onNavigateToNote} />
       <Section c={c} title="영구 노트" items={data.permanentNotes} onNavigate={onNavigateToNote} />

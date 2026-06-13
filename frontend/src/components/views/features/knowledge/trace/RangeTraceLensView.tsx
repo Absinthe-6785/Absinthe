@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
+import type { TranslationKey } from '../../../../../lib/i18n';
 import {
   buildRangeLensProjection,
   buildRangeTraceProjection,
@@ -94,18 +96,12 @@ function TraceNoteButton({
   );
 }
 
-function formatRangeEmptyMessage(lens: TraceRangeLens): string {
+function traceRangeEmptyKey(lens: TraceRangeLens): TranslationKey {
   switch (lens.kind) {
-    case 'month':
-      return 'No traces recorded for this month.';
-    case 'quarter':
-      return 'No traces recorded for this quarter.';
-    case 'year':
-      return 'No traces recorded for this year.';
-    case 'custom':
-      return 'No traces recorded for this period.';
-    default:
-      return 'No traces recorded for this period.';
+    case 'month': return 'traceEmptyMonth';
+    case 'quarter': return 'traceEmptyQuarter';
+    case 'year': return 'traceEmptyYear';
+    default: return 'traceEmptyPeriod';
   }
 }
 
@@ -206,10 +202,11 @@ function RangeTraceBody({
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       {projection.milestones.length > 0 && (
-        <TraceSection colors={c} title="Milestones">
+        <TraceSection colors={c} title={t('traceSectionMilestones')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {projection.milestones.map(item => (
               <TraceNoteButton
@@ -226,7 +223,7 @@ function RangeTraceBody({
       )}
 
       {projection.events.length > 0 && (
-        <TraceSection colors={c} title="Events">
+        <TraceSection colors={c} title={t('traceSectionEvents')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {projection.events.map(item => (
               <TraceNoteButton
@@ -243,7 +240,7 @@ function RangeTraceBody({
       )}
 
       {(projection.notesTouched > 0 || projection.notesCreated > 0) && (
-        <TraceSection colors={c} title="Activity Overview">
+        <TraceSection colors={c} title={t('traceSectionActivity')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.textMuted }}>
             {projection.notesTouched > 0 && (
               <div>{projection.notesTouched} notes touched</div>
@@ -266,6 +263,7 @@ export function RangeTraceLensView({
   onSelectNote,
   onLensChange,
 }: RangeTraceLensViewProps) {
+  const { t } = useTranslation();
   const currentMonth = useMemo(() => currentTraceMonth(), []);
   const currentQuarter = useMemo(() => currentTraceQuarter(), []);
   const currentYear = useMemo(() => currentTraceYear(), []);
@@ -480,7 +478,7 @@ export function RangeTraceLensView({
             fontSize: 12,
             lineHeight: 1.5,
           }}>
-            {formatRangeEmptyMessage(lens)}
+            {t(traceRangeEmptyKey(lens))}
           </div>
         )
       ) : !hasMarks ? (
@@ -491,7 +489,7 @@ export function RangeTraceLensView({
           fontSize: 12,
           lineHeight: 1.5,
         }}>
-          {formatRangeEmptyMessage(lens)}
+          {t(traceRangeEmptyKey(lens))}
         </div>
       ) : (
         <RangeTraceBody

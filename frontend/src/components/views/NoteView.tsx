@@ -100,6 +100,8 @@ import {
   type CreateTaskInput,
   type CreateJournalInput,
   listTags,
+  addTag,
+  SUBJECT_DASHBOARDS,
   noteMatchesPageTag,
   NotePropertiesPanel,
   NoteTagsPanel,
@@ -152,6 +154,9 @@ import {
   type TraceRangeLens,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
+import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
+import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
+import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
 import type { AppSettings } from '../../types';
 import { NoteGraphView } from './NoteGraphView';
 import {
@@ -408,6 +413,9 @@ export const NoteView = () => {
     hasExistingMilestone: boolean;
   };
   const [milestoneDialog, setMilestoneDialog] = useState<MilestoneDialogState | null>(null);
+  const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
+  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [createMilestoneDialogOpen, setCreateMilestoneDialogOpen] = useState(false);
 
   const resetBrowseScope = useCallback(() => {
     setActiveFolderId(null);
@@ -828,28 +836,85 @@ export const NoteView = () => {
   }, [notes, storeCreateNote, updateNote, openCreatedNote]);
 
   const handleCreateProject = useCallback(() => {
-    const id = storeCreateNote({ title: 'New Project', body: '' });
-    const created = notes.find(n => n.id === id);
+    setCreateProjectDialogOpen(true);
+  }, []);
+
+  const handleSubmitCreateProject = useCallback((values: CreateProjectFormValues) => {
+    const id = storeCreateNote({ title: values.name, body: '' });
+    const created = useNotesStore.getState().notes.find(n => n.id === id);
     if (created) {
-      const project = setStudyProjectContainer(created, 'active');
-      updateNote(id, { title: 'New Project', properties: project.properties });
+      let project = setStudyProjectContainer(created, values.status, values.description || undefined);
+      if (values.subjectId) {
+        const subject = SUBJECT_DASHBOARDS.find(s => s.id === values.subjectId);
+        if (subject) project = addTag(project, subject.tag);
+      }
+      updateNote(id, { title: values.name, properties: project.properties });
     }
-    return openCreatedNote(id);
-  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
+    setCreateProjectDialogOpen(false);
+    openCreatedNote(id);
+  }, [storeCreateNote, updateNote, openCreatedNote]);
 
   const handleCreateProjectMilestone = useCallback(() => {
-    const activeProject = activeNote && isStudyProjectContainer(activeNote) ? activeNote : null;
-    const projectId = activeProject?.id
-      ?? filterStudyProjectContainers(notes, 'active')[0]?.id
-      ?? filterStudyProjectContainers(notes)[0]?.id;
-    const id = storeCreateNote({ title: 'New Milestone', body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created && projectId) {
-      const milestone = setProjectMilestone(created, projectId, 'planned');
-      updateNote(id, { title: 'New Milestone', properties: milestone.properties });
+    setCreateMilestoneDialogOpen(true);
+  }, []);
+
+  const handleSubmitCreateMilestone = useCallback((values: CreateMilestoneFormValues) => {
+    const id = storeCreateNote({ title: values.name, body: '' });
+    const created = useNotesStore.getState().notes.find(n => n.id === id);
+    if (created) {
+      const milestone = setProjectMilestone(
+        created,
+        values.projectId,
+        values.status,
+        values.targetDate || undefined,
+      );
+      updateNote(id, { title: values.name, properties: milestone.properties });
     }
-    return openCreatedNote(id);
-  }, [activeNote, notes, storeCreateNote, updateNote, openCreatedNote]);
+    setCreateMilestoneDialogOpen(false);
+    openCreatedNote(id);
+  }, [storeCreateNote, updateNote, openCreatedNote]);
+
+  const handleOpenStudyCollection = useCallback(() => {
+    const collection = findSmartCollection('exam-study-notes');
+    if (collection) handleActivateSmartCollection(collection);
+  }, [handleActivateSmartCollection]);
+
+  const handleOpenResearchCollection = useCallback(() => {
+    const collection = findSmartCollection('research-sources');
+    if (collection) handleActivateSmartCollection(collection);
+  }, [handleActivateSmartCollection]);
+
+  const handleWorkspaceSearchNote = useCallback((noteId: string) => {
+    handleLeaveDashboardForNote(noteId);
+    setActiveNoteId(noteId);
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [handleLeaveDashboardForNote, isMobile]);
+
+  const handleWorkspaceSearchFolder = useCallback((folderId: string) => {
+    resetBrowseScope();
+    setActiveFolderId(folderId);
+    setWorkspaceActivation(INACTIVE_WORKSPACE);
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [resetBrowseScope, isMobile]);
+
+  const handleWorkspaceSearchTag = useCallback((tag: string) => {
+    resetBrowseScope();
+    setActiveTag(tag);
+    setWorkspaceActivation(INACTIVE_WORKSPACE);
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [resetBrowseScope, isMobile]);
+
+  const handleWorkspaceSearchCollection = useCallback((collectionId: string) => {
+    const collection = findSmartCollection(collectionId as SmartCollectionId);
+    if (collection) handleActivateSmartCollection(collection);
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [handleActivateSmartCollection, isMobile]);
+
+  const handleWorkspaceSearchLearningPath = useCallback((pathId: string) => {
+    handleActivateDashboard();
+    setEditingLearningPathId(pathId);
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [handleActivateDashboard, isMobile]);
 
   const handleOpenProjectNotes = useCallback(() => {
     const collection = findSmartCollection('academic-active-projects');
@@ -1421,6 +1486,10 @@ export const NoteView = () => {
       }
 
       switch (e.key) {
+        case 'k':
+          e.preventDefault();
+          setWorkspaceSearchOpen(true);
+          break;
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
         case 'e': e.preventDefault(); setViewMode(v => toggleEditReading(v)); break;
@@ -1698,6 +1767,7 @@ export const NoteView = () => {
               ['Ctrl + D',         '노트 복제'],
               ['Ctrl + E',         '읽기/편집 전환'],
               ['Ctrl + G',         '그래프 보기'],
+              ['Ctrl + K',         '작업공간 검색'],
               ['Ctrl + F',         '노트 검색'],
               ['Ctrl + Shift + F', '집중 모드'],
               ['Ctrl + /',         '단축키 보기'],
@@ -1789,16 +1859,27 @@ export const NoteView = () => {
                   <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
                 </button>
               </div>
-              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative' }}>
-                <Search size={10} style={{ position: 'absolute', left: 15, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
+              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative', display: 'flex', gap: 4 }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={10} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
                 <input
                   ref={searchInputRef}
                   className="bwsi"
-                  style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined }}
+                  style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined, width: '100%' }}
                   placeholder="노트 검색… (Ctrl+F)"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
+                </div>
+                <button
+                  type="button"
+                  className="btbtn"
+                  title="작업공간 검색 (Ctrl+K)"
+                  onClick={() => setWorkspaceSearchOpen(true)}
+                  style={{ padding: '4px 6px', flexShrink: 0, color: c.accent }}
+                >
+                  <Search size={12}/>
+                </button>
               </div>
               {knowledgeQueryInfo.active && knowledgeQueryInfo.error && (
                 <div style={{ padding: '4px 10px', fontSize: 10, color: c.danger, borderBottom: `1px solid ${c.sideBdr}` }}>
@@ -2104,6 +2185,18 @@ export const NoteView = () => {
               <button
                 type="button"
                 className="btbtn btbtn-mobile"
+                onClick={() => setWorkspaceSearchOpen(true)}
+                title="작업공간 검색 (Ctrl+K)"
+                aria-label="작업공간 검색"
+                style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
+              >
+                <Search size={16} />
+              </button>
+            )}
+            {isMobile && (
+              <button
+                type="button"
+                className="btbtn btbtn-mobile"
                 onClick={() => setMobileSidebarOpen(true)}
                 title="메뉴"
                 aria-label="메뉴 열기"
@@ -2312,6 +2405,8 @@ export const NoteView = () => {
                 onOpenProjectNotes: handleOpenProjectNotes,
                 onEditProject: handleEditProject,
               },
+              onOpenStudyCollection: handleOpenStudyCollection,
+              onOpenResearchCollection: handleOpenResearchCollection,
               learningPathOverview: {
                 data: learningPathOverview,
                 onNavigateToNote: noteId => {
@@ -3108,6 +3203,38 @@ export const NoteView = () => {
           onSave={handleMilestoneDialogSave}
           onRemoveMilestone={milestoneDialog.hasExistingMilestone ? handleRemoveMilestone : undefined}
           onClose={() => setMilestoneDialog(null)}
+        />
+      )}
+      <WorkspaceSearchPalette
+        colors={c}
+        notes={notes}
+        folders={folders}
+        open={workspaceSearchOpen}
+        onClose={() => setWorkspaceSearchOpen(false)}
+        onSelectNote={handleWorkspaceSearchNote}
+        onSelectFolder={handleWorkspaceSearchFolder}
+        onSelectTag={handleWorkspaceSearchTag}
+        onSelectCollection={handleWorkspaceSearchCollection}
+        onSelectLearningPath={handleWorkspaceSearchLearningPath}
+      />
+      {createProjectDialogOpen && (
+        <CreateProjectDialog
+          colors={c}
+          onSubmit={handleSubmitCreateProject}
+          onClose={() => setCreateProjectDialogOpen(false)}
+        />
+      )}
+      {createMilestoneDialogOpen && (
+        <CreateMilestoneDialog
+          colors={c}
+          notes={notes}
+          defaultProjectId={
+            activeNote && isStudyProjectContainer(activeNote)
+              ? activeNote.id
+              : filterStudyProjectContainers(notes, 'active')[0]?.id
+          }
+          onSubmit={handleSubmitCreateMilestone}
+          onClose={() => setCreateMilestoneDialogOpen(false)}
         />
       )}
       {confirm && (

@@ -1,5 +1,6 @@
 import { Plus, Pencil } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { LearningPathOverviewData, LearningPathOverviewEntry } from '../maps/buildLearningPathOverview';
 
 export interface LearningPathOverviewPanelProps {
@@ -21,6 +22,7 @@ function PathCard({
   onNavigate: (noteId: string) => void;
   onOpenPathEditor?: (pathId: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -41,7 +43,7 @@ function PathCard({
             <button
               type="button"
               onClick={() => onOpenPathEditor(entry.pathId)}
-              title="경로 편집"
+              title={t('learningPathEdit')}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -103,6 +105,7 @@ export function LearningPathOverviewPanel({
   onCreatePath,
   onOpenPathEditor,
 }: LearningPathOverviewPanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="be-learning-path-overview" aria-label="학습 경로 개요">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -126,13 +129,32 @@ export function LearningPathOverviewPanel({
               cursor: 'pointer',
             }}
           >
-            <Plus size={10} /> 경로 만들기
+            <Plus size={10} /> {t('learningPathCreate')}
           </button>
         )}
       </div>
       {data.paths.length === 0 ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>
-          학습 경로가 없습니다. «경로 만들기»로 첫 경로를 추가하세요.
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{t('learningPathEmptyTitle')}</div>
+          <div style={{ marginBottom: onCreatePath ? 8 : 0 }}>{t('learningPathEmptyHint')}</div>
+          {onCreatePath && (
+            <button
+              type="button"
+              onClick={onCreatePath}
+              style={{
+                fontSize: 10,
+                padding: '6px 10px',
+                borderRadius: 6,
+                border: `1px solid ${c.sideBdr}`,
+                background: c.accentBg,
+                color: c.accent,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {t('learningPathCreate')}
+            </button>
+          )}
         </div>
       ) : (
         data.paths.map(entry => (
