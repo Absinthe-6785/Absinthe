@@ -2,6 +2,7 @@
  * documentFocus.ts — Document chrome hit-testing and focus placement (UX-3B)
  */
 import { makeBlock, type Block } from './blockUtils';
+import { isToggleBlockType } from './toggleBlockTypes';
 import { isGutterDragStart } from './blockGutterSelection';
 import { resolveToggleFooterInsertion } from './toggleFooterInsertion';
 import {
@@ -54,7 +55,7 @@ export function isBlockEmptyForFocus(block: Block): boolean {
     || block.type === 'heading4'
     || block.type === 'quote'
     || block.type === 'callout'
-    || block.type === 'toggle') {
+    || isToggleBlockType(block.type)) {
     return !block.content.trim();
   }
   return false;

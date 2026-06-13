@@ -1,4 +1,5 @@
 import type { Block, BlockType } from '../../../blockUtils';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
 
 /** Reasonable default row heights for virtual list estimates (px). */
 const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
@@ -18,6 +19,10 @@ const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
   divider: 28,
   table: 160,
   toggle: 52,
+  toggleHeading1: 64,
+  toggleHeading2: 56,
+  toggleHeading3: 52,
+  toggleHeading4: 46,
 };
 
 const LINE_HEIGHT_PX = 22;
@@ -38,7 +43,7 @@ function contentLines(content: string): number {
 export function estimateBlockHeight(block: Block): number {
   const base = ESTIMATED_HEIGHT_BY_TYPE[block.type] ?? 46;
 
-  if (block.type === 'toggle') {
+  if (isToggleBlockType(block.type)) {
     if (block.collapsed || block.children.length === 0) return base;
     const childEstimate = block.children.reduce((sum, child) => sum + estimateBlockHeight(child), 0);
     return base + Math.min(childEstimate, 240);

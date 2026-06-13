@@ -22,6 +22,7 @@ import type {
 import { renderBlockContent } from '../../../blockRegistry';
 import { SafeBlockRenderer } from '../../../SafeBlockRenderer';
 import { ToggleBlock } from '../../../ToggleBlock';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import {
   registerFocusHandler,
@@ -226,7 +227,7 @@ export const SingleBlock = React.memo(function SingleBlock({
   const layoutIndent = blockLayoutIndentPx(block, depth);
 
   if (isPasteTraceActive() && depth === 0) {
-    const rendered = block.type === 'toggle' ? 'ToggleBlock'
+    const rendered = isToggleBlockType(block.type) ? 'ToggleBlock'
       : block.type === 'heading1' || block.type === 'heading2' || block.type === 'heading3' || block.type === 'heading4'
         ? `EditableBlock/${block.type}`
         : block.type === 'paragraph' ? 'EditableBlock/paragraph'
@@ -331,7 +332,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     ...getDragProps(block.id),
     'data-be-heading': headingIndex,
     'data-block-type': block.type,
-    ...(block.type === 'toggle' ? { 'data-toggle-collapsed': String(!toggleOpen) } : {}),
+    ...(isToggleBlockType(block.type) ? { 'data-toggle-collapsed': String(!toggleOpen) } : {}),
     onContextMenu: readOnly ? undefined : (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -360,7 +361,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     return null;
   }
 
-  if (block.type === 'toggle') {
+  if (isToggleBlockType(block.type)) {
     return (
       <ToggleBlock
         block={block}

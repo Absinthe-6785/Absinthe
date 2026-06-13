@@ -9,6 +9,7 @@ import {
   type Block,
   type BlockType,
 } from './blockUtils';
+import { isToggleBlockType } from './toggleBlockTypes';
 import { indentListBlock, outdentListBlock } from './listIndent';
 import { applyHierarchyDragDrop } from './dragHierarchy';
 
@@ -32,7 +33,7 @@ export function isInsideToggle(blocks: Block[], blockId: string): boolean {
   const parentId = findParentId(blocks, blockId);
   if (!parentId) return false;
   const parent = findBlockById(blocks, parentId);
-  return parent?.type === 'toggle';
+  return parent != null && isToggleBlockType(parent.type);
 }
 
 export function getPreviousSiblingToggleId(blocks: Block[], blockId: string): string | null {
@@ -41,7 +42,7 @@ export function getPreviousSiblingToggleId(blocks: Block[], blockId: string): st
   const idx = siblings.findIndex(b => b.id === blockId);
   if (idx <= 0) return null;
   const prev = siblings[idx - 1];
-  return prev.type === 'toggle' ? prev.id : null;
+  return isToggleBlockType(prev.type) ? prev.id : null;
 }
 
 export function canMoveIntoPreviousToggle(blocks: Block[], blockId: string): boolean {
@@ -131,7 +132,7 @@ export function moveBlockOutOfToggle(blocks: Block[], blockId: string): Block[] 
   const parentId = findParentId(blocks, blockId);
   if (parentId === undefined || parentId === null) return null;
   const parent = findBlockById(blocks, parentId);
-  if (!parent || parent.type !== 'toggle') return null;
+  if (!parent || !isToggleBlockType(parent.type)) return null;
 
   const { tree, block } = extractBlockFromTree(blocks, blockId);
   if (!block) return null;
@@ -142,7 +143,7 @@ export function moveBlockOutOfToggle(blocks: Block[], blockId: string): Block[] 
 function ensureParentToggle(blocks: Block[], parentId: string): Block[] {
   const parent = findBlockById(blocks, parentId);
   if (!parent) return blocks;
-  if (parent.type === 'toggle') {
+  if (isToggleBlockType(parent.type)) {
     return updateBlockById(blocks, parentId, t => ({ ...t, collapsed: false }));
   }
   if (!isNestableInToggle(parent.type)) return blocks;
@@ -172,7 +173,7 @@ export function indentBlock(blocks: Block[], blockId: string): Block[] | null {
 
   if (idx > 0) {
     const prev = siblings[idx - 1];
-    if (isNestableInToggle(cur.type) && (prev.type === 'toggle' || isNestableInToggle(prev.type))) {
+    if (isNestableInToggle(cur.type) && (isToggleBlockType(prev.type) || isNestableInToggle(prev.type))) {
       const prepared = ensureParentToggle(blocks, prev.id);
       return moveBlockIntoToggle(prepared, blockId, prev.id);
     }
@@ -193,7 +194,7 @@ export function outdentBlock(blocks: Block[], blockId: string): Block[] | null {
 
   if (parentId !== null) {
     const parent = findBlockById(blocks, parentId);
-    if (parent?.type === 'toggle') {
+    if (parent && isToggleBlockType(parent.type)) {
       return moveBlockOutOfToggle(blocks, blockId);
     }
   }

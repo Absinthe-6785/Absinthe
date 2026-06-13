@@ -4,6 +4,7 @@
 import {
   BLOCK_TYPE_MENU,
   filterBlockMenu,
+  slashMenuItemKey,
   type BlockType,
   type BlockTypeMeta,
 } from '../../../../../blockUtils';
@@ -28,8 +29,8 @@ export function buildSlashPalette(query: string): SlashPaletteResult {
     .map(metaFor)
     .filter((m): m is BlockTypeMeta => m != null);
 
-  const recentTypes = new Set(recent.map(m => m.type));
-  const dedupedItems = items.filter(m => !recentTypes.has(m.type));
+  const recentTypes = new Set(recent.map(slashMenuItemKey));
+  const dedupedItems = items.filter(m => !recentTypes.has(slashMenuItemKey(m)));
 
   return { recent, items: dedupedItems };
 }

@@ -1,5 +1,8 @@
 import type { Block, BlockType } from '../../../blockUtils';
+import type { BlockTypeMeta } from '../../../blockUtils';
 import { HEADING_BLOCK_TYPES } from '../constants/blockEditorConstants';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
+import { DEFAULT_CALLOUT_ICON } from '../../../calloutPresets';
 
 export function insertBlockAtIndex(blocks: Block[], index: number, block: Block): Block[] {
   const next = [...blocks];
@@ -25,21 +28,25 @@ export function enterSplitBlockType(currentType: BlockType): BlockType {
   return HEADING_BLOCK_TYPES.includes(currentType) ? 'paragraph' : currentType;
 }
 
-export function applySlashMenuTypeChange(block: Block, type: BlockType, query: string): Block {
+export function applySlashMenuTypeChange(block: Block, meta: BlockTypeMeta, query: string): Block {
+  const type = meta.type;
   const slashIdx = block.content.lastIndexOf('/' + query);
   const cleaned = slashIdx >= 0
     ? block.content.slice(0, slashIdx) + block.content.slice(slashIdx + 1 + query.length)
     : block.content;
   if (type === 'math') {
-    return { ...block, type, content: '', math: block.math || cleaned, mathBlock: (block.math || cleaned).includes('\n') };
+    return { ...block, type, content: '', math: block.math || cleaned, mathBlock: (block.math || cleaned).includes('\n'), ...meta.createDefaults };
   }
   if (type === 'code') {
-    return { ...block, type, content: '', code: block.code || cleaned };
+    return { ...block, type, content: '', code: block.code || cleaned, ...meta.createDefaults };
   }
   if (type === 'image') {
-    return { ...block, type, content: '', src: '', alt: '', caption: undefined, width: undefined };
+    return { ...block, type, content: '', src: '', alt: '', caption: undefined, width: undefined, ...meta.createDefaults };
   }
-  return { ...block, type, content: cleaned };
+  const next: Block = { ...block, type, content: cleaned, ...meta.createDefaults };
+  if (isToggleBlockType(type)) next.collapsed = next.collapsed ?? false;
+  if (type === 'callout' && !next.calloutIcon) next.calloutIcon = DEFAULT_CALLOUT_ICON;
+  return next;
 }
 
 export function getPasteBlockContext(

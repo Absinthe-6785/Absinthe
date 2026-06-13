@@ -6,6 +6,7 @@ import {
   prepareStructuredPasteText,
 } from './pasteStructure';
 import { makeBlock, markdownToBlocks, updateBlockById, type Block, type BlockType } from '../../../../../blockUtils';
+import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 import { assertValidBlockTree } from '../../../validation/assertValidBlockTree';
 import { clipboardToBlocks, isDocumentLevelPaste } from './pasteOrchestrator';
 
@@ -156,7 +157,7 @@ export function applyPasteAtBlock(
   if (pastedBlocks.length === 0) return null;
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
 
-  if (cur.type === 'toggle') {
+  if (isToggleBlockType(cur.type)) {
     const result = applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
     if (result) assertValidBlockTree(result.blocks, 'applyPasteAtBlock');
     return result;
@@ -217,7 +218,7 @@ export function applyPasteBlocksAt(
   let pastedBlocks = pastedBlocksIn.map(b => ({ ...b }));
   if (context) pastedBlocks = adaptPastedBlocks(pastedBlocks, context);
 
-  if (cur.type === 'toggle') {
+  if (isToggleBlockType(cur.type)) {
     const result = applyPasteAtToggleHeader(blocks, idx, cur, before, after, pastedBlocks);
     if (result) assertValidBlockTree(result.blocks, 'applyPasteBlocksAt');
     return result;

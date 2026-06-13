@@ -3,6 +3,7 @@
  */
 import { genBlockId, makeBlock, type Block, type BlockType } from './blockUtils';
 import { sanitizeBlockType } from './blockTypeGuards';
+import { isToggleBlockType } from './toggleBlockTypes';
 import { assertValidBlockTree } from './features/block-editor/validation/assertValidBlockTree';
 
 function asString(val: unknown, fallback = ''): string {
@@ -73,7 +74,7 @@ export function repairBlock(raw: unknown): Block | null {
   const partial: Partial<Block> = { id, content, children, indent };
 
   if (type === 'todo') partial.checked = Boolean(o.checked);
-  if (type === 'toggle') partial.collapsed = Boolean(o.collapsed);
+  if (isToggleBlockType(type)) partial.collapsed = Boolean(o.collapsed);
   if (type === 'code') {
     partial.language = asString(o.language);
     partial.code = asString(o.code);

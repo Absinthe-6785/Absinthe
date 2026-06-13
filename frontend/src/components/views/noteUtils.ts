@@ -458,6 +458,11 @@ export function extractTOC(body: string): TocItem[] {
   if (!body) return [];
   return body.split('\n')
     .map((line, i) => {
+      const toggleM = line.match(/^(#{1,4})>!?\s?(.*)$/);
+      if (toggleM) {
+        const text = toggleM[2].trim() || '(제목 없음)';
+        return { level: toggleM[1].length, text, line: i, collapsed: line.includes('>!') };
+      }
       const m = line.match(/^(#{1,4}) (.+)$/);
       return m ? { level: m[1].length, text: m[2], line: i, collapsed: false } : null;
     })

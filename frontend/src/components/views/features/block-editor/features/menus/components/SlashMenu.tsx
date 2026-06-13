@@ -2,8 +2,8 @@
  * SlashMenu.tsx — Slash command popup (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import type { BlockType } from '../../../../../blockUtils';
-import { slashDisplayLabel, slashShortcutFor } from '../utils/slashCommands';
+import type { BlockTypeMeta } from '../../../../../blockUtils';
+import { slashMenuItemKey } from '../../../../../blockUtils';
 import { buildSlashPalette } from '../utils/slashPalette';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 
@@ -12,7 +12,7 @@ export interface SlashMenuProps {
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
-  onSelect: (type: BlockType) => void;
+  onSelect: (meta: BlockTypeMeta) => void;
   onClose: () => void;
 }
 
@@ -46,7 +46,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
     const h = (e: KeyboardEvent) => {
       if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(v => Math.min(v + 1, flatItems.length - 1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(v => Math.max(v - 1, 0)); }
-      if (e.key === 'Enter') { e.preventDefault(); if (flatItems[cursor]) onSelect(flatItems[cursor].type); }
+      if (e.key === 'Enter') { e.preventDefault(); if (flatItems[cursor]) onSelect(flatItems[cursor]); }
       if (e.key === 'Escape') { onClose(); }
     };
     window.addEventListener('keydown', h);
@@ -80,7 +80,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           </span>
         </div>
         <div style={{ fontSize: 11, color: c.textMuted }}>
-          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · h4 · todo · toggle · bullet · code …'}
+          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · toggle1 · callout · info · math …'}
         </div>
       </div>
       {flatItems.length === 0 && (
@@ -96,13 +96,13 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           </div>
           {palette.recent.map((item, idx) => {
             const active = cursor === idx;
-            const shortcut = slashShortcutFor(item.type);
+            const shortcut = item.menuKey ?? item.type;
             return (
               <button
-                key={`recent-${item.type}`}
+                key={`recent-${slashMenuItemKey(item)}`}
                 data-idx={idx}
                 type="button"
-                onClick={() => onSelect(item.type)}
+                onClick={() => onSelect(item)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                   padding: '7px 12px', background: active ? c.accentBg : 'none',
@@ -118,7 +118,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
                   {item.icon}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{slashDisplayLabel(item.type)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{item.label}</div>
                   <div style={{ fontSize: 11, color: c.textMuted }}>{item.desc}</div>
                 </span>
                 {shortcut && (
@@ -144,15 +144,15 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
             </div>
           )}
           {gItems.map(item => {
-            const idx = flatItems.findIndex(f => f.type === item.type);
+            const idx = flatItems.findIndex(f => slashMenuItemKey(f) === slashMenuItemKey(item));
             const active = cursor === idx;
-            const shortcut = slashShortcutFor(item.type);
+            const shortcut = item.menuKey ?? item.type;
             return (
               <button
-                key={item.type}
+                key={slashMenuItemKey(item)}
                 data-idx={idx}
                 type="button"
-                onClick={() => onSelect(item.type)}
+                onClick={() => onSelect(item)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                   padding: '7px 12px', background: active ? c.accentBg : 'none',
@@ -168,7 +168,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
                   {item.icon}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{slashDisplayLabel(item.type)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{item.label}</div>
                   <div style={{ fontSize: 11, color: c.textMuted }}>{item.desc}</div>
                 </span>
                 {shortcut && (

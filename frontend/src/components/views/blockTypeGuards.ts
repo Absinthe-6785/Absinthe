@@ -4,8 +4,9 @@
 import type { BlockType } from './blockUtils';
 
 export const KNOWN_BLOCK_TYPES = new Set<BlockType>([
-  'paragraph', 'heading1', 'heading2', 'heading3',
+  'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
   'bullet', 'numbered', 'todo', 'toggle',
+  'toggleHeading1', 'toggleHeading2', 'toggleHeading3', 'toggleHeading4',
   'code', 'image', 'divider', 'table', 'quote', 'callout', 'math',
 ]);
 
