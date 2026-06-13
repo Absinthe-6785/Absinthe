@@ -1565,9 +1565,14 @@ export const NoteView = () => {
     [],
   );
 
+  const getOutlineBlocks = useCallback(
+    () => blockEditorRef.current?.getBlocks() ?? [],
+    [activeNoteId],
+  );
+
   useTocScrollSpy(
     editorScrollRef,
-    activeNote?.body ?? '',
+    getOutlineBlocks,
     toc,
     viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
     tocScrollSpyPausedRef,
@@ -1578,17 +1583,17 @@ export const NoteView = () => {
   const scrollToHeading = useCallback((headingIdx: number) => {
     setActiveTocIdx(headingIdx);
     tocScrollSpyPausedRef.current = true;
-    const body = activeNote?.body ?? '';
+    const blocks = blockEditorRef.current?.getBlocks() ?? [];
     const scrollApi = virtualScrollApiRef.current;
     navigateToHeading({
       scrollRoot: editorScrollRef.current,
-      body,
+      blocks,
       headingIdx,
       scrollToBlockId: scrollApi?.scrollToBlockId,
       onFlash: flashHeadingElement,
     });
     window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
-  }, [activeNote?.body]);
+  }, [activeNoteId]);
 
   const highlightedTocIdx = tocKeyboardIdx ?? activeTocIdx;
 
