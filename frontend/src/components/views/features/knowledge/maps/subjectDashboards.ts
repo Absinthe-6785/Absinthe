@@ -88,11 +88,11 @@ export interface SubjectDashboardDefinition {
 
 /** Tag-based subject surfaces — no curriculum engine. */
 export const SUBJECT_DASHBOARDS: readonly SubjectDashboardDefinition[] = [
-  { id: 'japanese-history', name: 'Japanese History', tag: 'japanese-history', description: 'Meiji era, modern Japan, historical concepts' },
-  { id: 'politics', name: 'Politics', tag: 'politics', description: 'Political systems, movements, governance' },
-  { id: 'economics', name: 'Economics', tag: 'economics', description: 'Markets, policy, economic theory' },
-  { id: 'toefl', name: 'TOEFL', tag: 'toefl', description: 'English proficiency study materials' },
-  { id: 'vocabulary', name: 'Vocabulary', tag: 'vocabulary', description: 'Word lists and language vocabulary' },
+  { id: 'japanese-history', name: '일본사', tag: 'japanese-history', description: '메이지 시대, 근대 일본, 역사 개념' },
+  { id: 'politics', name: '정치', tag: 'politics', description: '정치 제도, 운동, 거버넌스' },
+  { id: 'economics', name: '경제', tag: 'economics', description: '시장, 정책, 경제 이론' },
+  { id: 'toefl', name: 'TOEFL', tag: 'toefl', description: '영어 proficiency 학습 자료' },
+  { id: 'vocabulary', name: '어휘', tag: 'vocabulary', description: '단어 목록과 어휘 학습' },
 ];
 
 /** Smart collection id per subject — first-class workspace surfaces. */

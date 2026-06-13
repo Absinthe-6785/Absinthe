@@ -1847,7 +1847,7 @@ export const NoteView = () => {
                         style={{ gap: 4, fontSize: 11 }}
                       >
                         <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
-                        <span style={{ flex: 1 }}>Dashboard</span>
+                        <span style={{ flex: 1 }}>대시보드</span>
                       </div>
                       <SmartCollectionsSection
                         colors={c}
@@ -2008,16 +2008,16 @@ export const NoteView = () => {
               <button onClick={closeTraceLens} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave trace view">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
-              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Leave dashboard">✕</button>
+              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="대시보드 나가기">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'database-view') && !searchQuery.trim() && (
               <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear database view">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'smart-collection') && !searchQuery.trim() && (
-              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
+              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="컬렉션 해제">✕</button>
             )}
             {isWorkspaceKindActive(workspaceActivation, 'rule-collection') && !searchQuery.trim() && !isWorkspaceKindActive(workspaceActivation, 'smart-collection') && (
-              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="Clear collection">✕</button>
+              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title="컬렉션 해제">✕</button>
             )}
             {activeTag && workspaceActivation.kind === 'none' && !searchQuery.trim() && (
               <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>
@@ -2034,7 +2034,7 @@ export const NoteView = () => {
                 {(['updated', 'title', 'created'] as const).map(s => (
                   <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
                     onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? '⏱ Last Modified' : s === 'title' ? 'Az Title' : '📅 Created'}
+                    {s === 'updated' ? '⏱ 최근 수정' : s === 'title' ? 'Az 제목' : '📅 생성일'}
                   </div>
                 ))}
               </div>
@@ -2581,10 +2581,25 @@ export const NoteView = () => {
                   style={{ flex: 1, overflow: 'auto', position: 'relative' }}
                   onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
                   onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+                  onPaste={e => {
+                    if (!activeNote || viewMode !== 'edit') return;
+                    const items = Array.from(e.clipboardData?.items ?? []);
+                    const imageItem = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
+                    if (!imageItem) return;
+                    e.preventDefault();
+                    const file = imageItem.getAsFile();
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                      const src = ev.target?.result as string;
+                      if (src) insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), src);
+                    };
+                    reader.readAsDataURL(file);
+                  }}
                   onDrop={handleEditorDrop}>
                   {isDragOver && (
                     <div className="editor-drop-overlay">
-                      <ImageIcon size={22}/> Drop image to insert
+                      <ImageIcon size={22}/> 이미지를 놓아 삽입
                     </div>
                   )}
                   {viewMode !== 'graph' && (

@@ -26,12 +26,12 @@ function note(
 describe('smart collection catalog', () => {
   it('defines phase-1 and research collections', () => {
     expect(SMART_COLLECTIONS).toHaveLength(23);
-    expect(findSmartCollection('orphan')?.name).toBe('Orphan Notes');
-    expect(findSmartCollection('research-sources')?.name).toBe('Sources');
-    expect(findSmartCollection('exam-study-notes')?.name).toBe('Study Notes');
-    expect(findSmartCollection('map-concepts')?.name).toBe('Concept Notes');
-    expect(findSmartCollection('academic-active-projects')?.name).toBe('Active Projects');
-    expect(findSmartCollection('subject-toefl')?.name).toBe('TOEFL Workspace');
+    expect(findSmartCollection('orphan')?.name).toBe('고립 노트');
+    expect(findSmartCollection('research-sources')?.name).toBe('출처');
+    expect(findSmartCollection('exam-study-notes')?.name).toBe('학습 노트');
+    expect(findSmartCollection('map-concepts')?.name).toBe('개념 노트');
+    expect(findSmartCollection('academic-active-projects')?.name).toBe('진행 프로젝트');
+    expect(findSmartCollection('subject-toefl')?.name).toBe('TOEFL 작업공간');
   });
 
   it('activates by returning collection id', () => {
