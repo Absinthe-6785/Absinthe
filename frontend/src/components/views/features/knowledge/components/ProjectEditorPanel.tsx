@@ -75,8 +75,8 @@ export function ProjectEditorPanel({
   onNavigateToNote,
   onCreateMilestone,
 }: ProjectEditorPanelProps) {
-  const { isMobile } = useViewportLayout();
-  const touch = touchMinSize(isMobile);
+  const { isMobile, isTablet } = useViewportLayout();
+  const touch = touchMinSize(isMobile, isTablet);
   const [descriptionDraft, setDescriptionDraft] = useState(data.description);
 
   useEffect(() => {

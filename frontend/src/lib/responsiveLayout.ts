@@ -31,10 +31,12 @@ export function responsiveMetricGridColumns(isMobile: boolean): string {
   return isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))';
 }
 
-export function dashboardOuterPadding(isMobile: boolean): number {
-  return isMobile ? 8 : 12;
+export function dashboardOuterPadding(isMobile: boolean, isTablet = false): number {
+  if (isMobile) return 8;
+  if (isTablet) return 10;
+  return 12;
 }
 
-export function touchMinSize(isMobile: boolean): number | undefined {
-  return isMobile ? TOUCH_TARGET_MIN_PX : undefined;
+export function touchMinSize(isMobile: boolean, isTablet = false): number | undefined {
+  return isMobile || isTablet ? TOUCH_TARGET_MIN_PX : undefined;
 }

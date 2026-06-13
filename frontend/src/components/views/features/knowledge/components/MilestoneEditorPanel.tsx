@@ -32,8 +32,8 @@ export function MilestoneEditorPanel({
   onUpdateTargetDate,
   onNavigateToProject,
 }: MilestoneEditorPanelProps) {
-  const { isMobile } = useViewportLayout();
-  const touch = touchMinSize(isMobile);
+  const { isMobile, isTablet } = useViewportLayout();
+  const touch = touchMinSize(isMobile, isTablet);
   const [dateDraft, setDateDraft] = useState(targetDate ?? '');
 
   useEffect(() => {

@@ -288,7 +288,7 @@ export function WorkspaceDashboardView({
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const { isMobile, isTablet, isNarrow } = useViewportLayout();
-  const outerPadding = dashboardOuterPadding(isMobile);
+  const outerPadding = dashboardOuterPadding(isMobile, isTablet);
   const panelGap = isMobile ? 8 : 12;
   const notes = recentNotes.slice(0, recentNotesLimit);
   const [captureTitle, setCaptureTitle] = useState('');
