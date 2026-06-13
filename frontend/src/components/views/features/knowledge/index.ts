@@ -492,6 +492,13 @@ export {
 } from './collections';
 
 export {
+  SMART_COLLECTION_GROUPS,
+  getSmartCollectionIcon,
+  getSmartCollectionGroup,
+  type SmartCollectionGroup,
+} from './collections/smartCollectionGroups';
+
+export {
   activateDatabaseView,
   addDatabaseViewColumn,
   addDatabaseViewRollupColumn,

@@ -19,7 +19,7 @@ describe('subjectDashboards', () => {
     const tagged = addTag(setNoteKind(note('c1', 'Meiji'), 'concept'), 'japanese-history');
     const other = addTag(note('n1', 'Essay'), 'japanese-history');
     const dash = buildSubjectDashboard([tagged, other], 'japanese-history', { limit: 4 });
-    expect(dash?.subject.name).toBe('Japanese History');
+    expect(dash?.subject.name).toBe('일본사');
     expect(dash?.noteCount).toBe(2);
     expect(dash?.conceptCount).toBe(1);
     expect(dash?.workspaceCollectionId).toBe('subject-japanese-history');

@@ -22,6 +22,7 @@ import {
   traceClipboardToBlocks,
 } from './pastePipelineTrace';
 import { detectWikiQuery, findWikiLinkAtOffset } from './features/block-editor/features/menus';
+import { applySymbolShortcut } from './symbolShortcuts';
 import { headingConvertTarget } from './headingToolbar';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
 
@@ -116,16 +117,28 @@ export function EditableBlock({
 
   const handleInput = useCallback((e: React.FormEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    const text = getElText(el);
-    lastContent.current = text;
-    onContentChange(block.id, text);
+    let text = getElText(el);
 
     if (!composingRef.current) {
-      if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
-      liveRafRef.current = requestAnimationFrame(() => {
-        liveRafRef.current = null;
-        paintLive(el, true);
-      });
+      const shortcut = applySymbolShortcut(text, block.type);
+      if (shortcut.applied) {
+        text = shortcut.text;
+        lastContent.current = text;
+        onContentChange(block.id, text);
+        const caret = getCaretOffset(el) + shortcut.caretDelta;
+        paintEditableLive(el, text, c, wikiTargets, searchQuery, caret);
+      } else {
+        lastContent.current = text;
+        onContentChange(block.id, text);
+        if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
+        liveRafRef.current = requestAnimationFrame(() => {
+          liveRafRef.current = null;
+          paintLive(el, true);
+        });
+      }
+    } else {
+      lastContent.current = text;
+      onContentChange(block.id, text);
     }
 
     const offset = getCaretOffset(el);
@@ -155,7 +168,7 @@ export function EditableBlock({
       }
     }
     onSlashClose();
-  }, [block.id, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, paintLive]);
+  }, [block.id, block.type, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, paintLive, c, wikiTargets, searchQuery]);
 
   const applyInlineFormat = useCallback((before: string, after: string) => {
     const el = editableRef.current;
