@@ -1,6 +1,6 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
-import { UNTITLED_NOTE_LABEL } from '../../../noteDisplayTitle';
+import { resolveUntitledNoteLabel } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
@@ -38,7 +38,7 @@ export function getDatabaseCellValue(
 ): string {
   const value = getDatabaseFieldValue(note, column.key, service);
   if (value) return value;
-  return column.key === 'title' ? UNTITLED_NOTE_LABEL : '—';
+  return column.key === 'title' ? resolveUntitledNoteLabel() : '—';
 }
 
 export function getDatabaseRollupCellValue(

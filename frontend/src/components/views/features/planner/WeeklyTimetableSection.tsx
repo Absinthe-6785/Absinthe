@@ -7,7 +7,7 @@ import { useTranslation } from '../../../../lib/i18n';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
 
-const DAYS_OF_WEEK = ['월', '화', '수', '목', '금', '토', '일'] as const;
+const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
 const parseTime = (timeStr: string): number => {
   const [h, m] = timeStr.split(':');
@@ -50,6 +50,8 @@ export function WeeklyTimetableSection({
     clearConfirm();
   });
 
+  const weekdays = WEEKDAY_KEYS.map(key => t(key));
+
   const openWeeklyModal = (sch?: WeeklySchedule) => {
     setNewWeeklySch(sch ?? {
       day: 0,
@@ -65,7 +67,7 @@ export function WeeklyTimetableSection({
   const saveWeeklySchedule = async () => {
     if (!newWeeklySch.title) return showToast(t('enterTitleAct'), 'error');
     if (newWeeklySch.start_time && newWeeklySch.end_time && newWeeklySch.start_time >= newWeeklySch.end_time) {
-      return showToast('종료 시간은 시작 시간보다 늦어야 합니다.', 'error');
+      return showToast(t('plannerWeeklyEndAfterStart'), 'error');
     }
     const ok = await api(
       editingWeeklyId ? 'PUT' : 'POST',
@@ -77,7 +79,7 @@ export function WeeklyTimetableSection({
   };
 
   const deleteWeeklySchedule = (id: string) =>
-    showConfirm('이 활동을 삭제할까요?', () =>
+    showConfirm(t('plannerWeeklyDeleteConfirm'), () =>
       api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
       { confirmLabel: t('delete') },
     );
@@ -114,7 +116,7 @@ export function WeeklyTimetableSection({
               className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
               data-planner-weekly-timetable-add
             >
-              <Plus size={16} strokeWidth={3}/> 추가
+              <Plus size={16} strokeWidth={2.25}/> {t('add')}
             </button>
             )}
           </div>
@@ -123,7 +125,7 @@ export function WeeklyTimetableSection({
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
-            {DAYS_OF_WEEK.map(day => (
+            {weekdays.map(day => (
               <div key={day} className={`flex-1 flex items-center justify-center border-r last:border-r-0 ${theme.border}`}>
                 <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>{day}</span>
               </div>
@@ -146,7 +148,7 @@ export function WeeklyTimetableSection({
                 />
               ))}
               <div className="absolute inset-0 flex pointer-events-none">
-                {DAYS_OF_WEEK.map((_, i) => (
+                {weekdays.map((_, i) => (
                   <div key={i} className={`flex-1 border-r border-dashed opacity-30 last:border-r-0 ${theme.border}`}/>
                 ))}
               </div>
@@ -190,7 +192,7 @@ export function WeeklyTimetableSection({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowWeeklyModal(false)}>
           <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()} data-planner-weekly-timetable-modal>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? '활동 수정' : '새 활동'}</h3>
+              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? t('plannerWeeklyEditActivity') : t('plannerWeeklyNewActivity')}</h3>
               <button type="button" onClick={() => setShowWeeklyModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
             <div className="space-y-5">
@@ -203,14 +205,14 @@ export function WeeklyTimetableSection({
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('dayOfWeek')}</label>
                 <select value={newWeeklySch.day} onChange={e => setNewWeeklySch({ ...newWeeklySch, day: parseInt(e.target.value) })}
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`}>
-                  {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  {weekdays.map((d, i) => <option key={i} value={i}>{d}</option>)}
                 </select>
               </div>
               <div className="flex gap-4">
                 {(
                   [
-                    { label: '시작', field: 'start_time' as const },
-                    { label: '종료', field: 'end_time' as const },
+                    { label: t('plannerWeeklyStart'), field: 'start_time' as const },
+                    { label: t('plannerWeeklyEnd'), field: 'end_time' as const },
                   ] satisfies { label: string; field: keyof Pick<WeeklySchedule, 'start_time' | 'end_time'> }[]
                 ).map(({ label, field }) => (
                   <div key={field} className="flex-1">
@@ -235,7 +237,7 @@ export function WeeklyTimetableSection({
                   <button type="button" onClick={() => deleteWeeklySchedule(editingWeeklyId)} className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-2xl p-4 hover:bg-red-500/20 transition-colors">{t('delete')}</button>
                 )}
                 <button type="button" onClick={saveWeeklySchedule} className={`bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 transition-transform active:scale-[0.98] ${editingWeeklyId ? 'flex-[2]' : 'w-full'}`}>
-                  저장
+                  {t('save')}
                 </button>
               </div>
             </div>

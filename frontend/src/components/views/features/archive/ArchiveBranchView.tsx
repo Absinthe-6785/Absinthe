@@ -109,7 +109,7 @@ export function ArchiveBranchView({
             className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
             data-archive-branch-period-links
           >
-            <h2 className="font-heading text-base font-bold mb-3">탐색</h2>
+            <h2 className="font-heading text-base font-bold mb-3">{t('archiveBrowseTitle')}</h2>
             {periodLinks.length === 0 ? (
               <p className={`text-sm ${theme.textMuted}`}>{t('archiveBrowseEmptyHint')}</p>
             ) : (

@@ -55,12 +55,12 @@ export function ArchiveMarkCalendar({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-mark-calendar
       data-archive-mark-calendar-empty={markCalendar.hasAnyMarks ? 'false' : 'true'}
-      aria-label="마크 캘린더"
+      aria-label={t('archiveMarkCalendarTitle')}
     >
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="font-heading text-base font-bold flex items-center gap-2">
           <CalendarDays size={16} className="text-primary" strokeWidth={2.25} />
-          마크 캘린더
+          {t('archiveMarkCalendarTitle')}
         </h2>
         {yearSpan && (
           <span className={`text-xs font-semibold ${theme.textMuted}`}>{yearSpan}</span>
@@ -70,7 +70,7 @@ export function ArchiveMarkCalendar({
       {!markCalendar.hasAnyMarks ? (
         <div className="flex flex-col items-start gap-2" data-archive-mark-calendar-empty-message>
           <p className={`text-sm ${theme.textMuted}`}>
-            아직 기록된 마크가 없습니다.
+            {t('archiveMarkCalendarNoMarks')}
           </p>
           <p className={`text-xs ${theme.textMuted}`}>
             {t('archiveMarkCalendarEmptyHint')}
@@ -162,14 +162,14 @@ export function ArchiveMarkCalendar({
             </div>
 
             <div className="flex items-center justify-end gap-1.5 mt-3">
-              <span className={`text-[10px] ${theme.textMuted}`}>마크 적음</span>
+              <span className={`text-[10px] ${theme.textMuted}`}>{t('archiveMarkDensityLow')}</span>
               {[0, 1, 2, 3].map(level => (
                 <div
                   key={level}
                   className={`w-3 h-3 rounded-[3px] ${archiveMarkCellColorClass(level, false, darkMode)}`}
                 />
               ))}
-              <span className={`text-[10px] ${theme.textMuted}`}>마크 많음</span>
+              <span className={`text-[10px] ${theme.textMuted}`}>{t('archiveMarkDensityHigh')}</span>
             </div>
           </div>
         </div>

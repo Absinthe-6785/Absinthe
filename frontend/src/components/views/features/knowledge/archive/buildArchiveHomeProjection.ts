@@ -8,6 +8,7 @@ import { buildArchiveAreaPills } from './buildArchiveAreaPills';
 import { buildArchiveBrowseLinks } from './buildArchiveBrowseLinks';
 import { buildArchiveMarkCalendarProjection } from './buildArchiveMarkCalendar';
 import { buildArchiveRecentMilestones } from './buildArchiveRecentMilestones';
+import { resolveArchiveFrameLabels } from './archiveBrowseLabels';
 import { buildArchiveYouAreHere } from './buildArchiveYouAreHere';
 
 function buildArchiveEmptyFlags(
@@ -52,15 +53,18 @@ export function buildArchiveHomeProjection(
   const recentMilestones = buildArchiveRecentMilestones(input.notes, {
     limit: recentMilestoneLimit,
     now: input.now,
+    locale,
   });
 
   const areaPills = buildArchiveAreaPills(input.notes, {
     now: input.now,
     lookbackMonths: areaLookbackMonths,
     limit: areaPillLimit,
+    locale,
   });
 
   const browse = buildArchiveBrowseLinks(input.now, markCalendar, locale);
+  const frameLabels = resolveArchiveFrameLabels(locale);
 
   const empty = buildArchiveEmptyFlags(
     markCalendar.hasAnyMarks,
@@ -70,8 +74,8 @@ export function buildArchiveHomeProjection(
 
   return {
     frame: {
-      title: '아카이브',
-      subtitle: '돌아보며 남는 것들.',
+      title: frameLabels.title,
+      subtitle: frameLabels.subtitle,
       generatedAt: input.now.toISOString(),
     },
     youAreHere,

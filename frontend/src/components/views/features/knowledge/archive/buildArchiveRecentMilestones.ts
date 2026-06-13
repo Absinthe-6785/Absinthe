@@ -1,5 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
-import { displayNoteTitle } from '../../../noteDisplayTitle';
+import { displayNoteTitleForLocale } from '../../../noteDisplayTitle';
 import { getProperty } from '../properties/noteProperties';
 import { TRACE_PROPERTY_KEYS } from '../trace/dailyTraceModels';
 import { isMilestoneNote, readMilestoneFromNote } from '../trace/milestoneNotes';
@@ -8,7 +8,7 @@ import { archivePeriodRefFromDateKey } from './archivePeriodRefHelpers';
 
 export function buildArchiveRecentMilestones(
   notes: readonly NoteBase[],
-  options?: { limit?: number; now?: Date },
+  options?: { limit?: number; now?: Date; locale?: string },
 ): ArchiveMilestoneEntry[] {
   const limit = options?.limit ?? 5;
   const activeNotes = notes.filter(note => note.deletedAt == null);
@@ -21,7 +21,7 @@ export function buildArchiveRecentMilestones(
     if (!milestone?.milestoneDate) continue;
 
     const labelOverride = milestone.milestoneLabel?.trim();
-    const displayLabel = labelOverride || displayNoteTitle(note.title);
+    const displayLabel = labelOverride || displayNoteTitleForLocale(note.title, options?.locale);
     const kind = getProperty(note, TRACE_PROPERTY_KEYS.MILESTONE_KIND)?.trim() ?? '';
 
     entries.push({

@@ -1192,7 +1192,10 @@ export const NoteView = () => {
 
   const editorSearchQuery = searchScope === 'all' ? '' : searchQuery;
 
-  const toc = useMemo(() => activeNote ? extractTOC(activeNote.body) : [], [activeNote?.body]);
+  const toc = useMemo(
+    () => (activeNote ? extractTOC(activeNote.body, { untitledLabel: t('outlineUntitled') }) : []),
+    [activeNote?.body, t],
+  );
 
   // TOC 접기 - 해당 heading 아래 낮은 레벨 모두 collapse
   const toggleTocCollapse = (idx: number) => {
@@ -1565,9 +1568,14 @@ export const NoteView = () => {
     [],
   );
 
+  const getOutlineBlocks = useCallback(
+    () => blockEditorRef.current?.getBlocks() ?? [],
+    [activeNoteId],
+  );
+
   useTocScrollSpy(
     editorScrollRef,
-    activeNote?.body ?? '',
+    getOutlineBlocks,
     toc,
     viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
     tocScrollSpyPausedRef,
@@ -1578,17 +1586,17 @@ export const NoteView = () => {
   const scrollToHeading = useCallback((headingIdx: number) => {
     setActiveTocIdx(headingIdx);
     tocScrollSpyPausedRef.current = true;
-    const body = activeNote?.body ?? '';
+    const blocks = blockEditorRef.current?.getBlocks() ?? [];
     const scrollApi = virtualScrollApiRef.current;
     navigateToHeading({
       scrollRoot: editorScrollRef.current,
-      body,
+      blocks,
       headingIdx,
       scrollToBlockId: scrollApi?.scrollToBlockId,
       onFlash: flashHeadingElement,
     });
     window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
-  }, [activeNote?.body]);
+  }, [activeNoteId]);
 
   const highlightedTocIdx = tocKeyboardIdx ?? activeTocIdx;
 

@@ -57,8 +57,8 @@ describe('ArchiveHomeView', () => {
       createElement(ArchiveHomeView, { projection, theme, appSettings }),
     );
 
-    expect(html).toContain('아카이브');
-    expect(html).toContain('돌아보며 남는 것들.');
+    expect(html).toContain('Archive');
+    expect(html).toContain('What remains when you look back.');
     expect(html).toContain('data-archive-home="true"');
     expect(html).toContain('data-archive-mark-calendar');
     expect(html).toContain('data-archive-browse');
@@ -73,7 +73,7 @@ describe('ArchiveHomeView', () => {
     );
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
+    expect(html).toContain('Marks will accumulate here over time.');
     expect(html).toContain('Go to Notes to start writing');
   });
 
@@ -175,7 +175,7 @@ describe('ArchiveShell with hook', () => {
         theme,
       }),
     );
-    expect(html).toContain('아카이브');
+    expect(html).toContain('Archive');
     expect(html).toContain('data-archive-home="true"');
   });
 });

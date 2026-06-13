@@ -1,5 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
-import { displayNoteTitle } from '../../../noteDisplayTitle';
+import { displayNoteTitleForLocale } from '../../../noteDisplayTitle';
 import { listAreaNotes } from '../trace/areaNotes';
 import { resolveAreaMembership } from '../trace/buildAreaTraceProjection';
 import type { ArchiveAreaPill } from './archiveHomeModels';
@@ -21,7 +21,7 @@ function toLocalDateKey(date: Date): string {
 
 export function buildArchiveAreaPills(
   notes: readonly NoteBase[],
-  options: { now: Date; lookbackMonths?: number; limit?: number },
+  options: { now: Date; lookbackMonths?: number; limit?: number; locale?: string },
 ): ArchiveAreaPill[] {
   const lookbackMonths = options.lookbackMonths ?? 24;
   const limit = options.limit ?? 8;
@@ -44,7 +44,7 @@ export function buildArchiveAreaPills(
 
     const sortedDates = [...markDates].sort();
     const lastMarkDate = sortedDates[sortedDates.length - 1] ?? null;
-    const title = displayNoteTitle(areaNote.title);
+    const title = displayNoteTitleForLocale(areaNote.title, options.locale);
 
     pills.push({
       areaNoteId: areaNote.id,
