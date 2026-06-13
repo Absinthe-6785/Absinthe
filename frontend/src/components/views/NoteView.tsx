@@ -43,11 +43,20 @@ import {
   getLearningPathId,
   buildAllSubjectWorkspaces,
   buildLearningPathOverview,
+  buildProjectEditorData,
   findSmartCollection,
   setStudyProjectContainer,
   isStudyProjectContainer,
+  getStudyProjectDescription,
+  getStudyProjectStatus,
   filterStudyProjectContainers,
   setProjectMilestone,
+  isProjectMilestone,
+  getMilestoneStatus,
+  getMilestoneTargetDate,
+  getMilestoneProjectId,
+  ProjectEditorPanel,
+  MilestoneEditorPanel,
   setWeakTopic,
   isWeakTopic,
   extractNoteReferenceSummary,
@@ -369,6 +378,7 @@ export const NoteView = () => {
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
+  const [editingLearningPathId, setEditingLearningPathId] = useState<string | null | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);
   const [traceRange, setTraceRange] = useState<TraceRangeLens | null>(null);
@@ -845,6 +855,68 @@ export const NoteView = () => {
     if (collection) handleActivateSmartCollection(collection);
   }, [handleActivateSmartCollection]);
 
+  const handleNavigateToProjectEditor = useCallback((projectId: string) => {
+    handleLeaveDashboardForNote(projectId);
+    setActiveNoteId(projectId);
+    setShowRightPanel(true);
+    setRightPanel('properties');
+  }, [handleLeaveDashboardForNote]);
+
+  const handleEditProject = useCallback(() => {
+    const project = filterStudyProjectContainers(notes, 'active')[0]
+      ?? filterStudyProjectContainers(notes)[0];
+    if (project) handleNavigateToProjectEditor(project.id);
+  }, [notes, handleNavigateToProjectEditor]);
+
+  const handleUpdateProjectDescription = useCallback((description: string) => {
+    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
+    const status = getStudyProjectStatus(activeNote) ?? 'planned';
+    const updated = setStudyProjectContainer(activeNote, status, description);
+    noteUpdate(activeNote.id, { properties: updated.properties });
+  }, [activeNote, noteUpdate]);
+
+  const handleUpdateProjectStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
+    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
+    const updated = setStudyProjectContainer(activeNote, status, getStudyProjectDescription(activeNote));
+    noteUpdate(activeNote.id, { properties: updated.properties });
+  }, [activeNote, noteUpdate]);
+
+  const handleUpdateMilestoneStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
+    if (!activeNote || !isProjectMilestone(activeNote)) return;
+    const projectId = getMilestoneProjectId(activeNote);
+    if (!projectId) return;
+    const updated = setProjectMilestone(
+      activeNote,
+      projectId,
+      status,
+      getMilestoneTargetDate(activeNote) ?? undefined,
+    );
+    noteUpdate(activeNote.id, { properties: updated.properties });
+  }, [activeNote, noteUpdate]);
+
+  const handleUpdateMilestoneTargetDate = useCallback((targetDate: string | null) => {
+    if (!activeNote || !isProjectMilestone(activeNote)) return;
+    const projectId = getMilestoneProjectId(activeNote);
+    if (!projectId) return;
+    const status = getMilestoneStatus(activeNote) ?? 'planned';
+    const updated = setProjectMilestone(
+      activeNote,
+      projectId,
+      status,
+      targetDate ?? undefined,
+    );
+    noteUpdate(activeNote.id, { properties: updated.properties });
+  }, [activeNote, noteUpdate]);
+
+  const handleCreateLearningPathStepNote = useCallback((title: string) => {
+    const id = storeCreateNote({ title: title.trim() || 'New Step', body: '' });
+    return id;
+  }, [storeCreateNote]);
+
+  const handleUpdateNoteProperties = useCallback((noteId: string, properties: Record<string, string>) => {
+    noteUpdate(noteId, { properties });
+  }, [noteUpdate]);
+
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
@@ -1086,6 +1158,21 @@ export const NoteView = () => {
     () => buildAllSubjectWorkspaces(notes, { limit: 6 }),
     [notes],
   );
+
+  const projectEditorData = useMemo(
+    () => (activeNote && isStudyProjectContainer(activeNote)
+      ? buildProjectEditorData(notes, activeNote)
+      : null),
+    [activeNote, notes],
+  );
+
+  const milestoneProjectTitle = useMemo(() => {
+    if (!activeNote || !isProjectMilestone(activeNote)) return '';
+    const projectId = getMilestoneProjectId(activeNote);
+    if (!projectId) return '';
+    const project = notes.find(n => n.id === projectId);
+    return project ? displayNoteTitle(project.title) : '';
+  }, [activeNote, notes]);
 
   const handleActivateSubjectWorkspace = useCallback((collectionId: SmartCollectionId) => {
     const collection = findSmartCollection(collectionId);
@@ -2169,7 +2256,25 @@ export const NoteView = () => {
                 onCreateProject: handleCreateProject,
                 onCreateMilestone: handleCreateProjectMilestone,
                 onOpenProjectNotes: handleOpenProjectNotes,
+                onEditProject: handleEditProject,
               },
+              learningPathOverview: {
+                data: learningPathOverview,
+                onNavigateToNote: noteId => {
+                  handleLeaveDashboardForNote(noteId);
+                  setActiveNoteId(noteId);
+                },
+                onCreatePath: () => setEditingLearningPathId(null),
+                onOpenPathEditor: pathId => setEditingLearningPathId(pathId),
+              },
+              learningPathEditor: editingLearningPathId !== undefined ? {
+                pathId: editingLearningPathId,
+                notes,
+                activeNoteId,
+                onPathIdChange: id => setEditingLearningPathId(id ?? undefined),
+                onUpdateNoteProperties: handleUpdateNoteProperties,
+                onCreateNote: handleCreateLearningPathStepNote,
+              } : undefined,
             }}
             learningPath={{
               data: learningPathOverview,
@@ -2177,6 +2282,16 @@ export const NoteView = () => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
               },
+              onCreatePath: () => setEditingLearningPathId(null),
+              onOpenPathEditor: pathId => setEditingLearningPathId(pathId),
+              editor: editingLearningPathId !== undefined ? {
+                pathId: editingLearningPathId,
+                notes,
+                activeNoteId,
+                onPathIdChange: id => setEditingLearningPathId(id ?? undefined),
+                onUpdateNoteProperties: handleUpdateNoteProperties,
+                onCreateNote: handleCreateLearningPathStepNote,
+              } : undefined,
             }}
             subjectWorkspaces={{
               subjects: subjectWorkspaces,
@@ -2188,6 +2303,7 @@ export const NoteView = () => {
                 handleActivateSubjectWorkspace(collectionId);
                 handleLeaveDashboardForNote('');
               },
+              onEditProject: handleNavigateToProjectEditor,
             }}
           />
         ) : isDatabaseViewMode && activeDatabaseView ? (
@@ -2765,11 +2881,43 @@ export const NoteView = () => {
 
           {/* Properties */}
           {rightPanel === 'properties' && activeNote && (
-            <NotePropertiesPanel
-              colors={c}
-              note={activeNote}
-              onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
-            />
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {projectEditorData && (
+                <ProjectEditorPanel
+                  colors={c}
+                  data={projectEditorData}
+                  onUpdateDescription={handleUpdateProjectDescription}
+                  onUpdateStatus={handleUpdateProjectStatus}
+                  onNavigateToNote={setActiveNoteId}
+                  onCreateMilestone={handleCreateProjectMilestone}
+                />
+              )}
+              {isProjectMilestone(activeNote) && (
+                <MilestoneEditorPanel
+                  colors={c}
+                  title={displayNoteTitle(activeNote.title)}
+                  status={getMilestoneStatus(activeNote) ?? 'planned'}
+                  targetDate={getMilestoneTargetDate(activeNote)}
+                  projectId={getMilestoneProjectId(activeNote)}
+                  projectTitle={milestoneProjectTitle}
+                  onUpdateStatus={handleUpdateMilestoneStatus}
+                  onUpdateTargetDate={handleUpdateMilestoneTargetDate}
+                  onNavigateToProject={
+                    getMilestoneProjectId(activeNote)
+                      ? () => {
+                        const pid = getMilestoneProjectId(activeNote)!;
+                        setActiveNoteId(pid);
+                      }
+                      : undefined
+                  }
+                />
+              )}
+              <NotePropertiesPanel
+                colors={c}
+                note={activeNote}
+                onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
+              />
+            </div>
           )}
 
           {rightPanel === 'tags' && activeNote && (

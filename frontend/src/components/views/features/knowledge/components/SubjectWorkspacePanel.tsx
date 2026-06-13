@@ -7,6 +7,7 @@ export interface SubjectWorkspacePanelProps {
   data: SubjectWorkspaceData;
   onNavigateToNote: (noteId: string) => void;
   onOpenWorkspace?: () => void;
+  onEditProject?: (projectId: string) => void;
 }
 
 function EntryList({
@@ -14,11 +15,13 @@ function EntryList({
   title,
   items,
   onNavigate,
+  onEditProject,
 }: {
   c: NoteChromeColors;
   title: string;
   items: readonly SubjectDashboardEntry[];
   onNavigate: (noteId: string) => void;
+  onEditProject?: (projectId: string) => void;
 }) {
   return (
     <div style={{ marginBottom: 10 }}>
@@ -30,27 +33,46 @@ function EntryList({
         <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
       ) : (
         items.map(item => (
-          <button
-            key={`${title}-${item.noteId}`}
-            type="button"
-            onClick={() => onNavigate(item.noteId)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              background: c.cardHov,
-              border: `1px solid ${c.sideBdr}`,
-              borderRadius: 6,
-              padding: '5px 8px',
-              marginBottom: 3,
-              cursor: 'pointer',
-              color: c.text,
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.noteTitle}
-            </div>
-            <div style={{ fontSize: 9, color: c.textMuted, marginTop: 1 }}>{item.meta}</div>
-          </button>
+          <div key={`${title}-${item.noteId}`} style={{ display: 'flex', gap: 4, marginBottom: 3 }}>
+            <button
+              type="button"
+              onClick={() => onNavigate(item.noteId)}
+              style={{
+                flex: 1,
+                textAlign: 'left',
+                background: c.cardHov,
+                border: `1px solid ${c.sideBdr}`,
+                borderRadius: 6,
+                padding: '5px 8px',
+                cursor: 'pointer',
+                color: c.text,
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.noteTitle}
+              </div>
+              <div style={{ fontSize: 9, color: c.textMuted, marginTop: 1 }}>{item.meta}</div>
+            </button>
+            {onEditProject && title === '프로젝트' && (
+              <button
+                type="button"
+                onClick={() => onEditProject(item.noteId)}
+                title="프로젝트 편집"
+                style={{
+                  flexShrink: 0,
+                  padding: '5px 8px',
+                  fontSize: 9,
+                  borderRadius: 6,
+                  border: `1px solid ${c.sideBdr}`,
+                  background: c.card,
+                  color: c.accent,
+                  cursor: 'pointer',
+                }}
+              >
+                편집
+              </button>
+            )}
+          </div>
         ))
       )}
     </div>
@@ -63,6 +85,7 @@ export function SubjectWorkspacePanel({
   data,
   onNavigateToNote,
   onOpenWorkspace,
+  onEditProject,
 }: SubjectWorkspacePanelProps) {
   return (
     <div className="be-subject-workspace" aria-label={`${data.subject.name} 워크스페이스`}>
@@ -112,7 +135,7 @@ export function SubjectWorkspacePanel({
           </div>
         ))}
       </div>
-      <EntryList c={c} title="프로젝트" items={data.linkedProjects} onNavigate={onNavigateToNote} />
+      <EntryList c={c} title="프로젝트" items={data.linkedProjects} onNavigate={onNavigateToNote} onEditProject={onEditProject} />
       <EntryList c={c} title="약점 주제" items={data.weakTopics} onNavigate={onNavigateToNote} />
       <EntryList c={c} title="학습 노트" items={data.studyNotes} onNavigate={onNavigateToNote} />
       <EntryList c={c} title="개념" items={data.conceptNotes} onNavigate={onNavigateToNote} />
