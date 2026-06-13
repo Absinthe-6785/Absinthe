@@ -62,7 +62,7 @@ export const Sidebar = ({
     {/* ── 하단 유틸 ── */}
     <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
       <button
-        aria-label="Toggle Dark Mode"
+        aria-label={t('toggleDarkMode')}
         onClick={() => updateSetting('darkMode', !appSettings.darkMode)}
         className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-foreground transition-colors"
       >
@@ -87,14 +87,14 @@ export const Sidebar = ({
       >
         <Settings size={20} strokeWidth={2.5} />
         <span className={`text-[9px] font-bold leading-none mt-0.5 ${activeTab === 'settings' ? 'text-primary-foreground' : 'text-sidebar-muted'}`}>
-          Settings
+          {t('settings')}
         </span>
       </button>
 
       <button
         aria-label={t('signOut')}
         onClick={handleSignOut}
-        title={`Sign out (${userName})`}
+        title={t('signOutUser').replace('{name}', userName)}
         className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-danger transition-colors"
       >
         <LogOut size={20} strokeWidth={2.5} />

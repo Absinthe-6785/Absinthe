@@ -37,7 +37,7 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
   {
     id: 'knowledge',
     label: '지식',
-    icon: Sparkles,
+    icon: Star,
     collectionIds: [
       'research-sources',
       'research-literature',
@@ -141,7 +141,7 @@ const COLLECTION_ICONS: Partial<Record<SmartCollectionId, LucideIcon>> = {
   'subject-economics': Compass,
   'subject-toefl': Languages,
   'subject-vocabulary': BookOpen,
-  'highly-connected': Star,
+  'highly-connected': Sparkles,
 };
 
 export function getSmartCollectionIcon(id: SmartCollectionId): LucideIcon {

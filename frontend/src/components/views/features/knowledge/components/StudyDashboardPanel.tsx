@@ -64,7 +64,7 @@ export function StudyDashboardPanel({ colors: c, data, onNavigateToNote }: Study
   return (
     <div className="be-study-dashboard" aria-label="학습 대시보드">
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        질문 {data.questionCount}개 · vault 기준
+        질문 {data.questionCount}개 · 전체 노트 기준
       </div>
       <Section c={c} title="최근 학습 노트" items={data.recentStudyNotes} onNavigate={onNavigateToNote} />
       <Section c={c} title="복습 후보" count={data.reviewCandidates.length} items={data.reviewCandidates} onNavigate={onNavigateToNote} />

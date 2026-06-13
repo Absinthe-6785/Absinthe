@@ -93,7 +93,7 @@ export function SubjectWorkspacePanel({
   const { isMobile, isTablet } = useViewportLayout();
   const touch = touchMinSize(isMobile);
   return (
-    <div className="be-subject-workspace" aria-label={`${data.subject.name} 워크스페이스`}>
+    <div className="be-subject-workspace" aria-label={`${data.subject.name} 작업공간`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{data.subject.name}</div>
@@ -115,7 +115,7 @@ export function SubjectWorkspacePanel({
               minHeight: touch,
             }}
           >
-            워크스페이스 열기
+            작업공간 열기
           </button>
         )}
       </div>

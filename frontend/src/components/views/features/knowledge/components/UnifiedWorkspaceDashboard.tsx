@@ -91,14 +91,14 @@ export function UnifiedWorkspaceDashboard({
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
 
   return (
-    <div className="be-unified-workspace-dashboard" aria-label="통합 워크스페이스 대시보드" style={{ overflowX: 'hidden' }}>
+    <div className="be-unified-workspace-dashboard" aria-label="통합 작업공간 대시보드" style={{ overflowX: 'hidden' }}>
       <TabBar c={c} active={section} onChange={setSection} compact={compact} />
 
       {section === 'overview' && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>최근 활동 · 인사이트</div>
           <AcademicInsightsPanel colors={c} data={data.insights} onNavigateToNote={onNavigateToNote} />
-          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>검토 대기열</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>지식 검토</div>
           <KnowledgeReviewPanel
             colors={c}
             lists={data.review}

@@ -2076,7 +2076,7 @@ export const NoteView = () => {
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
                   <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
                     <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
-                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>Trash</span>
+                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>휴지통</span>
                     {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
                   </div>
                 </div>
@@ -2134,7 +2134,7 @@ export const NoteView = () => {
               : activeSavedView
               ? activeSavedView.name
               : knowledgeQueryInfo.active
-              ? (knowledgeQueryInfo.error ? 'Invalid query' : knowledgeQueryInfo.label)
+              ? (knowledgeQueryInfo.error ? '잘못된 쿼리' : knowledgeQueryInfo.label)
               : activeTag ? `#${activeTag}` : folderLabel}
             <span style={{ color: c.textFaint, marginLeft: 4 }}>
               ({isTraceLensMode ? traceLensMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
@@ -2442,7 +2442,7 @@ export const NoteView = () => {
                 onCompositionStart={() => { titleComposingRef.current = true; }}
                 onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
-                placeholder="Title"/>
+                placeholder="제목"/>
               {!isTrash && (
                 <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
                   style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer' }}>
@@ -2493,7 +2493,7 @@ export const NoteView = () => {
                 {VIEW_MODES.map(({ key, icon }) => (
                   <button
                     key={key}
-                    title={key === 'reading' ? 'Reading mode (Ctrl+E)' : 'Graph (Ctrl+G)'}
+                    title={key === 'reading' ? '읽기 모드 (Ctrl+E)' : '그래프 (Ctrl+G)'}
                     onClick={() => {
                       if (key === 'reading') setViewMode(v => toggleEditReading(v));
                       else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
@@ -2756,7 +2756,7 @@ export const NoteView = () => {
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
-                          <AlertTriangle size={14}/> In Trash — restore to edit
+                          <AlertTriangle size={14}/> 휴지통에 있음 — 복원 후 편집
                         </div>
                         <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                       </div>
@@ -2766,7 +2766,7 @@ export const NoteView = () => {
                         style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
                         {viewMode === 'reading' && (
                           <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
-                            Reading mode — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd>로 편집
+                            읽기 모드 — 더블클릭 또는 <kbd style={{ fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${c.toolBdr}` }}>Ctrl+E</kbd>로 편집
                           </div>
                         )}
                         <NoteBlockEditor
@@ -2798,8 +2798,8 @@ export const NoteView = () => {
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
               <div style={{ fontSize: 32 }}>📋</div>
-              <p style={{ fontSize: 13 }}>Select a note or create a new one</p>
-              <button className="bwbg" onClick={() => createNote()}>+ New Note</button>
+              <p style={{ fontSize: 13 }}>노트를 선택하거나 새 노트를 만드세요</p>
+              <button className="bwbg" onClick={() => createNote()}>+ 새 노트</button>
               <button onClick={() => setViewMode('graph')}
                 style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <GitFork size={12}/> 그래프 보기
