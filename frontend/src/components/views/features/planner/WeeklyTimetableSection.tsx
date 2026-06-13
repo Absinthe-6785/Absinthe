@@ -6,6 +6,7 @@ import { useApiMutation } from '../../../../hooks/useApiMutation';
 import { useTranslation } from '../../../../lib/i18n';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
+import { EmptyState } from '../../../common/EmptyState';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
@@ -51,6 +52,8 @@ export function WeeklyTimetableSection({
   });
 
   const weekdays = WEEKDAY_KEYS.map(key => t(key));
+  const hasActivities = weeklySchedules.length > 0;
+  const [expanded, setExpanded] = useState(hasActivities);
 
   const openWeeklyModal = (sch?: WeeklySchedule) => {
     setNewWeeklySch(sch ?? {
@@ -75,7 +78,10 @@ export function WeeklyTimetableSection({
       { ...newWeeklySch },
       { revalidate: 'static', successMsg: t('scheduleSaved') },
     );
-    if (ok) setShowWeeklyModal(false);
+    if (ok) {
+      setShowWeeklyModal(false);
+      setExpanded(true);
+    }
   };
 
   const deleteWeeklySchedule = (id: string) =>
@@ -86,7 +92,6 @@ export function WeeklyTimetableSection({
 
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const ROW_H = 48;
-  const [expanded, setExpanded] = useState(weeklySchedules.length > 0);
 
   return (
     <>
@@ -95,11 +100,16 @@ export function WeeklyTimetableSection({
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={expanded ? 'true' : 'false'}
       >
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-            <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
-          </h2>
-          <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
+              <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
+            </h2>
+            {!expanded && !hasActivities && (
+              <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setExpanded(v => !v)}
@@ -109,20 +119,38 @@ export function WeeklyTimetableSection({
             >
               {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
             </button>
-            {expanded && (
             <button
               type="button"
               onClick={() => openWeeklyModal()}
               className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
               data-planner-weekly-timetable-add
             >
-              <Plus size={16} strokeWidth={2.25}/> {t('add')}
+              <Plus size={16} strokeWidth={2.25}/> {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
             </button>
-            )}
           </div>
         </div>
+
+        {!expanded && !hasActivities && (
+          <div className="py-6" data-planner-weekly-timetable-collapsed-empty="true">
+            <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
+          </div>
+        )}
+
         {expanded && (
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+          {!hasActivities ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3" data-planner-weekly-timetable-empty="true">
+              <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
+              <button
+                type="button"
+                onClick={() => openWeeklyModal()}
+                className="bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-bold"
+              >
+                {t('plannerWeeklyTimetableAddFirst')}
+              </button>
+            </div>
+          ) : (
+          <>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
             {weekdays.map(day => (
@@ -184,6 +212,8 @@ export function WeeklyTimetableSection({
               })}
             </div>
           </div>
+          </>
+          )}
         </div>
         )}
       </section>

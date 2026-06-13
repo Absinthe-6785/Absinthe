@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DateTime } from 'luxon';
 import type { Theme } from '../../../../../types';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { PlannerCalendarViewMode } from '../calendar';
 import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
 import { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
@@ -22,6 +23,7 @@ export function CalendarPeriodNav({
   theme,
   onAnchorDateChange,
 }: CalendarPeriodNavProps) {
+  const { t } = useTranslation();
   const todayKey = toDateKey(now.toJSDate());
   const canNavigate = Boolean(onAnchorDateChange);
 
@@ -47,7 +49,7 @@ export function CalendarPeriodNav({
       <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
-          aria-label="Previous period"
+          aria-label={t('plannerNavPrevPeriod')}
           disabled={!canNavigate}
           onClick={() => shift(-1)}
           className={`p-1.5 rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`}
@@ -57,7 +59,7 @@ export function CalendarPeriodNav({
         </button>
         <button
           type="button"
-          aria-label="Next period"
+          aria-label={t('plannerNavNextPeriod')}
           disabled={!canNavigate}
           onClick={() => shift(1)}
           className={`p-1.5 rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`}
@@ -72,7 +74,7 @@ export function CalendarPeriodNav({
             className={`ml-1 px-2.5 py-1 rounded-xl text-[10px] lg:text-xs font-bold transition-colors ${theme.input} ${theme.textMuted} hover:text-foreground`}
             data-planner-calendar-nav-today
           >
-            Today
+            {t('plannerToday')}
           </button>
         ) : null}
       </div>
