@@ -72,6 +72,12 @@ describe('blockRegistry', () => {
     expect(node).toBeTruthy();
   });
 
+  it('renderBlockContent hides empty paragraph in readOnly', () => {
+    const block = makeBlock('paragraph');
+    const node = renderBlockContent(block, c, minimalCtx({ readOnly: true }));
+    expect(node).toBeNull();
+  });
+
   it('renderBlockContent handles divider', () => {
     const block = makeBlock('divider');
     const node = renderBlockContent(block, c, minimalCtx());

@@ -123,6 +123,11 @@ import {
   NOTE_RADIUS_CARD,
 } from './noteEditorTheme';
 import { type EditorMode, toggleEditReading } from './editorMode';
+import {
+  flashHeadingElement,
+  headingScrollSelector,
+  scrollToHeadingTarget,
+} from './outlineNavigation';
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -233,6 +238,7 @@ export const NoteView = () => {
   const restoreNote = useNotesStore(s => s.restoreNote);
   const permanentDeleteNote = useNotesStore(s => s.permanentDeleteNote);
   const storeCreateFolder = useNotesStore(s => s.createFolder);
+  const storeRenameFolder = useNotesStore(s => s.renameFolder);
   const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
   const importNote = useNotesStore(s => s.importNote);
   const flushPendingSync = useNotesStore(s => s.flushPendingSync);
@@ -310,6 +316,9 @@ export const NoteView = () => {
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [newFolderName,  setNewFolderName]  = useState('');
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState('');
+  const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
   const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
@@ -760,6 +769,7 @@ export const NoteView = () => {
   const importInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
   useEffect(() => {
@@ -1130,11 +1140,18 @@ export const NoteView = () => {
     createNote({ title: trimmed, body: '' });
   }, [notes, setActiveNoteId, setViewMode, createNote]);
 
+  useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
+
   // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/reading 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
-    const el = document.querySelector(`[data-be-heading="${headingIdx}"]`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+    setActiveTocIdx(headingIdx);
+    const body = activeNote?.body ?? '';
+    scrollToHeadingTarget(
+      editorScrollRef.current,
+      headingScrollSelector(body, headingIdx),
+      flashHeadingElement,
+    );
+  }, [activeNote?.body]);
 
   // Reading mode click delegation — be-wikilink / be-tag data attributes
   const handleReadingModeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1270,6 +1287,7 @@ export const NoteView = () => {
     .bseclbl{padding:8px 11px 3px;font-size:10px;color:${c.textFaint};font-weight:700;letter-spacing:1px;text-transform:uppercase}
     .btoc{display:flex;align-items:center;gap:3px;padding:3px 8px;cursor:pointer;font-size:11px;color:${c.textMuted};border-radius:4px;transition:all .12s}
     .btoc:hover{color:${c.accent};background:${c.cardHov}}
+    .btoc.active{color:${c.accent};background:${c.cardHov};font-weight:600}
     .btpill{background:${c.tag};color:${c.tagTxt};border-radius:999px;font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid transparent}
     .btpill:hover{border-color:${c.tagTxt}60}
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
@@ -1487,12 +1505,45 @@ export const NoteView = () => {
                 <div className="bseclbl">Folders</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => { setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}
+                    onClick={() => {
+                      if (renamingFolderId === f.id) return;
+                      setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false);
+                    }}
                     onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
                     onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
                     onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
                     style={{ gap: 4 }}>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{f.name}</span>
+                    {renamingFolderId === f.id ? (
+                      <input
+                        autoFocus
+                        value={renameVal}
+                        onChange={e => setRenameVal(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && renameVal.trim()) {
+                            storeRenameFolder(f.id, renameVal.trim());
+                            setRenamingFolderId(null);
+                          }
+                          if (e.key === 'Escape') setRenamingFolderId(null);
+                        }}
+                        onBlur={() => {
+                          if (renameVal.trim()) storeRenameFolder(f.id, renameVal.trim());
+                          setRenamingFolderId(null);
+                        }}
+                        className="bwi"
+                        style={{ flex: 1, fontSize: 11, margin: '0 4px' }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span
+                        style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}
+                        onDoubleClick={e => {
+                          e.stopPropagation();
+                          setRenamingFolderId(f.id);
+                          setRenameVal(f.name);
+                        }}>
+                        {f.name}
+                      </span>
+                    )}
                     <span style={{ fontSize: 9, color: c.textMuted }}>{notes.filter(n => n.folderId === f.id && !n.deletedAt).length}</span>
                     <button onClick={e => { e.stopPropagation(); deleteFolder(f.id); }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: '1px 2px', borderRadius: 3, opacity: 0 }}
@@ -2176,6 +2227,7 @@ export const NoteView = () => {
                 {/* Body — 드래그&드롭 + 단일 컬럼 전체 너비 */}
                 <div
                   className="editor-drop-zone"
+                  ref={editorScrollRef}
                   style={{ flex: 1, overflow: 'auto', position: 'relative' }}
                   onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
                   onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
@@ -2260,24 +2312,26 @@ export const NoteView = () => {
               {visibleToc.length === 0
                 ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>No headings<br/><span style={{ fontSize: 10 }}># ## ###</span></p>
                 : visibleToc.map(item => (
-                  <div key={item.idx} className="btoc" style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
-                    onClick={() => {
-                      if (item.hasChildren) { toggleTocCollapse(item.idx); return; }
-                      scrollToHeading(item.idx);
-                    }}>
-                    {item.hasChildren
-                      ? (tocCollapsed[item.idx]
-                          ? <ChevronRight size={9} style={{ flexShrink: 0, color: c.textFaint }}/>
-                          : <ChevronDown  size={9} style={{ flexShrink: 0, color: c.textFaint }}/>)
-                      : <span style={{ width: 9, display: 'inline-block', flexShrink: 0 }}/>
-                    }
+                  <div
+                    key={item.idx}
+                    className={`btoc${activeTocIdx === item.idx ? ' active' : ''}`}
+                    style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
+                    onClick={() => scrollToHeading(item.idx)}>
+                    {item.hasChildren ? (
+                      <button
+                        type="button"
+                        aria-label={tocCollapsed[item.idx] ? 'Expand section' : 'Collapse section'}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', flexShrink: 0 }}
+                        onClick={e => { e.stopPropagation(); toggleTocCollapse(item.idx); }}>
+                        {tocCollapsed[item.idx]
+                          ? <ChevronRight size={9} style={{ color: c.textFaint }}/>
+                          : <ChevronDown  size={9} style={{ color: c.textFaint }}/>}
+                      </button>
+                    ) : (
+                      <span style={{ width: 9, display: 'inline-block', flexShrink: 0 }}/>
+                    )}
                     <span style={{ fontSize: 8, color: item.level === 1 ? c.accent : c.textFaint, marginRight: 2, fontWeight: 700 }}>H{item.level}</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
-                      onClick={e => {
-                        if (item.hasChildren) return; // 이미 처리됨
-                        e.stopPropagation();
-                        scrollToHeading(item.idx);
-                      }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {item.text}
                     </span>
                   </div>

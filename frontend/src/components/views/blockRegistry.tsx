@@ -80,12 +80,10 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
 
   switch (block.type) {
     case 'paragraph':
+      if (readOnly && !block.content?.trim()) return null;
       return readOnly ? (
-        <p {...readingCopyProps(block)} style={{ margin:'2px 0', lineHeight:1.75, fontSize:15,
-          color: block.content ? c.text : c.textFaint, minHeight:26 }}>
-          {block.content
-            ? inline(block.content)
-            : <span style={{ color:c.textFaint, pointerEvents:'none' }}>텍스트 입력…</span>}
+        <p {...readingCopyProps(block)} style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text }}>
+          {inline(block.content)}
         </p>
       ) : (
         <EditableBlock block={block} colors={c} tag="p"
@@ -94,18 +92,22 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
           {...editProps}/>
       );
     case 'heading1':
+      if (readOnly && !block.content?.trim()) return null;
       return readOnly
         ? <h1 {...readingCopyProps(block)} style={{ fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text }}>{inline(block.content)}</h1>
         : ep('h1', { fontSize:28, fontWeight:800, margin:'16px 0 4px', lineHeight:1.3, color:c.text });
     case 'heading2':
+      if (readOnly && !block.content?.trim()) return null;
       return readOnly
         ? <h2 {...readingCopyProps(block)} style={{ fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text }}>{inline(block.content)}</h2>
         : ep('h2', { fontSize:22, fontWeight:700, margin:'14px 0 3px', lineHeight:1.35, color:c.text });
     case 'heading3':
+      if (readOnly && !block.content?.trim()) return null;
       return readOnly
         ? <h3 {...readingCopyProps(block)} style={{ fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text }}>{inline(block.content)}</h3>
         : ep('h3', { fontSize:17, fontWeight:700, margin:'10px 0 2px', lineHeight:1.4, color:c.text });
     case 'bullet':
+      if (readOnly && !block.content?.trim()) return null;
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
           <span style={{ color:c.accent, fontSize:18, lineHeight:'26px', flexShrink:0 }}>•</span>
@@ -118,6 +120,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
         </div>
       );
     case 'numbered':
+      if (readOnly && !block.content?.trim()) return null;
       return (
         <div style={{ display:'flex', gap:8, alignItems:'flex-start', padding:'2px 0' }}>
           <span style={{ color:c.textMuted, fontSize:14, lineHeight:'26px', flexShrink:0, minWidth:20, fontWeight:500 }}>{numberedMarker(block)}.</span>
@@ -130,6 +133,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
         </div>
       );
     case 'todo':
+      if (readOnly && !block.content?.trim() && !block.checked) return null;
       return (
         <div style={{ display:'flex', gap:9, alignItems:'flex-start', padding:'2px 0' }}>
           <button onClick={e => { e.stopPropagation(); ctx.onToggleTodo(); }} style={{
@@ -160,6 +164,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
         </div>
       );
     case 'quote':
+      if (readOnly && !block.content?.trim()) return null;
       return readOnly
         ? <blockquote {...readingCopyProps(block)} style={{ borderLeft:`3px solid ${c.quoteBdr}`, marginLeft:0, paddingLeft:16,
             color:c.textMuted, fontStyle:'italic', fontSize:15, lineHeight:1.7, margin:'4px 0' }}>
@@ -170,6 +175,7 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
               color:c.textMuted, fontStyle:'italic', fontSize:15, lineHeight:1.7, margin:'4px 0' }}
             {...editProps}/>;
     case 'callout':
+      if (readOnly && !block.content?.trim()) return null;
       return (
         <div className="be-callout" style={{
           background: `linear-gradient(135deg, ${c.calloutBg} 0%, ${c.card} 100%)`,

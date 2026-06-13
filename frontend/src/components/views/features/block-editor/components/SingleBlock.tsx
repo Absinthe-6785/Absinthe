@@ -31,6 +31,7 @@ import { useVirtualNavigation } from '../performance/VirtualNavigationContext';
 import { BlockGutter, BlockHandles, blockShellClassName } from '../../../EditorChrome';
 import { renderInlineMarkdown } from '../../../editableRender';
 import { useBlocksCtx } from '../contexts/BlocksContext';
+import { shouldHideBlockInReadingMode } from '../../../readingModeVisibility';
 
 const getElText = readBlockText;
 
@@ -354,6 +355,10 @@ export const SingleBlock = React.memo(function SingleBlock({
   const blockShellClass = blockShellClassName(
     isActive, isSelected, controlsVisible ?? false,
   );
+
+  if (readOnly && shouldHideBlockInReadingMode(block)) {
+    return null;
+  }
 
   if (block.type === 'toggle') {
     return (
