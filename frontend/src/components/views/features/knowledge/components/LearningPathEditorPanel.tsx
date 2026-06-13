@@ -236,10 +236,11 @@ export function LearningPathEditorPanel({
             alignItems: 'center',
             gap: 4,
             marginBottom: 4,
-            padding: '4px 6px',
+            padding: '6px 8px',
             background: c.cardHov,
             border: `1px solid ${c.sideBdr}`,
             borderRadius: 6,
+            flexWrap: 'wrap',
           }}
         >
           <span style={{ fontSize: 9, color: c.accent, width: 16, flexShrink: 0 }}>{step.step}</span>
@@ -263,15 +264,15 @@ export function LearningPathEditorPanel({
             {step.noteTitle}
           </button>
           <button type="button" onClick={() => handleMove(step.noteId, 'up')} disabled={index === 0} title="위로"
-            style={{ background: 'none', border: 'none', cursor: index === 0 ? 'default' : 'pointer', opacity: index === 0 ? 0.3 : 1, color: c.textMuted }}>
+            style={{ background: 'none', border: 'none', cursor: index === 0 ? 'default' : 'pointer', opacity: index === 0 ? 0.3 : 1, color: c.textMuted, minWidth: 44, minHeight: 44 }}>
             <ChevronUp size={12} />
           </button>
           <button type="button" onClick={() => handleMove(step.noteId, 'down')} disabled={index === (path.steps.length - 1)} title="아래로"
-            style={{ background: 'none', border: 'none', cursor: index === (path.steps.length - 1) ? 'default' : 'pointer', opacity: index === (path.steps.length - 1) ? 0.3 : 1, color: c.textMuted }}>
+            style={{ background: 'none', border: 'none', cursor: index === (path.steps.length - 1) ? 'default' : 'pointer', opacity: index === (path.steps.length - 1) ? 0.3 : 1, color: c.textMuted, minWidth: 44, minHeight: 44 }}>
             <ChevronDown size={12} />
           </button>
           <button type="button" onClick={() => handleRemoveNote(step.noteId)} title="제거"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.danger }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.danger, minWidth: 44, minHeight: 44 }}>
             <Trash2 size={11} />
           </button>
         </div>

@@ -312,7 +312,7 @@ export const PlannerView = ({
       <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}>
         {(['calendar', 'todo', 'memo', 'timeline'] as const).map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
-            className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-colors
+            className={`flex-1 py-2.5 min-h-[44px] rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>
             {tab === 'todo' ? t('planner') : tab === 'memo' ? t('memo') : tab === 'calendar' ? t('calendar') : t('timeline')}
           </button>

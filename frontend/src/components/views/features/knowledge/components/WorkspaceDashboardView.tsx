@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
+import { useViewportLayout } from '../../../../hooks/useViewportLayout';
+import { dashboardOuterPadding } from '../../../../lib/responsiveLayout';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { RecentWorkEntry } from '../workspace/workspacePreferences';
@@ -95,6 +97,7 @@ export interface WorkspaceDashboardUnifiedProps {
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
   learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
   learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
+  compact?: boolean;
 }
 
 export interface WorkspaceDashboardLearningPathEditorProps {
@@ -282,6 +285,9 @@ export function WorkspaceDashboardView({
   subjectWorkspaces,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
+  const { isMobile, isTablet, isNarrow } = useViewportLayout();
+  const outerPadding = dashboardOuterPadding(isMobile);
+  const panelGap = isMobile ? 8 : 12;
   const notes = recentNotes.slice(0, recentNotesLimit);
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureType, setCaptureType] = useState<QuickCaptureType>('note');
@@ -317,7 +323,7 @@ export function WorkspaceDashboardView({
   };
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: outerPadding, display: 'flex', flexDirection: 'column', gap: panelGap }}>
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{dashboard.name}</div>
         <div style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>생산성 시작점</div>
@@ -410,6 +416,7 @@ export function WorkspaceDashboardView({
             projectQuickActions={unified.projectQuickActions}
             learningPathOverview={unified.learningPathOverview}
             learningPathEditor={unified.learningPathEditor}
+            compact={isMobile || isTablet}
           />
         </Card>
       )}

@@ -1,6 +1,8 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import type { SubjectDashboardEntry } from '../maps/subjectDashboards';
+import { useViewportLayout } from '../../../../hooks/useViewportLayout';
+import { responsiveStatGridColumns, touchMinSize } from '../../../../lib/responsiveLayout';
 
 export interface SubjectWorkspacePanelProps {
   colors: NoteChromeColors;
@@ -60,13 +62,14 @@ function EntryList({
                 title="프로젝트 편집"
                 style={{
                   flexShrink: 0,
-                  padding: '5px 8px',
+                  padding: '5px 10px',
                   fontSize: 9,
                   borderRadius: 6,
                   border: `1px solid ${c.sideBdr}`,
                   background: c.card,
                   color: c.accent,
                   cursor: 'pointer',
+                  minHeight: touch,
                 }}
               >
                 편집
@@ -87,6 +90,8 @@ export function SubjectWorkspacePanel({
   onOpenWorkspace,
   onEditProject,
 }: SubjectWorkspacePanelProps) {
+  const { isMobile, isTablet } = useViewportLayout();
+  const touch = touchMinSize(isMobile);
   return (
     <div className="be-subject-workspace" aria-label={`${data.subject.name} 워크스페이스`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -107,13 +112,14 @@ export function SubjectWorkspacePanel({
               color: c.accent,
               cursor: 'pointer',
               flexShrink: 0,
+              minHeight: touch,
             }}
           >
             워크스페이스 열기
           </button>
         )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, marginBottom: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: responsiveStatGridColumns(isMobile, isTablet, 4), gap: 4, marginBottom: 10 }}>
         {[
           { label: '노트', count: data.noteCount },
           { label: '개념', count: data.conceptCount },

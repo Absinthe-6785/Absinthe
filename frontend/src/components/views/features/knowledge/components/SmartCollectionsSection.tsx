@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { useViewportLayout } from '../../../../hooks/useViewportLayout';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollection } from '../collections/smartCollectionModels';
 import {
@@ -28,6 +29,7 @@ function CollectionRow({
   isPinned,
   onTogglePin,
   subdued,
+  isMobile,
 }: {
   c: NoteChromeColors;
   collection: SmartCollection;
@@ -37,6 +39,7 @@ function CollectionRow({
   isPinned?: boolean;
   onTogglePin?: (e: React.MouseEvent) => void;
   subdued?: boolean;
+  isMobile?: boolean;
 }) {
   const Icon = getSmartCollectionIcon(collection.id);
   return (
@@ -48,6 +51,8 @@ function CollectionRow({
         fontSize: subdued ? 10 : 11,
         opacity: subdued ? 0.85 : 1,
         paddingLeft: subdued ? 14 : undefined,
+        minHeight: isMobile ? 44 : undefined,
+        padding: isMobile ? '10px 8px' : undefined,
       }}
       title={collection.description}
     >
@@ -79,6 +84,7 @@ function GroupSection({
   onActivate,
   isPinned,
   onTogglePin,
+  isMobile,
 }: {
   c: NoteChromeColors;
   groupId: string;
@@ -91,6 +97,7 @@ function GroupSection({
   onActivate: (collection: SmartCollection) => void;
   isPinned?: (id: string) => boolean;
   onTogglePin?: (collection: SmartCollection) => void;
+  isMobile?: boolean;
 }) {
   const hasSecondaryActive = secondaryCollections.some(col => col.id === activeCollectionId);
   const [showSecondary, setShowSecondary] = useState(hasSecondaryActive);
@@ -121,10 +128,11 @@ function GroupSection({
           count={counts[collection.id] ?? 0}
           onActivate={() => onActivate(collection)}
           isPinned={isPinned?.(collection.id)}
-          onTogglePin={onTogglePin
-            ? e => { e.stopPropagation(); onTogglePin(collection); }
-            : undefined}
-        />
+                onTogglePin={onTogglePin
+                  ? e => { e.stopPropagation(); onTogglePin(collection); }
+                  : undefined}
+                isMobile={isMobile}
+              />
       ))}
       {secondaryCollections.length > 0 && (
         <>
@@ -160,6 +168,7 @@ function GroupSection({
                 ? e => { e.stopPropagation(); onTogglePin(collection); }
                 : undefined}
               subdued
+              isMobile={isMobile}
             />
           ))}
         </>
@@ -178,6 +187,7 @@ export function SmartCollectionsSection({
   isPinned,
   onTogglePin,
 }: SmartCollectionsSectionProps) {
+  const { isMobile } = useViewportLayout();
   const byId = new Map(collections.map(col => [col.id, col]));
 
   return (
@@ -218,6 +228,7 @@ export function SmartCollectionsSection({
             onActivate={onActivate}
             isPinned={isPinned}
             onTogglePin={onTogglePin}
+            isMobile={isMobile}
           />
         );
       })}
