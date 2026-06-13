@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import {
   type MilestoneFormValues,
@@ -102,7 +103,7 @@ export function MilestoneNoteDialog({
           {hasExistingMilestone ? 'Edit Milestone' : 'Mark Milestone'}
         </h2>
         <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 12 }}>
-          Note: {noteTitle.trim() || 'Untitled'}
+          노트: {displayNoteTitle(noteTitle)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

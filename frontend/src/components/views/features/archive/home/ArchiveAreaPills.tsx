@@ -22,15 +22,15 @@ export function ArchiveAreaPills({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-area-pills
       data-archive-area-pills-empty={isEmpty ? 'true' : 'false'}
-      aria-label="Areas"
+      aria-label="영역"
     >
       <h2 className="font-heading text-base font-bold mb-4">
-        Concerns
+        영역
       </h2>
 
       {isEmpty ? (
         <p className={`text-sm ${theme.textMuted}`} data-archive-area-pills-empty-message>
-          No areas recorded yet.
+          기록된 영역이 없습니다.
         </p>
       ) : (
         <div

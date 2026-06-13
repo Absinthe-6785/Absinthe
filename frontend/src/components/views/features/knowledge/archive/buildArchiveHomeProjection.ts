@@ -70,8 +70,8 @@ export function buildArchiveHomeProjection(
 
   return {
     frame: {
-      title: 'Archive',
-      subtitle: 'What remains when you look back.',
+      title: '아카이브',
+      subtitle: '돌아보며 남는 것들.',
       generatedAt: input.now.toISOString(),
     },
     youAreHere,

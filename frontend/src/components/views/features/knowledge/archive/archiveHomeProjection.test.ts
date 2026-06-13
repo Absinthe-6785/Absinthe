@@ -261,7 +261,7 @@ describe('archivePeriodRefToTraceRangeLens', () => {
 
     expect(archivePeriodRefToTraceRangeLens({
       kind: 'areas-index',
-      label: 'All areas',
+      label: '전체 영역',
     } as never)).toBeNull();
   });
 });
@@ -275,7 +275,7 @@ describe('buildArchiveHomeProjection', () => {
     expect(projection.empty.noAreas).toBe(true);
     expect(projection.recentMilestones).toEqual([]);
     expect(projection.areaPills).toEqual([]);
-    expect(projection.frame.title).toBe('Archive');
+    expect(projection.frame.title).toBe('아카이브');
   });
 
   it('assembles all sections without scores or percentages', () => {

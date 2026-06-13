@@ -20,6 +20,7 @@ import {
   parseNoteSearchQuery, noteMatchesTagSearch,
   normalizeNoteFolderId,
 } from './noteUtils';
+import { displayNoteTitle } from './noteDisplayTitle';
 import {
   extractMentionContexts,
   buildExpandedGraphData,
@@ -617,7 +618,7 @@ export const NoteView = () => {
   const openMilestoneDialog = useCallback((note: Note) => {
     setMilestoneDialog({
       noteId: note.id,
-      noteTitle: note.title.trim() || 'Untitled',
+      noteTitle: displayNoteTitle(note.title),
       initialValues: milestoneFormValuesFromNote(note, toDateKey(new Date())),
       hasExistingMilestone: isMilestoneNote(note),
     });
@@ -1239,13 +1240,13 @@ export const NoteView = () => {
     { key: 'graph'   as const, icon: <GitFork size={11}/>, label: '그래프' },
   ], []);
   const RIGHT_PANELS = useMemo(() => [
-    { key: 'toc'        as const, label: 'Outline', icon: <AlignLeft size={11}/> },
-    { key: 'links'      as const, label: 'Links',   icon: <Link size={11}/> },
-    { key: 'graph'      as const, label: 'Graph',   icon: <GitFork size={11}/> },
-    { key: 'properties' as const, label: 'Props',   icon: <SlidersHorizontal size={11}/> },
-    { key: 'tags'       as const, label: 'Tags',    icon: <Tag size={11}/> },
-    { key: 'relations'  as const, label: 'Relations', icon: <ArrowRightLeft size={11}/> },
-    { key: 'stats'      as const, label: 'Stats',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
+    { key: 'toc'        as const, label: '목차', icon: <AlignLeft size={11}/> },
+    { key: 'links'      as const, label: '링크',   icon: <Link size={11}/> },
+    { key: 'graph'      as const, label: '그래프',   icon: <GitFork size={11}/> },
+    { key: 'properties' as const, label: '속성',   icon: <SlidersHorizontal size={11}/> },
+    { key: 'tags'       as const, label: '태그',    icon: <Tag size={11}/> },
+    { key: 'relations'  as const, label: '관계', icon: <ArrowRightLeft size={11}/> },
+    { key: 'stats'      as const, label: '통계',   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
   ], []);
 
   // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
@@ -1508,7 +1509,7 @@ export const NoteView = () => {
                     }}
                   >
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {area.title.trim() || '제목 없음'}
+                      {displayNoteTitle(area.title)}
                     </span>
                   </div>
                 ))}
@@ -1939,13 +1940,14 @@ export const NoteView = () => {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-              {isTrash ? 'Trash is empty' : 'No notes'}
+              {isTrash ? '휴지통이 비어 있습니다' : '노트 없음'}
             </div>
           ) : visibleNotes.map(n => {
             const folder  = folders.find(f => f.id === n.folderId);
             const tags    = listTags(n).slice(0, 2);
             const rawPreview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
-            const hlTitle   = searchQuery.trim() ? highlightText(n.title || 'Untitled', searchQuery) : (n.title || 'Untitled');
+            const displayTitle = displayNoteTitle(n.title);
+            const hlTitle   = searchQuery.trim() ? highlightText(displayTitle, searchQuery) : displayTitle;
             const hlPreview = searchQuery.trim() ? highlightText(rawPreview, searchQuery) : rawPreview;
             return (
               <div key={n.id}
@@ -2010,7 +2012,7 @@ export const NoteView = () => {
               {!isTrash && (
                 <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
                   style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer' }}>
-                  <option value="">No Folder</option>
+                  <option value="">폴더 없음</option>
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               )}
@@ -2322,7 +2324,7 @@ export const NoteView = () => {
               <button className="bwbg" onClick={() => createNote()}>+ New Note</button>
               <button onClick={() => setViewMode('graph')}
                 style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <GitFork size={12}/> View Graph
+                <GitFork size={12}/> 그래프 보기
               </button>
             </div>
           )
@@ -2461,16 +2463,16 @@ export const NoteView = () => {
             const created = Number(activeNote.id.split('-')[1] || 0);
             return (
               <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Note Stats</div>
+                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>노트 통계</div>
                 {[
-                  ['Words', words],
-                  ['Characters', chars],
-                  ['Lines', lines],
-                  ['Read time', `~${readMin} min`],
-                  ['Headings', headings],
-                  ['Wiki links', linkCount],
-                  ['Tags', tagCount],
-                  ['Code blocks', Math.floor(codeBlocks)],
+                  ['단어', words],
+                  ['글자', chars],
+                  ['줄', lines],
+                  ['읽기 시간', `~${readMin}분`],
+                  ['제목', headings],
+                  ['위키 링크', linkCount],
+                  ['태그', tagCount],
+                  ['코드 블록', Math.floor(codeBlocks)],
                 ].map(([label, val]) => (
                   <div key={label as string} className="bstat-row">
                     <span style={{ color: c.textMuted }}>{label}</span>
@@ -2479,13 +2481,13 @@ export const NoteView = () => {
                 ))}
                 {created > 0 && (
                   <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
-                    Created {new Date(created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    Created {new Date(created).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </div>
                 )}
                 {/* 태그 클라우드 */}
                 {allTags.length > 0 && (
                   <>
-                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>Tag Cloud</div>
+                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>태그 클라우드</div>
                     <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                       {allTags.slice(0, 20).map(({ tag, count }) => {
                         const maxCount = allTags[0]?.count ?? 1;

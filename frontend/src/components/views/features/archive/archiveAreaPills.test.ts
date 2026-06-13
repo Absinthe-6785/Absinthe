@@ -61,7 +61,7 @@ describe('ArchiveAreaPills', () => {
     );
 
     expect(html).toContain('data-archive-area-pills-empty="true"');
-    expect(html).toContain('No areas recorded yet.');
+    expect(html).toContain('기록된 영역이 없습니다.');
     expect(html).not.toMatch(/score|rank|leaderboard|progress/i);
   });
 

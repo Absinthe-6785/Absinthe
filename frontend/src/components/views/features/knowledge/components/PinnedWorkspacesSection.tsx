@@ -27,7 +27,7 @@ export function PinnedWorkspacesSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl">
-        <span>Pinned</span>
+        <span>고정</span>
       </div>
       {pinned.map((ref, index) => {
         const isActive = activeKind === ref.kind && activeId === ref.id;
@@ -50,7 +50,7 @@ export function PinnedWorkspacesSection({
                 type="button"
                 onClick={e => { e.stopPropagation(); onMovePinned(index, index - 1); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-                title="Move up"
+                title="위로"
               >
                 <ChevronUp size={9} />
               </button>
@@ -60,7 +60,7 @@ export function PinnedWorkspacesSection({
                 type="button"
                 onClick={e => { e.stopPropagation(); onMovePinned(index, index + 1); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-                title="Move down"
+                title="아래로"
               >
                 <ChevronDown size={9} />
               </button>
@@ -68,7 +68,7 @@ export function PinnedWorkspacesSection({
             <WorkspacePinToggle
               colors={c}
               pinned
-              title="Unpin workspace"
+              title="작업공간 고정 해제"
               onToggle={e => { e.stopPropagation(); onUnpin(ref); }}
             />
           </div>

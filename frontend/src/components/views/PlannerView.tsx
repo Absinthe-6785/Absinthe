@@ -16,6 +16,7 @@ import { buildCalendarDays } from '../../lib/calendarUtils';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
 import { CalendarShell } from './features/planner/calendar-ui';
 import { openNote } from '../../lib/noteNavigation';
+import { displayNoteTitle } from './noteDisplayTitle';
 
 // timeSlots는 currentDate/schedules와 무관한 고정 값(00:00~23:30, 48개).
 // useMemo 내부에 두면 schedules 변경마다 불필요하게 재생성됨 → 모듈 레벨 상수로 분리.
@@ -435,10 +436,10 @@ export const PlannerView = ({
         <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-              <Target size={18} className="text-red-500"/> D-Day
+              <Target size={18} className="text-red-500"/> 디데이
             </h2>
             <button onClick={() => openDdayModal()} className="bg-primary text-primary-foreground px-2.5 py-1.5 rounded-xl text-xs font-bold">
-              <Plus size={14} className="inline mr-1"/>Add
+              <Plus size={14} className="inline mr-1"/>추가
             </button>
           </div>
           <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
@@ -471,7 +472,7 @@ export const PlannerView = ({
             {/* 상단: 새 노트 버튼 */}
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0">
               <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1">
-                <FileText size={12} className="text-yellow-400"/> Memo
+                <FileText size={12} className="text-yellow-400"/> 메모
               </span>
               <div className="flex gap-1">
                 <button onClick={() => setShowFolderInput(v => !v)} title={t('newFolder')}
@@ -571,7 +572,7 @@ export const PlannerView = ({
                       ? appSettings.darkMode ? 'bg-surface-alt' : 'bg-[#F5F0DC]'
                       : theme.hoverBg}`}>
                   <p className={`text-xs font-bold truncate ${n.id === activeNoteId ? 'text-primary' : ''}`}>
-                    {n.title || 'Untitled'}
+                    {displayNoteTitle(n.title)}
                   </p>
                   <p className={`text-[10px] truncate mt-0.5 ${theme.textMuted}`}>
                     {new Date(n.updatedAt).toLocaleDateString(lang, { month: 'short', day: 'numeric' })}
@@ -634,7 +635,7 @@ export const PlannerView = ({
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <button onClick={() => activeFolderId !== 'trash' && createNote({ folderContext: activeFolderId })}
-                className={`text-sm font-semibold ${theme.textMuted}`}>+ New Note</button>
+                className={`text-sm font-semibold ${theme.textMuted}`}>+ 새 노트</button>
             </div>
           )}
         </div>
@@ -688,7 +689,7 @@ export const PlannerView = ({
           <div className="flex justify-between items-center mb-5">
             <div>
               <h2 className="font-heading text-xl lg:text-2xl font-bold flex items-center gap-2.5">
-                <Clock size={24} className="text-primary"/> Timeline
+                <Clock size={24} className="text-primary"/> 타임라인
               </h2>
               <p className={`text-xs font-semibold mt-0.5 ${theme.textMuted}`}>
                 {selectedDate.toLocaleDateString(lang, { month: 'short', day: 'numeric', weekday: 'short' })}
@@ -741,7 +742,7 @@ export const PlannerView = ({
                         {/* 익일 연속 배지 */}
                         {sch.end_next_day && (
                           <span className="mt-auto mb-1 self-start text-[10px] font-bold bg-black/25 px-2 py-0.5 rounded-full">
-                            → continues {sch.end_time} tomorrow
+                            → 내일 {sch.end_time}까지 이어짐
                           </span>
                         )}
                       </div>
@@ -907,7 +908,7 @@ export const PlannerView = ({
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('title')}</label>
                 <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
                   onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder="e.g. Exam Day"/>
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder="예: 시험일"/>
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('date')}</label>

@@ -150,14 +150,14 @@ export function DatabaseViewsSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>Database Views</span>
+        <span>데이터베이스 보기</span>
         {activeViewId && (
           <button
             type="button"
             onClick={onClearActive}
             className="btbtn"
             style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-            title="Clear active database view"
+            title="데이터베이스 보기 선택 해제"
           >
             <X size={10} />
           </button>
@@ -178,7 +178,7 @@ export function DatabaseViewsSection({
               }}
               autoFocus
             />
-            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>Save</button>
+            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>저장</button>
           </div>
         ) : (
           <div
@@ -207,7 +207,7 @@ export function DatabaseViewsSection({
                 setRenameValue(view.name);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="Rename database view"
+              title="데이터베이스 보기 이름 변경"
             >
               <Pencil size={9} />
             </button>
@@ -218,7 +218,7 @@ export function DatabaseViewsSection({
                 onDelete(view.id);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="Delete database view"
+              title="데이터베이스 보기 삭제"
             >
               <Trash2 size={9} />
             </button>
@@ -256,7 +256,7 @@ export function DatabaseViewsSection({
             onClick={() => setShowTemplatePicker(false)}
             style={{ background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}
           >
-            Cancel
+            취소
           </button>
         </div>
       ) : showCreateForm ? (
@@ -264,7 +264,7 @@ export function DatabaseViewsSection({
           <input
             className="bwi"
             style={{ width: '100%', fontSize: 11 }}
-            placeholder="Database name"
+            placeholder="데이터베이스 이름"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => {
@@ -375,12 +375,12 @@ export function DatabaseViewsSection({
             </>
           )}
           <div style={{ display: 'flex', gap: 3 }}>
-            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>Save</button>
+            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>저장</button>
             <button
               onClick={() => setShowCreateForm(false)}
               style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}
             >
-              Cancel
+              취소
             </button>
           </div>
         </div>
@@ -392,7 +392,7 @@ export function DatabaseViewsSection({
             style={{ color: c.textMuted, fontSize: 10 }}
           >
             <Plus size={10} color={c.textMuted} />
-            <span>New database</span>
+            <span>새 데이터베이스</span>
           </div>
           {onCreateFromTemplate && (
             <div
@@ -411,7 +411,7 @@ export function DatabaseViewsSection({
               style={{ color: c.textMuted, fontSize: 10 }}
             >
               <Plus size={10} color={c.textMuted} />
-              <span>Save current query</span>
+              <span>현재 검색 저장</span>
             </div>
           )}
         </>

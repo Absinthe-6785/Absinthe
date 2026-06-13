@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getProperty } from '../properties/noteProperties';
 import { listTags } from '../tags/noteTags';
@@ -21,7 +22,7 @@ export function getDatabaseFieldValue(
 ): string {
   switch (key) {
     case 'title':
-      return note.title || 'Untitled';
+      return displayNoteTitle(note.title);
     case 'updatedAt':
       return formatUpdatedAt(note.updatedAt);
     case 'tags':

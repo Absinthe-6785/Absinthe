@@ -78,12 +78,12 @@ export function NoteTagsPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>
-        Page Tags
+        페이지 태그
       </div>
 
       {tags.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 12px' }}>
-          No tags yet
+          태그 없음
         </p>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>

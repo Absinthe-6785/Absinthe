@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { findNoteByTitle } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import {
   buildBacklinkIndex,
   getIncomingLinks,
@@ -77,7 +78,7 @@ function buildPotentialHubs(notes: readonly NoteBase[]): AreaHubSuggestion[] {
     .filter(note => !isAreaNote(note))
     .map(note => ({
       noteId: note.id,
-      title: note.title.trim() || 'Untitled',
+      title: displayNoteTitle(note.title),
       referenceCount: getIncomingLinks(index, note.title ?? '', {
         excludeNoteId: note.id,
       }).length,
@@ -106,7 +107,7 @@ function buildRecurringConnections(
 
       return {
         noteIds: members.map(note => note.id),
-        titles: members.map(note => note.title.trim() || 'Untitled'),
+        titles: members.map(note => displayNoteTitle(note.title)),
       };
     })
     .filter(cluster => cluster.noteIds.length >= MIN_CLUSTER_SIZE)

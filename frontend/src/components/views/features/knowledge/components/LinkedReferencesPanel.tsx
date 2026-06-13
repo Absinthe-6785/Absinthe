@@ -35,7 +35,7 @@ export function LinkedReferencesPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
-        Linked References{' '}
+        연결된 참조{' '}
         {incoming.length > 0 && (
           <span style={{ color: c.accent }}>({incoming.length})</span>
         )}
@@ -43,7 +43,7 @@ export function LinkedReferencesPanel({
 
       {incoming.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>
-          No linked references
+          연결된 참조 없음
         </p>
       ) : (
         incoming.map(ref => {
@@ -138,7 +138,7 @@ export function LinkedReferencesPanel({
           marginTop: incoming.length > 0 ? 4 : 0,
         }}
       >
-        Mentioned In{' '}
+        언급된 곳{' '}
         {mentioning.length > 0 && (
           <span style={{ color: c.textMuted }}>({mentioning.length})</span>
         )}
@@ -146,7 +146,7 @@ export function LinkedReferencesPanel({
 
       {mentioning.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>
-          No unlinked mentions
+          연결되지 않은 언급 없음
         </p>
       ) : (
         mentioning.map(ref => {
@@ -243,10 +243,10 @@ export function LinkedReferencesPanel({
               marginTop: 4,
             }}
           >
-            Outgoing{' '}
+            나가는 링크{' '}
             <span style={{ color: c.green }}>({resolvedOutgoing.length})</span>
             {brokenOutgoing.length > 0 && (
-              <span style={{ color: c.textFaint }}> · {brokenOutgoing.length} missing</span>
+              <span style={{ color: c.textFaint }}> · {brokenOutgoing.length}개 없음</span>
             )}
           </div>
 
@@ -268,11 +268,11 @@ export function LinkedReferencesPanel({
                 key={link.title}
                 className="bbl"
                 style={{ color: c.textMuted, fontStyle: 'italic' }}
-                title="Click to create note"
+                title="클릭하여 노트 만들기"
                 onClick={() => onNavigateToWiki(link.title)}
               >
                 → {link.title}{' '}
-                <span style={{ fontSize: 9, color: c.accent }}>+ create</span>
+                <span style={{ fontSize: 9, color: c.accent }}>+ 만들기</span>
               </div>
             );
           })}

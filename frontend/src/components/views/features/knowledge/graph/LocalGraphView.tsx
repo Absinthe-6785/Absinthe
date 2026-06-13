@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { GraphData, GraphNode, GraphRelationshipType, LocalGraphRelationshipFilter } from './graphModels';
 
 const MIN_K = 0.5;
@@ -119,7 +120,7 @@ function edgeDash(type: GraphRelationshipType): string | undefined {
 }
 
 function truncateTitle(title: string, max = 14): string {
-  const trimmed = title.trim() || 'Untitled';
+  const trimmed = displayNoteTitle(title);
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`;
 }
 
@@ -290,7 +291,7 @@ export function LocalGraphView({
 
       {isEmpty ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '24px 8px' }}>
-          No connected notes yet
+          연결된 노트 없음
         </p>
       ) : (
         <svg

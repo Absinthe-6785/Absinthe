@@ -78,7 +78,7 @@ export function readEventFromNote(note: NoteBase): EventFormValues | null {
   if (!eventDate) return null;
 
   return {
-    title: note.title.trim() || 'Untitled',
+    title: note.title.trim(),
     eventDate,
     eventTime: normalizeOptionalTime(getProperty(note, TRACE_PROPERTY_KEYS.EVENT_TIME)),
     eventEndDate: normalizeOptionalDate(getProperty(note, TRACE_PROPERTY_KEYS.EVENT_END_DATE)),
@@ -128,7 +128,7 @@ export function clearEventFromNote(note: NoteBase): NoteBase {
 
 export function eventFormValuesFromNote(note: NoteBase, defaultDate: string): EventFormValues {
   return readEventFromNote(note) ?? {
-    title: note.title.trim() || 'Untitled',
+    title: note.title.trim(),
     eventDate: defaultDate,
   };
 }

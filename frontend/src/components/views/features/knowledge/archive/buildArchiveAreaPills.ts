@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { listAreaNotes } from '../trace/areaNotes';
 import { resolveAreaMembership } from '../trace/buildAreaTraceProjection';
 import type { ArchiveAreaPill } from './archiveHomeModels';
@@ -43,7 +44,7 @@ export function buildArchiveAreaPills(
 
     const sortedDates = [...markDates].sort();
     const lastMarkDate = sortedDates[sortedDates.length - 1] ?? null;
-    const title = areaNote.title.trim() || 'Untitled';
+    const title = displayNoteTitle(areaNote.title);
 
     pills.push({
       areaNoteId: areaNote.id,

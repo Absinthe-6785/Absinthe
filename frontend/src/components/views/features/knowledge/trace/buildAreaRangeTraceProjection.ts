@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { buildDailyTraceProjection } from './buildDailyTraceProjection';
 import {
   buildRangeTraceProjection,
@@ -49,7 +50,7 @@ function buildLinkedNotesInRange(
       const note = notesById.get(noteId);
       return {
         noteId,
-        title: note?.title.trim() || 'Untitled',
+        title: displayNoteTitle(note?.title),
         updatedAt: note?.updatedAt ?? 0,
         markDate,
       };
@@ -76,7 +77,7 @@ export function buildAreaRangeTraceProjection(
 
   return {
     areaNoteId: areaNote.id,
-    areaTitle: areaNote.title.trim() || 'Untitled',
+    areaTitle: displayNoteTitle(areaNote.title),
     startDate: range.startDate,
     endDate: range.endDate,
     linkedNotes: buildLinkedNotesInRange(areaNote.id, memberNotes, range),
