@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { NoteBase } from '../../../noteUtils';
-import { setNoteKind } from './noteClassification';
+import { setNoteKind, promoteNoteKind } from './noteClassification';
 import { buildResearchDashboard } from './buildResearchDashboard';
 import { buildReadingNote } from './readingNoteTemplate';
 
@@ -24,5 +24,14 @@ describe('buildResearchDashboard', () => {
     expect(data.readingNotes.length).toBeGreaterThan(0);
     expect(data.citationCount).toBe(1);
     expect(data.citationActivity[0].meta).toContain('인용');
+  });
+
+  it('includes promotion activity and source pipeline', () => {
+    const promoted = promoteNoteKind(setNoteKind(note('s', ''), 'source'));
+    const data = buildResearchDashboard([promoted, note('x', '')], { limit: 5 });
+    expect(data.promotionActivity.length).toBe(1);
+    expect(data.sourcePipeline.source).toBe(0);
+    expect(data.sourcePipeline.literature).toBe(1);
+    expect(data.sourcePipeline.unclassified).toBe(1);
   });
 });

@@ -5,6 +5,8 @@ import {
   setNoteKind,
   filterNotesByKind,
   noteKindWorkflowStep,
+  promoteNoteKind,
+  getNoteKindPromotedAt,
   NOTE_KIND_PROPERTY,
 } from './noteClassification';
 
@@ -38,5 +40,15 @@ describe('noteClassification', () => {
     expect(noteKindWorkflowStep('literature')).toBe(1);
     expect(noteKindWorkflowStep('permanent')).toBe(2);
     expect(noteKindWorkflowStep(null)).toBe(-1);
+  });
+
+  it('promotes note kind along pipeline', () => {
+    const source = setNoteKind(note('a'), 'source');
+    const literature = promoteNoteKind(source);
+    expect(getNoteKind(literature)).toBe('literature');
+    expect(getNoteKindPromotedAt(literature)).toBeGreaterThan(0);
+    const permanent = promoteNoteKind(literature);
+    expect(getNoteKind(permanent)).toBe('permanent');
+    expect(promoteNoteKind(permanent)).toBe(permanent);
   });
 });

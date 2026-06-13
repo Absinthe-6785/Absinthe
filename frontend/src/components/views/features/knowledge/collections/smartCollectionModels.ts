@@ -5,7 +5,10 @@ export type SmartCollectionId =
   | 'untagged'
   | 'highly-connected'
   | 'with-backlinks'
-  | 'with-mentions';
+  | 'with-mentions'
+  | 'research-sources'
+  | 'research-literature'
+  | 'research-permanent';
 
 /** Lightweight system collection definition — does not store note ids */
 export interface SmartCollection {
