@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { type Block, type BlockType, updateBlockById } from '../../../../../blockUtils';
+import { type Block, type BlockTypeMeta, updateBlockById } from '../../../../../blockUtils';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../../../editorTypes';
 import { recordSlashUsage } from '../utils/slashRecent';
 import { insertWikiAtCaret } from '../utils/wikiNavigation';
@@ -25,7 +25,7 @@ export interface UseEditorMenusResult {
   closeWikiMenu: () => void;
   closeMenus: () => void;
   isMenuOpenForBlock: (blockId: string) => boolean;
-  handleSlashSelect: (type: BlockType) => void;
+  handleSlashSelect: (meta: BlockTypeMeta) => void;
   handleWikiSelect: (title: string) => void;
 }
 
@@ -58,13 +58,13 @@ export function useEditorMenus({
     slashMenu?.blockId === blockId || wikiMenu?.blockId === blockId,
   [slashMenu, wikiMenu]);
 
-  const handleSlashSelect = useCallback((type: BlockType) => {
+  const handleSlashSelect = useCallback((meta: BlockTypeMeta) => {
     if (!slashMenu) return;
     const { blockId, query } = slashMenu;
 
-    onChange(updateBlockById(getBlocks(), blockId, b => applySlashMenuTypeChange(b, type, query)));
+    onChange(updateBlockById(getBlocks(), blockId, b => applySlashMenuTypeChange(b, meta, query)));
 
-    recordSlashUsage(type);
+    recordSlashUsage(meta.type);
     setSlashMenu(null);
     onFocusCmd({ blockId, offset: 'end' });
   }, [slashMenu, onChange, getBlocks, onFocusCmd]);

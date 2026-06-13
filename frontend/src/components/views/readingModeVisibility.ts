@@ -1,4 +1,5 @@
 import type { Block } from './blockUtils';
+import { isToggleBlockType } from './toggleBlockTypes';
 
 const EMPTY_TEXT_TYPES = new Set<Block['type']>([
   'paragraph',
@@ -14,7 +15,7 @@ const EMPTY_TEXT_TYPES = new Set<Block['type']>([
 
 /** Hide editor-only empty shells in reading mode so documents read cleanly. */
 export function shouldHideBlockInReadingMode(block: Block): boolean {
-  if (block.type === 'toggle') {
+  if (isToggleBlockType(block.type)) {
     return !block.content?.trim() && block.children.length === 0;
   }
   if (EMPTY_TEXT_TYPES.has(block.type)) {

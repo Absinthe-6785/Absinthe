@@ -2,6 +2,7 @@
  * toggleFocusZones.ts — Toggle-aware hit zones for document focus (UX-3C)
  */
 import { findBlockById, type Block } from './blockUtils';
+import { isToggleBlockType } from './toggleBlockTypes';
 
 /** Slack below collapsed toggle header treated as part of the toggle row. */
 export const COLLAPSED_TOGGLE_ROW_EXTENSION_PX = 48;
@@ -33,7 +34,7 @@ export interface ToggleFooterFeasibility {
 }
 
 export function isCollapsedToggle(block: Block): boolean {
-  return block.type === 'toggle' && !!block.collapsed;
+  return isToggleBlockType(block.type) && !!block.collapsed;
 }
 
 export function toggleNestDepth(wrap: Element): number {

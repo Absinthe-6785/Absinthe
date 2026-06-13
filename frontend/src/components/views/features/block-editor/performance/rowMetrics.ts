@@ -2,6 +2,7 @@
  * Row metrics — pointer Y → block row without requiring every block mounted (virtual-drag prep).
  */
 import type { Block } from '../../../blockUtils';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
 import {
   blockIdAtRow,
   listRootBlockRows,
@@ -141,9 +142,9 @@ export function resolveDropTargetFromRows(
 
   const block = getBlock?.(blockId);
   const blockType = block?.type;
-  const collapsedToggle = block?.type === 'toggle' && block.collapsed;
+  const collapsedToggle = block != null && isToggleBlockType(block.type) && block.collapsed;
 
-  if (blockType === 'toggle' && (collapsedToggle || clientY > row.top + (row.bottom - row.top) * 0.35)) {
+  if (block != null && isToggleBlockType(block.type) && (collapsedToggle || clientY > row.top + (row.bottom - row.top) * 0.35)) {
     return { overId: blockId, overPos: 'inside' };
   }
 

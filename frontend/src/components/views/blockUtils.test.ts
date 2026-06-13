@@ -156,6 +156,30 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('roundtrips callout variants', () => {
+    const md = '> ℹ Reference info';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('callout');
+    expect(blocks[0].calloutIcon).toBe('ℹ');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it('roundtrips toggle heading with children', () => {
+    const md = '#> Section\n  nested line';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('toggleHeading1');
+    expect(blocks[0].children[0].content).toBe('nested line');
+  });
+
+  it('roundtrips collapsed toggle heading', () => {
+    const md = '##>! Hidden\n  child';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('toggleHeading2');
+    expect(blocks[0].collapsed).toBe(true);
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
   it('roundtrips heading4', () => {
     const md = '#### Detail section';
     const blocks = markdownToBlocks(md);
@@ -240,7 +264,7 @@ describe('filterBlockMenu', () => {
   });
 
   it('filters toggle and callout by keyword', () => {
-    expect(filterBlockMenu('toggle').some(m => m.type === 'toggle')).toBe(true);
-    expect(filterBlockMenu('callout').some(m => m.type === 'callout')).toBe(true);
+    expect(filterBlockMenu('toggle1').some(m => m.menuKey === 'toggle1')).toBe(true);
+    expect(filterBlockMenu('info').some(m => m.menuKey === 'info')).toBe(true);
   });
 });

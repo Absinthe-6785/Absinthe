@@ -5,6 +5,10 @@
  */
 import { makeBlock, type Block, type BlockType } from '../../../../../blockUtils';
 import { elementInlineToMarkdown } from '../inline/inlineClipboard';
+import {
+  isToggleHeadingBlockType,
+  toggleHeadingBlockType,
+} from '../../../../../toggleBlockTypes';
 
 function inlineText(el: Element): string {
   return elementInlineToMarkdown(el);
@@ -20,6 +24,27 @@ const HEADING_TAGS: Record<string, 'heading1' | 'heading2' | 'heading3' | 'headi
   H3: 'heading3',
   H4: 'heading4',
 };
+
+const HEADING_LEVEL: Record<string, 1 | 2 | 3 | 4> = {
+  H1: 1,
+  H2: 2,
+  H3: 3,
+  H4: 4,
+};
+
+function resolveToggleBlockType(wrap: HTMLElement, headerEl: HTMLElement | null): BlockType {
+  const dataType = headerEl?.getAttribute('data-block-type')
+    ?? wrap.querySelector('.be-toggle-header-block [data-block-type]')?.getAttribute('data-block-type');
+  if (dataType && isToggleHeadingBlockType(dataType as BlockType)) {
+    return dataType as BlockType;
+  }
+  for (const tag of ['H1', 'H2', 'H3', 'H4'] as const) {
+    if (wrap.querySelector(`.be-toggle-header-block ${tag.toLowerCase()}`)) {
+      return toggleHeadingBlockType(HEADING_LEVEL[tag]);
+    }
+  }
+  return 'toggle';
+}
 
 function parseTypedBlock(type: string, content: string): Block | null {
   if (!content && type !== 'divider') return null;
@@ -123,7 +148,7 @@ export function parseBeToggleWrap(wrap: HTMLElement): Block | null {
     });
   }
 
-  return makeBlock('toggle', { content: headerContent, children, collapsed: false });
+  return makeBlock(resolveToggleBlockType(wrap, headerEl), { content: headerContent, children, collapsed: false });
 }
 
 /** Collect top-level `.be-toggle-wrap` blocks from HTML (for tests / pre-check). */

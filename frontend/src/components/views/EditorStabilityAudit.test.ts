@@ -11,6 +11,7 @@ import {
 import { renumberNumberedLists } from './listBlocks';
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
 import { applySlashMenuTypeChange } from './features/block-editor/utils/blockEditorMutations';
+import { BLOCK_TYPE_MENU } from './blockUtils';
 
 describe('Editor Stability Audit (Knowledge-19.75)', () => {
   describe('P0 — read/edit markdown round-trip', () => {
@@ -108,14 +109,16 @@ describe('Editor Stability Audit (Knowledge-19.75)', () => {
   describe('P1 — slash command compatibility', () => {
     it('applySlashMenuTypeChange strips slash token without corrupting path separators', () => {
       const block = makeBlock('paragraph', { content: 'see /toggle' });
-      const next = applySlashMenuTypeChange(block, 'toggle', 'toggle');
+      const meta = BLOCK_TYPE_MENU.find(m => m.type === 'toggle' && !m.menuKey)!;
+      const next = applySlashMenuTypeChange(block, meta, 'toggle');
       expect(next.type).toBe('toggle');
       expect(next.content).toBe('see ');
     });
 
     it('applySlashMenuTypeChange handles empty query at line start', () => {
       const block = makeBlock('paragraph', { content: '/heading1' });
-      const next = applySlashMenuTypeChange(block, 'heading1', 'heading1');
+      const meta = BLOCK_TYPE_MENU.find(m => m.type === 'heading1')!;
+      const next = applySlashMenuTypeChange(block, meta, 'heading1');
       expect(next.type).toBe('heading1');
       expect(next.content).toBe('');
     });

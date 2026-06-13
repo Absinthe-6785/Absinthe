@@ -5,6 +5,7 @@
 import React, { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { findBlockById, type Block } from '../../../blockUtils';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
 import { DropInsertIndicator } from '../../../editorDragDrop';
 import type { BlockEditorColors } from '../../../editorTypes';
 import {
@@ -148,7 +149,7 @@ export function DragOverlay({
       {ghostFrames.map((frame, i) => (
         <DragGhost key={`ghost-${i}`} frame={frame} />
       ))}
-      {showDrop && dragState.overPos === 'inside' && overBlock?.type === 'toggle' && (
+      {showDrop && dragState.overPos === 'inside' && overBlock != null && isToggleBlockType(overBlock.type) && (
         <InsideIndicator frame={dropFrame} accent={accent} />
       )}
       {showDrop && dragState.overPos === 'before' && (

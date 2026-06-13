@@ -6,6 +6,13 @@
  */
 import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
 import type { BlockTint } from './blockColors';
+import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON } from './calloutPresets';
+import {
+  isToggleBlockType,
+  toggleHeadingBlockType,
+  toggleHeadingLevel,
+  toggleHeadingMarker,
+} from './toggleBlockTypes';
 
 // ── 블록 타입 정의 ─────────────────────────────────────────────────────
 
@@ -19,6 +26,10 @@ export type BlockType =
   | 'numbered'
   | 'todo'
   | 'toggle'
+  | 'toggleHeading1'
+  | 'toggleHeading2'
+  | 'toggleHeading3'
+  | 'toggleHeading4'
   | 'code'
   | 'image'
   | 'divider'
@@ -251,6 +262,35 @@ export function markdownToBlocks(md: string): Block[] {
     return makeBlock('callout', { content: m[2], calloutIcon: m[1] });
   };
 
+  // ── 토글 제목 (#> … / ##> …) ─────────────────────────────────────
+  const tryToggleHeading = (): Block | null => {
+    const mClosed = lines[i].match(/^(#{1,4})>!\s?(.*)$/);
+    const mOpen = !mClosed && lines[i].match(/^(#{1,4})>(?!!)\s?(.*)$/);
+    const m = mClosed ?? mOpen;
+    if (!m) return null;
+
+    const level = m[1].length as 1 | 2 | 3 | 4;
+    const collapsed = !!mClosed;
+    const summary = m[2] ?? '';
+
+    const nextLine = lines[i + 1];
+    const hasChildren = nextLine !== undefined &&
+      (nextLine.startsWith('  ') || nextLine === '');
+
+    if (!collapsed && !hasChildren && !summary) return null;
+
+    const childLines: string[] = [];
+    i++;
+    while (i < lines.length && (lines[i].startsWith('  ') || lines[i] === '')) {
+      childLines.push(lines[i].replace(/^  /, ''));
+      i++;
+    }
+    const children = childLines.length > 0
+      ? markdownToBlocks(childLines.join('\n'))
+      : [];
+    return makeBlock(toggleHeadingBlockType(level), { content: summary, children, collapsed });
+  };
+
   // ── 토글 블록 ─────────────────────────────────────────────────────
   // 열린 toggle : "> 제목" / ">" (빈 제목) → collapsed: false
   // 닫힌 toggle : ">! 제목" / ">!"         → collapsed: true
@@ -359,6 +399,10 @@ export function markdownToBlocks(md: string): Block[] {
     // 콜아웃
     const callout = tryCallout();
     if (callout) { blocks.push(callout); continue; }
+
+    // 토글 제목 (heading + toggle)
+    const toggleHeading = tryToggleHeading();
+    if (toggleHeading) { blocks.push(toggleHeading); continue; }
 
     // 토글
     const toggle = tryToggle();
@@ -478,12 +522,27 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
       }
 
+      case 'toggleHeading1':
+      case 'toggleHeading2':
+      case 'toggleHeading3':
+      case 'toggleHeading4': {
+        const level = toggleHeadingLevel(block.type)!;
+        const collapsed = block.collapsed || (!block.content && block.children.length === 0);
+        const prefix = toggleHeadingMarker(level, collapsed);
+        lines.push(block.content ? `${prefix} ${block.content}` : prefix);
+        if (block.children.length > 0) {
+          const childMd = blocksToMarkdown(block.children);
+          childMd.split('\n').forEach(cl => lines.push(`  ${cl}`));
+        }
+        break;
+      }
+
       case 'quote':
         lines.push(`> ${block.content}`);
         break;
 
       case 'callout':
-        lines.push(`> ${block.calloutIcon ?? 'ℹ️'} ${block.content}`);
+        lines.push(`> ${block.calloutIcon ?? DEFAULT_CALLOUT_ICON} ${block.content}`);
         break;
 
       case 'code':
@@ -627,6 +686,27 @@ export interface BlockTypeMeta {
   icon:     string;          // 이모지 또는 텍스트 기호
   keywords: string[];
   group:    'text' | 'list' | 'media' | 'embed';
+  /** Slash exact-match key when multiple menu rows share one block type */
+  menuKey?: string;
+  /** Fields applied when inserting via slash menu */
+  createDefaults?: Partial<Block>;
+}
+
+export function slashMenuItemKey(meta: BlockTypeMeta): string {
+  return meta.menuKey ?? meta.type;
+}
+
+/** Resolve slash query to a specific menu row (callout variants, toggle headings). */
+export function resolveSlashMenuMeta(query: string): BlockTypeMeta | null {
+  const q = query.toLowerCase().trim().replace(/^\//, '');
+  if (!q) return null;
+  const byKey = BLOCK_TYPE_MENU.find(m => m.menuKey === q);
+  if (byKey) return byKey;
+  const type = resolveSlashCommand(q);
+  if (!type) return null;
+  return BLOCK_TYPE_MENU.find(m => m.type === type && !m.menuKey)
+    ?? BLOCK_TYPE_MENU.find(m => m.type === type)
+    ?? null;
 }
 
 export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
@@ -637,13 +717,27 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'heading3',   label: '제목 3',      desc: '작은 제목',               icon: 'H3', keywords: ['h3', 'heading', '제목'],                                 group: 'text' },
   { type: 'heading4',   label: '제목 4',      desc: '세부 제목',               icon: 'H4', keywords: ['h4', 'heading', '제목'],                                 group: 'text' },
   { type: 'quote',      label: '인용',        desc: '인용 블록',               icon: '"',  keywords: ['quote', 'blockquote', '인용'],                           group: 'text' },
-  { type: 'callout',    label: '콜아웃',      desc: '강조 박스',               icon: '💡', keywords: ['callout', 'note', 'info', '콜아웃', '강조'],               group: 'text' },
+  { type: 'callout',    label: '콜아웃',      desc: '팁 강조',                 icon: '💡', keywords: ['callout', '콜아웃'], menuKey: 'callout', createDefaults: { calloutIcon: '💡' }, group: 'text' },
+  ...CALLOUT_PRESETS.map(p => ({
+    type: 'callout' as const,
+    menuKey: p.id,
+    label: p.label,
+    desc: p.desc,
+    icon: p.icon,
+    keywords: p.keywords,
+    createDefaults: { calloutIcon: p.icon },
+    group: 'text' as const,
+  })),
   { type: 'divider',    label: '구분선',      desc: '수평 구분선',             icon: '—',  keywords: ['divider', 'hr', 'separator', '구분선'],                   group: 'text' },
   // List
   { type: 'bullet',     label: '불릿 목록',   desc: '점 목록',                 icon: '•',  keywords: ['bullet', 'list', '목록', '불릿'],                         group: 'list' },
   { type: 'numbered',   label: '번호 목록',   desc: '순서 있는 목록',          icon: '1.', keywords: ['numbered', 'ordered', '번호', '순서'],                    group: 'list' },
   { type: 'todo',       label: '할 일',       desc: '체크박스',                icon: '☐',  keywords: ['todo', 'task', 'checkbox', '할일', '체크'],               group: 'list' },
-  { type: 'toggle',     label: '토글',        desc: '접기/펼치기 블록',        icon: '▶',  keywords: ['toggle', 'collapsible', '토글', '접기'],                  group: 'list' },
+  { type: 'toggle',     label: '토글',        desc: '접기/펼치기 블록',        icon: '▶',  keywords: ['toggle', 'collapsible', '토글', '접기'], createDefaults: { collapsed: false }, group: 'list' },
+  { type: 'toggleHeading1', menuKey: 'toggle1', label: '토글 제목 1', desc: '접을 수 있는 큰 제목', icon: 'H1▼', keywords: ['toggle1', 'th1', '토글제목1'], createDefaults: { collapsed: false }, group: 'list' },
+  { type: 'toggleHeading2', menuKey: 'toggle2', label: '토글 제목 2', desc: '접을 수 있는 중간 제목', icon: 'H2▼', keywords: ['toggle2', 'th2', '토글제목2'], createDefaults: { collapsed: false }, group: 'list' },
+  { type: 'toggleHeading3', menuKey: 'toggle3', label: '토글 제목 3', desc: '접을 수 있는 작은 제목', icon: 'H3▼', keywords: ['toggle3', 'th3', '토글제목3'], createDefaults: { collapsed: false }, group: 'list' },
+  { type: 'toggleHeading4', menuKey: 'toggle4', label: '토글 제목 4', desc: '접을 수 있는 세부 제목', icon: 'H4▼', keywords: ['toggle4', 'th4', '토글제목4'], createDefaults: { collapsed: false }, group: 'list' },
   // Media
   { type: 'image',      label: '이미지',      desc: '이미지 삽입',             icon: '🖼',  keywords: ['image', 'img', 'photo', '이미지', '사진'],                 group: 'media' },
   { type: 'code',       label: '코드',        desc: '코드 블록',               icon: '</>', keywords: ['code', 'snippet', '코드'],                               group: 'media' },
@@ -660,7 +754,8 @@ export const SLASH_PINNED_TYPES: BlockType[] = [
 /** 블록 hover ⋮⋮ → Turn Into 빠른 변환 */
 export const TURN_INTO_TYPES: BlockType[] = [
   'paragraph', 'heading1', 'heading2', 'heading3', 'heading4',
-  'todo', 'toggle', 'bullet', 'numbered', 'callout', 'code',
+  'todo', 'toggle', 'toggleHeading1', 'toggleHeading2', 'toggleHeading3', 'toggleHeading4',
+  'bullet', 'numbered', 'callout', 'code',
 ];
 
 const SLASH_ALIASES: Record<string, string[]> = {
@@ -688,11 +783,8 @@ export function filterBlockMenu(query: string): BlockTypeMeta[] {
     return [...pinned, ...rest];
   }
 
-  const exact = resolveSlashCommand(q);
-  if (exact) {
-    const hit = BLOCK_TYPE_MENU.find(m => m.type === exact);
-    return hit ? [hit] : [];
-  }
+  const exactMeta = resolveSlashMenuMeta(q);
+  if (exactMeta) return [exactMeta];
 
   const aliasTypes = SLASH_ALIASES[q] ?? [];
   const slashKeys = slashCommandKeysMatching(q);
@@ -796,8 +888,8 @@ export function convertBlock(block: Block, newType: BlockType): Block {
   if (newType === 'code' && !base.code)     base.code = base.content;
   if (newType === 'math' && !base.math)     base.math = base.content;
   if (newType === 'todo')                   base.checked = base.checked ?? false;
-  if (newType === 'toggle')                 base.collapsed = base.collapsed ?? false;
-  if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = '💡';
+  if (isToggleBlockType(newType))             base.collapsed = base.collapsed ?? false;
+  if (newType === 'callout' && !base.calloutIcon) base.calloutIcon = DEFAULT_CALLOUT_ICON;
   if (newType === 'image') {
     base.src = base.src ?? '';
     base.alt = base.alt ?? '';

@@ -6,6 +6,7 @@
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
 import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block } from '../../../../../blockUtils';
+import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 import { readBlockText } from '../../../../../editableDom';
 import { getSelectionOffsets } from '../../selection';
 import { markdownInlineToHtml } from '../inline/inlineClipboard';
@@ -50,7 +51,11 @@ function blockBodyHtml(block: Block): string {
       const mark = block.checked ? 'x' : ' ';
       return `<ul><li>[${mark}] ${inlineHtml(block.content)}</li></ul>`;
     }
-    case 'toggle': {
+    case 'toggle':
+    case 'toggleHeading1':
+    case 'toggleHeading2':
+    case 'toggleHeading3':
+    case 'toggleHeading4': {
       const openAttr = block.collapsed ? '' : ' open';
       const childHtml = blocksToCopyHtml(block.children);
       const body = childHtml ? `<div class="btbody">${childHtml}</div>` : '';
@@ -230,7 +235,7 @@ export function trySemanticCopyFromBlock(
   const block = findBlockById(rootBlocks, blockId);
   if (!block) return false;
 
-  if (block.type === 'toggle') {
+  if (isToggleBlockType(block.type)) {
     applySemanticCopy([block], clipboard);
     return true;
   }
@@ -456,7 +461,7 @@ export function handleEditorCopyEvent(
   e.preventDefault();
   const expected = expectedSemanticPayload(block ? [block] : []);
   return traceAfter({
-    path: block?.type === 'toggle' ? 'editable-toggle-header' : 'editable-full-block',
+    path: block != null && isToggleBlockType(block.type) ? 'editable-toggle-header' : 'editable-full-block',
     preventedDefault: true,
     selectedBlockIds,
     activeBlockId: blockId,

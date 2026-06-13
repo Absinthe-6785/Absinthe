@@ -9,6 +9,7 @@ import {
   flattenBlockIds,
   isTextBlockType,
 } from '../../../blockUtils';
+import { isToggleBlockType } from '../../../toggleBlockTypes';
 import { applyToggleChildEnter } from '../../../toggleNesting';
 import {
   exitEmptyListBlock,
@@ -116,7 +117,7 @@ export function useEditorBlockEditing({
     if (pos <= 0) return;
 
     const selfBlock = findBlockById(bs, id);
-    if (selfBlock?.type === 'toggle' && selfBlock.children.length > 0) {
+    if (selfBlock != null && isToggleBlockType(selfBlock.type) && selfBlock.children.length > 0) {
       return;
     }
 

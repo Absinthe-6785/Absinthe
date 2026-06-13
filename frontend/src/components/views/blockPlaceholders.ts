@@ -11,8 +11,13 @@ export const BLOCK_PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   numbered:  '번호 항목',
   todo:      '할 일',
   toggle:    '토글 제목',
+  toggleHeading1: '토글 제목 1',
+  toggleHeading2: '토글 제목 2',
+  toggleHeading3: '토글 제목 3',
+  toggleHeading4: '토글 제목 4',
   quote:     '인용',
   callout:   '콜아웃',
+  math:      'LaTeX 수식',
 };
 
 export function blockPlaceholder(type: BlockType): string {
