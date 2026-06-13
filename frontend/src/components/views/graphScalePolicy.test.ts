@@ -33,6 +33,19 @@ describe('graphScalePolicy', () => {
     })).toBe(true);
   });
 
+  it('always shows labels for stars regardless of graph size', () => {
+    expect(shouldShowGraphNodeLabel({
+      nodeCount: 300,
+      isActive: false,
+      isHovered: false,
+      isSearchMatch: false,
+      isHub: false,
+      nodeTier: 'star',
+      inFocusCluster: false,
+      hasSearchFilter: false,
+    })).toBe(true);
+  });
+
   it('always shows labels for active, hover, and search match', () => {
     const base = {
       nodeCount: 300,

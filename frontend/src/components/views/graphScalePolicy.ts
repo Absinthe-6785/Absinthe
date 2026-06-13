@@ -1,3 +1,5 @@
+import type { GraphNodeTier } from './features/knowledge/graph/knowledgeUniverse/graphNodeTier';
+
 export type GraphScaleTier = 'normal' | 'large' | 'xlarge';
 
 export function graphScaleTier(nodeCount: number): GraphScaleTier {
@@ -11,28 +13,34 @@ export interface GraphLabelVisibilityInput {
   isActive: boolean;
   isHovered: boolean;
   isSearchMatch: boolean;
+  /** @deprecated use nodeTier — kept for backward-compatible tests */
   isHub: boolean;
+  nodeTier?: GraphNodeTier;
   inFocusCluster: boolean;
   hasSearchFilter: boolean;
 }
 
-/** Label density policy for large graphs — hover/focus/hub only at scale. */
+/** Label density policy for large graphs — K-33 tier rules + scale policy. */
 export function shouldShowGraphNodeLabel(input: GraphLabelVisibilityInput): boolean {
+  const nodeTier = input.nodeTier ?? (input.isHub ? 'star' : undefined);
+
+  if (nodeTier === 'star') return true;
   if (input.isActive || input.isHovered || input.isSearchMatch) return true;
+  if (nodeTier === 'moon') return false;
 
   const tier = graphScaleTier(input.nodeCount);
 
   if (input.hasSearchFilter) return false;
 
   if (tier === 'xlarge') {
-    return input.isHub && input.inFocusCluster;
+    return (nodeTier === 'planet' || input.isHub) && input.inFocusCluster;
   }
 
   if (tier === 'large') {
-    return input.inFocusCluster && (input.isHub || input.isHovered);
+    return input.inFocusCluster && (nodeTier === 'planet' || input.isHub || input.isHovered);
   }
 
-  return input.inFocusCluster || input.isHub;
+  return input.inFocusCluster || nodeTier === 'planet' || input.isHub;
 }
 
 export function graphRepulsionStrength(nodeCount: number): number {
