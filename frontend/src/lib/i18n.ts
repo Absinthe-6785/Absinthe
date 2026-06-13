@@ -521,6 +521,18 @@ const translations = {
   searchFilterCollections:  { en: 'Collections', ko: '컬렉션', ja: 'コレクション' },
   searchFilterSubjects:     { en: 'Subjects', ko: '주제', ja: '科目' },
 
+  // ── Accessibility (K-30.56) ────────────────────────────────────────
+  skipToMain:               { en: 'Skip to main content', ko: '본문으로 건너뛰기', ja: 'メインコンテンツへスキップ' },
+  skipToNavigation:         { en: 'Skip to navigation', ko: '탐색으로 건너뛰기', ja: 'ナビゲーションへスキップ' },
+  nvSidebarNav:             { en: 'Notes sidebar', ko: '노트 사이드바', ja: 'ノートサイドバー' },
+  nvNoteList:               { en: 'Note list', ko: '노트 목록', ja: 'ノート一覧' },
+  nvEditorMain:             { en: 'Note editor', ko: '노트 편집기', ja: 'ノートエディタ' },
+  nvSidePanel:              { en: 'Note details panel', ko: '노트 상세 패널', ja: 'ノート詳細パネル' },
+  searchFilterGroup:        { en: 'Search filters', ko: '검색 필터', ja: '検索フィルター' },
+  searchResultsList:        { en: 'Search results', ko: '검색 결과', ja: '検索結果' },
+  plannerCalendarRegion:    { en: 'Planner calendar', ko: '플래너 캘린더', ja: 'プランナーカレンダー' },
+  confirmDialogTitle:       { en: 'Confirm action', ko: '작업 확인', ja: '操作の確認' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

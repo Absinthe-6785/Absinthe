@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import {
   STUDY_PROJECT_STATUSES,
   type StudyProjectStatus,
@@ -27,14 +28,9 @@ export function CreateProjectDialog({ colors: c, onSubmit, onClose }: CreateProj
   const [subjectId, setSubjectId] = useState('');
   const [status, setStatus] = useState<StudyProjectStatus>('active');
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
 
   const handleSubmit = useCallback(() => {
     const trimmed = name.trim();
@@ -69,9 +65,6 @@ export function CreateProjectDialog({ colors: c, onSubmit, onClose }: CreateProj
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-project-dialog-title"
       style={{
         position: 'fixed',
         inset: 0,
@@ -85,6 +78,10 @@ export function CreateProjectDialog({ colors: c, onSubmit, onClose }: CreateProj
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-project-dialog-title"
         style={{
           width: '100%',
           maxWidth: 380,
@@ -130,7 +127,7 @@ export function CreateProjectDialog({ colors: c, onSubmit, onClose }: CreateProj
               ))}
             </select>
           </label>
-          {error && <div style={{ fontSize: 10, color: c.danger }}>{error}</div>}
+          {error && <div role="alert" style={{ fontSize: 10, color: c.danger }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button type="button" className="bwbg" onClick={onClose} style={{ flex: 1 }}>{t('cancel')}</button>
             <button type="button" className="bwbg" onClick={handleSubmit} style={{ flex: 1, color: c.accent, fontWeight: 700 }}>{t('createProjectTitle')}</button>

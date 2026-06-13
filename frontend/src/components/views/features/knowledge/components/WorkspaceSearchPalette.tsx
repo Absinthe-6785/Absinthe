@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import type { NoteFolder } from '../../../../../store/useNotesStore';
 import type { NoteBase } from '../../../noteUtils';
 import {
@@ -73,6 +74,15 @@ export function WorkspaceSearchPalette({
   const [activeIndex, setActiveIndex] = useState(0);
   const [recent, setRecent] = useState(loadWorkspaceSearchRecent);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  const activeIndexRef = useRef(0);
+
+  useModalA11y({ open, onClose, containerRef: panelRef });
+
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   useEffect(() => {
     if (open) {
@@ -152,11 +162,6 @@ export function WorkspaceSearchPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIndex(i => Math.min(i + 1, Math.max(flatResults.length - 1, 0)));
@@ -165,14 +170,19 @@ export function WorkspaceSearchPalette({
         e.preventDefault();
         setActiveIndex(i => Math.max(i - 1, 0));
       }
-      if (e.key === 'Enter' && flatResults[activeIndex]) {
-        e.preventDefault();
-        handleSelect(flatResults[activeIndex]);
+      if (e.key === 'Enter') {
+        const selected = flatResults[activeIndexRef.current];
+        if (selected) {
+          e.preventDefault();
+          handleSelect(selected);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, flatResults, activeIndex, handleSelect, onClose]);
+  }, [open, flatResults, handleSelect]);
+
+  const activeDescendantId = flatResults.length > 0 ? `ws-search-opt-${activeIndex}` : undefined;
 
   if (!open) return null;
 
@@ -180,9 +190,6 @@ export function WorkspaceSearchPalette({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('workspaceSearchPlaceholder')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -190,15 +197,20 @@ export function WorkspaceSearchPalette({
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: '10vh 16px 16px',
+        padding: 'max(5vh, 24px) 16px 16px',
         background: 'rgba(0,0,0,0.4)',
       }}
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ws-search-title"
+        aria-describedby="ws-search-hint"
         style={{
           width: '100%',
-          maxWidth: 520,
+          maxWidth: 'min(520px, calc(100vw - 32px))',
           background: c.card,
           border: `1px solid ${c.sideBdr}`,
           borderRadius: 12,
@@ -207,10 +219,21 @@ export function WorkspaceSearchPalette({
         }}
         onClick={e => e.stopPropagation()}
       >
+        <h2 id="ws-search-title" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+          {t('workspaceSearchPlaceholder')}
+        </h2>
+        <p id="ws-search-hint" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+          {t('searchStartTyping')}
+        </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: `1px solid ${c.sideBdr}` }}>
-          <Search size={16} color={c.textMuted} />
+          <Search size={16} color={c.textMuted} aria-hidden />
           <input
             ref={inputRef}
+            role="combobox"
+            aria-expanded={flatResults.length > 0}
+            aria-controls="ws-search-listbox"
+            aria-autocomplete="list"
+            aria-activedescendant={activeDescendantId}
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder={t('workspaceSearchPlaceholder')}
@@ -227,17 +250,25 @@ export function WorkspaceSearchPalette({
             {t('workspaceSearchShortcut')}
           </kbd>
         </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: `1px solid ${c.sideBdr}` }}>
+        <div
+          role="radiogroup"
+          aria-label={t('searchFilterGroup')}
+          style={{ display: 'flex', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: `1px solid ${c.sideBdr}` }}
+        >
           {FILTER_OPTIONS.map(opt => {
             const active = filter === opt.id;
             return (
               <button
                 key={opt.id}
                 type="button"
+                role="radio"
+                aria-checked={active}
+                className="abs-focus-ring"
                 onClick={() => setFilter(opt.id)}
                 style={{
                   fontSize: 9,
-                  padding: '3px 8px',
+                  padding: '4px 10px',
+                  minHeight: 32,
                   borderRadius: 999,
                   border: `1px solid ${active ? c.accent : c.sideBdr}`,
                   background: active ? c.accentBg : c.cardHov,
@@ -251,24 +282,35 @@ export function WorkspaceSearchPalette({
             );
           })}
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}>
+        <div
+          ref={listboxRef}
+          id="ws-search-listbox"
+          role="listbox"
+          aria-label={t('searchResultsList')}
+          style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}
+        >
           {flatResults.length === 0 ? (
-            <div style={{ padding: '16px 14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }}>
+            <div role="status" style={{ padding: '16px 14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }}>
               {query.trim() ? t('workspaceSearchNoResults') : t('searchStartTyping')}
             </div>
           ) : (
             displaySections.map(section => (
-              <div key={section.labelKey}>
+              <div key={section.labelKey} role="group" aria-label={t(section.labelKey)}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: c.textMuted, padding: '6px 12px 4px', letterSpacing: 0.5, textTransform: 'uppercase' }}>
                   {t(section.labelKey)}
                 </div>
                 {section.results.map(result => {
                   const idx = rowIndex++;
                   const active = idx === activeIndex;
+                  const optionId = `ws-search-opt-${idx}`;
                   return (
                     <button
                       key={`${result.kind}-${result.id}-${idx}`}
+                      id={optionId}
+                      role="option"
+                      aria-selected={active}
                       type="button"
+                      className="abs-focus-ring"
                       onMouseEnter={() => setActiveIndex(idx)}
                       onClick={() => handleSelect(result)}
                       style={{
@@ -279,6 +321,7 @@ export function WorkspaceSearchPalette({
                         background: active ? c.accentBg : 'transparent',
                         cursor: 'pointer',
                         color: c.text,
+                        boxShadow: active ? `inset 3px 0 0 ${c.accent}` : undefined,
                       }}
                     >
                       <div style={{ fontSize: 12, fontWeight: 600 }}>{result.title}</div>

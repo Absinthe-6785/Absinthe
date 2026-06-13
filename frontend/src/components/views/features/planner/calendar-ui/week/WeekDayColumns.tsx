@@ -24,9 +24,9 @@ export function WeekDayColumns({
 
   return (
     <div
-      className="grid grid-cols-1 lg:grid-cols-7 gap-3 lg:gap-px"
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3 lg:gap-px"
       data-planner-week-columns
-      data-planner-week-columns-layout="stacked-mobile-grid-desktop"
+      data-planner-week-columns-layout="stacked-mobile-two-col-tablet-grid-desktop"
     >
       {dayModels.map(model => (
         <WeekDayColumn key={model.dateKey} model={model} theme={theme} onEventNoteClick={onEventNoteClick} />

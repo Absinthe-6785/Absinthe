@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import {
   type EventFormValues,
   validateEventForm,
@@ -33,6 +34,9 @@ export function EventNoteDialog({
   const [eventEndDate, setEventEndDate] = useState(initialValues.eventEndDate ?? '');
   const [eventEndTime, setEventEndTime] = useState(initialValues.eventEndTime ?? '');
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
 
   useEffect(() => {
     setTitle(initialValues.title);
@@ -83,9 +87,6 @@ export function EventNoteDialog({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="event-note-dialog-title"
       style={{
         position: 'fixed',
         inset: 0,
@@ -99,6 +100,10 @@ export function EventNoteDialog({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="event-note-dialog-title"
         style={{
           width: '100%',
           maxWidth: 360,

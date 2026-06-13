@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import {
   MILESTONE_STATUSES,
   type MilestoneStatus,
@@ -42,14 +43,9 @@ export function CreateMilestoneDialog({
   const [projectId, setProjectId] = useState(initialProjectId);
   const [status, setStatus] = useState<MilestoneStatus>('planned');
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
 
   const statusLabel = (s: MilestoneStatus) =>
     s === 'planned' ? t('projectStatusPlanned') : s === 'active' ? t('projectStatusActive') : t('projectStatusCompleted');
@@ -88,9 +84,9 @@ export function CreateMilestoneDialog({
 
   if (projects.length === 0) {
     return (
-      <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }} onClick={onClose}>
-        <div style={{ maxWidth: 320, background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 10, padding: 16 }} onClick={e => e.stopPropagation()}>
-          <p style={{ fontSize: 12, color: c.text, margin: '0 0 12px' }}>{t('createMilestoneNoProjects')}</p>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.35)' }} onClick={onClose}>
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="create-milestone-empty-title" style={{ maxWidth: 320, background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 10, padding: 16 }} onClick={e => e.stopPropagation()}>
+          <p id="create-milestone-empty-title" style={{ fontSize: 12, color: c.text, margin: '0 0 12px' }}>{t('createMilestoneNoProjects')}</p>
           <button type="button" className="bwbg" onClick={onClose} style={{ width: '100%' }}>{t('close')}</button>
         </div>
       </div>
@@ -99,9 +95,6 @@ export function CreateMilestoneDialog({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-milestone-dialog-title"
       style={{
         position: 'fixed',
         inset: 0,
@@ -115,6 +108,10 @@ export function CreateMilestoneDialog({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-milestone-dialog-title"
         style={{
           width: '100%',
           maxWidth: 380,
@@ -154,7 +151,7 @@ export function CreateMilestoneDialog({
               ))}
             </select>
           </label>
-          {error && <div style={{ fontSize: 10, color: c.danger }}>{error}</div>}
+          {error && <div role="alert" style={{ fontSize: 10, color: c.danger }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button type="button" className="bwbg" onClick={onClose} style={{ flex: 1 }}>{t('cancel')}</button>
             <button type="button" className="bwbg" onClick={handleSubmit} style={{ flex: 1, color: c.accent, fontWeight: 700 }}>{t('createMilestoneTitle')}</button>

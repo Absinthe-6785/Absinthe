@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
-import { useIsMobile } from '../../hooks/useIsMobile';
+import { useViewportLayout } from '../../hooks/useViewportLayout';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { SkipLink } from '../common/SkipLink';
 import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore } from '../../store/useNotesStore';
 import {
@@ -392,13 +394,21 @@ export const NoteView = () => {
   const [traceAreaId, setTraceAreaId] = useState<string | null>(null);
   const [traceAreaRange, setTraceAreaRange] = useState<TraceRangeLens | null>(null);
   const [traceDiscoveryMode, setTraceDiscoveryMode] = useState(false);
-  const isMobile = useIsMobile();
+  const { isMobile, isTablet } = useViewportLayout();
+  const isCompactChrome = isMobile || isTablet;
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileShowEditor, setMobileShowEditor] = useState(false);
   const [docCopied, setDocCopied] = useState(false);
   const titleComposingRef = useRef(false);
   const [titleDraft, setTitleDraft] = useState('');
   const docCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const shortcutsPanelRef = useRef<HTMLDivElement>(null);
+  useModalA11y({ open: showShortcuts, onClose: () => setShowShortcuts(false), containerRef: shortcutsPanelRef });
+
+  useEffect(() => {
+    if (isTablet && !isMobile) setSidebarCollapsed(true);
+  }, [isTablet, isMobile]);
 
   type EventDialogState = {
     mode: 'create' | 'edit';
@@ -1708,6 +1718,7 @@ export const NoteView = () => {
     .mobile-panel-drawer{position:fixed;top:0;right:0;bottom:0;width:min(320px,92vw);z-index:150;box-shadow:-4px 0 24px #00000025}
     .mobile-sidebar-drawer .bfi{min-height:44px;padding:10px 11px}
     .btbtn-mobile{min-height:44px;min-width:44px}
+    [data-compact-chrome] .bicon-btn{width:44px;height:44px}
     .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000015;z-index:100;overflow:hidden;min-width:130px}
     .bsort-item{padding:7px 12px;font-size:12px;cursor:pointer;color:${c.text};display:flex;align-items:center;gap:6px}
     .bsort-item:hover{background:${c.cardHov}}
@@ -1731,8 +1742,10 @@ export const NoteView = () => {
   `, [c]);
 
   return (
-    <div style={{ display: 'flex', height: '100%', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
+    <div data-compact-chrome={isCompactChrome || undefined} style={{ display: 'flex', height: '100%', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
       <style>{CSS}</style>
+      <SkipLink href="#noteview-main" label={t('skipToMain')} />
+      <SkipLink href="#noteview-navigation" label={t('skipToNavigation')} />
       <input ref={importInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={handleImport} multiple/>
 
       {/* ── 포커스 모드 오버레이 ── */}
@@ -1749,7 +1762,7 @@ export const NoteView = () => {
         />
       )}
 
-      {isMobile && showRightPanel && activeNote && viewMode !== 'graph' && !hideSecondaryByFocus && (
+      {isCompactChrome && showRightPanel && activeNote && viewMode !== 'graph' && !hideSecondaryByFocus && (
         <div
           className="mobile-drawer-backdrop"
           onClick={() => setShowRightPanel(false)}
@@ -1761,9 +1774,10 @@ export const NoteView = () => {
       {showShortcuts && (
         <div style={{ position: 'fixed', inset: 0, background: '#00000060', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowShortcuts(false)}>
-          <div style={{ background: c.card, borderRadius: 12, padding: '20px 24px', width: 340, boxShadow: '0 8px 32px #00000030' }}
+          <div ref={shortcutsPanelRef} role="dialog" aria-modal="true" aria-labelledby="nv-shortcuts-title"
+            style={{ background: c.card, borderRadius: 12, padding: '20px 24px', width: 340, boxShadow: '0 8px 32px #00000030' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>{t('nvShortcuts')}</div>
+            <div id="nv-shortcuts-title" style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: c.text }}>{t('nvShortcuts')}</div>
             {[
               ['Ctrl + N',         t('nvScNewNote')],
               ['Ctrl + D',         t('nvScDuplicate')],
@@ -1803,7 +1817,9 @@ export const NoteView = () => {
 
       {/* ── Left Sidebar ── */}
       {(!hideLeftChrome || (isMobile && mobileSidebarOpen)) && (
-        <div
+        <nav
+          id="noteview-navigation"
+          aria-label={t('nvSidebarNav')}
           className={isMobile ? 'mobile-sidebar-drawer' : undefined}
           style={{
             width: isMobile ? undefined : (sidebarCollapsed ? 44 : 185),
@@ -2166,12 +2182,16 @@ export const NoteView = () => {
               </div>
             </>
           )}
-        </div>
+        </nav>
       )}
       {/* ── Note List / Database Table ── */}
-      <div style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : '45%') : (isMobile ? '100%' : 200))),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : 280) : (isMobile ? 0 : 200))),
+      <div
+        id="noteview-note-list"
+        role="region"
+        aria-label={t('nvNoteList')}
+        style={{
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '38%' : '45%')) : (isMobile ? '100%' : (isTablet ? 168 : 200)))),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 280)) : (isMobile ? 0 : (isTablet ? 168 : 200)))),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
@@ -2183,7 +2203,7 @@ export const NoteView = () => {
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}`, gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-            {isMobile && (
+            {isCompactChrome && (
               <button
                 type="button"
                 className="btbtn btbtn-mobile"
@@ -2512,7 +2532,7 @@ export const NoteView = () => {
       </div>
 
       {/* ── Editor Area ── */}
-      <div style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
+      <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
         {activeNote ? (
           <>
             {/* Note Header */}
@@ -2652,7 +2672,7 @@ export const NoteView = () => {
                 </button>
               )}
               {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
+              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isCompactChrome ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
                 style={{ color: showRightPanel ? c.accent : c.textMuted }}>
                 <AlignLeft size={12}/>
               </button>
@@ -2904,21 +2924,22 @@ export const NoteView = () => {
             </div>
           )
         )}
-      </div>
+      </main>
 
       {/* ── Right Panel ── */}
       {activeNote && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
-        <div
-          className={isMobile ? 'mobile-panel-drawer' : undefined}
+        <aside
+          aria-label={t('nvSidePanel')}
+          className={isCompactChrome ? 'mobile-panel-drawer' : undefined}
           style={{
-            width: isMobile ? undefined : 210,
-            minWidth: isMobile ? undefined : 210,
+            width: isCompactChrome ? undefined : (isTablet ? 190 : 210),
+            minWidth: isCompactChrome ? undefined : (isTablet ? 190 : 210),
             background: c.sidebar,
             borderLeft: `1px solid ${c.sideBdr}`,
             display: 'flex',
             flexDirection: 'column',
             flexShrink: 0,
-            zIndex: isMobile ? 150 : undefined,
+            zIndex: isCompactChrome ? 150 : undefined,
           }}
         >
           <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
@@ -3184,7 +3205,7 @@ export const NoteView = () => {
               </button>
             </div>
           )}
-        </div>
+        </aside>
       )}
       {eventDialog && (
         <EventNoteDialog

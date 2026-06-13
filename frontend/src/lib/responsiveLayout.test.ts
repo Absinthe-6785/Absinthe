@@ -5,6 +5,7 @@ import {
   isTabletWidth,
   responsiveMetricGridColumns,
   responsiveStatGridColumns,
+  touchMinSize,
 } from './responsiveLayout';
 
 describe('responsiveLayout', () => {
@@ -19,8 +20,15 @@ describe('responsiveLayout', () => {
     expect(responsiveMetricGridColumns(true)).toBe('repeat(2, minmax(0, 1fr))');
   });
 
-  it('reduces dashboard padding on mobile', () => {
+  it('reduces dashboard padding on mobile and tablet', () => {
     expect(dashboardOuterPadding(true)).toBe(8);
+    expect(dashboardOuterPadding(false, true)).toBe(10);
     expect(dashboardOuterPadding(false)).toBe(12);
+  });
+
+  it('applies touch targets on mobile and tablet', () => {
+    expect(touchMinSize(true)).toBe(44);
+    expect(touchMinSize(false, true)).toBe(44);
+    expect(touchMinSize(false)).toBeUndefined();
   });
 });

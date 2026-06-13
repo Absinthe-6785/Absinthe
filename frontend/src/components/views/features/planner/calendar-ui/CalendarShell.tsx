@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, DDay, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
+import { useTranslation } from '../../../../../lib/i18n';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
@@ -56,6 +57,7 @@ export function CalendarShell({
   onAnchorDateChange,
   dayScheduleActions,
 }: CalendarShellProps) {
+  const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<PlannerCalendarViewMode>(initialMode);
 
   const { projection, presentation } = usePlannerCalendarProjection({
@@ -86,6 +88,7 @@ export function CalendarShell({
   return (
     <section
       className="w-full shrink-0 flex flex-col gap-3 lg:gap-4 mb-4 lg:mb-5"
+      aria-label={t('plannerCalendarRegion')}
       data-planner-calendar-shell
       data-planner-calendar-mode={viewMode}
     >

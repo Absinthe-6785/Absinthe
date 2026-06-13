@@ -91,7 +91,7 @@ export function SubjectWorkspacePanel({
   onEditProject,
 }: SubjectWorkspacePanelProps) {
   const { isMobile, isTablet } = useViewportLayout();
-  const touch = touchMinSize(isMobile);
+  const touch = touchMinSize(isMobile, isTablet);
   return (
     <div className="be-subject-workspace" aria-label={`${data.subject.name} 작업공간`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>

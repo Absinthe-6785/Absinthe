@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import {
   type MilestoneFormValues,
   validateMilestoneForm,
@@ -30,6 +31,9 @@ export function MilestoneNoteDialog({
   const [milestoneDate, setMilestoneDate] = useState(initialValues.milestoneDate);
   const [milestoneLabel, setMilestoneLabel] = useState(initialValues.milestoneLabel ?? '');
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
 
   useEffect(() => {
     setMilestoneDate(initialValues.milestoneDate);
@@ -71,9 +75,6 @@ export function MilestoneNoteDialog({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="milestone-note-dialog-title"
       style={{
         position: 'fixed',
         inset: 0,
@@ -87,6 +88,10 @@ export function MilestoneNoteDialog({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="milestone-note-dialog-title"
         style={{
           width: '100%',
           maxWidth: 360,
