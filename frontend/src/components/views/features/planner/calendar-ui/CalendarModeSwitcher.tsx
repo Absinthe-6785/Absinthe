@@ -3,10 +3,10 @@ import type { PlannerCalendarViewMode } from '../calendar';
 import { PLANNER_CALENDAR_MODES } from './calendarShellModels';
 
 const MODE_LABELS: Record<PlannerCalendarViewMode, string> = {
-  month: 'Month',
-  week: 'Week',
-  day: 'Day',
-  agenda: 'Agenda',
+  month: '월',
+  week: '주',
+  day: '일',
+  agenda: '아젠다',
 };
 
 export interface CalendarModeSwitcherProps {

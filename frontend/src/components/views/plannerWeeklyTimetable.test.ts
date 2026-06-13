@@ -157,6 +157,6 @@ describe('PlannerView weekly timetable integration', () => {
     expect(html).toContain('data-planner-weekly-block="ws-1"');
     expect(html).toContain('Morning Study');
     expect(html).toContain('data-planner-calendar-shell');
-    expect(html).toContain('data-planner-calendar-mode="month"');
+    expect(html).toContain('data-planner-calendar-mode="day"');
   });
 });

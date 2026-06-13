@@ -72,7 +72,7 @@ describe('ArchiveHomeView', () => {
     );
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('Marks will accumulate here over time.');
+    expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
   });
 
   it('marks Archive Home structurally complete', () => {

@@ -73,8 +73,8 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
 }
 
 describe('DEFAULT_PLANNER_CALENDAR_MODE', () => {
-  it('defaults to month', () => {
-    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
+  it('defaults to day for daily-first planner entry', () => {
+    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('day');
   });
 });
 
@@ -221,18 +221,16 @@ describe('CalendarShell', () => {
     vi.clearAllMocks();
   });
 
-  it('renders shell with default month mode and month calendar grid', () => {
+  it('renders shell with default day mode and day calendar view', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps()),
     );
 
     expect(html).toContain('data-planner-calendar-shell');
-    expect(html).toContain('data-planner-calendar-mode="month"');
+    expect(html).toContain('data-planner-calendar-mode="day"');
     expect(html).toContain('data-planner-calendar-period-nav');
-    expect(html).toContain('data-planner-calendar-month');
-    expect(html).toContain('data-planner-month-grid');
-    expect(html).toContain('Month View');
-    expect(html).not.toContain('data-planner-calendar-placeholder-mode="month"');
+    expect(html).toContain('data-planner-calendar-day');
+    expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
   });
 
   it('renders period navigation controls when onAnchorDateChange is provided', () => {
@@ -275,7 +273,7 @@ describe('CalendarShell', () => {
 
     expect(html).toContain('data-planner-calendar-mode="agenda"');
     expect(html).toContain('data-planner-calendar-agenda');
-    expect(html).toContain('Agenda View');
+    expect(html).toContain('아젠다');
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="agenda"');
   });
 });

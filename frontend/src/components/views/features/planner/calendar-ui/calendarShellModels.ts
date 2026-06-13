@@ -1,6 +1,6 @@
 import type { PlannerCalendarViewMode } from '../calendar';
 
-export const DEFAULT_PLANNER_CALENDAR_MODE: PlannerCalendarViewMode = 'month';
+export const DEFAULT_PLANNER_CALENDAR_MODE: PlannerCalendarViewMode = 'day';
 
 export const PLANNER_CALENDAR_MODES: readonly PlannerCalendarViewMode[] = [
   'month',

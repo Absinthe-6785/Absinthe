@@ -2,6 +2,11 @@ import { useCallback } from 'react';
 import type { AppSettings, Theme } from '../../../../../types';
 import type { ArchiveHomeProjection } from '../../knowledge/archive';
 import { openNote } from '../../../../../lib/noteNavigation';
+import {
+  openArchiveBrowseDestination,
+  openArchiveMarkMonthNavigation,
+  openTraceDayNavigation,
+} from '../../../../../lib/traceNavigation';
 import { ArchiveAreaPills } from './ArchiveAreaPills';
 import { ArchiveBrowseLinks } from './ArchiveBrowseLinks';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
@@ -31,6 +36,20 @@ export function ArchiveHomeView({
     (pill: { areaNoteId: string }) => openNote(pill.areaNoteId),
     [],
   );
+  const onMarkDayClick = useCallback(
+    (dateKey: string) => openTraceDayNavigation(dateKey),
+    [],
+  );
+  const onMarkMonthClick = useCallback(
+    (year: number, month: number) => openArchiveMarkMonthNavigation(year, month),
+    [],
+  );
+  const onBrowseClick = useCallback(
+    (destination: Parameters<typeof openArchiveBrowseDestination>[0]) => {
+      openArchiveBrowseDestination(destination);
+    },
+    [],
+  );
   const headingClass = appSettings.darkMode ? 'text-white' : 'text-gray-900';
 
   return (
@@ -54,6 +73,8 @@ export function ArchiveHomeView({
         endDate={projection.youAreHere.today}
         theme={theme}
         appSettings={appSettings}
+        onDayClick={onMarkDayClick}
+        onMonthClick={onMarkMonthClick}
       />
 
       <ArchiveRecentMilestones
@@ -74,11 +95,12 @@ export function ArchiveHomeView({
         browse={projection.browse}
         theme={theme}
         appSettings={appSettings}
+        onBrowseClick={onBrowseClick}
       />
 
       {projection.empty.isEmpty && !isLoading && (
         <p className={`text-sm ${theme.textMuted}`} data-archive-empty-message>
-          Marks will accumulate here over time.
+          시간이 지나면 마크가 이곳에 쌓입니다.
         </p>
       )}
     </div>
