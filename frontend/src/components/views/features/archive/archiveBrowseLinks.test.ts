@@ -69,7 +69,7 @@ describe('ArchiveBrowseLinks', () => {
     );
 
     expect(html).toContain('data-archive-browse-empty="false"');
-    expect(html).toContain('탐색');
+    expect(html).toContain('Browse');
     expect(html).toContain('June 2026');
     expect(html).toContain('Q2 2026');
     expect(html).toContain('전체 영역');
@@ -135,7 +135,7 @@ describe('ArchiveBrowseLinks', () => {
       }),
     );
 
-    expect(html).not.toContain('탐색할 항목이 없습니다.');
+    expect(html).not.toContain('Nothing to browse yet.');
   });
 });
 

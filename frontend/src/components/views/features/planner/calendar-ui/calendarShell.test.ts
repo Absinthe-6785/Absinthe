@@ -278,7 +278,7 @@ describe('CalendarShell', () => {
 
     expect(html).toContain('data-planner-calendar-mode="agenda"');
     expect(html).toContain('data-planner-calendar-agenda');
-    expect(html).toContain('아젠다');
+    expect(html).toContain('Agenda');
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="agenda"');
   });
 });

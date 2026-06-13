@@ -143,8 +143,8 @@ describe('AnalyticsView archive landing', () => {
     expect(html).toContain('data-archive-shell');
     expect(html).toContain('data-archive-mode="home"');
     expect(html).toContain('data-archive-home="true"');
-    expect(html).toContain('아카이브');
-    expect(html).toContain('돌아보며 남는 것들.');
+    expect(html).toContain('Archive');
+    expect(html).toContain('What remains when you look back.');
   });
 
   it('does not render legacy Analytics widgets by default', () => {
@@ -162,10 +162,10 @@ describe('AnalyticsView archive landing', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('시간이 지나면 마크가 이곳에 쌓입니다.');
-    expect(html).toContain('아직 기록된 마크가 없습니다.');
-    expect(html).toContain('기록된 마일스톤이 없습니다.');
-    expect(html).toContain('기록된 영역이 없습니다.');
+    expect(html).toContain('Marks will accumulate here over time.');
+    expect(html).toContain('No marks recorded yet.');
+    expect(html).toContain('No milestones recorded.');
+    expect(html).toContain('No areas recorded.');
   });
 });
 
@@ -211,8 +211,8 @@ describe('AnalyticsView projection-driven home content', () => {
 
     const html = renderAnalyticsView();
     expect(html).toContain(projection.browse.thisMonth.label);
-    expect(html).toContain('최근 전환');
-    expect(html).toContain('영역');
-    expect(html).toContain('탐색');
+    expect(html).toContain('Recent transitions');
+    expect(html).toContain('Areas');
+    expect(html).toContain('Browse');
   });
 });

@@ -1,12 +1,13 @@
 import type { Theme } from '../../../../../types';
 import type { PlannerCalendarViewMode } from '../calendar';
+import { useTranslation } from '../../../../../lib/i18n';
 import { PLANNER_CALENDAR_MODES } from './calendarShellModels';
 
-const MODE_LABELS: Record<PlannerCalendarViewMode, string> = {
-  month: '월',
-  week: '주',
-  day: '일',
-  agenda: '아젠다',
+const MODE_LABEL_KEYS: Record<PlannerCalendarViewMode, 'plannerCalendarModeMonth' | 'plannerCalendarModeWeek' | 'plannerCalendarModeDay' | 'plannerCalendarModeAgenda'> = {
+  month: 'plannerCalendarModeMonth',
+  week: 'plannerCalendarModeWeek',
+  day: 'plannerCalendarModeDay',
+  agenda: 'plannerCalendarModeAgenda',
 };
 
 export interface CalendarModeSwitcherProps {
@@ -20,6 +21,8 @@ export function CalendarModeSwitcher({
   onModeChange,
   theme,
 }: CalendarModeSwitcherProps) {
+  const { t } = useTranslation();
+
   return (
     <div
       className={`flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`}
@@ -40,7 +43,7 @@ export function CalendarModeSwitcher({
               ? 'bg-primary text-primary-foreground'
               : `${theme.input} ${theme.textMuted}`}`}
         >
-          {MODE_LABELS[mode]}
+          {t(MODE_LABEL_KEYS[mode])}
         </button>
       ))}
     </div>

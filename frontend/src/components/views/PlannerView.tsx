@@ -436,10 +436,10 @@ export const PlannerView = ({
         <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-              <Target size={18} className="text-red-500"/> 디데이
+              <Target size={18} className="text-red-500"/> {t('dday')}
             </h2>
             <button onClick={() => openDdayModal()} className="bg-primary text-primary-foreground px-2.5 py-1.5 rounded-xl text-xs font-bold">
-              <Plus size={14} className="inline mr-1"/>추가
+              <Plus size={14} className="inline mr-1"/>{t('add')}
             </button>
           </div>
           <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
@@ -472,7 +472,7 @@ export const PlannerView = ({
             {/* 상단: 새 노트 버튼 */}
             <div className="flex items-center justify-between px-3 py-2.5 shrink-0">
               <span className="font-heading text-xs font-black tracking-wide flex items-center gap-1">
-                <FileText size={12} className="text-yellow-400"/> 메모
+                <FileText size={12} className="text-yellow-400"/> {t('memo')}
               </span>
               <div className="flex gap-1">
                 <button onClick={() => setShowFolderInput(v => !v)} title={t('newFolder')}
@@ -635,7 +635,7 @@ export const PlannerView = ({
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <button onClick={() => activeFolderId !== 'trash' && createNote({ folderContext: activeFolderId })}
-                className={`text-sm font-semibold ${theme.textMuted}`}>+ 새 노트</button>
+                className={`text-sm font-semibold ${theme.textMuted}`}>{t('nvNewNoteBtn')}</button>
             </div>
           )}
         </div>
@@ -689,7 +689,7 @@ export const PlannerView = ({
           <div className="flex justify-between items-center mb-5">
             <div>
               <h2 className="font-heading text-xl lg:text-2xl font-bold flex items-center gap-2.5">
-                <Clock size={24} className="text-primary"/> 타임라인
+                <Clock size={24} className="text-primary"/> {t('timeline')}
               </h2>
               <p className={`text-xs font-semibold mt-0.5 ${theme.textMuted}`}>
                 {selectedDate.toLocaleDateString(lang, { month: 'short', day: 'numeric', weekday: 'short' })}
@@ -742,7 +742,7 @@ export const PlannerView = ({
                         {/* 익일 연속 배지 */}
                         {sch.end_next_day && (
                           <span className="mt-auto mb-1 self-start text-[10px] font-bold bg-black/25 px-2 py-0.5 rounded-full">
-                            → 내일 {sch.end_time}까지 이어짐
+                            {t('plannerUntilTomorrow')} {sch.end_time}
                           </span>
                         )}
                       </div>
@@ -766,7 +766,7 @@ export const PlannerView = ({
                       <div className="flex flex-col gap-0.5 ml-1 overflow-hidden flex-1">
                         {/* 전일 연속 배지 */}
                         <span className="text-[10px] font-bold bg-black/25 px-2 py-0.5 rounded-full self-start mb-0.5">
-                          ← from yesterday
+                          {t('plannerFromYesterday')}
                         </span>
                         <p className="text-xs lg:text-sm font-semibold truncate">{sch.text}</p>
                         {height >= 40 && (
@@ -908,7 +908,7 @@ export const PlannerView = ({
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('title')}</label>
                 <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
                   onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder="예: 시험일"/>
+                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder={t('ddayTitlePlaceholder')}/>
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('date')}</label>
