@@ -29,16 +29,16 @@ export function ArchiveBrowseLinks({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-browse
       data-archive-browse-empty={isEmpty ? 'true' : 'false'}
-      aria-label="아카이브 탐색"
+      aria-label={t('archiveBrowseTitle')}
     >
       <h2 className="font-heading text-base font-bold mb-4">
-        탐색
+        {t('archiveBrowseTitle')}
       </h2>
 
       {isEmpty ? (
         <div className="flex flex-col items-start gap-2" data-archive-browse-empty-message>
           <p className={`text-sm ${theme.textMuted}`}>
-            탐색할 항목이 없습니다.
+            {t('archiveBrowseEmpty')}
           </p>
           <p className={`text-xs ${theme.textMuted}`}>
             {t('archiveBrowseEmptyHint')}

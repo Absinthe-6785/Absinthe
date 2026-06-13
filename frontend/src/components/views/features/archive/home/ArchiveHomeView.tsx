@@ -63,10 +63,10 @@ export function ArchiveHomeView({
     >
       <header className="flex flex-col gap-1">
         <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${headingClass}`}>
-          {projection.frame.title}
+          {t('archiveHomeTitle')}
         </h1>
         <p className={`text-sm lg:text-base font-medium ${theme.textMuted}`}>
-          {projection.frame.subtitle}
+          {t('archiveHomeSubtitle')}
         </p>
       </header>
 
@@ -103,7 +103,7 @@ export function ArchiveHomeView({
       {projection.empty.isEmpty && !isLoading && (
         <div className="flex flex-col items-start gap-3" data-archive-empty-message>
           <p className={`text-sm ${theme.textMuted}`}>
-            시간이 지나면 마크가 이곳에 쌓입니다.
+            {t('archiveHomeEmptyHint')}
           </p>
           <button
             type="button"

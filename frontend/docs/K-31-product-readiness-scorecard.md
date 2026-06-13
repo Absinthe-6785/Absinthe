@@ -1,58 +1,60 @@
 # K-31 — Product Readiness Scorecard
 
-**Branch:** `k31-product-stabilization`  
-**Scope:** Phase 5 — 0–10 scoring (updated after pass 5)
+**Branch:** `k31-product-reality-pass`  
+**Scope:** Phase 5 — 0–10 scoring (updated after K-31.2 Product Reality Pass)
 
 ---
 
 ## Scores
 
-| Area | Pass 3 | Pass 4 | Pass 5 | Rationale | Blockers |
+| Area | Pass 4 | Pass 5 | K-31.2 | Rationale | Blockers |
 | ---- | ------ | ------ | ------ | --------- | -------- |
-| **Navigation** | 7.5 | 8 | **8.5** | Archive mode tabs + TOC j/k/Enter | URL sync for archive modes |
-| **Discoverability** | 6.5 | 7 | **7.5** | Archive tabs surface all branches | Legacy planner column |
-| **Localization** | 7.5 | 7.5 | **8** | Archive/database month labels follow app language | Frame literals, graph counters |
-| **Planner** | 6 | 6.5 | 6.5 | Unchanged pass 5 | Legacy column duplication |
-| **Archive** | 6.5 | 7.5 | **8** | In-app tabs + locale-aware browse/period | Full period shell |
-| **Workspace** | 7.5 | 7.5 | 7.5 | Unchanged | Section title i18n |
-| **Graph** | 6 | 6.5 | **7** | Scale-aware labels + repulsion tuning | Layout engine at 500+ |
-| **Accessibility** | 6.5 | 6.5 | **7.5** | TOC listbox keyboard + archive tablist | Global TOC shortcut |
-| **Visual Consistency** | 7 | 7.5 | 7.5 | Unchanged | NoteView inline styles |
-| **Mobile Experience** | 6 | 6.5 | 6.5 | Unchanged | Dual planner nav |
+| **Navigation** | 8 | **8.5** | **8.5** | TOC live-block nav (K-31.1) + archive tabs | URL sync for archive modes |
+| **Discoverability** | 7 | **7.5** | **7.5** | Archive tabs surface all branches | Legacy planner column |
+| **Localization** | 7.5 | **8** | **8.5** | Archive + Planner P0 strings wired to i18n | NoteView legacy KO |
+| **Planner** | 6.5 | 6.5 | **7** | Calendar modes + weekly timetable localized | Legacy column duplication |
+| **Archive** | **7.5** | **8** | **8.5** | UI copy follows app language | Browse link projection locale |
+| **Workspace** | 7.5 | 7.5 | 7.5 | Unchanged | NoteView section title i18n |
+| **Graph** | 6.5 | **7** | 7 | Scale-aware labels | Toolbar counter i18n |
+| **Accessibility** | 6.5 | **7.5** | **7.5** | TOC keyboard + archive tablist | Global TOC shortcut |
+| **Visual Consistency** | 7.5 | 7.5 | **7.5** | Sidebar stroke aligned | NoteView inline styles |
+| **Mobile Experience** | 6.5 | 6.5 | **6.5** | Protein tab label fixed | Dual planner nav |
 
 ---
 
 ## Overall Readiness
 
-**6.8 → 7.2 → 7.6 / 10**
+**7.2 → 7.6 → 7.9 / 10**
 
-Pass 5 closes P0 TOC keyboard, archive tab navigation, locale date consistency, and graph scale polish — crossing the 7.5 product-readiness target.
+K-31.2 closes P0 localization gaps on Archive Home and Planner surfaces, verifies Protein Tracker implementation, and documents remaining legacy debt without scope creep.
 
 ---
 
-## Pass 5 Deliverables
+## K-31.2 Deliverables
 
-- ✅ TOC keyboard navigation (j/k/Enter) + audit
-- ✅ Archive mode switcher + audit
-- ✅ Locale consistency (Archive + database month headers) + audit
-- ✅ Graph scale policy wired + audit
+- ✅ Language system audit + Archive/Planner fixes
+- ✅ Protein Tracker verification (mobile tab label)
+- ✅ Sidebar / icon consistency audit
+- ✅ Theme consistency audit (documented outliers)
+- ✅ Planner reality audit + recommendations
+- ✅ `K-31.2-product-reality-audit.md`
 - ✅ Scorecard update
 
 ---
 
 ## Top Remaining Blockers
 
-1. Planner legacy timeline column removal (structural simplification)
-2. Archive frame / projection copy i18n (non-date strings)
+1. NoteView full localization (`NoteView.tsx` legacy inline KO)
+2. Planner legacy timeline column / mobile mini-calendar removal
 3. Graph layout engine at 500+ nodes (performance ceiling)
-4. NoteView TOC panel copy localization
+4. Archive browse projection link labels vs UI locale
 5. Archive mode ↔ URL / sidebar sync
 
 ---
 
 ## Recommended Next Major Milestone
 
-**K-32 Planner consolidation** — remove duplicate legacy column, unify navigation chrome, and align mobile planner IA (target Navigation ≥ 9, Planner ≥ 7.5).
+**K-32 Planner consolidation + NoteView i18n** — remove duplicate legacy column, unify mobile planner IA, sweep NoteView strings (target Localization ≥ 9, Planner ≥ 7.5).
 
 ---
 
@@ -68,6 +70,6 @@ Pass 5 closes P0 TOC keyboard, archive tab navigation, locale date consistency, 
 
 ## Regression Watchlist
 
-- TOC keyboard requires focus on listbox — document in shortcuts panel
-- Graph xlarge tier shows fewer ambient labels — hubs still visible on hover
-- Archive English browse labels when `language: 'en'` — Korean remains default projection frame
+- Archive projection `frame.title` still locale-derived for hook consumers — UI uses `t()` directly
+- English setting must show zero Korean on Archive Home / Planner headers (regression test coverage added)
+- Protein mobile tab must match desktop label key `proteinTracker`

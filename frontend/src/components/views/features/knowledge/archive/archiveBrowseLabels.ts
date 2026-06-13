@@ -16,3 +16,11 @@ export function resolveArchiveBrowseStaticLabels(locale?: string) {
     timeline: t('archiveViewTimeline'),
   };
 }
+
+export function resolveArchiveFrameLabels(locale?: string) {
+  const t = getTranslator(languageFromIntlLocale(locale));
+  return {
+    title: t('archiveHomeTitle'),
+    subtitle: t('archiveHomeSubtitle'),
+  };
+}

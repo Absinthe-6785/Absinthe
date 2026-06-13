@@ -1125,7 +1125,7 @@ export const HealthView = ({
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'workout' ? t('tabWorkout') : '🥤 Protein'}
+              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'workout' ? t('tabWorkout') : t('proteinTracker')}
             </button>
           ))}
         </div>

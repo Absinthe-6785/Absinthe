@@ -60,7 +60,7 @@ describe('ArchiveRecentMilestones', () => {
     );
 
     expect(html).toContain('data-archive-recent-milestones-empty="true"');
-    expect(html).toContain('기록된 마일스톤이 없습니다.');
+    expect(html).toContain('No milestones recorded.');
     expect(html).not.toMatch(/achievement|streak|score|congrat/i);
   });
 

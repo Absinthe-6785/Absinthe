@@ -24,16 +24,16 @@ export function ArchiveRecentMilestones({
       className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-archive-recent-milestones
       data-archive-recent-milestones-empty={isEmpty ? 'true' : 'false'}
-      aria-label="최근 전환"
+      aria-label={t('archiveRecentMilestonesTitle')}
     >
       <h2 className="font-heading text-base font-bold mb-4">
-        최근 전환
+        {t('archiveRecentMilestonesTitle')}
       </h2>
 
       {isEmpty ? (
         <div className="flex flex-col items-start gap-2" data-archive-recent-milestones-empty-message>
           <p className={`text-sm ${theme.textMuted}`}>
-            기록된 마일스톤이 없습니다.
+            {t('archiveRecentMilestonesEmpty')}
           </p>
           <p className={`text-xs ${theme.textMuted}`}>
             {t('archiveMilestoneEmptyHint')}
