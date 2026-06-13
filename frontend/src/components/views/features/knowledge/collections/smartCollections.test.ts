@@ -24,9 +24,10 @@ function note(
 }
 
 describe('smart collection catalog', () => {
-  it('defines six phase-1 collections', () => {
-    expect(SMART_COLLECTIONS).toHaveLength(6);
+  it('defines phase-1 and research collections', () => {
+    expect(SMART_COLLECTIONS).toHaveLength(9);
     expect(findSmartCollection('orphan')?.name).toBe('Orphan Notes');
+    expect(findSmartCollection('research-sources')?.name).toBe('Sources');
   });
 
   it('activates by returning collection id', () => {
@@ -127,6 +128,18 @@ describe('evaluateSmartCollection', () => {
 
   it('returns untagged notes', () => {
     expect(evaluateSmartCollection('untagged', service, notes).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns research kind collections', () => {
+    const researchNotes = [
+      note('s', 'Source', '', { updatedAt: 300, properties: { noteKind: 'source' } }),
+      note('l', 'Lit', '', { updatedAt: 200, properties: { noteKind: 'literature' } }),
+      note('p', 'Perm', '', { updatedAt: 100, properties: { noteKind: 'permanent' } }),
+      note('x', 'Other', '', { updatedAt: 50 }),
+    ];
+    expect(evaluateSmartCollection('research-sources', service, researchNotes)).toEqual(['s']);
+    expect(evaluateSmartCollection('research-literature', service, researchNotes)).toEqual(['l']);
+    expect(evaluateSmartCollection('research-permanent', service, researchNotes)).toEqual(['p']);
   });
 });
 

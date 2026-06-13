@@ -3,7 +3,10 @@ import type { NoteKind } from '../research/noteClassification';
 import {
   NOTE_KINDS,
   NOTE_KIND_LABELS_KO,
+  canPromoteNoteKind,
+  canPromoteKind,
   noteKindWorkflowStep,
+  promoteNoteKindLabel,
 } from '../research/noteClassification';
 
 export interface NoteClassificationSelectorProps {
@@ -51,6 +54,7 @@ export function NoteClassificationSelector({
 export interface LiteratureWorkflowIndicatorProps {
   colors: NoteChromeColors;
   kind: NoteKind | null;
+  onPromote?: () => void;
 }
 
 const STEPS: { kind: NoteKind; label: string }[] = [
@@ -59,39 +63,60 @@ const STEPS: { kind: NoteKind; label: string }[] = [
   { kind: 'permanent', label: 'Permanent' },
 ];
 
-/** Visual-only knowledge progression indicator. */
-export function LiteratureWorkflowIndicator({ colors: c, kind }: LiteratureWorkflowIndicatorProps) {
+/** Visual knowledge progression with optional one-click promote. */
+export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: LiteratureWorkflowIndicatorProps) {
   const activeStep = noteKindWorkflowStep(kind);
+  const promoteLabel = promoteNoteKindLabel(kind);
+  const showPromote = onPromote && canPromoteKind(kind);
 
   return (
     <div
       className="be-literature-workflow"
       aria-label="지식 진행 단계"
-      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: c.textMuted }}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 9, color: c.textMuted, flexWrap: 'wrap' }}
     >
-      {STEPS.map((step, idx) => {
-        const isActive = activeStep === idx;
-        const isPast = activeStep > idx;
-        return (
-          <span key={step.kind} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {idx > 0 && (
-              <span style={{ color: c.textFaint, fontSize: 8 }}>↓</span>
-            )}
-            <span
-              style={{
-                padding: '2px 6px',
-                borderRadius: 4,
-                fontWeight: isActive ? 700 : 500,
-                color: isActive ? c.accent : isPast ? c.text : c.textFaint,
-                background: isActive ? c.accentBg : 'transparent',
-                border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
-              }}
-            >
-              {step.label}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {STEPS.map((step, idx) => {
+          const isActive = activeStep === idx;
+          const isPast = activeStep > idx;
+          return (
+            <span key={step.kind} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {idx > 0 && (
+                <span style={{ color: c.textFaint, fontSize: 8 }}>↓</span>
+              )}
+              <span
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  fontWeight: isActive ? 700 : 500,
+                  color: isActive ? c.accent : isPast ? c.text : c.textFaint,
+                  background: isActive ? c.accentBg : 'transparent',
+                  border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
+                }}
+              >
+                {step.label}
+              </span>
             </span>
-          </span>
-        );
-      })}
+          );
+        })}
+      </div>
+      {showPromote && promoteLabel && (
+        <button
+          type="button"
+          className="btbtn"
+          onClick={onPromote}
+          style={{
+            fontSize: 9,
+            padding: '3px 8px',
+            color: c.accent,
+            border: `1px solid ${c.accent}`,
+            borderRadius: 5,
+            background: c.accentBg,
+          }}
+        >
+          → {promoteLabel} 승격
+        </button>
+      )}
     </div>
   );
 }

@@ -32,6 +32,21 @@ export const SMART_COLLECTIONS: readonly SmartCollection[] = [
     name: 'With Mentions',
     description: 'Notes with incoming or outgoing unlinked mentions.',
   },
+  {
+    id: 'research-sources',
+    name: 'Sources',
+    description: 'Notes classified as source material (noteKind: source).',
+  },
+  {
+    id: 'research-literature',
+    name: 'Literature Notes',
+    description: 'Processed literature notes (noteKind: literature).',
+  },
+  {
+    id: 'research-permanent',
+    name: 'Permanent Notes',
+    description: 'Permanent knowledge notes (noteKind: permanent).',
+  },
 ];
 
 export function findSmartCollection(id: string): SmartCollection | undefined {

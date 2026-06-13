@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
+import { filterNotesByKind } from '../research/noteClassification';
 import type { SmartCollectionId } from './smartCollectionModels';
 
 /**
@@ -27,6 +28,18 @@ export function evaluateSmartCollection(
       return service.getNoteIdsWithBacklinks();
     case 'with-mentions':
       return service.getNoteIdsWithMentions();
+    case 'research-sources':
+      return filterNotesByKind(notes, 'source')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'research-literature':
+      return filterNotesByKind(notes, 'literature')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'research-permanent':
+      return filterNotesByKind(notes, 'permanent')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
     default: {
       const _exhaustive: never = collectionId;
       return _exhaustive;

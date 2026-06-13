@@ -3,6 +3,7 @@ import { getProperty, removeProperty, setProperty } from '../properties/noteProp
 
 /** Lightweight note kind — stored in properties, no DB redesign. */
 export const NOTE_KIND_PROPERTY = 'noteKind';
+export const NOTE_KIND_PROMOTED_AT_PROPERTY = 'noteKindPromotedAt';
 
 export type NoteKind = 'source' | 'literature' | 'permanent';
 
@@ -44,4 +45,41 @@ export function noteKindWorkflowStep(kind: NoteKind | null): number {
   if (kind === 'literature') return 1;
   if (kind === 'permanent') return 2;
   return -1;
+}
+
+/** Next kind in Source → Literature → Permanent pipeline. */
+export function nextNoteKind(kind: NoteKind | null): NoteKind | null {
+  if (kind === 'source') return 'literature';
+  if (kind === 'literature') return 'permanent';
+  return null;
+}
+
+export function canPromoteNoteKind(note: NoteBase): boolean {
+  return nextNoteKind(getNoteKind(note)) !== null;
+}
+
+export function canPromoteKind(kind: NoteKind | null): boolean {
+  return nextNoteKind(kind) !== null;
+}
+
+export function getNoteKindPromotedAt(note: NoteBase): number | null {
+  const raw = getProperty(note, NOTE_KIND_PROMOTED_AT_PROPERTY)?.trim();
+  if (!raw) return null;
+  const ts = Number(raw);
+  return Number.isFinite(ts) && ts > 0 ? ts : null;
+}
+
+/** One-click promotion with optional timestamp — no automation beyond user action. */
+export function promoteNoteKind(note: NoteBase): NoteBase {
+  const next = nextNoteKind(getNoteKind(note));
+  if (!next) return note;
+  let result = setNoteKind(note, next);
+  result = setProperty(result, NOTE_KIND_PROMOTED_AT_PROPERTY, String(Date.now()));
+  return result;
+}
+
+export function promoteNoteKindLabel(kind: NoteKind | null): string | null {
+  const next = nextNoteKind(kind);
+  if (!next) return null;
+  return NOTE_KIND_LABELS_KO[next];
 }

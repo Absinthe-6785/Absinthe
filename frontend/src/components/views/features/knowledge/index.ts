@@ -99,10 +99,12 @@ export { RelatedNotesPanel, type RelatedNotesPanelProps } from './components/Rel
 export { NoteTagsPanel, type NoteTagsPanelProps } from './components/NoteTagsPanel';
 export { NoteClassificationSelector, LiteratureWorkflowIndicator, type NoteClassificationSelectorProps, type LiteratureWorkflowIndicatorProps } from './components/NoteClassificationSelector';
 export { BibliographyPanel, type BibliographyPanelProps } from './components/BibliographyPanel';
+export { ReadingSourceLinkPanel, type ReadingSourceLinkPanelProps } from './components/ReadingSourceLinkPanel';
 export { ResearchDashboardPanel, type ResearchDashboardPanelProps } from './components/ResearchDashboardPanel';
 
 export {
   NOTE_KIND_PROPERTY,
+  NOTE_KIND_PROMOTED_AT_PROPERTY,
   NOTE_KINDS,
   NOTE_KIND_LABELS,
   NOTE_KIND_LABELS_KO,
@@ -110,6 +112,12 @@ export {
   setNoteKind,
   filterNotesByKind,
   noteKindWorkflowStep,
+  nextNoteKind,
+  canPromoteNoteKind,
+  canPromoteKind,
+  getNoteKindPromotedAt,
+  promoteNoteKind,
+  promoteNoteKindLabel,
   isNoteKind,
   type NoteKind,
 } from './research/noteClassification';
@@ -118,6 +126,7 @@ export {
   buildResearchDashboard,
   type ResearchDashboardData,
   type ResearchNoteEntry,
+  type SourcePipelineOverview,
   type BuildResearchDashboardOptions,
 } from './research/buildResearchDashboard';
 
@@ -127,6 +136,18 @@ export {
   buildReadingNote,
   type BuildReadingNoteOptions,
 } from './research/readingNoteTemplate';
+
+export {
+  READING_SOURCE_RELATION,
+  SOURCE_READING_NOTES_RELATION,
+  isReadingNote,
+  isSourceNote,
+  getLinkedSourceNoteId,
+  getLinkedReadingNoteIds,
+  linkReadingNoteToSource,
+  unlinkReadingNoteFromSource,
+  type LinkReadingSourceResult,
+} from './research/readingSourceLink';
 
 export {
   buildExpandedGraphData,

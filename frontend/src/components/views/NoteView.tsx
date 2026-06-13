@@ -41,8 +41,14 @@ import {
   extractNoteReferenceSummary,
   getNoteKind,
   setNoteKind,
+  promoteNoteKind,
+  filterNotesByKind,
   buildReadingNote,
   BibliographyPanel,
+  ReadingSourceLinkPanel,
+  linkReadingNoteToSource,
+  unlinkReadingNoteFromSource,
+  getLinkedSourceNoteId,
   NoteClassificationSelector,
   LiteratureWorkflowIndicator,
   LocalGraphView,
@@ -759,15 +765,25 @@ export const NoteView = () => {
     const id = storeCreateNote({ title: title?.trim() || 'Reading Notes', body: '' });
     const created = notes.find(n => n.id === id);
     if (created) {
-      const readingNote = buildReadingNote(created, { title });
+      let readingNote = buildReadingNote(created, { title });
+      let sourceRelations: NoteBase['relations'];
+      if (activeNote && getNoteKind(activeNote) === 'source') {
+        const linked = linkReadingNoteToSource(readingNote, activeNote);
+        readingNote = linked.reading;
+        sourceRelations = linked.source.relations;
+      }
       updateNote(id, {
         title: readingNote.title,
         body: readingNote.body,
         properties: readingNote.properties,
+        relations: readingNote.relations,
       });
+      if (sourceRelations && activeNote) {
+        noteUpdate(activeNote.id, { relations: sourceRelations });
+      }
     }
     return openCreatedNote(id);
-  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
+  }, [notes, activeNote, storeCreateNote, updateNote, noteUpdate, openCreatedNote]);
 
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
@@ -1012,6 +1028,37 @@ export const NoteView = () => {
   );
 
   const activeNoteKind = activeNote ? getNoteKind(activeNote) : null;
+
+  const sourceNoteCandidates = useMemo(
+    () => filterNotesByKind(notes, 'source').filter(n => n.id !== activeNote?.id),
+    [notes, activeNote?.id],
+  );
+
+  const handlePromoteNoteKind = useCallback(() => {
+    if (!activeNote) return;
+    const updated = promoteNoteKind(activeNote);
+    noteUpdate(activeNote.id, { properties: updated.properties });
+  }, [activeNote, noteUpdate]);
+
+  const handleLinkReadingSource = useCallback((sourceNoteId: string) => {
+    if (!activeNote) return;
+    const source = notes.find(n => n.id === sourceNoteId);
+    if (!source) return;
+    const { reading, source: updatedSource } = linkReadingNoteToSource(activeNote, source);
+    noteUpdate(activeNote.id, { relations: reading.relations });
+    noteUpdate(source.id, { relations: updatedSource.relations });
+  }, [activeNote, notes, noteUpdate]);
+
+  const handleUnlinkReadingSource = useCallback(() => {
+    if (!activeNote) return;
+    const sourceId = getLinkedSourceNoteId(activeNote);
+    if (!sourceId) return;
+    const source = notes.find(n => n.id === sourceId);
+    if (!source) return;
+    const { reading, source: updatedSource } = unlinkReadingNoteFromSource(activeNote, source);
+    noteUpdate(activeNote.id, { relations: reading.relations });
+    noteUpdate(source.id, { relations: updatedSource.relations });
+  }, [activeNote, notes, noteUpdate]);
 
   useEffect(() => {
     setExpandedGraphNodes([]);
@@ -2242,7 +2289,11 @@ export const NoteView = () => {
             </div>
             {!isTrash && activeNoteKind && (
               <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
-                <LiteratureWorkflowIndicator colors={c} kind={activeNoteKind} />
+                <LiteratureWorkflowIndicator
+                  colors={c}
+                  kind={activeNoteKind}
+                  onPromote={handlePromoteNoteKind}
+                />
               </div>
             )}
 
@@ -2528,6 +2579,15 @@ export const NoteView = () => {
                 colors={c}
                 related={relatedNotes}
                 onNavigateToNote={setActiveNoteId}
+              />
+              <ReadingSourceLinkPanel
+                colors={c}
+                note={activeNote}
+                notes={notes}
+                sourceNoteCandidates={sourceNoteCandidates}
+                onNavigateToNote={setActiveNoteId}
+                onLinkSource={handleLinkReadingSource}
+                onUnlinkSource={handleUnlinkReadingSource}
               />
               <BibliographyPanel colors={c} citations={noteBibliography} />
             </div>

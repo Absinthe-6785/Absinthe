@@ -59,18 +59,55 @@ function Section({
   );
 }
 
+function PipelineOverview({ c, data }: { c: NoteChromeColors; data: ResearchDashboardData['sourcePipeline'] }) {
+  const total = data.source + data.literature + data.permanent + data.unclassified;
+  const rows = [
+    { label: '출처', count: data.source, color: c.accent },
+    { label: '문헌', count: data.literature, color: c.text },
+    { label: '영구', count: data.permanent, color: c.green },
+    { label: '미분류', count: data.unclassified, color: c.textFaint },
+  ];
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>
+        출처 파이프라인
+        {total > 0 && <span style={{ color: c.accent, marginLeft: 4 }}>({total})</span>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+        {rows.map(row => (
+          <div
+            key={row.label}
+            style={{
+              background: c.cardHov,
+              border: `1px solid ${c.sideBdr}`,
+              borderRadius: 6,
+              padding: '6px 4px',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 700, color: row.color }}>{row.count}</div>
+            <div style={{ fontSize: 9, color: c.textMuted }}>{row.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Informational research dashboard — no AI, no external APIs. */
 export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote }: ResearchDashboardPanelProps) {
   return (
     <div className="be-research-dashboard" aria-label="연구 대시보드">
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        인용 활동 {data.citationCount}건 · vault 기준
+        인용 {data.citationCount}건 · vault 기준
       </div>
+      <PipelineOverview c={c} data={data.sourcePipeline} />
+      <Section c={c} title="인용 활동" count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
+      <Section c={c} title="승격 활동" count={data.promotionActivity.length} items={data.promotionActivity} onNavigate={onNavigateToNote} />
       <Section c={c} title="최근 출처" items={data.recentSources} onNavigate={onNavigateToNote} />
       <Section c={c} title="읽기 노트" items={data.readingNotes} onNavigate={onNavigateToNote} />
       <Section c={c} title="문헌 노트" items={data.literatureNotes} onNavigate={onNavigateToNote} />
       <Section c={c} title="영구 노트" items={data.permanentNotes} onNavigate={onNavigateToNote} />
-      <Section c={c} title="인용 활동" count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
     </div>
   );
 }
