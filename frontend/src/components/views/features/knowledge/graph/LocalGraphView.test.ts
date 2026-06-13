@@ -58,7 +58,7 @@ function renderView(props: {
 }
 
 describe('LocalGraphView', () => {
-  it('navigates when a connected node is clicked', () => {
+  it('selects a connected node on single click without navigating', () => {
     const service = new KnowledgeIndexService();
     service.buildFromNotes([
       note('genki', 'Genki', ''),
@@ -82,6 +82,74 @@ describe('LocalGraphView', () => {
 
     act(() => {
       label?.parentElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Japanese Grammar');
+  });
+
+  it('navigates when a connected node is double-clicked', () => {
+    const service = new KnowledgeIndexService();
+    service.buildFromNotes([
+      note('genki', 'Genki', ''),
+      note('grammar', 'Japanese Grammar', '[[Genki]]'),
+    ]);
+
+    const onNavigate = vi.fn();
+    const container = renderView({
+      graphData: buildLocalGraphData({
+        noteId: 'genki',
+        noteTitle: 'Genki',
+        service,
+      }),
+      onNavigate,
+    });
+
+    const label = [...container.querySelectorAll('text')].find(
+      node => node.textContent === 'Japanese Gram…',
+    );
+    expect(label).toBeTruthy();
+
+    act(() => {
+      label?.parentElement?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
+
+    expect(onNavigate).toHaveBeenCalledWith('grammar');
+  });
+
+  it('navigates when the detail strip open button is clicked', () => {
+    const service = new KnowledgeIndexService();
+    service.buildFromNotes([
+      note('genki', 'Genki', ''),
+      note('grammar', 'Japanese Grammar', '[[Genki]]'),
+    ]);
+
+    const onNavigate = vi.fn();
+    const container = renderView({
+      graphData: buildLocalGraphData({
+        noteId: 'genki',
+        noteTitle: 'Genki',
+        service,
+      }),
+      onNavigate,
+    });
+
+    const label = [...container.querySelectorAll('text')].find(
+      node => node.textContent === 'Japanese Gram…',
+    );
+    expect(label).toBeTruthy();
+
+    act(() => {
+      label?.parentElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const openButton = [...container.querySelectorAll('button')].find(
+      btn => btn.textContent === '열기',
+    );
+    expect(openButton).toBeTruthy();
+
+    act(() => {
+      openButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
     expect(onNavigate).toHaveBeenCalledWith('grammar');
