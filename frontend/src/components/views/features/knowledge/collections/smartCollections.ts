@@ -47,6 +47,26 @@ export const SMART_COLLECTIONS: readonly SmartCollection[] = [
     name: 'Permanent Notes',
     description: 'Permanent knowledge notes (noteKind: permanent).',
   },
+  {
+    id: 'exam-study-notes',
+    name: 'Study Notes',
+    description: 'Structured study notes (#study tag).',
+  },
+  {
+    id: 'exam-weak-topics',
+    name: 'Weak Topics',
+    description: 'Notes flagged as needing extra review.',
+  },
+  {
+    id: 'exam-review-notes',
+    name: 'Review Notes',
+    description: 'Notes tagged for review or containing question blocks.',
+  },
+  {
+    id: 'exam-prep',
+    name: 'Exam Prep',
+    description: 'Notes tagged for exam preparation (#exam-prep).',
+  },
 ];
 
 export function findSmartCollection(id: string): SmartCollection | undefined {

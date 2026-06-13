@@ -83,6 +83,10 @@ function blockBodyHtml(block: Block): string {
       const cite = [block.citationAuthor, block.citationYear, block.citationTitle].filter(Boolean).join(', ');
       return `<aside class="bcitation">${escapeHtml(cite)}</aside>`;
     }
+    case 'question':
+      return `<p class="bquestion"><strong>Q:</strong> ${escapeHtml(block.content ?? '')}</p>`;
+    case 'answer':
+      return `<aside class="banswer" data-revealed="${block.answerRevealed ? '1' : '0'}">${escapeHtml(block.content ?? '')}</aside>`;
     default:
       if (block.content) return `<p>${inlineHtml(block.content)}</p>`;
       return '';

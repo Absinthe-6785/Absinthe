@@ -22,6 +22,8 @@ export const BLOCK_PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   mermaid:   'flowchart TD\\n  A --> B',
   audio:     '오디오 URL',
   citation:  'Title | Author | Year',
+  question:  'Q: What caused the Meiji Restoration?',
+  answer:    'Answer text',
 };
 
 export function blockPlaceholder(type: BlockType): string {

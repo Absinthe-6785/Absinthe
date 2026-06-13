@@ -1,6 +1,10 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { filterNotesByKind } from '../research/noteClassification';
+import { isStudyNote, REVIEW_NOTE_TAG, EXAM_PREP_TAG } from '../study/studyNoteTemplate';
+import { filterWeakTopicNotes } from '../study/weakTopicTracking';
+import { noteHasQuestionBlocks } from '../../../studyBlockUtils';
+import { hasTag } from '../tags/noteTags';
 import type { SmartCollectionId } from './smartCollectionModels';
 
 /**
@@ -38,6 +42,25 @@ export function evaluateSmartCollection(
         .map(n => n.id);
     case 'research-permanent':
       return filterNotesByKind(notes, 'permanent')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'exam-study-notes':
+      return notes
+        .filter(n => !n.deletedAt && isStudyNote(n))
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'exam-weak-topics':
+      return filterWeakTopicNotes(notes)
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'exam-review-notes':
+      return notes
+        .filter(n => !n.deletedAt && (hasTag(n, REVIEW_NOTE_TAG) || noteHasQuestionBlocks(n.body ?? '')))
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'exam-prep':
+      return notes
+        .filter(n => !n.deletedAt && hasTag(n, EXAM_PREP_TAG))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
         .map(n => n.id);
     default: {

@@ -10,6 +10,8 @@ import { MathBlock } from './MathBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { AudioBlock } from './AudioBlock';
 import { CitationBlock } from './CitationBlock';
+import { QuestionBlock } from './QuestionBlock';
+import { AnswerBlock } from './AnswerBlock';
 import { FootnoteBlock } from './FootnoteBlock';
 import { ImageBlock } from './ImageBlock';
 import { TableBlock } from './TableBlock';
@@ -301,6 +303,28 @@ registerBlockRenderer('citation', (block, c, ctx) => (
       citationYear: fields.year,
       citationPage: fields.page,
       citationUrl: fields.url,
+    })))}
+  />
+));
+
+registerBlockRenderer('question', (block, c, ctx) => (
+  <QuestionBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    onChange={text => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({ ...b, content: text })))}
+  />
+));
+
+registerBlockRenderer('answer', (block, c, ctx) => (
+  <AnswerBlock
+    block={block}
+    colors={c}
+    readOnly={ctx.readOnly}
+    onChange={(content, revealed) => ctx.onChange(updateBlockById(ctx.getBlocks(), block.id, b => ({
+      ...b,
+      content,
+      answerRevealed: revealed,
     })))}
   />
 ));
