@@ -23,6 +23,9 @@ const TIME_SLOTS = Array.from({ length: 48 }, (_, i) =>
   `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`
 );
 
+/** Mobile panel order: Timeline → Tasks (D-Day/Routines/Tasks) → Memo (K-32.1). */
+const MOBILE_PLANNER_TABS = ['timeline', 'todo', 'memo'] as const;
+
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
@@ -60,7 +63,7 @@ export const PlannerView = ({
   });
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
-  const [mobilePlannerTab, setMobilePlannerTab] = useState<'todo' | 'memo' | 'timeline'>('todo');
+  const [mobilePlannerTab, setMobilePlannerTab] = useState<(typeof MOBILE_PLANNER_TABS)[number]>('timeline');
 
   const [editingRoutineId, setEditingRoutineId] = useState<string | null>(null);
   const [showExceptionModal, setShowExceptionModal] = useState(false);
@@ -305,7 +308,7 @@ export const PlannerView = ({
 
       {/* Mobile task panels — CalendarShell above covers month/week/day/agenda */}
       <div className={`lg:hidden flex gap-1.5 shrink-0 p-1 rounded-2xl ${theme.card}`} data-planner-mobile-tabs>
-        {(['todo', 'memo', 'timeline'] as const).map(tab => (
+        {MOBILE_PLANNER_TABS.map(tab => (
           <button key={tab} onClick={() => setMobilePlannerTab(tab)}
             className={`flex-1 py-2.5 min-h-[44px] rounded-xl text-[11px] font-bold transition-colors
               ${mobilePlannerTab === tab ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}
@@ -318,8 +321,42 @@ export const PlannerView = ({
 
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
-      {/* ══ Col-1: 루틴 + 투두 ══ */}
-      <div className={`flex-1 lg:flex-[2] flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2 ${mobilePlannerTab === "todo" ? "flex" : "hidden lg:flex"}`}>
+      {/* ══ Col-1: D-Day + Routines + Tasks (K-32.1 hierarchy) ══ */}
+      <div
+        data-planner-column="planning"
+        className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2 lg:order-2 ${mobilePlannerTab === "todo" ? "flex" : "hidden lg:flex"}`}
+      >
+
+        {/* D-Day */}
+        <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
+              <Target size={18} className="text-red-500"/> {t('dday')}
+            </h2>
+            <button onClick={() => openDdayModal()} className="bg-primary text-primary-foreground px-2.5 py-1.5 rounded-xl text-xs font-bold">
+              <Plus size={14} className="inline mr-1"/>{t('add')}
+            </button>
+          </div>
+          <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
+            {ddays.length === 0
+              ? <EmptyState theme={theme} icon={Target} text={t('noDdays')} onClick={() => openDdayModal()} />
+              : ddays.map((d: DDay) => (
+                <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}>
+                  <p className="text-sm font-semibold truncate flex-1 mr-2">{d.text}</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openDdayModal(d)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Edit2 size={13}/></button>
+                      <button onClick={() => handleDeleteDday(d.id)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Trash2 size={13}/></button>
+                    </div>
+                    <span className="font-heading text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-xl shrink-0">
+                      {calculateDday(d.date)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
 
         {/* 루틴 */}
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
@@ -428,39 +465,11 @@ export const PlannerView = ({
         </div>
       </div>
 
-      {/* ══ Col-2: D-Day 위 + Memo 아래 ══ */}
-      <div className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 ${mobilePlannerTab === "memo" ? "flex" : "hidden lg:flex"}`}>
-
-        {/* D-Day */}
-        <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-              <Target size={18} className="text-red-500"/> {t('dday')}
-            </h2>
-            <button onClick={() => openDdayModal()} className="bg-primary text-primary-foreground px-2.5 py-1.5 rounded-xl text-xs font-bold">
-              <Plus size={14} className="inline mr-1"/>{t('add')}
-            </button>
-          </div>
-          <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
-            {ddays.length === 0
-              ? <EmptyState theme={theme} icon={Target} text={t('noDdays')} onClick={() => openDdayModal()} />
-              : ddays.map((d: DDay) => (
-                <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}>
-                  <p className="text-sm font-semibold truncate flex-1 mr-2">{d.text}</p>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openDdayModal(d)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Edit2 size={13}/></button>
-                      <button onClick={() => handleDeleteDday(d.id)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Trash2 size={13}/></button>
-                    </div>
-                    <span className="font-heading text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-xl shrink-0">
-                      {calculateDday(d.date)}
-                    </span>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        </div>
+      {/* ══ Col-2: Memo ══ */}
+      <div
+        data-planner-column="memo"
+        className={`flex-1 lg:flex-[2] flex-col gap-4 lg:gap-5 lg:order-3 ${mobilePlannerTab === "memo" ? "flex" : "hidden lg:flex"}`}
+      >
 
         {/* Memo — 폴더 + 휴지통 */}
         <div className={`flex-1 min-h-[400px] lg:min-h-0 rounded-[24px] lg:rounded-[32px] flex overflow-hidden transition-colors ${theme.card}`}>
@@ -640,8 +649,11 @@ export const PlannerView = ({
         </div>
       </div>
 
-      {/* ── 우측 컬럼: 캘린더 / 타임라인 ── */}
-      <div className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 lg:min-h-0 shrink-0 ${mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
+      {/* ══ Col-3: Timeline (first in desktop hierarchy) ══ */}
+      <div
+        data-planner-column="timeline"
+        className={`flex-1 lg:flex-[3.5] flex-col gap-4 lg:gap-5 lg:min-h-0 shrink-0 lg:order-1 ${mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}
+      >
         {/* Day timeline — complements CalendarShell day/week views */}
         <div className={`relative lg:flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex-col transition-colors min-h-[520px] lg:min-h-0 ${theme.card} ${mobilePlannerTab === "timeline" ? "flex" : "hidden lg:flex"}`}>
           <div className="flex justify-between items-center mb-5">

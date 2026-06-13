@@ -2,10 +2,11 @@ import type { PlannerCalendarViewMode } from '../calendar';
 
 export const DEFAULT_PLANNER_CALENDAR_MODE: PlannerCalendarViewMode = 'day';
 
+/** Day-first tab order — matches default planner entry (K-32.1). */
 export const PLANNER_CALENDAR_MODES: readonly PlannerCalendarViewMode[] = [
-  'month',
-  'week',
   'day',
+  'week',
+  'month',
   'agenda',
 ] as const;
 

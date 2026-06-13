@@ -130,9 +130,12 @@ describe('CalendarModeSwitcher', () => {
     );
 
     expect(html).toContain('data-planner-calendar-mode-switcher');
-    expect(html).toContain('data-planner-calendar-mode-option="month"');
-    expect(html).toContain('data-planner-calendar-mode-option="week"');
+    expect(html.indexOf('data-planner-calendar-mode-option="day"')).toBeLessThan(
+      html.indexOf('data-planner-calendar-mode-option="week"'),
+    );
     expect(html).toContain('data-planner-calendar-mode-option="day"');
+    expect(html).toContain('data-planner-calendar-mode-option="week"');
+    expect(html).toContain('data-planner-calendar-mode-option="month"');
     expect(html).toContain('data-planner-calendar-mode-option="agenda"');
   });
 });
