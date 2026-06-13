@@ -6,7 +6,8 @@ import type { BlockType } from '../../../../../blockUtils';
 describe('toolbarFormat', () => {
   it('EMPTY_FORMATS defaults', () => {
     expect(EMPTY_FORMATS.bold).toBe(false);
-    expect(EMPTY_FORMATS.heading).toBeNull();
+    expect(EMPTY_FORMATS.headingLevel).toBeNull();
+    expect(EMPTY_FORMATS.isToggleHeading).toBe(false);
   });
 
   it('deriveToolbarFormats returns empty when block mismatch', () => {
@@ -27,6 +28,21 @@ describe('toolbarFormat', () => {
     sel.addRange(range);
     const formats = deriveToolbarFormats(host, 'blk', 'blk', getType);
     expect(formats.bold).toBe(true);
+    sel.removeAllRanges();
+  });
+
+  it('deriveToolbarFormats detects toggle heading block', () => {
+    const host = document.createElement('div');
+    host.textContent = 'Section';
+    const getType = (id: string): BlockType | undefined => id === 'blk' ? 'toggleHeading2' : undefined;
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const formats = deriveToolbarFormats(host, 'blk', 'blk', getType);
+    expect(formats.headingLevel).toBe(2);
+    expect(formats.isToggleHeading).toBe(true);
     sel.removeAllRanges();
   });
 });

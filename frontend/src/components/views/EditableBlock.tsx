@@ -22,6 +22,7 @@ import {
   traceClipboardToBlocks,
 } from './pastePipelineTrace';
 import { detectWikiQuery, findWikiLinkAtOffset } from './features/block-editor/features/menus';
+import { headingConvertTarget } from './headingToolbar';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
 
 const getElText = readBlockText;
@@ -176,15 +177,17 @@ export function EditableBlock({
       const key = e.key.toLowerCase();
       if (key === 'b') { e.preventDefault(); applyInlineFormat('**', '**'); return; }
       if (key === 'i') { e.preventDefault(); applyInlineFormat('*', '*'); return; }
+      if (key === 's' && e.shiftKey) { e.preventDefault(); applyInlineFormat('~~', '~~'); return; }
+      if (key === 'm' && e.shiftKey) { e.preventDefault(); applyInlineFormat('==', '=='); return; }
       if (e.code === 'Backquote') { e.preventDefault(); applyInlineFormat('`', '`'); return; }
       if (key === 'k' && e.shiftKey) { e.preventDefault(); applyInlineFormat('[[', ']]'); return; }
       if (key === 'h' && e.shiftKey) { e.preventDefault(); applyInlineFormat('#', ''); return; }
       if (e.shiftKey && onConvertBlock) {
         if (key === '0') { e.preventDefault(); onConvertBlock(block.id, 'paragraph'); return; }
-        if (key === '1') { e.preventDefault(); onConvertBlock(block.id, 'heading1'); return; }
-        if (key === '2') { e.preventDefault(); onConvertBlock(block.id, 'heading2'); return; }
-        if (key === '3') { e.preventDefault(); onConvertBlock(block.id, 'heading3'); return; }
-        if (key === '4') { e.preventDefault(); onConvertBlock(block.id, 'heading4'); return; }
+        if (key === '1') { e.preventDefault(); onConvertBlock(block.id, headingConvertTarget(block.type, 1)); return; }
+        if (key === '2') { e.preventDefault(); onConvertBlock(block.id, headingConvertTarget(block.type, 2)); return; }
+        if (key === '3') { e.preventDefault(); onConvertBlock(block.id, headingConvertTarget(block.type, 3)); return; }
+        if (key === '4') { e.preventDefault(); onConvertBlock(block.id, headingConvertTarget(block.type, 4)); return; }
         if (key === '7') { e.preventDefault(); onConvertBlock(block.id, 'todo'); return; }
         if (key === '8') { e.preventDefault(); onConvertBlock(block.id, 'toggle'); return; }
         if (key === '9') { e.preventDefault(); onConvertBlock(block.id, 'callout'); return; }

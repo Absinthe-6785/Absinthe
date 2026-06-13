@@ -2346,8 +2346,13 @@ export const NoteView = () => {
           {/* Outline (TOC) with collapse */}
           {rightPanel === 'toc' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+              {visibleToc.length > 0 && (
+                <div style={{ fontSize: 10, color: c.textFaint, padding: '0 10px 6px', fontWeight: 600 }}>
+                  목차 ({visibleToc.length})
+                </div>
+              )}
               {visibleToc.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># ## ### #### 로 추가</span></p>
+                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># · #&gt; 토글 제목 · /toggle1</span></p>
                 : visibleToc.map(item => (
                   <div
                     key={item.idx}
@@ -2357,7 +2362,7 @@ export const NoteView = () => {
                     {item.hasChildren ? (
                       <button
                         type="button"
-                        aria-label={tocCollapsed[item.idx] ? 'Expand section' : 'Collapse section'}
+                        aria-label={tocCollapsed[item.idx] ? '섹션 펼치기' : '섹션 접기'}
                         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', flexShrink: 0 }}
                         onClick={e => { e.stopPropagation(); toggleTocCollapse(item.idx); }}>
                         {tocCollapsed[item.idx]
@@ -2367,7 +2372,9 @@ export const NoteView = () => {
                     ) : (
                       <span style={{ width: 9, display: 'inline-block', flexShrink: 0 }}/>
                     )}
-                    <span style={{ fontSize: 8, color: item.level === 1 ? c.accent : c.textFaint, marginRight: 2, fontWeight: 700 }}>H{item.level}</span>
+                    <span style={{ fontSize: 8, color: item.level === 1 ? c.accent : c.textFaint, marginRight: 2, fontWeight: 700 }}>
+                      H{item.level}{item.isToggleHeading ? '▼' : ''}
+                    </span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {item.text}
                     </span>

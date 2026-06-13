@@ -452,7 +452,13 @@ export function processLine(line: string, allNotes: NoteBase[]): string {
 }
 
 // ── 분석 유틸 ────────────────────────────────────────────────────────
-export interface TocItem { level: number; text: string; line: number; collapsed: boolean; }
+export interface TocItem {
+  level: number;
+  text: string;
+  line: number;
+  collapsed: boolean;
+  isToggleHeading?: boolean;
+}
 
 export function extractTOC(body: string): TocItem[] {
   if (!body) return [];
@@ -461,7 +467,13 @@ export function extractTOC(body: string): TocItem[] {
       const toggleM = line.match(/^(#{1,4})>!?\s?(.*)$/);
       if (toggleM) {
         const text = toggleM[2].trim() || '(제목 없음)';
-        return { level: toggleM[1].length, text, line: i, collapsed: line.includes('>!') };
+        return {
+          level: toggleM[1].length,
+          text,
+          line: i,
+          collapsed: line.includes('>!'),
+          isToggleHeading: true,
+        };
       }
       const m = line.match(/^(#{1,4}) (.+)$/);
       return m ? { level: m[1].length, text: m[2], line: i, collapsed: false } : null;

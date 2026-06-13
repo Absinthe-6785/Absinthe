@@ -19,7 +19,7 @@ describe('extractTOC', () => {
     const body = ['#> Toggle section', '##>! Collapsed'].join('\n');
     const toc = extractTOC(body);
     expect(toc).toHaveLength(2);
-    expect(toc[0]).toMatchObject({ level: 1, text: 'Toggle section' });
-    expect(toc[1]).toMatchObject({ level: 2, text: 'Collapsed', collapsed: true });
+    expect(toc[0]).toMatchObject({ level: 1, text: 'Toggle section', isToggleHeading: true });
+    expect(toc[1]).toMatchObject({ level: 2, text: 'Collapsed', collapsed: true, isToggleHeading: true });
   });
 });

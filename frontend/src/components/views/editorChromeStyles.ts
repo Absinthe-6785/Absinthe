@@ -262,6 +262,13 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-toggle-empty:hover { opacity: 0.85; background: var(--be-accent-bg, rgba(139,92,246,0.06)); }
   .be-toggle-wrap .be-block { margin-left: 0 !important; }
+  .be-toggle-heading-wrap > .be-toggle-header-block {
+    border-left: 3px solid var(--be-accent, #6366f1);
+    padding-left: 4px;
+  }
+  .be-toggle-heading-wrap.be-toggle-collapsed > .be-toggle-header-block {
+    opacity: 0.92;
+  }
   .be-drop-line { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
   .be-drop-dot { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
   @keyframes be-drop-pulse {

@@ -4,18 +4,31 @@
 import type { BlockType } from '../../../../../blockUtils';
 import { readBlockText, getSelectionOffsets, setSelectionOffsets } from '../../../../../editableDom';
 import { selectionHasFormat, toggleMarkdownWrap } from '../../../../../inlineFormat';
+import { toolbarHeadingLevel } from '../../../../../headingToolbar';
 
 export interface ToolbarFormatState {
   bold: boolean;
   italic: boolean;
   code: boolean;
+  strike: boolean;
+  highlight: boolean;
   wiki: boolean;
   tag: boolean;
-  heading: BlockType | null;
+  /** Active heading level (plain or toggle-heading). */
+  headingLevel: 1 | 2 | 3 | 4 | null;
+  isToggleHeading: boolean;
 }
 
 export const EMPTY_FORMATS: ToolbarFormatState = {
-  bold: false, italic: false, code: false, wiki: false, tag: false, heading: null,
+  bold: false,
+  italic: false,
+  code: false,
+  strike: false,
+  highlight: false,
+  wiki: false,
+  tag: false,
+  headingLevel: null,
+  isToggleHeading: false,
 };
 
 export function deriveToolbarFormats(
@@ -31,15 +44,17 @@ export function deriveToolbarFormats(
   const { start, end } = offsets;
   const selected = text.slice(start, end);
   const blockType = getBlockType(blockId);
+  const level = blockType ? toolbarHeadingLevel(blockType) : null;
   return {
     bold: selectionHasFormat(text, start, end, '**', '**'),
     italic: selectionHasFormat(text, start, end, '*', '*'),
     code: selectionHasFormat(text, start, end, '`', '`'),
+    strike: selectionHasFormat(text, start, end, '~~', '~~'),
+    highlight: selectionHasFormat(text, start, end, '==', '=='),
     wiki: selectionHasFormat(text, start, end, '[[', ']]'),
     tag: text[start] === '#' && end > start && !selected.includes(' '),
-    heading: blockType === 'heading1' || blockType === 'heading2' || blockType === 'heading3' || blockType === 'heading4'
-      ? blockType
-      : null,
+    headingLevel: level,
+    isToggleHeading: blockType?.startsWith('toggleHeading') ?? false,
   };
 }
 
