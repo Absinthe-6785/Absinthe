@@ -56,6 +56,11 @@ export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './compon
 export { BacklinkPanel, type BacklinkPanelProps } from './components/BacklinkPanel';
 export { ReferenceExplorerPanel, type ReferenceExplorerPanelProps } from './components/ReferenceExplorerPanel';
 export { KnowledgeReviewPanel, type KnowledgeReviewPanelProps } from './components/KnowledgeReviewPanel';
+export { KnowledgeMaintenancePanel, type KnowledgeMaintenancePanelProps, type KnowledgeMaintenanceData } from './components/KnowledgeMaintenancePanel';
+export { StaleNotesPanel, type StaleNotesPanelProps } from './components/StaleNotesPanel';
+export { OrphanNotesPanel, type OrphanNotesPanelProps } from './components/OrphanNotesPanel';
+export { KnowledgeHealthPanel, type KnowledgeHealthPanelProps } from './components/KnowledgeHealthPanel';
+export { ReviewQueuePanel, type ReviewQueuePanelProps } from './components/ReviewQueuePanel';
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
@@ -69,6 +74,7 @@ export {
   type WorkspaceDashboardQuickCaptureProps,
   type WorkspaceDashboardProductivityProps,
   type WorkspaceDashboardReviewProps,
+  type WorkspaceDashboardMaintenanceProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -131,6 +137,44 @@ export {
   type KnowledgeReviewLists,
   type ReviewNoteEntry,
 } from './review/buildKnowledgeReview';
+
+export {
+  buildKnowledgeMaintenanceData,
+  type BuildKnowledgeMaintenanceOptions,
+} from './review/buildKnowledgeMaintenance';
+
+export {
+  buildStaleNotesBuckets,
+  countStaleNotes,
+  daysSince,
+  isStaleNote,
+  noteLastOpenedAt,
+  staleTierForNote,
+  STALE_DAY_THRESHOLDS,
+  type BuildStaleNotesOptions,
+  type StaleDayTier,
+  type StaleNotesBuckets,
+} from './review/staleNotes';
+
+export {
+  buildOrphanNotes,
+  countOrphanNotes,
+  isOrphanNote,
+  type BuildOrphanNotesOptions,
+} from './review/orphanNotes';
+
+export {
+  buildKnowledgeHealthMetrics,
+  type KnowledgeHealthMetrics,
+} from './review/knowledgeHealth';
+
+export {
+  buildReviewQueue,
+  reviewQueueReasonLabel,
+  type BuildReviewQueueOptions,
+  type ReviewQueueEntry,
+  type ReviewQueueReason,
+} from './review/reviewQueue';
 
 export {
   extractFootnoteDefinitions,
