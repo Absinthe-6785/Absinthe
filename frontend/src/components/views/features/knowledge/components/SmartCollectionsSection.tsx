@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollection, SmartCollectionId } from '../collections/smartCollectionModels';
@@ -99,6 +100,7 @@ function GroupSection({
   onTogglePin?: (collection: SmartCollection) => void;
   isMobile?: boolean;
 }) {
+  const { t } = useTranslation();
   const hasSecondaryActive = secondaryCollections.some(col => col.id === activeCollectionId);
   const [showSecondary, setShowSecondary] = useState(hasSecondaryActive);
 
@@ -153,7 +155,7 @@ function GroupSection({
             }}
           >
             {showSecondary ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
-            더 보기 ({secondaryCollections.length})
+            {t('knShowMoreCount').replace('{count}', String(secondaryCollections.length))}
           </button>
           {showSecondary && secondaryCollections.map(collection => (
             <CollectionRow
@@ -187,20 +189,21 @@ export function SmartCollectionsSection({
   isPinned,
   onTogglePin,
 }: SmartCollectionsSectionProps) {
+  const { t } = useTranslation();
   const { isMobile } = useViewportLayout();
   const byId = new Map(collections.map(col => [col.id, col]));
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>스마트 컬렉션</span>
+        <span>{t('knSmartCollections')}</span>
         {activeCollectionId && (
           <button
             type="button"
             onClick={onClearActive}
             className="btbtn"
             style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-            title="컬렉션 선택 해제"
+            title={t('knClearCollectionActive')}
           >
             <X size={10} />
           </button>

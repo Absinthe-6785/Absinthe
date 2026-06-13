@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, type ReactNode, type CSSProperties } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import {
@@ -31,6 +32,7 @@ export interface TableBlockProps {
 }
 
 export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }: TableBlockProps) {
+  const { t } = useTranslation();
   const headers = block.tableHeaders ?? [];
   const rows = block.tableRows ?? [];
   const colCount = headers.length;
@@ -144,7 +146,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
 
-  if (!colCount) return <div style={{ color: c.textFaint, fontSize: 13 }}>빈 테이블</div>;
+  if (!colCount) return <div style={{ color: c.textFaint, fontSize: 13 }}>{t('blockEmptyTable')}</div>;
 
   if (readOnly) {
     return (
@@ -240,8 +242,8 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
                     border: `1px solid ${c.border}`, borderRadius: 5, padding: '2px 3px',
                     boxShadow: '0 2px 8px #00000018',
                   }}>
-                    {iconBtn(() => addCol(ci), '오른쪽에 열 추가', <Plus size={10}/>)}
-                    {iconBtn(() => deleteCol(ci), '열 삭제', <Trash2 size={10}/>, true)}
+                    {iconBtn(() => addCol(ci), t('blockAddColumnRight'), <Plus size={10}/>)}
+                    {iconBtn(() => deleteCol(ci), t('blockDeleteColumn'), <Trash2 size={10}/>, true)}
                   </div>
                 )}
                 <span
@@ -268,7 +270,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
             <th style={{ border: 'none', padding: '4px 6px', background: 'transparent', width: 28 }}>
               <button
                 onMouseDown={e => { e.preventDefault(); addCol(headers.length - 1); }}
-                title="열 추가"
+                title={t('blockAddColumn')}
                 style={{
                   background: 'none', border: `1px dashed ${c.border}`,
                   borderRadius: 4, padding: '3px 5px', cursor: 'pointer',
@@ -290,7 +292,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
                 {hoveredRow === r && (
                   <button
                     onMouseDown={e => { e.preventDefault(); deleteRow(r); }}
-                    title="행 삭제"
+                    title={t('blockDeleteRow')}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
                       color: c.danger, padding: '2px', opacity: 0.7, lineHeight: 1,
@@ -337,7 +339,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
             <td colSpan={colCount + 2} style={{ border: 'none', padding: '4px 0 2px' }}>
               <button
                 onMouseDown={e => { e.preventDefault(); addRow(); }}
-                title="행 추가"
+                title={t('blockAddRow')}
                 style={{
                   background: 'none', border: `1px dashed ${c.border}`,
                   borderRadius: 5, padding: '3px 12px', cursor: 'pointer',
@@ -345,7 +347,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
                   alignItems: 'center', gap: 4,
                 }}
               >
-                <Plus size={11}/> 행 추가
+                <Plus size={11}/> {t('blockAddRow')}
               </button>
             </td>
           </tr>

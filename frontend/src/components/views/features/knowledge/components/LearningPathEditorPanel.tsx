@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
@@ -43,6 +44,7 @@ export function LearningPathEditorPanel({
   onCreateNote,
   onNavigateToNote,
 }: LearningPathEditorPanelProps) {
+  const { t } = useTranslation();
   const path = useMemo(
     () => (pathId ? buildLearningPathEditorModel(notes, pathId) : null),
     [notes, pathId],
@@ -151,12 +153,12 @@ export function LearningPathEditorPanel({
 
   if (!pathId) {
     return (
-      <div className="be-learning-path-editor" aria-label="학습 경로 편집" style={{ padding: '8px 0' }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 8 }}>새 학습 경로</div>
+      <div className="be-learning-path-editor" aria-label={t('learningPathEditorAria')} style={{ padding: '8px 0' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 8 }}>{t('learningPathNew')}</div>
         <input
           value={newPathLabel}
           onChange={e => setNewPathLabel(e.target.value)}
-          placeholder="경로 이름"
+          placeholder={t('learningPathNamePlaceholder')}
           style={{
             width: '100%',
             padding: '6px 8px',
@@ -187,22 +189,22 @@ export function LearningPathEditorPanel({
           }}
         >
           <Plus size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-          경로 만들기
+          {t('learningPathCreate')}
         </button>
       </div>
     );
   }
 
   return (
-    <div className="be-learning-path-editor" aria-label="학습 경로 편집" style={{ padding: '8px 0' }}>
+    <div className="be-learning-path-editor" aria-label={t('learningPathEditorAria')} style={{ padding: '8px 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted }}>경로 편집</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted }}>{t('learningPathEdit')}</div>
         <button
           type="button"
           onClick={() => onPathIdChange(null)}
           style={{ fontSize: 9, color: c.textFaint, background: 'none', border: 'none', cursor: 'pointer' }}
         >
-          닫기
+          {t('close')}
         </button>
       </div>
 
@@ -225,7 +227,7 @@ export function LearningPathEditorPanel({
       />
 
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        {path?.steps.length ?? 0}단계 · ID: {pathId}
+        {t('learningPathStepCount').replace('{count}', String(path?.steps.length ?? 0))} · ID: {pathId}
       </div>
 
       {path?.steps.map((step, index) => (
@@ -263,15 +265,15 @@ export function LearningPathEditorPanel({
           >
             {step.noteTitle}
           </button>
-          <button type="button" onClick={() => handleMove(step.noteId, 'up')} disabled={index === 0} title="위로"
+          <button type="button" onClick={() => handleMove(step.noteId, 'up')} disabled={index === 0} title={t('knMoveUp')}
             style={{ background: 'none', border: 'none', cursor: index === 0 ? 'default' : 'pointer', opacity: index === 0 ? 0.3 : 1, color: c.textMuted, minWidth: 44, minHeight: 44 }}>
             <ChevronUp size={12} />
           </button>
-          <button type="button" onClick={() => handleMove(step.noteId, 'down')} disabled={index === (path.steps.length - 1)} title="아래로"
+          <button type="button" onClick={() => handleMove(step.noteId, 'down')} disabled={index === (path.steps.length - 1)} title={t('knMoveDown')}
             style={{ background: 'none', border: 'none', cursor: index === (path.steps.length - 1) ? 'default' : 'pointer', opacity: index === (path.steps.length - 1) ? 0.3 : 1, color: c.textMuted, minWidth: 44, minHeight: 44 }}>
             <ChevronDown size={12} />
           </button>
-          <button type="button" onClick={() => handleRemoveNote(step.noteId)} title="제거"
+          <button type="button" onClick={() => handleRemoveNote(step.noteId)} title={t('knRemove')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.danger, minWidth: 44, minHeight: 44 }}>
             <Trash2 size={11} />
           </button>
@@ -279,7 +281,7 @@ export function LearningPathEditorPanel({
       ))}
 
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${c.sideBdr}` }}>
-        <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>노트 추가</div>
+        <div style={{ fontSize: 9, color: c.textMuted, marginBottom: 4 }}>{t('knAddNote')}</div>
         <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
           <select
             value={selectedNoteId}
@@ -294,26 +296,26 @@ export function LearningPathEditorPanel({
               color: c.text,
             }}
           >
-            <option value="">노트 선택…</option>
+            <option value="">{t('knSelectNote')}</option>
             {availableNotes.map(n => (
               <option key={n.id} value={n.id}>{noteOptionLabel(n)}</option>
             ))}
           </select>
           <button type="button" onClick={handleAddNote} disabled={!selectedNoteId}
             style={{ padding: '5px 8px', fontSize: 10, borderRadius: 6, border: `1px solid ${c.sideBdr}`, background: c.cardHov, color: c.accent, cursor: selectedNoteId ? 'pointer' : 'default' }}>
-            추가
+            {t('add')}
           </button>
         </div>
         {activeNoteId && (
           <button type="button" onClick={handleAddActiveNote}
             style={{ width: '100%', marginBottom: 4, padding: '5px 8px', fontSize: 10, borderRadius: 6, border: `1px solid ${c.sideBdr}`, background: c.cardHov, color: c.text, cursor: 'pointer' }}>
-            현재 노트 추가
+            {t('knAddCurrentNote')}
           </button>
         )}
         {onCreateNote && (
           <button type="button" onClick={handleCreateAndAddNote}
             style={{ width: '100%', padding: '5px 8px', fontSize: 10, borderRadius: 6, border: `1px solid ${c.sideBdr}`, background: c.cardHov, color: c.text, cursor: 'pointer' }}>
-            새 노트 만들어 추가
+            {t('knCreateNoteAndAdd')}
           </button>
         )}
       </div>

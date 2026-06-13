@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
@@ -29,13 +30,6 @@ export interface UnifiedWorkspaceDashboardProps {
   compact?: boolean;
 }
 
-const SECTION_LABELS: Record<UnifiedDashboardSection, string> = {
-  overview: '개요',
-  learning: '학습',
-  research: '연구',
-  projects: '프로젝트',
-};
-
 function TabBar({
   c,
   active,
@@ -47,8 +41,15 @@ function TabBar({
   onChange: (section: UnifiedDashboardSection) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const touch = touchMinSize(!!compact);
   const sections: UnifiedDashboardSection[] = ['overview', 'learning', 'research', 'projects'];
+  const sectionLabels: Record<UnifiedDashboardSection, string> = {
+    overview: t('wsTabOverview'),
+    learning: t('wsTabLearning'),
+    research: t('wsTabResearch'),
+    projects: t('wsTabProjects'),
+  };
   return (
     <div style={{ display: 'flex', gap: compact ? 6 : 4, flexWrap: 'wrap', marginBottom: compact ? 12 : 10 }}>
       {sections.map(section => {
@@ -71,10 +72,23 @@ function TabBar({
               flex: compact ? '1 1 45%' : undefined,
             }}
           >
-            {SECTION_LABELS[section]}
+            {sectionLabels[section]}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function DashboardSectionTitle({ c, children, first }: { c: NoteChromeColors; children: string; first?: boolean }) {
+  return (
+    <div style={{
+      fontSize: 10,
+      fontWeight: 700,
+      color: c.textMuted,
+      margin: first ? '0 0 6px' : '12px 0 6px',
+    }}>
+      {children}
     </div>
   );
 }
@@ -92,17 +106,18 @@ export function UnifiedWorkspaceDashboard({
   learningPathEditor,
   compact,
 }: UnifiedWorkspaceDashboardProps) {
+  const { t } = useTranslation();
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
 
   return (
-    <div className="be-unified-workspace-dashboard" aria-label="통합 작업공간 대시보드" style={{ overflowX: 'hidden' }}>
+    <div className="be-unified-workspace-dashboard" aria-label={t('wsUnifiedDashboardAria')} style={{ overflowX: 'hidden' }}>
       <TabBar c={c} active={section} onChange={setSection} compact={compact} />
 
       {section === 'overview' && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>최근 활동 · 인사이트</div>
+          <DashboardSectionTitle c={c} first>{t('wsRecentActivityInsights')}</DashboardSectionTitle>
           <AcademicInsightsPanel colors={c} data={data.insights} onNavigateToNote={onNavigateToNote} />
-          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>지식 검토</div>
+          <DashboardSectionTitle c={c}>{t('wsKnowledgeReview')}</DashboardSectionTitle>
           <KnowledgeReviewPanel
             colors={c}
             lists={data.review}
@@ -111,7 +126,7 @@ export function UnifiedWorkspaceDashboard({
           />
           {learningPathOverview && (
             <>
-              <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>학습 경로</div>
+              <DashboardSectionTitle c={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
               <LearningPathOverviewPanel colors={c} {...learningPathOverview} onNavigateToNote={onNavigateToNote} />
             </>
           )}
@@ -126,7 +141,7 @@ export function UnifiedWorkspaceDashboard({
             onNavigateToNote={onNavigateToNote}
             onOpenStudyCollection={onOpenStudyCollection}
           />
-          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>주제</div>
+          <DashboardSectionTitle c={c}>{t('searchGroupSubjects')}</DashboardSectionTitle>
           <SubjectMapsDashboardPanel
             colors={c}
             subjects={data.subjects}
@@ -135,13 +150,13 @@ export function UnifiedWorkspaceDashboard({
           />
           {data.clusters.clusterCount > 0 && (
             <>
-              <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>지식 클러스터</div>
+              <DashboardSectionTitle c={c}>{t('wsKnowledgeClusters')}</DashboardSectionTitle>
               <KnowledgeClusterPanel colors={c} data={data.clusters} onNavigateToNote={onNavigateToNote} />
             </>
           )}
           {learningPathOverview && (
             <>
-              <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>학습 경로</div>
+              <DashboardSectionTitle c={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
               <LearningPathOverviewPanel colors={c} {...learningPathOverview} />
               {learningPathEditor && (
                 <LearningPathEditorPanel

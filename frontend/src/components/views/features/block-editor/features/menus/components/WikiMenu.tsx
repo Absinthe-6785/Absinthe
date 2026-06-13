@@ -2,6 +2,7 @@
  * WikiMenu.tsx — Wiki link autocomplete popup (Korean labels)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { useTranslation } from '../../../../../../../lib/i18n';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { filterWikiTargets } from '../utils/wikiSearch';
 
@@ -16,6 +17,7 @@ export interface WikiMenuProps {
 }
 
 export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect, onClose }: WikiMenuProps) {
+  const { t } = useTranslation();
   const [cursor, setCursor] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -50,11 +52,11 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
       width: 230, maxHeight: 300, overflowY: 'auto', padding: '6px 0',
     }}>
       <div style={{ padding: '3px 12px 6px', fontSize: 10, color: c.textFaint, borderBottom: `1px solid ${c.border}`, marginBottom: 4, fontWeight: 700, letterSpacing: 1 }}>
-        노트 링크
+        {t('wikiMenuTitle')}
       </div>
       {items.length === 0 && (
         <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>
-          {query ? '일치하는 노트 없음' : '노트 없음'}
+          {query ? t('wikiMenuNoMatch') : t('wikiMenuEmpty')}
         </div>
       )}
       {items.map((title, idx) => {

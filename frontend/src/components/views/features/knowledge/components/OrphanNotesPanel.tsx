@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { ReviewNoteEntry } from '../review/buildKnowledgeReview';
 
@@ -14,16 +15,17 @@ export function OrphanNotesPanel({
   onNavigateToNote,
   compact,
 }: OrphanNotesPanelProps) {
+  const { t } = useTranslation();
   return (
-    <section className="be-orphan-notes" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label="고립 노트">
+    <section className="be-orphan-notes" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label={t('knOrphanNotesAria')}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>
-        고립 노트 {orphans.length > 0 && <span style={{ color: c.accent }}>({orphans.length})</span>}
+        {t('knOrphanNotesTitle')} {orphans.length > 0 && <span style={{ color: c.accent }}>({orphans.length})</span>}
       </div>
       <p style={{ fontSize: 9, color: c.textFaint, margin: '0 0 6px' }}>
-        백링크·나가는 링크·태그가 모두 없는 노트
+        {t('knOrphanNotesHint')}
       </p>
       {orphans.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>고립 노트 없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNoOrphanNotes')}</div>
       ) : (
         orphans.map(item => (
           <button

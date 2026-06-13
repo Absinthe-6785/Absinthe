@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { WeakTopicInsightsData } from '../analytics/buildWeakTopicInsights';
 
@@ -9,14 +10,15 @@ export interface WeakTopicInsightsPanelProps {
 
 /** Weak-topic insights by subject — no recommendations. */
 export function WeakTopicInsightsPanel({ colors: c, data, onNavigateToNote }: WeakTopicInsightsPanelProps) {
+  const { t } = useTranslation();
   return (
-    <div className="be-weak-topic-insights" aria-label="약점 주제 분석">
+    <div className="be-weak-topic-insights" aria-label={t('knWeakTopicInsightsAria')}>
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 6 }}>
-        미해결 약점 {data.unresolvedCount}개
+        {t('knUnresolvedWeakCount').replace('{count}', String(data.unresolvedCount))}
       </div>
       {data.bySubject.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>주제별</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>{t('knBySubject')}</div>
           {data.bySubject.map(s => (
             <div key={s.subjectId} style={{ fontSize: 10, color: c.text, marginBottom: 2 }}>
               {s.subjectName} <span style={{ color: c.accent }}>({s.count})</span>
@@ -24,9 +26,9 @@ export function WeakTopicInsightsPanel({ colors: c, data, onNavigateToNote }: We
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>주요 약점</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>{t('knTopWeakTopics')}</div>
       {data.frequentAreas.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         data.frequentAreas.map(item => (
           <button

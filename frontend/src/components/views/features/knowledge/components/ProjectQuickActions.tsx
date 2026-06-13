@@ -1,4 +1,5 @@
 import { FolderKanban, Flag, Orbit, Pencil } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
 export interface ProjectQuickActionsProps {
@@ -60,18 +61,19 @@ export function ProjectQuickActions({
   onEditProject,
   compact,
 }: ProjectQuickActionsProps) {
+  const { t } = useTranslation();
   return (
     <div
       className="be-project-quick-actions"
-      aria-label="프로젝트 빠른 작업"
+      aria-label={t('knProjectQuickActionsAria')}
       style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, flexDirection: compact ? 'column' : 'row' }}
     >
-      <ActionButton c={c} icon={Orbit} label="프로젝트 만들기" onClick={onCreateProject} compact={compact} />
-      <ActionButton c={c} icon={Flag} label="마일스톤 만들기" onClick={onCreateMilestone} compact={compact} />
+      <ActionButton c={c} icon={Orbit} label={t('createProjectTitle')} onClick={onCreateProject} compact={compact} />
+      <ActionButton c={c} icon={Flag} label={t('createMilestoneTitle')} onClick={onCreateMilestone} compact={compact} />
       {onEditProject && (
-        <ActionButton c={c} icon={Pencil} label="프로젝트 편집" onClick={onEditProject} compact={compact} />
+        <ActionButton c={c} icon={Pencil} label={t('knEditProject')} onClick={onEditProject} compact={compact} />
       )}
-      <ActionButton c={c} icon={FolderKanban} label="프로젝트 노트 열기" onClick={onOpenProjectNotes} compact={compact} />
+      <ActionButton c={c} icon={FolderKanban} label={t('knOpenProjectNotes')} onClick={onOpenProjectNotes} compact={compact} />
     </div>
   );
 }

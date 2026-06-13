@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Image as ImageIcon } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import { isValidImageUrl, imageAltFromUrl } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
@@ -14,6 +15,7 @@ export interface ImageBlockProps {
 }
 
 export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
+  const { t } = useTranslation();
   const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
@@ -187,7 +189,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
           onChange={e => setCaptionDraft(e.target.value)}
           onBlur={saveCaption}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveCaption(); (e.target as HTMLInputElement).blur(); } }}
-          placeholder="캡션 (선택)"
+          placeholder={t('blockCaptionOptional')}
           style={{ display:'block', margin:'10px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
         {hiddenFile}
       </div>
@@ -218,7 +220,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
         <div
           role="separator"
-          aria-label="이미지 크기 조절"
+          aria-label={t('blockImageResize')}
           onPointerDown={startResize}
           onPointerMove={onResizeMove}
           onPointerUp={endResize}
@@ -259,7 +261,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         onChange={e => setCaptionDraft(e.target.value)}
         onBlur={saveCaption}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveCaption(); (e.target as HTMLInputElement).blur(); } }}
-        placeholder="캡션 (선택) — Enter 또는 포커스 해제 시 저장"
+        placeholder={t('blockCaptionSaveHint')}
         style={{ display:'block', margin:'10px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
       {hiddenFile}
     </figure>

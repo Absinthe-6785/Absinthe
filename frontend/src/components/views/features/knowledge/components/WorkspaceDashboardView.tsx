@@ -746,7 +746,7 @@ export function WorkspaceDashboardView({
             {t('wsOpenSearch')}
           </button>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenGraph}>
-            {t('wsOpenGraph')}
+            {t('wsOpenCosmos')}
           </button>
         </div>
         {productivity && showTaskPicker && (

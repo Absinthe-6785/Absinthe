@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { AcademicDashboardData } from '../academic/buildAcademicDashboard';
 import type { ResearchNoteEntry } from '../research/buildResearchDashboard';
@@ -22,6 +23,7 @@ function ListSection({
   onNavigate: (id: string) => void;
   renderMeta?: (item: { meta?: string }) => string;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>
@@ -31,7 +33,7 @@ function ListSection({
         )}
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         items.map(item => (
           <button
@@ -67,10 +69,11 @@ function ListSection({
 
 /** Unified academic activity dashboard — composes existing surfaces. */
 export function AcademicDashboardPanel({ colors: c, data, onNavigateToNote }: AcademicDashboardPanelProps) {
+  const { t } = useTranslation();
   const projectItems = data.activeProjects.map(p => ({
     noteId: p.noteId,
     noteTitle: p.title,
-    meta: `${p.progressLabel} · ${p.linkedNoteCount} 노트`,
+    meta: t('knProjectNotesMeta').replace('{progress}', p.progressLabel).replace('{count}', String(p.linkedNoteCount)),
   }));
 
   const milestoneItems = data.upcomingMilestones.map(m => ({
@@ -83,23 +86,23 @@ export function AcademicDashboardPanel({ colors: c, data, onNavigateToNote }: Ac
   const weakItems: StudyNoteEntry[] = data.weakTopics;
 
   return (
-    <div className="be-academic-dashboard" aria-label="학술 대시보드">
+    <div className="be-academic-dashboard" aria-label={t('wsAcademicDashboard')}>
       <ListSection
         c={c}
-        title="진행 중 프로젝트"
+        title={t('knActiveProjects')}
         items={projectItems}
         onNavigate={onNavigateToNote}
       />
       <ListSection
         c={c}
-        title="다가오는 마일스톤"
+        title={t('knUpcomingMilestones')}
         items={milestoneItems}
         onNavigate={onNavigateToNote}
         renderMeta={item => item.meta ?? ''}
       />
-      <ListSection c={c} title="학습 노트" items={studyItems} onNavigate={onNavigateToNote} />
-      <ListSection c={c} title="연구 노트" items={researchItems} onNavigate={onNavigateToNote} />
-      <ListSection c={c} title="약점 주제" items={weakItems} onNavigate={onNavigateToNote} />
+      <ListSection c={c} title={t('knStudyNotes')} items={studyItems} onNavigate={onNavigateToNote} />
+      <ListSection c={c} title={t('knResearchNotes')} items={researchItems} onNavigate={onNavigateToNote} />
+      <ListSection c={c} title={t('studyWeakTopics')} items={weakItems} onNavigate={onNavigateToNote} />
     </div>
   );
 }

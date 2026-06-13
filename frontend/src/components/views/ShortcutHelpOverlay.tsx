@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from '../../lib/i18n';
 import type { BlockEditorColors } from './editorTypes';
 import { EDITOR_SHORTCUT_SECTIONS } from './editorShortcuts';
 
@@ -9,6 +10,7 @@ export interface ShortcutHelpOverlayProps {
 }
 
 export function ShortcutHelpOverlay({ open, colors: c, onClose }: ShortcutHelpOverlayProps) {
+  const { t } = useTranslation();
   if (!open) return null;
 
   return (
@@ -22,7 +24,7 @@ export function ShortcutHelpOverlay({ open, colors: c, onClose }: ShortcutHelpOv
     >
       <div
         role="dialog"
-        aria-label="키보드 단축키"
+        aria-label={t('shortcutsOverlayAria')}
         onMouseDown={e => e.stopPropagation()}
         style={{
           width: 'min(520px, 100%)', maxHeight: '80vh', overflowY: 'auto',

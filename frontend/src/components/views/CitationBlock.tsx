@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BookOpen } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import {
@@ -39,6 +40,7 @@ function CitationDisplay({ fields, c }: { fields: CitationFields; c: BlockEditor
 }
 
 export function CitationBlock({ block, colors: c, readOnly, onChange }: CitationBlockProps) {
+  const { t } = useTranslation();
   const fields = blockToCitationFields(block);
   const [editing, setEditing] = useState(!readOnly && !fields.title.trim());
   const [draft, setDraft] = useState<CitationFields>(fields);
@@ -112,7 +114,7 @@ export function CitationBlock({ block, colors: c, readOnly, onChange }: Citation
   return (
     <div
       onClick={e => { e.stopPropagation(); setEditing(true); setDraft(fields); }}
-      title="클릭해서 인용 편집"
+      title={t('blockClickEditCitation')}
       style={{
         padding: '8px 12px',
         borderLeft: `3px solid ${c.accent}`,

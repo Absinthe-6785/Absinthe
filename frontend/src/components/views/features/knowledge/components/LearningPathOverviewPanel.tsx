@@ -37,7 +37,7 @@ function PathCard({
         <div style={{ fontSize: 11, fontWeight: 700, color: c.text, flex: 1 }}>{entry.label}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 9, color: c.textMuted }}>
-            {entry.stepCount}단계
+            {t('learningPathStepCount').replace('{count}', String(entry.stepCount))}
           </span>
           {onOpenPathEditor && (
             <button
@@ -57,18 +57,20 @@ function PathCard({
                 cursor: 'pointer',
               }}
             >
-              <Pencil size={9} /> 편집
+              <Pencil size={9} /> {t('edit')}
             </button>
           )}
         </div>
       </div>
       {entry.currentStep && (
         <div style={{ fontSize: 9, color: c.accent, marginBottom: 4 }}>
-          현재: {entry.currentStep.noteTitle} (단계 {entry.currentStep.step})
+          {t('learningPathCurrentStep')
+            .replace('{title}', entry.currentStep.noteTitle)
+            .replace('{step}', String(entry.currentStep.step))}
         </div>
       )}
       {entry.steps.length === 0 ? (
-        <div style={{ fontSize: 9, color: c.textFaint }}>단계 없음</div>
+        <div style={{ fontSize: 9, color: c.textFaint }}>{t('learningPathNoSteps')}</div>
       ) : (
         entry.steps.map(step => (
           <button
@@ -107,10 +109,10 @@ export function LearningPathOverviewPanel({
 }: LearningPathOverviewPanelProps) {
   const { t } = useTranslation();
   return (
-    <div className="be-learning-path-overview" aria-label="학습 경로 개요">
+    <div className="be-learning-path-overview" aria-label={t('learningPathOverviewAria')}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: 9, color: c.textFaint }}>
-          경로 {data.totalPathCount}개 · 전체 노트 기준
+          {t('learningPathSummary').replace('{count}', String(data.totalPathCount))}
         </div>
         {onCreatePath && (
           <button

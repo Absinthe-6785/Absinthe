@@ -598,7 +598,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="노드 검색…"
+              placeholder={t('graphSearchNodes')}
               style={{
                 height: 28, paddingLeft: 24, paddingRight: 8,
                 fontSize: 11, borderRadius: 6,

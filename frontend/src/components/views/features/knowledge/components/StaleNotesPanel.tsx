@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { ReviewNoteEntry } from '../review/buildKnowledgeReview';
 import type { StaleNotesBuckets } from '../review/staleNotes';
@@ -20,13 +21,14 @@ function TierSection({
   items: readonly ReviewNoteEntry[];
   onNavigate: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 4 }}>
         {title} ({items.length})
       </div>
       {items.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{t('knNone')}</div>
       ) : (
         items.map(item => (
           <button
@@ -57,16 +59,17 @@ function TierSection({
 }
 
 export function StaleNotesPanel({ colors: c, buckets, onNavigateToNote, compact }: StaleNotesPanelProps) {
+  const { t } = useTranslation();
   return (
-    <section className="be-stale-notes" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label="오래된 노트">
+    <section className="be-stale-notes" style={{ padding: compact ? '0' : '0 0 8px' }} aria-label={t('knStaleNotesAria')}>
       {!compact && (
         <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 8 }}>
-          오래된 노트
+          {t('knStaleNotesTitle')}
         </div>
       )}
-      <TierSection c={c} title="90일+" items={buckets.days90} onNavigate={onNavigateToNote} />
-      <TierSection c={c} title="60일+" items={buckets.days60} onNavigate={onNavigateToNote} />
-      <TierSection c={c} title="30일+" items={buckets.days30} onNavigate={onNavigateToNote} />
+      <TierSection c={c} title={t('knStaleDays90')} items={buckets.days90} onNavigate={onNavigateToNote} />
+      <TierSection c={c} title={t('knStaleDays60')} items={buckets.days60} onNavigate={onNavigateToNote} />
+      <TierSection c={c} title={t('knStaleDays30')} items={buckets.days30} onNavigate={onNavigateToNote} />
     </section>
   );
 }
