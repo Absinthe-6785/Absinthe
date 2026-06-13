@@ -158,3 +158,8 @@ export {
   JOURNAL_DATABASE_TEMPLATE_ID,
   TASK_DATABASE_TEMPLATE_ID,
 } from './productivityDatabaseBridge';
+export {
+  buildUnifiedWorkspaceDashboard,
+  type UnifiedWorkspaceDashboardData,
+  type BuildUnifiedWorkspaceDashboardOptions,
+} from './buildUnifiedWorkspaceDashboard';

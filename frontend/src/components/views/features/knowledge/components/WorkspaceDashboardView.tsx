@@ -37,6 +37,13 @@ import { AcademicDashboardPanel } from './AcademicDashboardPanel';
 import type { AcademicInsightsData } from '../analytics/buildAcademicInsights';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
+import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
+import { UnifiedWorkspaceDashboard } from './UnifiedWorkspaceDashboard';
+import type { ProjectQuickActionsProps } from './ProjectQuickActions';
+import type { LearningPathOverviewData } from '../maps/buildLearningPathOverview';
+import { LearningPathOverviewPanel } from './LearningPathOverviewPanel';
+import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
+import { SubjectWorkspacesPanel } from './SubjectWorkspacesPanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -78,6 +85,24 @@ export interface WorkspaceDashboardAcademicProps {
 export interface WorkspaceDashboardAcademicInsightsProps {
   data: AcademicInsightsData;
   onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardUnifiedProps {
+  data: UnifiedWorkspaceDashboardData;
+  onSelectNote: (noteId: string) => void;
+  onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+  projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
+}
+
+export interface WorkspaceDashboardLearningPathProps {
+  data: LearningPathOverviewData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardSubjectWorkspacesProps {
+  subjects: readonly SubjectWorkspaceData[];
+  onSelectNote: (noteId: string) => void;
+  onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
 }
 
 export interface WorkspaceDashboardQuickActions {
@@ -133,12 +158,21 @@ export interface WorkspaceDashboardViewProps {
   productivity?: WorkspaceDashboardProductivityProps;
   review?: WorkspaceDashboardReviewProps;
   maintenance?: WorkspaceDashboardMaintenanceProps;
+  /** @deprecated Use unified instead — kept for type compatibility */
   research?: WorkspaceDashboardResearchProps;
+  /** @deprecated Use unified instead */
   study?: WorkspaceDashboardStudyProps;
+  /** @deprecated Use unified instead */
   knowledgeMaps?: WorkspaceDashboardKnowledgeMapsProps;
+  /** @deprecated Use unified instead */
   project?: WorkspaceDashboardProjectProps;
+  /** @deprecated Use unified instead */
   academic?: WorkspaceDashboardAcademicProps;
+  /** @deprecated Use unified instead */
   academicInsights?: WorkspaceDashboardAcademicInsightsProps;
+  unified?: WorkspaceDashboardUnifiedProps;
+  learningPath?: WorkspaceDashboardLearningPathProps;
+  subjectWorkspaces?: WorkspaceDashboardSubjectWorkspacesProps;
   recentNotesLimit?: number;
 }
 
@@ -227,6 +261,9 @@ export function WorkspaceDashboardView({
   project,
   academic,
   academicInsights,
+  unified,
+  learningPath,
+  subjectWorkspaces,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -347,7 +384,19 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {academicInsights && (
+      {unified && (
+        <Card colors={c} title="워크스페이스">
+          <UnifiedWorkspaceDashboard
+            colors={c}
+            data={unified.data}
+            onNavigateToNote={unified.onSelectNote}
+            onActivateSubjectWorkspace={unified.onActivateSubjectWorkspace}
+            projectQuickActions={unified.projectQuickActions}
+          />
+        </Card>
+      )}
+
+      {!unified && academicInsights && (
         <Card colors={c} title="학습 인사이트">
           <AcademicInsightsPanel
             colors={c}
@@ -357,7 +406,7 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {academic && (
+      {!unified && academic && (
         <Card colors={c} title="학술 대시보드">
           <AcademicDashboardPanel
             colors={c}
@@ -367,7 +416,7 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {project && (
+      {!unified && project && (
         <Card colors={c} title="프로젝트 대시보드">
           <ProjectDashboardPanel
             colors={c}
@@ -377,7 +426,7 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {research && (
+      {!unified && research && (
         <Card colors={c} title="연구 대시보드">
           <ResearchDashboardPanel
             colors={c}
@@ -387,7 +436,7 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {study && (
+      {!unified && study && (
         <Card colors={c} title="학습 대시보드">
           <StudyDashboardPanel
             colors={c}
@@ -397,7 +446,7 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
-      {knowledgeMaps && (
+      {!unified && knowledgeMaps && (
         <>
           <Card colors={c} title="주제 지식">
             <SubjectMapsDashboardPanel
@@ -417,13 +466,34 @@ export function WorkspaceDashboardView({
         </>
       )}
 
-      {review && (
+      {!unified && review && (
         <Card colors={c} title="지식 검토">
           <KnowledgeReviewPanel
             colors={c}
             lists={review.lists}
             onNavigateToNote={review.onSelectNote}
             compact
+          />
+        </Card>
+      )}
+
+      {learningPath && (
+        <Card colors={c} title="학습 경로">
+          <LearningPathOverviewPanel
+            colors={c}
+            data={learningPath.data}
+            onNavigateToNote={learningPath.onSelectNote}
+          />
+        </Card>
+      )}
+
+      {subjectWorkspaces && (
+        <Card colors={c} title="주제 워크스페이스">
+          <SubjectWorkspacesPanel
+            colors={c}
+            subjects={subjectWorkspaces.subjects}
+            onNavigateToNote={subjectWorkspaces.onSelectNote}
+            onActivateSubjectWorkspace={subjectWorkspaces.onActivateSubjectWorkspace}
           />
         </Card>
       )}

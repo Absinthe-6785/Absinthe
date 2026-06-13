@@ -24,7 +24,12 @@ export interface SmartCollectionGroup {
   id: string;
   label: string;
   icon: LucideIcon;
+  /** All collection IDs in this group — unchanged for stored workspace state. */
   collectionIds: readonly SmartCollectionId[];
+  /** Primary entry points — always visible. */
+  primaryCollectionIds: readonly SmartCollectionId[];
+  /** Secondary collections — collapsed by default. */
+  secondaryCollectionIds: readonly SmartCollectionId[];
 }
 
 /** Visual IA grouping — collection IDs unchanged for stored workspace state. */
@@ -44,6 +49,15 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
       'with-backlinks',
       'with-mentions',
     ],
+    primaryCollectionIds: ['research-sources', 'map-concepts', 'recent'],
+    secondaryCollectionIds: [
+      'research-literature',
+      'research-permanent',
+      'orphan',
+      'untagged',
+      'with-backlinks',
+      'with-mentions',
+    ],
   },
   {
     id: 'study',
@@ -55,6 +69,8 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
       'exam-prep',
       'exam-review-notes',
     ],
+    primaryCollectionIds: ['exam-study-notes', 'exam-weak-topics'],
+    secondaryCollectionIds: ['exam-prep', 'exam-review-notes'],
   },
   {
     id: 'projects',
@@ -66,6 +82,8 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
       'academic-study-projects',
       'academic-completed-projects',
     ],
+    primaryCollectionIds: ['academic-active-projects', 'academic-milestones'],
+    secondaryCollectionIds: ['academic-study-projects', 'academic-completed-projects'],
   },
   {
     id: 'subjects',
@@ -78,14 +96,27 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
       'subject-toefl',
       'subject-vocabulary',
     ],
+    primaryCollectionIds: [
+      'subject-japanese-history',
+      'subject-politics',
+      'subject-economics',
+      'subject-toefl',
+      'subject-vocabulary',
+    ],
+    secondaryCollectionIds: [],
   },
   {
     id: 'insights',
     label: '인사이트',
     icon: Star,
     collectionIds: ['highly-connected'],
+    primaryCollectionIds: ['highly-connected'],
+    secondaryCollectionIds: [],
   },
 ];
+
+/** Top-level primary collection categories — one per group. */
+export const PRIMARY_COLLECTION_GROUP_IDS = SMART_COLLECTION_GROUPS.map(g => g.id);
 
 const COLLECTION_ICONS: Partial<Record<SmartCollectionId, LucideIcon>> = {
   'research-sources': BookOpen,
@@ -119,4 +150,14 @@ export function getSmartCollectionIcon(id: SmartCollectionId): LucideIcon {
 
 export function getSmartCollectionGroup(id: SmartCollectionId): SmartCollectionGroup | undefined {
   return SMART_COLLECTION_GROUPS.find(g => g.collectionIds.includes(id));
+}
+
+export function isPrimarySmartCollection(id: SmartCollectionId): boolean {
+  const group = getSmartCollectionGroup(id);
+  return group?.primaryCollectionIds.includes(id) ?? false;
+}
+
+export function isSecondarySmartCollection(id: SmartCollectionId): boolean {
+  const group = getSmartCollectionGroup(id);
+  return group?.secondaryCollectionIds.includes(id) ?? false;
 }

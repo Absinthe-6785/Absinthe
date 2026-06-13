@@ -1,4 +1,5 @@
-import { X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { SmartCollection } from '../collections/smartCollectionModels';
 import {
@@ -26,6 +27,7 @@ function CollectionRow({
   onActivate,
   isPinned,
   onTogglePin,
+  subdued,
 }: {
   c: NoteChromeColors;
   collection: SmartCollection;
@@ -34,13 +36,19 @@ function CollectionRow({
   onActivate: () => void;
   isPinned?: boolean;
   onTogglePin?: (e: React.MouseEvent) => void;
+  subdued?: boolean;
 }) {
   const Icon = getSmartCollectionIcon(collection.id);
   return (
     <div
       className={`bfi ${active ? 'active' : ''}`}
       onClick={onActivate}
-      style={{ gap: 4, fontSize: 11 }}
+      style={{
+        gap: 4,
+        fontSize: subdued ? 10 : 11,
+        opacity: subdued ? 0.85 : 1,
+        paddingLeft: subdued ? 14 : undefined,
+      }}
       title={collection.description}
     >
       <Icon size={10} color={active ? c.accent : c.textMuted} style={{ flexShrink: 0 }} />
@@ -54,6 +62,107 @@ function CollectionRow({
           pinned={isPinned ?? false}
           onToggle={onTogglePin}
         />
+      )}
+    </div>
+  );
+}
+
+function GroupSection({
+  c,
+  groupId,
+  groupLabel,
+  GroupIcon,
+  primaryCollections,
+  secondaryCollections,
+  activeCollectionId,
+  counts,
+  onActivate,
+  isPinned,
+  onTogglePin,
+}: {
+  c: NoteChromeColors;
+  groupId: string;
+  groupLabel: string;
+  GroupIcon: typeof ChevronDown;
+  primaryCollections: SmartCollection[];
+  secondaryCollections: SmartCollection[];
+  activeCollectionId: string | null;
+  counts: Readonly<Record<string, number>>;
+  onActivate: (collection: SmartCollection) => void;
+  isPinned?: (id: string) => boolean;
+  onTogglePin?: (collection: SmartCollection) => void;
+}) {
+  const hasSecondaryActive = secondaryCollections.some(col => col.id === activeCollectionId);
+  const [showSecondary, setShowSecondary] = useState(hasSecondaryActive);
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 8px 2px',
+          fontSize: 9,
+          fontWeight: 700,
+          color: c.textMuted,
+          letterSpacing: 0.3,
+        }}
+      >
+        <GroupIcon size={9} color={c.textFaint} />
+        {groupLabel}
+      </div>
+      {primaryCollections.map(collection => (
+        <CollectionRow
+          key={collection.id}
+          c={c}
+          collection={collection}
+          active={activeCollectionId === collection.id}
+          count={counts[collection.id] ?? 0}
+          onActivate={() => onActivate(collection)}
+          isPinned={isPinned?.(collection.id)}
+          onTogglePin={onTogglePin
+            ? e => { e.stopPropagation(); onTogglePin(collection); }
+            : undefined}
+        />
+      ))}
+      {secondaryCollections.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowSecondary(prev => !prev)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+              width: '100%',
+              padding: '2px 8px 2px 14px',
+              fontSize: 9,
+              color: c.textFaint,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            {showSecondary ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
+            더 보기 ({secondaryCollections.length})
+          </button>
+          {showSecondary && secondaryCollections.map(collection => (
+            <CollectionRow
+              key={collection.id}
+              c={c}
+              collection={collection}
+              active={activeCollectionId === collection.id}
+              count={counts[collection.id] ?? 0}
+              onActivate={() => onActivate(collection)}
+              isPinned={isPinned?.(collection.id)}
+              onTogglePin={onTogglePin
+                ? e => { e.stopPropagation(); onTogglePin(collection); }
+                : undefined}
+              subdued
+            />
+          ))}
+        </>
       )}
     </div>
   );
@@ -89,43 +198,27 @@ export function SmartCollectionsSection({
       </div>
 
       {SMART_COLLECTION_GROUPS.map(group => {
-        const GroupIcon = group.icon;
-        const groupCollections = group.collectionIds
+        const resolve = (ids: readonly string[]) => ids
           .map(id => byId.get(id))
           .filter((col): col is SmartCollection => col !== undefined);
-        if (groupCollections.length === 0) return null;
+        const primaryCollections = resolve(group.primaryCollectionIds);
+        const secondaryCollections = resolve(group.secondaryCollectionIds);
+        if (primaryCollections.length === 0 && secondaryCollections.length === 0) return null;
         return (
-          <div key={group.id} style={{ marginBottom: 6 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '4px 8px 2px',
-                fontSize: 9,
-                fontWeight: 700,
-                color: c.textMuted,
-                letterSpacing: 0.3,
-              }}
-            >
-              <GroupIcon size={9} color={c.textFaint} />
-              {group.label}
-            </div>
-            {groupCollections.map(collection => (
-              <CollectionRow
-                key={collection.id}
-                c={c}
-                collection={collection}
-                active={activeCollectionId === collection.id}
-                count={counts[collection.id] ?? 0}
-                onActivate={() => onActivate(collection)}
-                isPinned={isPinned?.(collection.id)}
-                onTogglePin={onTogglePin
-                  ? e => { e.stopPropagation(); onTogglePin(collection); }
-                  : undefined}
-              />
-            ))}
-          </div>
+          <GroupSection
+            key={group.id}
+            c={c}
+            groupId={group.id}
+            groupLabel={group.label}
+            GroupIcon={group.icon}
+            primaryCollections={primaryCollections}
+            secondaryCollections={secondaryCollections}
+            activeCollectionId={activeCollectionId}
+            counts={counts}
+            onActivate={onActivate}
+            isPinned={isPinned}
+            onTogglePin={onTogglePin}
+          />
         );
       })}
     </div>
