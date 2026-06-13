@@ -6,6 +6,7 @@
  */
 import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
 import { citationFieldsToBlockPatch, parseCitationBody, serializeCitationBody } from './citationUtils';
+import { parseAnswerBody, parseQuestionBody, serializeAnswerBody } from './studyBlockUtils';
 import type { BlockTint } from './blockColors';
 import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON, calloutIconForObsidianAlias } from './calloutPresets';
 import {
@@ -41,7 +42,9 @@ export type BlockType =
   | 'footnote'
   | 'mermaid'
   | 'audio'
-  | 'citation';
+  | 'citation'
+  | 'question'
+  | 'answer';
 
 /** 인라인 서식 스팬 — contentEditable 렌더링에 사용 */
 export interface InlineSpan {
@@ -118,6 +121,9 @@ export interface Block {
   citationYear?: string;
   citationPage?: string;
   citationUrl?: string;
+
+  // answer reveal block
+  answerRevealed?: boolean;
 
   // numbered list — 원본 번호 보존 (2., 3. 등)
   listIndex?: number;
@@ -244,6 +250,13 @@ export function markdownToBlocks(md: string): Block[] {
       const fields = parseCitationBody(codeLines.join('\n'));
       return makeBlock('citation', { content: '', ...citationFieldsToBlockPatch(fields) });
     }
+    if (lang === 'question') {
+      return makeBlock('question', { content: parseQuestionBody(codeLines.join('\n')) });
+    }
+    if (lang === 'answer') {
+      const parsed = parseAnswerBody(codeLines.join('\n'));
+      return makeBlock('answer', { content: parsed.content, answerRevealed: parsed.revealed });
+    }
     return makeBlock('code', { language: lang, code: codeLines.join('\n') });
   };
 
@@ -287,6 +300,14 @@ export function markdownToBlocks(md: string): Block[] {
     if (!m) return null;
     i++;
     return makeBlock('footnote', { footnoteId: m[1], content: m[2] ?? '' });
+  };
+
+  // ── Q: inline question line ───────────────────────────────────────
+  const tryQuestionLine = (): Block | null => {
+    const m = lines[i].match(/^Q:\s+(.+)$/i);
+    if (!m) return null;
+    i++;
+    return makeBlock('question', { content: m[1].trim() });
   };
 
   // ── Obsidian 콜아웃 (> [!tip] …) ─────────────────────────────────
@@ -459,6 +480,10 @@ export function markdownToBlocks(md: string): Block[] {
     // 각주 정의
     const footnote = tryFootnote();
     if (footnote) { blocks.push(footnote); continue; }
+
+    // Q: question line
+    const questionLine = tryQuestionLine();
+    if (questionLine) { blocks.push(questionLine); continue; }
 
     // Obsidian 콜아웃
     const obsidianCallout = tryObsidianCallout();
@@ -684,6 +709,19 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
       }
 
+      case 'question': {
+        const q = block.content?.trim() ?? '';
+        lines.push(q ? `Q: ${q}` : 'Q: ');
+        break;
+      }
+
+      case 'answer': {
+        lines.push('```answer');
+        lines.push(serializeAnswerBody(block.content ?? '', block.answerRevealed ?? false));
+        lines.push('```');
+        break;
+      }
+
       default:
         lines.push(block.content);
     }
@@ -844,6 +882,8 @@ export const BLOCK_TYPE_MENU: BlockTypeMeta[] = [
   { type: 'mermaid',    label: '다이어그램',  desc: 'Mermaid 차트',           icon: '◇',  keywords: ['mermaid', 'diagram', 'flowchart', '다이어그램'], menuKey: 'mermaid', group: 'media' },
   { type: 'audio',      label: '오디오',      desc: '오디오 URL',             icon: '🔊', keywords: ['audio', 'sound', '오디오', '듣기'], menuKey: 'audio', group: 'media' },
   { type: 'citation',   label: '인용',        desc: '출처 인용 블록',         icon: '📚', keywords: ['citation', 'cite', 'reference', '인용', '출처'], menuKey: 'citation', group: 'text' },
+  { type: 'question',   label: '질문',        desc: '복습 질문 블록',         icon: '?',  keywords: ['question', 'quiz', 'q', '질문', '복습'], menuKey: 'question', group: 'text' },
+  { type: 'answer',     label: '답',          desc: '답 공개 블록',           icon: 'A',  keywords: ['answer', 'reveal', '답', '정답'], menuKey: 'answer', createDefaults: { answerRevealed: false }, group: 'text' },
   { type: 'footnote',   label: '각주',        desc: '각주 정의',              icon: '†',  keywords: ['footnote', 'fn', '각주', '참고'], menuKey: 'footnote', createDefaults: { footnoteId: '1' }, group: 'text' },
   { type: 'table',      label: '표',          desc: '테이블',                  icon: '⊞',  keywords: ['table', 'grid', '표', '테이블'],                          group: 'media' },
 ];
@@ -1009,6 +1049,12 @@ export function convertBlock(block: Block, newType: BlockType): Block {
     base.citationAuthor = base.citationAuthor ?? '';
     base.citationYear = base.citationYear ?? '';
     base.content = '';
+  }
+  if (newType === 'question') {
+    base.content = base.content ?? '';
+  }
+  if (newType === 'answer') {
+    base.answerRevealed = base.answerRevealed ?? false;
   }
   if (newType === 'image') {
     base.src = base.src ?? '';

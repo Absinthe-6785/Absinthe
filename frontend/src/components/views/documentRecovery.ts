@@ -107,6 +107,9 @@ export function repairBlock(raw: unknown): Block | null {
     if (typeof o.citationPage === 'string') partial.citationPage = o.citationPage;
     if (typeof o.citationUrl === 'string') partial.citationUrl = o.citationUrl;
   }
+  if (type === 'answer' && typeof o.answerRevealed === 'boolean') {
+    partial.answerRevealed = o.answerRevealed;
+  }
   if (typeof o.listIndex === 'number') partial.listIndex = o.listIndex;
 
   return makeBlock(type as BlockType, partial);

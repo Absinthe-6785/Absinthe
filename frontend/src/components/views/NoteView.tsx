@@ -38,6 +38,10 @@ import {
   buildKnowledgeReviewLists,
   buildKnowledgeMaintenanceData,
   buildResearchDashboard,
+  buildStudyDashboard,
+  buildStudyNote,
+  setWeakTopic,
+  isWeakTopic,
   extractNoteReferenceSummary,
   getNoteKind,
   setNoteKind,
@@ -51,6 +55,7 @@ import {
   getLinkedSourceNoteId,
   NoteClassificationSelector,
   LiteratureWorkflowIndicator,
+  WeakTopicToggle,
   LocalGraphView,
   RelatedNotesPanel,
   SavedViewsSection,
@@ -785,6 +790,20 @@ export const NoteView = () => {
     return openCreatedNote(id);
   }, [notes, activeNote, storeCreateNote, updateNote, noteUpdate, openCreatedNote]);
 
+  const handleCreateStudyNote = useCallback((title?: string) => {
+    const id = storeCreateNote({ title: title?.trim() || 'Study Notes', body: '' });
+    const created = notes.find(n => n.id === id);
+    if (created) {
+      const studyNote = buildStudyNote(created, { title });
+      updateNote(id, {
+        title: studyNote.title,
+        body: studyNote.body,
+        properties: studyNote.properties,
+      });
+    }
+    return openCreatedNote(id);
+  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
+
   const handleActivateDashboardWithTraceClear = useCallback(() => {
     setTraceDate(null);
     setTraceRange(null);
@@ -1019,6 +1038,11 @@ export const NoteView = () => {
 
   const researchDashboard = useMemo(
     () => buildResearchDashboard(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const studyDashboard = useMemo(
+    () => buildStudyDashboard(notes, { limit: 6 }),
     [notes],
   );
 
@@ -2056,6 +2080,7 @@ export const NoteView = () => {
               onCreateTask: handleCreateTask,
               onCreateJournal: handleCreateJournal,
               onCreateReadingNote: handleCreateReadingNote,
+              onCreateStudyNote: handleCreateStudyNote,
               onCreateTaskDatabase: handleCreateTaskDatabase,
               onCreateJournalDatabase: handleCreateJournalDatabase,
             }}
@@ -2068,6 +2093,13 @@ export const NoteView = () => {
             }}
             research={{
               data: researchDashboard,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
+            study={{
+              data: studyDashboard,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
@@ -2177,6 +2209,16 @@ export const NoteView = () => {
                   value={activeNoteKind}
                   onChange={kind => {
                     const updated = setNoteKind(activeNote, kind);
+                    noteUpdate(activeNote.id, { properties: updated.properties });
+                  }}
+                />
+              )}
+              {!isTrash && (
+                <WeakTopicToggle
+                  colors={c}
+                  active={isWeakTopic(activeNote)}
+                  onChange={weak => {
+                    const updated = setWeakTopic(activeNote, weak);
                     noteUpdate(activeNote.id, { properties: updated.properties });
                   }}
                 />

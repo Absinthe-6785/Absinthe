@@ -25,9 +25,10 @@ function note(
 
 describe('smart collection catalog', () => {
   it('defines phase-1 and research collections', () => {
-    expect(SMART_COLLECTIONS).toHaveLength(9);
+    expect(SMART_COLLECTIONS).toHaveLength(13);
     expect(findSmartCollection('orphan')?.name).toBe('Orphan Notes');
     expect(findSmartCollection('research-sources')?.name).toBe('Sources');
+    expect(findSmartCollection('exam-study-notes')?.name).toBe('Study Notes');
   });
 
   it('activates by returning collection id', () => {
@@ -140,6 +141,19 @@ describe('evaluateSmartCollection', () => {
     expect(evaluateSmartCollection('research-sources', service, researchNotes)).toEqual(['s']);
     expect(evaluateSmartCollection('research-literature', service, researchNotes)).toEqual(['l']);
     expect(evaluateSmartCollection('research-permanent', service, researchNotes)).toEqual(['p']);
+  });
+
+  it('returns exam workspace collections', () => {
+    const examNotes = [
+      note('study', 'Study', '', { updatedAt: 300, properties: { tags: 'study' } }),
+      note('weak', 'Weak', '', { updatedAt: 200, properties: { weakTopic: 'yes', tags: 'weak-topic' } }),
+      note('review', 'Review', 'Q: test', { updatedAt: 100, properties: { tags: 'review' } }),
+      note('exam', 'Exam', '', { updatedAt: 50, properties: { tags: 'exam-prep' } }),
+    ];
+    expect(evaluateSmartCollection('exam-study-notes', service, examNotes)).toEqual(['study']);
+    expect(evaluateSmartCollection('exam-weak-topics', service, examNotes)).toEqual(['weak']);
+    expect(evaluateSmartCollection('exam-review-notes', service, examNotes)).toEqual(['review']);
+    expect(evaluateSmartCollection('exam-prep', service, examNotes)).toEqual(['exam']);
   });
 });
 

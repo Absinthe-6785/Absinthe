@@ -76,6 +76,7 @@ export {
   type WorkspaceDashboardReviewProps,
   type WorkspaceDashboardMaintenanceProps,
   type WorkspaceDashboardResearchProps,
+  type WorkspaceDashboardStudyProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -101,6 +102,8 @@ export { NoteClassificationSelector, LiteratureWorkflowIndicator, type NoteClass
 export { BibliographyPanel, type BibliographyPanelProps } from './components/BibliographyPanel';
 export { ReadingSourceLinkPanel, type ReadingSourceLinkPanelProps } from './components/ReadingSourceLinkPanel';
 export { ResearchDashboardPanel, type ResearchDashboardPanelProps } from './components/ResearchDashboardPanel';
+export { StudyDashboardPanel, type StudyDashboardPanelProps } from './components/StudyDashboardPanel';
+export { WeakTopicToggle, type WeakTopicToggleProps } from './components/WeakTopicToggle';
 
 export {
   NOTE_KIND_PROPERTY,
@@ -148,6 +151,31 @@ export {
   unlinkReadingNoteFromSource,
   type LinkReadingSourceResult,
 } from './research/readingSourceLink';
+
+export {
+  STUDY_NOTE_TAG,
+  REVIEW_NOTE_TAG,
+  EXAM_PREP_TAG,
+  STUDY_NOTE_TEMPLATE_BODY,
+  buildStudyNote,
+  isStudyNote,
+  type BuildStudyNoteOptions,
+} from './study/studyNoteTemplate';
+
+export {
+  WEAK_TOPIC_PROPERTY,
+  WEAK_TOPIC_TAG,
+  isWeakTopic,
+  setWeakTopic,
+  filterWeakTopicNotes,
+} from './study/weakTopicTracking';
+
+export {
+  buildStudyDashboard,
+  type StudyDashboardData,
+  type StudyNoteEntry,
+  type BuildStudyDashboardOptions,
+} from './study/buildStudyDashboard';
 
 export {
   buildExpandedGraphData,

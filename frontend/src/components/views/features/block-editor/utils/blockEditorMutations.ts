@@ -63,6 +63,12 @@ export function applySlashMenuTypeChange(block: Block, meta: BlockTypeMeta, quer
       ...meta.createDefaults,
     };
   }
+  if (type === 'question') {
+    return { ...block, type, content: cleaned, ...meta.createDefaults };
+  }
+  if (type === 'answer') {
+    return { ...block, type, content: cleaned, answerRevealed: meta.createDefaults?.answerRevealed ?? block.answerRevealed ?? false, ...meta.createDefaults };
+  }
   const next: Block = { ...block, type, content: cleaned, ...meta.createDefaults };
   if (isToggleBlockType(type)) next.collapsed = next.collapsed ?? false;
   if (type === 'callout' && !next.calloutIcon) next.calloutIcon = DEFAULT_CALLOUT_ICON;

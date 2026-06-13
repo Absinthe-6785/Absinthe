@@ -24,6 +24,8 @@ import type { KnowledgeMaintenanceData } from './KnowledgeMaintenancePanel';
 import { KnowledgeMaintenancePanel } from './KnowledgeMaintenancePanel';
 import type { ResearchDashboardData } from '../research/buildResearchDashboard';
 import { ResearchDashboardPanel } from './ResearchDashboardPanel';
+import type { StudyDashboardData } from '../study/buildStudyDashboard';
+import { StudyDashboardPanel } from './StudyDashboardPanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -37,6 +39,11 @@ export interface WorkspaceDashboardMaintenanceProps {
 
 export interface WorkspaceDashboardResearchProps {
   data: ResearchDashboardData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardStudyProps {
+  data: StudyDashboardData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -72,6 +79,7 @@ export interface WorkspaceDashboardProductivityProps {
   onCreateTask: (templateId: string, title?: string) => void;
   onCreateJournal: (templateId: string, title?: string) => void;
   onCreateReadingNote?: (title?: string) => void;
+  onCreateStudyNote?: (title?: string) => void;
   onCreateTaskDatabase?: () => void;
   onCreateJournalDatabase?: () => void;
 }
@@ -93,6 +101,7 @@ export interface WorkspaceDashboardViewProps {
   review?: WorkspaceDashboardReviewProps;
   maintenance?: WorkspaceDashboardMaintenanceProps;
   research?: WorkspaceDashboardResearchProps;
+  study?: WorkspaceDashboardStudyProps;
   recentNotesLimit?: number;
 }
 
@@ -176,6 +185,7 @@ export function WorkspaceDashboardView({
   review,
   maintenance,
   research,
+  study,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -302,6 +312,16 @@ export function WorkspaceDashboardView({
             colors={c}
             data={research.data}
             onNavigateToNote={research.onSelectNote}
+          />
+        </Card>
+      )}
+
+      {study && (
+        <Card colors={c} title="학습 대시보드">
+          <StudyDashboardPanel
+            colors={c}
+            data={study.data}
+            onNavigateToNote={study.onSelectNote}
           />
         </Card>
       )}
@@ -501,6 +521,16 @@ export function WorkspaceDashboardView({
                   onClick={() => productivity.onCreateReadingNote?.()}
                 >
                   새 읽기 노트
+                </button>
+              )}
+              {productivity.onCreateStudyNote && (
+                <button
+                  type="button"
+                  className="bwbg"
+                  style={{ padding: '8px', fontSize: 11, gridColumn: '1 / -1' }}
+                  onClick={() => productivity.onCreateStudyNote?.()}
+                >
+                  새 학습 노트
                 </button>
               )}
             </>

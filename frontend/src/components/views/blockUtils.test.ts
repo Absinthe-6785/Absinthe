@@ -151,6 +151,28 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('roundtrips question fence and Q: line', () => {
+    const fence = '```question\nQ: What caused the Meiji Restoration?\n```';
+    const fromFence = markdownToBlocks(fence);
+    expect(fromFence[0].type).toBe('question');
+    expect(fromFence[0].content).toBe('What caused the Meiji Restoration?');
+    expect(blocksToMarkdown(fromFence)).toBe('Q: What caused the Meiji Restoration?');
+    const line = 'Q: Define photosynthesis.';
+    const blocks = markdownToBlocks(line);
+    expect(blocks[0].type).toBe('question');
+    expect(blocks[0].content).toBe('Define photosynthesis.');
+    expect(blocksToMarkdown(blocks)).toBe(line);
+  });
+
+  it('roundtrips answer block with reveal state', () => {
+    const md = '```answer\nhidden\nThe Meiji Restoration answer.\n```';
+    const blocks = markdownToBlocks(md);
+    expect(blocks[0].type).toBe('answer');
+    expect(blocks[0].answerRevealed).toBe(false);
+    expect(blocks[0].content).toContain('Meiji');
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
   it('roundtrips toggle with children', () => {
     const md = '> Toggle title\n  child line';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);

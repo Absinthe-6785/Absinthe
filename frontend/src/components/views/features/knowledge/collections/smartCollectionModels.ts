@@ -8,7 +8,11 @@ export type SmartCollectionId =
   | 'with-mentions'
   | 'research-sources'
   | 'research-literature'
-  | 'research-permanent';
+  | 'research-permanent'
+  | 'exam-study-notes'
+  | 'exam-weak-topics'
+  | 'exam-review-notes'
+  | 'exam-prep';
 
 /** Lightweight system collection definition — does not store note ids */
 export interface SmartCollection {

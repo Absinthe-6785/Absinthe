@@ -8,7 +8,7 @@ export const KNOWN_BLOCK_TYPES = new Set<BlockType>([
   'bullet', 'numbered', 'todo', 'toggle',
   'toggleHeading1', 'toggleHeading2', 'toggleHeading3', 'toggleHeading4',
   'code', 'image', 'divider', 'table', 'quote', 'callout', 'math',
-  'footnote', 'mermaid', 'audio', 'citation',
+  'footnote', 'mermaid', 'audio', 'citation', 'question', 'answer',
 ]);
 
 export function isKnownBlockType(raw: unknown): raw is BlockType {

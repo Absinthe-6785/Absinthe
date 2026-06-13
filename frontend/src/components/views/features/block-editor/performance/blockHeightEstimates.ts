@@ -27,6 +27,8 @@ const ESTIMATED_HEIGHT_BY_TYPE: Record<BlockType, number> = {
   mermaid: 120,
   audio: 56,
   citation: 72,
+  question: 48,
+  answer: 56,
 };
 
 const LINE_HEIGHT_PX = 22;
