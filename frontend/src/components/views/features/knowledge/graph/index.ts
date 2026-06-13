@@ -20,3 +20,4 @@ export {
   type LocalGraphRelationshipFilter,
 } from './graphModels';
 export { LocalGraphView, type LocalGraphViewProps } from './LocalGraphView';
+export * from './knowledgeUniverse';
