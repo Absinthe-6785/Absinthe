@@ -80,6 +80,7 @@ export {
   type WorkspaceDashboardKnowledgeMapsProps,
   type WorkspaceDashboardProjectProps,
   type WorkspaceDashboardAcademicProps,
+  type WorkspaceDashboardAcademicInsightsProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -164,6 +165,11 @@ export { KnowledgeClusterPanel, type KnowledgeClusterPanelProps } from './compon
 export { SubjectMapsDashboardPanel, type SubjectMapsDashboardPanelProps } from './components/SubjectMapsDashboardPanel';
 export { ProjectDashboardPanel, type ProjectDashboardPanelProps } from './components/ProjectDashboardPanel';
 export { AcademicDashboardPanel, type AcademicDashboardPanelProps } from './components/AcademicDashboardPanel';
+export { AcademicInsightsPanel, type AcademicInsightsPanelProps } from './components/AcademicInsightsPanel';
+export { SubjectProgressPanel, type SubjectProgressPanelProps } from './components/SubjectProgressPanel';
+export { ProjectHealthPanel, type ProjectHealthPanelProps } from './components/ProjectHealthPanel';
+export { LearningActivityPanel, type LearningActivityPanelProps } from './components/LearningActivityPanel';
+export { WeakTopicInsightsPanel, type WeakTopicInsightsPanelProps } from './components/WeakTopicInsightsPanel';
 
 export {
   STUDY_PROJECT_MARKER,
@@ -221,6 +227,44 @@ export {
   type AcademicDashboardData,
   type BuildAcademicDashboardOptions,
 } from './academic/buildAcademicDashboard';
+
+export {
+  buildSubjectProgress,
+  type SubjectProgressEntry,
+  type SubjectProgressData,
+  type BuildSubjectProgressOptions,
+} from './analytics/buildSubjectProgress';
+
+export {
+  buildProjectHealth,
+  STALLED_PROJECT_DAYS,
+  type ProjectHealthIndicator,
+  type ProjectHealthEntry,
+  type ProjectHealthData,
+  type BuildProjectHealthOptions,
+} from './analytics/buildProjectHealth';
+
+export {
+  buildLearningActivity,
+  type LearningActivityKind,
+  type LearningActivityEntry,
+  type LearningActivityData,
+  type BuildLearningActivityOptions,
+} from './analytics/buildLearningActivity';
+
+export {
+  buildWeakTopicInsights,
+  type WeakTopicSubjectCount,
+  type WeakTopicInsightEntry,
+  type WeakTopicInsightsData,
+  type BuildWeakTopicInsightsOptions,
+} from './analytics/buildWeakTopicInsights';
+
+export {
+  buildAcademicInsights,
+  type AcademicInsightsData,
+  type BuildAcademicInsightsOptions,
+} from './analytics/buildAcademicInsights';
 
 export {
   NOTE_KIND_PROPERTY,

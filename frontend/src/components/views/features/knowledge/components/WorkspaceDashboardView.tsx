@@ -34,6 +34,8 @@ import type { ProjectDashboardData } from '../academic/buildProjectDashboard';
 import { ProjectDashboardPanel } from './ProjectDashboardPanel';
 import type { AcademicDashboardData } from '../academic/buildAcademicDashboard';
 import { AcademicDashboardPanel } from './AcademicDashboardPanel';
+import type { AcademicInsightsData } from '../analytics/buildAcademicInsights';
+import { AcademicInsightsPanel } from './AcademicInsightsPanel';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 
 export interface WorkspaceDashboardReviewProps {
@@ -70,6 +72,11 @@ export interface WorkspaceDashboardProjectProps {
 
 export interface WorkspaceDashboardAcademicProps {
   data: AcademicDashboardData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardAcademicInsightsProps {
+  data: AcademicInsightsData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -131,6 +138,7 @@ export interface WorkspaceDashboardViewProps {
   knowledgeMaps?: WorkspaceDashboardKnowledgeMapsProps;
   project?: WorkspaceDashboardProjectProps;
   academic?: WorkspaceDashboardAcademicProps;
+  academicInsights?: WorkspaceDashboardAcademicInsightsProps;
   recentNotesLimit?: number;
 }
 
@@ -218,6 +226,7 @@ export function WorkspaceDashboardView({
   knowledgeMaps,
   project,
   academic,
+  academicInsights,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -334,6 +343,16 @@ export function WorkspaceDashboardView({
             colors={c}
             data={maintenance.data}
             onNavigateToNote={maintenance.onSelectNote}
+          />
+        </Card>
+      )}
+
+      {academicInsights && (
+        <Card colors={c} title="학습 인사이트">
+          <AcademicInsightsPanel
+            colors={c}
+            data={academicInsights.data}
+            onNavigateToNote={academicInsights.onSelectNote}
           />
         </Card>
       )}
