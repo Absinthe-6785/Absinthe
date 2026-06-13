@@ -3,6 +3,12 @@ import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { getProperty, setProperty, removeProperty } from '../properties/noteProperties';
 import { hasTag } from '../tags/noteTags';
 import { isConceptNote } from '../research/noteClassification';
+import type { SmartCollectionId } from '../collections/smartCollectionModels';
+import {
+  filterStudyProjectContainers,
+  getLinkedStudyProjectId,
+  isStudyProjectContainer,
+} from '../academic/studyProjectModels';
 
 export const LEARNING_PATH_PROPERTY = 'learningPath';
 export const LEARNING_PATH_STEP_PROPERTY = 'learningPathStep';
@@ -89,6 +95,25 @@ export const SUBJECT_DASHBOARDS: readonly SubjectDashboardDefinition[] = [
   { id: 'vocabulary', name: 'Vocabulary', tag: 'vocabulary', description: 'Word lists and language vocabulary' },
 ];
 
+/** Smart collection id per subject — first-class workspace surfaces. */
+export const SUBJECT_WORKSPACE_COLLECTION_IDS: Record<string, SmartCollectionId> = {
+  'japanese-history': 'subject-japanese-history',
+  politics: 'subject-politics',
+  economics: 'subject-economics',
+  toefl: 'subject-toefl',
+  vocabulary: 'subject-vocabulary',
+};
+
+export function getSubjectWorkspaceCollectionId(subjectId: string): SmartCollectionId | null {
+  return SUBJECT_WORKSPACE_COLLECTION_IDS[subjectId] ?? null;
+}
+
+export function findSubjectByWorkspaceCollectionId(
+  collectionId: SmartCollectionId,
+): SubjectDashboardDefinition | undefined {
+  return SUBJECT_DASHBOARDS.find(s => SUBJECT_WORKSPACE_COLLECTION_IDS[s.id] === collectionId);
+}
+
 export interface SubjectDashboardEntry {
   noteId: string;
   noteTitle: string;
@@ -99,8 +124,12 @@ export interface SubjectDashboardData {
   subject: SubjectDashboardDefinition;
   conceptCount: number;
   noteCount: number;
+  projectCount: number;
+  linkedProjectCount: number;
+  workspaceCollectionId: SmartCollectionId | null;
   recentNotes: SubjectDashboardEntry[];
   conceptNotes: SubjectDashboardEntry[];
+  linkedProjects: SubjectDashboardEntry[];
 }
 
 export function buildSubjectDashboard(
@@ -113,6 +142,14 @@ export function buildSubjectDashboard(
   const limit = opts.limit ?? 6;
   const tagged = notes.filter(n => !n.deletedAt && hasTag(n, subject.tag));
   const concepts = tagged.filter(isConceptNote);
+  const projectContainers = filterStudyProjectContainers(notes).filter(
+    p => hasTag(p, subject.tag),
+  );
+  const linkedProjects = filterStudyProjectContainers(notes).filter(project => {
+    if (hasTag(project, subject.tag)) return false;
+    return filterNotesLinkedToSubjectProject(notes, project.id, subject.tag).length > 0;
+  });
+  const allProjects = [...projectContainers, ...linkedProjects];
   const toEntry = (n: NoteBase): SubjectDashboardEntry => ({
     noteId: n.id,
     noteTitle: displayNoteTitle(n.title),
@@ -126,11 +163,31 @@ export function buildSubjectDashboard(
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, limit)
     .map(toEntry);
+  const projectEntries = [...allProjects]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, limit)
+    .map(toEntry);
   return {
     subject,
     conceptCount: concepts.length,
     noteCount: tagged.length,
+    projectCount: projectContainers.length,
+    linkedProjectCount: allProjects.length,
+    workspaceCollectionId: getSubjectWorkspaceCollectionId(subjectId),
     recentNotes,
     conceptNotes,
+    linkedProjects: projectEntries,
   };
+}
+
+function filterNotesLinkedToSubjectProject(
+  notes: readonly NoteBase[],
+  projectId: string,
+  subjectTag: string,
+): NoteBase[] {
+  return notes.filter(n => {
+    if (n.deletedAt || isStudyProjectContainer(n)) return false;
+    if (getLinkedStudyProjectId(n) !== projectId) return false;
+    return hasTag(n, subjectTag);
+  });
 }

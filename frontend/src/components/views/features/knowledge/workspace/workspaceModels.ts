@@ -8,6 +8,7 @@
  */
 
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
+import { isSmartCollectionId } from '../collections/smartCollections';
 
 /** Workspace entity categories — distinct product roles, shared infrastructure */
 export type WorkspaceItemKind =
@@ -72,15 +73,6 @@ const WORKSPACE_ITEM_KINDS: readonly WorkspaceItemKind[] = [
   'database-view',
 ];
 
-const SMART_COLLECTION_IDS = new Set<string>([
-  'recent',
-  'orphan',
-  'untagged',
-  'highly-connected',
-  'with-backlinks',
-  'with-mentions',
-]);
-
 export function isWorkspaceItemKind(value: unknown): value is WorkspaceItemKind {
   return typeof value === 'string'
     && WORKSPACE_ITEM_KINDS.includes(value as WorkspaceItemKind);
@@ -94,7 +86,7 @@ export function isWorkspaceActivation(value: unknown): value is WorkspaceActivat
   if (!isWorkspaceItemKind(record.kind)) return false;
   const id = record.id.trim();
   if (!id) return false;
-  if (record.kind === 'smart-collection' && !SMART_COLLECTION_IDS.has(id)) return false;
+  if (record.kind === 'smart-collection' && !isSmartCollectionId(id)) return false;
   return true;
 }
 

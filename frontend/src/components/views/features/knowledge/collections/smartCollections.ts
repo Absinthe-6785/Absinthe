@@ -72,6 +72,51 @@ export const SMART_COLLECTIONS: readonly SmartCollection[] = [
     name: 'Concept Notes',
     description: 'Notes classified as concepts (noteKind: concept).',
   },
+  {
+    id: 'academic-study-projects',
+    name: 'Study Projects',
+    description: 'Long-term study project container notes (studyProject: yes).',
+  },
+  {
+    id: 'academic-active-projects',
+    name: 'Active Projects',
+    description: 'Study projects with status active.',
+  },
+  {
+    id: 'academic-completed-projects',
+    name: 'Completed Projects',
+    description: 'Study projects marked completed.',
+  },
+  {
+    id: 'academic-milestones',
+    name: 'Milestones',
+    description: 'Project milestones (projectMilestone: yes).',
+  },
+  {
+    id: 'subject-japanese-history',
+    name: 'Japanese History Workspace',
+    description: 'Notes tagged #japanese-history.',
+  },
+  {
+    id: 'subject-politics',
+    name: 'Politics Workspace',
+    description: 'Notes tagged #politics.',
+  },
+  {
+    id: 'subject-economics',
+    name: 'Economics Workspace',
+    description: 'Notes tagged #economics.',
+  },
+  {
+    id: 'subject-toefl',
+    name: 'TOEFL Workspace',
+    description: 'Notes tagged #toefl.',
+  },
+  {
+    id: 'subject-vocabulary',
+    name: 'Vocabulary Workspace',
+    description: 'Notes tagged #vocabulary.',
+  },
 ];
 
 export function findSmartCollection(id: string): SmartCollection | undefined {

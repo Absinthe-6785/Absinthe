@@ -30,6 +30,11 @@ import type { SubjectDashboardData } from '../maps/subjectDashboards';
 import type { KnowledgeClusterData } from '../maps/buildKnowledgeClusters';
 import { SubjectMapsDashboardPanel } from './SubjectMapsDashboardPanel';
 import { KnowledgeClusterPanel } from './KnowledgeClusterPanel';
+import type { ProjectDashboardData } from '../academic/buildProjectDashboard';
+import { ProjectDashboardPanel } from './ProjectDashboardPanel';
+import type { AcademicDashboardData } from '../academic/buildAcademicDashboard';
+import { AcademicDashboardPanel } from './AcademicDashboardPanel';
+import type { SmartCollectionId } from '../collections/smartCollectionModels';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -54,6 +59,17 @@ export interface WorkspaceDashboardStudyProps {
 export interface WorkspaceDashboardKnowledgeMapsProps {
   subjects: readonly SubjectDashboardData[];
   clusters: KnowledgeClusterData;
+  onSelectNote: (noteId: string) => void;
+  onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+}
+
+export interface WorkspaceDashboardProjectProps {
+  data: ProjectDashboardData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardAcademicProps {
+  data: AcademicDashboardData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -113,6 +129,8 @@ export interface WorkspaceDashboardViewProps {
   research?: WorkspaceDashboardResearchProps;
   study?: WorkspaceDashboardStudyProps;
   knowledgeMaps?: WorkspaceDashboardKnowledgeMapsProps;
+  project?: WorkspaceDashboardProjectProps;
+  academic?: WorkspaceDashboardAcademicProps;
   recentNotesLimit?: number;
 }
 
@@ -198,6 +216,8 @@ export function WorkspaceDashboardView({
   research,
   study,
   knowledgeMaps,
+  project,
+  academic,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -318,6 +338,26 @@ export function WorkspaceDashboardView({
         </Card>
       )}
 
+      {academic && (
+        <Card colors={c} title="학술 대시보드">
+          <AcademicDashboardPanel
+            colors={c}
+            data={academic.data}
+            onNavigateToNote={academic.onSelectNote}
+          />
+        </Card>
+      )}
+
+      {project && (
+        <Card colors={c} title="프로젝트 대시보드">
+          <ProjectDashboardPanel
+            colors={c}
+            data={project.data}
+            onNavigateToNote={project.onSelectNote}
+          />
+        </Card>
+      )}
+
       {research && (
         <Card colors={c} title="연구 대시보드">
           <ResearchDashboardPanel
@@ -345,6 +385,7 @@ export function WorkspaceDashboardView({
               colors={c}
               subjects={knowledgeMaps.subjects}
               onNavigateToNote={knowledgeMaps.onSelectNote}
+              onActivateSubjectWorkspace={knowledgeMaps.onActivateSubjectWorkspace}
             />
           </Card>
           <Card colors={c} title="지식 클러스터">

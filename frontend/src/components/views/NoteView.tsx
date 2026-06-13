@@ -46,6 +46,9 @@ import {
   buildKnowledgeClusters,
   SUBJECT_DASHBOARDS,
   buildSubjectDashboard,
+  buildProjectDashboard,
+  buildAcademicDashboard,
+  findSmartCollection,
   setWeakTopic,
   isWeakTopic,
   extractNoteReferenceSummary,
@@ -97,6 +100,7 @@ import {
   serializeNoteMarkdown,
   type SavedView,
   type SmartCollection,
+  type SmartCollectionId,
   type RuleCollection,
   type DatabaseView,
   type DatabaseViewPresentation,
@@ -1066,6 +1070,21 @@ export const NoteView = () => {
     () => buildKnowledgeClusters(notes, knowledgeIndexService, { limit: 8 }),
     [notes],
   );
+
+  const projectDashboard = useMemo(
+    () => buildProjectDashboard(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const academicDashboard = useMemo(
+    () => buildAcademicDashboard(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const handleActivateSubjectWorkspace = useCallback((collectionId: SmartCollectionId) => {
+    const collection = findSmartCollection(collectionId);
+    if (collection) handleActivateSmartCollection(collection);
+  }, [handleActivateSmartCollection]);
 
   const conceptHub = useMemo(
     () => (activeNote
@@ -2144,12 +2163,30 @@ export const NoteView = () => {
                 setActiveNoteId(noteId);
               },
             }}
+            academic={{
+              data: academicDashboard,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
+            project={{
+              data: projectDashboard,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
             knowledgeMaps={{
               subjects: subjectMapsDashboard,
               clusters: knowledgeClusters,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
+              },
+              onActivateSubjectWorkspace: collectionId => {
+                handleActivateSubjectWorkspace(collectionId);
+                handleLeaveDashboardForNote('');
               },
             }}
             review={{

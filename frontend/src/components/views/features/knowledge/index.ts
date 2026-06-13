@@ -78,6 +78,8 @@ export {
   type WorkspaceDashboardResearchProps,
   type WorkspaceDashboardStudyProps,
   type WorkspaceDashboardKnowledgeMapsProps,
+  type WorkspaceDashboardProjectProps,
+  type WorkspaceDashboardAcademicProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -136,6 +138,9 @@ export {
   buildLearningPath,
   listLearningPathIds,
   SUBJECT_DASHBOARDS,
+  SUBJECT_WORKSPACE_COLLECTION_IDS,
+  getSubjectWorkspaceCollectionId,
+  findSubjectByWorkspaceCollectionId,
   buildSubjectDashboard,
   type LearningPathStep,
   type LearningPath,
@@ -157,6 +162,65 @@ export { ConceptRelationsPanel, type ConceptRelationsPanelProps } from './compon
 export { LearningPathPanel, type LearningPathPanelProps } from './components/LearningPathPanel';
 export { KnowledgeClusterPanel, type KnowledgeClusterPanelProps } from './components/KnowledgeClusterPanel';
 export { SubjectMapsDashboardPanel, type SubjectMapsDashboardPanelProps } from './components/SubjectMapsDashboardPanel';
+export { ProjectDashboardPanel, type ProjectDashboardPanelProps } from './components/ProjectDashboardPanel';
+export { AcademicDashboardPanel, type AcademicDashboardPanelProps } from './components/AcademicDashboardPanel';
+
+export {
+  STUDY_PROJECT_MARKER,
+  STUDY_PROJECT_STATUS_PROPERTY,
+  STUDY_PROJECT_DESCRIPTION_PROPERTY,
+  STUDY_PROJECT_LINK_PROPERTY,
+  STUDY_PROJECT_STATUSES,
+  STUDY_PROJECT_STATUS_LABELS,
+  STUDY_PROJECT_STATUS_LABELS_KO,
+  isStudyProjectStatus,
+  isStudyProjectContainer,
+  getStudyProjectStatus,
+  getStudyProjectDescription,
+  getLinkedStudyProjectId,
+  setStudyProjectContainer,
+  linkNoteToStudyProject,
+  unlinkNoteFromStudyProject,
+  filterStudyProjectContainers,
+  filterNotesLinkedToProject,
+  buildStudyProjectSummary,
+  type StudyProjectStatus,
+  type StudyProjectSummary,
+} from './academic/studyProjectModels';
+
+export {
+  PROJECT_MILESTONE_MARKER,
+  MILESTONE_STATUS_PROPERTY,
+  MILESTONE_TARGET_DATE_PROPERTY,
+  MILESTONE_STATUSES,
+  MILESTONE_STATUS_LABELS_KO,
+  isMilestoneStatus,
+  isProjectMilestone,
+  getMilestoneStatus,
+  getMilestoneTargetDate,
+  getMilestoneProjectId,
+  setProjectMilestone,
+  filterProjectMilestones,
+  buildProjectMilestoneEntry,
+  buildUpcomingMilestones,
+  type MilestoneStatus,
+  type ProjectMilestoneEntry,
+} from './academic/projectMilestoneModels';
+
+export {
+  buildProjectDashboard,
+  formatProjectStatusLabel,
+  type ProjectDashboardData,
+  type ProjectDashboardEntry,
+  type ProjectNoteEntry,
+  type BuildProjectDashboardOptions,
+} from './academic/buildProjectDashboard';
+
+export {
+  buildAcademicDashboard,
+  type AcademicDashboardData,
+  type BuildAcademicDashboardOptions,
+} from './academic/buildAcademicDashboard';
 
 export {
   NOTE_KIND_PROPERTY,
