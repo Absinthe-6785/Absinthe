@@ -407,7 +407,7 @@ export function WorkspaceDashboardView({
       )}
 
       {unified && (
-        <Card colors={c} title="워크스페이스">
+        <Card colors={c} title="작업공간">
           <UnifiedWorkspaceDashboard
             colors={c}
             data={unified.data}
@@ -527,7 +527,7 @@ export function WorkspaceDashboardView({
       )}
 
       {subjectWorkspaces && (
-        <Card colors={c} title="주제 워크스페이스">
+        <Card colors={c} title="주제 작업공간">
           <SubjectWorkspacesPanel
             colors={c}
             subjects={subjectWorkspaces.subjects}

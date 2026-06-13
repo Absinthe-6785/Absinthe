@@ -107,7 +107,7 @@ export function LearningPathOverviewPanel({
     <div className="be-learning-path-overview" aria-label="학습 경로 개요">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: 9, color: c.textFaint }}>
-          경로 {data.totalPathCount}개 · vault 기준
+          경로 {data.totalPathCount}개 · 전체 노트 기준
         </div>
         {onCreatePath && (
           <button
@@ -131,7 +131,9 @@ export function LearningPathOverviewPanel({
         )}
       </div>
       {data.paths.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>학습 경로가 없습니다</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>
+          학습 경로가 없습니다. «경로 만들기»로 첫 경로를 추가하세요.
+        </div>
       ) : (
         data.paths.map(entry => (
           <PathCard

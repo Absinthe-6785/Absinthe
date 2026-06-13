@@ -107,7 +107,7 @@ export function ProjectDashboardPanel({ colors: c, data, onNavigateToNote }: Pro
     <div className="be-project-dashboard" aria-label="프로젝트 대시보드">
       {data.activeProjects.length === 0 && data.plannedProjects.length === 0 ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>
-          studyProject 속성이 있는 노트로 장기 프로젝트를 만드세요.
+          studyProject 속성이 있는 노트로 장기 프로젝트를 만드세요. 사이드바 → 프로젝트 컬렉션에서 시작할 수 있습니다.
         </div>
       ) : (
         <>

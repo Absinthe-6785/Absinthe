@@ -24,11 +24,11 @@ export function SubjectWorkspacesPanel({
   const active = subjects.find(s => s.subject.id === activeId) ?? subjects[0];
 
   if (subjects.length === 0) {
-    return <div style={{ fontSize: 10, color: c.textFaint }}>주제 워크스페이스 없음</div>;
+    return <div style={{ fontSize: 10, color: c.textFaint }}>주제 작업공간 없음</div>;
   }
 
   return (
-    <div className="be-subject-workspaces" aria-label="주제 워크스페이스">
+    <div className="be-subject-workspaces" aria-label="주제 작업공간">
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
         {subjects.map(subject => {
           const isActive = subject.subject.id === active?.subject.id;

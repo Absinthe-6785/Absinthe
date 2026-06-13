@@ -25,7 +25,7 @@ export function ReviewQueuePanel({
         오래됨 · 허브 · 최근 편집 · 마일스톤 후보
       </p>
       {queue.length === 0 ? (
-        <div style={{ fontSize: 10, color: c.textFaint }}>검토 후보 없음</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>검토 후보 없음 — 최근 편집·연결 기준으로 모두 양호합니다.</div>
       ) : (
         queue.map(item => (
           <button

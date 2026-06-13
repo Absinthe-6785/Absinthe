@@ -23,6 +23,8 @@ const translations = {
   dark:           { en: 'Dark',           ko: '다크',         ja: 'ダーク'       },
   light:          { en: 'Light',          ko: '라이트',       ja: 'ライト'       },
   settings:       { en: 'Settings',       ko: '설정',         ja: '設定'         },
+  toggleDarkMode: { en: 'Toggle Dark Mode', ko: '다크 모드 전환', ja: 'ダークモード切替' },
+  signOutUser:    { en: 'Sign out ({name})', ko: '{name} 로그아웃', ja: '{name}をログアウト' },
   noFolder:       { en: 'No Folder',      ko: '폴더 없음',    ja: 'フォルダなし' },
   allNotes:       { en: 'All Notes',      ko: '전체 노트',    ja: 'すべてのノート' },
   title:          { en: 'Title',          ko: '제목',         ja: 'タイトル'     },

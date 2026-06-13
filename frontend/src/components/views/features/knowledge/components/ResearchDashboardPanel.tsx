@@ -102,7 +102,7 @@ export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote }: Re
   return (
     <div className="be-research-dashboard" aria-label="연구 대시보드" style={{ overflowX: 'hidden' }}>
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        인용 {data.citationCount}건 · vault 기준
+        인용 {data.citationCount}건 · 전체 노트 기준
       </div>
       <PipelineOverview c={c} data={data.sourcePipeline} isMobile={isMobile} />
       <Section c={c} title="인용 활동" count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
