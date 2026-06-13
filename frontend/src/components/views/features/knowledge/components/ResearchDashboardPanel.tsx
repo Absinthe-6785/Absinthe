@@ -89,17 +89,18 @@ function Section({
 }
 
 function PipelineOverview({ c, data, isMobile }: { c: NoteChromeColors; data: ResearchDashboardData['sourcePipeline']; isMobile: boolean }) {
+  const { t } = useTranslation();
   const total = data.source + data.literature + data.permanent + data.unclassified;
   const rows = [
-    { label: '출처', count: data.source, color: c.accent },
-    { label: '문헌', count: data.literature, color: c.text },
-    { label: '영구', count: data.permanent, color: c.green },
-    { label: '미분류', count: data.unclassified, color: c.textFaint },
+    { label: t('researchPipelineSource'), count: data.source, color: c.accent },
+    { label: t('researchPipelineLiterature'), count: data.literature, color: c.text },
+    { label: t('researchPipelinePermanent'), count: data.permanent, color: c.green },
+    { label: t('researchPipelineUnclassified'), count: data.unclassified, color: c.textFaint },
   ];
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, marginBottom: 6 }}>
-        출처 파이프라인
+        {t('researchPipelineTitle')}
         {total > 0 && <span style={{ color: c.accent, marginLeft: 4 }}>({total})</span>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: responsiveMetricGridColumns(isMobile), gap: 4 }}>
@@ -131,17 +132,17 @@ export function ResearchDashboardPanel({ colors: c, data, onNavigateToNote, onOp
     ? { label: t('emptyResearchAction'), onClick: onOpenResearchCollection }
     : undefined;
   return (
-    <div className="be-research-dashboard" aria-label="연구 대시보드" style={{ overflowX: 'hidden' }}>
+    <div className="be-research-dashboard" aria-label={t('researchDashboardAria')} style={{ overflowX: 'hidden' }}>
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        인용 {data.citationCount}건 · 전체 노트 기준
+        {t('researchCitationSummary').replace('{count}', String(data.citationCount))}
       </div>
       <PipelineOverview c={c} data={data.sourcePipeline} isMobile={isMobile} />
-      <Section c={c} title="인용 활동" count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
-      <Section c={c} title="승격 활동" count={data.promotionActivity.length} items={data.promotionActivity} onNavigate={onNavigateToNote} />
-      <Section c={c} title="최근 출처" items={data.recentSources} onNavigate={onNavigateToNote} emptyAction={researchEmptyAction} />
-      <Section c={c} title="읽기 노트" items={data.readingNotes} onNavigate={onNavigateToNote} />
-      <Section c={c} title="문헌 노트" items={data.literatureNotes} onNavigate={onNavigateToNote} />
-      <Section c={c} title="영구 노트" items={data.permanentNotes} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('researchCitationActivity')} count={data.citationActivity.length} items={data.citationActivity} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('researchPromotionActivity')} count={data.promotionActivity.length} items={data.promotionActivity} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('researchRecentSources')} items={data.recentSources} onNavigate={onNavigateToNote} emptyAction={researchEmptyAction} />
+      <Section c={c} title={t('researchReadingNotes')} items={data.readingNotes} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('researchLiteratureNotes')} items={data.literatureNotes} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('researchPermanentNotes')} items={data.permanentNotes} onNavigate={onNavigateToNote} />
     </div>
   );
 }

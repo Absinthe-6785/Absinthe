@@ -89,9 +89,14 @@ export function NotePropertiesPanel({
       </div>
 
       {properties.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 12px' }}>
-          {t('propNone')}
-        </p>
+        <>
+          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 6px' }}>
+            {t('propNone')}
+          </p>
+          <p style={{ fontSize: 10, color: c.textFaint, textAlign: 'center', padding: '0 0 12px', lineHeight: 1.5 }}>
+            {t('propCosmosOnboarding')}
+          </p>
+        </>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
           {properties.map(({ key, value }) => (

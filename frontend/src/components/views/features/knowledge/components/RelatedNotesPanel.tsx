@@ -1,6 +1,8 @@
-import { RELATED_REASON_LABELS, formatRelatedReasons } from '../related';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { RelatedNote } from '../KnowledgeIndexService';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { formatRelatedReasonsLocalized, relatedReasonLabel } from '../knowledgeLabels';
+import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface RelatedNotesPanelProps {
   colors: NoteChromeColors;
@@ -14,6 +16,8 @@ export function RelatedNotesPanel({
   related,
   onNavigateToNote,
 }: RelatedNotesPanelProps) {
+  const { t, lang } = useTranslation();
+
   return (
     <div style={{ padding: '0 0 8px' }}>
       <div
@@ -25,16 +29,19 @@ export function RelatedNotesPanel({
           borderTop: `1px solid ${c.sideBdr}`,
         }}
       >
-        관련 노트{' '}
+        {t('knRelatedNotes')}{' '}
         {related.length > 0 && (
           <span style={{ color: c.accent }}>({related.length})</span>
         )}
       </div>
 
       {related.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>
-          태그·링크·언급 기준 관련 노트 없음
-        </p>
+        <>
+          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px 0' }}>
+            {t('knNoRelatedNotes')}
+          </p>
+          <CosmosEmptyHint colors={c}>{t('knCosmosHintRelated')}</CosmosEmptyHint>
+        </>
       ) : (
         related.map(item => (
           <div
@@ -82,12 +89,12 @@ export function RelatedNotesPanel({
                     fontWeight: 600,
                   }}
                 >
-                  {RELATED_REASON_LABELS[reason] ?? reason}
+                  {relatedReasonLabel(reason, lang)}
                 </span>
               ))}
             </div>
             <div style={{ fontSize: 9, color: c.textFaint, marginTop: 3 }}>
-              {formatRelatedReasons(item.reasons)}
+              {formatRelatedReasonsLocalized(item.reasons, lang)}
             </div>
           </div>
         ))

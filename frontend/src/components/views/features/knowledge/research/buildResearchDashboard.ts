@@ -1,3 +1,5 @@
+import type { Language } from '../../../../../lib/i18n';
+import { getTranslator, resolveIntlLocale } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { collectCitationsFromMarkdown } from '../../../citationUtils';
@@ -5,9 +7,9 @@ import {
   filterNotesByKind,
   getNoteKind,
   getNoteKindPromotedAt,
-  NOTE_KIND_LABELS_KO,
   type NoteKind,
 } from './noteClassification';
+import { noteKindLabel } from '../knowledgeLabels';
 import { READING_NOTE_TAG } from './readingNoteTemplate';
 
 export interface ResearchNoteEntry {
@@ -36,6 +38,7 @@ export interface ResearchDashboardData {
 
 export interface BuildResearchDashboardOptions {
   limit?: number;
+  language?: Language;
 }
 
 function toEntry(note: NoteBase, meta: string): ResearchNoteEntry {
@@ -46,11 +49,17 @@ function toEntry(note: NoteBase, meta: string): ResearchNoteEntry {
   };
 }
 
-function recentByKind(notes: readonly NoteBase[], kind: NoteKind, limit: number): ResearchNoteEntry[] {
+function formatEditedMeta(note: NoteBase, lang: Language): string {
+  const t = getTranslator(lang);
+  const date = new Date(note.updatedAt).toLocaleDateString(resolveIntlLocale(lang), { month: 'short', day: 'numeric' });
+  return t('wsEdited').replace('{time}', date);
+}
+
+function recentByKind(notes: readonly NoteBase[], kind: NoteKind, limit: number, lang: Language): ResearchNoteEntry[] {
   return filterNotesByKind(notes, kind)
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, limit)
-    .map(n => toEntry(n, `수정 ${new Date(n.updatedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}`));
+    .map(n => toEntry(n, formatEditedMeta(n, lang)));
 }
 
 function hasReadingTag(note: NoteBase): boolean {
@@ -78,6 +87,8 @@ export function buildResearchDashboard(
   opts: BuildResearchDashboardOptions = {},
 ): ResearchDashboardData {
   const limit = opts.limit ?? 6;
+  const lang = opts.language ?? 'ko';
+  const t = getTranslator(lang);
   const active = notes.filter(n => !n.deletedAt);
 
   const readingNotes = active
@@ -86,7 +97,9 @@ export function buildResearchDashboard(
     .slice(0, limit)
     .map(n => {
       const kind = getNoteKind(n);
-      const meta = kind ? `분류: ${NOTE_KIND_LABELS_KO[kind]}` : '읽기 노트';
+      const meta = kind
+        ? `${noteKindLabel(kind, lang)}`
+        : t('researchReadingNotes');
       return toEntry(n, meta);
     });
 
@@ -111,18 +124,18 @@ export function buildResearchDashboard(
     .slice(0, limit)
     .map(({ note, promotedAt }) => {
       const kind = getNoteKind(note);
-      const kindLabel = kind ? NOTE_KIND_LABELS_KO[kind] : '분류됨';
-      const when = new Date(promotedAt!).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+      const kindLabel = kind ? noteKindLabel(kind, lang) : t('knNoClassification');
+      const when = new Date(promotedAt!).toLocaleDateString(resolveIntlLocale(lang), { month: 'short', day: 'numeric' });
       return toEntry(note, `${kindLabel} · ${when}`);
     });
 
   return {
-    recentSources: recentByKind(active, 'source', limit),
+    recentSources: recentByKind(active, 'source', limit, lang),
     readingNotes,
-    literatureNotes: recentByKind(active, 'literature', limit),
-    permanentNotes: recentByKind(active, 'permanent', limit),
+    literatureNotes: recentByKind(active, 'literature', limit, lang),
+    permanentNotes: recentByKind(active, 'permanent', limit, lang),
     citationActivity: citationNotes.map(({ note, count }) =>
-      toEntry(note, `인용 ${count}건`),
+      toEntry(note, t('researchCitationMeta').replace('{count}', String(count))),
     ),
     promotionActivity,
     sourcePipeline: buildSourcePipeline(active),

@@ -1,6 +1,9 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { ConceptHubData } from '../maps/buildConceptHub';
-import { CONCEPT_RELATION_LABELS_KO, CONCEPT_RELATION_TYPES } from '../maps/conceptRelations';
+import { CONCEPT_RELATION_TYPES } from '../maps/conceptRelations';
+import { conceptRelationLabel } from '../knowledgeLabels';
+import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface ConceptHubPanelProps {
   colors: NoteChromeColors;
@@ -10,30 +13,35 @@ export interface ConceptHubPanelProps {
 
 /** Explore a concept from one place — reuses relations, backlinks, and wiki refs. */
 export function ConceptHubPanel({ colors: c, data, onNavigateToNote }: ConceptHubPanelProps) {
+  const { t, lang } = useTranslation();
+
   return (
-    <section className="be-concept-hub" style={{ padding: '0 0 8px' }} aria-label="개념 허브">
+    <section className="be-concept-hub" style={{ padding: '0 0 8px' }} aria-label={t('knConceptHub')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
-        개념 허브 · {data.centralTitle}
+        {t('knConceptHub')} · {data.centralTitle}
         {data.isConcept && <span style={{ color: c.accent, marginLeft: 6 }}>Concept</span>}
       </div>
       <div style={{ padding: '4px 10px', fontSize: 9, color: c.textFaint, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <span>백링크 {data.backlinkCount}</span>
-        <span>나가는 링크 {data.outgoingLinkCount}</span>
-        <span>들어오는 관계 {data.incomingRelationCount}</span>
+        <span>{t('knBacklinks')} {data.backlinkCount}</span>
+        <span>{t('knOutgoingLinks')} {data.outgoingLinkCount}</span>
+        <span>{t('knIncomingRelations')} {data.incomingRelationCount}</span>
       </div>
       <div style={{ padding: '4px 10px 6px', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {CONCEPT_RELATION_TYPES.map(type => (
           data.relationCounts[type] > 0 && (
             <span key={type} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: c.cardHov, border: `1px solid ${c.sideBdr}`, color: c.textMuted }}>
-              {CONCEPT_RELATION_LABELS_KO[type]} {data.relationCounts[type]}
+              {conceptRelationLabel(type, lang)} {data.relationCounts[type]}
             </span>
           )
         ))}
       </div>
       {data.relatedConcepts.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px' }}>
-          관련 개념 없음 · 개념 관계 추가
-        </p>
+        <>
+          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 8px 0' }}>
+            {t('knNoRelatedConcepts')}
+          </p>
+          <CosmosEmptyHint colors={c}>{t('knCosmosHintConcepts')}</CosmosEmptyHint>
+        </>
       ) : (
         <div style={{ padding: '0 8px' }}>
           {data.relatedConcepts.map(entry => (
@@ -55,7 +63,7 @@ export function ConceptHubPanel({ colors: c, data, onNavigateToNote }: ConceptHu
             >
               <div style={{ fontSize: 11, fontWeight: 600 }}>{entry.noteTitle}</div>
               <div style={{ fontSize: 9, color: c.textMuted }}>
-                {CONCEPT_RELATION_LABELS_KO[entry.relationType]} · {entry.direction === 'incoming' ? '←' : '→'}
+                {conceptRelationLabel(entry.relationType, lang)} · {entry.direction === 'incoming' ? '←' : '→'}
               </div>
             </button>
           ))}

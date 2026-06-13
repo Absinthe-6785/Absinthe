@@ -241,7 +241,7 @@ describe('WorkspaceDashboardView', () => {
     buttons.find(b => b.textContent?.includes('Meeting Notes'))?.click();
     expect(onSelectNote).toHaveBeenCalledWith('n-1');
 
-    buttons.find(b => b.textContent === '그래프 열기')?.click();
+    buttons.find(b => b.textContent === '코스모스 열기')?.click();
     expect(quickActions.onOpenGraph).toHaveBeenCalled();
   });
 });

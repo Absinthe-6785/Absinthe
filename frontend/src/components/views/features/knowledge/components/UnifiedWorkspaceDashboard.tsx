@@ -24,7 +24,7 @@ export interface UnifiedWorkspaceDashboardProps {
   onOpenStudyCollection?: () => void;
   onOpenResearchCollection?: () => void;
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
-  learningPathOverview?: React.ComponentProps<typeof LearningPathOverviewPanel>;
+  learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
 }

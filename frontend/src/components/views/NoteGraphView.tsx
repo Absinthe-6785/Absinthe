@@ -9,6 +9,7 @@
  */
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useTranslation, resolveIntlLocale } from '../../lib/i18n';
 import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
@@ -22,10 +23,7 @@ import {
   computeUniverseHudStats,
   DEFAULT_FOCUS_DEPTH,
   enrichGraphNodeMeta,
-  EMPTY_UNIVERSE_HEADLINE,
-  EMPTY_UNIVERSE_SUBLINE,
   edgeStrokeColor,
-  EDGE_LEGEND,
   focusUniverseEdgeOpacity,
   focusUniverseNodeOpacity,
   focusUniverseNodeOpacityByDepth,
@@ -44,6 +42,7 @@ import {
   type GraphNodeTier,
   type GraphViewMode,
 } from './features/knowledge/graph/knowledgeUniverse';
+import { edgeLegendEntries } from './features/knowledge/graphLabels';
 import {
   graphRepulsionStrength,
   graphSimulationAlphaFloor,
@@ -129,6 +128,9 @@ const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
 export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark }: NoteGraphViewProps) {
+  const { t, lang } = useTranslation();
+  const intlLocale = resolveIntlLocale(lang);
+  const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
   const svgRef   = useRef<SVGSVGElement>(null);
   const frameRef = useRef<number>(0);
 
@@ -645,7 +647,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 color: graphViewMode === mode ? '#fff' : colors.searchTxt,
               }}
             >
-              {mode === 'network' ? 'Network' : 'Universe'}
+              {mode === 'network' ? t('graphModeNetwork') : t('graphModeCosmos')}
             </button>
           ))}
         </div>
@@ -667,17 +669,17 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             backdropFilter: 'blur(8px)',
           }}
         >
-          <option value="all">All links</option>
-          <option value="backlinks">Backlinks</option>
-          <option value="mentions">Mentions</option>
-          <option value="relations">Relations</option>
+          <option value="all">{t('graphFilterAll')}</option>
+          <option value="backlinks">{t('graphFilterBacklinks')}</option>
+          <option value="mentions">{t('graphFilterMentions')}</option>
+          <option value="relations">{t('graphFilterRelations')}</option>
         </select>
 
         {/* 고립 노드 토글 */}
         {isolatedCount > 0 && (
           <button
             onClick={() => setShowIsolated(v => !v)}
-            title={showIsolated ? '고립 노드 숨기기' : '고립 노드 표시'}
+            title={showIsolated ? t('graphIsolatedHide').replace('{count}', String(isolatedCount)) : t('graphIsolatedShow').replace('{count}', String(isolatedCount))}
             style={{
               pointerEvents: 'all',
               height: 28, padding: '0 10px',
@@ -691,7 +693,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             }}
           >
             <span style={{ fontSize: 10 }}>{showIsolated ? '◉' : '○'}</span>
-            고립 {isolatedCount}
+            {t('graphIsolatedLabel')} {isolatedCount}
           </button>
         )}
 
@@ -912,7 +914,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               focusDepth,
               hasSearchFilter: matchedIds !== null,
             });
-            const tierLabel = node.tier === 'star' ? 'Star' : node.tier === 'planet' ? 'Planet' : 'Moon';
+            const tierLabel = node.tier === 'star' ? t('graphTierStar') : node.tier === 'planet' ? t('graphTierPlanet') : t('graphTierMoon');
             const ariaLabel = `${node.title.trim() || 'Untitled'}, ${tierLabel}, ${node.backlinkCount} backlinks, importance ${Math.round(node.importance)}`;
 
             const folderColor = getFolderColor(node.folderId, folderIds);
@@ -1101,24 +1103,32 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         maxWidth: 220,
       }} data-ku-universe-hud>
         <div style={{ fontWeight: 700, color: colors.txt, marginBottom: 4 }}>
-          Knowledge Universe
+          {t('cosmosUniverseTitle')}
         </div>
         <div>
-          {hudStats.nodeCount} nodes · {hudStats.linkCount} links · {hudStats.galaxyCount} galaxies
+          {t('graphHudSummary')
+            .replace('{nodes}', String(hudStats.nodeCount))
+            .replace('{links}', String(hudStats.linkCount))
+            .replace('{galaxies}', String(hudStats.galaxyCount))}
         </div>
         <div style={{ opacity: 0.85 }}>
-          {hudStats.starCount} stars · {hudStats.planetCount} planets · {hudStats.moonCount} moons
+          {t('graphHudTiers')
+            .replace('{stars}', String(hudStats.starCount))
+            .replace('{planets}', String(hudStats.planetCount))
+            .replace('{moons}', String(hudStats.moonCount))}
         </div>
         {selectedNode && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
             <div style={{ fontWeight: 600, color: colors.act, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedNode.title.trim() || 'Untitled'}
+              {selectedNode.title.trim() || t('untitledNote')}
             </div>
             <div style={{ opacity: 0.8 }}>
-              {selectedNode.backlinkCount} backlinks · {selectedNode.galaxyLabel}
+              {t('graphHudBacklinksGalaxy')
+                .replace('{count}', String(selectedNode.backlinkCount))
+                .replace('{galaxy}', selectedNode.galaxyLabel)}
             </div>
             <div style={{ opacity: 0.7 }}>
-              Updated {formatUniverseUpdatedAt(selectedNode.updatedAt)}
+              {t('graphHudUpdated').replace('{date}', formatUniverseUpdatedAt(selectedNode.updatedAt, intlLocale))}
             </div>
           </div>
         )}
@@ -1135,7 +1145,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           fontSize: 10, color: colors.toolTxt,
           pointerEvents: 'none',
         }}>
-          {EDGE_LEGEND.map(entry => (
+          {edgeLegend.map(entry => (
             <span key={entry.kind} style={{
               opacity: entry.kind === hoveredEdgeKind ? 1 : 0.45,
               fontWeight: entry.kind === hoveredEdgeKind ? 700 : 400,
@@ -1162,10 +1172,13 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             <ellipse cx="60" cy="40" rx="42" ry="28" fill="none" stroke={colors.act} strokeOpacity="0.15" strokeDasharray="4 6" />
           </svg>
           <p style={{ marginTop: 12, fontSize: 14, fontWeight: 700, color: colors.txt }}>
-            {EMPTY_UNIVERSE_HEADLINE}
+            {t('graphEmptyHeadline')}
           </p>
-          <p style={{ marginTop: 4, fontSize: 11, color: colors.toolTxt, maxWidth: 280, textAlign: 'center' }}>
-            {EMPTY_UNIVERSE_SUBLINE}
+          <p style={{ marginTop: 4, fontSize: 11, color: colors.toolTxt, maxWidth: 320, textAlign: 'center' }}>
+            {t('graphEmptySubline')}
+          </p>
+          <p style={{ marginTop: 8, fontSize: 10, color: colors.toolTxt, maxWidth: 340, textAlign: 'center', opacity: 0.85 }}>
+            {t('graphEmptyTiers')}
           </p>
         </div>
       )}
@@ -1176,10 +1189,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         fontSize: 10, color: dark ? '#444' : '#9CA3AF',
         pointerEvents: 'none',
       }}>
-        {visibleNodes.length} notes · {visibleEdges.length} links
-        {graphViewMode === 'universe' ? ' · Universe' : ' · Network'}
-        {!showIsolated && isolatedCount > 0 && ` · ${isolatedCount} hidden`}
-        {' · '}<span style={{ opacity: 0.6 }}>scroll=zoom · drag=pan</span>
+        {t('graphStatusNotesLinks')
+          .replace('{notes}', String(visibleNodes.length))
+          .replace('{links}', String(visibleEdges.length))}
+        {graphViewMode === 'universe' ? t('graphStatusCosmos') : t('graphStatusNetwork')}
+        {!showIsolated && isolatedCount > 0 && t('graphStatusHidden').replace('{count}', String(isolatedCount))}
+        {' · '}<span style={{ opacity: 0.6 }}>{t('graphStatusControls')}</span>
       </div>
 
       {hoveredNode && !selectedNode && (
@@ -1193,7 +1208,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             ◉ {hoveredNode.title}
           </div>
           <div style={{ opacity: 0.75, fontWeight: 500, marginTop: 2 }}>
-            {hoveredNode.galaxyLabel} · {hoveredNode.tier} · {hoveredNode.backlinkCount} backlinks · score {Math.round(hoveredNode.importance)}
+            {hoveredNode.galaxyLabel} · {tierLabel} · {hoveredNode.backlinkCount} {t('knBacklinks').toLowerCase()} · {t('graphHoverScore').replace('{score}', String(Math.round(hoveredNode.importance)))}
           </div>
         </div>
       )}

@@ -1,7 +1,9 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { LinkContext } from '../../../noteUtils';
 import { findWikiLinkInText } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { PageReference } from '../backlinks';
+import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface BacklinkPanelProps {
   colors: NoteChromeColors;
@@ -19,21 +21,25 @@ export function BacklinkPanel({
   contexts,
   onNavigateToNote,
 }: BacklinkPanelProps) {
+  const { t } = useTranslation();
   const contextByNoteId = new Map(contexts.map(ctx => [ctx.noteId, ctx]));
 
   return (
     <section className="be-backlink-panel" style={{ padding: '0 0 4px' }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 700 }}>
-        백링크{' '}
+        {t('knBacklinks')}{' '}
         <span style={{ color: incoming.length > 0 ? c.accent : c.textFaint }}>
           ({incoming.length})
         </span>
       </div>
 
       {incoming.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 8px 4px' }}>
-          이 노트를 참조하는 노트 없음
-        </p>
+        <>
+          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 8px 0' }}>
+            {t('knNoBacklinks')}
+          </p>
+          <CosmosEmptyHint colors={c}>{t('knCosmosHintBacklinks')}</CosmosEmptyHint>
+        </>
       ) : (
         incoming.map(ref => {
           const excerpts = contextByNoteId.get(ref.noteId)?.excerpts ?? [];

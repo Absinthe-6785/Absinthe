@@ -17,7 +17,7 @@ describe('buildResearchDashboard', () => {
       buildReadingNote(note('r1'), { title: 'Reading X' }),
       note('c1', '```citation\nBook | Author | 2020\n```'),
     ];
-    const data = buildResearchDashboard(notes, { limit: 5 });
+    const data = buildResearchDashboard(notes, { limit: 5, language: 'ko' });
     expect(data.recentSources.length).toBeGreaterThan(0);
     expect(data.literatureNotes.length).toBeGreaterThan(0);
     expect(data.permanentNotes.length).toBeGreaterThan(0);

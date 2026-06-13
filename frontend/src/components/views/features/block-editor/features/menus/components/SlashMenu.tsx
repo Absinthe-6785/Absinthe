@@ -2,6 +2,8 @@
  * SlashMenu.tsx — Slash command popup (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { useTranslation } from '../../../../../../../lib/i18n';
+import { blockTypeDesc, blockTypeLabel } from '../../../blockEditorLabels';
 import type { BlockTypeMeta } from '../../../../../blockUtils';
 import { slashMenuItemKey } from '../../../../../blockUtils';
 import { buildSlashPalette } from '../utils/slashPalette';
@@ -17,6 +19,7 @@ export interface SlashMenuProps {
 }
 
 export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClose }: SlashMenuProps) {
+  const { t, lang } = useTranslation();
   const [cursor, setCursor] = useState(0);
   const palette = useMemo(() => buildSlashPalette(query), [query]);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -58,9 +61,54 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
     el?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
-  const groupLabels: Record<string, string> = { text: '텍스트', list: '목록', media: '미디어', embed: '임베드' };
+  const groupLabels: Record<string, string> = {
+    text: t('slashGroupText'),
+    list: t('slashGroupList'),
+    media: t('slashGroupMedia'),
+    embed: t('slashGroupEmbed'),
+  };
   const top = Math.min(anchorY + 8, window.innerHeight - 380);
   const left = Math.min(anchorX, window.innerWidth - 260);
+
+  const renderItem = (item: BlockTypeMeta, idx: number) => {
+    const active = cursor === idx;
+    const shortcut = item.menuKey ?? item.type;
+    const label = blockTypeLabel(item.type, lang, item.menuKey);
+    const desc = blockTypeDesc(item.type, lang, item.menuKey);
+    return (
+      <button
+        key={slashMenuItemKey(item)}
+        data-idx={idx}
+        type="button"
+        onClick={() => onSelect(item)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+          padding: '7px 12px', background: active ? c.accentBg : 'none',
+          border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+        onMouseEnter={() => setCursor(idx)}
+      >
+        <span style={{
+          width: 28, height: 28, borderRadius: 6, background: c.toolbar,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 14, flexShrink: 0, color: c.accent,
+        }}>
+          {item.icon}
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{label}</div>
+          <div style={{ fontSize: 11, color: c.textMuted }}>{desc}</div>
+        </span>
+        {shortcut && (
+          <span style={{
+            fontSize: 10, color: c.textFaint, fontFamily: 'ui-monospace, monospace', flexShrink: 0,
+          }}>
+            /{shortcut}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   return (
     <div ref={menuRef} className="be-slash-menu" style={{
@@ -76,15 +124,15 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
             borderRadius: 4, padding: '2px 6px', fontFamily: 'ui-monospace, monospace',
           }}>/</span>
           <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 700, letterSpacing: 0.8 }}>
-            {query ? `"${query}"` : '블록 명령'}
+            {query ? t('slashMenuQuery').replace('{query}', query) : t('slashMenuTitle')}
           </span>
         </div>
         <div style={{ fontSize: 11, color: c.textMuted }}>
-          {query ? 'Enter 선택 · ↑↓ 이동 · Esc 닫기' : 'h1 · toggle1 · callout · info · math …'}
+          {query ? t('slashMenuHintSearch') : t('slashMenuHintEmpty')}
         </div>
       </div>
       {flatItems.length === 0 && (
-        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>결과 없음</div>
+        <div style={{ padding: 12, color: c.textFaint, fontSize: 13, textAlign: 'center' }}>{t('slashMenuNoResults')}</div>
       )}
       {palette.recent.length > 0 && (
         <div>
@@ -92,45 +140,9 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
             padding: '4px 12px 2px', fontSize: 9, color: c.textFaint, fontWeight: 700,
             letterSpacing: 1, textTransform: 'uppercase',
           }}>
-            최근
+            {t('slashGroupRecent')}
           </div>
-          {palette.recent.map((item, idx) => {
-            const active = cursor === idx;
-            const shortcut = item.menuKey ?? item.type;
-            return (
-              <button
-                key={`recent-${slashMenuItemKey(item)}`}
-                data-idx={idx}
-                type="button"
-                onClick={() => onSelect(item)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '7px 12px', background: active ? c.accentBg : 'none',
-                  border: 'none', cursor: 'pointer', textAlign: 'left',
-                }}
-                onMouseEnter={() => setCursor(idx)}
-              >
-                <span style={{
-                  width: 28, height: 28, borderRadius: 6, background: c.toolbar,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, flexShrink: 0, color: c.accent,
-                }}>
-                  {item.icon}
-                </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{item.label}</div>
-                  <div style={{ fontSize: 11, color: c.textMuted }}>{item.desc}</div>
-                </span>
-                {shortcut && (
-                  <span style={{
-                    fontSize: 10, color: c.textFaint, fontFamily: 'ui-monospace, monospace', flexShrink: 0,
-                  }}>
-                    /{shortcut}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {palette.recent.map((item, idx) => renderItem(item, idx))}
         </div>
       )}
       {Object.entries(grouped).map(([group, gItems]) => (
@@ -145,41 +157,7 @@ export function SlashMenu({ query, anchorY, anchorX, colors: c, onSelect, onClos
           )}
           {gItems.map(item => {
             const idx = flatItems.findIndex(f => slashMenuItemKey(f) === slashMenuItemKey(item));
-            const active = cursor === idx;
-            const shortcut = item.menuKey ?? item.type;
-            return (
-              <button
-                key={slashMenuItemKey(item)}
-                data-idx={idx}
-                type="button"
-                onClick={() => onSelect(item)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '7px 12px', background: active ? c.accentBg : 'none',
-                  border: 'none', cursor: 'pointer', textAlign: 'left',
-                }}
-                onMouseEnter={() => setCursor(idx)}
-              >
-                <span style={{
-                  width: 28, height: 28, borderRadius: 6, background: c.toolbar,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, flexShrink: 0, color: c.accent,
-                }}>
-                  {item.icon}
-                </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{item.label}</div>
-                  <div style={{ fontSize: 11, color: c.textMuted }}>{item.desc}</div>
-                </span>
-                {shortcut && (
-                  <span style={{
-                    fontSize: 10, color: c.textFaint, fontFamily: 'ui-monospace, monospace', flexShrink: 0,
-                  }}>
-                    /{shortcut}
-                  </span>
-                )}
-              </button>
-            );
+            return renderItem(item, idx);
           })}
         </div>
       ))}

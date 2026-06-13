@@ -296,9 +296,21 @@ export const EDITOR_CHROME_STYLES = `
     color: var(--be-accent, #8B5CF6);
     background: var(--be-accent-bg, rgba(139,92,246,0.08));
     border-radius: 999px;
-    padding: 0 6px;
+    padding: 1px 6px;
     font-size: 0.92em;
     font-weight: 500;
+    line-height: 1.4;
+    vertical-align: baseline;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  .be-tag {
+    line-height: 1.4;
+    vertical-align: baseline;
+  }
+  .be-tag-chip-ui {
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
   .be-live-code {
     background: var(--be-code-bg, #f1f5f9);

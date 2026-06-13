@@ -1,5 +1,5 @@
-import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useTranslation } from '../../../../../lib/i18n';
+import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { StudyDashboardData, StudyNoteEntry } from '../study/buildStudyDashboard';
 
 export interface StudyDashboardPanelProps {
@@ -93,14 +93,14 @@ export function StudyDashboardPanel({ colors: c, data, onNavigateToNote, onOpenS
     ? { label: t('emptyStudyAction'), onClick: onOpenStudyCollection }
     : undefined;
   return (
-    <div className="be-study-dashboard" aria-label="학습 대시보드">
+    <div className="be-study-dashboard" aria-label={t('studyDashboardAria')}>
       <div style={{ fontSize: 9, color: c.textFaint, marginBottom: 8 }}>
-        질문 {data.questionCount}개 · 전체 노트 기준
+        {t('studyQuestionSummary').replace('{count}', String(data.questionCount))}
       </div>
-      <Section c={c} title="최근 학습 노트" items={data.recentStudyNotes} onNavigate={onNavigateToNote} emptyAction={studyEmptyAction} />
-      <Section c={c} title="복습 후보" count={data.reviewCandidates.length} items={data.reviewCandidates} onNavigate={onNavigateToNote} />
-      <Section c={c} title="약점 주제" count={data.weakTopics.length} items={data.weakTopics} onNavigate={onNavigateToNote} />
-      <Section c={c} title="최다 복습" items={data.mostReviewed} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('studyRecentNotes')} items={data.recentStudyNotes} onNavigate={onNavigateToNote} emptyAction={studyEmptyAction} />
+      <Section c={c} title={t('studyReviewCandidates')} count={data.reviewCandidates.length} items={data.reviewCandidates} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('studyWeakTopics')} count={data.weakTopics.length} items={data.weakTopics} onNavigate={onNavigateToNote} />
+      <Section c={c} title={t('studyMostReviewed')} items={data.mostReviewed} onNavigate={onNavigateToNote} />
     </div>
   );
 }

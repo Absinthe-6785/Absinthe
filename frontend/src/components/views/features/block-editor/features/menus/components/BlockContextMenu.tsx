@@ -12,6 +12,7 @@ import {
   type BlockType,
 } from '../../../../../blockUtils';
 import { slashDisplayLabel } from '../utils/slashCommands';
+import { useTranslation } from '../../../../../../../lib/i18n';
 import { BLOCK_TINT_OPTIONS, type BlockTint } from '../../../../../blockColors';
 import { blockIcon } from '../../../../../blockIcons';
 import type { BlockEditorColors } from '../../../../../editorTypes';
@@ -54,6 +55,7 @@ export function BlockContextMenu({
   onSelect, onDelete, onMoveUp, onMoveDown, onClose,
   onChromeEnter, onChromeLeave,
 }: BlockContextMenuProps) {
+  const { lang } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState<'turn' | 'color' | null>(null);
   const turnIntoItems = useMemo(
@@ -134,7 +136,7 @@ export function BlockContextMenu({
                     border:'none', cursor:'pointer', textAlign:'left',
                   }}>
                   <span style={{ width:22, display:'flex', alignItems:'center', justifyContent:'center', color:c.accent }}>{blockIcon(item.type)}</span>
-                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{slashDisplayLabel(item.type)}</span>
+                  <span style={{ fontSize:13, fontWeight: active ? 700 : 500, color:c.text }}>{slashDisplayLabel(item.type, lang)}</span>
                 </button>
               );
             })}

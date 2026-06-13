@@ -1,16 +1,17 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ArrowRight, Plus, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { filterWikiTargets } from '../../block-editor/features/menus/utils/wikiSearch';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import { addRelationTarget, removeRelationTarget } from '../relations/noteRelations';
 import {
-  CONCEPT_RELATION_LABELS_KO,
   CONCEPT_RELATION_TYPES,
   listConceptRelations,
   type ConceptRelationType,
 } from '../maps/conceptRelations';
+import { conceptRelationLabel } from '../knowledgeLabels';
 
 export interface ConceptRelationsPanelProps {
   colors: NoteChromeColors;
@@ -31,6 +32,7 @@ export function ConceptRelationsPanel({
   onNavigateToNote,
   onResolveTargetId,
 }: ConceptRelationsPanelProps) {
+  const { t, lang } = useTranslation();
   const [relationType, setRelationType] = useState<ConceptRelationType>('related-to');
   const [targetQuery, setTargetQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -57,16 +59,16 @@ export function ConceptRelationsPanel({
   };
 
   return (
-    <section className="be-concept-relations" style={{ padding: '0 0 8px' }} aria-label="개념 관계">
+    <section className="be-concept-relations" style={{ padding: '0 0 8px' }} aria-label={t('knConceptRelations')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
-        개념 관계
+        {t('knConceptRelations')}
       </div>
       {relations.length === 0 ? (
-        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>관계 없음</p>
+        <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '6px 8px' }}>{t('knNoRelations')}</p>
       ) : (
         relations.map(rel => {
           const target = notes.find(n => n.id === rel.targetId);
-          const label = displayNoteTitle(target?.title) || '대상 없음';
+          const label = displayNoteTitle(target?.title) || t('knTargetMissing');
           return (
             <div
               key={`${rel.propertyKey}-${rel.targetId}`}
@@ -82,7 +84,7 @@ export function ConceptRelationsPanel({
               }}
             >
               <span style={{ fontSize: 9, color: c.accent, minWidth: 48 }}>
-                {CONCEPT_RELATION_LABELS_KO[rel.propertyKey as ConceptRelationType] ?? rel.propertyKey}
+                {conceptRelationLabel(rel.propertyKey as ConceptRelationType, lang) ?? rel.propertyKey}
               </span>
               <button type="button" className="btbtn" style={{ flex: 1, textAlign: 'left', fontSize: 11 }} onClick={() => target && onNavigateToNote(target.id)}>
                 <ArrowRight size={10} style={{ marginRight: 4 }} />{label}
@@ -96,14 +98,14 @@ export function ConceptRelationsPanel({
       )}
       <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <select className="bwi" style={{ fontSize: 11 }} value={relationType} onChange={e => setRelationType(e.target.value as ConceptRelationType)}>
-          {CONCEPT_RELATION_TYPES.map(t => (
-            <option key={t} value={t}>{CONCEPT_RELATION_LABELS_KO[t]}</option>
+          {CONCEPT_RELATION_TYPES.map(type => (
+            <option key={type} value={type}>{conceptRelationLabel(type, lang)}</option>
           ))}
         </select>
         <input
           className="bwi"
           style={{ fontSize: 11 }}
-          placeholder="대상 개념 제목"
+          placeholder={t('knTargetConceptTitle')}
           value={targetQuery}
           onChange={e => { setTargetQuery(e.target.value); setShowSuggestions(true); }}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
@@ -118,7 +120,7 @@ export function ConceptRelationsPanel({
           </div>
         )}
         <button type="button" className="bwbg" style={{ padding: '6px', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }} onClick={handleAdd}>
-          <Plus size={12} /> 관계 추가
+          <Plus size={12} /> {t('knAddRelation')}
         </button>
       </div>
     </section>

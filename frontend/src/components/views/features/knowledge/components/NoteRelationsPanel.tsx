@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { ArrowRight, Plus, X } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { filterWikiTargets } from '../../block-editor/features/menus/utils/wikiSearch';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
@@ -46,6 +47,7 @@ export function NoteRelationsPanel({
   onNavigateToNote,
   onResolveTargetId,
 }: NoteRelationsPanelProps) {
+  const { t } = useTranslation();
   const [propertyKey, setPropertyKey] = useState('course');
   const [targetQuery, setTargetQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -95,7 +97,7 @@ export function NoteRelationsPanel({
   };
 
   const renderTargetRow = (item: ResolvedRelationTarget) => {
-    const label = item.missing ? '대상 없음' : displayNoteTitle(item.targetTitle);
+    const label = item.missing ? t('knTargetMissing') : displayNoteTitle(item.targetTitle);
     const clickable = !item.missing;
 
     return (
@@ -141,7 +143,7 @@ export function NoteRelationsPanel({
             color: c.textMuted,
             cursor: 'pointer',
           }}
-          title="관계 제거"
+          title={t('knRemoveRelation')}
         >
           <X size={11} />
         </button>
@@ -152,12 +154,12 @@ export function NoteRelationsPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0', minHeight: 0 }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
-        나가는 관계
+        {t('knOutgoingRelations')}
       </div>
 
       {outgoingGroups.size === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 10px 12px' }}>
-          나가는 관계 없음
+          {t('knNoOutgoingRelations')}
         </p>
       ) : (
         [...outgoingGroups.entries()].map(([key, items]) => (
@@ -180,16 +182,16 @@ export function NoteRelationsPanel({
           marginTop: 4,
         }}
       >
-        참조하는 노트
+        {t('knReferencedBy')}
       </div>
 
       {incoming.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 10px 12px' }}>
-          들어오는 관계 없음
+          {t('knNoIncomingRelations')}
         </p>
       ) : (
         incoming.map(item => {
-          const label = item.missing ? '출처 없음' : displayNoteTitle(item.sourceTitle);
+          const label = item.missing ? t('knSourceMissing') : displayNoteTitle(item.sourceTitle);
           const clickable = !item.missing;
 
           return (
@@ -208,7 +210,7 @@ export function NoteRelationsPanel({
                 {label}
               </div>
               <div style={{ padding: '0 9px 6px', fontSize: 10, color: c.textMuted }}>
-                {item.edge.propertyKey} → this note
+                {t('knRelationToThisNote').replace('{key}', item.edge.propertyKey)}
               </div>
             </div>
           );
@@ -225,14 +227,14 @@ export function NoteRelationsPanel({
           marginTop: 4,
         }}
       >
-        관계 추가
+        {t('knAddRelation')}
       </div>
 
       <div style={{ padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <input
           value={propertyKey}
           onChange={e => setPropertyKey(e.target.value)}
-          placeholder="속성 키"
+          placeholder={t('knPropertyKey')}
           list="relation-key-suggestions"
           style={{
             background: c.input,
@@ -259,7 +261,7 @@ export function NoteRelationsPanel({
             }}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => window.setTimeout(() => setShowSuggestions(false), 120)}
-            placeholder="대상 노트 제목"
+            placeholder={t('knTargetNoteTitle')}
             onKeyDown={e => {
               if (e.key === 'Enter') handleAdd();
             }}
@@ -338,7 +340,7 @@ export function NoteRelationsPanel({
           }}
         >
           <Plus size={11} />
-          관계 추가
+          {t('knAddRelation')}
         </button>
       </div>
     </div>

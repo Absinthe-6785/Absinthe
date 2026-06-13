@@ -39,9 +39,10 @@ describe('slashCommandKeysMatching', () => {
 });
 
 describe('slashDisplayLabel', () => {
-  it('returns Korean labels', () => {
-    expect(slashDisplayLabel('heading1')).toBe('제목 1');
-    expect(slashDisplayLabel('heading4')).toBe('제목 4');
-    expect(slashDisplayLabel('todo')).toBe('할 일');
+  it('returns localized labels', () => {
+    expect(slashDisplayLabel('heading1', 'ko')).toBe('제목 1');
+    expect(slashDisplayLabel('heading4', 'ko')).toBe('제목 4');
+    expect(slashDisplayLabel('todo', 'ko')).toBe('할 일');
+    expect(slashDisplayLabel('heading1', 'en')).toBe('Heading 1');
   });
 });

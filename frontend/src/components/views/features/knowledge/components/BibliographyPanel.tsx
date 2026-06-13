@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { CitationEntry } from '../../../citationUtils';
 import { formatCitationLine } from '../../../citationUtils';
@@ -12,6 +13,7 @@ export interface BibliographyPanelProps {
 
 /** Note-local bibliography from citation blocks with APA / BibTeX export. */
 export function BibliographyPanel({ colors: c, citations }: BibliographyPanelProps) {
+  const { t } = useTranslation();
   const [exportMsg, setExportMsg] = useState('');
 
   const runExport = async (format: 'apa' | 'bibtex') => {
@@ -20,15 +22,17 @@ export function BibliographyPanel({ colors: c, citations }: BibliographyPanelPro
       ? exportCitationsAsAPA(citations)
       : exportCitationsAsBibTeX(citations);
     const ok = await copyPlainTextToClipboard(text);
-    setExportMsg(ok ? (format === 'apa' ? 'APA 복사됨' : 'BibTeX 복사됨') : '복사 실패');
+    setExportMsg(ok
+      ? (format === 'apa' ? t('knApaCopied') : t('knBibtexCopied'))
+      : t('knCopyFailed'));
     window.setTimeout(() => setExportMsg(''), 2000);
   };
 
   return (
-    <section className="be-bibliography-panel" style={{ padding: '0 0 8px' }} aria-label="참고문헌">
+    <section className="be-bibliography-panel" style={{ padding: '0 0 8px' }} aria-label={t('knBibliography')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <span>
-          참고문헌{' '}
+          {t('knBibliography')}{' '}
           <span style={{ color: citations.length > 0 ? c.accent : c.textFaint }}>
             ({citations.length})
           </span>
@@ -49,7 +53,7 @@ export function BibliographyPanel({ colors: c, citations }: BibliographyPanelPro
       )}
       {citations.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px' }}>
-          인용 블록 없음 · /citation
+          {t('knNoCitationBlocks')}
         </p>
       ) : (
         <ol style={{ margin: '0 8px', paddingLeft: 18, fontSize: 11, lineHeight: 1.55, color: c.text }}>
