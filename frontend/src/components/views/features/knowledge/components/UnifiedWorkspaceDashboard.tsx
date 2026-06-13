@@ -21,6 +21,8 @@ export interface UnifiedWorkspaceDashboardProps {
   data: UnifiedWorkspaceDashboardData;
   onNavigateToNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+  onOpenStudyCollection?: () => void;
+  onOpenResearchCollection?: () => void;
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
   learningPathOverview?: React.ComponentProps<typeof LearningPathOverviewPanel>;
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
@@ -83,6 +85,8 @@ export function UnifiedWorkspaceDashboard({
   data,
   onNavigateToNote,
   onActivateSubjectWorkspace,
+  onOpenStudyCollection,
+  onOpenResearchCollection,
   projectQuickActions,
   learningPathOverview,
   learningPathEditor,
@@ -105,12 +109,23 @@ export function UnifiedWorkspaceDashboard({
             onNavigateToNote={onNavigateToNote}
             compact
           />
+          {learningPathOverview && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>학습 경로</div>
+              <LearningPathOverviewPanel colors={c} {...learningPathOverview} onNavigateToNote={onNavigateToNote} />
+            </>
+          )}
         </div>
       )}
 
       {section === 'learning' && (
         <div>
-          <StudyDashboardPanel colors={c} data={data.study} onNavigateToNote={onNavigateToNote} />
+          <StudyDashboardPanel
+            colors={c}
+            data={data.study}
+            onNavigateToNote={onNavigateToNote}
+            onOpenStudyCollection={onOpenStudyCollection}
+          />
           <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>주제</div>
           <SubjectMapsDashboardPanel
             colors={c}
@@ -141,7 +156,12 @@ export function UnifiedWorkspaceDashboard({
       )}
 
       {section === 'research' && (
-        <ResearchDashboardPanel colors={c} data={data.research} onNavigateToNote={onNavigateToNote} />
+        <ResearchDashboardPanel
+          colors={c}
+          data={data.research}
+          onNavigateToNote={onNavigateToNote}
+          onOpenResearchCollection={onOpenResearchCollection}
+        />
       )}
 
       {section === 'projects' && (
@@ -149,7 +169,12 @@ export function UnifiedWorkspaceDashboard({
           {projectQuickActions && (
             <ProjectQuickActions colors={c} {...projectQuickActions} compact={compact} />
           )}
-          <ProjectDashboardPanel colors={c} data={data.projects} onNavigateToNote={onNavigateToNote} />
+          <ProjectDashboardPanel
+            colors={c}
+            data={data.projects}
+            onNavigateToNote={onNavigateToNote}
+            onCreateProject={projectQuickActions?.onCreateProject}
+          />
         </div>
       )}
     </div>

@@ -24,6 +24,7 @@ import {
 } from './buildRangeTraceProjection';
 import type { AreaRangeTraceProjection, AreaTraceProjection } from './areaTraceModels';
 import type { TraceRangeLens } from './rangeTraceModels';
+import { useTranslation } from '../../../../../lib/i18n';
 
 export interface AreaTraceViewProps {
   colors: NoteChromeColors;
@@ -114,12 +115,6 @@ function isCustomRangeReady(range: TraceRangeLens): boolean {
   }
 }
 
-function formatAreaEmptyMessage(areaRange: TraceRangeLens | null): string {
-  return areaRange
-    ? 'No traces linked to this area during this period.'
-    : 'No traces linked to this area yet.';
-}
-
 function AreaTraceBody({
   colors: c,
   projection,
@@ -133,6 +128,7 @@ function AreaTraceBody({
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
 }) {
+  const { t } = useTranslation();
   const activity = 'notesTouched' in projection
     ? { notesTouched: projection.notesTouched, notesCreated: projection.notesCreated }
     : null;
@@ -140,7 +136,7 @@ function AreaTraceBody({
   return (
     <>
       {projection.milestones.length > 0 && (
-        <TraceSection colors={c} title="Milestones">
+        <TraceSection colors={c} title={t('traceSectionMilestones')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {projection.milestones.map(item => (
               <TraceNoteButton
@@ -157,7 +153,7 @@ function AreaTraceBody({
       )}
 
       {projection.events.length > 0 && (
-        <TraceSection colors={c} title="Events">
+        <TraceSection colors={c} title={t('traceSectionEvents')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {projection.events.map(item => (
               <TraceNoteButton
@@ -174,7 +170,7 @@ function AreaTraceBody({
       )}
 
       {areaRange && activity && (activity.notesTouched > 0 || activity.notesCreated > 0) && (
-        <TraceSection colors={c} title="Activity Overview">
+        <TraceSection colors={c} title={t('traceSectionActivity')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.textMuted }}>
             {activity.notesTouched > 0 && (
               <div>{activity.notesTouched} notes touched</div>
@@ -187,7 +183,7 @@ function AreaTraceBody({
       )}
 
       {projection.linkedNotes.length > 0 && (
-        <TraceSection colors={c} title="Linked Notes">
+        <TraceSection colors={c} title={t('traceSectionLinkedNotes')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {projection.linkedNotes.map(item => (
               <TraceNoteButton
@@ -214,6 +210,7 @@ export function AreaTraceView({
   onSelectNote,
   onAreaRangeChange,
 }: AreaTraceViewProps) {
+  const { t } = useTranslation();
   const currentMonth = useMemo(() => currentTraceMonth(), []);
   const currentQuarter = useMemo(() => currentTraceQuarter(), []);
   const currentYear = useMemo(() => currentTraceYear(), []);
@@ -480,7 +477,7 @@ export function AreaTraceView({
             fontSize: 12,
             lineHeight: 1.5,
           }}>
-            {formatAreaEmptyMessage(areaRange)}
+            {areaRange ? t('traceEmptyAreaPeriod') : t('traceEmptyArea')}
           </div>
         )
       ) : (

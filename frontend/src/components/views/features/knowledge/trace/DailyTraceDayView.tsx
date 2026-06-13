@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import { toDateKey } from '../databaseViews/parseDatabaseDate';
 import { buildDailyTraceProjection } from './buildDailyTraceProjection';
 import type { TraceActivity } from './dailyTraceModels';
@@ -103,6 +104,7 @@ export function DailyTraceDayView({
   onSelectNote,
   onDateChange,
 }: DailyTraceDayViewProps) {
+  const { t } = useTranslation();
   const todayKey = toDateKey(new Date());
   const yesterdayKey = shiftDateKey(todayKey, -1);
 
@@ -138,7 +140,7 @@ export function DailyTraceDayView({
           {formatTraceDayHeading(date)}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-          <button type="button" className="btbtn" onClick={goPreviousDay} title="Previous day">
+          <button type="button" className="btbtn" onClick={goPreviousDay} title={t('traceNavPrevDay')}>
             <ChevronLeft size={14} />
           </button>
           <button
@@ -147,7 +149,7 @@ export function DailyTraceDayView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onDateChange(todayKey)}
           >
-            Today
+            {t('traceNavToday')}
           </button>
           <button
             type="button"
@@ -155,7 +157,7 @@ export function DailyTraceDayView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onDateChange(yesterdayKey)}
           >
-            Yesterday
+            {t('traceNavYesterday')}
           </button>
           <input
             type="date"
@@ -167,7 +169,7 @@ export function DailyTraceDayView({
             style={{ fontSize: 10, padding: '2px 6px', maxWidth: 130 }}
             aria-label="Select date"
           />
-          <button type="button" className="btbtn" onClick={goNextDay} title="Next day">
+          <button type="button" className="btbtn" onClick={goNextDay} title={t('traceNavNextDay')}>
             <ChevronRight size={14} />
           </button>
         </div>
@@ -181,12 +183,12 @@ export function DailyTraceDayView({
           fontSize: 12,
           lineHeight: 1.5,
         }}>
-          No traces recorded for this day.
+          {t('traceEmptyDay')}
         </div>
       ) : (
         <>
           {projection.milestones.length > 0 && (
-            <TraceSection colors={c} title="Milestones">
+            <TraceSection colors={c} title={t('traceSectionMilestones')}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {projection.milestones.map(item => (
                   <TraceNoteButton
@@ -203,7 +205,7 @@ export function DailyTraceDayView({
           )}
 
           {projection.events.length > 0 && (
-            <TraceSection colors={c} title="Events">
+            <TraceSection colors={c} title={t('traceSectionEvents')}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {projection.events.map(item => (
                   <TraceNoteButton
@@ -220,7 +222,7 @@ export function DailyTraceDayView({
           )}
 
           {projection.activities.length > 0 && (
-            <TraceSection colors={c} title="Activity">
+            <TraceSection colors={c} title={t('traceSectionActivityShort')}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {created.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -257,7 +259,7 @@ export function DailyTraceDayView({
           )}
 
           {dailyAnchor && (
-            <TraceSection colors={c} title="Daily Note">
+            <TraceSection colors={c} title={t('traceSectionDailyNote')}>
               <TraceNoteButton
                 colors={c}
                 active={dailyAnchor.id === activeNoteId}

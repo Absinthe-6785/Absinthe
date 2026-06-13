@@ -94,6 +94,8 @@ export interface WorkspaceDashboardUnifiedProps {
   data: UnifiedWorkspaceDashboardData;
   onSelectNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+  onOpenStudyCollection?: () => void;
+  onOpenResearchCollection?: () => void;
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
   learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
   learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
@@ -413,6 +415,8 @@ export function WorkspaceDashboardView({
             data={unified.data}
             onNavigateToNote={unified.onSelectNote}
             onActivateSubjectWorkspace={unified.onActivateSubjectWorkspace}
+            onOpenStudyCollection={unified.onOpenStudyCollection}
+            onOpenResearchCollection={unified.onOpenResearchCollection}
             projectQuickActions={unified.projectQuickActions}
             learningPathOverview={unified.learningPathOverview}
             learningPathEditor={unified.learningPathEditor}
