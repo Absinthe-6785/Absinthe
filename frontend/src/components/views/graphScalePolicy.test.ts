@@ -9,6 +9,8 @@ describe('graphScalePolicy', () => {
     expect(graphScaleTier(50)).toBe('normal');
     expect(graphScaleTier(100)).toBe('large');
     expect(graphScaleTier(250)).toBe('xlarge');
+    expect(graphScaleTier(500)).toBe('massive');
+    expect(graphScaleTier(1000)).toBe('galaxy');
   });
 
   it('suppresses ambient labels on large graphs', () => {
