@@ -134,6 +134,8 @@ export function LocalGraphView({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [relationshipFilter, setRelationshipFilter] = useState<LocalGraphRelationshipFilter>('all');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [size, setSize] = useState({ w: 180, h: 220 });
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const [panning, setPanning] = useState(false);
@@ -158,7 +160,14 @@ export function LocalGraphView({
 
   useEffect(() => {
     setTransform({ x: 0, y: 0, k: 1 });
+    setSelectedNodeId(graphData.centerNoteId);
   }, [graphData.centerNoteId]);
+
+  useEffect(() => {
+    if (selectedNodeId && !graphData.nodes.some(n => n.noteId === selectedNodeId)) {
+      setSelectedNodeId(graphData.centerNoteId);
+    }
+  }, [graphData.nodes, graphData.centerNoteId, selectedNodeId]);
 
   useEffect(() => {
     const el = svgRef.current;
@@ -226,6 +235,16 @@ export function LocalGraphView({
     [graphData.edges, relationshipFilter],
   );
 
+  const selectedNode = selectedNodeId
+    ? graphData.nodes.find(n => n.noteId === selectedNodeId) ?? null
+    : null;
+  const hoveredNode = hoveredNodeId
+    ? graphData.nodes.find(n => n.noteId === hoveredNodeId) ?? null
+    : null;
+  const selectedEdgeCount = selectedNodeId
+    ? visibleEdges.filter(e => e.sourceId === selectedNodeId || e.targetId === selectedNodeId).length
+    : 0;
+
   return (
     <div
       ref={containerRef}
@@ -289,6 +308,54 @@ export function LocalGraphView({
         </button>
       </div>
 
+      {(hoveredNode || selectedNode) && (
+        <div
+          style={{
+            padding: '5px 8px',
+            borderBottom: `1px solid ${c.sideBdr}`,
+            fontSize: 10,
+            color: c.textMuted,
+            background: c.cardHov,
+            minHeight: 28,
+          }}
+        >
+          {selectedNode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: c.text, fontWeight: 600 }}>
+                {displayNoteTitle(selectedNode.title)}
+              </span>
+              {selectedNode.type !== 'current' && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate(selectedNode.noteId)}
+                  style={{
+                    background: c.accent,
+                    border: 'none',
+                    borderRadius: 4,
+                    color: c.sidebar,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  열기
+                </button>
+              )}
+              <span style={{ fontSize: 9, color: c.textFaint, flexShrink: 0 }}>
+                {selectedEdgeCount} 연결
+              </span>
+            </div>
+          )}
+          {hoveredNode && hoveredNode.noteId !== selectedNode?.noteId && (
+            <div style={{ marginTop: selectedNode ? 3 : 0, color: c.textFaint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              미리보기: {displayNoteTitle(hoveredNode.title)}
+            </div>
+          )}
+        </div>
+      )}
+
       {isEmpty ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '24px 8px' }}>
           연결된 노트 없음
@@ -339,6 +406,8 @@ export function LocalGraphView({
 
             {layoutNodes.map(node => {
               const isCenter = node.type === 'current';
+              const isSelected = node.noteId === selectedNodeId;
+              const isHovered = node.noteId === hoveredNodeId;
               const radius = isCenter ? CENTER_RADIUS : NODE_RADIUS;
               const canExpand = !isCenter && node.expandable && !node.expanded && onExpandNode;
               const canCollapse = !isCenter && node.expanded && onCollapseNode;
@@ -356,19 +425,36 @@ export function LocalGraphView({
                     />
                   )}
 
+                  {isSelected && !isCenter && (
+                    <circle
+                      r={radius + 3}
+                      fill="none"
+                      stroke={c.accent}
+                      strokeWidth={2}
+                      opacity={0.9}
+                    />
+                  )}
+
                   <g
                     style={{ cursor: isCenter ? 'default' : 'pointer' }}
+                    onMouseEnter={() => setHoveredNodeId(node.noteId)}
+                    onMouseLeave={() => setHoveredNodeId(prev => (prev === node.noteId ? null : prev))}
                     onClick={e => {
+                      e.stopPropagation();
+                      setSelectedNodeId(node.noteId);
+                    }}
+                    onDoubleClick={e => {
                       e.stopPropagation();
                       if (!isCenter) onNavigate(node.noteId);
                     }}
                   >
                     <circle
                       r={radius}
-                      fill={isCenter ? c.accentBg : c.cardHov}
-                      stroke={isCenter ? c.accent : c.sideBdr}
-                      strokeWidth={isCenter ? 2.5 : 1.5}
+                      fill={isCenter ? c.accentBg : isHovered ? c.cardAct : c.cardHov}
+                      stroke={isCenter ? c.accent : isSelected ? c.accent : c.sideBdr}
+                      strokeWidth={isCenter ? 2.5 : isSelected ? 2 : 1.5}
                     />
+                    <title>{displayNoteTitle(node.title)}</title>
                     <text
                       textAnchor="middle"
                       dominantBaseline="middle"
