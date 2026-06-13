@@ -9,6 +9,7 @@ export interface SubjectWorkspacesPanelProps {
   subjects: readonly SubjectWorkspaceData[];
   onNavigateToNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+  onEditProject?: (projectId: string) => void;
 }
 
 /** Tabbed subject workspaces — one coherent panel per subject. */
@@ -17,6 +18,7 @@ export function SubjectWorkspacesPanel({
   subjects,
   onNavigateToNote,
   onActivateSubjectWorkspace,
+  onEditProject,
 }: SubjectWorkspacesPanelProps) {
   const [activeId, setActiveId] = useState(subjects[0]?.subject.id ?? '');
   const active = subjects.find(s => s.subject.id === activeId) ?? subjects[0];
@@ -64,6 +66,7 @@ export function SubjectWorkspacesPanel({
               ? () => onActivateSubjectWorkspace(active.workspaceCollectionId!)
               : undefined
           }
+          onEditProject={onEditProject}
         />
       )}
     </div>

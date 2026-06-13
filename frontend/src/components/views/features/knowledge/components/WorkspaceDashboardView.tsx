@@ -42,6 +42,7 @@ import { UnifiedWorkspaceDashboard } from './UnifiedWorkspaceDashboard';
 import type { ProjectQuickActionsProps } from './ProjectQuickActions';
 import type { LearningPathOverviewData } from '../maps/buildLearningPathOverview';
 import { LearningPathOverviewPanel } from './LearningPathOverviewPanel';
+import { LearningPathEditorPanel } from './LearningPathEditorPanel';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import { SubjectWorkspacesPanel } from './SubjectWorkspacesPanel';
 
@@ -92,17 +93,32 @@ export interface WorkspaceDashboardUnifiedProps {
   onSelectNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
+  learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
+  learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
+}
+
+export interface WorkspaceDashboardLearningPathEditorProps {
+  pathId: string | null;
+  notes: readonly NoteBase[];
+  activeNoteId?: string | null;
+  onPathIdChange: (pathId: string | null) => void;
+  onUpdateNoteProperties: (noteId: string, properties: Record<string, string>) => void;
+  onCreateNote?: (title: string) => string;
 }
 
 export interface WorkspaceDashboardLearningPathProps {
   data: LearningPathOverviewData;
   onSelectNote: (noteId: string) => void;
+  onCreatePath?: () => void;
+  onOpenPathEditor?: (pathId: string) => void;
+  editor?: WorkspaceDashboardLearningPathEditorProps;
 }
 
 export interface WorkspaceDashboardSubjectWorkspacesProps {
   subjects: readonly SubjectWorkspaceData[];
   onSelectNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
+  onEditProject?: (projectId: string) => void;
 }
 
 export interface WorkspaceDashboardQuickActions {
@@ -392,6 +408,8 @@ export function WorkspaceDashboardView({
             onNavigateToNote={unified.onSelectNote}
             onActivateSubjectWorkspace={unified.onActivateSubjectWorkspace}
             projectQuickActions={unified.projectQuickActions}
+            learningPathOverview={unified.learningPathOverview}
+            learningPathEditor={unified.learningPathEditor}
           />
         </Card>
       )}
@@ -483,7 +501,21 @@ export function WorkspaceDashboardView({
             colors={c}
             data={learningPath.data}
             onNavigateToNote={learningPath.onSelectNote}
+            onCreatePath={learningPath.onCreatePath}
+            onOpenPathEditor={learningPath.onOpenPathEditor}
           />
+          {learningPath.editor && (
+            <LearningPathEditorPanel
+              colors={c}
+              pathId={learningPath.editor.pathId}
+              notes={learningPath.editor.notes}
+              activeNoteId={learningPath.editor.activeNoteId}
+              onPathIdChange={learningPath.editor.onPathIdChange}
+              onUpdateNoteProperties={learningPath.editor.onUpdateNoteProperties}
+              onCreateNote={learningPath.editor.onCreateNote}
+              onNavigateToNote={learningPath.onSelectNote}
+            />
+          )}
         </Card>
       )}
 
@@ -494,6 +526,7 @@ export function WorkspaceDashboardView({
             subjects={subjectWorkspaces.subjects}
             onNavigateToNote={subjectWorkspaces.onSelectNote}
             onActivateSubjectWorkspace={subjectWorkspaces.onActivateSubjectWorkspace}
+            onEditProject={subjectWorkspaces.onEditProject}
           />
         </Card>
       )}

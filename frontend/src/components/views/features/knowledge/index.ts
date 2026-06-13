@@ -88,6 +88,9 @@ export {
 export { UnifiedWorkspaceDashboard, type UnifiedWorkspaceDashboardProps, type UnifiedDashboardSection } from './components/UnifiedWorkspaceDashboard';
 export { ProjectQuickActions, type ProjectQuickActionsProps } from './components/ProjectQuickActions';
 export { LearningPathOverviewPanel, type LearningPathOverviewPanelProps } from './components/LearningPathOverviewPanel';
+export { ProjectEditorPanel, type ProjectEditorPanelProps } from './components/ProjectEditorPanel';
+export { MilestoneEditorPanel, type MilestoneEditorPanelProps } from './components/MilestoneEditorPanel';
+export { LearningPathEditorPanel, type LearningPathEditorPanelProps } from './components/LearningPathEditorPanel';
 export { SubjectWorkspacePanel, type SubjectWorkspacePanelProps } from './components/SubjectWorkspacePanel';
 export { SubjectWorkspacesPanel, type SubjectWorkspacesPanelProps } from './components/SubjectWorkspacesPanel';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
@@ -173,6 +176,19 @@ export {
 } from './maps/buildLearningPathOverview';
 
 export {
+  slugifyLearningPathId,
+  formatLearningPathLabel,
+  learningPathIdExists,
+  buildLearningPathRenamePatches,
+  buildLearningPathNormalizePatches,
+  buildLearningPathMovePatches,
+  buildAddNoteToLearningPathProperties,
+  buildRemoveNoteFromLearningPathProperties,
+  nextLearningPathStep,
+  buildLearningPathEditorModel,
+} from './maps/learningPathEditor';
+
+export {
   buildKnowledgeClusters,
   type ClusterEntry,
   type TagCluster,
@@ -215,6 +231,13 @@ export {
   type StudyProjectStatus,
   type StudyProjectSummary,
 } from './academic/studyProjectModels';
+
+export {
+  buildProjectEditorData,
+  type ProjectEditorData,
+  type ProjectEditorEntry,
+  type BuildProjectEditorDataOptions,
+} from './academic/buildProjectEditorData';
 
 export {
   PROJECT_MILESTONE_MARKER,

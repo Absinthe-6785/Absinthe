@@ -10,6 +10,8 @@ import { SubjectMapsDashboardPanel } from './SubjectMapsDashboardPanel';
 import { KnowledgeClusterPanel } from './KnowledgeClusterPanel';
 import { ProjectDashboardPanel } from './ProjectDashboardPanel';
 import { ProjectQuickActions, type ProjectQuickActionsProps } from './ProjectQuickActions';
+import { LearningPathOverviewPanel } from './LearningPathOverviewPanel';
+import { LearningPathEditorPanel, type LearningPathEditorPanelProps } from './LearningPathEditorPanel';
 
 export type UnifiedDashboardSection = 'overview' | 'learning' | 'research' | 'projects';
 
@@ -19,6 +21,8 @@ export interface UnifiedWorkspaceDashboardProps {
   onNavigateToNote: (noteId: string) => void;
   onActivateSubjectWorkspace?: (collectionId: SmartCollectionId) => void;
   projectQuickActions?: Omit<ProjectQuickActionsProps, 'colors'>;
+  learningPathOverview?: React.ComponentProps<typeof LearningPathOverviewPanel>;
+  learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
 }
 
 const SECTION_LABELS: Record<UnifiedDashboardSection, string> = {
@@ -73,6 +77,8 @@ export function UnifiedWorkspaceDashboard({
   onNavigateToNote,
   onActivateSubjectWorkspace,
   projectQuickActions,
+  learningPathOverview,
+  learningPathEditor,
 }: UnifiedWorkspaceDashboardProps) {
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
 
@@ -108,6 +114,19 @@ export function UnifiedWorkspaceDashboard({
             <>
               <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>지식 클러스터</div>
               <KnowledgeClusterPanel colors={c} data={data.clusters} onNavigateToNote={onNavigateToNote} />
+            </>
+          )}
+          {learningPathOverview && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, margin: '12px 0 6px' }}>학습 경로</div>
+              <LearningPathOverviewPanel colors={c} {...learningPathOverview} />
+              {learningPathEditor && (
+                <LearningPathEditorPanel
+                  colors={c}
+                  {...learningPathEditor}
+                  onNavigateToNote={onNavigateToNote}
+                />
+              )}
             </>
           )}
         </div>

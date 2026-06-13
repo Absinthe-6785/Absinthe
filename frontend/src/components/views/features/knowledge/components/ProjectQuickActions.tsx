@@ -1,4 +1,4 @@
-import { FolderKanban, Flag, Orbit } from 'lucide-react';
+import { FolderKanban, Flag, Orbit, Pencil } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
 export interface ProjectQuickActionsProps {
@@ -6,6 +6,7 @@ export interface ProjectQuickActionsProps {
   onCreateProject: () => void;
   onCreateMilestone: () => void;
   onOpenProjectNotes: () => void;
+  onEditProject?: () => void;
 }
 
 function ActionButton({
@@ -51,6 +52,7 @@ export function ProjectQuickActions({
   onCreateProject,
   onCreateMilestone,
   onOpenProjectNotes,
+  onEditProject,
 }: ProjectQuickActionsProps) {
   return (
     <div
@@ -60,6 +62,9 @@ export function ProjectQuickActions({
     >
       <ActionButton c={c} icon={Orbit} label="프로젝트 만들기" onClick={onCreateProject} />
       <ActionButton c={c} icon={Flag} label="마일스톤 만들기" onClick={onCreateMilestone} />
+      {onEditProject && (
+        <ActionButton c={c} icon={Pencil} label="프로젝트 편집" onClick={onEditProject} />
+      )}
       <ActionButton c={c} icon={FolderKanban} label="프로젝트 노트 열기" onClick={onOpenProjectNotes} />
     </div>
   );
