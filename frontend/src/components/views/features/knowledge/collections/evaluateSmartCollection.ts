@@ -5,6 +5,11 @@ import { isStudyNote, REVIEW_NOTE_TAG, EXAM_PREP_TAG } from '../study/studyNoteT
 import { filterWeakTopicNotes } from '../study/weakTopicTracking';
 import { noteHasQuestionBlocks } from '../../../studyBlockUtils';
 import { hasTag } from '../tags/noteTags';
+import {
+  filterStudyProjectContainers,
+} from '../academic/studyProjectModels';
+import { filterProjectMilestones } from '../academic/projectMilestoneModels';
+import { findSubjectByWorkspaceCollectionId } from '../maps/subjectDashboards';
 import type { SmartCollectionId } from './smartCollectionModels';
 
 /**
@@ -67,9 +72,43 @@ export function evaluateSmartCollection(
       return filterNotesByKind(notes, 'concept')
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
         .map(n => n.id);
+    case 'academic-study-projects':
+      return filterStudyProjectContainers(notes)
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'academic-active-projects':
+      return filterStudyProjectContainers(notes, 'active')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'academic-completed-projects':
+      return filterStudyProjectContainers(notes, 'completed')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'academic-milestones':
+      return filterProjectMilestones(notes)
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
+    case 'subject-japanese-history':
+    case 'subject-politics':
+    case 'subject-economics':
+    case 'subject-toefl':
+    case 'subject-vocabulary':
+      return evaluateSubjectWorkspaceCollection(collectionId, notes);
     default: {
       const _exhaustive: never = collectionId;
       return _exhaustive;
     }
   }
+}
+
+function evaluateSubjectWorkspaceCollection(
+  collectionId: SmartCollectionId,
+  notes: readonly NoteBase[],
+): string[] {
+  const subject = findSubjectByWorkspaceCollectionId(collectionId);
+  if (!subject) return [];
+  return notes
+    .filter(n => !n.deletedAt && hasTag(n, subject.tag))
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    .map(n => n.id);
 }

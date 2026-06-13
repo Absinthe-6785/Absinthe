@@ -25,11 +25,13 @@ function note(
 
 describe('smart collection catalog', () => {
   it('defines phase-1 and research collections', () => {
-    expect(SMART_COLLECTIONS).toHaveLength(14);
+    expect(SMART_COLLECTIONS).toHaveLength(23);
     expect(findSmartCollection('orphan')?.name).toBe('Orphan Notes');
     expect(findSmartCollection('research-sources')?.name).toBe('Sources');
     expect(findSmartCollection('exam-study-notes')?.name).toBe('Study Notes');
     expect(findSmartCollection('map-concepts')?.name).toBe('Concept Notes');
+    expect(findSmartCollection('academic-active-projects')?.name).toBe('Active Projects');
+    expect(findSmartCollection('subject-toefl')?.name).toBe('TOEFL Workspace');
   });
 
   it('activates by returning collection id', () => {
@@ -159,6 +161,20 @@ describe('evaluateSmartCollection', () => {
     expect(evaluateSmartCollection('exam-weak-topics', service, examNotes)).toEqual(['weak']);
     expect(evaluateSmartCollection('exam-review-notes', service, examNotes)).toEqual(['review']);
     expect(evaluateSmartCollection('exam-prep', service, examNotes)).toEqual(['exam']);
+  });
+
+  it('returns academic project and subject workspace collections', () => {
+    const notes = [
+      note('p1', 'EJU', '', { updatedAt: 300, properties: { studyProject: 'yes', studyProjectStatus: 'active' } }),
+      note('p2', 'Done', '', { updatedAt: 200, properties: { studyProject: 'yes', studyProjectStatus: 'completed' } }),
+      note('m1', 'Milestone', '', { updatedAt: 150, properties: { projectMilestone: 'yes', studyProjectId: 'p1' } }),
+      note('t1', 'TOEFL note', '', { updatedAt: 100, properties: { tags: 'toefl' } }),
+    ];
+    expect(evaluateSmartCollection('academic-study-projects', service, notes)).toEqual(['p1', 'p2']);
+    expect(evaluateSmartCollection('academic-active-projects', service, notes)).toEqual(['p1']);
+    expect(evaluateSmartCollection('academic-completed-projects', service, notes)).toEqual(['p2']);
+    expect(evaluateSmartCollection('academic-milestones', service, notes)).toEqual(['m1']);
+    expect(evaluateSmartCollection('subject-toefl', service, notes)).toEqual(['t1']);
   });
 });
 

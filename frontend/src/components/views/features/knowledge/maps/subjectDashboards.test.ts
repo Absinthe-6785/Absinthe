@@ -22,6 +22,7 @@ describe('subjectDashboards', () => {
     expect(dash?.subject.name).toBe('Japanese History');
     expect(dash?.noteCount).toBe(2);
     expect(dash?.conceptCount).toBe(1);
+    expect(dash?.workspaceCollectionId).toBe('subject-japanese-history');
     expect(SUBJECT_DASHBOARDS.length).toBeGreaterThanOrEqual(5);
   });
 
