@@ -26,6 +26,10 @@ import type { ResearchDashboardData } from '../research/buildResearchDashboard';
 import { ResearchDashboardPanel } from './ResearchDashboardPanel';
 import type { StudyDashboardData } from '../study/buildStudyDashboard';
 import { StudyDashboardPanel } from './StudyDashboardPanel';
+import type { SubjectDashboardData } from '../maps/subjectDashboards';
+import type { KnowledgeClusterData } from '../maps/buildKnowledgeClusters';
+import { SubjectMapsDashboardPanel } from './SubjectMapsDashboardPanel';
+import { KnowledgeClusterPanel } from './KnowledgeClusterPanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -44,6 +48,12 @@ export interface WorkspaceDashboardResearchProps {
 
 export interface WorkspaceDashboardStudyProps {
   data: StudyDashboardData;
+  onSelectNote: (noteId: string) => void;
+}
+
+export interface WorkspaceDashboardKnowledgeMapsProps {
+  subjects: readonly SubjectDashboardData[];
+  clusters: KnowledgeClusterData;
   onSelectNote: (noteId: string) => void;
 }
 
@@ -102,6 +112,7 @@ export interface WorkspaceDashboardViewProps {
   maintenance?: WorkspaceDashboardMaintenanceProps;
   research?: WorkspaceDashboardResearchProps;
   study?: WorkspaceDashboardStudyProps;
+  knowledgeMaps?: WorkspaceDashboardKnowledgeMapsProps;
   recentNotesLimit?: number;
 }
 
@@ -186,6 +197,7 @@ export function WorkspaceDashboardView({
   maintenance,
   research,
   study,
+  knowledgeMaps,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -324,6 +336,25 @@ export function WorkspaceDashboardView({
             onNavigateToNote={study.onSelectNote}
           />
         </Card>
+      )}
+
+      {knowledgeMaps && (
+        <>
+          <Card colors={c} title="주제 지식">
+            <SubjectMapsDashboardPanel
+              colors={c}
+              subjects={knowledgeMaps.subjects}
+              onNavigateToNote={knowledgeMaps.onSelectNote}
+            />
+          </Card>
+          <Card colors={c} title="지식 클러스터">
+            <KnowledgeClusterPanel
+              colors={c}
+              data={knowledgeMaps.clusters}
+              onNavigateToNote={knowledgeMaps.onSelectNote}
+            />
+          </Card>
+        </>
       )}
 
       {review && (
