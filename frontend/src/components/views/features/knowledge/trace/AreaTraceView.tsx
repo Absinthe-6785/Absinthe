@@ -252,7 +252,7 @@ export function AreaTraceView({
         label: customDraft.label.trim() || undefined,
       });
     } catch (err) {
-      setCustomError(err instanceof Error ? err.message : 'Invalid range');
+      setCustomError(err instanceof Error ? err.message : t('traceInvalidRange'));
     }
   };
 
@@ -266,7 +266,7 @@ export function AreaTraceView({
             style={{ fontSize: 10, padding: '2px 8px', background: c.cardAct }}
             onClick={() => onAreaRangeChange(null)}
           >
-            All Time
+            {t('traceAllTime')}
           </button>
           <button
             type="button"
@@ -274,7 +274,7 @@ export function AreaTraceView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onAreaRangeChange({ kind: 'month', ...currentMonth })}
           >
-            This Month
+            {t('traceNavThisMonth')}
           </button>
           <button
             type="button"
@@ -282,7 +282,7 @@ export function AreaTraceView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onAreaRangeChange({ kind: 'quarter', ...currentQuarter })}
           >
-            This Quarter
+            {t('nvThisQuarter')}
           </button>
           <button
             type="button"
@@ -290,7 +290,7 @@ export function AreaTraceView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onAreaRangeChange({ kind: 'year', year: currentYear })}
           >
-            This Year
+            {t('traceNavThisYear')}
           </button>
           <button
             type="button"
@@ -298,7 +298,7 @@ export function AreaTraceView({
             style={{ fontSize: 10, padding: '2px 8px' }}
             onClick={() => onAreaRangeChange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
           >
-            Custom Range
+            {t('traceCustomRange')}
           </button>
         </div>
       );
@@ -314,13 +314,13 @@ export function AreaTraceView({
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange(null)}>
-              All Time
+              {t('traceAllTime')}
             </button>
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceMonth(areaRange.year, areaRange.month, -1))} title="Previous month">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceMonth(areaRange.year, areaRange.month, -1))} title={t('traceNavPrevMonth')}>
               <ChevronLeft size={14} />
             </button>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange({ kind: 'month', ...currentMonth })}>
-              This Month
+              {t('traceNavThisMonth')}
             </button>
             <input
               type="month"
@@ -332,9 +332,9 @@ export function AreaTraceView({
                 onAreaRangeChange({ kind: 'month', year: Number(match[1]), month: Number(match[2]) });
               }}
               style={{ fontSize: 10, padding: '2px 6px', maxWidth: 130 }}
-              aria-label="Select month"
+              aria-label={t('traceSelectMonth')}
             />
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceMonth(areaRange.year, areaRange.month, 1))} title="Next month">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceMonth(areaRange.year, areaRange.month, 1))} title={t('traceNavNextMonth')}>
               <ChevronRight size={14} />
             </button>
           </div>
@@ -344,20 +344,20 @@ export function AreaTraceView({
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange(null)}>
-              All Time
+              {t('traceAllTime')}
             </button>
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceQuarter(areaRange.year, areaRange.quarter, -1))} title="Previous quarter">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceQuarter(areaRange.year, areaRange.quarter, -1))} title={t('traceNavPrevQuarter')}>
               <ChevronLeft size={14} />
             </button>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange({ kind: 'quarter', ...currentQuarter })}>
-              This Quarter
+              {t('nvThisQuarter')}
             </button>
             <select
               className="bwi"
               value={areaRange.quarter}
               onChange={e => onAreaRangeChange({ kind: 'quarter', year: areaRange.year, quarter: Number(e.target.value) as 1 | 2 | 3 | 4 })}
               style={{ fontSize: 10, padding: '2px 6px' }}
-              aria-label="Select quarter"
+              aria-label={t('traceSelectQuarter')}
             >
               {[1, 2, 3, 4].map(q => (
                 <option key={q} value={q}>Q{q}</option>
@@ -369,9 +369,9 @@ export function AreaTraceView({
               value={areaRange.year}
               onChange={e => onAreaRangeChange({ kind: 'quarter', year: Number(e.target.value), quarter: areaRange.quarter })}
               style={{ fontSize: 10, padding: '2px 6px', width: 64 }}
-              aria-label="Select year"
+              aria-label={t('traceSelectYear')}
             />
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceQuarter(areaRange.year, areaRange.quarter, 1))} title="Next quarter">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange(shiftTraceQuarter(areaRange.year, areaRange.quarter, 1))} title={t('traceNavNextQuarter')}>
               <ChevronRight size={14} />
             </button>
           </div>
@@ -380,13 +380,13 @@ export function AreaTraceView({
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange(null)}>
-              All Time
+              {t('traceAllTime')}
             </button>
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange({ kind: 'year', year: shiftTraceYear(areaRange.year, -1) })} title="Previous year">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange({ kind: 'year', year: shiftTraceYear(areaRange.year, -1) })} title={t('traceNavPrevYear')}>
               <ChevronLeft size={14} />
             </button>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange({ kind: 'year', year: currentYear })}>
-              This Year
+              {t('traceNavThisYear')}
             </button>
             <input
               type="number"
@@ -394,9 +394,9 @@ export function AreaTraceView({
               value={areaRange.year}
               onChange={e => onAreaRangeChange({ kind: 'year', year: Number(e.target.value) })}
               style={{ fontSize: 10, padding: '2px 6px', width: 72 }}
-              aria-label="Select year"
+              aria-label={t('traceSelectYear')}
             />
-            <button type="button" className="btbtn" onClick={() => onAreaRangeChange({ kind: 'year', year: shiftTraceYear(areaRange.year, 1) })} title="Next year">
+            <button type="button" className="btbtn" onClick={() => onAreaRangeChange({ kind: 'year', year: shiftTraceYear(areaRange.year, 1) })} title={t('traceNavNextYear')}>
               <ChevronRight size={14} />
             </button>
           </div>
@@ -405,7 +405,7 @@ export function AreaTraceView({
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => onAreaRangeChange(null)}>
-              All Time
+              {t('traceAllTime')}
             </button>
             <span style={{ fontSize: 11, color: c.textMuted }}>
               {formatRangeLensHeading(areaRange)}
@@ -448,22 +448,22 @@ export function AreaTraceView({
           background: c.card,
         }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Custom Range
+            {t('traceCustomRange')}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: c.textMuted }}>
-              Start
+              {t('labelStart')}
               <input className="bwi" type="date" value={customDraft.startDate} onChange={e => setCustomDraft(d => ({ ...d, startDate: e.target.value }))} style={{ fontSize: 11, padding: '4px 6px' }} />
             </label>
             <span style={{ color: c.textFaint, fontSize: 11, paddingTop: 18 }}>~</span>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: c.textMuted }}>
-              End
+              {t('labelEnd')}
               <input className="bwi" type="date" value={customDraft.endDate} onChange={e => setCustomDraft(d => ({ ...d, endDate: e.target.value }))} style={{ fontSize: 11, padding: '4px 6px' }} />
             </label>
           </div>
           {customError && <div style={{ fontSize: 11, color: c.danger }}>{customError}</div>}
           <button type="button" className="bwbg" style={{ alignSelf: 'flex-start', fontSize: 11, padding: '4px 10px' }} onClick={handleCustomGenerate}>
-            Generate
+            {t('traceGenerate')}
           </button>
         </div>
       )}

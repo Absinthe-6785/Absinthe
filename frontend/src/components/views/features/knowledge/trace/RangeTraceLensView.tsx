@@ -129,6 +129,7 @@ function CustomRangeForm({
   onDraftChange: (draft: { startDate: string; endDate: string; label: string }) => void;
   onGenerate: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{
       display: 'flex',
@@ -140,10 +141,10 @@ function CustomRangeForm({
       background: c.card,
     }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-        Custom Range
+        {t('traceCustomRange')}
       </div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: c.textMuted }}>
-        Name (optional)
+        {t('traceCustomRangeName')}
         <input
           className="bwi"
           type="text"
@@ -155,7 +156,7 @@ function CustomRangeForm({
       </label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: c.textMuted }}>
-          Start
+          {t('labelStart')}
           <input
             className="bwi"
             type="date"
@@ -166,7 +167,7 @@ function CustomRangeForm({
         </label>
         <span style={{ color: c.textFaint, fontSize: 11, paddingTop: 18 }}>~</span>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: c.textMuted }}>
-          End
+          {t('labelEnd')}
           <input
             className="bwi"
             type="date"
@@ -185,7 +186,7 @@ function CustomRangeForm({
         style={{ alignSelf: 'flex-start', fontSize: 11, padding: '4px 10px' }}
         onClick={onGenerate}
       >
-        Generate
+        {t('traceGenerate')}
       </button>
     </div>
   );
@@ -293,7 +294,7 @@ export function RangeTraceLensView({
         label: customDraft.label.trim() || undefined,
       });
     } catch (err) {
-      setCustomError(err instanceof Error ? err.message : 'Invalid range');
+      setCustomError(err instanceof Error ? err.message : t('traceInvalidRange'));
     }
   };
 
@@ -307,7 +308,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange(shiftTraceMonth(lens.year, lens.month, -1))}
-              title="Previous month"
+              title={t('traceNavPrevMonth')}
             >
               <ChevronLeft size={14} />
             </button>
@@ -335,7 +336,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange(shiftTraceMonth(lens.year, lens.month, 1))}
-              title="Next month"
+              title={t('traceNavNextMonth')}
             >
               <ChevronRight size={14} />
             </button>
@@ -349,7 +350,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange(shiftTraceQuarter(lens.year, lens.quarter, -1))}
-              title="Previous quarter"
+              title={t('traceNavPrevQuarter')}
             >
               <ChevronLeft size={14} />
             </button>
@@ -384,7 +385,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange(shiftTraceQuarter(lens.year, lens.quarter, 1))}
-              title="Next quarter"
+              title={t('traceNavNextQuarter')}
             >
               <ChevronRight size={14} />
             </button>
@@ -397,7 +398,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange({ kind: 'year', year: shiftTraceYear(lens.year, -1) })}
-              title="Previous year"
+              title={t('traceNavPrevYear')}
             >
               <ChevronLeft size={14} />
             </button>
@@ -421,7 +422,7 @@ export function RangeTraceLensView({
               type="button"
               className="btbtn"
               onClick={() => onLensChange({ kind: 'year', year: shiftTraceYear(lens.year, 1) })}
-              title="Next year"
+              title={t('traceNavNextYear')}
             >
               <ChevronRight size={14} />
             </button>

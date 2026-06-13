@@ -7,9 +7,16 @@ import type { NoteFolder } from '../../../../../store/useNotesStore';
 import type { NoteBase } from '../../../noteUtils';
 import {
   buildWorkspaceSearch,
+  buildWorkspaceSearchRecentGroups,
+  buildWorkspaceSearchSuggestions,
+  type WorkspaceSearchFilter,
   type WorkspaceSearchGroup,
   type WorkspaceSearchResult,
 } from '../workspace/buildWorkspaceSearch';
+import {
+  loadWorkspaceSearchRecent,
+  pushWorkspaceSearchRecent,
+} from '../workspace/workspaceSearchRecent';
 
 const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
   note: 'searchGroupNotes',
@@ -22,6 +29,15 @@ const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
   folder: 'searchGroupFolders',
 };
 
+const FILTER_OPTIONS: { id: WorkspaceSearchFilter; labelKey: TranslationKey }[] = [
+  { id: 'all', labelKey: 'searchFilterAll' },
+  { id: 'note', labelKey: 'searchFilterNotes' },
+  { id: 'project', labelKey: 'searchFilterProjects' },
+  { id: 'learning-path', labelKey: 'searchFilterPaths' },
+  { id: 'collection', labelKey: 'searchFilterCollections' },
+  { id: 'subject', labelKey: 'searchFilterSubjects' },
+];
+
 export interface WorkspaceSearchPaletteProps {
   colors: NoteChromeColors;
   notes: readonly NoteBase[];
@@ -33,6 +49,10 @@ export interface WorkspaceSearchPaletteProps {
   onSelectTag: (tag: string) => void;
   onSelectCollection: (collectionId: string) => void;
   onSelectLearningPath: (pathId: string) => void;
+}
+
+function recordRecent(result: WorkspaceSearchResult): void {
+  pushWorkspaceSearchRecent({ kind: result.kind, id: result.id, title: result.title });
 }
 
 export function WorkspaceSearchPalette({
@@ -49,32 +69,63 @@ export function WorkspaceSearchPalette({
 }: WorkspaceSearchPaletteProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<WorkspaceSearchFilter>('all');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [recent, setRecent] = useState(loadWorkspaceSearchRecent);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const groups = useMemo(
-    () => buildWorkspaceSearch(query, notes, folders),
-    [query, notes, folders],
-  );
-
-  const flatResults = useMemo(
-    () => groups.flatMap(g => g.results),
-    [groups],
-  );
 
   useEffect(() => {
     if (open) {
       setQuery('');
+      setFilter('all');
       setActiveIndex(0);
+      setRecent(loadWorkspaceSearchRecent());
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
+  const queryGroups = useMemo(
+    () => buildWorkspaceSearch(query, notes, folders, { filter }),
+    [query, notes, folders, filter],
+  );
+
+  const recentGroups = useMemo(
+    () => (query.trim() ? [] : buildWorkspaceSearchRecentGroups(recent, notes, folders, filter)),
+    [query, recent, notes, folders, filter],
+  );
+
+  const suggestionGroups = useMemo(
+    () => (query.trim() ? [] : buildWorkspaceSearchSuggestions(notes, folders, filter)),
+    [query, notes, folders, filter],
+  );
+
+  const displaySections = useMemo(() => {
+    if (query.trim()) {
+      return queryGroups.map(g => ({ labelKey: GROUP_LABEL_KEYS[g.kind] as TranslationKey, results: g.results }));
+    }
+    const sections: { labelKey: TranslationKey; results: WorkspaceSearchResult[] }[] = [];
+    if (recentGroups.length > 0 && recentGroups[0]!.results.length > 0) {
+      sections.push({ labelKey: 'searchRecent', results: recentGroups.flatMap(g => g.results) });
+    }
+    if (suggestionGroups.length > 0) {
+      for (const g of suggestionGroups) {
+        sections.push({ labelKey: GROUP_LABEL_KEYS[g.kind], results: g.results });
+      }
+    }
+    return sections;
+  }, [query, queryGroups, recentGroups, suggestionGroups]);
+
+  const flatResults = useMemo(
+    () => displaySections.flatMap(s => s.results),
+    [displaySections],
+  );
+
   useEffect(() => {
     setActiveIndex(0);
-  }, [query]);
+  }, [query, filter]);
 
   const handleSelect = useCallback((result: WorkspaceSearchResult) => {
+    recordRecent(result);
     switch (result.kind) {
       case 'note':
       case 'project':
@@ -147,7 +198,7 @@ export function WorkspaceSearchPalette({
       <div
         style={{
           width: '100%',
-          maxWidth: 480,
+          maxWidth: 520,
           background: c.card,
           border: `1px solid ${c.sideBdr}`,
           borderRadius: 12,
@@ -176,23 +227,47 @@ export function WorkspaceSearchPalette({
             {t('workspaceSearchShortcut')}
           </kbd>
         </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: `1px solid ${c.sideBdr}` }}>
+          {FILTER_OPTIONS.map(opt => {
+            const active = filter === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setFilter(opt.id)}
+                style={{
+                  fontSize: 9,
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                  border: `1px solid ${active ? c.accent : c.sideBdr}`,
+                  background: active ? c.accentBg : c.cardHov,
+                  color: active ? c.accent : c.textMuted,
+                  cursor: 'pointer',
+                  fontWeight: active ? 700 : 500,
+                }}
+              >
+                {t(opt.labelKey)}
+              </button>
+            );
+          })}
+        </div>
         <div style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}>
           {flatResults.length === 0 ? (
             <div style={{ padding: '16px 14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }}>
-              {query.trim() ? t('workspaceSearchNoResults') : t('workspaceSearchPlaceholder')}
+              {query.trim() ? t('workspaceSearchNoResults') : t('searchStartTyping')}
             </div>
           ) : (
-            groups.map(group => (
-              <div key={group.kind}>
+            displaySections.map(section => (
+              <div key={section.labelKey}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: c.textMuted, padding: '6px 12px 4px', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                  {t(GROUP_LABEL_KEYS[group.kind])}
+                  {t(section.labelKey)}
                 </div>
-                {group.results.map(result => {
+                {section.results.map(result => {
                   const idx = rowIndex++;
                   const active = idx === activeIndex;
                   return (
                     <button
-                      key={`${result.kind}-${result.id}`}
+                      key={`${result.kind}-${result.id}-${idx}`}
                       type="button"
                       onMouseEnter={() => setActiveIndex(idx)}
                       onClick={() => handleSelect(result)}

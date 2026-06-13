@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useTranslation } from '../../../../../lib/i18n';
 import {
   type EventFormValues,
   validateEventForm,
@@ -22,6 +23,7 @@ export function EventNoteDialog({
   onRemoveEvent,
   onClose,
 }: EventNoteDialogProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(initialValues.title);
   const [eventDate, setEventDate] = useState(initialValues.eventDate);
   const [eventTime, setEventTime] = useState(initialValues.eventTime ?? '');
@@ -112,24 +114,24 @@ export function EventNoteDialog({
           id="event-note-dialog-title"
           style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: c.text }}
         >
-          {mode === 'create' ? 'Create Event' : 'Edit Event'}
+          {mode === 'create' ? t('eventCreateTitle') : t('eventEditTitle')}
         </h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <label>
-            <span style={labelStyle}>Title</span>
+            <span style={labelStyle}>{t('title')}</span>
             <input
               className="bwi"
               style={inputStyle}
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="Nagoya Interview"
+              placeholder={t('eventTitlePlaceholder')}
               autoFocus
             />
           </label>
 
           <label>
-            <span style={labelStyle}>Date</span>
+            <span style={labelStyle}>{t('date')}</span>
             <input
               type="date"
               className="bwi"
@@ -140,7 +142,7 @@ export function EventNoteDialog({
           </label>
 
           <label>
-            <span style={labelStyle}>Time (optional)</span>
+            <span style={labelStyle}>{t('eventTimeOptional')}</span>
             <input
               type="time"
               className="bwi"
@@ -156,13 +158,13 @@ export function EventNoteDialog({
               checked={showRange}
               onChange={e => setShowRange(e.target.checked)}
             />
-            <span style={{ fontSize: 11, color: c.textMuted }}>Range (optional)</span>
+            <span style={{ fontSize: 11, color: c.textMuted }}>{t('eventRangeOptional')}</span>
           </label>
 
           {showRange && (
             <>
               <label>
-                <span style={labelStyle}>End date</span>
+                <span style={labelStyle}>{t('eventEndDate')}</span>
                 <input
                   type="date"
                   className="bwi"
@@ -172,7 +174,7 @@ export function EventNoteDialog({
                 />
               </label>
               <label>
-                <span style={labelStyle}>End time (optional)</span>
+                <span style={labelStyle}>{t('eventEndTimeOptional')}</span>
                 <input
                   type="time"
                   className="bwi"
@@ -210,13 +212,13 @@ export function EventNoteDialog({
                   textDecoration: 'underline',
                 }}
               >
-                Remove event status
+                {t('eventRemoveStatus')}
               </button>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button type="button" className="bwbg" style={{ fontSize: 11, padding: '6px 12px' }} onClick={onClose}>
-              Cancel
+              {t('cancel')}
             </button>
             <button
               type="button"
@@ -232,7 +234,7 @@ export function EventNoteDialog({
               }}
               onClick={handleSave}
             >
-              Save
+              {t('save')}
             </button>
           </div>
         </div>

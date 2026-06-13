@@ -1,7 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteFolder } from '../../../../../store/useNotesStore';
-import { SMART_COLLECTIONS } from '../collections/smartCollections';
+import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import {
   filterStudyProjectContainers,
@@ -17,6 +17,7 @@ import {
   getSubjectWorkspaceCollectionId,
 } from '../maps/subjectDashboards';
 import { listTags, normalizeTagName } from '../tags/noteTags';
+import type { WorkspaceSearchRecentEntry } from './workspaceSearchRecent';
 
 export type WorkspaceSearchResultKind =
   | 'note'
@@ -28,7 +29,7 @@ export type WorkspaceSearchResultKind =
   | 'learning-path'
   | 'subject';
 
-/** Lower score = higher rank. Kind priority: note → project → path → collection/tag → milestone → folder */
+/** Lower score = higher rank. Priority: note → project → path → collection → tag → milestone → folder */
 const KIND_PRIORITY: Record<WorkspaceSearchResultKind, number> = {
   note: 0,
   project: 1,
@@ -40,13 +41,30 @@ const KIND_PRIORITY: Record<WorkspaceSearchResultKind, number> = {
   folder: 6,
 };
 
+/** Ranking doc: exact title match within kind ranks first (matchQuality 0), then prefix (1), then contains (2). */
+const KINDS_BY_FILTER: Record<WorkspaceSearchFilter, readonly WorkspaceSearchResultKind[] | null> = {
+  all: null,
+  note: ['note', 'folder', 'tag'],
+  project: ['project', 'milestone'],
+  'learning-path': ['learning-path'],
+  collection: ['collection', 'tag', 'folder'],
+  subject: ['subject'],
+};
+
+export type WorkspaceSearchFilter =
+  | 'all'
+  | 'note'
+  | 'project'
+  | 'learning-path'
+  | 'collection'
+  | 'subject';
+
 export interface WorkspaceSearchResult {
   id: string;
   kind: WorkspaceSearchResultKind;
   title: string;
   subtitle?: string;
   score: number;
-  /** Payload for navigation handlers */
   collectionId?: SmartCollectionId;
   noteId?: string;
   folderId?: string;
@@ -58,6 +76,17 @@ export interface WorkspaceSearchGroup {
   kind: WorkspaceSearchResultKind;
   results: WorkspaceSearchResult[];
 }
+
+export interface BuildWorkspaceSearchOptions {
+  filter?: WorkspaceSearchFilter;
+}
+
+const SUGGESTION_COLLECTION_IDS: readonly SmartCollectionId[] = [
+  'recent',
+  'research-sources',
+  'exam-study-notes',
+  'academic-active-projects',
+];
 
 function normalizeQuery(query: string): string {
   return query.trim().toLowerCase();
@@ -80,13 +109,19 @@ function buildResult(
   matchQuality: number,
   extras: Partial<WorkspaceSearchResult> = {},
 ): WorkspaceSearchResult {
+  const exactBoost = matchQuality === 0 ? -1 : 0;
   return {
     id,
     kind,
     title,
-    score: KIND_PRIORITY[kind] * 10 + matchQuality,
+    score: KIND_PRIORITY[kind] * 10 + matchQuality + exactBoost,
     ...extras,
   };
+}
+
+function kindAllowed(kind: WorkspaceSearchResultKind, filter: WorkspaceSearchFilter): boolean {
+  const allowed = KINDS_BY_FILTER[filter];
+  return allowed === null || allowed.includes(kind);
 }
 
 function collectTags(notes: readonly NoteBase[]): Map<string, string> {
@@ -101,22 +136,43 @@ function collectTags(notes: readonly NoteBase[]): Map<string, string> {
   return tags;
 }
 
+function groupResults(results: WorkspaceSearchResult[], limitPerGroup = 8): WorkspaceSearchGroup[] {
+  results.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
+  const byKind = new Map<WorkspaceSearchResultKind, WorkspaceSearchResult[]>();
+  for (const r of results) {
+    const list = byKind.get(r.kind) ?? [];
+    list.push(r);
+    byKind.set(r.kind, list);
+  }
+  const order: WorkspaceSearchResultKind[] = [
+    'note', 'project', 'learning-path', 'collection', 'subject', 'tag', 'milestone', 'folder',
+  ];
+  return order
+    .filter(kind => (byKind.get(kind)?.length ?? 0) > 0)
+    .map(kind => ({ kind, results: byKind.get(kind)!.slice(0, limitPerGroup) }));
+}
+
 /** Global workspace search — grouped, ranked results for command palette. */
 export function buildWorkspaceSearch(
   query: string,
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
+  options: BuildWorkspaceSearchOptions = {},
 ): WorkspaceSearchGroup[] {
+  const filter = options.filter ?? 'all';
   const q = normalizeQuery(query);
   if (!q) return [];
 
   const results: WorkspaceSearchResult[] = [];
+  const projectIds = new Set(filterStudyProjectContainers(notes).map(p => p.id));
+  const milestoneIds = new Set(filterProjectMilestones(notes).map(m => m.id));
 
   for (const note of notes) {
     if (note.deletedAt) continue;
+    if (projectIds.has(note.id) || milestoneIds.has(note.id)) continue;
     const title = displayNoteTitle(note.title);
     const m = matchScore(title, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('note', filter)) {
       results.push(buildResult('note', note.id, title, m, { noteId: note.id }));
     }
   }
@@ -124,7 +180,7 @@ export function buildWorkspaceSearch(
   for (const project of filterStudyProjectContainers(notes)) {
     const title = displayNoteTitle(project.title);
     const m = matchScore(title, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('project', filter)) {
       results.push(buildResult('project', project.id, title, m, { noteId: project.id }));
     }
   }
@@ -132,14 +188,14 @@ export function buildWorkspaceSearch(
   for (const pathId of listLearningPathIds(notes)) {
     const label = pathId.replace(/-/g, ' ');
     const m = matchScore(label, q) ?? matchScore(pathId, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('learning-path', filter)) {
       results.push(buildResult('learning-path', pathId, label, m, { pathId }));
     }
   }
 
   for (const collection of SMART_COLLECTIONS) {
     const m = matchScore(collection.name, q) ?? matchScore(collection.description, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('collection', filter)) {
       results.push(buildResult('collection', collection.id, collection.name, m, {
         collectionId: collection.id,
       }));
@@ -148,7 +204,7 @@ export function buildWorkspaceSearch(
 
   for (const subject of SUBJECT_DASHBOARDS) {
     const m = matchScore(subject.name, q) ?? matchScore(subject.description, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('subject', filter)) {
       const collectionId = getSubjectWorkspaceCollectionId(subject.id);
       results.push(buildResult('subject', subject.id, subject.name, m, {
         collectionId: collectionId ?? undefined,
@@ -159,7 +215,7 @@ export function buildWorkspaceSearch(
 
   for (const [key, display] of collectTags(notes)) {
     const m = matchScore(display, q) ?? matchScore(key, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('tag', filter)) {
       results.push(buildResult('tag', key, display, m, { tag: display }));
     }
   }
@@ -167,37 +223,127 @@ export function buildWorkspaceSearch(
   for (const milestone of filterProjectMilestones(notes)) {
     const title = displayNoteTitle(milestone.title);
     const m = matchScore(title, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('milestone', filter)) {
       results.push(buildResult('milestone', milestone.id, title, m, { noteId: milestone.id }));
     }
   }
 
   for (const folder of folders) {
     const m = matchScore(folder.name, q);
-    if (m !== null) {
+    if (m !== null && kindAllowed('folder', filter)) {
       results.push(buildResult('folder', folder.id, folder.name, m, { folderId: folder.id }));
     }
   }
 
-  results.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
-
-  const byKind = new Map<WorkspaceSearchResultKind, WorkspaceSearchResult[]>();
-  for (const r of results) {
-    const list = byKind.get(r.kind) ?? [];
-    list.push(r);
-    byKind.set(r.kind, list);
-  }
-
-  const order: WorkspaceSearchResultKind[] = [
-    'note', 'project', 'learning-path', 'collection', 'subject', 'tag', 'milestone', 'folder',
-  ];
-
-  return order
-    .filter(kind => (byKind.get(kind)?.length ?? 0) > 0)
-    .map(kind => ({ kind, results: byKind.get(kind)!.slice(0, 8) }));
+  return groupResults(results);
 }
 
-/** Dedupe project hits when note is also a project container. */
+function resolveRecentEntry(
+  entry: WorkspaceSearchRecentEntry,
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+): WorkspaceSearchResult | null {
+  switch (entry.kind) {
+    case 'note':
+    case 'project':
+    case 'milestone': {
+      const note = notes.find(n => n.id === entry.id && !n.deletedAt);
+      if (!note) return null;
+      const kind = isStudyProjectContainer(note)
+        ? 'project'
+        : isProjectMilestone(note)
+          ? 'milestone'
+          : 'note';
+      return buildResult(kind, entry.id, displayNoteTitle(note.title), 0, { noteId: note.id });
+    }
+    case 'folder': {
+      const folder = folders.find(f => f.id === entry.id);
+      if (!folder) return null;
+      return buildResult('folder', folder.id, folder.name, 0, { folderId: folder.id });
+    }
+    case 'tag':
+      return buildResult('tag', entry.id, entry.title, 0, { tag: entry.title });
+    case 'collection':
+    case 'subject': {
+      const collection = findSmartCollection(entry.id as SmartCollectionId);
+      return buildResult(entry.kind, entry.id, collection?.name ?? entry.title, 0, {
+        collectionId: entry.id as SmartCollectionId,
+      });
+    }
+    case 'learning-path':
+      return buildResult('learning-path', entry.id, entry.title, 0, { pathId: entry.id });
+    default:
+      return null;
+  }
+}
+
+/** Replay recent selections — shown when query is empty. */
+export function buildWorkspaceSearchRecentGroups(
+  recent: readonly WorkspaceSearchRecentEntry[],
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+  filter: WorkspaceSearchFilter = 'all',
+): WorkspaceSearchGroup[] {
+  const results = recent
+    .map(entry => resolveRecentEntry(entry, notes, folders))
+    .filter((r): r is WorkspaceSearchResult => r !== null && kindAllowed(r.kind, filter));
+  if (results.length === 0) return [];
+  return [{ kind: results[0]!.kind, results: results.slice(0, 8) }];
+}
+
+/** Empty-query suggestions — key collections, recent notes, active projects, paths. */
+export function buildWorkspaceSearchSuggestions(
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+  filter: WorkspaceSearchFilter = 'all',
+): WorkspaceSearchGroup[] {
+  const results: WorkspaceSearchResult[] = [];
+
+  if (kindAllowed('collection', filter)) {
+    for (const id of SUGGESTION_COLLECTION_IDS) {
+      const collection = findSmartCollection(id);
+      if (collection) {
+        results.push(buildResult('collection', id, collection.name, 0, { collectionId: id }));
+      }
+    }
+  }
+
+  if (kindAllowed('note', filter)) {
+    for (const note of [...notes]
+      .filter(n => !n.deletedAt && !isStudyProjectContainer(n) && !isProjectMilestone(n))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 5)) {
+      results.push(buildResult('note', note.id, displayNoteTitle(note.title), 0, { noteId: note.id }));
+    }
+  }
+
+  if (kindAllowed('project', filter)) {
+    for (const project of filterStudyProjectContainers(notes, 'active').slice(0, 3)) {
+      results.push(buildResult('project', project.id, displayNoteTitle(project.title), 0, {
+        noteId: project.id,
+      }));
+    }
+  }
+
+  if (kindAllowed('learning-path', filter)) {
+    for (const pathId of listLearningPathIds(notes).slice(0, 3)) {
+      results.push(buildResult('learning-path', pathId, pathId.replace(/-/g, ' '), 0, { pathId }));
+    }
+  }
+
+  if (kindAllowed('subject', filter)) {
+    for (const subject of SUBJECT_DASHBOARDS.slice(0, 3)) {
+      const collectionId = getSubjectWorkspaceCollectionId(subject.id);
+      results.push(buildResult('subject', subject.id, subject.name, 0, {
+        collectionId: collectionId ?? undefined,
+        subtitle: subject.description,
+      }));
+    }
+  }
+
+  return groupResults(results, 5);
+}
+
 export function isProjectNote(note: NoteBase): boolean {
   return isStudyProjectContainer(note);
 }
@@ -205,3 +351,10 @@ export function isProjectNote(note: NoteBase): boolean {
 export function isMilestoneNote(note: NoteBase): boolean {
   return isProjectMilestone(note);
 }
+
+/** Documented ranking: exact title → prefix → contains; then kind priority note > project > path > collection > tag. */
+export const WORKSPACE_SEARCH_RANKING_DOC = `
+1. Match quality: exact title (0) → prefix (1) → contains (2)
+2. Kind priority: note → project → learning-path → collection/subject → tag → milestone → folder
+3. Exact title matches receive an additional boost within their kind
+`;
