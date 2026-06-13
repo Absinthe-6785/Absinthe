@@ -48,6 +48,7 @@ import {
   buildSubjectDashboard,
   buildProjectDashboard,
   buildAcademicDashboard,
+  buildAcademicInsights,
   findSmartCollection,
   setWeakTopic,
   isWeakTopic,
@@ -1078,6 +1079,11 @@ export const NoteView = () => {
 
   const academicDashboard = useMemo(
     () => buildAcademicDashboard(notes, { limit: 6 }),
+    [notes],
+  );
+
+  const academicInsights = useMemo(
+    () => buildAcademicInsights(notes, { limit: 6 }),
     [notes],
   );
 
@@ -2165,6 +2171,13 @@ export const NoteView = () => {
             }}
             academic={{
               data: academicDashboard,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
+            academicInsights={{
+              data: academicInsights,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
