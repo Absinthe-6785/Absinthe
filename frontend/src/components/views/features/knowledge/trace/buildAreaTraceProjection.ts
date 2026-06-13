@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { getProperty } from '../properties/noteProperties';
 import {
   buildBacklinkIndex,
@@ -15,8 +16,7 @@ function buildAreaMilestoneRef(note: NoteBase): TraceMilestoneRef | null {
   if (!milestone) return null;
 
   const label = milestone.milestoneLabel?.trim()
-    || note.title.trim()
-    || 'Untitled';
+    || displayNoteTitle(note.title);
   const kind = getProperty(note, TRACE_PROPERTY_KEYS.MILESTONE_KIND)?.trim() ?? '';
 
   return {
@@ -35,7 +35,7 @@ function buildAreaEventRef(note: NoteBase): AreaTraceEventRef | null {
 
   return {
     noteId: note.id,
-    title: event.title.trim() || note.title.trim() || 'Untitled',
+    title: displayNoteTitle(event.title.trim() || note.title),
     date: event.eventDate,
     ...(event.eventTime ? { time: event.eventTime } : {}),
     ...(event.eventEndDate ? { endDate: event.eventEndDate } : {}),
@@ -103,7 +103,7 @@ export function buildAreaTraceProjection(
   const linkedNotes = linkedNoteRecords
     .map(note => ({
       noteId: note.id,
-      title: note.title.trim() || 'Untitled',
+      title: displayNoteTitle(note.title),
       updatedAt: note.updatedAt,
     }))
     .sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
@@ -129,7 +129,7 @@ export function buildAreaTraceProjection(
 
   return {
     areaNoteId: areaNote.id,
-    areaTitle: areaNote.title.trim() || 'Untitled',
+    areaTitle: displayNoteTitle(areaNote.title),
     linkedNotes,
     milestones,
     events,

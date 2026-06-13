@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { isEventNote, readEventFromNote } from '../../knowledge/trace/eventNotes';
 import { isMilestoneNote, readMilestoneFromNote } from '../../knowledge/trace/milestoneNotes';
 import type {
@@ -38,7 +39,7 @@ export function buildPlannerEventCatalog(notes: readonly NoteBase[]): PlannerEve
 
     const definition: PlannerEventDefinition = {
       noteId: note.id,
-      title: parsed.title.trim() || 'Untitled',
+      title: displayNoteTitle(parsed.title || note.title),
       startDate,
       endDate,
       startTime,
@@ -118,12 +119,11 @@ export function buildPlannerMilestoneRows(
     if (!isDateInRange(milestone.milestoneDate, range.startDate, range.endDate)) continue;
 
     const label = milestone.milestoneLabel?.trim()
-      || note.title.trim()
-      || 'Untitled';
+      || displayNoteTitle(note.title);
 
     rows.push({
       noteId: note.id,
-      title: note.title.trim() || 'Untitled',
+      title: displayNoteTitle(note.title),
       dateKey: milestone.milestoneDate,
       label,
     });

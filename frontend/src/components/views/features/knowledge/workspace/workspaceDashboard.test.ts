@@ -175,12 +175,12 @@ describe('dashboard model helpers', () => {
   });
 
   it('labels workspace kinds for widget display', () => {
-    expect(workspaceKindLabel('database-view')).toBe('Database');
-    expect(workspaceKindLabel('saved-view')).toBe('Saved View');
+    expect(workspaceKindLabel('database-view')).toBe('데이터베이스');
+    expect(workspaceKindLabel('saved-view')).toBe('저장된 보기');
   });
 
   it('formats recent timestamps', () => {
-    expect(formatRecentTimestamp(Date.now() - 30_000)).toBe('Just now');
+    expect(formatRecentTimestamp(Date.now() - 30_000)).toBe('방금');
   });
 });
 
@@ -222,26 +222,26 @@ describe('WorkspaceDashboardView', () => {
       }));
     });
 
-    expect(container.textContent).toContain('Dashboard');
-    expect(container.textContent).toContain('Pinned Workspaces');
+    expect(container.textContent).toContain('대시보드');
+    expect(container.textContent).toContain('고정된 작업공간');
     expect(container.textContent).toContain('Tasks');
-    expect(container.textContent).toContain('Recent Work');
+    expect(container.textContent).toContain('최근 작업');
     expect(container.textContent).toContain('Study');
-    expect(container.textContent).toContain('Resume Last Workspace');
+    expect(container.textContent).toContain('마지막 작업공간 이어하기');
     expect(container.textContent).toContain('Meeting Notes');
-    expect(container.textContent).toContain('New Note');
+    expect(container.textContent).toContain('새 노트');
 
     const buttons = [...container.querySelectorAll('button')];
     buttons.find(b => b.textContent?.includes('Tasks'))?.click();
     expect(onActivateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: 'db-1' }));
 
-    buttons.find(b => b.textContent?.includes('Continue where you left off'))?.click();
+    buttons.find(b => b.textContent?.includes('이전 작업을 이어갑니다'))?.click();
     expect(onResumeWorkspace).toHaveBeenCalled();
 
     buttons.find(b => b.textContent?.includes('Meeting Notes'))?.click();
     expect(onSelectNote).toHaveBeenCalledWith('n-1');
 
-    buttons.find(b => b.textContent === 'Open Graph')?.click();
+    buttons.find(b => b.textContent === '그래프 열기')?.click();
     expect(quickActions.onOpenGraph).toHaveBeenCalled();
   });
 });

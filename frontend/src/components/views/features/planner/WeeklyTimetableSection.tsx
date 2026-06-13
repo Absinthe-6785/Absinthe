@@ -7,7 +7,7 @@ import { useTranslation } from '../../../../lib/i18n';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
 
-const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+const DAYS_OF_WEEK = ['월', '화', '수', '목', '금', '토', '일'] as const;
 
 const parseTime = (timeStr: string): number => {
   const [h, m] = timeStr.split(':');
@@ -65,21 +65,21 @@ export function WeeklyTimetableSection({
   const saveWeeklySchedule = async () => {
     if (!newWeeklySch.title) return showToast(t('enterTitleAct'), 'error');
     if (newWeeklySch.start_time && newWeeklySch.end_time && newWeeklySch.start_time >= newWeeklySch.end_time) {
-      return showToast('End time must be later!', 'error');
+      return showToast('종료 시간은 시작 시간보다 늦어야 합니다.', 'error');
     }
     const ok = await api(
       editingWeeklyId ? 'PUT' : 'POST',
       editingWeeklyId ? `/api/weekly_schedules/${editingWeeklyId}` : '/api/weekly_schedules',
       { ...newWeeklySch },
-      { revalidate: 'static', successMsg: 'Schedule saved' },
+      { revalidate: 'static', successMsg: t('scheduleSaved') },
     );
     if (ok) setShowWeeklyModal(false);
   };
 
   const deleteWeeklySchedule = (id: string) =>
-    showConfirm('Delete this activity?', () =>
-      api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: 'Deleted' }),
-      { confirmLabel: 'Delete' },
+    showConfirm('이 활동을 삭제할까요?', () =>
+      api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
+      { confirmLabel: t('delete') },
     );
 
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -101,7 +101,7 @@ export function WeeklyTimetableSection({
             className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
             data-planner-weekly-timetable-add
           >
-            <Plus size={16} strokeWidth={3}/> Add
+            <Plus size={16} strokeWidth={3}/> 추가
           </button>
         </div>
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
@@ -173,7 +173,7 @@ export function WeeklyTimetableSection({
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowWeeklyModal(false)}>
           <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()} data-planner-weekly-timetable-modal>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? 'Edit Activity' : 'New Activity'}</h3>
+              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? '활동 수정' : '새 활동'}</h3>
               <button type="button" onClick={() => setShowWeeklyModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
             <div className="space-y-5">
@@ -192,8 +192,8 @@ export function WeeklyTimetableSection({
               <div className="flex gap-4">
                 {(
                   [
-                    { label: 'Start', field: 'start_time' as const },
-                    { label: 'End', field: 'end_time' as const },
+                    { label: '시작', field: 'start_time' as const },
+                    { label: '종료', field: 'end_time' as const },
                   ] satisfies { label: string; field: keyof Pick<WeeklySchedule, 'start_time' | 'end_time'> }[]
                 ).map(({ label, field }) => (
                   <div key={field} className="flex-1">
@@ -218,7 +218,7 @@ export function WeeklyTimetableSection({
                   <button type="button" onClick={() => deleteWeeklySchedule(editingWeeklyId)} className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-2xl p-4 hover:bg-red-500/20 transition-colors">{t('delete')}</button>
                 )}
                 <button type="button" onClick={saveWeeklySchedule} className={`bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 transition-transform active:scale-[0.98] ${editingWeeklyId ? 'flex-[2]' : 'w-full'}`}>
-                  Save
+                  저장
                 </button>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { getProperty } from '../properties/noteProperties';
 import { dateKeyFromTimestamp, parseDateKey, parseDatabaseDate, toDateKey } from '../databaseViews/parseDatabaseDate';
 import {
@@ -103,7 +104,7 @@ function buildActivity(note: NoteBase, dateKey: string): TraceActivity | null {
 
   return {
     noteId: note.id,
-    title: note.title.trim() || 'Untitled',
+    title: displayNoteTitle(note.title),
     kind,
     ...(at ? { at } : {}),
   };
@@ -118,7 +119,7 @@ function buildEventRef(note: NoteBase): TraceEventRef | null {
 
   return {
     noteId: note.id,
-    title: note.title.trim() || 'Untitled',
+    title: displayNoteTitle(note.title),
     ...(eventTime ? { time: eventTime } : {}),
     ...(endDate ? { endDate } : {}),
   };
@@ -130,7 +131,7 @@ function buildMilestoneRef(note: NoteBase, dateKey: string): TraceMilestoneRef |
 
   const kind = getProperty(note, TRACE_PROPERTY_KEYS.MILESTONE_KIND)?.trim() ?? '';
   const labelOverride = getProperty(note, TRACE_PROPERTY_KEYS.MILESTONE_LABEL)?.trim();
-  const label = labelOverride || note.title.trim() || 'Untitled';
+  const label = labelOverride || displayNoteTitle(note.title);
 
   return {
     noteId: note.id,

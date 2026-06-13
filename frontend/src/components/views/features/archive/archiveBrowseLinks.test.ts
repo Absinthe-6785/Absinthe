@@ -34,10 +34,10 @@ function mockBrowse(overrides: Partial<ArchiveBrowseProjection> = {}): ArchiveBr
     thisQuarter: { kind: 'quarter', year: 2026, quarter: 2, label: 'Q2 2026' },
     thisYear: { kind: 'year', year: 2026, label: '2026' },
     custom: { kind: 'custom', label: 'Custom' },
-    allAreas: { kind: 'areas-index', label: 'All areas' },
+    allAreas: { kind: 'areas-index', label: '전체 영역' },
     timeline: {
       kind: 'timeline',
-      label: 'Timeline',
+      label: '타임라인',
       defaultPeriod: { kind: 'month', year: 2026, month: 6, label: 'June 2026' },
     },
     ...overrides,
@@ -72,8 +72,8 @@ describe('ArchiveBrowseLinks', () => {
     expect(html).toContain('탐색');
     expect(html).toContain('June 2026');
     expect(html).toContain('Q2 2026');
-    expect(html).toContain('All areas');
-    expect(html).toContain('Timeline');
+    expect(html).toContain('전체 영역');
+    expect(html).toContain('타임라인');
     expect(html).not.toMatch(/score|rank|percent|streak/i);
   });
 

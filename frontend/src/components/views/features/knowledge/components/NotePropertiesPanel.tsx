@@ -83,12 +83,12 @@ export function NotePropertiesPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 600, marginBottom: 8 }}>
-        Page Properties
+        페이지 속성
       </div>
 
       {properties.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 0 12px' }}>
-          No properties yet
+          속성 없음
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>

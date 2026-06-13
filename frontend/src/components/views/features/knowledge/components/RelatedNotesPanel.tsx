@@ -32,7 +32,7 @@ export function RelatedNotesPanel({
 
       {related.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>
-          No related notes
+          관련 노트 없음
         </p>
       ) : (
         related.map(item => (

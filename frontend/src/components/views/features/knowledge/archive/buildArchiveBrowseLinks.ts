@@ -31,12 +31,12 @@ export function buildArchiveBrowseLinks(
     thisYear,
     thisQuarter,
     thisMonth,
-    custom: { kind: 'custom', label: 'Custom' },
-    allAreas: { kind: 'areas-index', label: 'All areas' },
+    custom: { kind: 'custom', label: '사용자 지정' },
+    allAreas: { kind: 'areas-index', label: '전체 영역' },
     timeline: {
       kind: 'timeline',
       defaultPeriod: thisMonth,
-      label: 'Timeline',
+      label: '타임라인',
     },
     ...(recentYearsWithMarks.length > 0 ? { recentYearsWithMarks } : {}),
   };

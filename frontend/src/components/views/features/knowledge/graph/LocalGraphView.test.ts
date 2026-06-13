@@ -100,6 +100,6 @@ describe('LocalGraphView', () => {
       onNavigate: vi.fn(),
     });
 
-    expect(container.textContent).toContain('No connected notes yet');
+    expect(container.textContent).toContain('연결된 노트 없음');
   });
 });

@@ -238,20 +238,20 @@ describe('WorkspaceDashboardView focus and capture widgets', () => {
       }));
     });
 
-    expect(container.textContent).toContain('Focus Presets');
+    expect(container.textContent).toContain('집중 프리셋');
     expect(container.textContent).toContain('Study Focus');
-    expect(container.textContent).toContain('Quick Capture');
+    expect(container.textContent).toContain('빠른 캡처');
 
     const startButton = [...container.querySelectorAll('button')].find(
-      b => b.textContent === 'Start',
+      b => b.textContent === '시작',
     );
     startButton?.click();
     expect(onActivatePreset).toHaveBeenCalledWith(preset.id);
 
-    expect(container.querySelector('input[placeholder="Title"]')).toBeTruthy();
+    expect(container.querySelector('input[placeholder="제목"]')).toBeTruthy();
     expect(container.querySelector('select')).toBeTruthy();
     const captureButton = [...container.querySelectorAll('button')].find(
-      b => b.textContent === 'Capture',
+      b => b.textContent === '캡처',
     );
     expect(captureButton).toBeTruthy();
   });

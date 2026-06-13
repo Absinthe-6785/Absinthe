@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { ArrowRight, Plus, X } from 'lucide-react';
 import { filterWikiTargets } from '../../block-editor/features/menus/utils/wikiSearch';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import type { RelationEdge, ResolvedRelationTarget } from '../relations/relationModels';
@@ -94,7 +95,7 @@ export function NoteRelationsPanel({
   };
 
   const renderTargetRow = (item: ResolvedRelationTarget) => {
-    const label = item.missing ? 'Missing target' : (item.targetTitle || 'Untitled');
+    const label = item.missing ? '대상 없음' : displayNoteTitle(item.targetTitle);
     const clickable = !item.missing;
 
     return (
@@ -140,7 +141,7 @@ export function NoteRelationsPanel({
             color: c.textMuted,
             cursor: 'pointer',
           }}
-          title="Remove relation"
+          title="관계 제거"
         >
           <X size={11} />
         </button>
@@ -151,12 +152,12 @@ export function NoteRelationsPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0', minHeight: 0 }}>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
-        Outgoing Relations
+        나가는 관계
       </div>
 
       {outgoingGroups.size === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 10px 12px' }}>
-          No outgoing relations
+          나가는 관계 없음
         </p>
       ) : (
         [...outgoingGroups.entries()].map(([key, items]) => (
@@ -179,16 +180,16 @@ export function NoteRelationsPanel({
           marginTop: 4,
         }}
       >
-        Referenced By
+        참조하는 노트
       </div>
 
       {incoming.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '8px 10px 12px' }}>
-          No incoming relations
+          들어오는 관계 없음
         </p>
       ) : (
         incoming.map(item => {
-          const label = item.missing ? 'Missing source' : (item.sourceTitle || 'Untitled');
+          const label = item.missing ? '출처 없음' : displayNoteTitle(item.sourceTitle);
           const clickable = !item.missing;
 
           return (
@@ -224,14 +225,14 @@ export function NoteRelationsPanel({
           marginTop: 4,
         }}
       >
-        Add Relation
+        관계 추가
       </div>
 
       <div style={{ padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <input
           value={propertyKey}
           onChange={e => setPropertyKey(e.target.value)}
-          placeholder="Property key"
+          placeholder="속성 키"
           list="relation-key-suggestions"
           style={{
             background: c.input,
@@ -258,7 +259,7 @@ export function NoteRelationsPanel({
             }}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => window.setTimeout(() => setShowSuggestions(false), 120)}
-            placeholder="Target note title"
+            placeholder="대상 노트 제목"
             onKeyDown={e => {
               if (e.key === 'Enter') handleAdd();
             }}
@@ -337,7 +338,7 @@ export function NoteRelationsPanel({
           }}
         >
           <Plus size={11} />
-          Add relation
+          관계 추가
         </button>
       </div>
     </div>

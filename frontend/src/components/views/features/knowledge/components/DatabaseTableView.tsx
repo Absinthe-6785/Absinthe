@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { UNTITLED_NOTE_LABEL } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
@@ -36,7 +37,7 @@ export function getDatabaseCellValue(
 ): string {
   const value = getDatabaseFieldValue(note, column.key, service);
   if (value) return value;
-  return column.key === 'title' ? 'Untitled' : '—';
+  return column.key === 'title' ? UNTITLED_NOTE_LABEL : '—';
 }
 
 export function getDatabaseRollupCellValue(

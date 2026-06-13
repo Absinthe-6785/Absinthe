@@ -56,8 +56,8 @@ describe('ArchiveHomeView', () => {
       createElement(ArchiveHomeView, { projection, theme, appSettings }),
     );
 
-    expect(html).toContain('Archive');
-    expect(html).toContain('What remains when you look back.');
+    expect(html).toContain('아카이브');
+    expect(html).toContain('돌아보며 남는 것들.');
     expect(html).toContain('data-archive-home="true"');
     expect(html).toContain('data-archive-mark-calendar');
     expect(html).toContain('data-archive-browse');
@@ -138,7 +138,7 @@ describe('useArchiveHomeProjection wiring', () => {
 
   it('buildArchiveHomeProjectionForHook mirrors hook output shape', () => {
     const projection = buildArchiveHomeProjectionForHook([], NOW, []);
-    expect(projection.frame.title).toBe('Archive');
+    expect(projection.frame.title).toBe('아카이브');
     expect(projection.markCalendar).toBeDefined();
     expect(projection.empty.isEmpty).toBe(true);
   });
@@ -153,7 +153,7 @@ describe('ArchiveShell with hook', () => {
         theme,
       }),
     );
-    expect(html).toContain('Archive');
+    expect(html).toContain('아카이브');
     expect(html).toContain('data-archive-home="true"');
   });
 });

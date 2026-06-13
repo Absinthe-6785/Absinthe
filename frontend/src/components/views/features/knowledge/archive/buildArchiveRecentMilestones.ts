@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { getProperty } from '../properties/noteProperties';
 import { TRACE_PROPERTY_KEYS } from '../trace/dailyTraceModels';
 import { isMilestoneNote, readMilestoneFromNote } from '../trace/milestoneNotes';
@@ -20,7 +21,7 @@ export function buildArchiveRecentMilestones(
     if (!milestone?.milestoneDate) continue;
 
     const labelOverride = milestone.milestoneLabel?.trim();
-    const displayLabel = labelOverride || note.title.trim() || 'Untitled';
+    const displayLabel = labelOverride || displayNoteTitle(note.title);
     const kind = getProperty(note, TRACE_PROPERTY_KEYS.MILESTONE_KIND)?.trim() ?? '';
 
     entries.push({

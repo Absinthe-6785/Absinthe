@@ -29,13 +29,13 @@ export function RecentWorkSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>Recent</span>
+        <span>최근</span>
         <button
           type="button"
           onClick={onClearRecent}
           className="btbtn"
           style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-          title="Clear recent workspaces"
+          title="최근 작업공간 지우기"
         >
           <X size={10} />
         </button>

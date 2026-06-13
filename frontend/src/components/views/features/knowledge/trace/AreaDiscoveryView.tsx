@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { NoteBase } from '../../../noteUtils';
+import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import {
   areaDiscoveryObservationCount,
@@ -164,7 +165,7 @@ export function AreaDiscoveryView({
                           key={`cluster-${index}-${noteId}`}
                           colors={c}
                           active={noteId === activeNoteId}
-                          title={cluster.titles[itemIndex] ?? 'Untitled'}
+                          title={displayNoteTitle(cluster.titles[itemIndex])}
                           onClick={() => onSelectNote(noteId)}
                         />
                       ))}

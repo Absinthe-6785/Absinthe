@@ -70,14 +70,14 @@ export function RuleCollectionsSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>Collections</span>
+        <span>컬렉션</span>
         {activeCollectionId && (
           <button
             type="button"
             onClick={onClearActive}
             className="btbtn"
             style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-            title="Clear active collection"
+            title="컬렉션 선택 해제"
           >
             <X size={10} />
           </button>
@@ -98,7 +98,7 @@ export function RuleCollectionsSection({
               }}
               autoFocus
             />
-            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>Save</button>
+            <button className="bwbg" style={{ padding: '2px 6px', fontSize: 10 }} onClick={submitRename}>저장</button>
           </div>
         ) : (
           <div
@@ -127,7 +127,7 @@ export function RuleCollectionsSection({
                 setRenameValue(collection.name);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="Rename collection"
+              title="컬렉션 이름 변경"
             >
               <Pencil size={9} />
             </button>
@@ -138,7 +138,7 @@ export function RuleCollectionsSection({
                 onDelete(collection.id);
               }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: 0 }}
-              title="Delete collection"
+              title="컬렉션 삭제"
             >
               <Trash2 size={9} />
             </button>
@@ -151,7 +151,7 @@ export function RuleCollectionsSection({
           <input
             className="bwi"
             style={{ width: '100%', fontSize: 11 }}
-            placeholder="Collection name"
+            placeholder="컬렉션 이름"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => {
@@ -163,7 +163,7 @@ export function RuleCollectionsSection({
           <input
             className="bwi"
             style={{ width: '100%', fontSize: 11 }}
-            placeholder="Rule (e.g. tag:japanese status:active)"
+            placeholder="규칙 (예: tag:japanese status:active)"
             value={newQuery}
             onChange={e => setNewQuery(e.target.value)}
             onKeyDown={e => {
@@ -172,12 +172,12 @@ export function RuleCollectionsSection({
             }}
           />
           <div style={{ display: 'flex', gap: 3 }}>
-            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>Save</button>
+            <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={submitCreate}>저장</button>
             <button
               onClick={() => setShowCreateForm(false)}
               style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}
             >
-              Cancel
+              취소
             </button>
           </div>
         </div>
@@ -189,7 +189,7 @@ export function RuleCollectionsSection({
             style={{ color: c.textMuted, fontSize: 10 }}
           >
             <Plus size={10} color={c.textMuted} />
-            <span>New collection</span>
+            <span>새 컬렉션</span>
           </div>
           {canCreateFromCurrent && (
             <div
@@ -198,7 +198,7 @@ export function RuleCollectionsSection({
               style={{ color: c.textMuted, fontSize: 10 }}
             >
               <Plus size={10} color={c.textMuted} />
-              <span>Save current query</span>
+              <span>현재 검색 저장</span>
             </div>
           )}
         </>

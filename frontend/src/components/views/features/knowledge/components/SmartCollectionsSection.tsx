@@ -27,14 +27,14 @@ export function SmartCollectionsSection({
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>Smart Collections</span>
+        <span>스마트 컬렉션</span>
         {activeCollectionId && (
           <button
             type="button"
             onClick={onClearActive}
             className="btbtn"
             style={{ padding: '0 2px', fontSize: 9, color: c.textMuted }}
-            title="Clear active collection"
+            title="컬렉션 선택 해제"
           >
             <X size={10} />
           </button>
