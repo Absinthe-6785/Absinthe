@@ -164,6 +164,22 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('parses Obsidian callout aliases and serializes to Absinthe emoji format', () => {
+    const md = '> [!tip] Remember this\n> second line';
+    const blocks = markdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('callout');
+    expect(blocks[0].calloutIcon).toBe('💡');
+    expect(blocks[0].content).toBe('Remember this\nsecond line');
+    expect(blocksToMarkdown(blocks).startsWith('> 💡 ')).toBe(true);
+  });
+
+  it('maps Obsidian note/warning/question aliases', () => {
+    expect(markdownToBlocks('> [!note] Info')[0].calloutIcon).toBe('ℹ');
+    expect(markdownToBlocks('> [!warning] Careful')[0].calloutIcon).toBe('⚠');
+    expect(markdownToBlocks('> [!question] Why?')[0].calloutIcon).toBe('❓');
+  });
+
   it('roundtrips toggle heading with children', () => {
     const md = '#> Section\n  nested line';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);

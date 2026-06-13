@@ -6,7 +6,7 @@
  */
 import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
 import type { BlockTint } from './blockColors';
-import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON } from './calloutPresets';
+import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON, calloutIconForObsidianAlias } from './calloutPresets';
 import {
   isToggleBlockType,
   toggleHeadingBlockType,
@@ -248,6 +248,25 @@ export function markdownToBlocks(md: string): Block[] {
     return makeBlock('table', { tableHeaders: headers, tableRows: rows });
   };
 
+  // ── Obsidian 콜아웃 (> [!tip] …) ─────────────────────────────────
+  const tryObsidianCallout = (): Block | null => {
+    const m = lines[i].match(/^> \[!(\w+)\]\s*(.*)$/i);
+    if (!m) return null;
+
+    const icon = calloutIconForObsidianAlias(m[1]);
+    if (!icon) return null;
+
+    const contentLines: string[] = [];
+    if (m[2]?.trim()) contentLines.push(m[2].trim());
+    i++;
+    while (i < lines.length && /^> /.test(lines[i]) && !/^> \[!(\w+)\]/i.test(lines[i])) {
+      contentLines.push(lines[i].replace(/^> /, ''));
+      i++;
+    }
+
+    return makeBlock('callout', { content: contentLines.join('\n'), calloutIcon: icon });
+  };
+
   // ── 콜아웃 (토글·인용보다 먼저 — "> 💡 text" 직렬화 호환) ─────────
   const tryCallout = (): Block | null => {
     const m = lines[i].match(/^> ([\p{Extended_Pictographic}\u2600-\u27BF])\s*(.*)$/u);
@@ -395,6 +414,10 @@ export function markdownToBlocks(md: string): Block[] {
     // 테이블
     const table = tryTable();
     if (table) { blocks.push(table); continue; }
+
+    // Obsidian 콜아웃
+    const obsidianCallout = tryObsidianCallout();
+    if (obsidianCallout) { blocks.push(obsidianCallout); continue; }
 
     // 콜아웃
     const callout = tryCallout();

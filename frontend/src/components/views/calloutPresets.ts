@@ -25,3 +25,23 @@ export function calloutIconForSlashQuery(query: string): string | undefined {
 export function calloutPresetByIcon(icon: string): CalloutPreset | undefined {
   return CALLOUT_PRESETS.find(p => p.icon === icon);
 }
+
+/** Obsidian admonition aliases → Absinthe callout icons */
+export const OBSIDIAN_CALLOUT_ALIASES: Record<string, string> = {
+  note: 'ℹ',
+  info: 'ℹ',
+  tip: '💡',
+  hint: '💡',
+  warning: '⚠',
+  caution: '⚠',
+  danger: '⚠',
+  summary: '📌',
+  abstract: '📌',
+  question: '❓',
+  faq: '❓',
+  help: '❓',
+};
+
+export function calloutIconForObsidianAlias(alias: string): string | undefined {
+  return OBSIDIAN_CALLOUT_ALIASES[alias.toLowerCase()];
+}

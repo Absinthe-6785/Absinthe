@@ -4,9 +4,11 @@
 import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import {
   Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3, Heading4,
+  Strikethrough, Highlighter,
 } from 'lucide-react';
 import { readBlockText } from '../../../../../editableDom';
 import type { BlockType } from '../../../../../blockUtils';
+import { headingConvertTarget } from '../../../../../headingToolbar';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { paintEditableLive } from '../../../../../editableLive';
 import {
@@ -181,10 +183,14 @@ export function SelectionToolbar({
     </ToolbarTip>
   );
 
-  const convertHeading = (type: BlockType) => {
+  const convertHeading = (level: 1 | 2 | 3 | 4) => {
     const blockId = blockIdRef.current;
-    if (blockId) onConvertBlock(blockId, type);
+    if (!blockId) return;
+    const current = getBlockType(blockId);
+    onConvertBlock(blockId, headingConvertTarget(current, level));
   };
+
+  const headingActive = (level: 1 | 2 | 3 | 4) => formats.headingLevel === level;
 
   return (
     <div
@@ -202,13 +208,17 @@ export function SelectionToolbar({
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>서식</span>
       {iconBtn(<Bold size={14}/>, '굵게', 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
       {iconBtn(<Italic size={14}/>, '기울임', 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {iconBtn(<Strikethrough size={14}/>, '취소선', 'Ctrl+Shift+S', formats.strike, () => applyFormat('~~', '~~'))}
+      {iconBtn(<Highlighter size={14}/>, '강조', 'Ctrl+Shift+M', formats.highlight, () => applyFormat('==', '=='))}
       {iconBtn(<Code2 size={14}/>, '코드', 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
-      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>제목</span>
-      {iconBtn(<Heading1 size={14}/>, '제목 1', 'Ctrl+Shift+1', formats.heading === 'heading1', () => convertHeading('heading1'))}
-      {iconBtn(<Heading2 size={14}/>, '제목 2', 'Ctrl+Shift+2', formats.heading === 'heading2', () => convertHeading('heading2'))}
-      {iconBtn(<Heading3 size={14}/>, '제목 3', 'Ctrl+Shift+3', formats.heading === 'heading3', () => convertHeading('heading3'))}
-      {iconBtn(<Heading4 size={14}/>, '제목 4', 'Ctrl+Shift+4', formats.heading === 'heading4', () => convertHeading('heading4'))}
+      <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>
+        {formats.isToggleHeading ? '토글 제목' : '제목'}
+      </span>
+      {iconBtn(<Heading1 size={14}/>, formats.isToggleHeading ? '토글 제목 1' : '제목 1', 'Ctrl+Shift+1', headingActive(1), () => convertHeading(1))}
+      {iconBtn(<Heading2 size={14}/>, formats.isToggleHeading ? '토글 제목 2' : '제목 2', 'Ctrl+Shift+2', headingActive(2), () => convertHeading(2))}
+      {iconBtn(<Heading3 size={14}/>, formats.isToggleHeading ? '토글 제목 3' : '제목 3', 'Ctrl+Shift+3', headingActive(3), () => convertHeading(3))}
+      {iconBtn(<Heading4 size={14}/>, formats.isToggleHeading ? '토글 제목 4' : '제목 4', 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>링크</span>
       {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, '위키 링크', 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}

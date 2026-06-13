@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import { renderKatexHtml } from './mathRendering';
+import { insertMathSnippetAt, MATH_SNIPPETS } from './mathSnippets';
 
 export interface MathBlockProps {
   block: Block;
@@ -36,9 +37,40 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
         </code>;
   }
 
+  const insertSnippet = (latex: string) => {
+    const ta = taRef.current;
+    const start = ta?.selectionStart ?? draft.length;
+    const end = ta?.selectionEnd ?? start;
+    const next = insertMathSnippetAt(draft, latex, start, end);
+    setDraft(next.value);
+    onChange(next.value);
+    requestAnimationFrame(() => {
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(next.selectionStart, next.selectionEnd);
+      }
+    });
+  };
+
   if (editing) {
     return (
       <div style={{ margin:'4px 0' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:6 }}>
+          {MATH_SNIPPETS.map(snippet => (
+            <button
+              key={snippet.id}
+              type="button"
+              title={snippet.latex}
+              onMouseDown={e => { e.preventDefault(); insertSnippet(snippet.latex); }}
+              style={{
+                fontSize:10, fontWeight:600, padding:'3px 8px', borderRadius:6, cursor:'pointer',
+                background:c.toolbar, color:c.textMuted, border:`1px solid ${c.border}`,
+              }}
+            >
+              {snippet.label}
+            </button>
+          ))}
+        </div>
         <textarea
           ref={taRef}
           value={draft}
