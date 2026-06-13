@@ -1,4 +1,6 @@
 import type { AppSettings, Theme } from '../../../../../types';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
+import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveBrowseProjection } from '../../knowledge/archive';
 import {
   listArchiveBrowseLinkItems,
@@ -18,6 +20,7 @@ export function ArchiveBrowseLinks({
   appSettings,
   onBrowseClick,
 }: ArchiveBrowseLinksProps) {
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const links = listArchiveBrowseLinkItems(browse);
   const isEmpty = links.length === 0;
 
@@ -33,9 +36,21 @@ export function ArchiveBrowseLinks({
       </h2>
 
       {isEmpty ? (
-        <p className={`text-sm ${theme.textMuted}`} data-archive-browse-empty-message>
-          탐색할 항목이 없습니다.
-        </p>
+        <div className="flex flex-col items-start gap-2" data-archive-browse-empty-message>
+          <p className={`text-sm ${theme.textMuted}`}>
+            탐색할 항목이 없습니다.
+          </p>
+          <p className={`text-xs ${theme.textMuted}`}>
+            {t('archiveBrowseEmptyHint')}
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary hover:underline"
+            onClick={() => switchToNotesTab()}
+          >
+            {t('archiveEmptyCta')}
+          </button>
+        </div>
       ) : (
         <ul className="flex flex-col gap-1.5" data-archive-browse-list>
           {links.map(link => (

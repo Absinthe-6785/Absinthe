@@ -1,5 +1,5 @@
 import type { AppSettings, Theme } from '../../../../types';
-import { getTranslator } from '../../../../lib/i18n';
+import { resolveAppLanguage, getTranslator } from '../../../../lib/i18n';
 import { type ArchiveViewMode } from './archiveNavigationModels';
 
 export interface ArchivePlaceholderViewProps {
@@ -17,7 +17,7 @@ function archiveViewKey(mode: Exclude<ArchiveViewMode, 'home'>): 'archiveViewPer
 }
 
 export function ArchivePlaceholderView({ mode, theme, appSettings }: ArchivePlaceholderViewProps) {
-  const t = getTranslator((appSettings.language ?? 'en') as 'en' | 'ko' | 'ja');
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const viewLabel = t(archiveViewKey(mode));
   return (
     <div

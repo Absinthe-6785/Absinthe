@@ -1,4 +1,6 @@
 import type { AppSettings, Theme } from '../../../../../types';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
+import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveAreaPill } from '../../knowledge/archive';
 
 export interface ArchiveAreaPillsProps {
@@ -14,6 +16,7 @@ export function ArchiveAreaPills({
   appSettings,
   onAreaClick,
 }: ArchiveAreaPillsProps) {
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const isEmpty = areaPills.length === 0;
   const darkMode = appSettings.darkMode;
 
@@ -29,9 +32,21 @@ export function ArchiveAreaPills({
       </h2>
 
       {isEmpty ? (
-        <p className={`text-sm ${theme.textMuted}`} data-archive-area-pills-empty-message>
-          기록된 영역이 없습니다.
-        </p>
+        <div className="flex flex-col items-start gap-2" data-archive-area-pills-empty-message>
+          <p className={`text-sm ${theme.textMuted}`}>
+            기록된 영역이 없습니다.
+          </p>
+          <p className={`text-xs ${theme.textMuted}`}>
+            {t('archiveAreaEmptyHint')}
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary hover:underline"
+            onClick={() => switchToNotesTab()}
+          >
+            {t('archiveEmptyCta')}
+          </button>
+        </div>
       ) : (
         <div
           className="flex flex-wrap gap-2"

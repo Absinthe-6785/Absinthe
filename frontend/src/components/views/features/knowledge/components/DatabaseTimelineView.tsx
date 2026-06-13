@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
+import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
 import {
   addMonths,
@@ -30,6 +31,8 @@ export function DatabaseTimelineView({
   activeNoteId,
   onSelectNote,
 }: DatabaseTimelineViewProps) {
+  const { t, lang } = useTranslation();
+  const emptyMessage = getDatabaseEmptyMessage(lang);
   const today = new Date();
   const [visibleYear, setVisibleYear] = useState(today.getFullYear());
   const [visibleMonth, setVisibleMonth] = useState(today.getMonth() + 1);
@@ -120,7 +123,7 @@ export function DatabaseTimelineView({
 
       {visibleItems.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-          {items.length === 0 ? DATABASE_EMPTY_MESSAGE : 'No timeline items this month'}
+          {items.length === 0 ? emptyMessage : t('dbTimelineEmptyMonth')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

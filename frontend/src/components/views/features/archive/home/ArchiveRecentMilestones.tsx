@@ -1,4 +1,6 @@
 import type { AppSettings, Theme } from '../../../../../types';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
+import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveMilestoneEntry } from '../../knowledge/archive';
 
 export interface ArchiveRecentMilestonesProps {
@@ -14,6 +16,7 @@ export function ArchiveRecentMilestones({
   appSettings,
   onMilestoneClick,
 }: ArchiveRecentMilestonesProps) {
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const isEmpty = milestones.length === 0;
 
   return (
@@ -28,9 +31,21 @@ export function ArchiveRecentMilestones({
       </h2>
 
       {isEmpty ? (
-        <p className={`text-sm ${theme.textMuted}`} data-archive-recent-milestones-empty-message>
-          기록된 마일스톤이 없습니다.
-        </p>
+        <div className="flex flex-col items-start gap-2" data-archive-recent-milestones-empty-message>
+          <p className={`text-sm ${theme.textMuted}`}>
+            기록된 마일스톤이 없습니다.
+          </p>
+          <p className={`text-xs ${theme.textMuted}`}>
+            {t('archiveMilestoneEmptyHint')}
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary hover:underline"
+            onClick={() => switchToNotesTab()}
+          >
+            {t('archiveEmptyCta')}
+          </button>
+        </div>
       ) : (
         <ul className="flex flex-col gap-2" data-archive-recent-milestones-list>
           {milestones.map(entry => (

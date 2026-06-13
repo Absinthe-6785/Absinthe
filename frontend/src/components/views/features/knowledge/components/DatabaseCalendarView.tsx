@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
@@ -8,7 +9,7 @@ import {
   NO_DATE_KEY,
   type CalendarDateBucket,
 } from '../databaseViews/bucketNotesByDate';
-import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
+import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
 import {
   addMonths,
   buildCalendarMonthGrid,
@@ -33,6 +34,8 @@ export function DatabaseCalendarView({
   activeNoteId,
   onSelectNote,
 }: DatabaseCalendarViewProps) {
+  const { lang } = useTranslation();
+  const emptyMessage = getDatabaseEmptyMessage(lang);
   const today = new Date();
   const [visibleYear, setVisibleYear] = useState(today.getFullYear());
   const [visibleMonth, setVisibleMonth] = useState(today.getMonth() + 1);
@@ -96,7 +99,7 @@ export function DatabaseCalendarView({
 
       {!hasScheduledNotes && noDateNotes.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-          {DATABASE_EMPTY_MESSAGE}
+          {emptyMessage}
         </div>
       ) : (
         <>

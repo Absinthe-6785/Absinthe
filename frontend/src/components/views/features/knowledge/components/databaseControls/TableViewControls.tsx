@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import { useTranslation } from '../../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import {
   columnLabelForKey,
   resolveAllColumnKeys,
 } from '../../databaseViews/databaseViewConfig';
 import { resolveAllSortableKeys, resolveDatabaseViewSortRules } from '../../databaseViews/sortDatabaseViewRows';
-import { TABLE_ADD_COLUMN_FIELD } from '../../databaseViews/databasePresentationMeta';
+import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseTableConfig } from '../../databaseViews/databasePresentationModels';
 import type { DatabaseViewSort } from '../../databaseViews/databaseViewModels';
 import type { DatabaseViewSortRule } from '../../databaseViews/databasePresentationModels';
@@ -67,6 +68,8 @@ export function TableViewControls({
   onRemoveFormulaColumn,
   onToggleFormulaColumnVisibility,
 }: TableViewControlsProps) {
+  const { lang } = useTranslation();
+  const addColumnField = getDatabasePropertyFieldPreset('tableAddColumn', lang);
   const [newColumnKey, setNewColumnKey] = useState('');
   const [rollupKey, setRollupKey] = useState('');
   const [rollupRelationKey, setRollupRelationKey] = useState('course');
@@ -301,7 +304,7 @@ export function TableViewControls({
         <input
           className="bwi"
           style={{ flex: 1, fontSize: 10 }}
-          placeholder={TABLE_ADD_COLUMN_FIELD.placeholder}
+          placeholder={addColumnField.placeholder}
           value={newColumnKey}
           list="database-table-column-suggestions"
           onChange={e => setNewColumnKey(e.target.value)}

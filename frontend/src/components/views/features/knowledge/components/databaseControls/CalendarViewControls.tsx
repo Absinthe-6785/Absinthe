@@ -1,4 +1,5 @@
-import { CALENDAR_DATE_PROPERTY_FIELD } from '../../databaseViews/databasePresentationMeta';
+import { useTranslation } from '../../../../../../lib/i18n';
+import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseCalendarConfig } from '../../databaseViews/databasePresentationModels';
 import { DatabasePropertyKeyField } from '../DatabasePropertyKeyField';
 
@@ -11,9 +12,10 @@ export function CalendarViewControls({
   calendarConfig,
   onDatePropertyChange,
 }: CalendarViewControlsProps) {
+  const { lang } = useTranslation();
   return (
     <DatabasePropertyKeyField
-      preset={CALENDAR_DATE_PROPERTY_FIELD}
+      preset={getDatabasePropertyFieldPreset('calendarDate', lang)}
       value={calendarConfig.dateProperty}
       onChange={onDatePropertyChange}
       listId="database-calendar-date-suggestions"

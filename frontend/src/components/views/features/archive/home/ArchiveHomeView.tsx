@@ -7,7 +7,7 @@ import {
   openArchiveMarkMonthNavigation,
   openTraceDayNavigation,
 } from '../../../../../lib/traceNavigation';
-import { getTranslator } from '../../../../../lib/i18n';
+import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { ArchiveAreaPills } from './ArchiveAreaPills';
 import { ArchiveBrowseLinks } from './ArchiveBrowseLinks';
 import { ArchiveMarkCalendar } from './ArchiveMarkCalendar';
@@ -29,7 +29,7 @@ export function ArchiveHomeView({
   appSettings,
   isLoading = false,
 }: ArchiveHomeViewProps) {
-  const t = getTranslator((appSettings.language ?? 'en') as 'en' | 'ko' | 'ja');
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
   const onMilestoneClick = useCallback(
     (entry: { noteId: string }) => openNote(entry.noteId),
     [],

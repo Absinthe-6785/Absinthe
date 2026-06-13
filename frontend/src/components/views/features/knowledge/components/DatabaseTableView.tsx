@@ -1,9 +1,10 @@
+import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteBase } from '../../../noteUtils';
 import { UNTITLED_NOTE_LABEL } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getDatabaseFieldValue } from '../databaseViews/databaseFieldValues';
-import { DATABASE_EMPTY_MESSAGE } from '../databaseViews/databasePresentationMeta';
+import { getDatabaseEmptyMessage } from '../databaseViews/databasePresentationMeta';
 import type { DatabaseColumn, DatabaseViewSort } from '../databaseViews/databaseViewModels';
 import type { DatabaseViewSortRule } from '../databaseViews/databasePresentationModels';
 import { DEFAULT_TABLE_COLUMNS } from '../databaseViews/databaseColumns';
@@ -92,6 +93,8 @@ export function DatabaseTableView({
   activeNoteId,
   onSelectNote,
 }: DatabaseTableViewProps) {
+  const { lang } = useTranslation();
+  const emptyMessage = getDatabaseEmptyMessage(lang);
   const notesById = new Map(notes.map(note => [note.id, note]));
   const formulaMemo = createFormulaComputeMemo();
   const totalColumns = columns.length + rollupColumns.length + formulaColumns.length;
@@ -151,7 +154,7 @@ export function DatabaseTableView({
           {notes.length === 0 ? (
             <tr>
               <td colSpan={totalColumns} style={{ padding: 16, textAlign: 'center', color: c.textFaint }}>
-                {DATABASE_EMPTY_MESSAGE}
+                {emptyMessage}
               </td>
             </tr>
           ) : notes.map(note => {

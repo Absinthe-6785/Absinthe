@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -29,6 +29,11 @@ import {
 import type { DatabaseView } from './databaseViewModels';
 import { loadDatabaseViews, saveDatabaseViews } from './databaseViewsStorage';
 
+vi.mock('../../../../../store/useAppStore', () => ({
+  useAppStore: (selector: (s: { appSettings: { language: 'en' } }) => unknown) =>
+    selector({ appSettings: { language: 'en' } }),
+}));
+
 function note(
   id: string,
   title: string,
@@ -51,7 +56,8 @@ describe('databasePresentationMeta', () => {
     expect(DATABASE_PRESENTATION_OPTIONS.map(o => o.value)).toEqual([
       'table', 'board', 'calendar', 'timeline', 'gallery',
     ]);
-    expect(presentationLabel('gallery')).toBe('Gallery');
+    expect(presentationLabel('gallery', 'en')).toBe('Gallery');
+    expect(presentationLabel('gallery', 'ko')).toBe('갤러리');
   });
 
   it('defines shared property field presets', () => {

@@ -33,7 +33,7 @@ export function ArchiveShell({
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300"
+      className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden py-1 pr-1 animate-in fade-in duration-300"
       data-archive-shell
       data-archive-mode={mode}
     >
