@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 
 export function databaseControlsContainerStyle(c: NoteChromeColors): CSSProperties {
   return {

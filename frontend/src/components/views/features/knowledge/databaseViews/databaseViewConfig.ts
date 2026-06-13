@@ -1,6 +1,17 @@
 import type { FormulaColumnDefinition } from '../formulas/formulaModels';
 import type { RollupColumnDefinition } from '../rollups/rollupModels';
-import { BUILTIN_COLUMN_KEYS, isBuiltinColumnKey } from './databaseViewModels';
+import {
+  BUILTIN_COLUMN_KEYS,
+  isBuiltinColumnKey,
+  type DatabaseColumn,
+  type DatabaseViewColumnEntry,
+  type DatabaseViewSort,
+} from './databaseViewModels';
+
+export function isPropertyColumnKey(key: string): boolean {
+  const trimmed = key.trim();
+  return trimmed.length > 0 && !isBuiltinColumnKey(trimmed);
+}
 
 /** Default Phase 1 table columns (all visible) */
 export const DEFAULT_TABLE_COLUMNS: readonly DatabaseColumn[] = [

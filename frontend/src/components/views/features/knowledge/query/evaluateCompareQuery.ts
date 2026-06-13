@@ -103,7 +103,7 @@ function parseComparableValue(raw: string): string | number {
 
 function noteMatchesPostFilterClauses(
   note: NoteBase,
-  clauses: readonly Array<PropertyCompareQueryClause | MetadataQueryClause>,
+  clauses: ReadonlyArray<PropertyCompareQueryClause | MetadataQueryClause>,
   service: KnowledgeIndexService,
 ): boolean {
   for (const clause of clauses) {
@@ -131,7 +131,7 @@ function noteMatchesPostFilterClauses(
 export function filterNotesByPostFilterClauses(
   notes: readonly NoteBase[],
   candidateIds: Set<string>,
-  clauses: readonly Array<PropertyCompareQueryClause | MetadataQueryClause>,
+  clauses: ReadonlyArray<PropertyCompareQueryClause | MetadataQueryClause>,
   service: KnowledgeIndexService,
 ): Set<string> {
   if (clauses.length === 0) return candidateIds;

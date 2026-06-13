@@ -160,12 +160,12 @@ export function LocalGraphView({
 
   useEffect(() => {
     setTransform({ x: 0, y: 0, k: 1 });
-    setSelectedNodeId(graphData.centerNoteId);
+    setSelectedNodeId(graphData.centerNoteId ?? null);
   }, [graphData.centerNoteId]);
 
   useEffect(() => {
     if (selectedNodeId && !graphData.nodes.some(n => n.noteId === selectedNodeId)) {
-      setSelectedNodeId(graphData.centerNoteId);
+      setSelectedNodeId(graphData.centerNoteId ?? null);
     }
   }, [graphData.nodes, graphData.centerNoteId, selectedNodeId]);
 

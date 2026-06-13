@@ -726,16 +726,16 @@ export function useNoteWorkspace({
     for (const ref of pinnedWorkspaces) add(ref);
     for (const entry of recentWork) add(entry.workspace);
     for (const view of savedViews) {
-      add(resolveWorkspaceRef({ kind: 'saved-view', id: view.id, name: view.name }, resolveContext));
+      add(resolveWorkspaceRef({ kind: 'saved-view', id: view.id }, resolveContext));
     }
     for (const collection of ruleCollections) {
-      add(resolveWorkspaceRef({ kind: 'rule-collection', id: collection.id, name: collection.name }, resolveContext));
+      add(resolveWorkspaceRef({ kind: 'rule-collection', id: collection.id }, resolveContext));
     }
     for (const view of databaseViews) {
-      add(resolveWorkspaceRef({ kind: 'database-view', id: view.id, name: view.name }, resolveContext));
+      add(resolveWorkspaceRef({ kind: 'database-view', id: view.id }, resolveContext));
     }
     for (const collection of SMART_COLLECTIONS) {
-      add(resolveWorkspaceRef({ kind: 'smart-collection', id: collection.id, name: collection.name }, resolveContext));
+      add(resolveWorkspaceRef({ kind: 'smart-collection', id: collection.id }, resolveContext));
     }
     return options;
   }, [pinnedWorkspaces, recentWork, savedViews, ruleCollections, databaseViews, resolveContext]);

@@ -177,9 +177,9 @@ export function sortDatabaseViewRows(
   service: KnowledgeIndexService,
   table?: DatabaseTableConfig,
 ): NoteBase[] {
-  const sortRules = Array.isArray(sortOrRules)
+  const sortRules: DatabaseViewSortRule[] = Array.isArray(sortOrRules)
     ? [...sortOrRules]
-    : migrateLegacySortToSortRules(sortOrRules);
+    : migrateLegacySortToSortRules(sortOrRules as DatabaseViewSort);
 
   if (sortRules.length === 0) return [...notes];
 

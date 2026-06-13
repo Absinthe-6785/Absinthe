@@ -18,12 +18,14 @@ function EntryList({
   items,
   onNavigate,
   onEditProject,
+  touch,
 }: {
   c: NoteChromeColors;
   title: string;
   items: readonly SubjectDashboardEntry[];
   onNavigate: (noteId: string) => void;
   onEditProject?: (projectId: string) => void;
+  touch?: number;
 }) {
   return (
     <div style={{ marginBottom: 10 }}>
@@ -69,7 +71,7 @@ function EntryList({
                   background: c.card,
                   color: c.accent,
                   cursor: 'pointer',
-                  minHeight: touch,
+                  minHeight: touch ?? undefined,
                 }}
               >
                 편집
@@ -141,11 +143,11 @@ export function SubjectWorkspacePanel({
           </div>
         ))}
       </div>
-      <EntryList c={c} title="프로젝트" items={data.linkedProjects} onNavigate={onNavigateToNote} onEditProject={onEditProject} />
-      <EntryList c={c} title="약점 주제" items={data.weakTopics} onNavigate={onNavigateToNote} />
-      <EntryList c={c} title="학습 노트" items={data.studyNotes} onNavigate={onNavigateToNote} />
-      <EntryList c={c} title="개념" items={data.conceptNotes} onNavigate={onNavigateToNote} />
-      <EntryList c={c} title="최근 활동" items={data.activity} onNavigate={onNavigateToNote} />
+      <EntryList c={c} title="프로젝트" items={data.linkedProjects} onNavigate={onNavigateToNote} onEditProject={onEditProject} touch={touch} />
+      <EntryList c={c} title="약점 주제" items={data.weakTopics} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} title="학습 노트" items={data.studyNotes} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} title="개념" items={data.conceptNotes} onNavigate={onNavigateToNote} touch={touch} />
+      <EntryList c={c} title="최근 활동" items={data.activity} onNavigate={onNavigateToNote} touch={touch} />
     </div>
   );
 }

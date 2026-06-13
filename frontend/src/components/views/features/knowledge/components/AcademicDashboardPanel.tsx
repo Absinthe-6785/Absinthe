@@ -1,6 +1,5 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { AcademicDashboardData } from '../academic/buildAcademicDashboard';
-import type { ProjectMilestoneEntry } from '../academic/projectMilestoneModels';
 import type { ResearchNoteEntry } from '../research/buildResearchDashboard';
 import type { StudyNoteEntry } from '../study/buildStudyDashboard';
 
@@ -74,7 +73,11 @@ export function AcademicDashboardPanel({ colors: c, data, onNavigateToNote }: Ac
     meta: `${p.progressLabel} · ${p.linkedNoteCount} 노트`,
   }));
 
-  const milestoneItems: ProjectMilestoneEntry[] = data.upcomingMilestones;
+  const milestoneItems = data.upcomingMilestones.map(m => ({
+    noteId: m.noteId,
+    noteTitle: m.title,
+    meta: m.meta,
+  }));
   const studyItems: StudyNoteEntry[] = data.studyNotes;
   const researchItems: ResearchNoteEntry[] = data.researchNotes;
   const weakItems: StudyNoteEntry[] = data.weakTopics;

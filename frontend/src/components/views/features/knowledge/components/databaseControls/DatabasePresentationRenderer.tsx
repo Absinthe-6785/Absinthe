@@ -1,4 +1,4 @@
-import type { NoteChromeColors } from '../../../noteEditorTheme';
+import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
 import {
   resolveVisibleColumns,

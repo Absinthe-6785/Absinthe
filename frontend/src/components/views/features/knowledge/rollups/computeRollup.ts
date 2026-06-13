@@ -164,7 +164,7 @@ export function computeRollup(
         ...definition,
         sortBy: field === 'updatedAt' ? 'updatedAt' : field,
       }, service, notesById);
-      const last = sorted.at(-1);
+      const last = sorted[sorted.length - 1];
       if (!last || (!includeMissing && last.missing)) {
         return { raw: null, display: '—', missingTargets: missingTargets || undefined };
       }
@@ -218,7 +218,7 @@ export function computeRollup(
 
     case 'last': {
       const sorted = sortLinkedNotes(linked, definition, service, notesById);
-      const last = sorted.at(-1);
+      const last = sorted[sorted.length - 1];
       if (!last || (!includeMissing && last.missing)) {
         return { raw: null, display: '—', missingTargets: missingTargets || undefined };
       }

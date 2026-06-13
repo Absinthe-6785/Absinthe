@@ -72,7 +72,7 @@ export function buildConceptHub(input: BuildConceptHubInput): ConceptHubData {
     if (target && isConceptNote(target) && !relatedConcepts.some(r => r.noteId === target.id)) {
       relatedConcepts.push({
         noteId: target.id,
-        noteTitle: ref.targetTitle,
+        noteTitle: displayNoteTitle(ref.title),
         relationType: 'related-to',
         direction: 'outgoing',
       });

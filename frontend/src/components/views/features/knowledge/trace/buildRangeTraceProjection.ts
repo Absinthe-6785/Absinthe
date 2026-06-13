@@ -175,9 +175,9 @@ export function shiftTraceMonth(
   year: number,
   month: number,
   deltaMonths: number,
-): TraceMonthKey {
+): TraceRangeLens {
   const next = addMonths(year, month, deltaMonths);
-  return { year: next.year, month: next.month };
+  return { kind: 'month', year: next.year, month: next.month };
 }
 
 export function formatTraceMonthHeading(year: number, month: number, locale?: string): string {
@@ -214,11 +214,11 @@ export function shiftTraceQuarter(
   year: number,
   quarter: 1 | 2 | 3 | 4,
   deltaQuarters: number,
-): TraceQuarterKey {
+): TraceRangeLens {
   let index = year * 4 + (quarter - 1) + deltaQuarters;
   const nextYear = Math.floor(index / 4);
   const nextQuarter = ((index % 4) + 4) % 4 + 1;
-  return { year: nextYear, quarter: nextQuarter as 1 | 2 | 3 | 4 };
+  return { kind: 'quarter', year: nextYear, quarter: nextQuarter as 1 | 2 | 3 | 4 };
 }
 
 export function formatTraceQuarterHeading(year: number, quarter: 1 | 2 | 3 | 4): string {

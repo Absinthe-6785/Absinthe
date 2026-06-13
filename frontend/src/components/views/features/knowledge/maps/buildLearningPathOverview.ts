@@ -33,7 +33,7 @@ export function buildLearningPathOverview(
   const pathIds = listLearningPathIds(notes);
 
   const paths = pathIds
-    .map(pathId => {
+    .map((pathId): LearningPathOverviewEntry | null => {
       const path = buildLearningPath(notes, pathId);
       if (!path) return null;
       const maxStep = path.steps.reduce((max, s) => Math.max(max, s.step), 0);
@@ -48,7 +48,7 @@ export function buildLearningPathOverview(
         currentStep,
         steps: path.steps.slice(0, stepPreviewLimit),
         relatedNoteCount: path.steps.length,
-      } satisfies LearningPathOverviewEntry;
+      } ;
     })
     .filter((entry): entry is LearningPathOverviewEntry => entry !== null);
 

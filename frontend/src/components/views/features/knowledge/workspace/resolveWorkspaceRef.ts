@@ -33,7 +33,7 @@ export function isValidWorkspaceRef(
   id: string,
   context: WorkspaceResolveContext,
 ): boolean {
-  return resolveWorkspaceRef({ kind, id, name: '' }, context) !== null;
+  return resolveWorkspaceRef({ kind, id }, context) !== null;
 }
 
 export function resolveWorkspaceRef(
@@ -115,7 +115,7 @@ export function workspaceRefFromActivation(
   context: WorkspaceResolveContext,
 ): WorkspaceRef | null {
   if (activation.kind === 'none' || activation.kind === 'dashboard') return null;
-  return resolveWorkspaceRef({ kind: activation.kind, id: activation.id, name: '' }, context);
+  return resolveWorkspaceRef({ kind: activation.kind, id: activation.id }, context);
 }
 
 /** @internal for tests */

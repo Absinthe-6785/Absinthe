@@ -34,7 +34,7 @@ export interface BacklinkIndex {
  * - reverse lookup: which pages link to each [[title]]
  * - forward lookup: which [[titles]] each page links to
  */
-export function buildBacklinkIndex(notes: NoteBase[]): BacklinkIndex {
+export function buildBacklinkIndex(notes: readonly NoteBase[]): BacklinkIndex {
   const incomingMap = new Map<string, Map<string, PageReference>>();
   const outgoingMap = new Map<string, string[]>();
 
@@ -108,7 +108,7 @@ export function getOutgoingLinks(
 export function getPageReferences(
   index: BacklinkIndex,
   note: NoteBase,
-  allNotes: NoteBase[],
+  allNotes: readonly NoteBase[],
 ): { incoming: PageReference[]; outgoing: OutgoingReference[] } {
   const incoming = getIncomingLinks(index, note.title ?? '', {
     excludeNoteId: note.id,
