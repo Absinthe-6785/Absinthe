@@ -63,3 +63,8 @@ export function listArchiveBrowseLinkItems(browse: ArchiveBrowseProjection): Arc
 
   return items;
 }
+
+/** Period-only browse links for Archive Period branch. */
+export function listArchivePeriodBrowseLinks(browse: ArchiveBrowseProjection): ArchiveBrowseLinkItem[] {
+  return listArchiveBrowseLinkItems(browse).filter(link => link.destination.type === 'period');
+}

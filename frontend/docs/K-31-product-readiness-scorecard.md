@@ -1,59 +1,57 @@
 # K-31 — Product Readiness Scorecard
 
 **Branch:** `k31-product-stabilization`  
-**Scope:** Phase 5 — 0–10 scoring (updated after pass 3)
+**Scope:** Phase 5 — 0–10 scoring (updated after pass 4)
 
 ---
 
 ## Scores
 
-| Area | Pass 1 | Pass 2 | Pass 3 | Rationale | Blockers |
+| Area | Pass 2 | Pass 3 | Pass 4 | Rationale | Blockers |
 | ---- | ------ | ------ | ------ | --------- | -------- |
-| **Navigation** | 7 | 7.5 | **7.5** | Unchanged — outline/backspace fixed pass 1–2 | Archive period branches |
-| **Discoverability** | 6 | 6 | **6.5** | Archive section empty CTAs + mark calendar click hint | Weekly timetable below fold |
-| **Localization** | 6 | 6.5 | **7.5** | Default `ko`, Database/Properties/Tags i18n, `resolveAppLanguage` | Graph counters, Luxon locale |
-| **Planner** | 6 | 6 | 6 | Calendar headers i18n (pass 1) | Legacy column duplication |
-| **Archive** | 4 | 5.5 | **6.5** | All home sections actionable empty states | Period/area/timeline shells |
-| **Workspace** | 7 | 7 | **7.5** | Localized database view subtitles | Section title i18n |
-| **Graph** | 5 | 6 | 6 | Pass 2 hover labels | Layout engine unchanged |
-| **Accessibility** | 6.5 | 6.5 | 6.5 | Unchanged | TOC keyboard |
-| **Visual Consistency** | 6 | 6.5 | **7** | Icon stroke alignment, Archive scroll | NoteView inline styles |
-| **Mobile Experience** | 6 | 6 | 6 | Unchanged | Dual planner nav |
+| **Navigation** | 7.5 | 7.5 | **8** | Archive branches route to trace/notes | In-app archive tab switcher |
+| **Discoverability** | 6 | 6.5 | **7** | Branch views + collapsed weekly timetable | Legacy planner column |
+| **Localization** | 6.5 | 7.5 | 7.5 | Unchanged pass 4 | Graph counters, Luxon locale |
+| **Planner** | 6 | 6 | **6.5** | Weekly timetable demoted (collapsed default) | Legacy column duplication |
+| **Archive** | 5.5 | 6.5 | **7.5** | Branch views replace dead-end placeholders | Full period shell |
+| **Workspace** | 7 | 7.5 | 7.5 | Unchanged | Section title i18n |
+| **Graph** | 6 | 6 | **6.5** | Focus neighborhood + hub styling | Layout engine |
+| **Accessibility** | 6.5 | 6.5 | **6.5** | Timetable toggle `aria-expanded` | TOC keyboard |
+| **Visual Consistency** | 6.5 | 7 | **7.5** | Planner/Archive icon rhythm aligned | NoteView inline styles |
+| **Mobile Experience** | 6 | 6 | **6.5** | Collapsed timetable reduces scroll | Dual planner nav |
 
 ---
 
 ## Overall Readiness
 
-**6.1 → 6.4 → 6.8 / 10**
+**6.4 → 6.8 → 7.2 / 10**
 
-Pass 3 closes the English-first gap (default locale + Database/Properties batch) and makes Archive home sections actionable without redesign.
+Pass 4 targets Archive branch usefulness, planner noise reduction, and graph scanability — moving overall readiness above 7.0.
 
 ---
 
-## Pass 3 Deliverables
+## Pass 4 Deliverables
 
-- ✅ Default language strategy (`ko` default, `resolveAppLanguage`) + audit
-- ✅ Database & properties localization + audit
-- ✅ Archive pass 2 (empty CTAs, hints, scroll) + audit
-- ✅ Visual identity pass + audit
-- ✅ Icon system pass 2 doc + sidebar stroke alignment
-- ✅ Terminology audit
+- ✅ Archive branch views (`ArchiveBranchView`) + pass 3 audit
+- ✅ Planner simplification (collapsible weekly timetable) + audit
+- ✅ Graph readability pass 2 + audit
+- ✅ Visual identity pass 2 + audit
 - ✅ Scorecard update
 
 ---
 
 ## Remaining Blockers (Product Ready)
 
-1. Archive Period / Area / Timeline branch implementations
-2. Luxon / projection locale wiring for Archive
-3. Planner legacy column demotion
-4. TOC keyboard navigation (j/k)
-5. Graph layout engine + counter i18n
+1. Archive in-app mode tabs (Home / Period / Area / Timeline)
+2. Luxon locale for Archive period labels
+3. Planner legacy timeline column removal
+4. Graph counter i18n + layout at scale
+5. TOC keyboard navigation (j/k)
 
 ---
 
 ## Regression Watchlist
 
-- Persisted `language: 'en'` users unchanged; new installs default `ko`
-- Database UX tests mock `useAppStore` for English switcher assertions
-- Archive empty CTAs call `switchToNotesTab()` — verify cross-tab navigation in manual QA
+- Archive branch views require `useArchiveHomeProjection` — same data as Home
+- Weekly timetable collapsed when empty — users with existing blocks auto-expand
+- Graph focus-dim on hover may feel aggressive — adjust opacity if feedback says so

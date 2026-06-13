@@ -594,6 +594,16 @@ const translations = {
   archiveMarkCalendarEmptyHint:  { en: 'Daily marks on notes will fill this calendar.', ko: '노트의 일일 마크가 이 캘린더를 채웁니다.', ja: 'ノートの日次マークでカレンダーが埋まります。' },
   archiveAreaEmptyHint:          { en: 'Area notes with marks appear here.', ko: '마크가 있는 영역 노트가 여기 표시됩니다.', ja: 'マーク付きエリアノートがここに表示されます。' },
   archiveMarkCalendarClickHint:  { en: 'Click a day to open its trace', ko: '날짜를 클릭하면 해당 trace 열기', ja: '日付をクリックで trace を開く' },
+  archiveBranchPeriodHint:       { en: 'Jump into a time range in Notes trace — no extra setup required.', ko: '노트 trace에서 기간별 기록을 바로 엽니다.', ja: 'ノート trace で期間記録をすぐ開きます。' },
+  archiveBranchAreaHint:         { en: 'Open an area note or browse all areas in trace discovery.', ko: '영역 노트를 열거나 trace 탐색에서 전체 영역을 봅니다.', ja: 'エリアノートを開くか、trace探索で全体を見ます。' },
+  archiveBranchTimelineHint:     { en: 'Follow milestones and daily marks into their source notes.', ko: '마일스톤과 일일 마크에서 원본 노트로 이동합니다.', ja: 'マイルストーンと日次マークから元ノートへ移動します。' },
+  archiveOpenDiscovery:          { en: 'Browse all areas in trace', ko: 'trace에서 전체 영역 탐색', ja: 'traceで全エリアを探索' },
+  archiveOpenCurrentPeriod:      { en: 'Open current month in trace', ko: '이번 달 trace 열기', ja: '今月の trace を開く' },
+  archiveOpenTimelineRange:      { en: 'Open timeline range in trace', ko: '타임라인 기간 trace 열기', ja: 'タイムライン期間 trace を開く' },
+  plannerWeeklyTimetableExpand:  { en: 'Show weekly timetable', ko: '주간 타임테이블 펼치기', ja: '週間タイムテーブルを表示' },
+  plannerWeeklyTimetableCollapse:{ en: 'Hide weekly timetable', ko: '주간 타임테이블 접기', ja: '週間タイムテーブルを隠す' },
+  graphHoverConnected:           { en: '{count} links', ko: '연결 {count}개', ja: 'リンク {count}件' },
+  graphHubLabel:                 { en: 'hub', ko: '허브', ja: 'ハブ' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

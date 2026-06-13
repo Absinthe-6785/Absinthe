@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../../types';
 import { buildArchiveHomeProjection } from '../knowledge/archive';
+import { ArchiveBranchView } from './ArchiveBranchView';
 import { ArchiveHomeView } from './home/ArchiveHomeView';
 import { ArchivePlaceholderView } from './ArchivePlaceholderView';
 import { ArchiveShell } from './ArchiveShell';
@@ -107,7 +108,7 @@ describe('ArchiveShell', () => {
     expect(DEFAULT_ARCHIVE_VIEW_MODE).toBe('home');
   });
 
-  it('renders branch placeholders when mode is overridden', () => {
+  it('renders actionable period branch when mode is overridden', () => {
     const periodHtml = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
@@ -117,12 +118,30 @@ describe('ArchiveShell', () => {
       }),
     );
     expect(periodHtml).toContain('data-archive-mode="period"');
-    expect(periodHtml).toContain('data-archive-placeholder="period"');
-    expect(periodHtml).toContain('Period view is not available yet.');
+    expect(periodHtml).toContain('data-archive-branch="period"');
+    expect(periodHtml).toContain('data-archive-branch-period-links');
+    expect(periodHtml).toContain('data-archive-branch-open-current-period');
+    expect(periodHtml).not.toContain('not available yet');
   });
 });
 
-describe('ArchivePlaceholderView', () => {
+describe('ArchiveBranchView', () => {
+  it('renders timeline branch with milestones and trace CTA', () => {
+    const html = renderToStaticMarkup(
+      createElement(ArchiveBranchView, {
+        mode: 'timeline',
+        projection: emptyProjection(),
+        theme,
+        appSettings,
+      }),
+    );
+    expect(html).toContain('data-archive-branch="timeline"');
+    expect(html).toContain('data-archive-recent-milestones');
+    expect(html).toContain('data-archive-branch-open-timeline-range');
+  });
+});
+
+describe('ArchivePlaceholderView (legacy)', () => {
   it('renders timeline placeholder copy', () => {
     const html = renderToStaticMarkup(
       createElement(ArchivePlaceholderView, { mode: 'timeline', theme, appSettings }),

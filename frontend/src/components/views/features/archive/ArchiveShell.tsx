@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../types';
-import { ArchivePlaceholderView } from './ArchivePlaceholderView';
+import { ArchiveBranchView } from './ArchiveBranchView';
 import {
   DEFAULT_ARCHIVE_VIEW_MODE,
   type ArchiveViewMode,
@@ -45,9 +45,33 @@ export function ArchiveShell({
           isLoading={isLoading}
         />
       )}
-      {mode === 'period' && <ArchivePlaceholderView mode="period" theme={theme} appSettings={appSettings} />}
-      {mode === 'area' && <ArchivePlaceholderView mode="area" theme={theme} appSettings={appSettings} />}
-      {mode === 'timeline' && <ArchivePlaceholderView mode="timeline" theme={theme} appSettings={appSettings} />}
+      {mode === 'period' && (
+        <ArchiveBranchView
+          mode="period"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
+      {mode === 'area' && (
+        <ArchiveBranchView
+          mode="area"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
+      {mode === 'timeline' && (
+        <ArchiveBranchView
+          mode="timeline"
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+        />
+      )}
     </div>
   );
 }
