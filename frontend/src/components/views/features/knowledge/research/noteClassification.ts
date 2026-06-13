@@ -5,20 +5,22 @@ import { getProperty, removeProperty, setProperty } from '../properties/noteProp
 export const NOTE_KIND_PROPERTY = 'noteKind';
 export const NOTE_KIND_PROMOTED_AT_PROPERTY = 'noteKindPromotedAt';
 
-export type NoteKind = 'source' | 'literature' | 'permanent';
+export type NoteKind = 'source' | 'literature' | 'permanent' | 'concept';
 
-export const NOTE_KINDS: readonly NoteKind[] = ['source', 'literature', 'permanent'];
+export const NOTE_KINDS: readonly NoteKind[] = ['source', 'literature', 'permanent', 'concept'];
 
 export const NOTE_KIND_LABELS: Record<NoteKind, string> = {
   source: 'Source',
   literature: 'Literature',
   permanent: 'Permanent',
+  concept: 'Concept',
 };
 
 export const NOTE_KIND_LABELS_KO: Record<NoteKind, string> = {
   source: '출처',
   literature: '문헌',
   permanent: '영구',
+  concept: '개념',
 };
 
 export function isNoteKind(value: string): value is NoteKind {
@@ -39,12 +41,16 @@ export function filterNotesByKind(notes: readonly NoteBase[], kind: NoteKind): N
   return notes.filter(n => !n.deletedAt && getNoteKind(n) === kind);
 }
 
-/** Workflow step index for visual pipeline (0 = source … 2 = permanent). */
+/** Workflow step index for visual pipeline (0 = source … 2 = permanent). Concept excluded. */
 export function noteKindWorkflowStep(kind: NoteKind | null): number {
   if (kind === 'source') return 0;
   if (kind === 'literature') return 1;
   if (kind === 'permanent') return 2;
   return -1;
+}
+
+export function isConceptNote(note: NoteBase): boolean {
+  return getNoteKind(note) === 'concept';
 }
 
 /** Next kind in Source → Literature → Permanent pipeline. */

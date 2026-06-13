@@ -12,7 +12,8 @@ export type SmartCollectionId =
   | 'exam-study-notes'
   | 'exam-weak-topics'
   | 'exam-review-notes'
-  | 'exam-prep';
+  | 'exam-prep'
+  | 'map-concepts';
 
 /** Lightweight system collection definition — does not store note ids */
 export interface SmartCollection {

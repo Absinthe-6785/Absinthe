@@ -77,6 +77,7 @@ export {
   type WorkspaceDashboardMaintenanceProps,
   type WorkspaceDashboardResearchProps,
   type WorkspaceDashboardStudyProps,
+  type WorkspaceDashboardKnowledgeMapsProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -106,6 +107,58 @@ export { StudyDashboardPanel, type StudyDashboardPanelProps } from './components
 export { WeakTopicToggle, type WeakTopicToggleProps } from './components/WeakTopicToggle';
 
 export {
+  CONCEPT_RELATION_TYPES,
+  CONCEPT_RELATION_LABELS,
+  CONCEPT_RELATION_LABELS_KO,
+  isConceptRelationType,
+  normalizeConceptRelationType,
+  listConceptRelations,
+  getConceptRelationTargets,
+  countConceptRelationsByType,
+  filterConceptNotes,
+  type ConceptRelationType,
+} from './maps/conceptRelations';
+
+export {
+  buildConceptHub,
+  type ConceptHubEntry,
+  type ConceptHubData,
+  type BuildConceptHubInput,
+} from './maps/buildConceptHub';
+
+export {
+  LEARNING_PATH_PROPERTY,
+  LEARNING_PATH_STEP_PROPERTY,
+  getLearningPathId,
+  getLearningPathStep,
+  setLearningPathStep,
+  clearLearningPath,
+  buildLearningPath,
+  listLearningPathIds,
+  SUBJECT_DASHBOARDS,
+  buildSubjectDashboard,
+  type LearningPathStep,
+  type LearningPath,
+  type SubjectDashboardDefinition,
+  type SubjectDashboardEntry,
+  type SubjectDashboardData,
+} from './maps/subjectDashboards';
+
+export {
+  buildKnowledgeClusters,
+  type ClusterEntry,
+  type TagCluster,
+  type KnowledgeClusterData,
+  type BuildKnowledgeClusterOptions,
+} from './maps/buildKnowledgeClusters';
+
+export { ConceptHubPanel, type ConceptHubPanelProps } from './components/ConceptHubPanel';
+export { ConceptRelationsPanel, type ConceptRelationsPanelProps } from './components/ConceptRelationsPanel';
+export { LearningPathPanel, type LearningPathPanelProps } from './components/LearningPathPanel';
+export { KnowledgeClusterPanel, type KnowledgeClusterPanelProps } from './components/KnowledgeClusterPanel';
+export { SubjectMapsDashboardPanel, type SubjectMapsDashboardPanelProps } from './components/SubjectMapsDashboardPanel';
+
+export {
   NOTE_KIND_PROPERTY,
   NOTE_KIND_PROMOTED_AT_PROPERTY,
   NOTE_KINDS,
@@ -122,6 +175,7 @@ export {
   promoteNoteKind,
   promoteNoteKindLabel,
   isNoteKind,
+  isConceptNote,
   type NoteKind,
 } from './research/noteClassification';
 

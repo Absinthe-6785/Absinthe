@@ -25,10 +25,11 @@ function note(
 
 describe('smart collection catalog', () => {
   it('defines phase-1 and research collections', () => {
-    expect(SMART_COLLECTIONS).toHaveLength(13);
+    expect(SMART_COLLECTIONS).toHaveLength(14);
     expect(findSmartCollection('orphan')?.name).toBe('Orphan Notes');
     expect(findSmartCollection('research-sources')?.name).toBe('Sources');
     expect(findSmartCollection('exam-study-notes')?.name).toBe('Study Notes');
+    expect(findSmartCollection('map-concepts')?.name).toBe('Concept Notes');
   });
 
   it('activates by returning collection id', () => {
@@ -141,6 +142,10 @@ describe('evaluateSmartCollection', () => {
     expect(evaluateSmartCollection('research-sources', service, researchNotes)).toEqual(['s']);
     expect(evaluateSmartCollection('research-literature', service, researchNotes)).toEqual(['l']);
     expect(evaluateSmartCollection('research-permanent', service, researchNotes)).toEqual(['p']);
+    expect(evaluateSmartCollection('map-concepts', service, [
+      ...researchNotes,
+      note('c', 'Concept', '', { updatedAt: 400, properties: { noteKind: 'concept' } }),
+    ])).toEqual(['c']);
   });
 
   it('returns exam workspace collections', () => {

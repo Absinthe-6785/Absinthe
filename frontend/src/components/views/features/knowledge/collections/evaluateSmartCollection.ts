@@ -63,6 +63,10 @@ export function evaluateSmartCollection(
         .filter(n => !n.deletedAt && hasTag(n, EXAM_PREP_TAG))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
         .map(n => n.id);
+    case 'map-concepts':
+      return filterNotesByKind(notes, 'concept')
+        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+        .map(n => n.id);
     default: {
       const _exhaustive: never = collectionId;
       return _exhaustive;

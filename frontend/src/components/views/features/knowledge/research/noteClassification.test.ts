@@ -51,4 +51,11 @@ describe('noteClassification', () => {
     expect(getNoteKind(permanent)).toBe('permanent');
     expect(promoteNoteKind(permanent)).toBe(permanent);
   });
+
+  it('treats concept as outside literature workflow', () => {
+    expect(noteKindWorkflowStep('concept')).toBe(-1);
+    const concept = setNoteKind(note('c'), 'concept');
+    expect(getNoteKind(concept)).toBe('concept');
+    expect(promoteNoteKind(concept)).toBe(concept);
+  });
 });

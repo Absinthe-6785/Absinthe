@@ -67,6 +67,11 @@ export const SMART_COLLECTIONS: readonly SmartCollection[] = [
     name: 'Exam Prep',
     description: 'Notes tagged for exam preparation (#exam-prep).',
   },
+  {
+    id: 'map-concepts',
+    name: 'Concept Notes',
+    description: 'Notes classified as concepts (noteKind: concept).',
+  },
 ];
 
 export function findSmartCollection(id: string): SmartCollection | undefined {

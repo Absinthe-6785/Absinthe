@@ -40,6 +40,12 @@ import {
   buildResearchDashboard,
   buildStudyDashboard,
   buildStudyNote,
+  buildConceptHub,
+  buildLearningPath,
+  getLearningPathId,
+  buildKnowledgeClusters,
+  SUBJECT_DASHBOARDS,
+  buildSubjectDashboard,
   setWeakTopic,
   isWeakTopic,
   extractNoteReferenceSummary,
@@ -56,6 +62,9 @@ import {
   NoteClassificationSelector,
   LiteratureWorkflowIndicator,
   WeakTopicToggle,
+  ConceptHubPanel,
+  ConceptRelationsPanel,
+  LearningPathPanel,
   LocalGraphView,
   RelatedNotesPanel,
   SavedViewsSection,
@@ -1045,6 +1054,36 @@ export const NoteView = () => {
     () => buildStudyDashboard(notes, { limit: 6 }),
     [notes],
   );
+
+  const subjectMapsDashboard = useMemo(
+    () => SUBJECT_DASHBOARDS
+      .map(s => buildSubjectDashboard(notes, s.id, { limit: 6 }))
+      .filter((d): d is NonNullable<typeof d> => d !== null),
+    [notes],
+  );
+
+  const knowledgeClusters = useMemo(
+    () => buildKnowledgeClusters(notes, knowledgeIndexService, { limit: 8 }),
+    [notes],
+  );
+
+  const conceptHub = useMemo(
+    () => (activeNote
+      ? buildConceptHub({
+        note: activeNote,
+        notes,
+        service: knowledgeIndexService,
+        referenceSummary: noteReferenceSummary,
+      })
+      : null),
+    [activeNote, notes, noteReferenceSummary],
+  );
+
+  const learningPath = useMemo(() => {
+    if (!activeNote) return null;
+    const pathId = getLearningPathId(activeNote);
+    return pathId ? buildLearningPath(notes, pathId) : null;
+  }, [activeNote, notes]);
 
   const noteBibliography = useMemo(
     () => (activeNote ? collectCitationsFromMarkdown(activeNote.body ?? '') : []),
@@ -2105,6 +2144,14 @@ export const NoteView = () => {
                 setActiveNoteId(noteId);
               },
             }}
+            knowledgeMaps={{
+              subjects: subjectMapsDashboard,
+              clusters: knowledgeClusters,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
             review={{
               lists: knowledgeReviewLists,
               onSelectNote: noteId => {
@@ -2329,7 +2376,7 @@ export const NoteView = () => {
                 : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
               }
             </div>
-            {!isTrash && activeNoteKind && (
+            {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
               <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
                 <LiteratureWorkflowIndicator
                   colors={c}
@@ -2603,6 +2650,32 @@ export const NoteView = () => {
           {/* Links */}
           {rightPanel === 'links' && activeNote && pageReferences && noteReferenceSummary && (
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {conceptHub && (
+                <ConceptHubPanel
+                  colors={c}
+                  data={conceptHub}
+                  onNavigateToNote={setActiveNoteId}
+                />
+              )}
+              <ConceptRelationsPanel
+                colors={c}
+                note={activeNote}
+                notes={notes}
+                wikiTargets={wikiTargets}
+                onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
+                onNavigateToNote={setActiveNoteId}
+                onResolveTargetId={title =>
+                  knowledgeIndexService.resolveNoteId(title)
+                  ?? findNoteByTitle(title, notes)?.id
+                }
+              />
+              {learningPath && (
+                <LearningPathPanel
+                  colors={c}
+                  path={learningPath}
+                  onNavigateToNote={setActiveNoteId}
+                />
+              )}
               <BacklinkPanel
                 colors={c}
                 activeNoteTitle={activeNote.title ?? ''}
