@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import type { TocItem } from './noteUtils';
-import { headingScrollSelector } from './outlineNavigation';
-import { measureHeadingPositions, resolveActiveTocIndex } from './outlineScrollSpy';
+import { resolveHeadingScrollTarget } from './outlineNavigation';
+import { measureHeadingPositionsHybrid, resolveActiveTocIndex } from './outlineScrollSpy';
 
 export function useTocScrollSpy(
   scrollRootRef: RefObject<HTMLElement | null>,
@@ -10,20 +10,27 @@ export function useTocScrollSpy(
   enabled: boolean,
   pausedRef: RefObject<boolean>,
   onActiveIdx: (idx: number | null) => void,
+  getBlockScrollTop?: (blockId: string) => number | null,
 ): void {
   useEffect(() => {
     const root = scrollRootRef.current;
     if (!enabled || !root || toc.length === 0) return;
 
-    const entries = toc.map((_item, idx) => ({
-      idx,
-      selector: headingScrollSelector(body, idx),
-    }));
+    const entries = toc.map((_item, idx) => {
+      const target = resolveHeadingScrollTarget(body, idx);
+      return {
+        idx,
+        selector: target.selector,
+        blockId: target.blockId,
+      };
+    });
 
     let raf = 0;
     const update = () => {
       if (pausedRef.current) return;
-      const positions = measureHeadingPositions(root, entries);
+      const positions = getBlockScrollTop
+        ? measureHeadingPositionsHybrid(root, entries, getBlockScrollTop)
+        : measureHeadingPositionsHybrid(root, entries);
       if (!positions.length) return;
       onActiveIdx(resolveActiveTocIndex(root.scrollTop, positions));
     };
@@ -43,5 +50,5 @@ export function useTocScrollSpy(
       observer.disconnect();
       cancelAnimationFrame(raf);
     };
-  }, [scrollRootRef, body, toc, enabled, pausedRef, onActiveIdx]);
+  }, [scrollRootRef, body, toc, enabled, pausedRef, onActiveIdx, getBlockScrollTop]);
 }

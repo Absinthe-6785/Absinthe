@@ -36,7 +36,7 @@ const translations = {
   // ── Sidebar ────────────────────────────────────────────────────────
   planner:        { en: 'Planner',        ko: '플래너',       ja: 'プランナー'   },
   health:         { en: 'Health',         ko: '헬스',         ja: 'フィットネス'       },
-  analytics:      { en: 'Analytics',      ko: '분석',         ja: '分析'         },
+  analytics:      { en: 'Archive',      ko: '아카이브',     ja: 'アーカイブ'   },
   note:           { en: 'Note',           ko: '노트',         ja: 'ノート'       },
   out:            { en: 'Out',            ko: '나가기',       ja: '退出'         },
 
@@ -45,6 +45,13 @@ const translations = {
   todoList:       { en: 'To-do list',     ko: '할 일',        ja: 'ToDo'         },
   memo:           { en: 'Memo',           ko: '메모',         ja: 'メモ'         },
   calendar:       { en: 'Calendar',       ko: '캘린더',       ja: 'カレンダー'   },
+  dayView:        { en: 'Day View',       ko: '일간 보기',    ja: '日ビュー'     },
+  weekView:       { en: 'Week View',      ko: '주간 보기',    ja: '週ビュー'     },
+  monthView:      { en: 'Month View',     ko: '월간 보기',    ja: '月ビュー'     },
+  agendaView:     { en: 'Agenda View',    ko: '아젠다 보기',  ja: 'アジェンダ'   },
+  plannerToday:   { en: 'Today',          ko: '오늘',         ja: '今日'         },
+  plannerMilestone: { en: 'Milestone',    ko: '마일스톤',     ja: 'マイルストーン' },
+  calendarEmptyRange: { en: 'No planning items in this range yet.', ko: '이 기간에 계획 항목이 없습니다.', ja: 'この期間の予定はまだありません。' },
   timeline:       { en: 'Timeline',       ko: '타임라인',     ja: 'タイムライン' },
   dday:           { en: 'D-Day',          ko: 'D-Day',        ja: 'D-Day'        },
   newFolder:      { en: 'New Folder',     ko: '새 폴더',      ja: '新フォルダ'   },

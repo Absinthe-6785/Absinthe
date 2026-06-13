@@ -3,6 +3,7 @@ import type { DateTime } from 'luxon';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection, PlannerCalendarViewMode } from '../calendar';
 import type { CalendarPlaceholderSummary } from './calendarShellModels';
 import { buildCalendarPlaceholderSummary, resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
+import { useTranslation } from '../../../../../lib/i18n';
 
 export interface CalendarViewPlaceholderProps {
   mode: PlannerCalendarViewMode;
@@ -17,8 +18,13 @@ export function CalendarViewPlaceholder({
   presentation,
   theme,
 }: CalendarViewPlaceholderProps) {
+  const { t } = useTranslation();
   const summary = buildCalendarPlaceholderSummary(mode, projection);
   const periodLabel = resolveCalendarPeriodLabel(mode, presentation);
+  const headline = mode === 'month' ? t('monthView')
+    : mode === 'week' ? t('weekView')
+    : mode === 'day' ? t('dayView')
+    : t('agendaView');
 
   return (
     <div
@@ -27,7 +33,7 @@ export function CalendarViewPlaceholder({
       data-planner-calendar-placeholder-mode={mode}
     >
       <div className="flex flex-col gap-1 mb-4">
-        <h3 className="font-heading text-base lg:text-lg font-bold">{summary.headline}</h3>
+        <h3 className="font-heading text-base lg:text-lg font-bold">{headline}</h3>
         {periodLabel ? (
           <p
             className={`text-sm font-semibold ${theme.textMuted}`}
@@ -40,7 +46,7 @@ export function CalendarViewPlaceholder({
 
       {summary.isEmpty ? (
         <p className={`text-sm ${theme.textMuted}`} data-planner-calendar-empty="true">
-          No planning items in this range yet.
+          {t('calendarEmptyRange')}
         </p>
       ) : (
         <ul className="space-y-2" data-planner-calendar-placeholder-stats>

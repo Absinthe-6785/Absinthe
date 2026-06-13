@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, afterEach } from 'vitest';
-import { resolveActiveTocIndex, measureHeadingPositions } from './outlineScrollSpy';
+import { resolveActiveTocIndex, measureHeadingPositions, measureHeadingPositionsHybrid } from './outlineScrollSpy';
 
 describe('resolveActiveTocIndex', () => {
   const headings = [
@@ -56,6 +56,30 @@ describe('measureHeadingPositions', () => {
 
     expect(positions).toHaveLength(2);
     expect(positions.map(p => p.idx)).toEqual([0, 1]);
+
+    document.body.removeChild(root);
+  });
+
+  it('hybrid measurement uses virtual offsets when DOM nodes are missing', () => {
+    const root = document.createElement('div');
+    root.style.height = '400px';
+    root.style.overflow = 'auto';
+    document.body.appendChild(root);
+
+    const positions = measureHeadingPositionsHybrid(
+      root,
+      [
+        { idx: 0, selector: '[data-block-id="missing-0"]', blockId: 'blk-a' },
+        { idx: 1, selector: '[data-block-id="missing-1"]', blockId: 'blk-b' },
+      ],
+      (blockId) => (blockId === 'blk-a' ? 0 : 420),
+    );
+
+    expect(positions).toEqual([
+      { idx: 0, top: 0 },
+      { idx: 1, top: 420 },
+    ]);
+    expect(resolveActiveTocIndex(400, positions)).toBe(1);
 
     document.body.removeChild(root);
   });

@@ -52,4 +52,5 @@ import type { MutableRefObject } from 'react';
 
 export type VirtualScrollApiRef = MutableRefObject<{
   scrollToBlockId: (blockId: string) => boolean;
+  getBlockScrollTop?: (blockId: string) => number | null;
 } | null>;

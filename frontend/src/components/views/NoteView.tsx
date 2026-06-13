@@ -178,10 +178,10 @@ import {
 import { type EditorMode, toggleEditReading } from './editorMode';
 import {
   flashHeadingElement,
-  headingScrollSelector,
-  scrollToHeadingTarget,
+  navigateToHeading,
 } from './outlineNavigation';
 import { useTocScrollSpy } from './useTocScrollSpy';
+import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { registerTraceNavigation } from '../../lib/traceNavigation';
 
@@ -221,9 +221,14 @@ interface NoteBlockEditorProps {
   searchMatchIndex: number;
   wikiTargets: string[];
   onWikiNavigate?: (title: string) => void;
+  virtualScrollApiRef?: VirtualScrollApiRef;
+  virtualScrollParentRef?: React.RefObject<HTMLElement | null>;
 }
 const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
-  { body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex, wikiTargets, onWikiNavigate },
+  {
+    body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex,
+    wikiTargets, onWikiNavigate, virtualScrollApiRef, virtualScrollParentRef,
+  },
   ref,
 ) {
   const {
@@ -267,6 +272,8 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
       onActiveBlockChange={setActiveBlockId}
       externalFocusId={externalFocusId}
       onExternalFocusConsumed={clearExternalFocus}
+      virtualScrollApiRef={virtualScrollApiRef}
+      virtualScrollParentRef={virtualScrollParentRef}
     />
   );
 });
@@ -1116,6 +1123,10 @@ export const NoteView = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const virtualScrollApiRef = useRef<{
+    scrollToBlockId: (blockId: string) => boolean;
+    getBlockScrollTop?: (blockId: string) => number | null;
+  } | null>(null);
   const tocScrollSpyPausedRef = useRef(false);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
@@ -1543,6 +1554,11 @@ export const NoteView = () => {
 
   useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
 
+  const getHeadingBlockScrollTop = useCallback(
+    (blockId: string) => virtualScrollApiRef.current?.getBlockScrollTop?.(blockId) ?? null,
+    [],
+  );
+
   useTocScrollSpy(
     editorScrollRef,
     activeNote?.body ?? '',
@@ -1550,18 +1566,21 @@ export const NoteView = () => {
     viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
     tocScrollSpyPausedRef,
     setActiveTocIdx,
+    getHeadingBlockScrollTop,
   );
 
-  // TOC 점프 — 헤딩 블록(data-be-heading=순번)으로 스크롤. edit/reading 공통.
   const scrollToHeading = useCallback((headingIdx: number) => {
     setActiveTocIdx(headingIdx);
     tocScrollSpyPausedRef.current = true;
     const body = activeNote?.body ?? '';
-    scrollToHeadingTarget(
-      editorScrollRef.current,
-      headingScrollSelector(body, headingIdx),
-      flashHeadingElement,
-    );
+    const scrollApi = virtualScrollApiRef.current;
+    navigateToHeading({
+      scrollRoot: editorScrollRef.current,
+      body,
+      headingIdx,
+      scrollToBlockId: scrollApi?.scrollToBlockId,
+      onFlash: flashHeadingElement,
+    });
     window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
   }, [activeNote?.body]);
 
@@ -2903,6 +2922,8 @@ export const NoteView = () => {
                           searchMatchIndex={searchMatchIdx}
                           wikiTargets={wikiTargets}
                           onWikiNavigate={navigateToWiki}
+                          virtualScrollApiRef={virtualScrollApiRef}
+                          virtualScrollParentRef={editorScrollRef}
                         />
                       </div>
                     )

@@ -1,4 +1,4 @@
-import { Calendar, Dumbbell, BarChart2, Settings, Moon, Sun, LogOut, BookOpen, BookMarked } from 'lucide-react';
+import { Calendar, Dumbbell, Archive, Settings, Moon, Sun, LogOut, BookOpen, BookMarked } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { getTranslator } from '../../lib/i18n';
 
@@ -33,7 +33,7 @@ export const Sidebar = ({
         const Icon =
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
-          tab === 'analytics' ? BarChart2 :
+          tab === 'analytics' ? Archive :
           tab === 'recipe'    ? BookMarked : BookOpen;
         const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : tab === 'note' ? t('note') : t('recipe');
         const isActive = activeTab === tab;
