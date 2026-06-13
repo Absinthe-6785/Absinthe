@@ -22,7 +22,6 @@ import {
 } from './noteUtils';
 import { displayNoteTitle } from './noteDisplayTitle';
 import {
-  extractMentionContexts,
   buildExpandedGraphData,
   collapseNode,
   expandNode,
@@ -32,7 +31,11 @@ import {
   buildFormulaQueryCatalog,
   knowledgeIndexService,
   parseQuery,
-  LinkedReferencesPanel,
+  BacklinkPanel,
+  ReferenceExplorerPanel,
+  KnowledgeReviewPanel,
+  buildKnowledgeReviewLists,
+  extractNoteReferenceSummary,
   LocalGraphView,
   RelatedNotesPanel,
   SavedViewsSection,
@@ -955,15 +958,19 @@ export const NoteView = () => {
     [activeNote, notes],
   );
 
-  const mentionContexts = useMemo(() => {
-    if (!activeNote) return [];
-    const sourceIds = new Set(mentioningNotes.map(r => r.noteId));
-    return extractMentionContexts(activeNote.title ?? '', notes, sourceIds);
-  }, [activeNote, notes, mentioningNotes]);
-
   const relatedNotes = useMemo(
     () => (activeNote ? knowledgeIndexService.getRelatedNotes(activeNote.id) : []),
     [activeNote, notes],
+  );
+
+  const noteReferenceSummary = useMemo(
+    () => (activeNote ? extractNoteReferenceSummary(activeNote, notes) : null),
+    [activeNote, notes],
+  );
+
+  const knowledgeReviewLists = useMemo(
+    () => buildKnowledgeReviewLists(notes, { limit: 6 }),
+    [notes],
   );
 
   useEffect(() => {
@@ -1964,6 +1971,13 @@ export const NoteView = () => {
               onCreateTaskDatabase: handleCreateTaskDatabase,
               onCreateJournalDatabase: handleCreateJournalDatabase,
             }}
+            review={{
+              lists: knowledgeReviewLists,
+              onSelectNote: noteId => {
+                handleLeaveDashboardForNote(noteId);
+                setActiveNoteId(noteId);
+              },
+            }}
           />
         ) : isDatabaseViewMode && activeDatabaseView ? (
           <DatabaseViewPanel
@@ -2424,16 +2438,19 @@ export const NoteView = () => {
           )}
 
           {/* Links */}
-          {rightPanel === 'links' && activeNote && pageReferences && (
+          {rightPanel === 'links' && activeNote && pageReferences && noteReferenceSummary && (
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-              <LinkedReferencesPanel
+              <BacklinkPanel
                 colors={c}
                 activeNoteTitle={activeNote.title ?? ''}
                 incoming={pageReferences.incoming}
                 contexts={backlinkContexts}
+                onNavigateToNote={setActiveNoteId}
+              />
+              <ReferenceExplorerPanel
+                colors={c}
+                summary={noteReferenceSummary}
                 mentioning={mentioningNotes}
-                mentionContexts={mentionContexts}
-                outgoing={pageReferences.outgoing}
                 onNavigateToNote={setActiveNoteId}
                 onNavigateToWiki={navigateToWiki}
               />

@@ -9,6 +9,13 @@ export const RELATED_SCORE = {
 
 export type RelatedReason = 'shared tag' | 'backlink' | 'mutual backlink' | 'mention';
 
+export const RELATED_REASON_LABELS: Record<RelatedReason, string> = {
+  'shared tag': '공유 태그',
+  backlink: '백링크',
+  'mutual backlink': '상호 링크',
+  mention: '언급',
+};
+
 export interface RelatedScoreBreakdown {
   score: number;
   reasons: RelatedReason[];

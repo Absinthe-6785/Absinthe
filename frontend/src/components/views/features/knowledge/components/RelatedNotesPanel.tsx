@@ -1,4 +1,4 @@
-import { formatRelatedReasons } from '../related';
+import { RELATED_REASON_LABELS, formatRelatedReasons } from '../related';
 import type { RelatedNote } from '../KnowledgeIndexService';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
@@ -8,6 +8,7 @@ export interface RelatedNotesPanelProps {
   onNavigateToNote: (noteId: string) => void;
 }
 
+/** Lightweight related-note suggestions from tags, backlinks, mentions, trace. */
 export function RelatedNotesPanel({
   colors: c,
   related,
@@ -20,11 +21,11 @@ export function RelatedNotesPanel({
           padding: '8px 10px 4px',
           fontSize: 10,
           color: c.textMuted,
-          fontWeight: 600,
+          fontWeight: 700,
           borderTop: `1px solid ${c.sideBdr}`,
         }}
       >
-        Related Notes{' '}
+        관련 노트{' '}
         {related.length > 0 && (
           <span style={{ color: c.accent }}>({related.length})</span>
         )}
@@ -32,12 +33,14 @@ export function RelatedNotesPanel({
 
       {related.length === 0 ? (
         <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px' }}>
-          관련 노트 없음
+          태그·링크·언급 기준 관련 노트 없음
         </p>
       ) : (
         related.map(item => (
           <div
             key={item.noteId}
+            role="button"
+            tabIndex={0}
             style={{
               margin: '0 8px 6px',
               borderRadius: 7,
@@ -47,6 +50,12 @@ export function RelatedNotesPanel({
               cursor: 'pointer',
             }}
             onClick={() => onNavigateToNote(item.noteId)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigateToNote(item.noteId);
+              }
+            }}
           >
             <div
               style={{
@@ -60,11 +69,25 @@ export function RelatedNotesPanel({
             >
               {item.noteTitle}
             </div>
-            <div style={{ fontSize: 10, color: c.accent, marginTop: 2 }}>
-              score: {item.score}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+              {item.reasons.map(reason => (
+                <span
+                  key={reason}
+                  style={{
+                    fontSize: 9,
+                    color: c.accent,
+                    background: c.accentBg,
+                    borderRadius: 4,
+                    padding: '1px 5px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {RELATED_REASON_LABELS[reason] ?? reason}
+                </span>
+              ))}
             </div>
-            <div style={{ fontSize: 9, color: c.textMuted, marginTop: 2 }}>
-              Reason: {formatRelatedReasons(item.reasons)}
+            <div style={{ fontSize: 9, color: c.textFaint, marginTop: 3 }}>
+              {formatRelatedReasons(item.reasons)}
             </div>
           </div>
         ))

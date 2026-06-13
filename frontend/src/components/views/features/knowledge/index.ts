@@ -53,6 +53,9 @@ export {
 } from './tags';
 
 export { LinkedReferencesPanel, type LinkedReferencesPanelProps } from './components/LinkedReferencesPanel';
+export { BacklinkPanel, type BacklinkPanelProps } from './components/BacklinkPanel';
+export { ReferenceExplorerPanel, type ReferenceExplorerPanelProps } from './components/ReferenceExplorerPanel';
+export { KnowledgeReviewPanel, type KnowledgeReviewPanelProps } from './components/KnowledgeReviewPanel';
 export { SavedViewsSection, type SavedViewsSectionProps } from './components/SavedViewsSection';
 export { SmartCollectionsSection, type SmartCollectionsSectionProps } from './components/SmartCollectionsSection';
 export { RuleCollectionsSection, type RuleCollectionsSectionProps } from './components/RuleCollectionsSection';
@@ -65,6 +68,7 @@ export {
   type WorkspaceDashboardFocusProps,
   type WorkspaceDashboardQuickCaptureProps,
   type WorkspaceDashboardProductivityProps,
+  type WorkspaceDashboardReviewProps,
 } from './components/WorkspaceDashboardView';
 export { WorkspacePinToggle, type WorkspacePinToggleProps } from './components/WorkspacePinToggle';
 export { DatabaseTableView, getDatabaseCellValue, getDatabaseRollupCellValue, type DatabaseTableViewProps } from './components/DatabaseTableView';
@@ -114,11 +118,27 @@ export {
 export {
   computeRelatedScore,
   formatRelatedReasons,
+  RELATED_REASON_LABELS,
   RELATED_SCORE,
   type RelatedReason,
   type RelatedScoreBreakdown,
   type RelatedScoreInput,
 } from './related';
+
+export {
+  buildKnowledgeReviewLists,
+  type BuildKnowledgeReviewOptions,
+  type KnowledgeReviewLists,
+  type ReviewNoteEntry,
+} from './review/buildKnowledgeReview';
+
+export {
+  extractFootnoteDefinitions,
+  extractInlineFootnoteRefs,
+  extractNoteReferenceSummary,
+  type FootnoteDefinition,
+  type NoteReferenceSummary,
+} from './references/extractNoteReferenceSummary';
 
 export {
   evaluateQuery,

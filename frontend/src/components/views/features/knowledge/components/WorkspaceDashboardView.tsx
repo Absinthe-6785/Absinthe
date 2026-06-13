@@ -18,6 +18,13 @@ import {
   type WorkspaceDashboardModel,
 } from '../workspace/workspaceDashboardModels';
 import type { WorkspaceRef } from '../workspace/workspaceModels';
+import type { KnowledgeReviewLists } from '../review/buildKnowledgeReview';
+import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
+
+export interface WorkspaceDashboardReviewProps {
+  lists: KnowledgeReviewLists;
+  onSelectNote: (noteId: string) => void;
+}
 
 export interface WorkspaceDashboardQuickActions {
   onNewNote: () => void;
@@ -68,6 +75,7 @@ export interface WorkspaceDashboardViewProps {
   focus?: WorkspaceDashboardFocusProps;
   quickCapture?: WorkspaceDashboardQuickCaptureProps;
   productivity?: WorkspaceDashboardProductivityProps;
+  review?: WorkspaceDashboardReviewProps;
   recentNotesLimit?: number;
 }
 
@@ -148,6 +156,7 @@ export function WorkspaceDashboardView({
   focus,
   quickCapture,
   productivity,
+  review,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
 }: WorkspaceDashboardViewProps) {
   const notes = recentNotes.slice(0, recentNotesLimit);
@@ -257,6 +266,17 @@ export function WorkspaceDashboardView({
           </button>
         ))}
       </Card>
+
+      {review && (
+        <Card colors={c} title="지식 검토">
+          <KnowledgeReviewPanel
+            colors={c}
+            lists={review.lists}
+            onNavigateToNote={review.onSelectNote}
+            compact
+          />
+        </Card>
+      )}
 
       {focus && (
         <Card colors={c} title="집중 프리셋">
