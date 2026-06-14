@@ -475,6 +475,7 @@ const translations = {
   nvClearQuery:             { en: 'Clear query', ko: '쿼리 지우기', ja: 'クエリをクリア' },
   nvLeaveTrace:             { en: 'Leave trace view', ko: '흔적 보기 나가기', ja: 'トレース表示を終了' },
   nvLeaveDashboard:         { en: 'Leave dashboard', ko: '대시보드 나가기', ja: 'ダッシュボードを終了' },
+  wsDashboard:              { en: 'Dashboard', ko: '대시보드', ja: 'ダッシュボード' },
   nvClearDbView:            { en: 'Clear database view', ko: '데이터베이스 보기 해제', ja: 'データベースビューを解除' },
   nvClearCollection:        { en: 'Clear collection', ko: '컬렉션 해제', ja: 'コレクションを解除' },
   nvSort:                   { en: 'Sort', ko: '정렬', ja: '並べ替え' },
@@ -1032,7 +1033,7 @@ const translations = {
 
   // ── K-35 NoteView modernization ────────────────────────────────────
   k35ContextPanelTitle:        { en: 'Knowledge context', ko: '지식 컨텍스트', ja: 'ナレッジコンテキスト' },
-  k35ContextPanelSubtitle:     { en: 'Outline, links, cosmos, insights, actions, and discovery for this note', ko: '이 노트의 목차, 링크, 코스모스, 인사이트, 액션, 발견', ja: 'このノートの目次・リンク・コスモス・インサイト・アクション・ディスカバリー' },
+  k35ContextPanelSubtitle:     { en: 'Outline, links, cosmos, insights, actions, discover, and timeline', ko: '목차, 링크, 코스모스, 인사이트, 액션, 발견, 타임라인', ja: '目次・リンク・コスモス・インサイト・アクション・ディスカバー・タイムライン' },
   k35ContextPanelTabs:         { en: 'Context panel tabs', ko: '컨텍스트 패널 탭', ja: 'コンテキストパネルタブ' },
   k35LinksGroupStructure:      { en: 'Knowledge structure', ko: '지식 구조', ja: '知識構造' },
   k35LinksGroupConnections:    { en: 'Connections', ko: '연결', ja: '接続' },
@@ -1194,7 +1195,7 @@ const translations = {
   k41EmptyCosmosWelcome:       { en: 'Welcome to your Cosmos', ko: '코스모스에 오신 것을 환영합니다', ja: 'コスモスへようこそ' },
   k41EmptyCosmosNoNotes:       { en: 'Create your first note to begin building a knowledge network.', ko: '첫 노트를 만들어 지식 네트워크를 시작하세요.', ja: '最初のノートを作り、ナレッジネットワークを始めましょう。' },
   k41EmptyCosmosUnlinkedTitle: { en: 'Your notes are not connected yet.', ko: '노트가 아직 연결되지 않았습니다.', ja: 'ノートはまだ接続されていません。' },
-  k41EmptyCosmosUnlinkedBody:  { en: 'Create links between notes to unlock Insights, Actions, and Discovery.', ko: '노트 간 링크를 만들면 Insights, Actions, Discovery가 열립니다.', ja: 'ノート間のリンクで Insights・Actions・Discovery が使えるようになります。' },
+  k41EmptyCosmosUnlinkedBody:  { en: 'Create links between notes to unlock Insights, Actions, and Discover.', ko: '노트 간 링크를 만들면 인사이트, 액션, 발견이 열립니다.', ja: 'ノート間のリンクでインサイト・アクション・ディスカバーが使えるようになります。' },
   k41CreateNote:               { en: 'Create Note', ko: '노트 만들기', ja: 'ノートを作成' },
   k41LearnLinking:             { en: 'Learn about linking', ko: '링크 알아보기', ja: 'リンクについて' },
   k41DiscoverHealthyTitle:     { en: 'Great job.', ko: '잘하고 있어요.', ja: '順調です。' },
@@ -1292,6 +1293,11 @@ const translations = {
   k42HudEvolutionNotes:        { en: '+{count} notes', ko: '+{count} 노트', ja: '+{count}ノート' },
   k42HudEvolutionLinks:        { en: '+{count} links', ko: '+{count} 링크', ja: '+{count}リンク' },
   k42HudEvolutionPeriod:       { en: 'Last {days} days', ko: '최근 {days}일', ja: '過去{days}日' },
+
+  // ── K-43 product hardening ─────────────────────────────────────────
+  k43ContextPanelSelectNote:   { en: 'Select or create a note to use this tab.', ko: '이 탭을 사용하려면 노트를 선택하거나 만드세요.', ja: 'このタブを使うにはノートを選択または作成してください。' },
+  k43ArchiveTimelineLabel:     { en: 'Archive timeline (marks history)', ko: '아카이브 타임라인 (마크 기록)', ja: 'アーカイブタイムライン（マーク履歴）' },
+  k43KnowledgeTimelineLabel:   { en: 'Knowledge timeline (vault growth)', ko: '지식 타임라인 (볼트 성장)', ja: 'ナレッジタイムライン（ボルト成長）' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

@@ -175,7 +175,8 @@ import { WorkspaceSearchPalette } from './features/knowledge/components/Workspac
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
 import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
-import { KnowledgeContextPanel } from './features/knowledge/components/KnowledgeContextPanel';
+import { KnowledgeContextPanel, type KnowledgeContextTab } from './features/knowledge/components/KnowledgeContextPanel';
+import { KnowledgePanelEmpty } from './features/knowledge/components/KnowledgePanelSection';
 import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
 import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
 import type { TimelinePeriodMode } from './features/knowledge/timeline';
@@ -213,6 +214,10 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { registerTraceNavigation } from '../../lib/traceNavigation';
+
+const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
+  'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
+]);
 
 
 // ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
@@ -1283,9 +1288,19 @@ export const NoteView = () => {
     [notes],
   );
 
+  const discoveryFeed = useMemo(
+    () => buildDiscoveryFeed(notes, knowledgeIndexService),
+    [notes],
+  );
+
   const unifiedWorkspaceDashboard = useMemo(
-    () => buildUnifiedWorkspaceDashboard(notes, { limit: 6, service: knowledgeIndexService, language: lang }),
-    [notes, lang],
+    () => buildUnifiedWorkspaceDashboard(notes, {
+      limit: 6,
+      service: knowledgeIndexService,
+      language: lang,
+      discoveryFeed,
+    }),
+    [notes, lang, discoveryFeed],
   );
 
   const learningPathOverview = useMemo(
@@ -1408,11 +1423,6 @@ export const NoteView = () => {
   const noteIntelligenceSnapshot = useMemo(
     () => (activeNote ? buildNoteIntelligenceSnapshot(activeNote, notes, knowledgeIndexService) : null),
     [activeNote, notes],
-  );
-
-  const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService),
-    [notes],
   );
 
   const cosmosVaultPhase = useMemo(
@@ -1943,7 +1953,7 @@ export const NoteView = () => {
     { key: 'insights'   as const, label: t('k36PanelInsights'), icon: <Lightbulb size={12}/> },
     { key: 'actions'    as const, label: t('k37PanelActions'), icon: <Zap size={12}/> },
     { key: 'discover'   as const, label: t('k38PanelDiscover'), icon: <Compass size={12}/> },
-    { key: 'timeline'   as const, label: t('k42PanelTimeline'), icon: <History size={12}/> },
+    { key: 'timeline'   as const, label: t('k42PanelTimeline'), hint: t('k43KnowledgeTimelineLabel'), icon: <History size={12}/> },
     { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={12}/> },
     { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={12}/> },
     { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
@@ -2176,7 +2186,7 @@ export const NoteView = () => {
           ) : (
             <>
               <div style={{ padding: '10px 10px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>노트</span>
+                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>{t('note')}</span>
                 <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
                 <div style={{ flex: 1 }}/>
                 <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }}                 title={t('nvShortcuts')}><Keyboard size={11}/></button>
@@ -2380,7 +2390,7 @@ export const NoteView = () => {
                         style={{ gap: 4, fontSize: 11 }}
                       >
                         <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
-                        <span style={{ flex: 1 }}>대시보드</span>
+                        <span style={{ flex: 1 }}>{t('wsDashboard')}</span>
                       </div>
                       <SmartCollectionsSection
                         colors={c}
@@ -3310,6 +3320,10 @@ export const NoteView = () => {
           onTabChange={setRightPanel}
         >
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {!activeNote && NOTE_REQUIRED_CONTEXT_TABS.has(rightPanel) ? (
+              <KnowledgePanelEmpty colors={c}>{t('k43ContextPanelSelectNote')}</KnowledgePanelEmpty>
+            ) : (
+            <>
             {rightPanel === 'toc' && (
               <OutlinePanel
                 colors={c}
@@ -3591,6 +3605,8 @@ export const NoteView = () => {
                 </div>
               );
             })()}
+            </>
+            )}
           </div>
 
           {isTrash && (
@@ -3633,6 +3649,7 @@ export const NoteView = () => {
         notes={notes}
         folders={folders}
         open={workspaceSearchOpen}
+        discoveryFeed={discoveryFeed}
         onClose={() => setWorkspaceSearchOpen(false)}
         onSelectNote={handleWorkspaceSearchNote}
         onSelectFolder={handleWorkspaceSearchFolder}

@@ -19,6 +19,8 @@ export interface KnowledgeContextTabDef {
   key: KnowledgeContextTab;
   label: string;
   icon: ReactNode;
+  /** Longer tooltip when tab label is ambiguous (e.g. Timeline vs Archive). */
+  hint?: string;
 }
 
 export interface KnowledgeContextPanelProps {
@@ -92,7 +94,7 @@ export function KnowledgeContextPanel({
           overflowX: 'auto',
         }}
       >
-        {tabs.map(({ key, label, icon }) => {
+        {tabs.map(({ key, label, icon, hint }) => {
           const selected = activeTab === key;
           return (
             <button
@@ -100,7 +102,7 @@ export function KnowledgeContextPanel({
               type="button"
               role="tab"
               aria-selected={selected}
-              title={label}
+              title={tab.hint ?? label}
               onClick={() => onTabChange(key)}
               style={{
                 flex: '1 0 auto',

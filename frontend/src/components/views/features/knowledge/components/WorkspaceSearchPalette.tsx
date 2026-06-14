@@ -16,6 +16,7 @@ import {
 } from '../workspace/buildWorkspaceSearch';
 import { importanceClassificationLabel } from '../knowledgeLabels';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
+import type { DiscoveryFeed } from '../discovery';
 import { buildDiscoveryFeed } from '../discovery';
 
 const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
@@ -49,6 +50,8 @@ export interface WorkspaceSearchPaletteProps {
   onSelectTag: (tag: string) => void;
   onSelectCollection: (collectionId: string) => void;
   onSelectLearningPath: (pathId: string) => void;
+  /** Reuse vault discovery feed when already computed upstream. */
+  discoveryFeed?: DiscoveryFeed;
 }
 
 function recordRecent(result: WorkspaceSearchResult): void {
@@ -66,6 +69,7 @@ export function WorkspaceSearchPalette({
   onSelectTag,
   onSelectCollection,
   onSelectLearningPath,
+  discoveryFeed: discoveryFeedProp,
 }: WorkspaceSearchPaletteProps) {
   const { t, lang } = useTranslation();
   const [query, setQuery] = useState('');
@@ -94,8 +98,8 @@ export function WorkspaceSearchPalette({
   }, [open]);
 
   const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService),
-    [notes],
+    () => discoveryFeedProp ?? buildDiscoveryFeed(notes, knowledgeIndexService),
+    [discoveryFeedProp, notes],
   );
 
   const queryGroups = useMemo(
