@@ -112,7 +112,7 @@ export function TimelinePanel({
           <div>{t('k42GrowthAreas').replace('{count}', String(timeline.growth.vault.areasCreated))}</div>
         </div>
         <div style={{ padding: '0 10px 8px' }}>
-          <TimelineMetricExplain c={c} compact={compact} metricKey="k42MetricConnectionDensity" explainKey="k42ExplainConnectionDensity" />
+          <TimelineMetricExplain colors={c} compact={compact} metricKey="k42MetricConnectionDensity" explainKey="k42ExplainConnectionDensity" />
         </div>
       </KnowledgePanelSection>
 
@@ -178,7 +178,7 @@ export function TimelinePanel({
           <div>{t('k42DiscRevisited').replace('{count}', String(timeline.discoveryHistory.forgottenNotesRevisited))}</div>
         </div>
         <div style={{ padding: '0 10px 8px' }}>
-          <TimelineMetricExplain c={c} compact={compact} metricKey="k42MetricDiscoveryGrowth" explainKey="k42ExplainDiscoveryHistory" />
+          <TimelineMetricExplain colors={c} compact={compact} metricKey="k42MetricDiscoveryGrowth" explainKey="k42ExplainDiscoveryHistory" />
         </div>
       </KnowledgePanelSection>
     </div>
