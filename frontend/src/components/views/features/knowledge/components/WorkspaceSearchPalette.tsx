@@ -99,7 +99,7 @@ export function WorkspaceSearchPalette({
   );
 
   const queryGroups = useMemo(
-    () => buildWorkspaceSearch(query, notes, folders, { filter, service: knowledgeIndexService, discoveryFeed }),
+    () => buildWorkspaceSearch(query, notes, folders, { filter, service: knowledgeIndexService, discoveryFeed, language: lang }),
     [query, notes, folders, filter, discoveryFeed],
   );
 
@@ -331,20 +331,28 @@ export function WorkspaceSearchPalette({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 12, fontWeight: 600 }}>{result.title}</span>
                         {result.importanceClass && (
-                          <span style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: c.accent,
-                            background: c.accentBg,
-                            borderRadius: 999,
-                            padding: '1px 6px',
-                          }}>
+                          <span
+                            title={result.tierHint ?? undefined}
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: c.accent,
+                              background: c.accentBg,
+                              borderRadius: 999,
+                              padding: '1px 6px',
+                            }}
+                          >
                             {importanceClassificationLabel(result.importanceClass, lang)}
                           </span>
                         )}
                       </div>
                       {result.subtitle && (
                         <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{result.subtitle}</div>
+                      )}
+                      {result.tierHint && (
+                        <div style={{ fontSize: 9, color: c.textFaint, marginTop: 2, lineHeight: 1.4 }}>
+                          {t('k41WhyThisTier')}: {result.tierHint}
+                        </div>
                       )}
                       {result.actionsAvailable && (
                         <div style={{ fontSize: 9, color: c.accent, fontWeight: 700, marginTop: 3 }}>

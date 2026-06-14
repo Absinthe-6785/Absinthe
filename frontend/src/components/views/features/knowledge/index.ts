@@ -987,6 +987,7 @@ export {
   buildSuggestedConnections,
   buildAreaHealthSummaries,
   buildKnowledgeGaps,
+  buildImportanceInputForNote,
   type ImportanceClassification,
   type NoteIntelligenceSnapshot,
   type CosmosVaultAnalysis,
@@ -1025,6 +1026,20 @@ export {
   type DiscoveryKind,
   type DiscoverySummary,
 } from './discovery';
+
+export {
+  resolveCosmosVaultPhase,
+  countActiveNotes,
+  countVaultLinks,
+  CosmosProductTour,
+  CosmosStartDashboard,
+  WhyThisRecommendation,
+  WhyThisTier,
+  CosmosTermTooltip,
+  type CosmosVaultPhase,
+} from './cosmos/onboarding';
+
+export { buildNoteGalaxyMap } from './graph/knowledgeUniverse/galaxyClustering';
 
 export { DiscoveryPanel, type DiscoveryPanelProps } from './components/DiscoveryPanel';
 export { DiscoveryDashboardCard, type DiscoveryDashboardCardProps } from './components/DiscoveryDashboardCard';

@@ -45,6 +45,7 @@ import {
   type GraphNodeTier,
   type GraphViewMode,
 } from './features/knowledge/graph/knowledgeUniverse';
+import { resolveCosmosEmptyScenario } from './features/knowledge/cosmos/onboarding';
 import { edgeLegendEntries } from './features/knowledge/graphLabels';
 import {
   graphRepulsionStrength,
@@ -99,6 +100,8 @@ export interface NoteGraphViewProps {
   activeNoteId: string | null;
   onSelect: (id: string) => void;
   dark: boolean;
+  onCreateNote?: () => void;
+  onLearnLinking?: () => void;
   onHudReviewWeakAreas?: () => void;
   onHudOpenIsolated?: () => void;
   onHudOpenDiscover?: () => void;
@@ -134,7 +137,7 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const intlLocale = resolveIntlLocale(lang);
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
@@ -578,6 +581,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const selectedNode = activeNoteId ? renderMap.get(activeNoteId) : null;
   const showEmptyUniverse = shouldShowEmptyUniverse({
     nodeCount: visibleNodes.length,
+    linkCount: visibleEdges.length,
+    hasSearchFilter: matchedIds !== null,
+    searchHasMatches: matchedIds === null || matchedIds.size > 0,
+  });
+  const emptyScenario = resolveCosmosEmptyScenario({
+    activeNoteCount: notes.filter(n => !n.deletedAt).length,
     linkCount: visibleEdges.length,
     hasSearchFilter: matchedIds !== null,
     searchHasMatches: matchedIds === null || matchedIds.size > 0,
@@ -1302,7 +1311,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       )}
 
       {/* Empty universe onboarding */}
-      {showEmptyUniverse && (
+      {showEmptyUniverse && emptyScenario && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -1317,14 +1326,51 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             <ellipse cx="60" cy="40" rx="42" ry="28" fill="none" stroke={colors.act} strokeOpacity="0.15" strokeDasharray="4 6" />
           </svg>
           <p style={{ marginTop: 12, fontSize: 14, fontWeight: 700, color: colors.txt }}>
-            {t('graphEmptyHeadline')}
+            {emptyScenario === 'no-notes' ? t('k41EmptyCosmosWelcome') : t('k41EmptyCosmosUnlinkedTitle')}
           </p>
-          <p style={{ marginTop: 4, fontSize: 11, color: colors.toolTxt, maxWidth: 320, textAlign: 'center' }}>
-            {t('graphEmptySubline')}
+          <p style={{ marginTop: 4, fontSize: 11, color: colors.toolTxt, maxWidth: 340, textAlign: 'center' }}>
+            {emptyScenario === 'no-notes' ? t('k41EmptyCosmosNoNotes') : t('k41EmptyCosmosUnlinkedBody')}
           </p>
-          <p style={{ marginTop: 8, fontSize: 10, color: colors.toolTxt, maxWidth: 340, textAlign: 'center', opacity: 0.85 }}>
-            {t('graphEmptyTiers')}
-          </p>
+          {(onCreateNote || onLearnLinking) && (
+            <div style={{ marginTop: 12, pointerEvents: 'all' }}>
+              {emptyScenario === 'no-notes' && onCreateNote && (
+                <button
+                  type="button"
+                  onClick={onCreateNote}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '8px 14px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: colors.act,
+                    color: colors.bg,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k41CreateNote')}
+                </button>
+              )}
+              {emptyScenario === 'no-links' && onLearnLinking && (
+                <button
+                  type="button"
+                  onClick={onLearnLinking}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '8px 14px',
+                    borderRadius: 6,
+                    border: `1px solid ${colors.act}`,
+                    background: 'transparent',
+                    color: colors.act,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k41LearnLinking')}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

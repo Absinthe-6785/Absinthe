@@ -3,6 +3,7 @@ import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { DiscoveryConfidence } from '../discovery/discoveryScoring';
 import type { DiscoveryKind } from '../discovery/discoveryTypes';
+import { CosmosTermTooltip } from './onboarding/CosmosTermTooltip';
 
 export type CosmosSuitePanel = 'insights' | 'actions' | 'discover';
 
@@ -36,6 +37,10 @@ export function CosmosSuiteHeader({
       </div>
       <div style={{ fontSize: 9, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
         {t('k39CosmosSuiteActive').replace('{panel}', t(SUITE_LABELS[active]))}
+        {' · '}
+        <CosmosTermTooltip term="cosmos" />
+        {' · '}
+        <CosmosTermTooltip term="discovery" />
       </div>
     </div>
   );

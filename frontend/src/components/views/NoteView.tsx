@@ -119,6 +119,9 @@ import {
   buildConnectPatch,
   buildHubNoteTemplate,
   buildDiscoveryFeed,
+  buildImportanceInputForNote,
+  buildNoteGalaxyMap,
+  resolveCosmosVaultPhase,
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
@@ -1408,6 +1411,29 @@ export const NoteView = () => {
     [notes],
   );
 
+  const cosmosVaultPhase = useMemo(
+    () => resolveCosmosVaultPhase(notes, knowledgeIndexService, discoveryFeed.summary.totalCount),
+    [notes, discoveryFeed.summary.totalCount],
+  );
+
+  const noteTierInput = useMemo(() => {
+    if (!activeNote) return null;
+    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
+    return buildImportanceInputForNote(activeNote, knowledgeIndexService, galaxyMap.get(activeNote.id));
+  }, [activeNote, notes]);
+
+  const handleLearnLinking = useCallback(() => {
+    const target = activeNote ?? notes.find(n => !n.deletedAt);
+    if (target) {
+      setActiveNoteId(target.id);
+      setViewMode('edit');
+      setShowRightPanel(true);
+      setRightPanel('links');
+      return;
+    }
+    createNote();
+  }, [activeNote, notes, createNote, setActiveNoteId, setViewMode]);
+
   const handleOpenDiscover = useCallback(() => {
     const target = activeNote ?? notes.find(n => !n.deletedAt);
     if (target) setActiveNoteId(target.id);
@@ -2693,6 +2719,9 @@ export const NoteView = () => {
               onOpenStudyCollection: handleOpenStudyCollection,
               onOpenResearchCollection: handleOpenResearchCollection,
               onOpenDiscover: handleOpenDiscover,
+              activeNoteCount: activeNotes.length,
+              onCreateNote: () => createNote(),
+              onOpenCosmos: () => setViewMode('graph'),
               learningPathOverview: {
                 data: learningPathOverview,
                 onNavigateToNote: noteId => {
@@ -3028,7 +3057,7 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
               </div>
             ) : (
               <>
@@ -3234,7 +3263,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -3369,10 +3398,11 @@ export const NoteView = () => {
               </>
             )}
 
-            {rightPanel === 'insights' && noteIntelligenceSnapshot && (
+            {rightPanel === 'insights' && noteIntelligenceSnapshot && noteTierInput && (
               <CosmosInsightsPanel
                 colors={c}
                 snapshot={noteIntelligenceSnapshot}
+                tierInput={noteTierInput}
                 onNavigateToNote={setActiveNoteId}
                 onOpenLinks={() => openContextPanel('links')}
               />
@@ -3398,6 +3428,7 @@ export const NoteView = () => {
               <DiscoveryPanel
                 colors={c}
                 feed={discoveryFeed}
+                vaultPhase={cosmosVaultPhase}
                 onNavigateToNote={setActiveNoteId}
                 onCreateRelation={handleDiscoveryCreateRelation}
                 onCreateHub={handleCosmosCreateHub}
