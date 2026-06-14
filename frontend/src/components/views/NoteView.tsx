@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -112,6 +112,12 @@ import {
   NoteRelationsPanel,
   buildNoteIntelligenceSnapshot,
   CosmosInsightsPanel,
+  CosmosActionsPanel,
+  buildCosmosVaultAnalysis,
+  addRelationTarget,
+  buildAreaAssignmentPatch,
+  buildConnectPatch,
+  buildHubNoteTemplate,
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
@@ -172,6 +178,7 @@ import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUnive
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
+import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
   BlockEditor,
   useBlockEditor,
@@ -412,7 +419,7 @@ export const NoteView = () => {
   const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
   const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'actions' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -1394,6 +1401,57 @@ export const NoteView = () => {
     [activeNote, notes],
   );
 
+  const handleCosmosConnect = useCallback((targetTitle: string) => {
+    if (!activeNote) return;
+    noteUpdate(activeNote.id, buildConnectPatch(activeNote, targetTitle));
+  }, [activeNote, noteUpdate]);
+
+  const handleCosmosAssignArea = useCallback((areaLabel: string, areaNoteId?: string) => {
+    if (!activeNote) return;
+    const areaNote = areaNoteId
+      ? notes.find(n => n.id === areaNoteId)
+      : notes.find(n => (n.title ?? '').trim() === areaLabel.trim());
+    const linkTitle = areaNote?.title?.trim() || areaLabel;
+    noteUpdate(activeNote.id, buildAreaAssignmentPatch(activeNote, areaLabel, linkTitle));
+  }, [activeNote, notes, noteUpdate]);
+
+  const handleCosmosCreateHub = useCallback((areaLabel: string) => {
+    const template = buildHubNoteTemplate(areaLabel);
+    const id = createNote({ title: template.title, body: template.body });
+    noteUpdate(id, { properties: applyAreaToNote({ id, title: template.title } as Note).properties });
+    setActiveNoteId(id);
+    openContextPanel('actions');
+  }, [createNote, noteUpdate, setActiveNoteId, openContextPanel]);
+
+  const handleCosmosCreateRelation = useCallback((targetNoteId: string) => {
+    if (!activeNote) return;
+    const updated = addRelationTarget(activeNote, 'related-to', targetNoteId);
+    noteUpdate(activeNote.id, { relations: updated.relations });
+  }, [activeNote, noteUpdate]);
+
+  const handleLinkRelatedNote = useCallback((_noteId: string, noteTitle: string) => {
+    if (!activeNote) return;
+    noteUpdate(activeNote.id, buildConnectPatch(activeNote, noteTitle));
+  }, [activeNote, noteUpdate]);
+
+  const handleHudReviewWeakAreas = useCallback(() => {
+    const analysis = buildCosmosVaultAnalysis(notes, knowledgeIndexService);
+    const weak = analysis.areaHealthRows
+      .filter(row => row.category === 'fragmented' || row.category === 'critical')
+      .sort((a, b) => a.score - b.score)[0];
+    if (!weak) return;
+    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
+    const member = notes.find(
+      n => !n.deletedAt && galaxyMap.get(n.id)?.galaxyId === weak.galaxyId && n.id !== weak.galaxyId,
+    );
+    if (member) {
+      setActiveNoteId(member.id);
+      setViewMode('edit');
+      setShowRightPanel(true);
+      setRightPanel('actions');
+    }
+  }, [notes, setActiveNoteId, setViewMode]);
+
   useEffect(() => {
     setHeaderTagsExpanded(false);
   }, [activeNote?.id]);
@@ -1814,6 +1872,7 @@ export const NoteView = () => {
     { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={12}/> },
     { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={12}/> },
     { key: 'insights'   as const, label: t('k36PanelInsights'), icon: <Lightbulb size={12}/> },
+    { key: 'actions'    as const, label: t('k37PanelActions'), icon: <Zap size={12}/> },
     { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={12}/> },
     { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={12}/> },
     { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
@@ -2941,7 +3000,7 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onHudReviewWeakAreas={handleHudReviewWeakAreas}/>
               </div>
             ) : (
               <>
@@ -3147,7 +3206,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onHudReviewWeakAreas={handleHudReviewWeakAreas}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -3243,6 +3302,7 @@ export const NoteView = () => {
                       colors={c}
                       related={relatedNotes}
                       onNavigateToNote={setActiveNoteId}
+                      onLinkToNote={handleLinkRelatedNote}
                     />
                   </>
                 )}
@@ -3287,6 +3347,22 @@ export const NoteView = () => {
                 snapshot={noteIntelligenceSnapshot}
                 onNavigateToNote={setActiveNoteId}
                 onOpenLinks={() => openContextPanel('links')}
+              />
+            )}
+
+            {rightPanel === 'actions' && activeNote && noteIntelligenceSnapshot && (
+              <CosmosActionsPanel
+                colors={c}
+                note={activeNote}
+                snapshot={noteIntelligenceSnapshot}
+                notes={notes}
+                service={knowledgeIndexService}
+                onConnect={handleCosmosConnect}
+                onViewCandidates={() => openContextPanel('links')}
+                onAssignArea={handleCosmosAssignArea}
+                onCreateHub={handleCosmosCreateHub}
+                onCreateRelation={handleCosmosCreateRelation}
+                onNavigateToNote={setActiveNoteId}
               />
             )}
 

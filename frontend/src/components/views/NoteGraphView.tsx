@@ -99,6 +99,8 @@ export interface NoteGraphViewProps {
   activeNoteId: string | null;
   onSelect: (id: string) => void;
   dark: boolean;
+  onHudReviewWeakAreas?: () => void;
+  onHudOpenIsolated?: () => void;
 }
 
 // ── 폴더 색상 팔레트 (라이트/다크 공용 — opacity로 조절) ───────────
@@ -130,7 +132,7 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onHudReviewWeakAreas, onHudOpenIsolated }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const intlLocale = resolveIntlLocale(lang);
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
@@ -1139,14 +1141,53 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           <div style={{ opacity: 0.85 }}>
             {t('k36HudCoreHubs').replace('{count}', String(vaultAnalysis.coreHubCount))}
           </div>
-          <div style={{ opacity: 0.85 }}>
-            {t('k36HudIsolated').replace('{count}', String(vaultAnalysis.isolatedCount))}
+          <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{t('k36HudIsolated').replace('{count}', String(vaultAnalysis.isolatedCount))}</span>
+            {vaultAnalysis.isolatedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowIsolated(true);
+                  onHudOpenIsolated?.();
+                }}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  border: `1px solid ${colors.toolbarB}`,
+                  background: colors.toolbar,
+                  color: colors.act,
+                  cursor: 'pointer',
+                }}
+              >
+                {t('k37HudOpen')}
+              </button>
+            )}
           </div>
           <div style={{ opacity: 0.85 }}>
             {t('k36HudOpportunities').replace('{count}', String(vaultAnalysis.opportunityCount))}
           </div>
-          <div style={{ opacity: 0.85 }}>
-            {t('k36HudWeakAreas').replace('{count}', String(vaultAnalysis.weakAreaCount))}
+          <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{t('k36HudWeakAreas').replace('{count}', String(vaultAnalysis.weakAreaCount))}</span>
+            {vaultAnalysis.weakAreaCount > 0 && onHudReviewWeakAreas && (
+              <button
+                type="button"
+                onClick={onHudReviewWeakAreas}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  border: `1px solid ${colors.toolbarB}`,
+                  background: colors.toolbar,
+                  color: colors.act,
+                  cursor: 'pointer',
+                }}
+              >
+                {t('k37HudReview')}
+              </button>
+            )}
           </div>
           {vaultAnalysis.areaHealthRows.slice(0, 3).map(row => (
             <div key={row.galaxyId} style={{ opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

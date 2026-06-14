@@ -340,6 +340,11 @@ export function WorkspaceSearchPalette({
                       {result.subtitle && (
                         <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{result.subtitle}</div>
                       )}
+                      {result.actionsAvailable && (
+                        <div style={{ fontSize: 9, color: c.accent, fontWeight: 700, marginTop: 3 }}>
+                          {t('k37SearchActionsAvailable')}
+                        </div>
+                      )}
                     </button>
                   );
                 })}

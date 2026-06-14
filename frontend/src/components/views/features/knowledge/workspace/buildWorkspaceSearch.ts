@@ -6,8 +6,10 @@ import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering'
 import {
   buildImportanceInputForNote,
   evaluateKnowledgeImportance,
+  buildNoteIntelligenceSnapshot,
   type ImportanceClassification,
 } from '../cosmos/intelligence';
+import { countActionsForNote } from '../cosmos/actions';
 import { getProperty } from '../properties/noteProperties';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
@@ -82,6 +84,7 @@ export interface WorkspaceSearchResult {
   areaLabel?: string;
   galaxyLabel?: string;
   connectionCount?: number;
+  actionsAvailable?: boolean;
 }
 
 export interface WorkspaceSearchGroup {
@@ -177,6 +180,7 @@ function enrichNoteResult(
   const { classification } = evaluateKnowledgeImportance(input);
   const areaLabel = getProperty(note, 'area')?.trim();
   const connectionCount = service.getConnectionScore(note.id);
+  const snapshot = buildNoteIntelligenceSnapshot(note, notes, service);
   const metaParts = [
     areaLabel,
     galaxy?.galaxyLabel,
@@ -190,6 +194,7 @@ function enrichNoteResult(
     galaxyLabel: galaxy?.galaxyLabel,
     connectionCount,
     subtitle: metaParts.length > 0 ? metaParts.join(' · ') : result.subtitle,
+    actionsAvailable: countActionsForNote(snapshot) > 0,
   };
 }
 
