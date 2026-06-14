@@ -13,6 +13,7 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { HealthWorkspaceNav, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
+import { HealthDashboardPanel } from './features/health/HealthDashboardPanel';
 
 const PROTEIN_CATEGORY_KEYS = ['Meat', 'Fish', 'Egg & Dairy', 'Plant', 'Supplement', 'Meal', 'Other'] as const;
 type Category = typeof PROTEIN_CATEGORY_KEYS[number];
@@ -616,7 +617,7 @@ export const HealthView = ({
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'protein'>('workout');
-  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
+  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('dashboard');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1137,10 +1138,17 @@ export const HealthView = ({
       </div>
 
       {healthSection === 'dashboard' && (
-        <div className={`rounded-[24px] p-5 mb-4 shrink-0 ${theme.card}`} data-health-dashboard>
-          <h2 className="font-heading text-lg font-bold mb-2">{t('healthNavDashboard')}</h2>
-          <p className={`text-sm ${theme.textMuted}`}>{t('healthDashboardHint')}</p>
-        </div>
+        <HealthDashboardPanel
+          theme={theme}
+          selectedDate={selectedDate}
+          formatDate={formatDate}
+          workouts={workouts}
+          inbody={inbody}
+          healthBlocks={healthBlocks ?? []}
+          healthRoutines={healthRoutines ?? []}
+          isWorkoutLocked={isWorkoutLocked}
+          onNavigate={setHealthSection}
+        />
       )}
 
       {healthSection === 'nutrition' && (
@@ -1149,7 +1157,7 @@ export const HealthView = ({
         </div>
       )}
 
-      {(healthSection === 'habits' || healthSection === 'workout' || healthSection === 'recovery' || healthSection === 'dashboard') && (
+      {(healthSection === 'habits' || healthSection === 'workout' || healthSection === 'recovery') && (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0">
       {/* ── 좌측: 블록 / 루틴 설정 — 모바일에서 가로 탭 전환 ── */}
       <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0 lg:overflow-y-auto lg:pb-4">

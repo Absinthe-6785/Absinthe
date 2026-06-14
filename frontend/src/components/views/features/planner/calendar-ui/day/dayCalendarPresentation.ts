@@ -1,6 +1,13 @@
 import type { Routine, Todo } from '../../../../../types';
 import type { PlannerDayViewPayload } from '../../calendar';
 
+export interface DayActivityItem {
+  id: string;
+  timeLabel: string;
+  title: string;
+  kind: 'event' | 'schedule' | 'milestone';
+}
+
 export interface DayDisplayModel {
   dateKey: string;
   isToday: boolean;
@@ -61,4 +68,39 @@ export function formatDayTodoSummary(todos: readonly Todo[]): string | null {
   if (todos.length === 0) return null;
   const done = todos.filter(todo => todo.done).length;
   return `${done}/${todos.length} todos done`;
+}
+
+/** Chronological activity feed for today's events and schedule blocks. */
+export function buildDayActivityItems(day: PlannerDayViewPayload): DayActivityItem[] {
+  const items: DayActivityItem[] = [];
+
+  for (const event of day.timedEvents) {
+    items.push({
+      id: `event:${event.occurrenceId}`,
+      timeLabel: event.startTime ?? '—',
+      title: event.title,
+      kind: 'event',
+    });
+  }
+
+  for (const block of day.timeline.blocks) {
+    items.push({
+      id: `block:${block.id}`,
+      timeLabel: block.startTime,
+      title: block.title,
+      kind: 'schedule',
+    });
+  }
+
+  for (const event of day.allDayEvents) {
+    items.push({
+      id: `allday:${event.occurrenceId}`,
+      timeLabel: 'All day',
+      title: event.title,
+      kind: 'event',
+    });
+  }
+
+  items.sort((a, b) => a.timeLabel.localeCompare(b.timeLabel));
+  return items.slice(0, 8);
 }

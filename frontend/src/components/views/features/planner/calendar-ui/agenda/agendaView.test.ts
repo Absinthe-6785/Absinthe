@@ -138,7 +138,7 @@ describe('AgendaCalendarView', () => {
     expect(html).toContain('data-planner-agenda-countdown-label');
   });
 
-  it('renders events, schedules, and todos in separate sections', () => {
+  it('renders countdowns and events; schedules/todos live in Day view (K-50)', () => {
     const exam = applyEventToNote(note('exam', { title: 'TOEFL' }), {
       title: 'TOEFL',
       eventDate: '2027-02-04',
@@ -172,11 +172,9 @@ describe('AgendaCalendarView', () => {
     expect(html).toContain('data-planner-agenda-event-kind="timed-event"');
     expect(html).toContain('data-planner-agenda-event-note="exam"');
     expect(html).toContain('data-planner-agenda-event-kind="milestone"');
-    expect(html).toContain('data-planner-agenda-schedules');
-    expect(html).toContain('data-planner-agenda-schedule="b1"');
-    expect(html).toContain('data-planner-agenda-todos');
-    expect(html).toContain('data-planner-agenda-todo="t1"');
-    expect(html).toContain('data-planner-agenda-todo-done="true"');
+    expect(html).toContain('data-planner-agenda-countdowns');
+    expect(html).not.toContain('data-planner-agenda-schedules');
+    expect(html).not.toContain('data-planner-agenda-todos');
   });
 
   it('wires onEventNoteClick on note-backed event rows', () => {

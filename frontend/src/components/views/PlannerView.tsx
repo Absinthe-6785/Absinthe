@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { Plus, X, Trash2, Edit2, Clock, Target, Activity, CheckCircle, Inbox, BookOpen, Briefcase, Dumbbell, User, Moon, Users } from 'lucide-react';
+import { Plus, X, Trash2, Edit2, Clock, Activity, CheckCircle, Inbox, BookOpen, Briefcase, Dumbbell, User, Moon, Users } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
@@ -13,6 +13,8 @@ import { PlannerProps, Schedule, Todo, Routine, DDay } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
 import { CalendarShell } from './features/planner/calendar-ui';
+import { ScheduleCountdownPanel } from './features/planner/ScheduleCountdownPanel';
+import { usePlannerCalendarProjection } from './features/planner/calendar-ui/usePlannerCalendarProjection';
 import { openNote } from '../../lib/noteNavigation';
 import type { PlannerCalendarViewMode } from './features/planner/calendar';
 
@@ -46,6 +48,7 @@ export const PlannerView = ({
   const [mobilePlannerTab, setMobilePlannerTab] = useState<(typeof MOBILE_PLANNER_TABS)[number]>('timeline');
   const [calendarViewMode, setCalendarViewMode] = useState<PlannerCalendarViewMode>('day');
   const showLegacyTimeline = calendarViewMode === 'week' || calendarViewMode === 'month';
+  const isDashboardMode = calendarViewMode === 'day' || calendarViewMode === 'agenda';
   const visibleMobileTabs = showLegacyTimeline ? MOBILE_PLANNER_TABS : (['todo'] as const);
 
   useEffect(() => {
@@ -110,13 +113,6 @@ export const PlannerView = ({
     return () => cancelAnimationFrame(raf);
   }, [selectedDate]);
 
-  const calculateDday = useCallback((dateStr: string) => {
-    if (!dateStr) return '';
-    const target = DateTime.fromFormat(dateStr, 'yyyy-MM-dd', { zone: now.zoneName || 'Asia/Seoul' });
-    if (!target.isValid) return 'Invalid Date';
-    const diff = Math.round(target.startOf('day').diff(now.startOf('day'), 'days').days);
-    return diff === 0 ? 'D-Day' : diff > 0 ? `D-${diff}` : `D+${Math.abs(diff)}`;
-  }, [now]);
 
   // ── D-Day ──────────────────────────────────────────────────────────
   const openDdayModal = (d?: DDay) => {
@@ -259,6 +255,21 @@ export const PlannerView = ({
     [routines, selectedDate, formatDate],
   );
 
+  const { projection: calendarProjection, presentation: calendarPresentation } = usePlannerCalendarProjection({
+    now,
+    anchorDate: formatDate(selectedDate),
+    viewMode: calendarViewMode,
+    schedules,
+    previousDaySchedules: prevSchedules,
+    previousDayDate: prevDateStr,
+    todos,
+    routines,
+    weeklySchedules,
+    legacyDdays: ddays,
+    appSettings,
+    routineExceptionDates,
+  });
+
   const handleCalendarAnchorChange = useCallback((dateKey: string) => {
     const [y, m, d] = dateKey.split('-').map(Number);
     if (!y || !m || !d) return;
@@ -292,6 +303,12 @@ export const PlannerView = ({
           },
           onDelete: handleDeleteSchedule,
         }}
+        dayRoutineActions={{
+          onToggle: handleToggleRoutine,
+        }}
+        dayTodoActions={{
+          onToggle: handleToggleTodo,
+        }}
       />
 
       <div className="flex flex-col gap-4 lg:gap-5 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
@@ -317,38 +334,21 @@ export const PlannerView = ({
         className={`flex-1 lg:flex-[2.2] flex-col gap-4 lg:gap-5 lg:overflow-y-auto lg:pb-2 lg:order-2 ${mobilePlannerTab === "todo" || !showLegacyTimeline ? "flex" : "hidden lg:flex"}`}
       >
 
-        {/* D-Day */}
-        <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 flex flex-col shrink-0 transition-colors ${theme.card}`}>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
-              <Target size={18} className="text-red-500"/> {t('dday')}
-            </h2>
-            <button onClick={() => openDdayModal()} className="bg-primary text-primary-foreground px-2.5 py-1.5 rounded-xl text-xs font-bold">
-              <Plus size={14} className="inline mr-1"/>{t('add')}
-            </button>
-          </div>
-          <div className="max-h-[140px] overflow-y-auto pr-1 space-y-2">
-            {ddays.length === 0
-              ? <EmptyState theme={theme} icon={Target} text={t('noDdays')} onClick={() => openDdayModal()} />
-              : ddays.map((d: DDay) => (
-                <div key={d.id} className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}>
-                  <p className="text-sm font-semibold truncate flex-1 mr-2">{d.text}</p>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openDdayModal(d)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Edit2 size={13}/></button>
-                      <button onClick={() => handleDeleteDday(d.id)} className={`p-1.5 rounded-lg ${theme.hoverBg} ${theme.textMuted} active:scale-95`}><Trash2 size={13}/></button>
-                    </div>
-                    <span className="font-heading text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-xl shrink-0">
-                      {calculateDday(d.date)}
-                    </span>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        </div>
+        {/* Countdowns — note-backed + legacy */}
+        <ScheduleCountdownPanel
+          countdowns={calendarProjection.core.countdowns}
+          presentation={calendarPresentation}
+          legacyDdays={ddays}
+          theme={theme}
+          onNoteClick={openNote}
+          onAddLegacy={() => openDdayModal()}
+          onEditLegacy={openDdayModal}
+          onDeleteLegacy={handleDeleteDday}
+        />
 
-        {/* 루틴 */}
+        {/* Routines + Tasks — hidden in day/agenda dashboard mode (interactive in Day view) */}
+        {!isDashboardMode && (
+        <>
         <div className={`relative flex-1 rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 overflow-hidden flex flex-col transition-colors ${theme.card}`}>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <h2 className={`font-heading text-base lg:text-lg font-bold flex items-center gap-2 ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
@@ -472,6 +472,8 @@ export const PlannerView = ({
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* ══ Col-3: Time grid (week/month only — day/agenda use CalendarShell) ══ */}
