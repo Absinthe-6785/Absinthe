@@ -12,11 +12,8 @@ import {
   tagsFromPropertyValue,
   tagsToPropertyValue,
 } from './features/knowledge/tags/tagConstants';
-declare global {
-  interface Window {
-    katex?: { renderToString: (expr: string, opts?: object) => string };
-  }
-}
+import { protectMathInMarkdown } from '../../lib/math/mathParse';
+import { renderProtectedMathBlock } from '../../lib/math/katexRender';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
@@ -325,11 +322,9 @@ export function highlightText(text: string, query: string): string {
 export function parseMarkdown(md: string, allNotes: NoteBase[]): string {
   if (!md) return '';
 
-  // 1. 수식 보호
-  const mathBlocks: string[] = [];
-  let text = md
-    .replace(/\$\$[\s\S]+?\$\$/g, m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; })
-    .replace(/\$[^$\n]+\$/g,      m => { mathBlocks.push(m); return `%%M${mathBlocks.length - 1}%%`; });
+  // 1. 수식 보호 (K-49 shared parser — currency false-positive safe)
+  const { text: protectedText, mathBlocks } = protectMathInMarkdown(md);
+  let text = protectedText;
 
   // 2. 코드블록 보호
   const codeBlocks: string[] = [];
@@ -407,14 +402,8 @@ export function parseMarkdown(md: string, allNotes: NoteBase[]): string {
   // 5. 수식 복원
   html = html.replace(/%%M(\d+)%%/g, (_, idx: string) => {
     const m = mathBlocks[Number(idx)];
-    if (!window.katex) return `<code>${m}</code>`;
-    const isBlock = m.startsWith('$$');
-    const expr = m.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
-    try {
-      return isBlock
-        ? `<div class="bmathb">${window.katex.renderToString(expr, { displayMode: true, throwOnError: false })}</div>`
-        : `<span class="bmathi">${window.katex.renderToString(expr, { displayMode: false, throwOnError: false })}</span>`;
-    } catch { return `<code class="bmerr">${m}</code>`; }
+    if (!m) return '';
+    return renderProtectedMathBlock(m);
   });
 
   return `<div class="broot">${html}</div>`;
