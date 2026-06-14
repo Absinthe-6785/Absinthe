@@ -1,0 +1,50 @@
+/** Centralized scoring weights — single source for K-36 intelligence heuristics. */
+
+export const IMPORTANCE_WEIGHTS = {
+  BACKLINK: 4,
+  OUTGOING_LINK: 2,
+  INCOMING_REFERENCE: 3,
+  MENTION: 2,
+  TAG_NEIGHBOR: 1,
+  AREA_PARTICIPATION: 12,
+  RECENCY_MAX: 8,
+  MILESTONE: 10,
+  STAR: 8,
+} as const;
+
+export const IMPORTANCE_CLASS_THRESHOLDS = {
+  CORE_HUB: 45,
+  MAJOR_HUB: 28,
+  SUPPORTING: 14,
+  SATELLITE: 4,
+} as const;
+
+export const SUGGESTION_WEIGHTS = {
+  SHARED_TAG: 6,
+  SHARED_AREA: 5,
+  TITLE_SIMILARITY: 8,
+  MUTUAL_MENTION: 4,
+  COMMON_BACKLINK: 7,
+  EXISTING_RELATED: 10,
+} as const;
+
+export const OPPORTUNITY_LIMITS = {
+  VAULT_DEFAULT: 12,
+  NOTE_DEFAULT: 5,
+  SUGGESTIONS_DEFAULT: 6,
+} as const;
+
+export const AREA_HEALTH_WEIGHTS = {
+  CONNECTION: 15,
+  ORPHAN: 30,
+  HUB: 20,
+  MILESTONE: 10,
+  SIZE: 20,
+} as const;
+
+export const AREA_HEALTH_CATEGORY_THRESHOLDS = {
+  THRIVING: 80,
+  HEALTHY: 65,
+  GROWING: 50,
+  FRAGMENTED: 35,
+} as const;

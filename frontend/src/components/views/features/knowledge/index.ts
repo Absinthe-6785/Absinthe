@@ -978,3 +978,22 @@ export {
   type WorkspaceResolveContext,
   type WorkspaceSessionState,
 } from './workspace';
+
+export {
+  evaluateKnowledgeImportance,
+  buildNoteIntelligenceSnapshot,
+  buildCosmosVaultAnalysis,
+  buildKnowledgeOpportunities,
+  buildSuggestedConnections,
+  buildAreaHealthSummaries,
+  buildKnowledgeGaps,
+  type ImportanceClassification,
+  type NoteIntelligenceSnapshot,
+  type CosmosVaultAnalysis,
+  type KnowledgeOpportunity,
+  type SuggestedConnection,
+  type AreaHealthSummary,
+  type KnowledgeGap,
+} from './cosmos/intelligence';
+
+export { CosmosInsightsPanel, type CosmosInsightsPanelProps } from './components/CosmosInsightsPanel';
