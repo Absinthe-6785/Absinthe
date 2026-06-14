@@ -188,12 +188,19 @@ import {
   subscribeKnowledgeHistory,
   maybeBootstrapKnowledgeHistory,
   buildCosmosEvolutionSummary,
-  buildCosmosEvolutionStory,
+  buildExpandedCosmosEvolutionStory,
   buildDiscoveryProgressSummary,
   latestAchievedMilestone,
   getMilestoneNoteId,
   presentHistoryEvent,
   getRecentEvents,
+  buildKnowledgeJourney,
+  buildEvolutionDashboardSummary,
+  exportCosmosEvolutionMarkdown,
+  copyCosmosEvolutionMarkdown,
+  loadBootstrapImportSummary,
+  dismissBootstrapSummary,
+  isBootstrapSummaryDismissed,
 } from './features/knowledge/history';
 import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
 import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
@@ -1304,6 +1311,7 @@ export const NoteView = () => {
   );
 
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [bootstrapDismissed, setBootstrapDismissed] = useState(() => isBootstrapSummaryDismissed());
   useEffect(() => subscribeKnowledgeHistory(() => setHistoryVersion(v => v + 1)), []);
 
   useEffect(() => {
@@ -1476,9 +1484,45 @@ export const NoteView = () => {
   );
 
   const cosmosEvolutionStory = useMemo(
-    () => buildCosmosEvolutionStory(cosmosEvolutionSummary, historyEvents),
-    [cosmosEvolutionSummary, historyEvents],
+    () => buildExpandedCosmosEvolutionStory(
+      cosmosEvolutionSummary,
+      historyEvents,
+      notes,
+      knowledgeTimeline.areaEvolution,
+      knowledgeTimeline.milestones,
+    ),
+    [cosmosEvolutionSummary, historyEvents, notes, knowledgeTimeline.areaEvolution, knowledgeTimeline.milestones],
   );
+
+  const knowledgeJourney = useMemo(
+    () => buildKnowledgeJourney(knowledgeTimeline.milestones, historyEvents),
+    [knowledgeTimeline.milestones, historyEvents],
+  );
+
+  const evolutionDashboardSummary = useMemo(
+    () => buildEvolutionDashboardSummary(knowledgeTimeline, historyEvents),
+    [knowledgeTimeline, historyEvents],
+  );
+
+  const bootstrapImportSummary = useMemo(() => {
+    if (bootstrapDismissed || isBootstrapSummaryDismissed()) return null;
+    return loadBootstrapImportSummary();
+  }, [bootstrapDismissed, historyVersion]);
+
+  const handleDismissBootstrapSummary = useCallback(() => {
+    dismissBootstrapSummary();
+    setBootstrapDismissed(true);
+  }, []);
+
+  const handleExportEvolution = useCallback(async () => {
+    const markdown = exportCosmosEvolutionMarkdown({
+      summary: cosmosEvolutionSummary,
+      story: cosmosEvolutionStory,
+      milestones: knowledgeTimeline.milestones,
+      lang,
+    });
+    await copyCosmosEvolutionMarkdown(markdown);
+  }, [cosmosEvolutionSummary, cosmosEvolutionStory, knowledgeTimeline.milestones, lang]);
 
   const discoveryProgress = useMemo(
     () => buildDiscoveryProgressSummary(historyEvents),
@@ -2829,6 +2873,8 @@ export const NoteView = () => {
               activityRecent: dashboardRecentActivity,
               activityLatestMilestone: dashboardLatestMilestone,
               activityGrowthTrend: knowledgeTimeline.recentEvolution,
+              evolutionDashboard: evolutionDashboardSummary,
+              onOpenEvolution: handleOpenTimeline,
               activeNoteCount: activeNotes.length,
               onCreateNote: () => createNote(),
               onOpenCosmos: () => setViewMode('graph'),
@@ -3561,6 +3607,10 @@ export const NoteView = () => {
                 evolutionSummary={cosmosEvolutionSummary}
                 evolutionStory={cosmosEvolutionStory}
                 discoveryProgress={discoveryProgress}
+                knowledgeJourney={knowledgeJourney}
+                bootstrapSummary={bootstrapImportSummary}
+                onDismissBootstrap={handleDismissBootstrapSummary}
+                onExportEvolution={handleExportEvolution}
                 onNavigateToNote={setActiveNoteId}
               />
             )}

@@ -1039,6 +1039,10 @@ export { TimelineActivityFeed, type TimelineActivityFeedProps } from './componen
 export { KnowledgeEvolutionSummary, type KnowledgeEvolutionSummaryProps } from './components/KnowledgeEvolutionSummary';
 export { CosmosEvolutionStory, type CosmosEvolutionStoryProps } from './components/CosmosEvolutionStory';
 export { DiscoveryProgressSection, type DiscoveryProgressSectionProps } from './components/DiscoveryProgressSection';
+export { AreaEvolutionPanel, type AreaEvolutionPanelProps } from './components/AreaEvolutionPanel';
+export { KnowledgeJourneyPanel, type KnowledgeJourneyPanelProps } from './components/KnowledgeJourneyPanel';
+export { KnowledgeEvolutionCard, type KnowledgeEvolutionCardProps } from './components/KnowledgeEvolutionCard';
+export { BootstrapImportSummaryCard, type BootstrapImportSummaryCardProps } from './components/BootstrapImportSummaryCard';
 export { TimelineDashboardCard, type TimelineDashboardCardProps } from './components/TimelineDashboardCard';
 export { KnowledgeActivityCard, type KnowledgeActivityCardProps } from './components/KnowledgeActivityCard';
 
@@ -1057,9 +1061,17 @@ export {
   groupEventsByDate,
   buildCosmosEvolutionSummary,
   buildCosmosEvolutionStory,
+  buildExpandedCosmosEvolutionStory,
   buildDiscoveryProgressSummary,
+  buildAreaEvolutionDetail,
+  buildEvolutionDashboardSummary,
+  buildKnowledgeJourney,
+  exportCosmosEvolutionMarkdown,
+  copyCosmosEvolutionMarkdown,
   getMilestoneNoteId,
   latestAchievedMilestone,
+  loadBootstrapImportSummary,
+  dismissBootstrapSummary,
   MAX_HISTORY_EVENTS,
   type KnowledgeHistoryEvent,
   type KnowledgeHistoryEventType,
@@ -1067,7 +1079,12 @@ export {
   type NoteHistoryContext,
   type CosmosEvolutionSummary,
   type CosmosEvolutionStory as CosmosEvolutionStoryData,
+  type ExpandedCosmosEvolutionStory,
   type DiscoveryProgressSummary,
+  type AreaEvolutionDetail,
+  type KnowledgeJourney,
+  type EvolutionDashboardSummary,
+  type BootstrapImportSummary,
 } from './history';
 
 export {

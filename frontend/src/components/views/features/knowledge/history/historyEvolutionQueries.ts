@@ -1,11 +1,13 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import type { KnowledgeMilestone } from '../timeline/timelineTypes';
+import type { KnowledgeMilestone, AreaEvolutionRow } from '../timeline/timelineTypes';
 import { countHubs, countLinksForNotes, noteEffectiveCreatedAt } from '../timeline/timelineMetrics';
 import type { KnowledgeHistoryEvent } from './eventTypes';
 import { loadKnowledgeHistoryEvents } from './historyStorage';
 import { hasNonImportedHistory } from './historyBootstrap';
 import { isImportedEvent } from './historyEventPresentation';
+import type { TranslationKey } from '../../../../../lib/i18n';
+import { getProperty } from '../properties/noteProperties';
 
 export interface CosmosEvolutionSummary {
   firstNoteAt: number | null;
@@ -32,6 +34,15 @@ export interface CosmosEvolutionStory {
   importedOnly: boolean;
 }
 
+export interface ExpandedCosmosEvolutionStory extends CosmosEvolutionStory {
+  fastestGrowingArea: string | null;
+  longestActiveArea: string | null;
+  mostConnectedArea: string | null;
+  recentMilestoneTitleKey: TranslationKey | null;
+}
+
+export type DiscoveryTrend = 'up' | 'stable' | 'down' | 'none';
+
 export interface DiscoveryProgressSummary {
   resolvedCount: number;
   recentResolved: KnowledgeHistoryEvent[];
@@ -40,6 +51,12 @@ export interface DiscoveryProgressSummary {
   areaCount: number;
   mostImprovedArea: string | null;
   momentumScore: number;
+  periodDays: number;
+  recentResolvedCount: number;
+  recentConnectCount: number;
+  recentHubCount: number;
+  recentAreaCount: number;
+  resolvedTrend: DiscoveryTrend;
 }
 
 const DAY_MS = 86_400_000;
@@ -74,6 +91,66 @@ export function buildCosmosEvolutionSummary(
     currentLinks: countLinksForNotes(active, service),
     currentHubs: countHubs(active, service),
     importedOnly: events.length > 0 && !hasNonImportedHistory(events),
+  };
+}
+
+export function buildExpandedCosmosEvolutionStory(
+  summary: CosmosEvolutionSummary,
+  events: readonly KnowledgeHistoryEvent[] = loadKnowledgeHistoryEvents(),
+  notes: readonly NoteBase[] = [],
+  areaRows: readonly AreaEvolutionRow[] = [],
+  milestones: readonly KnowledgeMilestone[] = [],
+  now = Date.now(),
+): ExpandedCosmosEvolutionStory {
+  const base = buildCosmosEvolutionStory(summary, events, now);
+
+  let fastestGrowingArea: string | null = null;
+  let bestDelta = -1;
+  for (const row of areaRows) {
+    const first = row.periods[0]?.noteCount ?? 0;
+    const last = row.periods[row.periods.length - 1]?.noteCount ?? 0;
+    const delta = last - first;
+    if (delta > bestDelta) {
+      bestDelta = delta;
+      fastestGrowingArea = row.areaLabel;
+    }
+  }
+  if (bestDelta <= 0) fastestGrowingArea = null;
+
+  const areaFirstSeen = new Map<string, number>();
+  for (const event of events) {
+    const label = event.areaId ?? event.metadata?.areaLabel;
+    if (!label) continue;
+    const prev = areaFirstSeen.get(label);
+    if (prev == null || event.timestamp < prev) areaFirstSeen.set(label, event.timestamp);
+  }
+  const longestActiveArea = [...areaFirstSeen.entries()]
+    .sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
+
+  const areaLinkCounts = new Map<string, number>();
+  const active = notes.filter(n => !n.deletedAt);
+  for (const event of events) {
+    if (event.type !== 'LINK_CREATED') continue;
+    const label = event.areaId ?? event.metadata?.areaLabel;
+    if (label) {
+      areaLinkCounts.set(label, (areaLinkCounts.get(label) ?? 0) + 1);
+      continue;
+    }
+    const note = active.find(n => n.id === event.noteId);
+    if (note) {
+      const area = getProperty(note, 'area')?.trim();
+      if (area) areaLinkCounts.set(area, (areaLinkCounts.get(area) ?? 0) + 1);
+    }
+  }  const mostConnectedArea = [...areaLinkCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  const latest = latestAchievedMilestone(milestones);
+
+  return {
+    ...base,
+    fastestGrowingArea,
+    longestActiveArea,
+    mostConnectedArea,
+    recentMilestoneTitleKey: latest?.titleKey ?? null,
   };
 }
 
@@ -115,11 +192,22 @@ export function buildDiscoveryProgressSummary(
   now = Date.now(),
 ): DiscoveryProgressSummary {
   const startMs = now - periodDays * DAY_MS;
+  const prevStartMs = startMs - periodDays * DAY_MS;
   const resolved = events.filter(e => e.type === 'DISCOVERY_RESOLVED');
   const recent = resolved.filter(e => e.timestamp >= startMs);
+  const prevResolved = resolved.filter(e => e.timestamp >= prevStartMs && e.timestamp < startMs);
   const connectCount = resolved.filter(e => e.metadata?.action === 'connect' || e.metadata?.action === 'create-relation').length;
   const hubCount = resolved.filter(e => e.metadata?.action === 'create-hub').length;
   const areaCount = resolved.filter(e => e.metadata?.action === 'assign-area').length;
+
+  const recentConnectCount = recent.filter(e => e.metadata?.action === 'connect' || e.metadata?.action === 'create-relation').length;
+  const recentHubCount = recent.filter(e => e.metadata?.action === 'create-hub').length;
+  const recentAreaCount = recent.filter(e => e.metadata?.action === 'assign-area').length;
+
+  let resolvedTrend: DiscoveryTrend = 'none';
+  if (recent.length > prevResolved.length) resolvedTrend = 'up';
+  else if (recent.length === prevResolved.length && recent.length > 0) resolvedTrend = 'stable';
+  else if (recent.length < prevResolved.length) resolvedTrend = 'down';
 
   const areaCounts = new Map<string, number>();
   for (const event of events) {
@@ -143,6 +231,12 @@ export function buildDiscoveryProgressSummary(
     areaCount,
     mostImprovedArea,
     momentumScore,
+    periodDays,
+    recentResolvedCount: recent.length,
+    recentConnectCount,
+    recentHubCount,
+    recentAreaCount,
+    resolvedTrend,
   };
 }
 

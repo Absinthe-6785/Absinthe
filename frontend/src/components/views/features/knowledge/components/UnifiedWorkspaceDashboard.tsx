@@ -7,7 +7,9 @@ import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
 import { TimelineDashboardCard } from './TimelineDashboardCard';
 import { KnowledgeActivityCard } from './KnowledgeActivityCard';
+import { KnowledgeEvolutionCard } from './KnowledgeEvolutionCard';
 import type { KnowledgeActivitySummary } from '../history';
+import type { EvolutionDashboardSummary } from '../history/historyAreaEvolutionQueries';
 import type { RecentEvolutionSummary } from '../timeline';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
@@ -43,6 +45,8 @@ export interface UnifiedWorkspaceDashboardProps {
   activityRecent?: { actionKey: TranslationKey; detail: string; noteId: string } | null;
   activityLatestMilestone?: { titleKey: TranslationKey; noteId: string | null } | null;
   activityGrowthTrend?: RecentEvolutionSummary | null;
+  evolutionDashboard?: EvolutionDashboardSummary | null;
+  onOpenEvolution?: () => void;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -130,6 +134,8 @@ export function UnifiedWorkspaceDashboard({
   activityRecent,
   activityLatestMilestone,
   activityGrowthTrend,
+  evolutionDashboard,
+  onOpenEvolution,
   activeNoteCount = 0,
   onCreateNote,
   onOpenCosmos,
@@ -150,6 +156,15 @@ export function UnifiedWorkspaceDashboard({
               compact={compact}
               onCreateNote={onCreateNote}
               onOpenCosmos={onOpenCosmos}
+            />
+          )}
+          {evolutionDashboard && onOpenEvolution && (
+            <KnowledgeEvolutionCard
+              colors={c}
+              summary={evolutionDashboard}
+              compact={compact}
+              onOpenEvolution={onOpenEvolution}
+              onNavigateToNote={onNavigateToNote}
             />
           )}
           {activitySummary && (

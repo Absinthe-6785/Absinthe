@@ -5,10 +5,12 @@ import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeTimeline, TimelinePeriodMode, TimelineSnapshot } from '../timeline';
 import type { KnowledgeHistoryEvent } from '../history/eventTypes';
 import type {
-  CosmosEvolutionStory,
   CosmosEvolutionSummary,
   DiscoveryProgressSummary,
+  ExpandedCosmosEvolutionStory,
 } from '../history/historyEvolutionQueries';
+import type { BootstrapImportSummary } from '../history/bootstrapSummaryStorage';
+import type { KnowledgeJourney } from '../history/historyJourneyQueries';
 import { getMilestoneNoteId } from '../history/historyEvolutionQueries';
 import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
@@ -17,6 +19,9 @@ import { TimelineActivityFeed } from './TimelineActivityFeed';
 import { KnowledgeEvolutionSummary } from './KnowledgeEvolutionSummary';
 import { CosmosEvolutionStory as CosmosEvolutionStoryPanel } from './CosmosEvolutionStory';
 import { DiscoveryProgressSection } from './DiscoveryProgressSection';
+import { AreaEvolutionPanel } from './AreaEvolutionPanel';
+import { KnowledgeJourneyPanel } from './KnowledgeJourneyPanel';
+import { BootstrapImportSummaryCard } from './BootstrapImportSummaryCard';
 
 export type TimelineSection = 'overview' | 'activity' | 'milestones';
 
@@ -28,8 +33,12 @@ export interface TimelinePanelProps {
   historyEvents: readonly KnowledgeHistoryEvent[];
   notes: readonly NoteBase[];
   evolutionSummary: CosmosEvolutionSummary;
-  evolutionStory: CosmosEvolutionStory;
+  evolutionStory: ExpandedCosmosEvolutionStory;
   discoveryProgress: DiscoveryProgressSummary;
+  knowledgeJourney: KnowledgeJourney;
+  bootstrapSummary?: BootstrapImportSummary | null;
+  onDismissBootstrap?: () => void;
+  onExportEvolution?: () => void;
   onNavigateToNote?: (noteId: string) => void;
   compact?: boolean;
 }
@@ -126,11 +135,16 @@ export function TimelinePanel({
   evolutionSummary,
   evolutionStory,
   discoveryProgress,
+  knowledgeJourney,
+  bootstrapSummary,
+  onDismissBootstrap,
+  onExportEvolution,
   onNavigateToNote,
   compact,
 }: TimelinePanelProps) {
   const { t } = useTranslation();
   const [section, setSection] = useState<TimelineSection>('overview');
+  const [selectedArea, setSelectedArea] = useState<string | null>(null);
 
   const modes: TimelinePeriodMode[] = ['month', 'quarter', 'all'];
   const achievedMilestones = timeline.milestones.filter(m => m.achieved);
@@ -145,13 +159,58 @@ export function TimelinePanel({
     );
   }
 
+  if (selectedArea) {
+    const areaRow = timeline.areaEvolution.find(r => r.areaLabel === selectedArea);
+    return (
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <CosmosSuiteHeader c={c} active="timeline" t={t} />
+        <AreaEvolutionPanel
+          colors={c}
+          areaLabel={selectedArea}
+          row={areaRow}
+          notes={notes}
+          events={historyEvents}
+          onBack={() => setSelectedArea(null)}
+          onNavigateToNote={onNavigateToNote}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <CosmosSuiteHeader c={c} active="timeline" t={t} />
       <SectionTabs c={c} section={section} onChange={setSection} />
+      {onExportEvolution && (
+        <div style={{ padding: '0 8px 8px', textAlign: 'right' }}>
+          <button
+            type="button"
+            onClick={onExportEvolution}
+            style={{
+              fontSize: 9,
+              fontWeight: 500,
+              padding: '4px 8px',
+              borderRadius: 999,
+              border: `1px solid ${c.sideBdr}`,
+              background: c.cardHov,
+              color: c.textMuted,
+              cursor: 'pointer',
+            }}
+          >
+            {t('k46ExportEvolution')}
+          </button>
+        </div>
+      )}
 
       {section === 'overview' && (
         <>
+          {bootstrapSummary && onDismissBootstrap && (
+            <BootstrapImportSummaryCard
+              colors={c}
+              summary={bootstrapSummary}
+              onDismiss={onDismissBootstrap}
+            />
+          )}
           <KnowledgeEvolutionSummary
             colors={c}
             summary={evolutionSummary}
@@ -221,14 +280,19 @@ export function TimelinePanel({
           {timeline.areaEvolution.length > 0 && (
             <KnowledgePanelSection colors={c} title={t('k42SectionAreaEvolution')} count={timeline.areaEvolution.length}>
               {timeline.areaEvolution.map(row => (
-                <div
+                <button
                   key={row.areaLabel}
+                  type="button"
+                  onClick={() => setSelectedArea(row.areaLabel)}
                   style={{
+                    width: 'calc(100% - 16px)',
                     margin: '0 8px 6px',
                     padding: '7px 9px',
                     borderRadius: 7,
                     border: `1px solid ${c.sideBdr}`,
                     background: c.cardHov,
+                    textAlign: 'left',
+                    cursor: 'pointer',
                   }}
                 >
                   <div style={{ fontSize: 11, fontWeight: 600, color: c.text, marginBottom: 4 }}>
@@ -243,7 +307,7 @@ export function TimelinePanel({
                       {p.label}: {p.noteCount} {t('k42NotesLabel')}
                     </div>
                   ))}
-                </div>
+                </button>
               ))}
             </KnowledgePanelSection>
           )}
@@ -284,7 +348,13 @@ export function TimelinePanel({
       )}
 
       {section === 'milestones' && (
-        <KnowledgePanelSection colors={c} first title={t('k42SectionMilestones')} count={achievedMilestones.length}>
+        <>
+          <KnowledgeJourneyPanel
+            colors={c}
+            journey={knowledgeJourney}
+            onNavigateToNote={onNavigateToNote}
+          />
+          <KnowledgePanelSection colors={c} title={t('k42SectionMilestones')} count={achievedMilestones.length}>
           {timeline.milestones.map(m => {
             const noteId = m.achieved ? getMilestoneNoteId(m.id, historyEvents) : null;
             const interactive = Boolean(m.achieved && noteId && onNavigateToNote);
@@ -312,7 +382,8 @@ export function TimelinePanel({
               </button>
             );
           })}
-        </KnowledgePanelSection>
+          </KnowledgePanelSection>
+        </>
       )}
     </div>
   );

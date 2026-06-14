@@ -1,10 +1,10 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { CosmosEvolutionStory } from '../history/historyEvolutionQueries';
+import type { ExpandedCosmosEvolutionStory } from '../history/historyEvolutionQueries';
 
 export interface CosmosEvolutionStoryProps {
   colors: NoteChromeColors;
-  story: CosmosEvolutionStory;
+  story: ExpandedCosmosEvolutionStory;
 }
 
 function formatDate(ts: number | null, lang: string): string {
@@ -61,6 +61,27 @@ export function CosmosEvolutionStory({ colors: c, story }: CosmosEvolutionStoryP
           <div>{t('k45StoryHubs').replace('{count}', String(story.hubsAdded))}</div>
         )}
       </div>
+      {(story.fastestGrowingArea || story.longestActiveArea || story.mostConnectedArea || story.recentMilestoneTitleKey) && (
+        <>
+          <div style={{ fontSize: 9, fontWeight: 700, color: c.textMuted, margin: '8px 0 4px' }}>
+            {t('k46StoryHighlights')}
+          </div>
+          <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.55 }}>
+            {story.fastestGrowingArea && (
+              <div>{t('k46StoryFastestArea').replace('{area}', story.fastestGrowingArea)}</div>
+            )}
+            {story.longestActiveArea && (
+              <div>{t('k46StoryLongestArea').replace('{area}', story.longestActiveArea)}</div>
+            )}
+            {story.mostConnectedArea && (
+              <div>{t('k46StoryConnectedArea').replace('{area}', story.mostConnectedArea)}</div>
+            )}
+            {story.recentMilestoneTitleKey && (
+              <div>{t('k46StoryRecentMilestone')}: {t(story.recentMilestoneTitleKey)}</div>
+            )}
+          </div>
+        </>
+      )}
       {story.importedOnly && (
         <div style={{ fontSize: 9, color: c.textFaint, marginTop: 6, lineHeight: 1.4 }}>
           {t('k45ImportedHint')}
