@@ -16,6 +16,7 @@ import {
 } from '../workspace/buildWorkspaceSearch';
 import { importanceClassificationLabel } from '../knowledgeLabels';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
+import { buildDiscoveryFeed } from '../discovery';
 
 const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
   note: 'searchGroupNotes',
@@ -92,9 +93,14 @@ export function WorkspaceSearchPalette({
     }
   }, [open]);
 
+  const discoveryFeed = useMemo(
+    () => buildDiscoveryFeed(notes, knowledgeIndexService),
+    [notes],
+  );
+
   const queryGroups = useMemo(
-    () => buildWorkspaceSearch(query, notes, folders, { filter, service: knowledgeIndexService }),
-    [query, notes, folders, filter],
+    () => buildWorkspaceSearch(query, notes, folders, { filter, service: knowledgeIndexService, discoveryFeed }),
+    [query, notes, folders, filter, discoveryFeed],
   );
 
   const recentGroups = useMemo(
@@ -343,6 +349,11 @@ export function WorkspaceSearchPalette({
                       {result.actionsAvailable && (
                         <div style={{ fontSize: 9, color: c.accent, fontWeight: 700, marginTop: 3 }}>
                           {t('k37SearchActionsAvailable')}
+                        </div>
+                      )}
+                      {result.discoveryOpportunity && (
+                        <div style={{ fontSize: 9, color: c.textFaint, fontWeight: 600, marginTop: 3 }}>
+                          {t('k38SearchDiscoveryOpportunity')}
                         </div>
                       )}
                     </button>

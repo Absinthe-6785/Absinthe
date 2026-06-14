@@ -10,7 +10,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useTranslation, resolveIntlLocale } from '../../lib/i18n';
-import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis } from './features/knowledge';
+import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
 import { importanceClassificationLabel, areaHealthCategoryLabel } from './features/knowledge/knowledgeLabels';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
@@ -101,6 +101,8 @@ export interface NoteGraphViewProps {
   dark: boolean;
   onHudReviewWeakAreas?: () => void;
   onHudOpenIsolated?: () => void;
+  onHudOpenDiscover?: () => void;
+  onHudReviewDiscoveries?: () => void;
 }
 
 // ── 폴더 색상 팔레트 (라이트/다크 공용 — opacity로 조절) ───────────
@@ -132,7 +134,7 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onHudReviewWeakAreas, onHudOpenIsolated }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const intlLocale = resolveIntlLocale(lang);
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
@@ -556,6 +558,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   const vaultAnalysis = useMemo(
     () => buildCosmosVaultAnalysis(notes, knowledgeIndexService),
+    [notes],
+  );
+
+  const discoveryFeed = useMemo(
+    () => buildDiscoveryFeed(notes, knowledgeIndexService),
     [notes],
   );
 
@@ -1198,6 +1205,55 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             </div>
           ))}
         </div>
+        {discoveryFeed.summary.totalCount > 0 && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
+            <div style={{ fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>{t('k38HudDiscoveryTitle')}</span>
+              {onHudOpenDiscover && (
+                <button
+                  type="button"
+                  onClick={onHudOpenDiscover}
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    border: `1px solid ${colors.toolbarB}`,
+                    background: colors.toolbar,
+                    color: colors.act,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k38ActionOpenDiscover')}
+                </button>
+              )}
+            </div>
+            <div style={{ opacity: 0.85 }}>{t('k38HudForgotten').replace('{count}', String(discoveryFeed.summary.forgottenCount))}</div>
+            <div style={{ opacity: 0.85 }}>{t('k38HudMissingConnections').replace('{count}', String(discoveryFeed.summary.missingConnectionCount))}</div>
+            <div style={{ opacity: 0.85 }}>{t('k38HudWeakHubs').replace('{count}', String(discoveryFeed.summary.weakHubCount))}</div>
+            <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>{t('k38HudEmergingTopics').replace('{count}', String(discoveryFeed.summary.emergingTopicCount))}</span>
+              {discoveryFeed.summary.totalCount > 0 && onHudReviewDiscoveries && (
+                <button
+                  type="button"
+                  onClick={onHudReviewDiscoveries}
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    border: `1px solid ${colors.toolbarB}`,
+                    background: colors.toolbar,
+                    color: colors.act,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k37HudReview')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {selectedNode && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
             <div style={{ fontWeight: 600, color: colors.act, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

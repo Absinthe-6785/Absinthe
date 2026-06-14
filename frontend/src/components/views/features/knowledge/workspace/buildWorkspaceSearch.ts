@@ -10,6 +10,8 @@ import {
   type ImportanceClassification,
 } from '../cosmos/intelligence';
 import { countActionsForNote } from '../cosmos/actions';
+import type { DiscoveryFeed } from '../discovery';
+import { isDiscoveryOpportunityNote } from '../discovery';
 import { getProperty } from '../properties/noteProperties';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
@@ -85,6 +87,7 @@ export interface WorkspaceSearchResult {
   galaxyLabel?: string;
   connectionCount?: number;
   actionsAvailable?: boolean;
+  discoveryOpportunity?: boolean;
 }
 
 export interface WorkspaceSearchGroup {
@@ -95,6 +98,7 @@ export interface WorkspaceSearchGroup {
 export interface BuildWorkspaceSearchOptions {
   filter?: WorkspaceSearchFilter;
   service?: KnowledgeIndexService;
+  discoveryFeed?: DiscoveryFeed;
 }
 
 const SUGGESTION_COLLECTION_IDS: readonly SmartCollectionId[] = [
@@ -173,6 +177,7 @@ function enrichNoteResult(
   result: WorkspaceSearchResult,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  discoveryFeed?: DiscoveryFeed,
 ): WorkspaceSearchResult {
   const galaxyMap = buildNoteGalaxyMap(notes, service);
   const galaxy = galaxyMap.get(note.id);
@@ -195,6 +200,7 @@ function enrichNoteResult(
     connectionCount,
     subtitle: metaParts.length > 0 ? metaParts.join(' · ') : result.subtitle,
     actionsAvailable: countActionsForNote(snapshot) > 0,
+    discoveryOpportunity: discoveryFeed ? isDiscoveryOpportunityNote(note.id, discoveryFeed) : false,
   };
 }
 
@@ -221,7 +227,7 @@ export function buildWorkspaceSearch(
     const m = matchScore(title, q);
     if (m !== null && kindAllowed('note', filter)) {
       const base = buildResult('note', note.id, title, m, { noteId: note.id });
-      results.push(service ? enrichNoteResult(note, base, notes, service) : base);
+      results.push(service ? enrichNoteResult(note, base, notes, service, options.discoveryFeed) : base);
     }
   }
 

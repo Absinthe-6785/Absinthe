@@ -4,6 +4,7 @@ import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
+import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
 import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
 import { ResearchDashboardPanel } from './ResearchDashboardPanel';
@@ -28,6 +29,7 @@ export interface UnifiedWorkspaceDashboardProps {
   learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
+  onOpenDiscover?: () => void;
 }
 
 function TabBar({
@@ -105,6 +107,7 @@ export function UnifiedWorkspaceDashboard({
   learningPathOverview,
   learningPathEditor,
   compact,
+  onOpenDiscover,
 }: UnifiedWorkspaceDashboardProps) {
   const { t } = useTranslation();
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
@@ -115,6 +118,14 @@ export function UnifiedWorkspaceDashboard({
 
       {section === 'overview' && (
         <div>
+          {onOpenDiscover && data.discovery.summary.totalCount > 0 && (
+            <DiscoveryDashboardCard
+              colors={c}
+              summary={data.discovery.summary}
+              onOpenDiscover={onOpenDiscover}
+              compact={compact}
+            />
+          )}
           <DashboardSectionTitle c={c} first>{t('wsRecentActivityInsights')}</DashboardSectionTitle>
           <AcademicInsightsPanel colors={c} data={data.insights} onNavigateToNote={onNavigateToNote} />
           <DashboardSectionTitle c={c}>{t('wsKnowledgeReview')}</DashboardSectionTitle>

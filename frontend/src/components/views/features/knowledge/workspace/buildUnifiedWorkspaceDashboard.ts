@@ -12,6 +12,8 @@ import {
   buildSubjectDashboard,
   type SubjectDashboardData,
 } from '../maps/subjectDashboards';
+import type { DiscoveryFeed } from '../discovery';
+import { buildDiscoveryFeed } from '../discovery';
 import { buildKnowledgeClusters, type KnowledgeClusterData } from '../maps/buildKnowledgeClusters';
 
 export interface UnifiedWorkspaceDashboardData {
@@ -22,6 +24,7 @@ export interface UnifiedWorkspaceDashboardData {
   subjects: readonly SubjectDashboardData[];
   clusters: KnowledgeClusterData;
   projects: ProjectDashboardData;
+  discovery: DiscoveryFeed;
 }
 
 export interface BuildUnifiedWorkspaceDashboardOptions {
@@ -52,5 +55,23 @@ export function buildUnifiedWorkspaceDashboard(
       ? buildKnowledgeClusters(notes, service, { limit: limit + 2 })
       : { highlyConnected: [], tagClusters: [], conceptCount: 0, clusterCount: 0 },
     projects: buildProjectDashboard(notes, { limit }),
+    discovery: service ? buildDiscoveryFeed(notes, service, { perSectionLimit: limit }) : {
+      items: [],
+      sections: {
+        'forgotten-knowledge': [],
+        'missing-connection': [],
+        'emerging-topic': [],
+        'weak-hub': [],
+        'knowledge-drift': [],
+      },
+      summary: {
+        forgottenCount: 0,
+        missingConnectionCount: 0,
+        emergingTopicCount: 0,
+        weakHubCount: 0,
+        knowledgeDriftCount: 0,
+        totalCount: 0,
+      },
+    },
   };
 }

@@ -1014,3 +1014,17 @@ export {
   type CosmosActionPlan,
   type EnrichedConnectionRecommendation,
 } from './cosmos/actions';
+
+export {
+  buildDiscoveryFeed,
+  countDiscoveriesForNote,
+  isDiscoveryOpportunityNote,
+  DISCOVERY_WEIGHTS,
+  type DiscoveryFeed,
+  type DiscoveryItem,
+  type DiscoveryKind,
+  type DiscoverySummary,
+} from './discovery';
+
+export { DiscoveryPanel, type DiscoveryPanelProps } from './components/DiscoveryPanel';
+export { DiscoveryDashboardCard, type DiscoveryDashboardCardProps } from './components/DiscoveryDashboardCard';
