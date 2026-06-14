@@ -19,7 +19,7 @@ export function countVaultLinks(
   service: KnowledgeIndexService,
 ): number {
   if (countActiveNotes(notes) === 0) return 0;
-  return buildGlobalGraphData({ notes, service }).edges.length;
+  return buildGlobalGraphData({ service }).edges.length;
 }
 
 export function resolveCosmosVaultPhase(
