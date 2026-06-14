@@ -147,6 +147,15 @@ function DiscoveryCardShell({
               ))}
             </CosmosReasonBlock>
           )}
+          <div style={{ fontSize: 8, color: c.textFaint, marginTop: 4 }}>
+            {t('k40ConfidenceLabel')}: {t(
+              confidence === 'high' ? 'k40ConfidenceShortHigh'
+              : confidence === 'medium' ? 'k40ConfidenceShortMedium'
+                : 'k40ConfidenceShortLow',
+            )}
+            {' · '}
+            {t('k40DiscoveryScore').replace('{score}', String(item.score))}
+          </div>
         </div>
         {actions && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>

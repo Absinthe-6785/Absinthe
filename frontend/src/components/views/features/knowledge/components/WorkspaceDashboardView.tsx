@@ -132,7 +132,7 @@ export interface WorkspaceDashboardQuickActions {
   onNewNote: () => void;
   onNewDatabaseView: () => void;
   onOpenSearch: () => void;
-  onOpenGraph: () => void;
+  onOpenCosmos: () => void;
 }
 
 export interface WorkspaceDashboardFocusProps {
@@ -747,7 +747,7 @@ export function WorkspaceDashboardView({
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenSearch}>
             {t('wsOpenSearch')}
           </button>
-          <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenGraph}>
+          <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenCosmos}>
             {t('wsOpenCosmos')}
           </button>
         </div>

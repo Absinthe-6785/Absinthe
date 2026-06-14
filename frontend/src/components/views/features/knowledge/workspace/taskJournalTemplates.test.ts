@@ -168,7 +168,7 @@ describe('WorkspaceDashboardView productivity integration', () => {
           onNewNote: vi.fn(),
           onNewDatabaseView: vi.fn(),
           onOpenSearch: vi.fn(),
-          onOpenGraph: vi.fn(),
+          onOpenCosmos: vi.fn(),
         },
         quickCapture: {
           taskTemplates: TASK_TEMPLATES,

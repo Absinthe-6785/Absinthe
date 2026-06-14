@@ -66,7 +66,8 @@ describe('discoveryEngine', () => {
     const feed = buildDiscoveryFeed(notes, service, { now, perSectionLimit: 10 });
     for (const item of feed.items) {
       expect(item.confidence).toBeDefined();
-      expect(item.score).toBeGreaterThanOrEqual(35);
+      expect(item.score).toBeGreaterThanOrEqual(45);
+      expect(item.confidence).not.toBe('low');
     }
   });
 

@@ -2641,7 +2641,7 @@ export const NoteView = () => {
                 setSidebarCollapsed(false);
                 searchInputRef.current?.focus();
               },
-              onOpenGraph: () => setViewMode('graph'),
+              onOpenCosmos: () => setViewMode('graph'),
             }}
             focus={{
               presets: focusPresets,
