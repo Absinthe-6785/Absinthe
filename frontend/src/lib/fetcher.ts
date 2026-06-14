@@ -37,7 +37,7 @@ async function refreshToken(): Promise<boolean> {
   return refreshPromise;
 }
 
-export const fetcher = async (url: string): Promise<unknown> => {
+export const fetcher = async <T = unknown>(url: string): Promise<T> => {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -66,7 +66,7 @@ export const fetcher = async (url: string): Promise<unknown> => {
         throw err;
       }
 
-      return res.json();
+      return res.json() as Promise<T>;
 
     } catch (e) {
       // 네트워크 오류 — 재시도

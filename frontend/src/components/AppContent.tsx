@@ -19,6 +19,7 @@ import { HealthView } from './views/HealthView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
 import { NoteView } from './views/NoteView';
+import { RecipeView } from './views/RecipeView';
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
