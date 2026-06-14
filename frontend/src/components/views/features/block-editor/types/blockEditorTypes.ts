@@ -20,6 +20,7 @@ export interface BlockEditorProps {
   onActiveBlockChange?: (id: string | null) => void;
   /** 외부에서 특정 블록으로 포커스 이동 요청 */
   externalFocusId?: string | null;
+  externalFocusOffset?: 'start' | 'end' | number;
   onExternalFocusConsumed?: () => void;
   /** Override virtualization default (true). Set false to force non-virtual root list. */
   virtualBlocksPoc?: boolean;
@@ -36,6 +37,7 @@ export interface BlockEditorInnerProps {
   onWikiNavigate?: (title: string) => void;
   onActiveBlockChange?: (id: string | null) => void;
   externalFocusId?: string | null;
+  externalFocusOffset?: 'start' | 'end' | number;
   onExternalFocusConsumed?: () => void;
   // Toggle Step 3: 자식 → 부모 탈출 콜백
   onEscapeToParentBelow?:  () => void;  // 마지막 빈 자식 Enter → toggle 아래 새 블록

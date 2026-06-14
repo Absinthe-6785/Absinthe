@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   computeHabitMetrics,
+  getHabitCompletionHistory,
   isHabitCompleted,
   resolveTodaySplitDay,
   setHabitCompleted,
@@ -39,5 +40,15 @@ describe('habitCompletion', () => {
     expect(metrics.streak).toBe(2);
     expect(metrics.completedToday).toBe(true);
     expect(metrics.completionRate).toBeGreaterThan(0);
+  });
+
+  it('returns completion history', () => {
+    setHabitCompleted('h1', '2026-06-12', true);
+    setHabitCompleted('h1', '2026-06-14', true);
+    const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+    const history = getHabitCompletionHistory('h1', new Date('2026-06-14T12:00:00'), formatDate, 3);
+    expect(history).toHaveLength(3);
+    expect(history.find(h => h.date === '2026-06-14')?.completed).toBe(true);
+    expect(history.find(h => h.date === '2026-06-13')?.completed).toBe(false);
   });
 });
