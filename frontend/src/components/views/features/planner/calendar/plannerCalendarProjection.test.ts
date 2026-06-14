@@ -37,7 +37,6 @@ function baseInput(overrides: Partial<Parameters<typeof buildPlannerCalendarProj
     weeklySchedules: [],
     todos: [],
     routines: [],
-    legacyDdays: [],
     anchorDate: '2027-02-03',
     viewMode: 'month' as const,
     now: NOW,
@@ -216,7 +215,6 @@ describe('buildPlannerCalendarProjection', () => {
       viewMode: 'agenda',
       anchorDate: '2027-02-03',
       notes: [exam],
-      legacyDdays: [{ id: 'd1', text: 'JLPT', date: '2027-02-20' }],
       scheduleBlocks: [{
         id: 'b1',
         date: '2027-02-04',
@@ -243,16 +241,19 @@ describe('buildPlannerCalendarProjection', () => {
     ).toBe(true);
   });
 
-  it('dedupes legacy D-Day countdowns when an event shares the same date and title', () => {
+  it('dedupes duplicate event countdowns by date and title', () => {
     const exam = applyEventToNote(note('exam', { title: 'TOEFL' }), {
+      title: 'TOEFL',
+      eventDate: '2027-02-10',
+    });
+    const duplicate = applyEventToNote(note('dup', { title: 'TOEFL' }), {
       title: 'TOEFL',
       eventDate: '2027-02-10',
     });
 
     const projection = buildPlannerCalendarProjection(baseInput({
       viewMode: 'agenda',
-      notes: [exam],
-      legacyDdays: [{ id: 'd1', text: 'TOEFL', date: '2027-02-10' }],
+      notes: [exam, duplicate],
     }));
 
     const toeflCountdowns = projection.core.countdowns.filter(row => row.title === 'TOEFL');
@@ -339,9 +340,13 @@ describe('formatPlannerCalendarPresentation', () => {
   });
 
   it('formats countdown labels in presentation layer only', () => {
+    const exam = applyEventToNote(note('exam', { title: 'Exam' }), {
+      title: 'Exam',
+      eventDate: '2027-02-10',
+    });
     const projection = buildPlannerCalendarProjection(baseInput({
       viewMode: 'agenda',
-      legacyDdays: [{ id: 'd1', text: 'Exam', date: '2027-02-10' }],
+      notes: [exam],
     }));
 
     const presentation = formatPlannerCalendarPresentation(projection, 'en');

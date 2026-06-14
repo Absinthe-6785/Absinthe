@@ -51,7 +51,6 @@ function buildAgendaFixture(
     weeklySchedules: [],
     todos: [],
     routines: [],
-    legacyDdays: [],
     anchorDate: '2027-02-03',
     viewMode: 'agenda',
     now: NOW,
@@ -123,17 +122,19 @@ describe('AgendaCalendarView', () => {
     expect(html).not.toContain('data-planner-agenda-events');
   });
 
-  it('renders countdown section from projection.views.agenda.countdownSection', () => {
-    const { projection, presentation } = buildAgendaFixture({
-      legacyDdays: [{ id: 'd1', text: 'JLPT', date: '2027-02-20' }],
+  it('renders countdown section from note-backed events', () => {
+    const exam = applyEventToNote(note('exam', { title: 'JLPT' }), {
+      title: 'JLPT',
+      eventDate: '2027-02-20',
     });
+    const { projection, presentation } = buildAgendaFixture({ notes: [exam] });
 
     const html = renderToStaticMarkup(
       createElement(AgendaCalendarView, { projection, presentation, theme }),
     );
 
     expect(html).toContain('data-planner-agenda-countdowns');
-    expect(html).toContain('data-planner-agenda-countdown="legacy-dday:d1"');
+    expect(html).toContain('data-planner-agenda-countdown="event:exam"');
     expect(html).toContain('JLPT');
     expect(html).toContain('data-planner-agenda-countdown-label');
   });
@@ -200,9 +201,11 @@ describe('AgendaCalendarView', () => {
   });
 
   it('does not mount placeholder markup', () => {
-    const { projection, presentation } = buildAgendaFixture({
-      legacyDdays: [{ id: 'd1', text: 'JLPT', date: '2027-02-20' }],
+    const exam = applyEventToNote(note('exam', { title: 'JLPT' }), {
+      title: 'JLPT',
+      eventDate: '2027-02-20',
     });
+    const { projection, presentation } = buildAgendaFixture({ notes: [exam] });
 
     const html = renderToStaticMarkup(
       createElement(AgendaCalendarView, { projection, presentation, theme }),

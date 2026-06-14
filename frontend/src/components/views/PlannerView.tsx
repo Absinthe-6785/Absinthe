@@ -9,8 +9,10 @@ import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
-import { PlannerProps, Schedule, Todo, Routine, DDay } from '../../types';
+import { PlannerProps, Schedule, Todo, Routine } from '../../types';
 import { useTranslation } from '../../lib/i18n';
+import { useNotesStore } from '../../store/useNotesStore';
+import { applyEventToNote } from './features/knowledge/trace/eventNotes';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
 import { CalendarShell } from './features/planner/calendar-ui';
 import { ScheduleCountdownPanel } from './features/planner/ScheduleCountdownPanel';
@@ -31,9 +33,11 @@ export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   mutateTodos, mutateRoutines,
-  appSettings, schedules, todos, routines, ddays, weeklySchedules, theme, THEME_COLORS,
+  appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
+  const createNote = useNotesStore(s => s.createNote);
+  const updateNote = useNotesStore(s => s.updateNote);
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -66,10 +70,6 @@ export const PlannerView = ({
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editTodoText, setEditTodoText] = useState('');
 
-  const [showDdayForm, setShowDdayForm] = useState(false);
-  const [editingDdayId, setEditingDdayId] = useState<string | null>(null);
-  const [ddayForm, setDdayForm] = useState<{ text: string; date: string }>({ text: '', date: '' });
-
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   // 전날 스케줄 fetch — end_next_day 블록을 익일 타임라인에 표시하기 위해
@@ -90,7 +90,7 @@ export const PlannerView = ({
   [prevSchedules]);
 
   useEscapeKey(() => {
-    setShowForm(false); setShowDdayForm(false);
+    setShowForm(false);
     setEditingRoutineId(null); setEditingTodoId(null);
     clearConfirm();
   });
@@ -114,27 +114,16 @@ export const PlannerView = ({
   }, [selectedDate]);
 
 
-  // ── D-Day ──────────────────────────────────────────────────────────
-  const openDdayModal = (d?: DDay) => {
-    setDdayForm(d ? { text: d.text, date: d.date } : { text: '', date: '' });
-    setEditingDdayId(d?.id ?? null);
-    setShowDdayForm(true);
-  };
-  const handleSaveDday = async () => {
-    if (!ddayForm.text || !ddayForm.date) return showToast(t('enterTitleDate'), 'error');
-    const path = editingDdayId ? `/api/schedules/${editingDdayId}` : '/api/schedules';
-    const ok = await api(
-      editingDdayId ? 'PUT' : 'POST', path,
-      { text: ddayForm.text, date: ddayForm.date, start_time: '00:00', end_time: '00:00', is_dday: true, color: 'gold', category: 'Personal' },
-      { revalidate: 'static', successMsg: t('ddaySaved') },
-    );
-    if (ok) setShowDdayForm(false);
-  };
-  const handleDeleteDday = (id: string) =>
-    showConfirm(t('deleteDday'), () =>
-      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
-      { confirmLabel: t('deleteLabel') },
-    );
+  const handleCreateCountdownNote = useCallback(() => {
+    const dateKey = formatDate(selectedDate);
+    const id = createNote({ title: '' });
+    const note = useNotesStore.getState().notes.find(n => n.id === id);
+    if (note) {
+      const withEvent = applyEventToNote(note, { title: t('scheduleCountdownNewTitle'), eventDate: dateKey });
+      updateNote(id, { title: withEvent.title, properties: withEvent.properties });
+    }
+    openNote(id);
+  }, [createNote, updateNote, formatDate, selectedDate, t]);
 
   // ── Routine ────────────────────────────────────────────────────────
   const handleAddRoutine = (text: string) => {
@@ -265,7 +254,6 @@ export const PlannerView = ({
     todos,
     routines,
     weeklySchedules,
-    legacyDdays: ddays,
     appSettings,
     routineExceptionDates,
   });
@@ -288,7 +276,6 @@ export const PlannerView = ({
         todos={todos}
         routines={routines}
         weeklySchedules={weeklySchedules}
-        legacyDdays={ddays}
         appSettings={appSettings}
         theme={theme}
         routineExceptionDates={routineExceptionDates}
@@ -305,9 +292,13 @@ export const PlannerView = ({
         }}
         dayRoutineActions={{
           onToggle: handleToggleRoutine,
+          onAdd: handleAddRoutine,
+          onEdit: handleUpdateRoutineText,
         }}
         dayTodoActions={{
           onToggle: handleToggleTodo,
+          onAdd: handleAddTodo,
+          onEdit: handleUpdateTodoText,
         }}
       />
 
@@ -338,12 +329,9 @@ export const PlannerView = ({
         <ScheduleCountdownPanel
           countdowns={calendarProjection.core.countdowns}
           presentation={calendarPresentation}
-          legacyDdays={ddays}
           theme={theme}
           onNoteClick={openNote}
-          onAddLegacy={() => openDdayModal()}
-          onEditLegacy={openDdayModal}
-          onDeleteLegacy={handleDeleteDday}
+          onAddCountdown={handleCreateCountdownNote}
         />
 
         {/* Routines + Tasks — hidden in day/agenda dashboard mode (interactive in Day view) */}
@@ -683,40 +671,8 @@ export const PlannerView = ({
                   ))}
                 </div>
               </div>
-              <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-2xl ${theme.input}`}>
-                <input type="checkbox" checked={newSch.is_dday} onChange={e => setNewSch({ ...newSch, is_dday: e.target.checked })} className="w-5 h-5 accent-primary"/>
-                <span className="text-base font-semibold">{t('setAsDday')}</span>
-              </label>
               <button onClick={handleSaveSchedule} className="w-full bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 mt-2 hover:bg-gray-800 transition-colors shadow-lg">
                 {t('saveSchedule')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── D-Day 모달 ── */}
-      {showDdayForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowDdayForm(false)}>
-          <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl font-bold">{editingDdayId ? t('editDday') : t('newDday')}</h3>
-              <button onClick={() => setShowDdayForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('title')}</label>
-                <input autoFocus type="text" value={ddayForm.text} onChange={e => setDdayForm({ ...ddayForm, text: e.target.value })}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveDday()}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder={t('ddayTitlePlaceholder')}/>
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('date')}</label>
-                <input type="date" value={ddayForm.date} onChange={e => setDdayForm({ ...ddayForm, date: e.target.value })}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`}/>
-              </div>
-              <button onClick={handleSaveDday} className="w-full bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 hover:bg-gray-800 transition-colors shadow-lg">
-                {t('saveDday')}
               </button>
             </div>
           </div>

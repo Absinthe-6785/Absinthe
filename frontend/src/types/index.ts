@@ -7,7 +7,6 @@ export interface Schedule {
   id: string; text: string; start_time: string; end_time: string;
   is_dday: boolean; color: string; category: string;
 }
-export interface DDay { id: string; text: string; date: string; }
 export interface Todo { id: string; text: string; done: boolean; }
 export interface Routine { id: string; text: string; done: boolean; is_active: boolean; }
 export interface ExerciseBlock { id: string; name: string; type: string; tags?: string[]; cardio_mode?: 'time' | 'distance' | 'both'; }
@@ -115,7 +114,6 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
   schedules: Schedule[];
   todos: Todo[];
   routines: Routine[];
-  ddays: DDay[];
   markedDates: string[];
   weeklySchedules: WeeklySchedule[];
 }
@@ -149,7 +147,6 @@ export interface ViewProps
   schedules: Schedule[];
   todos: Todo[];
   routines: Routine[];
-  ddays: DDay[];
   markedDates: string[];
   workouts: Workout[];
   inbody: Inbody;

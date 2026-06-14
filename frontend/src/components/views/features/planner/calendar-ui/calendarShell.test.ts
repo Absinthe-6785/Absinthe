@@ -69,7 +69,6 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
     todos: [],
     routines: [],
     weeklySchedules: [],
-    legacyDdays: [],
     appSettings,
     theme,
     ...overrides,
@@ -107,7 +106,6 @@ describe('buildPlannerCalendarShellProjection', () => {
       todos: [{ id: 't1', text: 'Pack', done: false }],
       routines: [{ id: 'r1', text: 'Stretch', done: false, is_active: true }],
       weeklySchedules: [],
-      legacyDdays: [],
       appSettings,
     });
 
@@ -147,7 +145,6 @@ describe('calendar presentation labels', () => {
       weeklySchedules: [],
       todos: [],
       routines: [],
-      legacyDdays: [],
       anchorDate: '2027-02-03',
       viewMode: 'month',
       now: NOW,
@@ -269,7 +266,6 @@ describe('CalendarShell projection wiring with populated vault', () => {
       todos: [],
       routines: [],
       weeklySchedules: [],
-      legacyDdays: [],
       appSettings,
     });
 

@@ -16,7 +16,6 @@ import {
   buildMonthCellDisplayModel,
   chunkMonthCells,
   formatMonthOverflowLabel,
-  groupLegacyDdayCountdownsByDate,
   monthGridHasAnchors,
   MONTH_CELL_MAX_VISIBLE_EVENTS,
 } from './monthCalendarPresentation';
@@ -52,7 +51,6 @@ function buildMonthFixture(
     weeklySchedules: [],
     todos: [],
     routines: [],
-    legacyDdays: [],
     anchorDate: '2027-02-03',
     viewMode: 'month',
     now: NOW,
@@ -109,8 +107,8 @@ describe('monthCalendarPresentation', () => {
     const middleCell = month.cells.find(cell => cell.dateKey === '2027-02-03');
     const endCell = month.cells.find(cell => cell.dateKey === '2027-02-05');
 
-    expect(buildMonthCellDisplayModel(middleCell!, []).eventRows[0]?.showTitle).toBe(false);
-    expect(buildMonthCellDisplayModel(endCell!, []).eventRows[0]?.showTitle).toBe(false);
+    expect(buildMonthCellDisplayModel(middleCell!).eventRows[0]?.showTitle).toBe(false);
+    expect(buildMonthCellDisplayModel(endCell!).eventRows[0]?.showTitle).toBe(false);
   });
 
   it('formats overflow labels from projection overflow counts', () => {
@@ -120,14 +118,16 @@ describe('monthCalendarPresentation', () => {
     expect(MONTH_CELL_MAX_VISIBLE_EVENTS).toBe(2);
   });
 
-  it('groups legacy D-Day countdowns by target date from projection core', () => {
-    const { projection } = buildMonthFixture({
-      legacyDdays: [{ id: 'd1', text: 'JLPT', date: '2027-02-20' }],
+  it('builds countdowns from note-backed events in projection core', () => {
+    const exam = applyEventToNote(note('exam', { title: 'JLPT' }), {
+      title: 'JLPT',
+      eventDate: '2027-02-20',
     });
+    const { projection } = buildMonthFixture({ notes: [exam] });
 
-    const grouped = groupLegacyDdayCountdownsByDate(projection.core.countdowns);
-    expect(grouped.get('2027-02-20')?.[0]?.source).toBe('legacy-dday');
-    expect(grouped.get('2027-02-20')?.[0]?.id).toBe('legacy-dday:d1');
+    const countdown = projection.core.countdowns.find(c => c.title === 'JLPT');
+    expect(countdown?.source).toBe('note-event');
+    expect(countdown?.targetDate).toBe('2027-02-20');
   });
 
   it('detects empty months without collapsing grid eligibility', () => {
@@ -243,23 +243,13 @@ describe('MonthCalendarView', () => {
 
     const { projection, presentation } = buildMonthFixture({
       notes: [milestone],
-      legacyDdays: [{ id: 'd1', text: 'JLPT', date: '2027-02-20' }],
     });
-
-    const legacyCountdown = projection.core.countdowns.find(
-      countdown => countdown.source === 'legacy-dday',
-    );
-    expect(legacyCountdown?.targetDate).toBe('2027-02-20');
 
     const html = renderToStaticMarkup(
       createElement(MonthCalendarView, { projection, presentation, theme }),
     );
 
     expect(html).toContain('data-planner-month-milestone-dot');
-    expect(html).toContain(`data-planner-month-legacy-dday="${legacyCountdown!.id}"`);
-    expect(html).toContain(
-      presentation.labels.countdownLabels.get(legacyCountdown!.id) ?? '',
-    );
   });
 
   it('uses presentation labels for weekday headers without localizing in components', () => {

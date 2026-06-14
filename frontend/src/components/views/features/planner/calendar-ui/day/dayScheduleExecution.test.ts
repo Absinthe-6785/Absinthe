@@ -39,7 +39,6 @@ function buildDayFixture(
     weeklySchedules: [],
     todos: [],
     routines: [],
-    legacyDdays: [],
     anchorDate: '2027-02-03',
     viewMode: 'day',
     now: NOW,
@@ -192,7 +191,6 @@ describe('CalendarShell day schedule execution wiring', () => {
         todos: [],
         routines: [],
         weeklySchedules: [],
-        legacyDdays: [],
         appSettings: {
           darkMode: false,
           defaultCategory: 'Personal',

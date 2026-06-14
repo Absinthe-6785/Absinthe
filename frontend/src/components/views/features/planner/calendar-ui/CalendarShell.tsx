@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
-import type { AppSettings, DDay, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
@@ -25,7 +25,6 @@ export interface CalendarShellProps {
   todos: readonly Todo[];
   routines: readonly Routine[];
   weeklySchedules: readonly WeeklySchedule[];
-  legacyDdays: readonly DDay[];
   appSettings: AppSettings;
   theme: Theme;
   routineExceptionDates?: ReadonlySet<string>;
@@ -54,7 +53,6 @@ export function CalendarShell({
   todos,
   routines,
   weeklySchedules,
-  legacyDdays,
   appSettings,
   theme,
   routineExceptionDates,
@@ -84,7 +82,6 @@ export function CalendarShell({
     todos,
     routines,
     weeklySchedules,
-    legacyDdays,
     appSettings,
     routineExceptionDates,
   });

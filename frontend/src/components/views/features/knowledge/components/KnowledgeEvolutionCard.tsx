@@ -1,6 +1,8 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { EvolutionInsightsSummary } from '../history/evolutionInsightsQueries';
+import { DashboardCardHeader } from './DashboardCardHeader';
+import { TrendingUp } from 'lucide-react';
 
 export interface KnowledgeEvolutionCardProps {
   colors: NoteChromeColors;
@@ -75,9 +77,7 @@ export function KnowledgeEvolutionCard({
         background: c.cardHov,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 700, color: c.text, marginBottom: 6 }}>
-        {t('k46EvolutionCardTitle')}
-      </div>
+      <DashboardCardHeader colors={c} icon={TrendingUp} title={t('k46EvolutionCardTitle')} compact={compact} />
       <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.55 }}>
         {momentum.periodNotesAdded > 0 && (
           <div>{t('k47PeriodNotes').replace('{count}', String(momentum.periodNotesAdded))}</div>

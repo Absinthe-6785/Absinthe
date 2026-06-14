@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
-import type { AppSettings, DDay, Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
 import { useNotesStore } from '../../../../../store/useNotesStore';
 import {
   buildPlannerCalendarProjection,
@@ -29,7 +29,6 @@ export interface UsePlannerCalendarProjectionInput {
   todos: readonly Todo[];
   routines: readonly Routine[];
   weeklySchedules: readonly WeeklySchedule[];
-  legacyDdays: readonly DDay[];
   appSettings: AppSettings;
   routineExceptionDates?: ReadonlySet<string>;
 }
@@ -84,7 +83,6 @@ export function buildPlannerCalendarShellProjection(
     weeklySchedules: input.weeklySchedules ?? [],
     todos: toDatedTodos(input.todos, input.anchorDate),
     routines: toDatedRoutines(input.routines, input.anchorDate),
-    legacyDdays: input.legacyDdays ?? [],
     anchorDate: input.anchorDate,
     viewMode: input.viewMode,
     now: input.now,
@@ -141,7 +139,6 @@ export function usePlannerCalendarProjection(
       weeklySchedules: input.weeklySchedules,
       todos: datedTodos,
       routines: datedRoutines,
-      legacyDdays: input.legacyDdays,
       anchorDate: input.anchorDate,
       viewMode: input.viewMode,
       now: input.now,
@@ -154,7 +151,6 @@ export function usePlannerCalendarProjection(
       input.weeklySchedules,
       datedTodos,
       datedRoutines,
-      input.legacyDdays,
       input.anchorDate,
       input.viewMode,
       input.now,

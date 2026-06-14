@@ -1,18 +1,12 @@
 import type { Theme } from '../../../../../types';
-import type { PlannerCountdownRow, PlannerMonthViewPayload } from '../../calendar';
+import type { PlannerMonthViewPayload } from '../../calendar';
 import { MonthCalendarCell } from './MonthCalendarCell';
-import {
-  buildMonthCellDisplayModel,
-  chunkMonthCells,
-  groupLegacyDdayCountdownsByDate,
-} from './monthCalendarPresentation';
+import { buildMonthCellDisplayModel, chunkMonthCells } from './monthCalendarPresentation';
 
 export interface MonthCalendarGridProps {
   month: PlannerMonthViewPayload;
   weekdayLabels: readonly string[];
-  legacyDdayByDate: ReadonlyMap<string, readonly PlannerCountdownRow[]>;
   theme: Theme;
-  countdownLabels: ReadonlyMap<string, string>;
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
 }
@@ -20,9 +14,7 @@ export interface MonthCalendarGridProps {
 export function MonthCalendarGrid({
   month,
   weekdayLabels,
-  legacyDdayByDate,
   theme,
-  countdownLabels,
   onEventNoteClick,
   onDateSelect,
 }: MonthCalendarGridProps) {
@@ -45,15 +37,12 @@ export function MonthCalendarGrid({
       <div className="grid grid-cols-7 gap-px">
         {weeks.flatMap(week =>
           week.map(cell => {
-            const legacyDdayCountdowns = legacyDdayByDate.get(cell.dateKey) ?? [];
-            const model = buildMonthCellDisplayModel(cell, legacyDdayCountdowns);
-
+            const model = buildMonthCellDisplayModel(cell);
             return (
               <MonthCalendarCell
                 key={cell.dateKey}
                 model={model}
                 theme={theme}
-                countdownLabels={countdownLabels}
                 onEventNoteClick={onEventNoteClick}
                 onDateSelect={onDateSelect}
               />

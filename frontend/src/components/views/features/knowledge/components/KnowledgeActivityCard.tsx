@@ -2,6 +2,8 @@ import { useTranslation, type TranslationKey } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeActivitySummary } from '../history';
 import type { RecentEvolutionSummary } from '../timeline';
+import { DashboardCardHeader } from './DashboardCardHeader';
+import { Zap } from 'lucide-react';
 
 export interface KnowledgeActivityCardProps {
   colors: NoteChromeColors;
@@ -45,9 +47,7 @@ export function KnowledgeActivityCard({
         background: c.cardHov,
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 700, color: c.text, marginBottom: 6 }}>
-        {t('k44ActivityTitle')}
-      </div>
+      <DashboardCardHeader colors={c} icon={Zap} title={t('k44ActivityTitle')} compact={compact} />
 
       {recentActivity && (
         <div style={{ marginBottom: 6 }}>
