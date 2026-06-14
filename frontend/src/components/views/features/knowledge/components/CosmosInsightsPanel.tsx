@@ -136,7 +136,13 @@ export function CosmosInsightsPanel({
       >
         {snapshot.suggestedConnections.length === 0 ? (
           <>
-            <KnowledgePanelEmpty colors={c}>{t('k36NoSuggestions')}</KnowledgePanelEmpty>
+            <KnowledgePanelEmpty
+              colors={c}
+              actionLabel={onOpenLinks ? t('k53ContextCreateWikiLink') : undefined}
+              onAction={onOpenLinks}
+            >
+              {t('k36NoSuggestions')}
+            </KnowledgePanelEmpty>
             <CosmosEmptyHint colors={c}>{t('k36SuggestionsHint')}</CosmosEmptyHint>
           </>
         ) : (

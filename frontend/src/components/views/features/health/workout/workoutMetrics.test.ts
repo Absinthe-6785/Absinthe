@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { countWeeklySessions, detectRecentPr } from './workoutMetrics';
+import { countWeeklySessions, detectRecentPr, listRecentWorkoutSessions } from './workoutMetrics';
 
 describe('workoutMetrics', () => {
   it('counts unique workout dates', () => {
     expect(countWeeklySessions([
       { date: '2026-06-10', exercise_blocks: { name: 'Squat' }, sets: [] },
-      { date: '2026-06-10', exercise_blocks: { name: 'Bench' }, sets: [] },
       { date: '2026-06-12', exercise_blocks: { name: 'Deadlift' }, sets: [] },
     ])).toBe(2);
+  });
+
+  it('lists recent sessions with exercises', () => {
+    const sessions = listRecentWorkoutSessions([
+      { date: '2026-06-10', exercise_blocks: { name: 'Squat' }, sets: [] },
+      { date: '2026-06-12', exercise_blocks: { name: 'Bench' }, sets: [] },
+    ]);
+    expect(sessions[0].date).toBe('2026-06-12');
+    expect(sessions[0].exercises).toContain('Bench');
   });
 
   it('detects PR when today exceeds prior week max', () => {

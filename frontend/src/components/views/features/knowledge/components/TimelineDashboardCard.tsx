@@ -2,6 +2,7 @@ import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeTimeline } from '../timeline';
 import { DashboardCardHeader } from './DashboardCardHeader';
+import { DashboardEmptyCard } from './DashboardEmptyCard';
 import { History } from 'lucide-react';
 
 export interface TimelineDashboardCardProps {
@@ -21,7 +22,19 @@ export function TimelineDashboardCard({
   const { t } = useTranslation();
   const { growth, recentEvolution } = timeline;
 
-  if (timeline.snapshots.length === 0) return null;
+  if (timeline.snapshots.length === 0) {
+    return (
+      <DashboardEmptyCard
+        colors={c}
+        icon={History}
+        title={t('k42DashboardTitle')}
+        message={t('k53TimelineDashboardEmpty')}
+        actionLabel={t('k42OpenTimeline')}
+        onAction={onOpenTimeline}
+        compact={compact}
+      />
+    );
+  }
 
   return (
     <div

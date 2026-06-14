@@ -47,6 +47,7 @@ export interface TimelinePanelProps {
   onDismissBootstrap?: () => void;
   onExport?: (kind: ExportKind, mode: 'copy' | 'download') => void;
   onNavigateToNote?: (noteId: string) => void;
+  onCreateNote?: () => void;
   compact?: boolean;
 }
 
@@ -149,6 +150,7 @@ export function TimelinePanel({
   onDismissBootstrap,
   onExport,
   onNavigateToNote,
+  onCreateNote,
   compact,
 }: TimelinePanelProps) {
   const { t } = useTranslation();
@@ -168,7 +170,13 @@ export function TimelinePanel({
     return (
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <CosmosSuiteHeader c={c} active="timeline" t={t} />
-        <KnowledgePanelEmpty colors={c}>{t('k42TimelineEmpty')}</KnowledgePanelEmpty>
+        <KnowledgePanelEmpty
+          colors={c}
+          actionLabel={onCreateNote ? t('k53ContextCreateNote') : undefined}
+          onAction={onCreateNote}
+        >
+          {t('k42TimelineEmpty')}
+        </KnowledgePanelEmpty>
       </div>
     );
   }

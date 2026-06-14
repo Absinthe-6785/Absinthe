@@ -16,6 +16,24 @@ export function countWeeklySessions(workouts: readonly RangeWorkoutRow[]): numbe
   return new Set(workouts.map(w => w.date).filter(Boolean)).size;
 }
 
+export function listRecentWorkoutSessions(
+  workouts: readonly RangeWorkoutRow[],
+  limit = 3,
+): { date: string; exercises: string[] }[] {
+  const byDate = new Map<string, Set<string>>();
+  for (const w of workouts) {
+    const date = w.date ?? '';
+    if (!date) continue;
+    const name = w.exercise_blocks?.name ?? '';
+    if (!byDate.has(date)) byDate.set(date, new Set());
+    if (name) byDate.get(date)!.add(name);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .slice(0, limit)
+    .map(([date, names]) => ({ date, exercises: [...names] }));
+}
+
 export function detectRecentPr(
   workouts: readonly RangeWorkoutRow[],
   dateStr: string,

@@ -1,6 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, ChevronRight, Check,
+  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, ChevronRight, Check, TrendingUp,
 } from 'lucide-react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { ExerciseBlock, HealthRoutine, Inbody, Workout, Theme } from '../../../../types';
@@ -8,6 +7,7 @@ import type { HealthWorkspaceSection } from './HealthWorkspaceNav';
 import { useProteinData } from './hooks/useProteinData';
 import { useWorkoutRangeMetrics } from './hooks/useWorkoutRangeMetrics';
 import { useHabitMetrics } from './hooks/useHabitMetrics';
+import { useRecoveryMetrics } from './hooks/useRecoveryMetrics';
 
 export interface HealthDashboardPanelProps {
   theme: Theme;
@@ -19,6 +19,8 @@ export interface HealthDashboardPanelProps {
   healthRoutines: readonly HealthRoutine[];
   isWorkoutLocked: boolean;
   onNavigate: (section: HealthWorkspaceSection) => void;
+  onOpenRoutine?: () => void;
+  onOpenWorkoutHistory?: () => void;
 }
 
 export function HealthDashboardPanel({
@@ -31,6 +33,8 @@ export function HealthDashboardPanel({
   healthRoutines,
   isWorkoutLocked,
   onNavigate,
+  onOpenRoutine,
+  onOpenWorkoutHistory,
 }: HealthDashboardPanelProps) {
   const { t } = useTranslation();
   const dateStr = formatDate(selectedDate);
@@ -42,11 +46,14 @@ export function HealthDashboardPanel({
     intakeLogs,
     weeklyProteinAvg,
     proteinStreak,
+    goalConsistency,
   } = useProteinData(dateStr, selectedDate, formatDate);
 
-  const { weeklySessions, recentPr } = useWorkoutRangeMetrics(dateStr, selectedDate, formatDate);
+  const { weeklySessions, recentPr, recentSessions } =
+    useWorkoutRangeMetrics(dateStr, selectedDate, formatDate);
   const { todayRoutine, todayDayName, metrics: habitMetrics, isCompleted, toggleToday } =
     useHabitMetrics(healthRoutines, selectedDate, formatDate);
+  const recovery = useRecoveryMetrics(selectedDate, formatDate);
 
   const completedSets = workouts.reduce((sum, w) =>
     sum + w.sets.filter(s => s.done).length, 0);
@@ -54,6 +61,7 @@ export function HealthDashboardPanel({
 
   const recentMeals = intakeLogs.slice(-3).reverse();
   const lastExercise = workouts.length > 0 ? workouts[workouts.length - 1].exercise_blocks?.name : null;
+  const proteinTrend = totalIntake >= dailyTarget ? 'up' : weeklyProteinAvg > 0 && totalIntake >= weeklyProteinAvg ? 'steady' : 'down';
 
   const cardClass = `rounded-[20px] p-4 ${theme.card} border ${theme.border}`;
 
@@ -62,15 +70,17 @@ export function HealthDashboardPanel({
     icon: Icon,
     title,
     children,
+    onClickOverride,
   }: {
     section: HealthWorkspaceSection;
     icon: typeof Apple;
     title: string;
-    children: ReactNode;
+    children: React.ReactNode;
+    onClickOverride?: () => void;
   }) => (
     <button
       type="button"
-      onClick={() => onNavigate(section)}
+      onClick={onClickOverride ?? (() => onNavigate(section))}
       className={`${cardClass} text-left w-full hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
       data-health-dashboard-section={section}
     >
@@ -94,13 +104,12 @@ export function HealthDashboardPanel({
               <div className="flex items-baseline gap-2 mb-1">
                 <span className="text-2xl font-bold tabular-nums">{totalIntake}g</span>
                 <span className={`text-xs ${theme.textMuted}`}>/ {dailyTarget}g</span>
+                {proteinTrend === 'up' ? (
+                  <TrendingUp size={12} className="text-green-500" />
+                ) : null}
               </div>
               <div className="h-2 rounded-full bg-surface-alt overflow-hidden mb-2">
-                <div
-                  className="h-full bg-primary rounded-full transition-all"
-                  style={{ width: `${proteinPct}%` }}
-                  data-health-dashboard-protein-bar
-                />
+                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${proteinPct}%` }} />
               </div>
               {recentMeals.length > 0 ? (
                 <ul className={`text-xs ${theme.textMuted} space-y-0.5`}>
@@ -118,6 +127,11 @@ export function HealthDashboardPanel({
                   {t('healthDashboardWeeklyProtein').replace('{avg}', String(weeklyProteinAvg))}
                 </p>
               ) : null}
+              {goalConsistency > 0 ? (
+                <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
+                  {t('healthDashboardGoalConsistency').replace('{pct}', String(goalConsistency))}
+                </p>
+              ) : null}
               {proteinStreak > 0 ? (
                 <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
                   {t('healthDashboardProteinStreak').replace('{days}', String(proteinStreak))}
@@ -129,7 +143,12 @@ export function HealthDashboardPanel({
           )}
         </SectionLink>
 
-        <SectionLink section="workout" icon={Dumbbell} title={t('healthNavWorkout')}>
+        <SectionLink
+          section="workout"
+          icon={Dumbbell}
+          title={t('healthNavWorkout')}
+          onClickOverride={onOpenWorkoutHistory}
+        >
           <div className="flex items-center gap-3 mb-1">
             <span className="text-2xl font-bold tabular-nums">{workouts.length}</span>
             <span className={`text-xs ${theme.textMuted}`}>{t('healthDashboardExercises')}</span>
@@ -161,9 +180,23 @@ export function HealthDashboardPanel({
               {t('healthDashboardRecentPr').replace('{name}', recentPr.name).replace('{kg}', String(recentPr.kg))}
             </p>
           ) : null}
+          {recentSessions.length > 0 ? (
+            <ul className={`text-[10px] mt-1 ${theme.textMuted} space-y-0.5`}>
+              {recentSessions.slice(0, 2).map(s => (
+                <li key={s.date} className="truncate">
+                  {s.date}: {s.exercises.slice(0, 2).join(', ')}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </SectionLink>
 
-        <SectionLink section="habits" icon={Activity} title={t('healthNavHabits')}>
+        <SectionLink
+          section="habits"
+          icon={Activity}
+          title={t('healthNavHabits')}
+          onClickOverride={onOpenRoutine}
+        >
           {todayRoutine ? (
             <>
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -185,11 +218,18 @@ export function HealthDashboardPanel({
                 {t('healthDashboardHabitBlocks').replace('{count}', String(todayRoutine.blocks.length))}
               </p>
               {habitMetrics ? (
-                <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
-                  {t('healthDashboardHabitStats')
-                    .replace('{streak}', String(habitMetrics.streak))
-                    .replace('{rate}', String(habitMetrics.completionRate))}
-                </p>
+                <>
+                  <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
+                    {t('healthDashboardHabitStats')
+                      .replace('{streak}', String(habitMetrics.streak))
+                      .replace('{rate}', String(habitMetrics.completionRate))}
+                  </p>
+                  {habitMetrics.streak >= 3 ? (
+                    <p className={`text-[10px] mt-0.5 text-primary font-semibold`}>
+                      {t('healthDashboardHabitMomentum')}
+                    </p>
+                  ) : null}
+                </>
               ) : null}
             </>
           ) : (
@@ -216,6 +256,16 @@ export function HealthDashboardPanel({
           ) : (
             <p className={`text-xs ${theme.textMuted}`}>{t('healthDashboardNoInbody')}</p>
           )}
+          {recovery.avgSleep ? (
+            <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
+              {t('healthDashboardAvgSleep').replace('{hours}', String(recovery.avgSleep))}
+            </p>
+          ) : null}
+          {recovery.latestNote ? (
+            <p className={`text-[10px] mt-0.5 ${theme.textMuted} truncate`}>
+              {t('healthDashboardRecoveryNote')}: {recovery.latestNote}
+            </p>
+          ) : null}
           {isWorkoutLocked && (
             <p className={`text-xs mt-1 text-green-500 font-medium`}>{t('healthDashboardRestDay')}</p>
           )}

@@ -49,6 +49,7 @@ export interface UseProteinDataResult {
   proteinPct: number;
   weeklyProteinAvg: number;
   proteinStreak: number;
+  goalConsistency: number;
   isLoading: boolean;
   mutateProfile: () => void;
   mutateSources: () => void;
@@ -94,6 +95,11 @@ export function useProteinData(
     () => computeProteinStreak(weeklyData?.dailyTotalsByDate ?? new Map(), dailyTarget, dateStr, formatDate),
     [weeklyData, dailyTarget, dateStr, formatDate],
   );
+  const goalConsistency = useMemo(() => {
+    const totals = weeklyData?.dailyTotals ?? [];
+    if (dailyTarget <= 0 || totals.length === 0) return 0;
+    return Math.round((totals.filter(t => t >= dailyTarget).length / totals.length) * 100);
+  }, [weeklyData, dailyTarget]);
 
   const mutateIntakeWithWeekly = useCallback(() => {
     mutateIntake();
@@ -115,6 +121,7 @@ export function useProteinData(
     proteinPct,
     weeklyProteinAvg,
     proteinStreak,
+    goalConsistency,
     isLoading: l1 || l2 || l3,
     mutateProfile,
     mutateSources,

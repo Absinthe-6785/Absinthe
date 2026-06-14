@@ -1127,6 +1127,14 @@ export const HealthView = ({
           healthRoutines={healthRoutines ?? []}
           isWorkoutLocked={isWorkoutLocked}
           onNavigate={setHealthSection}
+          onOpenRoutine={() => {
+            setHealthSection('habits');
+            setMobileHealthTab('routine');
+          }}
+          onOpenWorkoutHistory={() => {
+            setHealthSection('workout');
+            setMobileHealthTab('workout');
+          }}
         />
       )}
 
