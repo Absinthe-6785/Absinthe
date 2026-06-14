@@ -245,28 +245,6 @@ const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
 ]);
 
 
-// ── KaTeX 동적 로드 훅 ───────────────────────────────────────────────
-declare global {
-  interface Window {
-    katex?: { renderToString: (expr: string, opts?: object) => string };
-  }
-}
-function useKaTeX(): boolean {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    if (window.katex) { setReady(true); return; }
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
-    document.head.appendChild(link);
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
-    script.onload = () => setReady(true);
-    document.head.appendChild(script);
-  }, []);
-  return ready;
-}
-
 // ── 블록 에디터 어댑터 ────────────────────────────────────────────────
 // useBlockEditor 훅은 조건부로 호출할 수 없으므로 별도 컴포넌트로 분리한다.
 // 부모에서 key={note.id}로 마운트해 노트 전환 시 블록 상태가 초기화되도록 한다.
@@ -340,7 +318,6 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
   const { t, lang } = useTranslation();
-  const katexReady = useKaTeX();
 
   const { appSettings, updateSetting } = useAppStore();
   const dark = appSettings.darkMode;

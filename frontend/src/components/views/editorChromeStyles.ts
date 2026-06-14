@@ -331,6 +331,26 @@ export const EDITOR_CHROME_STYLES = `
     color: var(--be-search-hl-color, inherit);
     border-radius: 2px;
   }
+  .be-math-display {
+    display: block;
+    text-align: center;
+    padding: 8px 0;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .be-math-inline .katex,
+  .be-math-display .katex {
+    color: var(--be-text, inherit);
+  }
+  .be-math-search-hl {
+    background: var(--be-search-hl-bg, #e8e4ff);
+    border-radius: 4px;
+    padding: 0 2px;
+  }
+  .be-live-math-display,
+  .be-live-math-inline {
+    white-space: nowrap;
+  }
   .be-selection-toolbar button:active { transform: scale(0.94); }
   .be-block-handle-menu { margin-left: -4px; }
   .be-block-handle-menu::before {

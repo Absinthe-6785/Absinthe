@@ -2,12 +2,12 @@
  * editableRender.ts — Pure inline HTML generation (readOnly + live edit modes)
  */
 import React, { type ReactNode } from 'react';
-
-declare global {
-  interface Window {
-    katex?: { renderToString: (expr: string, opts?: object) => string };
-  }
-}
+import {
+  protectMathSegments,
+  restoreMathPlaceholders,
+  type MathSlotToken,
+} from '../../lib/math/mathParse';
+import { renderMathTokenHtml } from '../../lib/math/katexRender';
 import { normalizeWikiTitle } from './noteUtils';
 import type { BlockEditorColors } from './editorTypes';
 
@@ -33,42 +33,60 @@ function isWikiBroken(title: string, wikiSet: Set<string>): boolean {
   return wikiSet.size > 0 && !wikiSet.has(normalizeWikiTitle(title));
 }
 
-/** readOnly: $...$ inline math via KaTeX (or code fallback). */
+function mathMatchesSearch(expr: string, searchQuery: string): boolean {
+  const q = searchQuery.trim();
+  if (!q) return false;
+  return expr.toLowerCase().includes(q.toLowerCase());
+}
+
+function wrapMathSearchHighlight(html: string, matched: boolean): string {
+  if (!matched) return html;
+  return `<mark class="be-search-hl be-math-search-hl">${html}</mark>`;
+}
+
+function mathReadOnlyFallback(token: MathSlotToken, c: BlockEditorColors): string {
+  const label = escHtml(token.raw);
+  return `<code style="background:${c.codeBg};color:${c.danger};padding:1px 5px;border-radius:4px">${label}</code>`;
+}
+
+/** readOnly: $…$ inline and $$…$$ display math via bundled KaTeX. */
 export function protectInlineMathReadOnly(
   text: string,
   c: BlockEditorColors,
+  searchQuery = '',
 ): { work: string; math: string[] } {
-  const math: string[] = [];
-  const work = text.replace(/\$([^$\n]+)\$/g, (_m, expr: string) => {
-    let rendered: string;
-    if (typeof window !== 'undefined' && window.katex) {
-      try {
-        rendered = window.katex.renderToString(expr, { displayMode: false, throwOnError: false });
-      } catch {
-        rendered = `<code style="background:${c.codeBg};color:${c.danger};padding:1px 5px;border-radius:4px">${escHtml('$' + expr + '$')}</code>`;
+  const { work, slots } = protectMathSegments(text, token => {
+    const rendered = renderMathTokenHtml(token);
+    const matched = mathMatchesSearch(token.expr, searchQuery);
+    if (rendered) {
+      const wrapped = wrapMathSearchHighlight(rendered, matched);
+      if (token.kind === 'display') {
+        return `<div class="be-math-display" data-math-source="${escAttr(token.expr)}">${wrapped}</div>`;
       }
-    } else {
-      rendered = `<code style="background:${c.codeBg};color:${c.accent};padding:1px 5px;border-radius:4px;font-size:.88em">${escHtml(expr)}</code>`;
+      return `<span class="be-math-inline" data-math-source="${escAttr(token.expr)}">${wrapped}</span>`;
     }
-    math.push(rendered);
-    return `\u0000M${math.length - 1}\u0000`;
+    return mathReadOnlyFallback(token, c);
   });
-  return { work, math };
+  return { work, math: slots };
 }
 
-/** live edit: math as be-live-code placeholder. */
-export function protectInlineMathLive(text: string): { work: string; math: string[] } {
-  const math: string[] = [];
-  const work = text.replace(/\$([^$\n]+)\$/g, (_m, expr: string) => {
-    math.push(`<code class="be-live-code">${escHtml(expr)}</code>`);
-    return `\u0000M${math.length - 1}\u0000`;
+/** live edit: math as be-live-code placeholder (raw LaTeX preserved in DOM text). */
+export function protectInlineMathLive(
+  text: string,
+  searchQuery = '',
+): { work: string; math: string[] } {
+  const { work, slots } = protectMathSegments(text, token => {
+    const matched = mathMatchesSearch(token.expr, searchQuery);
+    const hlClass = matched ? ' be-math-search-hl' : '';
+    if (token.kind === 'display') {
+      return `<span class="be-live-math-display${hlClass}"><span class="be-mark">$$</span><code class="be-live-code">${escHtml(token.expr)}</code><span class="be-mark">$$</span></span>`;
+    }
+    return `<span class="be-live-math-inline${hlClass}"><span class="be-mark">$</span><code class="be-live-code">${escHtml(token.expr)}</code><span class="be-mark">$</span></span>`;
   });
-  return { work, math };
+  return { work, math: slots };
 }
 
-export function restoreMathPlaceholders(html: string, math: string[]): string {
-  return html.replace(/\u0000M(\d+)\u0000/g, (_m, i: string) => math[Number(i)]);
-}
+export { restoreMathPlaceholders };
 
 /** readOnly inline markdown → HTML string */
 export function renderInlineMarkdownHtml(
@@ -78,7 +96,7 @@ export function renderInlineMarkdownHtml(
   wikiTargets: string[] = [],
 ): string {
   const wikiSet = wikiSetFrom(wikiTargets);
-  const { work, math } = protectInlineMathReadOnly(text, c);
+  const { work, math } = protectInlineMathReadOnly(text, c, searchQuery);
 
   let html = escHtml(work)
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
@@ -114,7 +132,7 @@ export function liveInlineHtml(
 ): string {
   if (!text) return '';
   const wikiSet = wikiSetFrom(wikiTargets);
-  const { work, math } = protectInlineMathLive(text);
+  const { work, math } = protectInlineMathLive(text, searchQuery);
 
   let html = escHtml(work)
     .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {

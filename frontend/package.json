@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-virtual": "^3.14.2",
+    "katex": "^0.16.9",
     "lucide-react": "^0.400.0",
     "luxon": "^3.7.2",
     "react": "^19.0.0",
@@ -20,6 +21,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@types/katex": "^0.16.8",
     "@types/luxon": "^3.7.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
