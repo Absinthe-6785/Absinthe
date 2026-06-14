@@ -1028,6 +1028,16 @@ export {
 } from './discovery';
 
 export {
+  buildKnowledgeTimeline,
+  type KnowledgeTimeline,
+  type TimelinePeriodMode,
+  type RecentEvolutionSummary,
+} from './timeline';
+
+export { TimelinePanel, type TimelinePanelProps } from './components/TimelinePanel';
+export { TimelineDashboardCard, type TimelineDashboardCardProps } from './components/TimelineDashboardCard';
+
+export {
   resolveCosmosVaultPhase,
   countActiveNotes,
   countVaultLinks,

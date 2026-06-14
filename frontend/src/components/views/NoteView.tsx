@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap, Compass, Orbit,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap, Compass, Orbit, History,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -120,6 +120,7 @@ import {
   buildHubNoteTemplate,
   buildDiscoveryFeed,
   buildImportanceInputForNote,
+  buildKnowledgeTimeline,
   buildNoteGalaxyMap,
   resolveCosmosVaultPhase,
   parseNoteMarkdown,
@@ -176,6 +177,8 @@ import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './feature
 import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
 import { KnowledgeContextPanel } from './features/knowledge/components/KnowledgeContextPanel';
 import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
+import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
+import type { TimelinePeriodMode } from './features/knowledge/timeline';
 import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
 import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
 import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
@@ -424,7 +427,8 @@ export const NoteView = () => {
   const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
   const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'actions' | 'discover' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'actions' | 'discover' | 'timeline' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
+  const [timelineMode, setTimelineMode] = useState<TimelinePeriodMode>('month');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -1416,6 +1420,11 @@ export const NoteView = () => {
     [notes, discoveryFeed.summary.totalCount],
   );
 
+  const knowledgeTimeline = useMemo(
+    () => buildKnowledgeTimeline(notes, knowledgeIndexService, discoveryFeed, { mode: timelineMode }),
+    [notes, discoveryFeed, timelineMode],
+  );
+
   const noteTierInput = useMemo(() => {
     if (!activeNote) return null;
     const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
@@ -1440,6 +1449,14 @@ export const NoteView = () => {
     setViewMode('edit');
     setShowRightPanel(true);
     setRightPanel('discover');
+  }, [activeNote, notes, setActiveNoteId, setViewMode]);
+
+  const handleOpenTimeline = useCallback(() => {
+    const target = activeNote ?? notes.find(n => !n.deletedAt);
+    if (target) setActiveNoteId(target.id);
+    setViewMode('edit');
+    setShowRightPanel(true);
+    setRightPanel('timeline');
   }, [activeNote, notes, setActiveNoteId, setViewMode]);
 
   const handleDiscoveryCreateRelation = useCallback((sourceNoteId: string, targetNoteId: string) => {
@@ -1926,6 +1943,7 @@ export const NoteView = () => {
     { key: 'insights'   as const, label: t('k36PanelInsights'), icon: <Lightbulb size={12}/> },
     { key: 'actions'    as const, label: t('k37PanelActions'), icon: <Zap size={12}/> },
     { key: 'discover'   as const, label: t('k38PanelDiscover'), icon: <Compass size={12}/> },
+    { key: 'timeline'   as const, label: t('k42PanelTimeline'), icon: <History size={12}/> },
     { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={12}/> },
     { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={12}/> },
     { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
@@ -2719,6 +2737,8 @@ export const NoteView = () => {
               onOpenStudyCollection: handleOpenStudyCollection,
               onOpenResearchCollection: handleOpenResearchCollection,
               onOpenDiscover: handleOpenDiscover,
+              onOpenTimeline: handleOpenTimeline,
+              timeline: knowledgeTimeline,
               activeNoteCount: activeNotes.length,
               onCreateNote: () => createNote(),
               onOpenCosmos: () => setViewMode('graph'),
@@ -3057,7 +3077,7 @@ export const NoteView = () => {
             {/* Graph View (full area) */}
             {viewMode === 'graph' ? (
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
+                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
               </div>
             ) : (
               <>
@@ -3263,7 +3283,7 @@ export const NoteView = () => {
           // Graph View without active note
           viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
@@ -3280,7 +3300,7 @@ export const NoteView = () => {
       </main>
 
       {/* ── Knowledge Context Panel ── */}
-      {(activeNote || rightPanel === 'discover') && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
+      {(activeNote || rightPanel === 'discover' || rightPanel === 'timeline') && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
         <KnowledgeContextPanel
           colors={c}
           compact={isCompactChrome}
@@ -3432,6 +3452,15 @@ export const NoteView = () => {
                 onNavigateToNote={setActiveNoteId}
                 onCreateRelation={handleDiscoveryCreateRelation}
                 onCreateHub={handleCosmosCreateHub}
+              />
+            )}
+
+            {rightPanel === 'timeline' && (
+              <TimelinePanel
+                colors={c}
+                timeline={knowledgeTimeline}
+                mode={timelineMode}
+                onModeChange={setTimelineMode}
               />
             )}
 

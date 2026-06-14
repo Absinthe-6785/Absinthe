@@ -46,6 +46,7 @@ import {
   type GraphViewMode,
 } from './features/knowledge/graph/knowledgeUniverse';
 import { resolveCosmosEmptyScenario } from './features/knowledge/cosmos/onboarding';
+import type { RecentEvolutionSummary } from './features/knowledge/timeline';
 import { edgeLegendEntries } from './features/knowledge/graphLabels';
 import {
   graphRepulsionStrength,
@@ -106,6 +107,8 @@ export interface NoteGraphViewProps {
   onHudOpenIsolated?: () => void;
   onHudOpenDiscover?: () => void;
   onHudReviewDiscoveries?: () => void;
+  onHudOpenTimeline?: () => void;
+  recentEvolution?: RecentEvolutionSummary;
 }
 
 // ── 폴더 색상 팔레트 (라이트/다크 공용 — opacity로 조절) ───────────
@@ -137,7 +140,7 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries, onHudOpenTimeline, recentEvolution }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const intlLocale = resolveIntlLocale(lang);
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
@@ -1261,6 +1264,45 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 </button>
               )}
             </div>
+          </div>
+        )}
+        {recentEvolution && (recentEvolution.notesAdded > 0 || recentEvolution.linksAdded > 0) && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}`, pointerEvents: 'auto' }}>
+            <div style={{ fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>{t('k42HudEvolutionTitle')}</span>
+              {onHudOpenTimeline && (
+                <button
+                  type="button"
+                  onClick={onHudOpenTimeline}
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    border: `1px solid ${colors.toolbarB}`,
+                    background: colors.toolbar,
+                    color: colors.act,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k42OpenTimeline')}
+                </button>
+              )}
+            </div>
+            <div style={{ opacity: 0.85 }}>
+              {t('k42HudEvolutionNotes').replace('{count}', String(recentEvolution.notesAdded))}
+            </div>
+            <div style={{ opacity: 0.85 }}>
+              {t('k42HudEvolutionLinks').replace('{count}', String(recentEvolution.linksAdded))}
+            </div>
+            <div style={{ opacity: 0.75, fontSize: 9 }}>
+              {t('k42HudEvolutionPeriod').replace('{days}', String(recentEvolution.periodDays))}
+            </div>
+            {recentEvolution.fastestGrowingArea && (
+              <div style={{ opacity: 0.75, fontSize: 9, marginTop: 2 }}>
+                {t('k42FastestArea').replace('{area}', recentEvolution.fastestGrowingArea)}
+              </div>
+            )}
           </div>
         )}
         {selectedNode && (
