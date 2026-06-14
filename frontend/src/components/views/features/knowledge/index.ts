@@ -1042,6 +1042,9 @@ export { DiscoveryProgressSection, type DiscoveryProgressSectionProps } from './
 export { AreaEvolutionPanel, type AreaEvolutionPanelProps } from './components/AreaEvolutionPanel';
 export { KnowledgeJourneyPanel, type KnowledgeJourneyPanelProps } from './components/KnowledgeJourneyPanel';
 export { KnowledgeEvolutionCard, type KnowledgeEvolutionCardProps } from './components/KnowledgeEvolutionCard';
+export { AreaComparisonPanel, type AreaComparisonPanelProps } from './components/AreaComparisonPanel';
+export { DormantAreasSection, type DormantAreasSectionProps } from './components/DormantAreasSection';
+export { TimelineExportMenu, type TimelineExportMenuProps } from './components/TimelineExportMenu';
 export { BootstrapImportSummaryCard, type BootstrapImportSummaryCardProps } from './components/BootstrapImportSummaryCard';
 export { TimelineDashboardCard, type TimelineDashboardCardProps } from './components/TimelineDashboardCard';
 export { KnowledgeActivityCard, type KnowledgeActivityCardProps } from './components/KnowledgeActivityCard';
@@ -1064,15 +1067,21 @@ export {
   buildExpandedCosmosEvolutionStory,
   buildDiscoveryProgressSummary,
   buildAreaEvolutionDetail,
-  buildEvolutionDashboardSummary,
-  buildKnowledgeJourney,
-  exportCosmosEvolutionMarkdown,
-  copyCosmosEvolutionMarkdown,
+  buildEvolutionInsightsSummary,
+  buildKnowledgeMomentumSnapshot,
+  buildAreaComparison,
+  analyzeDormantAreas,
+  generateKnowledgeEvolutionReport,
+  exportMarkdownByKind,
+  downloadMarkdownFile,
+  copyMarkdownToClipboard,
   getMilestoneNoteId,
   latestAchievedMilestone,
   loadBootstrapImportSummary,
   dismissBootstrapSummary,
   MAX_HISTORY_EVENTS,
+  MOMENTUM_WEIGHTS,
+  DORMANT_THRESHOLD_DAYS,
   type KnowledgeHistoryEvent,
   type KnowledgeHistoryEventType,
   type KnowledgeActivitySummary,
@@ -1083,8 +1092,10 @@ export {
   type DiscoveryProgressSummary,
   type AreaEvolutionDetail,
   type KnowledgeJourney,
-  type EvolutionDashboardSummary,
-  type BootstrapImportSummary,
+  type EvolutionInsightsSummary,
+  type KnowledgeMomentumSnapshot,
+  type DormantAreaInsight,
+  type ExportKind,
 } from './history';
 
 export {

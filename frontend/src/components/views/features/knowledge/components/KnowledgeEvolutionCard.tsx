@@ -1,31 +1,69 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { EvolutionDashboardSummary } from '../history/historyAreaEvolutionQueries';
+import type { EvolutionInsightsSummary } from '../history/evolutionInsightsQueries';
 
 export interface KnowledgeEvolutionCardProps {
   colors: NoteChromeColors;
-  summary: EvolutionDashboardSummary;
+  insights: EvolutionInsightsSummary;
   compact?: boolean;
   onOpenEvolution?: () => void;
   onNavigateToNote?: (noteId: string) => void;
+  onNavigateToArea?: (areaLabel: string) => void;
 }
 
-/** Dashboard card — evolution highlights with Open Evolution action. */
+function AreaLink({
+  c,
+  label,
+  area,
+  onNavigate,
+}: {
+  c: NoteChromeColors;
+  label: string;
+  area: string;
+  onNavigate?: (area: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={!onNavigate}
+      onClick={() => onNavigate?.(area)}
+      style={{
+        border: 'none',
+        background: 'transparent',
+        padding: 0,
+        cursor: onNavigate ? 'pointer' : 'default',
+        fontSize: 10,
+        color: onNavigate ? c.accent : c.textMuted,
+        textAlign: 'left',
+        width: '100%',
+      }}
+    >
+      {label.replace('{area}', area)}
+    </button>
+  );
+}
+
+/** Dashboard card — evolution insights with momentum and dormant warnings. */
 export function KnowledgeEvolutionCard({
   colors: c,
-  summary,
+  insights,
   compact,
   onOpenEvolution,
   onNavigateToNote,
+  onNavigateToArea,
 }: KnowledgeEvolutionCardProps) {
   const { t } = useTranslation();
+  const { momentum, dormantAreas } = insights;
 
-  const hasContent = summary.fastestGrowingArea
-    || summary.mostActiveArea
-    || summary.latestMilestoneTitleKey
-    || summary.momentumScore > 0;
+  const hasContent = momentum.fastestGrowingArea
+    || momentum.mostActiveArea
+    || insights.latestMilestoneTitleKey
+    || momentum.cosmosMomentumScore > 0
+    || dormantAreas.length > 0;
 
   if (!hasContent) return null;
+
+  const topDormant = dormantAreas[0];
 
   return (
     <div
@@ -41,32 +79,67 @@ export function KnowledgeEvolutionCard({
         {t('k46EvolutionCardTitle')}
       </div>
       <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.55 }}>
-        {summary.fastestGrowingArea && (
-          <div>{t('k46FastestGrowing').replace('{area}', summary.fastestGrowingArea)}</div>
+        {momentum.periodNotesAdded > 0 && (
+          <div>{t('k47PeriodNotes').replace('{count}', String(momentum.periodNotesAdded))}</div>
         )}
-        {summary.mostActiveArea && (
-          <div>{t('k46MostActive').replace('{area}', summary.mostActiveArea)}</div>
+        {momentum.periodLinksAdded > 0 && (
+          <div>{t('k47PeriodLinks').replace('{count}', String(momentum.periodLinksAdded))}</div>
         )}
-        {summary.latestMilestoneTitleKey && (
+        {momentum.fastestGrowingArea && (
+          <AreaLink
+            c={c}
+            label={t('k46FastestGrowing')}
+            area={momentum.fastestGrowingArea}
+            onNavigate={onNavigateToArea}
+          />
+        )}
+        {momentum.mostActiveArea && momentum.mostActiveArea !== momentum.fastestGrowingArea && (
+          <AreaLink
+            c={c}
+            label={t('k46MostActive')}
+            area={momentum.mostActiveArea}
+            onNavigate={onNavigateToArea}
+          />
+        )}
+        {insights.latestMilestoneTitleKey && (
           <button
             type="button"
-            disabled={!summary.latestMilestoneNoteId || !onNavigateToNote}
-            onClick={() => summary.latestMilestoneNoteId && onNavigateToNote?.(summary.latestMilestoneNoteId)}
+            disabled={!insights.latestMilestoneNoteId || !onNavigateToNote}
+            onClick={() => insights.latestMilestoneNoteId && onNavigateToNote?.(insights.latestMilestoneNoteId)}
             style={{
               border: 'none',
               background: 'transparent',
               padding: 0,
-              cursor: summary.latestMilestoneNoteId && onNavigateToNote ? 'pointer' : 'default',
+              cursor: insights.latestMilestoneNoteId && onNavigateToNote ? 'pointer' : 'default',
               fontSize: 10,
-              color: summary.latestMilestoneNoteId && onNavigateToNote ? c.accent : c.textMuted,
+              color: insights.latestMilestoneNoteId && onNavigateToNote ? c.accent : c.textMuted,
               textAlign: 'left',
             }}
           >
-            {t('k46LatestMilestone')}: {t(summary.latestMilestoneTitleKey)}
+            {t('k46LatestMilestone')}: {t(insights.latestMilestoneTitleKey)}
           </button>
         )}
-        {summary.momentumScore > 0 && (
-          <div>{t('k46RecentMomentum').replace('{count}', String(summary.momentumScore))}</div>
+        {momentum.cosmosMomentumScore > 0 && (
+          <div>{t('k47CosmosMomentum').replace('{count}', String(momentum.cosmosMomentumScore))}</div>
+        )}
+        {topDormant && (
+          <button
+            type="button"
+            disabled={!onNavigateToArea}
+            onClick={() => onNavigateToArea?.(topDormant.areaLabel)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              padding: 0,
+              marginTop: 4,
+              cursor: onNavigateToArea ? 'pointer' : 'default',
+              fontSize: 10,
+              color: onNavigateToArea ? '#9CA3AF' : c.textMuted,
+              textAlign: 'left',
+            }}
+          >
+            {t('k47DormantWarning').replace('{area}', topDormant.areaLabel).replace('{days}', String(topDormant.daysSinceActivity))}
+          </button>
         )}
       </div>
       {onOpenEvolution && (

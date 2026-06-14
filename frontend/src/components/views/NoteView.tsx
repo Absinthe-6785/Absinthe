@@ -195,9 +195,12 @@ import {
   presentHistoryEvent,
   getRecentEvents,
   buildKnowledgeJourney,
-  buildEvolutionDashboardSummary,
-  exportCosmosEvolutionMarkdown,
-  copyCosmosEvolutionMarkdown,
+  buildEvolutionInsightsSummary,
+  exportMarkdownByKind,
+  copyMarkdownToClipboard,
+  downloadMarkdownFile,
+  exportFilename,
+  type ExportKind,
   loadBootstrapImportSummary,
   dismissBootstrapSummary,
   isBootstrapSummaryDismissed,
@@ -456,6 +459,7 @@ export const NoteView = () => {
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
   const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'actions' | 'discover' | 'timeline' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [timelineMode, setTimelineMode] = useState<TimelinePeriodMode>('month');
+  const [timelineInitialArea, setTimelineInitialArea] = useState<string | null>(null);
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -1499,9 +1503,9 @@ export const NoteView = () => {
     [knowledgeTimeline.milestones, historyEvents],
   );
 
-  const evolutionDashboardSummary = useMemo(
-    () => buildEvolutionDashboardSummary(knowledgeTimeline, historyEvents),
-    [knowledgeTimeline, historyEvents],
+  const evolutionInsights = useMemo(
+    () => buildEvolutionInsightsSummary(notes, knowledgeTimeline, historyEvents),
+    [notes, knowledgeTimeline, historyEvents],
   );
 
   const bootstrapImportSummary = useMemo(() => {
@@ -1514,15 +1518,40 @@ export const NoteView = () => {
     setBootstrapDismissed(true);
   }, []);
 
-  const handleExportEvolution = useCallback(async () => {
-    const markdown = exportCosmosEvolutionMarkdown({
-      summary: cosmosEvolutionSummary,
-      story: cosmosEvolutionStory,
-      milestones: knowledgeTimeline.milestones,
-      lang,
+  const handleExportHistory = useCallback(async (kind: ExportKind, mode: 'copy' | 'download') => {
+    const markdown = exportMarkdownByKind(kind, {
+      evolution: {
+        summary: cosmosEvolutionSummary,
+        story: cosmosEvolutionStory,
+        milestones: knowledgeTimeline.milestones,
+        lang,
+      },
+      report: {
+        momentum: evolutionInsights.momentum,
+        dormantAreas: evolutionInsights.dormantAreas,
+        latestMilestoneTitleKey: evolutionInsights.latestMilestoneTitleKey,
+        latestMilestoneAt: evolutionInsights.latestMilestoneAt,
+        lang,
+        events: historyEvents,
+      },
+      activity: { events: historyEvents, notes, lang },
+      journey: { journey: knowledgeJourney, lang },
     });
-    await copyCosmosEvolutionMarkdown(markdown);
-  }, [cosmosEvolutionSummary, cosmosEvolutionStory, knowledgeTimeline.milestones, lang]);
+    if (mode === 'download') {
+      downloadMarkdownFile(exportFilename(kind), markdown);
+    } else {
+      await copyMarkdownToClipboard(markdown);
+    }
+  }, [
+    cosmosEvolutionSummary,
+    cosmosEvolutionStory,
+    knowledgeTimeline.milestones,
+    evolutionInsights,
+    historyEvents,
+    notes,
+    knowledgeJourney,
+    lang,
+  ]);
 
   const discoveryProgress = useMemo(
     () => buildDiscoveryProgressSummary(historyEvents),
@@ -1577,6 +1606,21 @@ export const NoteView = () => {
   }, [activeNote, notes, setActiveNoteId, setViewMode]);
 
   const handleOpenTimeline = useCallback(() => {
+    setTimelineInitialArea(null);
+    const target = activeNote ?? notes.find(n => !n.deletedAt);
+    if (target) setActiveNoteId(target.id);
+    setViewMode('edit');
+    setShowRightPanel(true);
+    setRightPanel('timeline');
+  }, [activeNote, notes, setActiveNoteId, setViewMode]);
+
+  const handleOpenEvolution = useCallback(() => {
+    setTimelineInitialArea(null);
+    handleOpenTimeline();
+  }, [handleOpenTimeline]);
+
+  const handleNavigateToArea = useCallback((areaLabel: string) => {
+    setTimelineInitialArea(areaLabel);
     const target = activeNote ?? notes.find(n => !n.deletedAt);
     if (target) setActiveNoteId(target.id);
     setViewMode('edit');
@@ -2873,8 +2917,9 @@ export const NoteView = () => {
               activityRecent: dashboardRecentActivity,
               activityLatestMilestone: dashboardLatestMilestone,
               activityGrowthTrend: knowledgeTimeline.recentEvolution,
-              evolutionDashboard: evolutionDashboardSummary,
-              onOpenEvolution: handleOpenTimeline,
+              evolutionInsights,
+              onOpenEvolution: handleOpenEvolution,
+              onNavigateToArea: handleNavigateToArea,
               activeNoteCount: activeNotes.length,
               onCreateNote: () => createNote(),
               onOpenCosmos: () => setViewMode('graph'),
@@ -3608,9 +3653,11 @@ export const NoteView = () => {
                 evolutionStory={cosmosEvolutionStory}
                 discoveryProgress={discoveryProgress}
                 knowledgeJourney={knowledgeJourney}
+                evolutionInsights={evolutionInsights}
                 bootstrapSummary={bootstrapImportSummary}
+                initialSelectedArea={timelineInitialArea}
                 onDismissBootstrap={handleDismissBootstrapSummary}
-                onExportEvolution={handleExportEvolution}
+                onExport={handleExportHistory}
                 onNavigateToNote={setActiveNoteId}
               />
             )}

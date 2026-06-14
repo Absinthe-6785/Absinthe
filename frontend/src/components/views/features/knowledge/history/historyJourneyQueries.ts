@@ -11,24 +11,40 @@ export interface KnowledgeJourneyStep {
   achievedAt: number | null;
   noteId: string | null;
   source: 'event' | 'estimate';
+  daysSincePrevious: number | null;
 }
 
 export interface KnowledgeJourney {
   steps: readonly KnowledgeJourneyStep[];
 }
 
+const DAY_MS = 86_400_000;
+
 export function buildKnowledgeJourney(
   milestones: readonly KnowledgeMilestone[],
   events: readonly KnowledgeHistoryEvent[] = loadKnowledgeHistoryEvents(),
 ): KnowledgeJourney {
-  const steps: KnowledgeJourneyStep[] = milestones.map(m => ({
-    milestoneId: m.id,
-    titleKey: m.titleKey,
-    achieved: m.achieved,
-    achievedAt: m.achievedAt,
-    noteId: m.achieved ? getMilestoneNoteId(m.id, events) : null,
-    source: m.achieved && getMilestoneNoteId(m.id, events) ? 'event' : 'estimate',
-  }));
+  let previousAchievedAt: number | null = null;
+  const steps: KnowledgeJourneyStep[] = milestones.map(m => {
+    const noteId = m.achieved ? getMilestoneNoteId(m.id, events) : null;
+    const daysSincePrevious = m.achieved && m.achievedAt && previousAchievedAt != null
+      ? Math.max(0, Math.round((m.achievedAt - previousAchievedAt) / DAY_MS))
+      : m.achieved && m.achievedAt && previousAchievedAt == null
+        ? null
+        : null;
+
+    if (m.achieved && m.achievedAt) previousAchievedAt = m.achievedAt;
+
+    return {
+      milestoneId: m.id,
+      titleKey: m.titleKey,
+      achieved: m.achieved,
+      achievedAt: m.achievedAt,
+      noteId,
+      source: m.achieved && noteId ? 'event' : 'estimate',
+      daysSincePrevious,
+    };
+  });
 
   return { steps };
 }

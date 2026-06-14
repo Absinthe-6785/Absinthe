@@ -8,13 +8,21 @@ export interface KnowledgeJourneyPanelProps {
   onNavigateToNote?: (noteId: string) => void;
 }
 
+function formatDate(ts: number | null, lang: string): string {
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString(
+    lang === 'ko' ? 'ko-KR' : lang === 'ja' ? 'ja-JP' : undefined,
+    { year: 'numeric', month: 'short', day: 'numeric' },
+  );
+}
+
 /** Global Cosmos progression path from milestones and events. */
 export function KnowledgeJourneyPanel({
   colors: c,
   journey,
   onNavigateToNote,
 }: KnowledgeJourneyPanelProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   if (journey.steps.length === 0) return null;
 
@@ -46,7 +54,17 @@ export function KnowledgeJourneyPanel({
                 color: step.achieved ? c.text : c.textMuted,
               }}
             >
-              {step.achieved ? '✓ ' : '○ '}{t(step.titleKey)}
+              <div>{step.achieved ? '✓ ' : '○ '}{t(step.titleKey)}</div>
+              {step.achieved && step.achievedAt && (
+                <div style={{ fontSize: 9, fontWeight: 500, color: c.textMuted, marginTop: 3 }}>
+                  {formatDate(step.achievedAt, lang)}
+                </div>
+              )}
+              {step.achieved && step.daysSincePrevious != null && step.daysSincePrevious > 0 && (
+                <div style={{ fontSize: 8, color: c.textFaint, marginTop: 2 }}>
+                  {t('k47JourneyDaysSince').replace('{days}', String(step.daysSincePrevious))}
+                </div>
+              )}
             </button>
             {index < journey.steps.length - 1 && (
               <div style={{ textAlign: 'center', color: c.textFaint, fontSize: 12, margin: '2px 0 6px' }}>↓</div>

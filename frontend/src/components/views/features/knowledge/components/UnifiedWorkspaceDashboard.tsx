@@ -9,7 +9,7 @@ import { TimelineDashboardCard } from './TimelineDashboardCard';
 import { KnowledgeActivityCard } from './KnowledgeActivityCard';
 import { KnowledgeEvolutionCard } from './KnowledgeEvolutionCard';
 import type { KnowledgeActivitySummary } from '../history';
-import type { EvolutionDashboardSummary } from '../history/historyAreaEvolutionQueries';
+import type { EvolutionInsightsSummary } from '../history/evolutionInsightsQueries';
 import type { RecentEvolutionSummary } from '../timeline';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
@@ -45,8 +45,9 @@ export interface UnifiedWorkspaceDashboardProps {
   activityRecent?: { actionKey: TranslationKey; detail: string; noteId: string } | null;
   activityLatestMilestone?: { titleKey: TranslationKey; noteId: string | null } | null;
   activityGrowthTrend?: RecentEvolutionSummary | null;
-  evolutionDashboard?: EvolutionDashboardSummary | null;
+  evolutionInsights?: EvolutionInsightsSummary | null;
   onOpenEvolution?: () => void;
+  onNavigateToArea?: (areaLabel: string) => void;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -134,8 +135,9 @@ export function UnifiedWorkspaceDashboard({
   activityRecent,
   activityLatestMilestone,
   activityGrowthTrend,
-  evolutionDashboard,
+  evolutionInsights,
   onOpenEvolution,
+  onNavigateToArea,
   activeNoteCount = 0,
   onCreateNote,
   onOpenCosmos,
@@ -158,13 +160,14 @@ export function UnifiedWorkspaceDashboard({
               onOpenCosmos={onOpenCosmos}
             />
           )}
-          {evolutionDashboard && onOpenEvolution && (
+          {evolutionInsights && onOpenEvolution && (
             <KnowledgeEvolutionCard
               colors={c}
-              summary={evolutionDashboard}
+              insights={evolutionInsights}
               compact={compact}
               onOpenEvolution={onOpenEvolution}
               onNavigateToNote={onNavigateToNote}
+              onNavigateToArea={onNavigateToArea}
             />
           )}
           {activitySummary && (

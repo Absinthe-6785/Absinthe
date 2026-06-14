@@ -1395,6 +1395,28 @@ const translations = {
   k46DiscHubsCreated:          { en: '{count} hubs created', ko: '허브 {count}개 생성', ja: 'ハブ{count}件作成' },
   k46DiscAreasImproved:        { en: '{count} areas improved', ko: '영역 {count}개 개선', ja: 'エリア{count}件改善' },
 
+  // ── K-47 evolution insights ──────────────────────────────────────
+  k47CompareAreas:             { en: 'Compare Areas', ko: '영역 비교', ja: 'エリア比較' },
+  k47CompareBack:              { en: 'Back to Timeline', ko: '타임라인으로', ja: 'タイムラインへ' },
+  k47CompareHint:              { en: 'Select areas to compare (up to 4)', ko: '비교할 영역 선택 (최대 4)', ja: '比較するエリアを選択（最大4）' },
+  k47CompareGrowth:            { en: 'Growth: +{count} notes', ko: '성장: +{count} 노트', ja: '成長: +{count}ノート' },
+  k47CompareLinkGrowth:        { en: 'Link growth: +{count}', ko: '링크 성장: +{count}', ja: 'リンク成長: +{count}' },
+  k47CompareMomentum:            { en: 'Momentum: {count}', ko: '모멘텀: {count}', ja: 'モメンタム: {count}' },
+  k47DormantAreas:             { en: 'Dormant Areas', ko: '휴면 영역', ja: '休眠エリア' },
+  k47DormantLabel:             { en: 'Dormant', ko: '휴면', ja: '休眠' },
+  k47DormantLastActivity:      { en: 'Last activity: {days} days ago', ko: '마지막 활동: {days}일 전', ja: '最終活動: {days}日前' },
+  k47DormantWarning:           { en: 'Dormant: {area} ({days}d)', ko: '휴면: {area} ({days}일)', ja: '休眠: {area}（{days}日）' },
+  k47JourneyDaysSince:         { en: '{days} days since previous', ko: '이전 마일스톤 후 {days}일', ja: '前のマイルストーンから{days}日' },
+  k47PeriodNotes:              { en: '+{count} notes this month', ko: '이번 달 +{count} 노트', ja: '今月+{count}ノート' },
+  k47PeriodLinks:              { en: '+{count} links this month', ko: '이번 달 +{count} 링크', ja: '今月+{count}リンク' },
+  k47CosmosMomentum:           { en: 'Cosmos momentum: {count}', ko: 'Cosmos 모멘텀: {count}', ja: 'Cosmosモメンタム: {count}' },
+  k47ExportTitle:              { en: 'Export', ko: '내보내기', ja: 'エクスポート' },
+  k47ExportReport:             { en: 'Report', ko: '리포트', ja: 'レポート' },
+  k47ExportEvolution:          { en: 'Evolution', ko: '진화', ja: '進化' },
+  k47ExportActivity:           { en: 'Activity', ko: '활동', ja: 'アクティビティ' },
+  k47ExportJourney:            { en: 'Journey', ko: '여정', ja: 'ジャーニー' },
+  k47ExportDownload:           { en: 'Download file', ko: '파일 다운로드', ja: 'ファイルダウンロード' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },
