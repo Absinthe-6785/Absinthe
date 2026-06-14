@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Language } from '../../../../../types';
+import type { Language } from '../../../../../lib/i18n';
 import { resolveIntlLocale } from '../../../../../lib/i18n';
 import { useNotesStore } from '../../../../../store/useNotesStore';
 import { buildArchiveHomeProjection } from '../../knowledge/archive';

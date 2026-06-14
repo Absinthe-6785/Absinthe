@@ -9,7 +9,7 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { useTranslation } from '../../lib/i18n';
-import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody,
+import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { HealthWorkspaceNav, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
@@ -38,11 +38,11 @@ function normalizeProteinCategory(raw: string): Category {
 }
 
 interface ProteinTrackerProps {
-  theme: { card: string; input: string; textMuted: string; border: string; text: string; hoverBg: string };
+  theme: Theme;
   darkMode: boolean;
   selectedDate: Date;
   formatDate: (d: Date) => string;
-  showToast: (msg: string, type?: string) => void;
+  showToast: (m: string, t?: 'success' | 'error') => void;
 }
 
 const PROTEIN_FACTORS: Record<string, [number, number]> = {
@@ -853,8 +853,9 @@ export const HealthView = ({
 
   const handleDeleteBlock = (id: string, e: MouseEvent) => {
     e.stopPropagation();
-    showConfirm(t('deleteBlock'), () =>
-      api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') }),
+    showConfirm(t('deleteBlock'), () => {
+      void api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') });
+    },
       { confirmLabel: t('deleteLabel') },
     );
   };
@@ -1809,7 +1810,6 @@ export const HealthView = ({
 
           {/* ── 프로틴 트래커 — 데스크탑 인라인, 모바일은 별도 탭으로 이동 ── */}
           <div className="flex-1 min-w-0 hidden lg:block">
-            {healthSection !== 'nutrition' ? (
             <ProteinTracker
               theme={theme}
               darkMode={appSettings.darkMode}
@@ -1817,7 +1817,6 @@ export const HealthView = ({
               formatDate={formatDate}
               showToast={showToast}
             />
-            ) : null}
           </div>
         </div>
       </div>

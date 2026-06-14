@@ -1,4 +1,4 @@
-import type { Theme } from '../../../../../types';
+import type { Theme } from '../../../../../../types';
 import { useTranslation } from '../../../../../../lib/i18n';
 
 export interface DayHeaderProps {

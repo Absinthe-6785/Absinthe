@@ -4,7 +4,7 @@ export { AgendaHeader } from './AgendaHeader';
 export { AgendaCountdownSection } from './AgendaCountdownSection';
 export { AgendaEventList } from './AgendaEventList';
 export { AgendaScheduleList } from './AgendaScheduleList';
-export { AgendaRoutineExceptionsSection } from './AgendaRoutineExceptionsSection';
+export { AgendaTodoList } from './AgendaTodoList';
 export {
   agendaHasContent,
   buildAgendaDaySections,

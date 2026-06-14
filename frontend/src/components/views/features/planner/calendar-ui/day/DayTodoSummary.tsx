@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
-import type { Todo, Theme } from '../../../../../types';
+import type { Todo, Theme } from '../../../../../../types';
 import { useTranslation } from '../../../../../../lib/i18n';
 import { formatDayTodoSummary } from './dayCalendarPresentation';
 import type { DayTodoActions } from './dayTodoActions';

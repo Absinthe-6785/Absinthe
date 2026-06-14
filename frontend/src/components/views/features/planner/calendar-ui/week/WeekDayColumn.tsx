@@ -1,4 +1,4 @@
-import type { Theme } from '../../../../../types';
+import type { Theme } from '../../../../../../types';
 import { WeekEventRows } from './WeekEventRows';
 import { WeekScheduleBlockRows } from './WeekScheduleBlockRows';
 import { WeekTemplateHints } from './WeekTemplateHints';

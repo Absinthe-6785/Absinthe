@@ -9,6 +9,7 @@ export function buildThemeClasses(): Theme {
     card: 'bg-surface text-foreground shadow-absinthe-md rounded-absinthe-xl',
     input: 'bg-surface-alt text-foreground placeholder:text-muted border border-border',
     border: 'border-border',
+    text: 'text-foreground',
     textMuted: 'text-muted',
     hoverBg: 'hover:bg-surface-alt',
   };

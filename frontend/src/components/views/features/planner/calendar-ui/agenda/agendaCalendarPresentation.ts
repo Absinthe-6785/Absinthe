@@ -20,7 +20,7 @@ export function agendaHasContent(agenda: PlannerAgendaViewPayload): boolean {
 }
 
 export function buildAgendaDaySections(
-  dayGroups: readonly PlannerAgendaViewPayload['dayGroups'],
+  dayGroups: PlannerAgendaViewPayload['dayGroups'],
   kinds: readonly PlannerAgendaItemKind[],
 ): AgendaDaySection[] {
   return dayGroups
@@ -32,7 +32,7 @@ export function buildAgendaDaySections(
 }
 
 export function buildAgendaEventSections(
-  dayGroups: readonly PlannerAgendaViewPayload['dayGroups'],
+  dayGroups: PlannerAgendaViewPayload['dayGroups'],
 ): AgendaDaySection[] {
   return dayGroups
     .map(group => ({
@@ -45,13 +45,13 @@ export function buildAgendaEventSections(
 }
 
 export function buildAgendaScheduleSections(
-  dayGroups: readonly PlannerAgendaViewPayload['dayGroups'],
+  dayGroups: PlannerAgendaViewPayload['dayGroups'],
 ): AgendaDaySection[] {
   return buildAgendaDaySections(dayGroups, [SCHEDULE_KIND]);
 }
 
 export function buildAgendaTodoSections(
-  dayGroups: readonly PlannerAgendaViewPayload['dayGroups'],
+  dayGroups: PlannerAgendaViewPayload['dayGroups'],
 ): AgendaDaySection[] {
   return buildAgendaDaySections(dayGroups, [TODO_KIND]);
 }

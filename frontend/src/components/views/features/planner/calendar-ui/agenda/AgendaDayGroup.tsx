@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Theme } from '../../../../../types';
+import type { Theme } from '../../../../../../types';
 import type { PlannerAgendaItem } from '../../calendar';
 
 export interface AgendaDayGroupProps {

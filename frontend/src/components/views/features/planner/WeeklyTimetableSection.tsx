@@ -85,8 +85,9 @@ export function WeeklyTimetableSection({
   };
 
   const deleteWeeklySchedule = (id: string) =>
-    showConfirm(t('plannerWeeklyDeleteConfirm'), () =>
-      api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') }),
+    showConfirm(t('plannerWeeklyDeleteConfirm'), () => {
+      void api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') });
+    },
       { confirmLabel: t('delete') },
     );
 

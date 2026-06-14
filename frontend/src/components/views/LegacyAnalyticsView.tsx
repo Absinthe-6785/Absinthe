@@ -92,7 +92,7 @@ export function LegacyAnalyticsView({
     [showToast, t],
   );
 
-  const { data: rangeSchedules, isLoading: isRangeLoading } = useSWR(
+  const { data: rangeSchedules, isLoading: isRangeLoading } = useSWR<Schedule[]>(
     analyticsUrl,
     fetcher,
     { onError: onRangeError },

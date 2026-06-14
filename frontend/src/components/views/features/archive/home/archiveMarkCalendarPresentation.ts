@@ -1,4 +1,4 @@
-import type { ArchiveMarkDay, ArchiveMarkType } from '../knowledge/archive';
+import type { ArchiveMarkDay, ArchiveMarkType } from '../../knowledge/archive';
 
 const MARK_TYPE_LABELS: Record<ArchiveMarkType, string> = {
   'note-activity': 'Note activity',
