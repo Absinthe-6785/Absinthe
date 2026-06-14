@@ -186,6 +186,14 @@ import {
   loadKnowledgeHistoryEvents,
   recordDiscoveryResolved,
   subscribeKnowledgeHistory,
+  maybeBootstrapKnowledgeHistory,
+  buildCosmosEvolutionSummary,
+  buildCosmosEvolutionStory,
+  buildDiscoveryProgressSummary,
+  latestAchievedMilestone,
+  getMilestoneNoteId,
+  presentHistoryEvent,
+  getRecentEvents,
 } from './features/knowledge/history';
 import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
 import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
@@ -1298,6 +1306,10 @@ export const NoteView = () => {
   const [historyVersion, setHistoryVersion] = useState(0);
   useEffect(() => subscribeKnowledgeHistory(() => setHistoryVersion(v => v + 1)), []);
 
+  useEffect(() => {
+    maybeBootstrapKnowledgeHistory(notes, knowledgeIndexService);
+  }, [notes]);
+
   const historyEvents = useMemo(
     () => loadKnowledgeHistoryEvents(),
     [historyVersion],
@@ -1457,6 +1469,37 @@ export const NoteView = () => {
     () => getActivitySummary(30, Date.now(), historyEvents),
     [historyEvents],
   );
+
+  const cosmosEvolutionSummary = useMemo(
+    () => buildCosmosEvolutionSummary(notes, knowledgeIndexService, historyEvents),
+    [notes, historyEvents],
+  );
+
+  const cosmosEvolutionStory = useMemo(
+    () => buildCosmosEvolutionStory(cosmosEvolutionSummary, historyEvents),
+    [cosmosEvolutionSummary, historyEvents],
+  );
+
+  const discoveryProgress = useMemo(
+    () => buildDiscoveryProgressSummary(historyEvents),
+    [historyEvents],
+  );
+
+  const dashboardRecentActivity = useMemo(() => {
+    const recent = getRecentEvents(1, historyEvents)[0];
+    if (!recent) return null;
+    const row = presentHistoryEvent(recent, notes);
+    return { actionKey: row.actionKey, detail: row.detail, noteId: row.noteId };
+  }, [historyEvents, notes]);
+
+  const dashboardLatestMilestone = useMemo(() => {
+    const milestone = latestAchievedMilestone(knowledgeTimeline.milestones);
+    if (!milestone) return null;
+    return {
+      titleKey: milestone.titleKey,
+      noteId: getMilestoneNoteId(milestone.id, historyEvents),
+    };
+  }, [knowledgeTimeline.milestones, historyEvents]);
 
   const noteHistoryContext = useMemo(
     () => (activeNote ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents) : null),
@@ -2783,6 +2826,9 @@ export const NoteView = () => {
               onOpenTimeline: handleOpenTimeline,
               timeline: knowledgeTimeline,
               activitySummary,
+              activityRecent: dashboardRecentActivity,
+              activityLatestMilestone: dashboardLatestMilestone,
+              activityGrowthTrend: knowledgeTimeline.recentEvolution,
               activeNoteCount: activeNotes.length,
               onCreateNote: () => createNote(),
               onOpenCosmos: () => setViewMode('graph'),
@@ -3510,6 +3556,12 @@ export const NoteView = () => {
                 timeline={knowledgeTimeline}
                 mode={timelineMode}
                 onModeChange={setTimelineMode}
+                historyEvents={historyEvents}
+                notes={notes}
+                evolutionSummary={cosmosEvolutionSummary}
+                evolutionStory={cosmosEvolutionStory}
+                discoveryProgress={discoveryProgress}
+                onNavigateToNote={setActiveNoteId}
               />
             )}
 
