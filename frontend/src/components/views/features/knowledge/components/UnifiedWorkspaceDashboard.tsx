@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from '../../../../../lib/i18n';
+import { DashboardSectionTitle } from '@/components/common/dashboard';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
@@ -103,19 +104,6 @@ function TabBar({
   );
 }
 
-function DashboardSectionTitle({ c, children, first }: { c: NoteChromeColors; children: string; first?: boolean }) {
-  return (
-    <div style={{
-      fontSize: 10,
-      fontWeight: 700,
-      color: c.textMuted,
-      margin: first ? '0 0 6px' : '12px 0 6px',
-    }}>
-      {children}
-    </div>
-  );
-}
-
 /** Single primary dashboard — consolidates fragmented workspace cards. */
 export function UnifiedWorkspaceDashboard({
   colors: c,
@@ -197,9 +185,9 @@ export function UnifiedWorkspaceDashboard({
               compact={compact}
             />
           )}
-          <DashboardSectionTitle c={c} first>{t('wsRecentActivityInsights')}</DashboardSectionTitle>
+          <DashboardSectionTitle colors={c} first>{t('wsRecentActivityInsights')}</DashboardSectionTitle>
           <AcademicInsightsPanel colors={c} data={data.insights} onNavigateToNote={onNavigateToNote} />
-          <DashboardSectionTitle c={c}>{t('wsKnowledgeReview')}</DashboardSectionTitle>
+          <DashboardSectionTitle colors={c}>{t('wsKnowledgeReview')}</DashboardSectionTitle>
           <KnowledgeReviewPanel
             colors={c}
             lists={data.review}
@@ -208,7 +196,7 @@ export function UnifiedWorkspaceDashboard({
           />
           {learningPathOverview && (
             <>
-              <DashboardSectionTitle c={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
+              <DashboardSectionTitle colors={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
               <LearningPathOverviewPanel colors={c} {...learningPathOverview} onNavigateToNote={onNavigateToNote} />
             </>
           )}
@@ -223,7 +211,7 @@ export function UnifiedWorkspaceDashboard({
             onNavigateToNote={onNavigateToNote}
             onOpenStudyCollection={onOpenStudyCollection}
           />
-          <DashboardSectionTitle c={c}>{t('searchGroupSubjects')}</DashboardSectionTitle>
+          <DashboardSectionTitle colors={c}>{t('searchGroupSubjects')}</DashboardSectionTitle>
           <SubjectMapsDashboardPanel
             colors={c}
             subjects={data.subjects}
@@ -232,13 +220,13 @@ export function UnifiedWorkspaceDashboard({
           />
           {data.clusters.clusterCount > 0 && (
             <>
-              <DashboardSectionTitle c={c}>{t('wsKnowledgeClusters')}</DashboardSectionTitle>
+              <DashboardSectionTitle colors={c}>{t('wsKnowledgeClusters')}</DashboardSectionTitle>
               <KnowledgeClusterPanel colors={c} data={data.clusters} onNavigateToNote={onNavigateToNote} />
             </>
           )}
           {learningPathOverview && (
             <>
-              <DashboardSectionTitle c={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
+              <DashboardSectionTitle colors={c}>{t('wsLearningPaths')}</DashboardSectionTitle>
               <LearningPathOverviewPanel colors={c} {...learningPathOverview} />
               {learningPathEditor && (
                 <LearningPathEditorPanel

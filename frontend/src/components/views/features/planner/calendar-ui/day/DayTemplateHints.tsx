@@ -1,5 +1,5 @@
 import type { PlannerWeeklySlotRow } from '../../calendar';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { formatDayTimeRange } from './dayCalendarPresentation';
 
 export interface DayTemplateHintsProps {

@@ -1,5 +1,5 @@
-import type { Theme } from '../../../../../../types';
-import { useTranslation } from '../../../../../../lib/i18n';
+import type { Theme } from '@/types';
+import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { WeekDayColumns } from './WeekDayColumns';
 import { WeekHeader } from './WeekHeader';

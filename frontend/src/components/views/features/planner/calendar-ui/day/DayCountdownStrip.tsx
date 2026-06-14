@@ -2,7 +2,7 @@ import { Target, BookOpen, Check, ExternalLink } from 'lucide-react';
 import type { PlannerCountdownRow } from '../../calendar';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import { formatPlannerCountdownLabel } from '../../calendar/plannerCalendarPresentation';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { filterUnreviewedCountdowns, useCountdownReviewed } from '../../hooks/useCountdownReviewed';
 
 export interface DayCountdownStripProps {

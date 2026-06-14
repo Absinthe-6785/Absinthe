@@ -1,8 +1,9 @@
 import {
-  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, ChevronRight, Check, TrendingUp,
+  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, Check, TrendingUp,
 } from 'lucide-react';
-import { useTranslation } from '../../../../lib/i18n';
-import type { ExerciseBlock, HealthRoutine, Inbody, Workout, Theme } from '../../../../types';
+import { DashboardSection } from '@/components/common/dashboard';
+import { useTranslation } from '@/lib/i18n';
+import type { ExerciseBlock, HealthRoutine, Inbody, Workout, Theme } from '@/types';
 import type { HealthWorkspaceSection } from './HealthWorkspaceNav';
 import { useProteinData } from './hooks/useProteinData';
 import { useWorkoutRangeMetrics } from './hooks/useWorkoutRangeMetrics';
@@ -63,42 +64,16 @@ export function HealthDashboardPanel({
   const lastExercise = workouts.length > 0 ? workouts[workouts.length - 1].exercise_blocks?.name : null;
   const proteinTrend = totalIntake >= dailyTarget ? 'up' : weeklyProteinAvg > 0 && totalIntake >= weeklyProteinAvg ? 'steady' : 'down';
 
-  const cardClass = `rounded-[20px] p-4 ${theme.card} border ${theme.border}`;
-
-  const SectionLink = ({
-    section,
-    icon: Icon,
-    title,
-    children,
-    onClickOverride,
-  }: {
-    section: HealthWorkspaceSection;
-    icon: typeof Apple;
-    title: string;
-    children: React.ReactNode;
-    onClickOverride?: () => void;
-  }) => (
-    <button
-      type="button"
-      onClick={onClickOverride ?? (() => onNavigate(section))}
-      className={`${cardClass} text-left w-full hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
-      data-health-dashboard-section={section}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-heading text-sm font-bold flex items-center gap-2">
-          <Icon size={16} strokeWidth={2.25} className="text-primary" />
-          {title}
-        </h3>
-        <ChevronRight size={14} className={theme.textMuted} />
-      </div>
-      {children}
-    </button>
-  );
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto pb-4" data-health-dashboard-panel>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4">
-        <SectionLink section="nutrition" icon={Apple} title={t('healthNavNutrition')}>
+        <DashboardSection
+          theme={theme}
+          icon={Apple}
+          title={t('healthNavNutrition')}
+          sectionId="nutrition"
+          onClick={() => onNavigate('nutrition')}
+        >
           {dailyTarget > 0 ? (
             <>
               <div className="flex items-baseline gap-2 mb-1">
@@ -141,13 +116,14 @@ export function HealthDashboardPanel({
           ) : (
             <p className={`text-xs ${theme.textMuted}`}>{t('healthDashboardProteinSetup')}</p>
           )}
-        </SectionLink>
+        </DashboardSection>
 
-        <SectionLink
-          section="workout"
+        <DashboardSection
+          theme={theme}
           icon={Dumbbell}
           title={t('healthNavWorkout')}
-          onClickOverride={onOpenWorkoutHistory}
+          sectionId="workout"
+          onClick={onOpenWorkoutHistory ?? (() => onNavigate('workout'))}
         >
           <div className="flex items-center gap-3 mb-1">
             <span className="text-2xl font-bold tabular-nums">{workouts.length}</span>
@@ -189,13 +165,14 @@ export function HealthDashboardPanel({
               ))}
             </ul>
           ) : null}
-        </SectionLink>
+        </DashboardSection>
 
-        <SectionLink
-          section="habits"
+        <DashboardSection
+          theme={theme}
           icon={Activity}
           title={t('healthNavHabits')}
-          onClickOverride={onOpenRoutine}
+          sectionId="habits"
+          onClick={onOpenRoutine ?? (() => onNavigate('habits'))}
         >
           {todayRoutine ? (
             <>
@@ -242,9 +219,15 @@ export function HealthDashboardPanel({
               </p>
             </>
           )}
-        </SectionLink>
+        </DashboardSection>
 
-        <SectionLink section="recovery" icon={BedDouble} title={t('healthNavRecovery')}>
+        <DashboardSection
+          theme={theme}
+          icon={BedDouble}
+          title={t('healthNavRecovery')}
+          sectionId="recovery"
+          onClick={() => onNavigate('recovery')}
+        >
           {recovery.latestSleep != null ? (
             <p className={`text-xs mb-1`}>
               <span className="text-2xl font-bold tabular-nums">{recovery.latestSleep}</span>
@@ -282,7 +265,7 @@ export function HealthDashboardPanel({
           {isWorkoutLocked && (
             <p className={`text-xs mt-1 text-green-500 font-medium`}>{t('healthDashboardRestDay')}</p>
           )}
-        </SectionLink>
+        </DashboardSection>
       </div>
     </div>
   );

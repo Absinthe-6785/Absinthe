@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
-import type { Routine, Theme } from '../../../../../../types';
-import { useTranslation } from '../../../../../../lib/i18n';
+import type { Routine, Theme } from '@/types';
+import { useTranslation } from '@/lib/i18n';
 import { formatDayRoutineSummary } from './dayCalendarPresentation';
 import type { DayRoutineActions } from './dayRoutineActions';
 import { dayRoutineActionsEnabled } from './dayRoutineActions';

@@ -2,7 +2,7 @@ import { Target, BookOpen, Check } from 'lucide-react';
 import type { PlannerAgendaItem } from '../../calendar';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import { formatAgendaCountdownLabel, resolveAgendaNoteId } from './agendaCalendarPresentation';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { useCountdownReviewed } from '../../hooks/useCountdownReviewed';
 
 export interface AgendaCountdownSectionProps {
