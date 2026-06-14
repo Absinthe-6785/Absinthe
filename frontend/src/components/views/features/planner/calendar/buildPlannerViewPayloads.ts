@@ -1,4 +1,5 @@
 import type {
+  PlannerAgendaItem,
   PlannerAgendaViewPayload,
   PlannerCountdownRow,
   PlannerDayBundle,
@@ -235,7 +236,7 @@ export function buildAgendaViewPayload(params: {
 
   const dayGroups = enumerateDateKeys(horizon.startDate, horizon.endDate).map(dateKey => {
     const bundle = params.byDate.get(dateKey);
-    const items: PlannerAgendaViewPayload['dayGroups'][number]['items'] = [];
+    const items: PlannerAgendaItem[] = [];
 
     for (const event of bundle?.events ?? []) {
       items.push({

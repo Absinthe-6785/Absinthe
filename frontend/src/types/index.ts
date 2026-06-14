@@ -6,9 +6,15 @@ import { DateTime } from 'luxon';
 export interface Schedule {
   id: string; text: string; start_time: string; end_time: string;
   is_dday: boolean; color: string; category: string;
+  /** Spans past midnight into the next calendar day */
+  end_next_day?: boolean;
 }
 export interface Todo { id: string; text: string; done: boolean; }
-export interface Routine { id: string; text: string; done: boolean; is_active: boolean; }
+export interface Routine {
+  id: string; text: string; done: boolean; is_active: boolean;
+  /** Present when the selected date is marked as a routine exception */
+  is_exception_day?: boolean;
+}
 export interface ExerciseBlock { id: string; name: string; type: string; tags?: string[]; cardio_mode?: 'time' | 'distance' | 'both'; }
 
 export interface ProteinProfile {
@@ -28,6 +34,8 @@ export interface ProteinSource {
 export interface ProteinIntakeLog {
   id: string;
   protein_g: number;
+  /** Grams consumed — populated for per100g sources */
+  amount_g?: number;
   note?: string;
   protein_sources?: { name: string; source_type?: string; category?: string } | null;
 }
@@ -73,6 +81,7 @@ export const makeNextSet = (prev: WorkoutSet, asDropset = false): WorkoutSet =>
 
 export interface Workout {
   id: string; block_id: string; exercise_blocks: ExerciseBlock; sets: WorkoutSet[];
+  sort_order?: number;
 }
 export interface Inbody { weight: number; smm: number; pbf: number; }
 export interface WeeklySchedule {
@@ -90,7 +99,7 @@ export interface AppSettings {
 }
 export interface HealthRoutine { id: string; day_name: string; blocks: string[]; }
 export interface Theme {
-  card: string; input: string; border: string; textMuted: string; hoverBg: string;
+  card: string; input: string; border: string; text: string; textMuted: string; hoverBg: string;
 }
 export type ThemeColor = { id: string; bg: string; text: string; border: string };
 

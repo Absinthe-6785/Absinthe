@@ -1,4 +1,4 @@
-import type { Theme } from '../../../../../types';
+import type { Theme } from '../../../../../../types';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { useTranslation } from '../../../../../../lib/i18n';
 import { MonthCalendarGrid } from './MonthCalendarGrid';

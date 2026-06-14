@@ -46,7 +46,7 @@ export function shouldShowGraphNodeLabel(input: GraphLabelVisibilityInput): bool
   if (input.hasSearchFilter) return false;
 
   if (tier === 'galaxy') {
-    return zoomK >= 1.2 && nodeTier === 'star';
+    return zoomK >= 1.2 && input.isHub;
   }
 
   if (tier === 'massive' || tier === 'xlarge') {

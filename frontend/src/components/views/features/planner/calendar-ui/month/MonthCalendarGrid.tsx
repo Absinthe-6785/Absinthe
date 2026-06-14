@@ -1,4 +1,4 @@
-import type { Theme } from '../../../../../types';
+import type { Theme } from '../../../../../../types';
 import type { PlannerMonthViewPayload } from '../../calendar';
 import { MonthCalendarCell } from './MonthCalendarCell';
 import { buildMonthCellDisplayModel, chunkMonthCells } from './monthCalendarPresentation';

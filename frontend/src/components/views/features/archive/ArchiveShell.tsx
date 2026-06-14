@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DateTime } from 'luxon';
-import type { AppSettings, Theme } from '../../../types';
+import type { AppSettings, Theme } from '../../../../types';
 import { ArchiveBranchView } from './ArchiveBranchView';
 import { ArchiveModeSwitcher } from './ArchiveModeSwitcher';
 import {

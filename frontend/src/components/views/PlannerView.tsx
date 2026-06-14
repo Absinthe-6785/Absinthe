@@ -144,8 +144,9 @@ export const PlannerView = ({
     });
   };
   const handleDeleteRoutine = (id: string) =>
-    showConfirm(t('deleteRoutine'), () =>
-      api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: t('routineDeleted') }),
+    showConfirm(t('deleteRoutine'), () => {
+      void api('DELETE', `/api/routines/${id}`, undefined, { revalidate: 'daily', successMsg: t('routineDeleted') });
+    },
       { confirmLabel: t('deleteLabel') },
     );
   const handleUpdateRoutineText = async (id: string, text: string) => {
@@ -221,8 +222,9 @@ export const PlannerView = ({
     doSave();
   };
   const handleDeleteSchedule = (id: string) =>
-    showConfirm(t('deleteSchedule'), () =>
-      api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') }),
+    showConfirm(t('deleteSchedule'), () => {
+      void api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') });
+    },
       { confirmLabel: t('deleteLabel') },
     );
 

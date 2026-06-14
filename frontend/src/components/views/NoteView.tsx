@@ -122,7 +122,6 @@ import {
   buildDiscoveryFeed,
   buildImportanceInputForNote,
   buildKnowledgeTimeline,
-  buildNoteGalaxyMap,
   resolveCosmosVaultPhase,
   parseNoteMarkdown,
   serializeNoteMarkdown,
@@ -153,6 +152,7 @@ import {
   rangeTraceMarkCount,
   areaTraceMarkCount,
   areaRangeTraceMarkCount,
+  type AreaRangeTraceProjection,
   areaDiscoveryObservationCount,
   applyAreaToNote,
   clearAreaFromNote,
@@ -714,7 +714,7 @@ export const NoteView = () => {
     if (traceDiscoveryProjection) return areaDiscoveryObservationCount(traceDiscoveryProjection);
     if (traceAreaProjection) {
       return traceAreaRange && 'notesTouched' in traceAreaProjection
-        ? areaRangeTraceMarkCount(traceAreaProjection)
+        ? areaRangeTraceMarkCount(traceAreaProjection as AreaRangeTraceProjection)
         : areaTraceMarkCount(traceAreaProjection);
     }
     if (traceRangeProjection) return rangeTraceMarkCount(traceRangeProjection);
@@ -1145,7 +1145,7 @@ export const NoteView = () => {
 
   useEffect(() => {
     if (isMobile) setMobileSidebarOpen(false);
-  }, [isMobile, activeFolderId, activeTag, workspaceActivation.kind, workspaceActivation.id]);
+  }, [isMobile, activeFolderId, activeTag, workspaceActivation.kind, 'id' in workspaceActivation ? workspaceActivation.id : null]);
 
   useEffect(() => {
     if (isFocusPresetActive && focusUiPreferences.hideGraph && viewMode === 'graph') {
@@ -1155,9 +1155,13 @@ export const NoteView = () => {
 
   const isWorkspacePanelMode = isDatabaseViewMode || isDashboardMode || isTraceLensMode;
   const activeWorkspaceKind = workspaceActivation.kind === 'none' ? null : workspaceActivation.kind;
-  const activeWorkspaceId = workspaceActivation.kind === 'none' || workspaceActivation.kind === 'dashboard'
-    ? null
-    : workspaceActivation.id;
+  const activeWorkspaceId =
+    workspaceActivation.kind === 'saved-view'
+    || workspaceActivation.kind === 'smart-collection'
+    || workspaceActivation.kind === 'rule-collection'
+    || workspaceActivation.kind === 'database-view'
+      ? workspaceActivation.id
+      : null;
 
   const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
   // ── 이미지 드래그&드롭 ───────────────────────────────────────────
@@ -2053,7 +2057,7 @@ export const NoteView = () => {
       e.preventDefault();
       const anchor = footnoteAnchorId(fnRef.dataset.footnoteId);
       const root = editorScrollRef.current;
-      root?.querySelector(`#${CSS.escape(anchor)}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      root?.querySelector(`#${globalThis.CSS?.escape(anchor) ?? anchor}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     const wl = target.closest('.be-wikilink') as HTMLElement | null;
@@ -2566,7 +2570,7 @@ export const NoteView = () => {
                       <SmartCollectionsSection
                         colors={c}
                         collections={SMART_COLLECTIONS}
-                        activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') ? workspaceActivation.id : null}
+                        activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
                         counts={smartCollectionCounts}
                         onActivate={handleActivateSmartCollection}
                         onClearActive={handleClearSmartCollection}
@@ -2603,7 +2607,7 @@ export const NoteView = () => {
                 <RuleCollectionsSection
                   colors={c}
                   collections={ruleCollections}
-                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'rule-collection') ? workspaceActivation.id : null}
+                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'rule-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
                   counts={ruleCollectionCounts}
                   canCreateFromCurrent={canCreateRuleCollection}
                   currentQuery={searchQuery.trim()}
@@ -2623,7 +2627,7 @@ export const NoteView = () => {
                 <DatabaseViewsSection
                   colors={c}
                   views={databaseViews}
-                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'database-view') ? workspaceActivation.id : null}
+                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'database-view') && 'id' in workspaceActivation ? workspaceActivation.id : null}
                   counts={databaseViewCounts}
                   canCreateFromCurrent={canCreateDatabaseView}
                   currentQuery={searchQuery.trim()}
@@ -2645,7 +2649,7 @@ export const NoteView = () => {
                 <SavedViewsSection
                   colors={c}
                   views={savedViews}
-                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'saved-view') ? workspaceActivation.id : null}
+                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'saved-view') && 'id' in workspaceActivation ? workspaceActivation.id : null}
                   canSaveCurrent={canSaveCurrentView}
                   onActivate={handleActivateSavedView}
                   onClearActive={handleClearSavedView}
@@ -3428,7 +3432,7 @@ export const NoteView = () => {
                       <ImageIcon size={22}/> 이미지를 놓아 삽입
                     </div>
                   )}
-                  {viewMode !== 'graph' && (
+                  {(
                     isTrash ? (
                       <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
@@ -3718,7 +3722,7 @@ export const NoteView = () => {
               />
             )}
 
-            {rightPanel === 'properties' && (
+            {rightPanel === 'properties' && activeNote && (
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {projectEditorData && (
                   <ProjectEditorPanel
@@ -3758,7 +3762,7 @@ export const NoteView = () => {
               </div>
             )}
 
-            {rightPanel === 'tags' && (
+            {rightPanel === 'tags' && activeNote && (
               <NoteTagsPanel
                 colors={c}
                 note={activeNote}
@@ -3773,7 +3777,7 @@ export const NoteView = () => {
               />
             )}
 
-            {rightPanel === 'relations' && (
+            {rightPanel === 'relations' && activeNote && (
               <NoteRelationsPanel
                 colors={c}
                 note={activeNote}
@@ -3789,7 +3793,7 @@ export const NoteView = () => {
               />
             )}
 
-            {rightPanel === 'stats' && (() => {
+            {rightPanel === 'stats' && activeNote && (() => {
               const body = activeNote.body;
               const words = body.trim() ? body.trim().split(/\s+/).length : 0;
               const chars = body.length;
