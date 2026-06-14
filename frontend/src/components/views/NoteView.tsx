@@ -1583,6 +1583,10 @@ export const NoteView = () => {
     setRightPanel('discover');
   }, [activeNote, notes, setActiveNoteId, setViewMode]);
 
+  const handleOpenCosmosGraph = useCallback(() => {
+    setViewMode('graph');
+  }, [setViewMode]);
+
   const handleOpenTimeline = useCallback(() => {
     setTimelineInitialArea(null);
     const target = activeNote ?? notes.find(n => !n.deletedAt);
@@ -3469,7 +3473,13 @@ export const NoteView = () => {
         >
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             {!activeNote && NOTE_REQUIRED_CONTEXT_TABS.has(rightPanel) ? (
-              <KnowledgePanelEmpty colors={c}>{t('k43ContextPanelSelectNote')}</KnowledgePanelEmpty>
+              <KnowledgePanelEmpty
+                colors={c}
+                actionLabel={t('k53ContextCreateNote')}
+                onAction={() => createNote()}
+              >
+                {t('k43ContextPanelSelectNote')}
+              </KnowledgePanelEmpty>
             ) : (
             <>
             {rightPanel === 'toc' && (
@@ -3542,6 +3552,8 @@ export const NoteView = () => {
                       related={relatedNotes}
                       onNavigateToNote={setActiveNoteId}
                       onLinkToNote={handleLinkRelatedNote}
+                      onOpenGraph={handleOpenCosmosGraph}
+                      onLearnLinking={handleLearnLinking}
                     />
                   </>
                 )}
@@ -3565,8 +3577,10 @@ export const NoteView = () => {
             {rightPanel === 'links' && activeNote && (!pageReferences || !noteReferenceSummary) && (
               <KnowledgePanelEmpty
                 colors={c}
-                actionLabel={t('k52ContextAddWikiLink')}
-                onAction={() => setRightPanel('links')}
+                actionLabel={t('k53ContextCreateWikiLink')}
+                onAction={handleLearnLinking}
+                secondaryActionLabel={t('k53ContextLinkingGuide')}
+                onSecondaryAction={() => openContextPanel('links')}
               >
                 {t('k52ContextLinksEmpty')}
               </KnowledgePanelEmpty>
@@ -3602,7 +3616,13 @@ export const NoteView = () => {
             )}
 
             {rightPanel === 'insights' && activeNote && (!noteIntelligenceSnapshot || !noteTierInput) && (
-              <KnowledgePanelEmpty colors={c}>
+              <KnowledgePanelEmpty
+                colors={c}
+                actionLabel={t('k53ContextOpenCosmos')}
+                onAction={handleOpenCosmosGraph}
+                secondaryActionLabel={t('k53ContextCreateWikiLink')}
+                onSecondaryAction={handleLearnLinking}
+              >
                 {t('k52ContextInsightsEmpty')}
               </KnowledgePanelEmpty>
             )}
@@ -3620,6 +3640,7 @@ export const NoteView = () => {
                 onCreateHub={handleCosmosCreateHub}
                 onCreateRelation={handleCosmosCreateRelation}
                 onNavigateToNote={setActiveNoteId}
+                onOpenDiscover={handleOpenDiscover}
               />
             )}
 
@@ -3628,6 +3649,8 @@ export const NoteView = () => {
                 colors={c}
                 actionLabel={t('k52ContextOpenLinks')}
                 onAction={() => openContextPanel('links')}
+                secondaryActionLabel={t('k53ContextOpenDiscover')}
+                onSecondaryAction={handleOpenDiscover}
               >
                 {t('k52ContextActionsEmpty')}
               </KnowledgePanelEmpty>
@@ -3641,6 +3664,8 @@ export const NoteView = () => {
                 onNavigateToNote={setActiveNoteId}
                 onCreateRelation={handleDiscoveryCreateRelation}
                 onCreateHub={handleCosmosCreateHub}
+                onLearnLinking={handleLearnLinking}
+                onOpenGraph={handleOpenCosmosGraph}
               />
             )}
 
@@ -3662,6 +3687,7 @@ export const NoteView = () => {
                 onDismissBootstrap={handleDismissBootstrapSummary}
                 onExport={handleExportHistory}
                 onNavigateToNote={setActiveNoteId}
+                onCreateNote={() => createNote()}
               />
             )}
 

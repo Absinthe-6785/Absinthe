@@ -1,14 +1,16 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { RelatedNote } from '../KnowledgeIndexService';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { KnowledgePanelEmpty } from './KnowledgePanelSection';
 import { formatRelatedReasonsLocalized, relatedReasonLabel } from '../knowledgeLabels';
-import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface RelatedNotesPanelProps {
   colors: NoteChromeColors;
   related: readonly RelatedNote[];
   onNavigateToNote: (noteId: string) => void;
   onLinkToNote?: (noteId: string, noteTitle: string) => void;
+  onOpenGraph?: () => void;
+  onLearnLinking?: () => void;
 }
 
 /** Lightweight related-note suggestions from tags, backlinks, mentions, trace. */
@@ -17,6 +19,8 @@ export function RelatedNotesPanel({
   related,
   onNavigateToNote,
   onLinkToNote,
+  onOpenGraph,
+  onLearnLinking,
 }: RelatedNotesPanelProps) {
   const { t, lang } = useTranslation();
 
@@ -38,12 +42,15 @@ export function RelatedNotesPanel({
       </div>
 
       {related.length === 0 ? (
-        <>
-          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px 8px 0' }}>
-            {t('knNoRelatedNotes')}
-          </p>
-          <CosmosEmptyHint colors={c}>{t('knCosmosHintRelated')}</CosmosEmptyHint>
-        </>
+        <KnowledgePanelEmpty
+          colors={c}
+          actionLabel={onLearnLinking ? t('k53ContextCreateWikiLink') : undefined}
+          onAction={onLearnLinking}
+          secondaryActionLabel={onOpenGraph ? t('k53ContextOpenCosmos') : undefined}
+          onSecondaryAction={onOpenGraph}
+        >
+          {t('knNoRelatedNotes')}
+        </KnowledgePanelEmpty>
       ) : (
         related.map(item => (
           <div

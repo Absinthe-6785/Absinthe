@@ -13,6 +13,11 @@ describe('noteSearch', () => {
     expect(noteMatchesPlainSearch(body, 'a^2+b^2')).toBe(true);
   });
 
+  it('finds matrix LaTeX in body', () => {
+    const body = '$$\n\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}\n$$';
+    expect(noteMatchesPlainSearch(body, 'pmatrix')).toBe(true);
+  });
+
   it('does not confuse currency with math search', () => {
     const body = 'Budget is $100 for supplies.';
     expect(noteMatchesPlainSearch(body, '100')).toBe(true);

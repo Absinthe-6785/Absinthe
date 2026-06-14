@@ -32,6 +32,8 @@ export interface DiscoveryPanelProps {
   onNavigateToNote: (noteId: string) => void;
   onCreateRelation: (sourceNoteId: string, targetNoteId: string) => void;
   onCreateHub: (areaLabel: string) => void;
+  onLearnLinking?: () => void;
+  onOpenGraph?: () => void;
   compact?: boolean;
 }
 
@@ -176,6 +178,8 @@ export function DiscoveryPanel({
   onNavigateToNote,
   onCreateRelation,
   onCreateHub,
+  onLearnLinking,
+  onOpenGraph,
   compact,
 }: DiscoveryPanelProps) {
   const { t, lang } = useTranslation();
@@ -198,16 +202,30 @@ export function DiscoveryPanel({
             compact={compact}
             headline={t('k41DiscoverHealthyTitle')}
             body={t('k41DiscoverHealthyBody')}
+            action={onOpenGraph ? (
+              <ActionButton c={c} onClick={onOpenGraph}>{t('k53ContextOpenCosmos')}</ActionButton>
+            ) : undefined}
           />
         ) : (
           <>
-            <KnowledgePanelEmpty colors={c}>{t('k38NoDiscoveries')}</KnowledgePanelEmpty>
+            <KnowledgePanelEmpty
+              colors={c}
+              actionLabel={onLearnLinking ? t('k53ContextCreateWikiLink') : undefined}
+              onAction={onLearnLinking}
+              secondaryActionLabel={onOpenGraph ? t('k53ContextOpenCosmos') : undefined}
+              onSecondaryAction={onOpenGraph}
+            >
+              {t('k38NoDiscoveries')}
+            </KnowledgePanelEmpty>
             {vaultPhase === 'no-links' && (
               <CosmosEmptyStatePanel
                 colors={c}
                 compact={compact}
                 headline={t('k41EmptyCosmosUnlinkedTitle')}
                 body={t('k41DiscoverNoLinksHint')}
+                action={onLearnLinking ? (
+                  <ActionButton c={c} onClick={onLearnLinking}>{t('k53ContextCreateWikiLink')}</ActionButton>
+                ) : undefined}
               />
             )}
           </>

@@ -2,6 +2,7 @@ import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DiscoverySummary } from '../discovery';
 import { DashboardCardHeader } from './DashboardCardHeader';
+import { DashboardEmptyCard } from './DashboardEmptyCard';
 import { Compass } from 'lucide-react';
 
 export interface DiscoveryDashboardCardProps {
@@ -19,7 +20,20 @@ export function DiscoveryDashboardCard({
   compact,
 }: DiscoveryDashboardCardProps) {
   const { t } = useTranslation();
-  if (summary.totalCount === 0) return null;
+
+  if (summary.totalCount === 0) {
+    return (
+      <DashboardEmptyCard
+        colors={c}
+        icon={Compass}
+        title={t('k38DashboardTitle')}
+        message={t('k53DiscoveryDashboardEmpty')}
+        actionLabel={t('k38ActionOpenDiscover')}
+        onAction={onOpenDiscover}
+        compact={compact}
+      />
+    );
+  }
 
   const lines = [
     summary.forgottenCount > 0

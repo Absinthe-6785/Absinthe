@@ -5,12 +5,14 @@ import { API_URL } from '../../../../../lib/config';
 import {
   countWeeklySessions,
   detectRecentPr,
+  listRecentWorkoutSessions,
   type RangeWorkoutRow,
 } from '../workout/workoutMetrics';
 
 export interface UseWorkoutRangeMetricsResult {
   weeklySessions: number;
   recentPr: { name: string; kg: number } | null;
+  recentSessions: { date: string; exercises: string[] }[];
   isLoading: boolean;
 }
 
@@ -33,6 +35,7 @@ export function useWorkoutRangeMetrics(
 
   const weeklySessions = useMemo(() => countWeeklySessions(weekWorkouts), [weekWorkouts]);
   const recentPr = useMemo(() => detectRecentPr(weekWorkouts, dateStr), [weekWorkouts, dateStr]);
+  const recentSessions = useMemo(() => listRecentWorkoutSessions(weekWorkouts), [weekWorkouts]);
 
-  return { weeklySessions, recentPr, isLoading };
+  return { weeklySessions, recentPr, recentSessions, isLoading };
 }

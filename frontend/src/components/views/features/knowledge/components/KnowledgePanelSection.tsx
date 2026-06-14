@@ -67,34 +67,49 @@ export function KnowledgePanelEmpty({
   children,
   actionLabel,
   onAction,
+  secondaryActionLabel,
+  onSecondaryAction,
 }: {
   colors: NoteChromeColors;
   children: ReactNode;
   actionLabel?: string;
   onAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
 }) {
+  const buttonStyle = {
+    border: `1px solid ${c.accent}`,
+    background: c.accentBg,
+    color: c.accent,
+    borderRadius: 6,
+    padding: '5px 10px',
+    fontSize: 10,
+    fontWeight: 600,
+    cursor: 'pointer',
+  } as const;
+
   return (
     <div style={{ textAlign: 'center', padding: '12px 10px 8px' }}>
       <p style={{ fontSize: 11, color: c.textFaint, margin: '0 0 8px', lineHeight: 1.5 }}>
         {children}
       </p>
-      {actionLabel && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          style={{
-            border: `1px solid ${c.accent}`,
-            background: c.accentBg,
-            color: c.accent,
-            borderRadius: 6,
-            padding: '5px 10px',
-            fontSize: 10,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          {actionLabel}
-        </button>
+      {(actionLabel && onAction) || (secondaryActionLabel && onSecondaryAction) ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+          {actionLabel && onAction ? (
+            <button type="button" onClick={onAction} style={buttonStyle}>
+              {actionLabel}
+            </button>
+          ) : null}
+          {secondaryActionLabel && onSecondaryAction ? (
+            <button
+              type="button"
+              onClick={onSecondaryAction}
+              style={{ ...buttonStyle, border: `1px solid ${c.sideBdr}`, background: 'transparent', color: c.textMuted }}
+            >
+              {secondaryActionLabel}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

@@ -94,6 +94,14 @@ describe('markdown export/import', () => {
   it('exports body-only when no properties', () => {
     expect(serializeNoteMarkdown(note())).toBe('Content');
   });
+
+  it('preserves LaTeX in exported markdown body', () => {
+    const withMath = { ...note(), body: 'Identity $a^2+b^2=c^2$ and\n\n$$\n\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}\n$$' };
+    const raw = serializeNoteMarkdown(withMath);
+    expect(raw).toContain('$a^2+b^2=c^2$');
+    expect(raw).toContain('\\begin{pmatrix}');
+    expect(parseNoteMarkdown(raw).body).toBe(withMath.body);
+  });
 });
 
 describe('KnowledgeIndexService properties extension', () => {

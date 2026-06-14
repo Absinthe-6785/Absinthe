@@ -6,7 +6,7 @@ import type { NoteIntelligenceSnapshot } from '../intelligence';
 import { buildAreaHealthSummaries } from '../intelligence';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
 import { buildNoteGalaxyMap } from '../../graph/knowledgeUniverse/galaxyClustering';
-import { KnowledgePanelSection } from '../../components/KnowledgePanelSection';
+import { KnowledgePanelSection, KnowledgePanelEmpty } from '../../components/KnowledgePanelSection';
 import { buildCosmosActionPlan, type CosmosActionItem } from './actionEngine';
 import { OpportunityActions } from './OpportunityActions';
 import { AreaGuidance } from './AreaGuidance';
@@ -27,6 +27,7 @@ export interface CosmosActionsPanelProps {
   onCreateHub: (areaLabel: string) => void;
   onCreateRelation: (targetNoteId: string) => void;
   onNavigateToNote: (noteId: string) => void;
+  onOpenDiscover?: () => void;
   onExecuteAction?: (action: CosmosActionItem) => void;
 }
 
@@ -42,6 +43,7 @@ export function CosmosActionsPanel({
   onCreateHub,
   onCreateRelation,
   onNavigateToNote,
+  onOpenDiscover,
 }: CosmosActionsPanelProps) {
   const { t } = useTranslation();
 
@@ -67,9 +69,15 @@ export function CosmosActionsPanel({
       <CosmosSuiteHeader c={c} active="actions" t={t} />
       <KnowledgePanelSection colors={c} first title={t('k37RecommendedActions')} count={plan.actions.length}>
         {plan.actions.length === 0 ? (
-          <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px', margin: 0 }}>
+          <KnowledgePanelEmpty
+            colors={c}
+            actionLabel={t('k52ContextOpenLinks')}
+            onAction={onViewCandidates}
+            secondaryActionLabel={onOpenDiscover ? t('k53ContextOpenDiscover') : undefined}
+            onSecondaryAction={onOpenDiscover}
+          >
             {t('k37NoActions')}
-          </p>
+          </KnowledgePanelEmpty>
         ) : (
           checklistActions.slice(0, 8).map(action => (
             <ActionCard
