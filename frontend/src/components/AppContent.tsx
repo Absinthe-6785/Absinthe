@@ -19,7 +19,7 @@ import { HealthView } from './views/HealthView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
 import { NoteView } from './views/NoteView';
-import { RecipeView } from './views/RecipeView';
+import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -45,8 +45,12 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
   useEffect(() => {
-    hydrateFromDB();
-  }, [hydrateFromDB]);
+    hydrateFromDB().then(() => {
+      void migrateLegacyDdays(count => {
+        if (count > 0) showToast(`Migrated ${count} countdown${count === 1 ? '' : 's'} to notes`);
+      });
+    });
+  }, [hydrateFromDB, showToast]);
 
   useEffect(() => {
     return registerNotesTabSwitcher(() => setActiveTab('note'));
@@ -73,7 +77,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     monthEnd:   formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)),
   }), [currentDate, formatDate]);
   const {
-    markedDates, ddays, healthBlocks, healthRoutines, weeklySchedules,
+    markedDates, healthBlocks, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
   } = useStaticData(monthStart, monthEnd, showToast);
 
@@ -104,7 +108,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutateTodos, mutateRoutines,
     appSettings, updateSetting, theme, THEME_COLORS,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
-    markedDates, ddays, healthBlocks, healthRoutines,
+    markedDates, healthBlocks, healthRoutines,
     onSignOut: handleSignOut,
   }), [
     user, now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -112,7 +116,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutateDaily, mutateStatic, mutateTodos, mutateRoutines,
     appSettings, updateSetting, theme,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
-    markedDates, ddays, healthBlocks, healthRoutines,
+    markedDates, healthBlocks, healthRoutines,
     handleSignOut,
   ]);
 

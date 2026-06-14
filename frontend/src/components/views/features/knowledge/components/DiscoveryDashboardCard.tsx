@@ -1,6 +1,8 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DiscoverySummary } from '../discovery';
+import { DashboardCardHeader } from './DashboardCardHeader';
+import { Compass } from 'lucide-react';
 
 export interface DiscoveryDashboardCardProps {
   colors: NoteChromeColors;
@@ -49,9 +51,7 @@ export function DiscoveryDashboardCard({
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: c.text, marginBottom: 6 }}>
-            {t('k38DashboardTitle')}
-          </div>
+          <DashboardCardHeader colors={c} icon={Compass} title={t('k38DashboardTitle')} compact={compact} />
           {lines.map(line => (
             <div key={line} style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.5 }}>
               {line}

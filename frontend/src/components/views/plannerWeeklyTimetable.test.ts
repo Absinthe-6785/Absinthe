@@ -99,7 +99,6 @@ function plannerProps(overrides: Partial<PlannerProps> = {}): PlannerProps {
     schedules: [],
     todos: [],
     routines: [],
-    ddays: [],
     markedDates: [],
     weeklySchedules: [
       {

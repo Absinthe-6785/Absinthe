@@ -1,6 +1,8 @@
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeTimeline } from '../timeline';
+import { DashboardCardHeader } from './DashboardCardHeader';
+import { History } from 'lucide-react';
 
 export interface TimelineDashboardCardProps {
   colors: NoteChromeColors;
@@ -33,9 +35,7 @@ export function TimelineDashboardCard({
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: c.text, marginBottom: 6 }}>
-            {t('k42DashboardTitle')}
-          </div>
+          <DashboardCardHeader colors={c} icon={History} title={t('k42DashboardTitle')} compact={compact} />
           <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.5 }}>
             {t('k42DashboardPeriod').replace('{period}', growth.periodLabel || t('k42ViewMonth'))}
           </div>

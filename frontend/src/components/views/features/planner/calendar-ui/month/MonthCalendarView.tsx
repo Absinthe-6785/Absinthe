@@ -2,7 +2,7 @@ import type { Theme } from '../../../../../types';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { useTranslation } from '../../../../../../lib/i18n';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
-import { groupLegacyDdayCountdownsByDate, monthGridHasAnchors } from './monthCalendarPresentation';
+import { monthGridHasAnchors } from './monthCalendarPresentation';
 
 export interface MonthCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -21,7 +21,6 @@ export function MonthCalendarView({
 }: MonthCalendarViewProps) {
   const { t } = useTranslation();
   const month = projection.views.month;
-  const legacyDdayByDate = groupLegacyDdayCountdownsByDate(projection.core.countdowns);
   const hasAnchors = monthGridHasAnchors(month.cells);
 
   return (
@@ -53,9 +52,7 @@ export function MonthCalendarView({
       <MonthCalendarGrid
         month={month}
         weekdayLabels={presentation.labels.weekdayShortLabels}
-        legacyDdayByDate={legacyDdayByDate}
         theme={theme}
-        countdownLabels={presentation.labels.countdownLabels}
         onEventNoteClick={onEventNoteClick}
         onDateSelect={onDateSelect}
       />

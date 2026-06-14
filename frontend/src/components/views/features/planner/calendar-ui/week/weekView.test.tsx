@@ -50,7 +50,6 @@ function buildWeekFixture(
     weeklySchedules: [],
     todos: [],
     routines: [],
-    legacyDdays: [],
     anchorDate: '2027-02-03',
     viewMode: 'week',
     now: NOW,

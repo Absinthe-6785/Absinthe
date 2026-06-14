@@ -8,7 +8,6 @@ import {
 export interface MonthCalendarCellProps {
   model: MonthCellDisplayModel;
   theme: Theme;
-  countdownLabels: ReadonlyMap<string, string>;
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
 }
@@ -16,7 +15,6 @@ export interface MonthCalendarCellProps {
 export function MonthCalendarCell({
   model,
   theme,
-  countdownLabels,
   onEventNoteClick,
   onDateSelect,
 }: MonthCalendarCellProps) {
@@ -77,17 +75,6 @@ export function MonthCalendarCell({
             tabIndex={onEventNoteClick ? 0 : undefined}
           >
             {showTitle ? occurrence.title : '\u00a0'}
-          </div>
-        ))}
-
-        {model.legacyDdayCountdowns.map(countdown => (
-          <div
-            key={countdown.id}
-            className="px-1 py-0.5 text-[9px] lg:text-[10px] font-bold truncate rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300"
-            data-planner-month-legacy-dday={countdown.id}
-            title={countdown.title}
-          >
-            {countdownLabels.get(countdown.id) ?? countdown.title}
           </div>
         ))}
 

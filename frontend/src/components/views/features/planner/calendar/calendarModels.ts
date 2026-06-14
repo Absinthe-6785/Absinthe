@@ -1,11 +1,11 @@
 import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
-import type { DDay, Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
+import type { Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
 
 export type PlannerCalendarViewMode = 'month' | 'week' | 'day' | 'agenda';
 export type PlannerLocale = 'en' | 'ko' | 'ja';
 export type PlannerEventSpanPosition = 'single' | 'start' | 'middle' | 'end';
-export type PlannerCountdownSource = 'note-event' | 'legacy-dday';
+export type PlannerCountdownSource = 'note-event';
 export type PlannerAgendaItemKind =
   | 'countdown'
   | 'all-day-event'
@@ -33,7 +33,6 @@ export interface PlannerCalendarProjectionInput {
   weeklySchedules: readonly WeeklySchedule[];
   todos: readonly PlannerDatedTodo[];
   routines: readonly PlannerDatedRoutine[];
-  legacyDdays: readonly DDay[];
   anchorDate: string;
   viewMode: PlannerCalendarViewMode;
   now: DateTime;

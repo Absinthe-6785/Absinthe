@@ -9,7 +9,6 @@ export {
   buildMonthCellDisplayModel,
   chunkMonthCells,
   formatMonthOverflowLabel,
-  groupLegacyDdayCountdownsByDate,
   monthGridHasAnchors,
   spanPositionClass,
 } from './monthCalendarPresentation';

@@ -1,9 +1,9 @@
-import type { PlannerCountdownRow, PlannerEventOccurrence, PlannerMonthCellPayload } from '../../calendar';
+import type { PlannerMonthCellPayload } from '../../calendar';
 
 export const MONTH_CELL_MAX_VISIBLE_EVENTS = 2;
 
 export interface MonthCellEventRow {
-  occurrence: PlannerEventOccurrence;
+  occurrence: PlannerMonthCellPayload['bundle']['events'][number];
   showTitle: boolean;
 }
 
@@ -16,13 +16,11 @@ export interface MonthCellDisplayModel {
   eventRows: readonly MonthCellEventRow[];
   overflowCount: number;
   milestoneCount: number;
-  legacyDdayCountdowns: readonly PlannerCountdownRow[];
   isEmpty: boolean;
 }
 
 export function buildMonthCellDisplayModel(
   cell: PlannerMonthCellPayload,
-  legacyDdayCountdowns: readonly PlannerCountdownRow[],
 ): MonthCellDisplayModel {
   const visibleOccurrences = cell.bundle.events.slice(0, MONTH_CELL_MAX_VISIBLE_EVENTS);
   const eventRows: MonthCellEventRow[] = visibleOccurrences.map(occurrence => ({
@@ -32,9 +30,7 @@ export function buildMonthCellDisplayModel(
 
   const milestoneCount = cell.bundle.hints.milestoneCount;
   const overflowCount = cell.bundle.hints.overflowEventCount;
-  const isEmpty = cell.bundle.events.length === 0
-    && milestoneCount === 0
-    && legacyDdayCountdowns.length === 0;
+  const isEmpty = cell.bundle.events.length === 0 && milestoneCount === 0;
 
   return {
     dateKey: cell.dateKey,
@@ -45,24 +41,8 @@ export function buildMonthCellDisplayModel(
     eventRows,
     overflowCount,
     milestoneCount,
-    legacyDdayCountdowns,
     isEmpty,
   };
-}
-
-export function groupLegacyDdayCountdownsByDate(
-  countdowns: readonly PlannerCountdownRow[],
-): ReadonlyMap<string, readonly PlannerCountdownRow[]> {
-  const map = new Map<string, PlannerCountdownRow[]>();
-
-  for (const countdown of countdowns) {
-    if (countdown.source !== 'legacy-dday') continue;
-    const bucket = map.get(countdown.targetDate);
-    if (bucket) bucket.push(countdown);
-    else map.set(countdown.targetDate, [countdown]);
-  }
-
-  return map;
 }
 
 export function formatMonthOverflowLabel(overflowCount: number): string | null {
@@ -85,7 +65,7 @@ export function monthGridHasAnchors(cells: readonly PlannerMonthCellPayload[]): 
   );
 }
 
-export function spanPositionClass(spanPosition: PlannerEventOccurrence['spanPosition']): string {
+export function spanPositionClass(spanPosition: PlannerMonthCellPayload['bundle']['events'][number]['spanPosition']): string {
   switch (spanPosition) {
     case 'start':
       return 'rounded-l-md rounded-r-none';

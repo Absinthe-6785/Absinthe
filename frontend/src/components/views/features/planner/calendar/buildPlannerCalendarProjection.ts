@@ -1,5 +1,5 @@
 import type { DateTime } from 'luxon';
-import type { DDay, Routine, Todo, WeeklySchedule } from '../../../../../types';
+import type { Routine, Todo, WeeklySchedule } from '../../../../../types';
 import type {
   PlannerCalendarCore,
   PlannerCalendarProjection,
@@ -220,7 +220,6 @@ function normalizeCountdownTitle(title: string): string {
 
 export function buildPlannerCountdowns(
   eventDefinitions: readonly { noteId: string; title: string; startDate: string }[],
-  legacyDdays: readonly DDay[],
   now: DateTime,
 ): PlannerCountdownRow[] {
   const todayKey = now.toFormat('yyyy-MM-dd');
@@ -242,25 +241,6 @@ export function buildPlannerCountdowns(
       daysUntil,
       source: 'note-event',
       sourceRefId: definition.noteId,
-    });
-  }
-
-  for (const dday of legacyDdays) {
-    if (!dday.date) continue;
-    const daysUntil = daysBetween(todayKey, dday.date);
-    if (daysUntil == null || daysUntil < 0) continue;
-
-    const dedupeKey = `${dday.date}:${normalizeCountdownTitle(dday.text)}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-
-    rows.push({
-      id: `legacy-dday:${dday.id}`,
-      title: dday.text,
-      targetDate: dday.date,
-      daysUntil,
-      source: 'legacy-dday',
-      sourceRefId: dday.id,
     });
   }
 
@@ -331,7 +311,6 @@ export function buildPlannerCalendarProjection(
   const safeWeekly = input.weeklySchedules ?? [];
   const safeTodos = input.todos ?? [];
   const safeRoutines = input.routines ?? [];
-  const safeDdays = input.legacyDdays ?? [];
 
   if (!parseDateKey(input.anchorDate)) {
     return emptyProjection(input);
@@ -364,7 +343,7 @@ export function buildPlannerCalendarProjection(
   });
 
   const blocksById = new Map(scheduleBlocks.map(block => [block.id, block]));
-  const countdowns = buildPlannerCountdowns(catalog.definitions, safeDdays, input.now);
+  const countdowns = buildPlannerCountdowns(catalog.definitions, input.now);
   const todayKey = input.now.toFormat('yyyy-MM-dd');
 
   const core: PlannerCalendarCore = {

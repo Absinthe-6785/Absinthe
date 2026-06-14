@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Plus } from 'lucide-react';
 import type { Routine, Theme } from '../../../../../types';
 import { useTranslation } from '../../../../../../lib/i18n';
 import { formatDayRoutineSummary } from './dayCalendarPresentation';
@@ -20,6 +22,26 @@ export function DayRoutineSummary({
   const { t } = useTranslation();
   const summaryLabel = formatDayRoutineSummary(routines);
   const interactive = dayRoutineActionsEnabled(routineActions);
+  const [newText, setNewText] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+
+  const doneCount = routines.filter(r => r.done).length;
+  const progressPct = routines.length > 0 ? Math.round((doneCount / routines.length) * 100) : 0;
+
+  const submitAdd = () => {
+    const text = newText.trim();
+    if (!text || !routineActions?.onAdd) return;
+    routineActions.onAdd(text);
+    setNewText('');
+  };
+
+  const submitEdit = (id: string) => {
+    const text = editText.trim();
+    if (!text || !routineActions?.onEdit) return setEditingId(null);
+    routineActions.onEdit(id, text);
+    setEditingId(null);
+  };
 
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-routines>
@@ -34,22 +56,45 @@ export function DayRoutineSummary({
         ) : null}
       </div>
 
+      {routines.length > 0 ? (
+        <div className="h-1 rounded-full bg-surface-alt overflow-hidden" data-planner-day-routine-progress>
+          <div className="h-full bg-green-500 transition-all" style={{ width: `${progressPct}%` }} />
+        </div>
+      ) : null}
+
       {isRoutineException ? (
         <p className={`text-[10px] lg:text-xs ${theme.textMuted}`} data-planner-day-routine-exception>
           {t('scheduleRoutineException')}
         </p>
       ) : null}
 
-      {routines.length === 0 ? (
+      {routines.length === 0 && !routineActions?.onAdd ? (
         <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {routines.map(routine => (
             <li key={routine.id}>
-              {interactive && routineActions?.onToggle ? (
+              {editingId === routine.id ? (
+                <input
+                  autoFocus
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  onBlur={() => submitEdit(routine.id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); submitEdit(routine.id); }
+                    if (e.key === 'Escape') setEditingId(null);
+                  }}
+                  className={`w-full px-2 py-1 text-xs lg:text-sm rounded-md border ${theme.border} bg-surface outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+                  data-planner-day-routine-edit={routine.id}
+                />
+              ) : interactive && routineActions?.onToggle ? (
                 <button
                   type="button"
                   onClick={() => routineActions.onToggle!(routine.id, routine.done)}
+                  onDoubleClick={routineActions.onEdit ? () => {
+                    setEditingId(routine.id);
+                    setEditText(routine.text);
+                  } : undefined}
                   className={`w-full text-left px-2 py-1 text-xs lg:text-sm rounded-md border ${theme.border}
                     flex items-center gap-2 min-h-[32px]
                     ${routine.done ? 'opacity-60 line-through' : 'font-medium'}
@@ -71,7 +116,6 @@ export function DayRoutineSummary({
                   className={`px-2 py-1 text-xs lg:text-sm rounded-md border ${theme.border}
                     ${routine.done ? 'opacity-60 line-through' : 'font-medium'}`}
                   data-planner-day-routine={routine.id}
-                  data-planner-day-routine-done={routine.done ? 'true' : 'false'}
                 >
                   {routine.text}
                 </div>
@@ -80,6 +124,21 @@ export function DayRoutineSummary({
           ))}
         </ul>
       )}
+
+      {routineActions?.onAdd ? (
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <Plus size={12} className={`shrink-0 ${theme.textMuted}`} />
+          <input
+            type="text"
+            value={newText}
+            onChange={e => setNewText(e.target.value)}
+            placeholder={t('addRoutine')}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitAdd(); } }}
+            className={`flex-1 bg-transparent outline-none text-[10px] lg:text-xs font-medium border-b ${theme.border} py-0.5`}
+            data-planner-day-routine-add
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -32,7 +32,6 @@ export {
   MonthCalendarCell,
   buildMonthCellDisplayModel,
   formatMonthOverflowLabel,
-  groupLegacyDdayCountdownsByDate,
   monthGridHasAnchors,
 } from './month';
 
