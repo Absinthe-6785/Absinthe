@@ -14,11 +14,20 @@ export type { DayRoutineSummaryProps } from './DayRoutineSummary';
 export { DayRoutineSummary } from './DayRoutineSummary';
 export type { DayTodoSummaryProps } from './DayTodoSummary';
 export { DayTodoSummary } from './DayTodoSummary';
+export type { DayRoutineActions } from './dayRoutineActions';
+export { dayRoutineActionsEnabled } from './dayRoutineActions';
+export type { DayTodoActions } from './dayTodoActions';
+export { dayTodoActionsEnabled } from './dayTodoActions';
+export type { DayCountdownStripProps } from './DayCountdownStrip';
+export { DayCountdownStrip } from './DayCountdownStrip';
+export type { DayActivitySectionProps } from './DayActivitySection';
+export { DayActivitySection } from './DayActivitySection';
 export {
   buildDayDisplayModel,
+  buildDayActivityItems,
   dayHasContent,
   formatDayRoutineSummary,
   formatDayTimeRange,
   formatDayTodoSummary,
 } from './dayCalendarPresentation';
-export type { DayDisplayModel } from './dayCalendarPresentation';
+export type { DayDisplayModel, DayActivityItem } from './dayCalendarPresentation';

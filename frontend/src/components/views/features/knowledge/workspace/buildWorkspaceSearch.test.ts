@@ -79,6 +79,14 @@ describe('buildWorkspaceSearch', () => {
     expect(groups.every(g => g.kind === 'project' || g.kind === 'milestone')).toBe(true);
   });
 
+  it('finds notes by body LaTeX content', () => {
+    const groups = buildWorkspaceSearch('b^2-4ac', [
+      note('m1', 'Quadratic', { body: 'The discriminant is $b^2-4ac$' }),
+    ], []);
+    const notes = groups.find(g => g.kind === 'note')?.results ?? [];
+    expect(notes.some(r => r.id === 'm1')).toBe(true);
+  });
+
   it('documents ranking behavior', () => {
     expect(WORKSPACE_SEARCH_RANKING_DOC).toContain('exact title');
   });

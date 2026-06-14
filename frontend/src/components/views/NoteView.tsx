@@ -5,6 +5,7 @@ import {
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
   SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap, Compass, Orbit, History,
+  Clock, Calendar, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -2328,7 +2329,6 @@ export const NoteView = () => {
             <>
               <div style={{ padding: '10px 10px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>{t('note')}</span>
-                <span style={{ fontSize: 9, color: c.accent, fontFamily: 'monospace', background: c.accentBg, padding: '1px 4px', borderRadius: 3 }}>β</span>
                 <div style={{ flex: 1 }}/>
                 <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }}                 title={t('nvShortcuts')}><Keyboard size={11}/></button>
                 <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title={t('nvCollapseSidebar')}>
@@ -2741,14 +2741,14 @@ export const NoteView = () => {
             {/* 정렬 */}
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title={t('nvSort')}>
-              {sortOrder === 'updated' ? '⏱' : sortOrder === 'title' ? 'Az' : '📅'}
+              {sortOrder === 'updated' ? <Clock size={10} /> : sortOrder === 'title' ? 'Az' : <Calendar size={10} />}
             </button>
             {showSortMenu && (
               <div className="bsort-menu" onClick={e => e.stopPropagation()}>
                 {(['updated', 'title', 'created'] as const).map(s => (
                   <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
                     onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? `⏱ ${t('nvSortUpdated')}` : s === 'title' ? t('nvSortTitle') : `📅 ${t('nvSortCreated')}`}
+                    {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
                   </div>
                 ))}
               </div>
@@ -3445,7 +3445,7 @@ export const NoteView = () => {
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
-              <div style={{ fontSize: 32 }}>📋</div>
+              <FileText size={32} strokeWidth={1.5} style={{ opacity: 0.4 }} />
               <p style={{ fontSize: 13 }}>{t('nvSelectNoteEmpty')}</p>
               <button className="bwbg" onClick={() => createNote()}>{t('nvNewNoteBtn')}</button>
               <button onClick={() => setViewMode('graph')}
@@ -3770,7 +3770,7 @@ export const NoteView = () => {
             )}
           </div>
 
-          {isTrash && (
+          {isTrash && activeNote && (
             <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
               <button onClick={() => showConfirm(
                   'Delete this note permanently? This cannot be undone.',

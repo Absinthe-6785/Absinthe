@@ -35,7 +35,7 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
     return rendered
       ? <div style={{ textAlign:'center', padding:'8px 0', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
       : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
-          {expr.trim() ? expr : '수식 없음'}
+          {expr.trim() ? expr : t('mathBlockEmpty')}
         </code>;
   }
 
@@ -77,7 +77,7 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
           ref={taRef}
           value={draft}
           spellCheck={false}
-          placeholder="LaTeX 입력 (예: a^2 + b^2 = c^2)"
+          placeholder={t('mathBlockPlaceholder')}
           onChange={e => { setDraft(e.target.value); onChange(e.target.value); }}
           onBlur={() => setEditing(false)}
           onKeyDown={e => {
@@ -95,7 +95,7 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
             dangerouslySetInnerHTML={{ __html: draftRendered }}/>
         )}
         <div style={{ fontSize:10, color:c.textFaint, marginTop:3, textAlign:'right' }}>
-          KaTeX · Esc 또는 포커스 해제로 완료
+          {t('mathBlockEditHint')}
         </div>
       </div>
     );
@@ -109,7 +109,7 @@ export function MathBlock({ block, colors: c, readOnly, onChange }: MathBlockPro
       {rendered
         ? <div style={{ textAlign:'center', overflowX:'auto' }} dangerouslySetInnerHTML={{ __html: rendered }}/>
         : <code style={{ background:c.codeBg, padding:'6px 10px', borderRadius:6, display:'block', color: expr.trim() ? c.danger : c.textFaint }}>
-            {expr.trim() ? expr : '수식 입력 (클릭)'}
+            {expr.trim() ? expr : t('mathBlockClickHint')}
           </code>}
     </div>
   );

@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
+import { noteMatchesPlainSearch } from '../../../../../lib/math/noteSearch';
 import type { NoteFolder } from '../../../../../store/useNotesStore';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
@@ -250,8 +251,11 @@ export function buildWorkspaceSearch(
     if (projectIds.has(note.id) || milestoneIds.has(note.id)) continue;
     const title = displayNoteTitle(note.title);
     const m = matchScore(title, q);
-    if (m !== null && kindAllowed('note', filter)) {
-      const base = buildResult('note', note.id, title, m, { noteId: note.id });
+    const bodyMatch = note.body && noteMatchesPlainSearch(note.body, q);
+    if ((m !== null || bodyMatch) && kindAllowed('note', filter)) {
+      const score = m ?? (bodyMatch ? 40 : null);
+      if (score === null) continue;
+      const base = buildResult('note', note.id, title, score, { noteId: note.id });
       results.push(service && galaxyMap
         ? enrichNoteResult(note, base, notes, service, galaxyMap, options.discoveryFeed, options.language)
         : base);
