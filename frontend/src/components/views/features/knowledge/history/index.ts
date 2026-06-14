@@ -46,3 +46,33 @@ export {
   getRecentlyLinkedNoteIds,
   hasRecordedHistory,
 } from './historyQueries';
+
+export {
+  HISTORY_BOOTSTRAP_STORAGE_KEY,
+  IMPORTED_METADATA_KEY,
+  IMPORTED_METADATA_VALUE,
+  bootstrapKnowledgeHistory,
+  hasNonImportedHistory,
+  isHistoryBootstrapComplete,
+  markHistoryBootstrapComplete,
+  maybeBootstrapKnowledgeHistory,
+} from './historyBootstrap';
+
+export {
+  groupEventsByDate,
+  isImportedEvent,
+  presentHistoryEvent,
+  type HistoryEventDayGroup,
+  type HistoryEventPresentation,
+} from './historyEventPresentation';
+
+export {
+  buildCosmosEvolutionStory,
+  buildCosmosEvolutionSummary,
+  buildDiscoveryProgressSummary,
+  getMilestoneNoteId,
+  latestAchievedMilestone,
+  type CosmosEvolutionStory,
+  type CosmosEvolutionSummary,
+  type DiscoveryProgressSummary,
+} from './historyEvolutionQueries';

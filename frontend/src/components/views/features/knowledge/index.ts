@@ -1034,7 +1034,11 @@ export {
   type RecentEvolutionSummary,
 } from './timeline';
 
-export { TimelinePanel, type TimelinePanelProps } from './components/TimelinePanel';
+export { TimelinePanel, type TimelinePanelProps, type TimelineSection } from './components/TimelinePanel';
+export { TimelineActivityFeed, type TimelineActivityFeedProps } from './components/TimelineActivityFeed';
+export { KnowledgeEvolutionSummary, type KnowledgeEvolutionSummaryProps } from './components/KnowledgeEvolutionSummary';
+export { CosmosEvolutionStory, type CosmosEvolutionStoryProps } from './components/CosmosEvolutionStory';
+export { DiscoveryProgressSection, type DiscoveryProgressSectionProps } from './components/DiscoveryProgressSection';
 export { TimelineDashboardCard, type TimelineDashboardCardProps } from './components/TimelineDashboardCard';
 export { KnowledgeActivityCard, type KnowledgeActivityCardProps } from './components/KnowledgeActivityCard';
 
@@ -1047,11 +1051,23 @@ export {
   recordDiscoveryResolved,
   subscribeKnowledgeHistory,
   clearKnowledgeHistory,
+  maybeBootstrapKnowledgeHistory,
+  bootstrapKnowledgeHistory,
+  presentHistoryEvent,
+  groupEventsByDate,
+  buildCosmosEvolutionSummary,
+  buildCosmosEvolutionStory,
+  buildDiscoveryProgressSummary,
+  getMilestoneNoteId,
+  latestAchievedMilestone,
   MAX_HISTORY_EVENTS,
   type KnowledgeHistoryEvent,
   type KnowledgeHistoryEventType,
   type KnowledgeActivitySummary,
   type NoteHistoryContext,
+  type CosmosEvolutionSummary,
+  type CosmosEvolutionStory as CosmosEvolutionStoryData,
+  type DiscoveryProgressSummary,
 } from './history';
 
 export {

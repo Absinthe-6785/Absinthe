@@ -106,6 +106,9 @@ export interface WorkspaceDashboardUnifiedProps {
   onOpenTimeline?: () => void;
   timeline?: KnowledgeTimeline;
   activitySummary?: import('../history').KnowledgeActivitySummary;
+  activityRecent?: { actionKey: import('../../../../../lib/i18n').TranslationKey; detail: string; noteId: string } | null;
+  activityLatestMilestone?: { titleKey: import('../../../../../lib/i18n').TranslationKey; noteId: string | null } | null;
+  activityGrowthTrend?: import('../timeline').RecentEvolutionSummary | null;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -435,6 +438,9 @@ export function WorkspaceDashboardView({
             onOpenTimeline={unified.onOpenTimeline}
             timeline={unified.timeline}
             activitySummary={unified.activitySummary}
+            activityRecent={unified.activityRecent}
+            activityLatestMilestone={unified.activityLatestMilestone}
+            activityGrowthTrend={unified.activityGrowthTrend}
             activeNoteCount={unified.activeNoteCount}
             onCreateNote={unified.onCreateNote}
             onOpenCosmos={unified.onOpenCosmos}

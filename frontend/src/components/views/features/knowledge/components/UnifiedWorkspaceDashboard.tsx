@@ -8,6 +8,8 @@ import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
 import { TimelineDashboardCard } from './TimelineDashboardCard';
 import { KnowledgeActivityCard } from './KnowledgeActivityCard';
 import type { KnowledgeActivitySummary } from '../history';
+import type { RecentEvolutionSummary } from '../timeline';
+import type { TranslationKey } from '../../../../../lib/i18n';
 import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
 import type { KnowledgeTimeline } from '../timeline';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
@@ -38,6 +40,9 @@ export interface UnifiedWorkspaceDashboardProps {
   onOpenTimeline?: () => void;
   timeline?: KnowledgeTimeline;
   activitySummary?: KnowledgeActivitySummary;
+  activityRecent?: { actionKey: TranslationKey; detail: string; noteId: string } | null;
+  activityLatestMilestone?: { titleKey: TranslationKey; noteId: string | null } | null;
+  activityGrowthTrend?: RecentEvolutionSummary | null;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -122,6 +127,9 @@ export function UnifiedWorkspaceDashboard({
   onOpenTimeline,
   timeline,
   activitySummary,
+  activityRecent,
+  activityLatestMilestone,
+  activityGrowthTrend,
   activeNoteCount = 0,
   onCreateNote,
   onOpenCosmos,
@@ -145,7 +153,15 @@ export function UnifiedWorkspaceDashboard({
             />
           )}
           {activitySummary && (
-            <KnowledgeActivityCard colors={c} summary={activitySummary} compact={compact} />
+            <KnowledgeActivityCard
+              colors={c}
+              summary={activitySummary}
+              compact={compact}
+              recentActivity={activityRecent ?? undefined}
+              latestMilestone={activityLatestMilestone ?? undefined}
+              growthTrend={activityGrowthTrend ?? undefined}
+              onNavigateToNote={onNavigateToNote}
+            />
           )}
           {timeline && onOpenTimeline && timeline.snapshots.length > 0 && (
             <TimelineDashboardCard
