@@ -97,8 +97,46 @@ export {
 
 export {
   exportCosmosEvolutionMarkdown,
+  exportActivityFeedMarkdown,
+  exportJourneySummaryMarkdown,
+  exportMarkdownByKind,
+  copyMarkdownToClipboard,
   copyCosmosEvolutionMarkdown,
+  downloadMarkdownFile,
+  exportFilename,
+  type ExportKind,
 } from './knowledgeHistoryExport';
+
+export {
+  generateKnowledgeEvolutionReport,
+  type EvolutionReportOptions,
+} from './KnowledgeEvolutionReport';
+
+export {
+  analyzeDormantAreas,
+  DORMANT_THRESHOLD_DAYS,
+  type DormantAreaInsight,
+} from './DormantAreaAnalyzer';
+
+export {
+  buildKnowledgeMomentumSnapshot,
+  momentumForArea,
+  MOMENTUM_WEIGHTS,
+  type AreaMomentumScore,
+  type KnowledgeMomentumSnapshot,
+} from './knowledgeMomentum';
+
+export {
+  buildAreaComparison,
+  defaultComparisonLabels,
+  type AreaComparisonEntry,
+  type AreaComparisonResult,
+} from './historyAreaComparisonQueries';
+
+export {
+  buildEvolutionInsightsSummary,
+  type EvolutionInsightsSummary,
+} from './evolutionInsightsQueries';
 
 export {
   BOOTSTRAP_SUMMARY_DISMISSED_KEY,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
@@ -10,7 +10,8 @@ import type {
   ExpandedCosmosEvolutionStory,
 } from '../history/historyEvolutionQueries';
 import type { BootstrapImportSummary } from '../history/bootstrapSummaryStorage';
-import type { KnowledgeJourney } from '../history/historyJourneyQueries';
+import type { EvolutionInsightsSummary } from '../history/evolutionInsightsQueries';
+import type { ExportKind } from '../history/knowledgeHistoryExport';
 import { getMilestoneNoteId } from '../history/historyEvolutionQueries';
 import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
@@ -21,7 +22,11 @@ import { CosmosEvolutionStory as CosmosEvolutionStoryPanel } from './CosmosEvolu
 import { DiscoveryProgressSection } from './DiscoveryProgressSection';
 import { AreaEvolutionPanel } from './AreaEvolutionPanel';
 import { KnowledgeJourneyPanel } from './KnowledgeJourneyPanel';
+import { AreaComparisonPanel } from './AreaComparisonPanel';
+import { DormantAreasSection } from './DormantAreasSection';
+import { TimelineExportMenu } from './TimelineExportMenu';
 import { BootstrapImportSummaryCard } from './BootstrapImportSummaryCard';
+import type { KnowledgeJourney } from '../history/historyJourneyQueries';
 
 export type TimelineSection = 'overview' | 'activity' | 'milestones';
 
@@ -36,9 +41,11 @@ export interface TimelinePanelProps {
   evolutionStory: ExpandedCosmosEvolutionStory;
   discoveryProgress: DiscoveryProgressSummary;
   knowledgeJourney: KnowledgeJourney;
+  evolutionInsights: EvolutionInsightsSummary;
   bootstrapSummary?: BootstrapImportSummary | null;
+  initialSelectedArea?: string | null;
   onDismissBootstrap?: () => void;
-  onExportEvolution?: () => void;
+  onExport?: (kind: ExportKind, mode: 'copy' | 'download') => void;
   onNavigateToNote?: (noteId: string) => void;
   compact?: boolean;
 }
@@ -136,15 +143,22 @@ export function TimelinePanel({
   evolutionStory,
   discoveryProgress,
   knowledgeJourney,
+  evolutionInsights,
   bootstrapSummary,
+  initialSelectedArea,
   onDismissBootstrap,
-  onExportEvolution,
+  onExport,
   onNavigateToNote,
   compact,
 }: TimelinePanelProps) {
   const { t } = useTranslation();
   const [section, setSection] = useState<TimelineSection>('overview');
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
+  const [showComparison, setShowComparison] = useState(false);
+
+  useEffect(() => {
+    if (initialSelectedArea) setSelectedArea(initialSelectedArea);
+  }, [initialSelectedArea]);
 
   const modes: TimelinePeriodMode[] = ['month', 'quarter', 'all'];
   const achievedMilestones = timeline.milestones.filter(m => m.achieved);
@@ -155,6 +169,26 @@ export function TimelinePanel({
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <CosmosSuiteHeader c={c} active="timeline" t={t} />
         <KnowledgePanelEmpty colors={c}>{t('k42TimelineEmpty')}</KnowledgePanelEmpty>
+      </div>
+    );
+  }
+
+  if (showComparison) {
+    return (
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <CosmosSuiteHeader c={c} active="timeline" t={t} />
+        <AreaComparisonPanel
+          colors={c}
+          notes={notes}
+          events={historyEvents}
+          areaRows={timeline.areaEvolution}
+          momentum={evolutionInsights.momentum}
+          onBack={() => setShowComparison(false)}
+          onSelectArea={label => {
+            setShowComparison(false);
+            setSelectedArea(label);
+          }}
+        />
       </div>
     );
   }
@@ -181,26 +215,7 @@ export function TimelinePanel({
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <CosmosSuiteHeader c={c} active="timeline" t={t} />
       <SectionTabs c={c} section={section} onChange={setSection} />
-      {onExportEvolution && (
-        <div style={{ padding: '0 8px 8px', textAlign: 'right' }}>
-          <button
-            type="button"
-            onClick={onExportEvolution}
-            style={{
-              fontSize: 9,
-              fontWeight: 500,
-              padding: '4px 8px',
-              borderRadius: 999,
-              border: `1px solid ${c.sideBdr}`,
-              background: c.cardHov,
-              color: c.textMuted,
-              cursor: 'pointer',
-            }}
-          >
-            {t('k46ExportEvolution')}
-          </button>
-        </div>
-      )}
+      {onExport && <TimelineExportMenu colors={c} onExport={onExport} />}
 
       {section === 'overview' && (
         <>
@@ -279,6 +294,23 @@ export function TimelinePanel({
 
           {timeline.areaEvolution.length > 0 && (
             <KnowledgePanelSection colors={c} title={t('k42SectionAreaEvolution')} count={timeline.areaEvolution.length}>
+              <div style={{ padding: '0 8px 6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowComparison(true)}
+                  style={{
+                    fontSize: 9,
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    border: `1px solid ${c.sideBdr}`,
+                    background: c.cardHov,
+                    color: c.accent,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t('k47CompareAreas')}
+                </button>
+              </div>
               {timeline.areaEvolution.map(row => (
                 <button
                   key={row.areaLabel}
@@ -309,6 +341,16 @@ export function TimelinePanel({
                   ))}
                 </button>
               ))}
+            </KnowledgePanelSection>
+          )}
+
+          {evolutionInsights.dormantAreas.length > 0 && (
+            <KnowledgePanelSection colors={c} title={t('k47DormantAreas')} count={evolutionInsights.dormantAreas.length}>
+              <DormantAreasSection
+                colors={c}
+                areas={evolutionInsights.dormantAreas}
+                onSelectArea={setSelectedArea}
+              />
             </KnowledgePanelSection>
           )}
 
