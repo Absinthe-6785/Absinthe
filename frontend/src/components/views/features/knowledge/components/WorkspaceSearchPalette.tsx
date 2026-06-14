@@ -14,6 +14,10 @@ import {
   type WorkspaceSearchGroup,
   type WorkspaceSearchResult,
 } from '../workspace/buildWorkspaceSearch';
+import {
+  loadWorkspaceSearchRecent,
+  pushWorkspaceSearchRecent,
+} from '../workspace/workspaceSearchRecent';
 import { importanceClassificationLabel } from '../knowledgeLabels';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
 import type { DiscoveryFeed } from '../discovery';
