@@ -30,6 +30,13 @@ describe('shouldDeleteSelectedBlocks', () => {
     )).toBe(true);
   });
 
+  it('returns false when focus is a form control (e.g. tag rename input)', () => {
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Backspace', { tagName: 'INPUT', isContentEditable: false }),
+      new Set(['a']),
+    )).toBe(false);
+  });
+
   it('returns false for non-empty editable block even when selected', () => {
     const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('hello');

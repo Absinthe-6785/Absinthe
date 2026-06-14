@@ -102,7 +102,7 @@ export function KnowledgeContextPanel({
               type="button"
               role="tab"
               aria-selected={selected}
-              title={tab.hint ?? label}
+              title={hint ?? label}
               onClick={() => onTabChange(key)}
               style={{
                 flex: '1 0 auto',
