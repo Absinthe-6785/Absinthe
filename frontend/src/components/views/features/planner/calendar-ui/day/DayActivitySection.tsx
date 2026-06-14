@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import type { DayActivityItem } from './dayCalendarPresentation';
 
 export interface DayActivitySectionProps {

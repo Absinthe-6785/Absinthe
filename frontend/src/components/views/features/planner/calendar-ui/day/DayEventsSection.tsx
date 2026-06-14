@@ -1,5 +1,5 @@
 import type { PlannerEventOccurrence } from '../../calendar';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { spanPositionClass } from '../month/monthCalendarPresentation';
 
 export interface DayEventsSectionProps {

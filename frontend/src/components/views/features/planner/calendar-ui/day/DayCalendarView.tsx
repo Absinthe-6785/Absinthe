@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import type { Theme } from '../../../../../../types';
-import { useTranslation } from '../../../../../../lib/i18n';
+import type { Theme } from '@/types';
+import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { DayEventsSection } from './DayEventsSection';
 import { DayHeader } from './DayHeader';

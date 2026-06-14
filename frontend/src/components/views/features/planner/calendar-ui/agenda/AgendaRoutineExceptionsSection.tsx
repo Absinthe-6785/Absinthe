@@ -1,5 +1,5 @@
 import { AlertCircle } from 'lucide-react';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 
 export interface AgendaRoutineExceptionsSectionProps {
   exceptionDates: readonly string[];

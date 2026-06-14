@@ -1,6 +1,6 @@
 import { Edit2, Plus, Trash2 } from 'lucide-react';
 import type { PlannerScheduleRow } from '../../calendar';
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { formatDayTimeRange } from './dayCalendarPresentation';
 import type { DayScheduleActions } from './dayScheduleActions';
 import { dayScheduleActionsEnabled } from './dayScheduleActions';

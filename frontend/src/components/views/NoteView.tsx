@@ -38,13 +38,10 @@ import {
   BacklinkPanel,
   ReferenceExplorerPanel,
   buildKnowledgeMaintenanceData,
-  buildUnifiedWorkspaceDashboard,
   buildStudyNote,
   buildConceptHub,
   buildLearningPath,
   getLearningPathId,
-  buildAllSubjectWorkspaces,
-  buildLearningPathOverview,
   buildProjectEditorData,
   findSmartCollection,
   setStudyProjectContainer,
@@ -111,18 +108,8 @@ import {
   NotePropertiesPanel,
   NoteTagsPanel,
   NoteRelationsPanel,
-  buildNoteIntelligenceSnapshot,
   CosmosInsightsPanel,
   CosmosActionsPanel,
-  buildCosmosVaultAnalysis,
-  addRelationTarget,
-  buildAreaAssignmentPatch,
-  buildConnectPatch,
-  buildHubNoteTemplate,
-  buildDiscoveryFeed,
-  buildImportanceInputForNote,
-  buildKnowledgeTimeline,
-  resolveCosmosVaultPhase,
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
@@ -180,32 +167,6 @@ import { KnowledgeContextPanel, type KnowledgeContextTab } from './features/know
 import { KnowledgePanelEmpty } from './features/knowledge/components/KnowledgePanelSection';
 import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
 import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
-import type { TimelinePeriodMode } from './features/knowledge/timeline';
-import {
-  getActivitySummary,
-  getNoteHistoryContext,
-  loadKnowledgeHistoryEvents,
-  recordDiscoveryResolved,
-  subscribeKnowledgeHistory,
-  maybeBootstrapKnowledgeHistory,
-  buildCosmosEvolutionSummary,
-  buildExpandedCosmosEvolutionStory,
-  buildDiscoveryProgressSummary,
-  latestAchievedMilestone,
-  getMilestoneNoteId,
-  presentHistoryEvent,
-  getRecentEvents,
-  buildKnowledgeJourney,
-  buildEvolutionInsightsSummary,
-  exportMarkdownByKind,
-  copyMarkdownToClipboard,
-  downloadMarkdownFile,
-  exportFilename,
-  type ExportKind,
-  loadBootstrapImportSummary,
-  dismissBootstrapSummary,
-  isBootstrapSummaryDismissed,
-} from './features/knowledge/history';
 import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
 import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
 import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
@@ -213,7 +174,6 @@ import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUnive
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
-import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
   BlockEditor,
   useBlockEditor,
@@ -240,6 +200,7 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { registerTraceNavigation } from '../../lib/traceNavigation';
+import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels } from './noteview/index';
 
 const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
   'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
@@ -362,10 +323,55 @@ export const NoteView = () => {
   }, [updateNote]);
 
   // ── Local UI state ────────────────────────────────────────────────
-  const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
-
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const [viewMode, setViewMode] = useState<EditorMode>('edit');
+  const {
+    activeFolderId, setActiveFolderId,
+    titleInputRef,
+    viewMode, setViewMode,
+    searchQuery, setSearchQuery,
+    searchScope, setSearchScope,
+    searchMatchIdx, setSearchMatchIdx,
+    showFolderForm, setShowFolderForm,
+    newFolderName, setNewFolderName,
+    renamingFolderId, setRenamingFolderId,
+    renameVal, setRenameVal,
+    activeTocIdx, setActiveTocIdx,
+    tocKeyboardIdx, setTocKeyboardIdx,
+    activeTag, setActiveTag,
+    rightPanel, setRightPanel,
+    timelineMode, setTimelineMode,
+    timelineInitialArea, setTimelineInitialArea,
+    tocCollapsed, setTocCollapsed,
+    focusMode, setFocusMode,
+    showShortcuts, setShowShortcuts,
+    sortOrder, setSortOrder,
+    showSortMenu, setShowSortMenu,
+    dragNoteId, setDragNoteId,
+    showRightPanel, setShowRightPanel,
+    headerTagsExpanded, setHeaderTagsExpanded,
+    sidebarCollapsed, setSidebarCollapsed,
+    workspaceExpanded, setWorkspaceExpanded,
+    editingLearningPathId, setEditingLearningPathId,
+    showAppearance, setShowAppearance,
+    traceDate, setTraceDate,
+    traceRange, setTraceRange,
+    traceAreaId, setTraceAreaId,
+    traceAreaRange, setTraceAreaRange,
+    traceDiscoveryMode, setTraceDiscoveryMode,
+    mobileSidebarOpen, setMobileSidebarOpen,
+    mobileShowEditor, setMobileShowEditor,
+    docCopied, setDocCopied,
+    titleComposingRef,
+    titleDraft, setTitleDraft,
+    docCopyTimerRef,
+    shortcutsPanelRef,
+    eventDialog, setEventDialog,
+    openCreateEventDialogRef,
+    milestoneDialog, setMilestoneDialog,
+    workspaceSearchOpen, setWorkspaceSearchOpen,
+    createProjectDialogOpen, setCreateProjectDialogOpen,
+    createMilestoneDialogOpen, setCreateMilestoneDialogOpen,
+    resetBrowseScope,
+  } = useNoteViewState();
 
   const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
     const id = storeCreateNote({
@@ -427,80 +433,14 @@ export const NoteView = () => {
     });
   }, [notes]);
 
-  // ── UI 상태 ─────────────────────────────────────────────────────
-  const [searchQuery,    setSearchQuery]    = useState('');
-  const [searchScope,    setSearchScope]    = useState<EditorSearchScope>('document');
-  const [searchMatchIdx, setSearchMatchIdx] = useState(0);
-  const [showFolderForm, setShowFolderForm] = useState(false);
-  const [newFolderName,  setNewFolderName]  = useState('');
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renameVal, setRenameVal] = useState('');
-  const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
-  const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
-  const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'actions' | 'discover' | 'timeline' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
-  const [timelineMode, setTimelineMode] = useState<TimelinePeriodMode>('month');
-  const [timelineInitialArea, setTimelineInitialArea] = useState<string | null>(null);
-  const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
-  const [focusMode,      setFocusMode]      = useState(false);
-  const [showShortcuts,  setShowShortcuts]  = useState(false);
-  const [sortOrder,      setSortOrder]      = useState<'updated' | 'title' | 'created'>('updated');
-  const [showSortMenu,   setShowSortMenu]   = useState(false);
-  const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
-  const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
-  const [headerTagsExpanded, setHeaderTagsExpanded] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
-  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
-  const [editingLearningPathId, setEditingLearningPathId] = useState<string | null | undefined>(undefined);
-  const [showAppearance, setShowAppearance] = useState(false);
-  const [traceDate, setTraceDate] = useState<string | null>(null);
-  const [traceRange, setTraceRange] = useState<TraceRangeLens | null>(null);
-  const [traceAreaId, setTraceAreaId] = useState<string | null>(null);
-  const [traceAreaRange, setTraceAreaRange] = useState<TraceRangeLens | null>(null);
-  const [traceDiscoveryMode, setTraceDiscoveryMode] = useState(false);
   const { isMobile, isTablet } = useViewportLayout();
   const isCompactChrome = isMobile || isTablet;
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [mobileShowEditor, setMobileShowEditor] = useState(false);
-  const [docCopied, setDocCopied] = useState(false);
-  const titleComposingRef = useRef(false);
-  const [titleDraft, setTitleDraft] = useState('');
-  const docCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const shortcutsPanelRef = useRef<HTMLDivElement>(null);
   useModalA11y({ open: showShortcuts, onClose: () => setShowShortcuts(false), containerRef: shortcutsPanelRef });
 
   useEffect(() => {
     if (isTablet && !isMobile) setSidebarCollapsed(true);
-  }, [isTablet, isMobile]);
-
-  type EventDialogState = {
-    mode: 'create' | 'edit';
-    noteId?: string;
-    initialValues: EventFormValues;
-  };
-  const [eventDialog, setEventDialog] = useState<EventDialogState | null>(null);
-  const openCreateEventDialogRef = useRef<(defaults?: Partial<EventFormValues>) => void>(() => {});
-
-  type MilestoneDialogState = {
-    noteId: string;
-    noteTitle: string;
-    initialValues: MilestoneFormValues;
-    hasExistingMilestone: boolean;
-  };
-  const [milestoneDialog, setMilestoneDialog] = useState<MilestoneDialogState | null>(null);
-  const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
-  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
-  const [createMilestoneDialogOpen, setCreateMilestoneDialogOpen] = useState(false);
-
-  const resetBrowseScope = useCallback(() => {
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setTraceDate(null);
-    setTraceRange(null);
-    setTraceAreaId(null);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-  }, []);
+  }, [isTablet, isMobile, setSidebarCollapsed]);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
   const createTaskRef = useRef<(input: CreateTaskInput) => string | void>(() => {});
@@ -1299,43 +1239,26 @@ export const NoteView = () => {
     [notes],
   );
 
-  const [historyVersion, setHistoryVersion] = useState(0);
-  const [bootstrapDismissed, setBootstrapDismissed] = useState(() => isBootstrapSummaryDismissed());
-  useEffect(() => subscribeKnowledgeHistory(() => setHistoryVersion(v => v + 1)), []);
-
-  useEffect(() => {
-    maybeBootstrapKnowledgeHistory(notes, knowledgeIndexService);
-  }, [notes]);
-
-  const historyEvents = useMemo(
-    () => loadKnowledgeHistoryEvents(),
-    [historyVersion],
-  );
-
-  const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService, { historyEvents }),
-    [notes, historyEvents],
-  );
-
-  const unifiedWorkspaceDashboard = useMemo(
-    () => buildUnifiedWorkspaceDashboard(notes, {
-      limit: 6,
-      service: knowledgeIndexService,
-      language: lang,
-      discoveryFeed,
-    }),
-    [notes, lang, discoveryFeed],
-  );
-
-  const learningPathOverview = useMemo(
-    () => buildLearningPathOverview(notes),
-    [notes],
-  );
-
-  const subjectWorkspaces = useMemo(
-    () => buildAllSubjectWorkspaces(notes, { limit: 6 }),
-    [notes],
-  );
+  const {
+    historyEvents,
+    discoveryFeed,
+    unifiedWorkspaceDashboard,
+    learningPathOverview,
+    subjectWorkspaces,
+    cosmosVaultPhase,
+    knowledgeTimeline,
+    activitySummary,
+    cosmosEvolutionSummary,
+    cosmosEvolutionStory,
+    knowledgeJourney,
+    evolutionInsights,
+    bootstrapImportSummary,
+    discoveryProgress,
+    dashboardRecentActivity,
+    dashboardLatestMilestone,
+    handleDismissBootstrapSummary,
+    handleExportHistory,
+  } = useNoteViewDashboard({ notes, lang, timelineMode, activeNote });
 
   const projectEditorData = useMemo(
     () => (activeNote && isStudyProjectContainer(activeNote)
@@ -1439,277 +1362,43 @@ export const NoteView = () => {
     [noteBibliography, activeNote],
   );
 
-  const openContextPanel = useCallback((tab: typeof rightPanel) => {
-    setShowRightPanel(true);
-    setRightPanel(tab);
-  }, []);
-
-  const noteIntelligenceSnapshot = useMemo(
-    () => (activeNote ? buildNoteIntelligenceSnapshot(activeNote, notes, knowledgeIndexService) : null),
-    [activeNote, notes],
-  );
-
-  const cosmosVaultPhase = useMemo(
-    () => resolveCosmosVaultPhase(notes, knowledgeIndexService, discoveryFeed.summary.totalCount),
-    [notes, discoveryFeed.summary.totalCount],
-  );
-
-  const knowledgeTimeline = useMemo(
-    () => buildKnowledgeTimeline(notes, knowledgeIndexService, discoveryFeed, {
-      mode: timelineMode,
-      historyEvents,
-    }),
-    [notes, discoveryFeed, timelineMode, historyEvents],
-  );
-
-  const activitySummary = useMemo(
-    () => getActivitySummary(30, Date.now(), historyEvents),
-    [historyEvents],
-  );
-
-  const cosmosEvolutionSummary = useMemo(
-    () => buildCosmosEvolutionSummary(notes, knowledgeIndexService, historyEvents),
-    [notes, historyEvents],
-  );
-
-  const cosmosEvolutionStory = useMemo(
-    () => buildExpandedCosmosEvolutionStory(
-      cosmosEvolutionSummary,
-      historyEvents,
-      notes,
-      knowledgeTimeline.areaEvolution,
-      knowledgeTimeline.milestones,
-    ),
-    [cosmosEvolutionSummary, historyEvents, notes, knowledgeTimeline.areaEvolution, knowledgeTimeline.milestones],
-  );
-
-  const knowledgeJourney = useMemo(
-    () => buildKnowledgeJourney(knowledgeTimeline.milestones, historyEvents),
-    [knowledgeTimeline.milestones, historyEvents],
-  );
-
-  const evolutionInsights = useMemo(
-    () => buildEvolutionInsightsSummary(notes, knowledgeTimeline, historyEvents),
-    [notes, knowledgeTimeline, historyEvents],
-  );
-
-  const bootstrapImportSummary = useMemo(() => {
-    if (bootstrapDismissed || isBootstrapSummaryDismissed()) return null;
-    return loadBootstrapImportSummary();
-  }, [bootstrapDismissed, historyVersion]);
-
-  const handleDismissBootstrapSummary = useCallback(() => {
-    dismissBootstrapSummary();
-    setBootstrapDismissed(true);
-  }, []);
-
-  const handleExportHistory = useCallback(async (kind: ExportKind, mode: 'copy' | 'download') => {
-    const markdown = exportMarkdownByKind(kind, {
-      evolution: {
-        summary: cosmosEvolutionSummary,
-        story: cosmosEvolutionStory,
-        milestones: knowledgeTimeline.milestones,
-        lang,
-      },
-      report: {
-        momentum: evolutionInsights.momentum,
-        dormantAreas: evolutionInsights.dormantAreas,
-        latestMilestoneTitleKey: evolutionInsights.latestMilestoneTitleKey,
-        latestMilestoneAt: evolutionInsights.latestMilestoneAt,
-        lang,
-        events: historyEvents,
-      },
-      activity: { events: historyEvents, notes, lang },
-      journey: { journey: knowledgeJourney, lang },
-    });
-    if (mode === 'download') {
-      downloadMarkdownFile(exportFilename(kind), markdown);
-    } else {
-      await copyMarkdownToClipboard(markdown);
-    }
-  }, [
-    cosmosEvolutionSummary,
-    cosmosEvolutionStory,
-    knowledgeTimeline.milestones,
-    evolutionInsights,
-    historyEvents,
+  const {
+    openContextPanel,
+    noteIntelligenceSnapshot,
+    noteHistoryContext,
+    noteTierInput,
+    handleLearnLinking,
+    handleStartWikiLink,
+    handleCreateRelatedNote,
+    handleOpenDiscover,
+    handleOpenCosmosGraph,
+    handleOpenTimeline,
+    handleOpenEvolution,
+    handleNavigateToArea,
+    handleDiscoveryCreateRelation,
+    handleCosmosConnect,
+    handleCosmosAssignArea,
+    handleCosmosCreateHub,
+    handleCosmosCreateRelation,
+    handleLinkRelatedNote,
+    handleHudReviewWeakAreas,
+  } = useNoteViewPanels({
     notes,
-    knowledgeJourney,
-    lang,
-  ]);
-
-  const discoveryProgress = useMemo(
-    () => buildDiscoveryProgressSummary(historyEvents),
-    [historyEvents],
-  );
-
-  const dashboardRecentActivity = useMemo(() => {
-    const recent = getRecentEvents(1, historyEvents)[0];
-    if (!recent) return null;
-    const row = presentHistoryEvent(recent, notes);
-    return { actionKey: row.actionKey, detail: row.detail, noteId: row.noteId };
-  }, [historyEvents, notes]);
-
-  const dashboardLatestMilestone = useMemo(() => {
-    const milestone = latestAchievedMilestone(knowledgeTimeline.milestones);
-    if (!milestone) return null;
-    return {
-      titleKey: milestone.titleKey,
-      noteId: getMilestoneNoteId(milestone.id, historyEvents),
-    };
-  }, [knowledgeTimeline.milestones, historyEvents]);
-
-  const noteHistoryContext = useMemo(
-    () => (activeNote ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents) : null),
-    [activeNote, historyEvents],
-  );
-
-  const noteTierInput = useMemo(() => {
-    if (!activeNote) return null;
-    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
-    return buildImportanceInputForNote(activeNote, knowledgeIndexService, galaxyMap.get(activeNote.id));
-  }, [activeNote, notes]);
-
-  const handleLearnLinking = useCallback(() => {
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) {
-      setActiveNoteId(target.id);
-      setViewMode('edit');
-      setShowRightPanel(true);
-      setRightPanel('links');
-      return;
-    }
-    createNote();
-  }, [activeNote, notes, createNote, setActiveNoteId, setViewMode]);
-
-  const handleStartWikiLink = useCallback(() => {
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) {
-      setActiveNoteId(target.id);
-      setViewMode('edit');
-      setShowRightPanel(true);
-      setRightPanel('links');
-      setTimeout(() => blockEditorRef.current?.insertWikiLinkDraft(), 80);
-      return;
-    }
-    const id = createNote({ body: '' });
-    setTimeout(() => blockEditorRef.current?.insertWikiLinkDraft(), 120);
-    return id;
-  }, [activeNote, notes, createNote, setActiveNoteId, setViewMode]);
-
-  const handleCreateRelatedNote = useCallback(() => {
-    createNote({ title: '', body: '' });
-  }, [createNote]);
-
-  const handleOpenDiscover = useCallback(() => {
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) setActiveNoteId(target.id);
-    setViewMode('edit');
-    setShowRightPanel(true);
-    setRightPanel('discover');
-  }, [activeNote, notes, setActiveNoteId, setViewMode]);
-
-  const handleOpenCosmosGraph = useCallback(() => {
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) setActiveNoteId(target.id);
-    setViewMode('edit');
-    setShowRightPanel(true);
-    setRightPanel('graph');
-  }, [activeNote, notes, setActiveNoteId, setViewMode]);
-
-  const handleOpenTimeline = useCallback(() => {
-    setTimelineInitialArea(null);
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) setActiveNoteId(target.id);
-    setViewMode('edit');
-    setShowRightPanel(true);
-    setRightPanel('timeline');
-  }, [activeNote, notes, setActiveNoteId, setViewMode]);
-
-  const handleOpenEvolution = useCallback(() => {
-    setTimelineInitialArea(null);
-    handleOpenTimeline();
-  }, [handleOpenTimeline]);
-
-  const handleNavigateToArea = useCallback((areaLabel: string) => {
-    setTimelineInitialArea(areaLabel);
-    const target = activeNote ?? notes.find(n => !n.deletedAt);
-    if (target) setActiveNoteId(target.id);
-    setViewMode('edit');
-    setShowRightPanel(true);
-    setRightPanel('timeline');
-  }, [activeNote, notes, setActiveNoteId, setViewMode]);
-
-  const handleDiscoveryCreateRelation = useCallback((sourceNoteId: string, targetNoteId: string) => {
-    const source = notes.find(n => n.id === sourceNoteId);
-    if (!source) return;
-    const updated = addRelationTarget(source, 'related-to', targetNoteId);
-    noteUpdate(sourceNoteId, { relations: updated.relations });
-    recordDiscoveryResolved(sourceNoteId, { action: 'create-relation' }, targetNoteId);
-    setActiveNoteId(sourceNoteId);
-    setViewMode('edit');
-    setShowRightPanel(true);
-    setRightPanel('discover');
-  }, [notes, noteUpdate, setActiveNoteId, setViewMode]);
-
-  const handleCosmosConnect = useCallback((targetTitle: string) => {
-    if (!activeNote) return;
-    noteUpdate(activeNote.id, buildConnectPatch(activeNote, targetTitle));
-    recordDiscoveryResolved(activeNote.id, { action: 'connect', targetTitle });
-  }, [activeNote, noteUpdate]);
-
-  const handleCosmosAssignArea = useCallback((areaLabel: string, areaNoteId?: string) => {
-    if (!activeNote) return;
-    const areaNote = areaNoteId
-      ? notes.find(n => n.id === areaNoteId)
-      : notes.find(n => (n.title ?? '').trim() === areaLabel.trim());
-    const linkTitle = areaNote?.title?.trim() || areaLabel;
-    noteUpdate(activeNote.id, buildAreaAssignmentPatch(activeNote, areaLabel, linkTitle));
-    recordDiscoveryResolved(activeNote.id, { action: 'assign-area', areaLabel }, areaNoteId);
-  }, [activeNote, notes, noteUpdate]);
-
-  const handleCosmosCreateHub = useCallback((areaLabel: string) => {
-    const template = buildHubNoteTemplate(areaLabel);
-    const id = createNote({ title: template.title, body: template.body });
-    noteUpdate(id, { properties: applyAreaToNote({ id, title: template.title } as Note).properties });
-    recordDiscoveryResolved(id, { action: 'create-hub', areaLabel });
-    setActiveNoteId(id);
-    openContextPanel('actions');
-  }, [createNote, noteUpdate, setActiveNoteId, openContextPanel]);
-
-  const handleCosmosCreateRelation = useCallback((targetNoteId: string) => {
-    if (!activeNote) return;
-    const updated = addRelationTarget(activeNote, 'related-to', targetNoteId);
-    noteUpdate(activeNote.id, { relations: updated.relations });
-    recordDiscoveryResolved(activeNote.id, { action: 'create-relation' }, targetNoteId);
-  }, [activeNote, noteUpdate]);
-
-  const handleLinkRelatedNote = useCallback((_noteId: string, noteTitle: string) => {
-    if (!activeNote) return;
-    noteUpdate(activeNote.id, buildConnectPatch(activeNote, noteTitle));
-  }, [activeNote, noteUpdate]);
-
-  const handleHudReviewWeakAreas = useCallback(() => {
-    const analysis = buildCosmosVaultAnalysis(notes, knowledgeIndexService);
-    const weak = analysis.areaHealthRows
-      .filter(row => row.category === 'fragmented' || row.category === 'critical')
-      .sort((a, b) => a.score - b.score)[0];
-    if (!weak) return;
-    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
-    const member = notes.find(
-      n => !n.deletedAt && galaxyMap.get(n.id)?.galaxyId === weak.galaxyId && n.id !== weak.galaxyId,
-    );
-    if (member) {
-      setActiveNoteId(member.id);
-      setViewMode('edit');
-      setShowRightPanel(true);
-      setRightPanel('actions');
-    }
-  }, [notes, setActiveNoteId, setViewMode]);
+    activeNote,
+    historyEvents,
+    noteUpdate,
+    createNote,
+    setActiveNoteId,
+    setViewMode,
+    setShowRightPanel,
+    setRightPanel,
+    setTimelineInitialArea,
+    blockEditorRef,
+  });
 
   useEffect(() => {
     setHeaderTagsExpanded(false);
-  }, [activeNote?.id]);
+  }, [activeNote?.id, setHeaderTagsExpanded]);
 
   const activeNoteKind = activeNote ? getNoteKind(activeNote) : null;
 

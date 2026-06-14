@@ -1,4 +1,4 @@
-import type { Theme } from '../../../../../../types';
+import type { Theme } from '@/types';
 import type { PlannerWeekViewPayload } from '../../calendar';
 import { WeekDayColumn } from './WeekDayColumn';
 import { buildWeekDayDisplayModels } from './weekCalendarPresentation';

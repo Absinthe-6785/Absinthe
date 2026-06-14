@@ -1,4 +1,4 @@
-import type { Routine, Todo } from '../../../../../../types';
+import type { Routine, Todo } from '@/types';
 import type { PlannerDayViewPayload } from '../../calendar';
 
 export interface DayActivityItem {

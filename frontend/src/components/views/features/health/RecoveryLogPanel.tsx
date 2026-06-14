@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BedDouble, Moon, TrendingDown, TrendingUp, Minus } from 'lucide-react';
-import { useTranslation } from '../../../../lib/i18n';
-import type { Theme } from '../../../../types';
+import { useTranslation } from '@/lib/i18n';
+import type { Theme } from '@/types';
 import {
   getRecoveryEntry,
   getRecoveryHistory,
