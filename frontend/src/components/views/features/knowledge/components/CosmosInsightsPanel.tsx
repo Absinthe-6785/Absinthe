@@ -4,6 +4,7 @@ import { useTranslation } from '../../../../../lib/i18n';
 import { importanceClassificationLabel, areaHealthCategoryLabel, suggestionSignalLabel } from '../knowledgeLabels';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
 import { CosmosEmptyHint } from './CosmosEmptyHint';
+import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
 
 export interface CosmosInsightsPanelProps {
   colors: NoteChromeColors;
@@ -61,6 +62,7 @@ export function CosmosInsightsPanel({
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <CosmosSuiteHeader c={c} active="insights" t={t} />
       <KnowledgePanelSection colors={c} first title={t('k36InsightsImportance')} count={snapshot.importance.importanceScore}>
         <div style={{ padding: '0 10px 8px' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: c.accent, marginBottom: 4 }}>{classification}</div>

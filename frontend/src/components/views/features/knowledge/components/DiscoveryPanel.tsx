@@ -1,11 +1,18 @@
+import type { ReactNode } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DiscoveryFeed, DiscoveryItem, DiscoveryKind } from '../discovery';
-import { importanceClassificationLabel } from '../knowledgeLabels';
+import { formatDiscoveryReasonLines } from '../discovery/discoveryReasons';
+import {
+  CosmosConfidenceBadge,
+  CosmosDiscoveryKindBadge,
+  CosmosReasonBlock,
+  CosmosSuiteHeader,
+} from '../cosmos/cosmosPanelUi';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
-import { ActionButton, ActionCard } from '../cosmos/actions/actionUi';
+import { ActionButton } from '../cosmos/actions/actionUi';
 
-const SECTION_KEYS: Record<DiscoveryKind, 'k38SectionForgotten' | 'k38SectionMissingConnections' | 'k38SectionEmergingTopics' | 'k38SectionWeakHubs' | 'k38SectionKnowledgeDrift'> = {
+const SECTION_KEYS: Record<DiscoveryKind, TranslationKey> = {
   'forgotten-knowledge': 'k38SectionForgotten',
   'missing-connection': 'k38SectionMissingConnections',
   'emerging-topic': 'k38SectionEmergingTopics',
@@ -19,31 +26,6 @@ export interface DiscoveryPanelProps {
   onNavigateToNote: (noteId: string) => void;
   onCreateRelation: (sourceNoteId: string, targetNoteId: string) => void;
   onCreateHub: (areaLabel: string) => void;
-}
-
-function formatSubtitle(item: DiscoveryItem, t: (key: TranslationKey) => string, lang: string): string {
-  if (item.kind === 'forgotten-knowledge' && item.daysSinceActivity != null) {
-    return t('k38ForgottenDetail')
-      .replace('{days}', String(item.daysSinceActivity))
-      .replace('{tier}', item.importanceClass
-        ? importanceClassificationLabel(item.importanceClass, lang as 'en')
-        : '');
-  }
-  if (item.kind === 'missing-connection' && item.targetNoteTitle) {
-    return t('k38MissingConnectionDetail').replace('{target}', item.targetNoteTitle);
-  }
-  if (item.kind === 'emerging-topic' && item.noteCount != null) {
-    return t('k38EmergingTopicDetail')
-      .replace('{count}', String(item.noteCount))
-      .replace('{days}', String(14));
-  }
-  if (item.kind === 'weak-hub' && item.noteCount != null) {
-    return t('k38WeakHubDetail').replace('{count}', String(item.noteCount));
-  }
-  if (item.kind === 'knowledge-drift' && item.daysSinceActivity != null) {
-    return t('k38DriftDetail').replace('{days}', String(item.daysSinceActivity));
-  }
-  return item.subtitle;
 }
 
 function DiscoveryCard({
@@ -63,7 +45,8 @@ function DiscoveryCard({
   onCreateRelation: (sourceNoteId: string, targetNoteId: string) => void;
   onCreateHub: (areaLabel: string) => void;
 }) {
-  const description = formatSubtitle(item, t, lang);
+  const reasons = formatDiscoveryReasonLines(item, t, lang as 'en');
+  const confidence = item.confidence ?? 'medium';
   let actions = null;
 
   if (item.kind === 'forgotten-knowledge' || item.kind === 'knowledge-drift') {
@@ -73,19 +56,25 @@ function DiscoveryCard({
       </ActionButton>
     ) : null;
   } else if (item.kind === 'missing-connection' && item.noteId && item.targetNoteId) {
-    actions = (
-      <>
-        <ActionButton c={c} onClick={() => onNavigateToNote(item.noteId!)}>
-          {t('k37ActionOpen')}
-        </ActionButton>
-        <ActionButton
-          c={c}
-          variant="secondary"
-          onClick={() => onCreateRelation(item.noteId!, item.targetNoteId!)}
-        >
-          {t('k37ActionCreateRelation')}
-        </ActionButton>
-      </>
+    const title = item.targetNoteTitle
+      ? `${item.title} ↔ ${item.targetNoteTitle}`
+      : item.title;
+    return (
+      <DiscoveryCardShell c={c} item={item} title={title} confidence={confidence} t={t} reasons={reasons} actions={(
+        <>
+          <ActionButton c={c} onClick={() => onNavigateToNote(item.noteId!)}>
+            {t('k37ActionOpen')}
+          </ActionButton>
+          <ActionButton
+            c={c}
+            variant="secondary"
+            onClick={() => onCreateRelation(item.noteId!, item.targetNoteId!)}
+          >
+            {t('k37ActionCreateRelation')}
+          </ActionButton>
+        </>
+      )}
+      />
     );
   } else if (item.kind === 'emerging-topic' && item.noteId) {
     actions = (
@@ -102,7 +91,70 @@ function DiscoveryCard({
   }
 
   return (
-    <ActionCard c={c} title={item.title} description={description} actions={actions} />
+    <DiscoveryCardShell
+      c={c}
+      item={item}
+      title={item.title}
+      confidence={confidence}
+      t={t}
+      reasons={reasons}
+      actions={actions}
+    />
+  );
+}
+
+function DiscoveryCardShell({
+  c,
+  item,
+  title,
+  confidence,
+  t,
+  reasons,
+  actions,
+}: {
+  c: NoteChromeColors;
+  item: DiscoveryItem;
+  title: string;
+  confidence: 'high' | 'medium' | 'low';
+  t: (key: TranslationKey) => string;
+  reasons: string[];
+  actions: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        margin: '0 8px 6px',
+        padding: '8px 9px',
+        borderRadius: 8,
+        border: `1px solid ${c.sideBdr}`,
+        background: c.cardHov,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+            <CosmosDiscoveryKindBadge c={c} kind={item.kind} t={t} />
+            <CosmosConfidenceBadge c={c} tier={confidence} t={t} />
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: c.text }}>{title}</div>
+          {reasons.length > 0 && (
+            <CosmosReasonBlock c={c}>
+              <div style={{ fontSize: 8, fontWeight: 700, color: c.textFaint, marginBottom: 3, textTransform: 'uppercase' }}>
+                {t('k39ReasonLabel')}
+              </div>
+              {reasons.map(line => (
+                <div key={line}>{line}</div>
+              ))}
+            </CosmosReasonBlock>
+          )}
+        </div>
+        {actions && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+            {actions}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -126,6 +178,7 @@ export function DiscoveryPanel({
   if (feed.summary.totalCount === 0) {
     return (
       <div style={{ flex: 1, overflowY: 'auto' }}>
+        <CosmosSuiteHeader c={c} active="discover" t={t} />
         <KnowledgePanelEmpty colors={c}>{t('k38NoDiscoveries')}</KnowledgePanelEmpty>
       </div>
     );
@@ -133,6 +186,7 @@ export function DiscoveryPanel({
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <CosmosSuiteHeader c={c} active="discover" t={t} />
       {kinds.map((kind, index) => {
         const section = feed.sections[kind];
         if (section.length === 0) return null;

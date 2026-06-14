@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { GitFork } from 'lucide-react';
+import { Orbit } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { KnowledgePanelSection } from './KnowledgePanelSection';
@@ -82,7 +82,7 @@ export function CosmosContextFooter({ colors: c, onOpenFullCosmos }: CosmosConte
           cursor: 'pointer',
         }}
       >
-        <GitFork size={12}/>
+        <Orbit size={12}/>
         {t('k35CosmosOpenFull')}
       </button>
     </div>

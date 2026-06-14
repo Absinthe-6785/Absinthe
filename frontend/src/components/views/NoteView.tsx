@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap, Compass,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb, Zap, Compass, Orbit,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -1891,12 +1891,12 @@ export const NoteView = () => {
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
     { key: 'reading' as const, icon: <Eye size={12}/>,     label: t('nvReading') },
-    { key: 'graph'   as const, icon: <GitFork size={12}/>, label: t('nvGraph') },
+    { key: 'graph'   as const, icon: <Orbit size={12}/>, label: t('nvGraph') },
   ], [t]);
   const RIGHT_PANELS = useMemo(() => [
     { key: 'toc'        as const, label: t('nvPanelToc'), icon: <AlignLeft size={12}/> },
     { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={12}/> },
-    { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={12}/> },
+    { key: 'graph'      as const, label: t('nvGraph'),   icon: <Orbit size={12}/> },
     { key: 'insights'   as const, label: t('k36PanelInsights'), icon: <Lightbulb size={12}/> },
     { key: 'actions'    as const, label: t('k37PanelActions'), icon: <Zap size={12}/> },
     { key: 'discover'   as const, label: t('k38PanelDiscover'), icon: <Compass size={12}/> },

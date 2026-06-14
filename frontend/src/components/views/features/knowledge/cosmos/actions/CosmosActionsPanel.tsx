@@ -13,6 +13,7 @@ import { AreaGuidance } from './AreaGuidance';
 import { HubCreationAssistant } from './HubCreationAssistant';
 import { ConnectionRecommendationList } from './ConnectionRecommendationCard';
 import { ActionButton, ActionCard } from './actionUi';
+import { CosmosSuiteHeader } from '../cosmosPanelUi';
 
 export interface CosmosActionsPanelProps {
   colors: NoteChromeColors;
@@ -63,6 +64,7 @@ export function CosmosActionsPanel({
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <CosmosSuiteHeader c={c} active="actions" t={t} />
       <KnowledgePanelSection colors={c} first title={t('k37RecommendedActions')} count={plan.actions.length}>
         {plan.actions.length === 0 ? (
           <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '10px', margin: 0 }}>
