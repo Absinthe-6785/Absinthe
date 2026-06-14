@@ -19,7 +19,7 @@ export function ConceptHubPanel({ colors: c, data, onNavigateToNote }: ConceptHu
     <section className="be-concept-hub" style={{ padding: '0 0 8px' }} aria-label={t('knConceptHub')}>
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
         {t('knConceptHub')} · {data.centralTitle}
-        {data.isConcept && <span style={{ color: c.accent, marginLeft: 6 }}>Concept</span>}
+        {data.isConcept && <span style={{ color: c.accent, marginLeft: 6 }}>{t('knConceptBadge')}</span>}
       </div>
       <div style={{ padding: '4px 10px', fontSize: 9, color: c.textFaint, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <span>{t('knBacklinks')} {data.backlinkCount}</span>

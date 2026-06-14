@@ -36,7 +36,6 @@ import {
   parseQuery,
   BacklinkPanel,
   ReferenceExplorerPanel,
-  KnowledgeReviewPanel,
   buildKnowledgeMaintenanceData,
   buildUnifiedWorkspaceDashboard,
   buildStudyNote,
@@ -66,6 +65,9 @@ import {
   setNoteKind,
   promoteNoteKind,
   filterNotesByKind,
+  getLinkedStudyProjectId,
+  formatLearningPathLabel,
+  getProperty,
   buildReadingNote,
   BibliographyPanel,
   ReadingSourceLinkPanel,
@@ -160,6 +162,11 @@ import { WorkspaceSearchPalette } from './features/knowledge/components/Workspac
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
 import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
+import { KnowledgeContextPanel } from './features/knowledge/components/KnowledgeContextPanel';
+import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
+import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
+import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
+import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUniverse/graphNodeTier';
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
@@ -411,6 +418,7 @@ export const NoteView = () => {
   const [showSortMenu,   setShowSortMenu]   = useState(false);
   const [dragNoteId,     setDragNoteId]     = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(false); // 기본 숨김 — 미니멀 모드
+  const [headerTagsExpanded, setHeaderTagsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // 좌측 사이드바 축소
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const [editingLearningPathId, setEditingLearningPathId] = useState<string | null | undefined>(undefined);
@@ -1310,6 +1318,79 @@ export const NoteView = () => {
     [activeNote?.body, activeNote?.id],
   );
 
+  const noteContextReviewEntry = useMemo(
+    () => (activeNote
+      ? knowledgeMaintenance.queue.find(entry => entry.noteId === activeNote.id) ?? null
+      : null),
+    [activeNote, knowledgeMaintenance.queue],
+  );
+
+  const noteLinkedProjectId = useMemo(() => {
+    if (!activeNote) return null;
+    if (isProjectMilestone(activeNote)) return getMilestoneProjectId(activeNote);
+    return getLinkedStudyProjectId(activeNote);
+  }, [activeNote]);
+
+  const noteLinkedProjectTitle = useMemo(() => {
+    if (!noteLinkedProjectId) return '';
+    const project = notes.find(n => n.id === noteLinkedProjectId);
+    return project ? displayNoteTitle(project.title) : '';
+  }, [noteLinkedProjectId, notes]);
+
+  const noteLearningPathLabel = useMemo(() => {
+    if (!activeNote) return null;
+    if (learningPath) return learningPath.label;
+    const pathId = getLearningPathId(activeNote);
+    return pathId ? formatLearningPathLabel(pathId) : null;
+  }, [activeNote, learningPath]);
+
+  const noteCosmosTier = useMemo(() => {
+    if (!activeNote) return 'moon' as const;
+    return classifyGraphNodeTier({
+      backlinkCount: pageReferences?.incoming.length ?? 0,
+      isAreaNote: isAreaNote(activeNote),
+      isPinnedHub: Boolean(activeNote.starred),
+    });
+  }, [activeNote, pageReferences]);
+
+  const noteConnectionCount = useMemo(
+    () => (pageReferences?.incoming.length ?? 0) + (noteReferenceSummary?.outgoing.length ?? 0),
+    [pageReferences, noteReferenceSummary],
+  );
+
+  const noteAreaProperty = useMemo(
+    () => (activeNote && !isAreaNote(activeNote) ? getProperty(activeNote, 'area')?.trim() : ''),
+    [activeNote],
+  );
+
+  const linksStructureCount = useMemo(() => {
+    let count = 0;
+    if (conceptHub) count += 1;
+    count += 1; // concept relations always rendered
+    if (learningPath) count += 1;
+    return count;
+  }, [conceptHub, learningPath]);
+
+  const linksConnectionsCount = useMemo(() => {
+    const incoming = pageReferences?.incoming.length ?? 0;
+    const outgoing = noteReferenceSummary?.outgoing.length ?? 0;
+    return incoming + outgoing + relatedNotes.length;
+  }, [pageReferences, noteReferenceSummary, relatedNotes]);
+
+  const linksSourcesCount = useMemo(
+    () => noteBibliography.length + (activeNote && getLinkedSourceNoteId(activeNote) ? 1 : 0),
+    [noteBibliography, activeNote],
+  );
+
+  const openContextPanel = useCallback((tab: typeof rightPanel) => {
+    setShowRightPanel(true);
+    setRightPanel(tab);
+  }, []);
+
+  useEffect(() => {
+    setHeaderTagsExpanded(false);
+  }, [activeNote?.id]);
+
   const activeNoteKind = activeNote ? getNoteKind(activeNote) : null;
 
   const sourceNoteCandidates = useMemo(
@@ -1718,17 +1799,17 @@ export const NoteView = () => {
 
   // 렌더마다 새 배열 생성 방지 — icon은 JSX이므로 useMemo로 안정화
   const VIEW_MODES = useMemo(() => [
-    { key: 'reading' as const, icon: <Eye size={11}/>,     label: t('nvReading') },
-    { key: 'graph'   as const, icon: <GitFork size={11}/>, label: t('nvGraph') },
+    { key: 'reading' as const, icon: <Eye size={12}/>,     label: t('nvReading') },
+    { key: 'graph'   as const, icon: <GitFork size={12}/>, label: t('nvGraph') },
   ], [t]);
   const RIGHT_PANELS = useMemo(() => [
-    { key: 'toc'        as const, label: t('nvPanelToc'), icon: <AlignLeft size={11}/> },
-    { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={11}/> },
-    { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={11}/> },
-    { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={11}/> },
-    { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={11}/> },
-    { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={11}/> },
-    { key: 'stats'      as const, label: t('nvPanelStats'),   icon: <span style={{ fontSize: 10, fontWeight: 700 }}>#</span> },
+    { key: 'toc'        as const, label: t('nvPanelToc'), icon: <AlignLeft size={12}/> },
+    { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={12}/> },
+    { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={12}/> },
+    { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={12}/> },
+    { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={12}/> },
+    { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
+    { key: 'stats'      as const, label: t('nvPanelStats'),   icon: <span style={{ fontSize: 11, fontWeight: 700 }}>#</span> },
   ], [t]);
 
   // ── CSS (c가 바뀔 때만 재생성) ──────────────────────────────────
@@ -2641,7 +2722,7 @@ export const NoteView = () => {
                   style={{ fontSize: 10, color: c.accent, whiteSpace: 'nowrap' }}
                   title={t('nvExitFocus')}
                 >
-                  Exit Focus
+                  {t('nvExitFocus')}
                 </button>
               )}
               <input ref={titleInputRef} value={titleDraft} readOnly={isTrash}
@@ -2687,7 +2768,7 @@ export const NoteView = () => {
                 ) : isSyncing ? (
                   <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
-                    syncing…
+                    {t('nvSyncing')}
                   </span>
                 ) : savedAt ? (
                   <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -2722,7 +2803,7 @@ export const NoteView = () => {
                   onClick={() => openEditEventDialog(activeNote)}
                   className="btbtn"
                   style={{ fontSize: 10, color: isEventNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isEventNote(activeNote) ? 'Edit event' : 'Mark as event'}
+                  title={isEventNote(activeNote) ? t('nvEditEventTitle') : t('nvMarkEventTitle')}
                 >
                   {isEventNote(activeNote) ? t('nvEditEvent') : t('nvMarkEvent')}
                 </button>
@@ -2733,7 +2814,7 @@ export const NoteView = () => {
                   onClick={() => openMilestoneDialog(activeNote)}
                   className="btbtn"
                   style={{ fontSize: 10, color: isMilestoneNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isMilestoneNote(activeNote) ? 'Edit milestone' : 'Mark as milestone'}
+                  title={isMilestoneNote(activeNote) ? t('nvEditMilestoneTitle') : t('nvMarkMilestoneTitle')}
                 >
                   {isMilestoneNote(activeNote) ? t('nvEditMilestone') : t('nvMarkMilestone')}
                 </button>
@@ -2744,14 +2825,14 @@ export const NoteView = () => {
                   onClick={handleToggleAreaNote}
                   className="btbtn"
                   style={{ fontSize: 10, color: isAreaNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isAreaNote(activeNote) ? 'Clear area designation' : 'Mark as area hub'}
+                  title={isAreaNote(activeNote) ? t('nvClearAreaTitle') : t('nvMarkAreaTitle')}
                 >
                   {isAreaNote(activeNote) ? t('nvClearArea') : t('nvMarkArea')}
                 </button>
               )}
               {/* Star */}
               {!isTrash && (
-                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? 'Unstar' : 'Star'}>
+                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? t('nvUnstar') : t('nvStar')}>
                   <Star size={13} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
                 </button>
               )}
@@ -2769,7 +2850,7 @@ export const NoteView = () => {
               {/* Copy document */}
               {!isTrash && (
                 <button onClick={() => void handleCopyDocument()} className="btbtn"
-                  title={docCopied ? 'Copied' : 'Copy document'}
+                  title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
                   style={{ color: docCopied ? c.green : c.textMuted }}>
                   <Copy size={12}/>
                 </button>
@@ -2783,10 +2864,14 @@ export const NoteView = () => {
                 : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
               }
             </div>
-            {!isTrash && noteTags.length > 0 && (
+            {!isTrash && noteTags.length > 0 && (() => {
+              const MAX_HEADER_TAGS = 10;
+              const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_HEADER_TAGS);
+              const hiddenTagCount = noteTags.length - visibleHeaderTags.length;
+              return (
               <div style={{ padding: '5px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
                 <TagChipRow>
-                  {noteTags.map(tag => (
+                  {visibleHeaderTags.map(tag => (
                     <TagChip
                       key={tag}
                       colors={c}
@@ -2801,8 +2886,39 @@ export const NoteView = () => {
                       }}
                     />
                   ))}
+                  {hiddenTagCount > 0 && (
+                    <button
+                      type="button"
+                      className="btbtn"
+                      onClick={() => setHeaderTagsExpanded(v => !v)}
+                      style={{ fontSize: 9, color: c.textMuted, padding: '2px 6px' }}
+                    >
+                      {headerTagsExpanded ? t('nvCollapseSection') : t('k35MoreTags').replace('{count}', String(hiddenTagCount))}
+                    </button>
+                  )}
                 </TagChipRow>
               </div>
+              );
+            })()}
+            {!isTrash && activeNote && (
+              <NoteContextStrip
+                colors={c}
+                note={activeNote}
+                isArea={isAreaNote(activeNote)}
+                areaTitle={noteAreaProperty || undefined}
+                projectTitle={noteLinkedProjectTitle || undefined}
+                projectId={noteLinkedProjectId}
+                learningPathLabel={noteLearningPathLabel}
+                reviewReason={noteContextReviewEntry?.reason ?? null}
+                connectionCount={noteConnectionCount}
+                tier={noteCosmosTier}
+                onNavigateToNote={setActiveNoteId}
+                onOpenLinks={() => openContextPanel('links')}
+                onOpenCosmos={() => {
+                  setShowRightPanel(true);
+                  setRightPanel('graph');
+                }}
+              />
             )}
             {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
               <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
@@ -3039,98 +3155,186 @@ export const NoteView = () => {
         )}
       </main>
 
-      {/* ── Right Panel ── */}
+      {/* ── Knowledge Context Panel ── */}
       {activeNote && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
-        <aside
-          aria-label={t('nvSidePanel')}
-          className={isCompactChrome ? 'mobile-panel-drawer' : undefined}
-          style={{
-            width: isCompactChrome ? undefined : (isTablet ? 190 : 210),
-            minWidth: isCompactChrome ? undefined : (isTablet ? 190 : 210),
-            background: c.sidebar,
-            borderLeft: `1px solid ${c.sideBdr}`,
-            display: 'flex',
-            flexDirection: 'column',
-            flexShrink: 0,
-            zIndex: isCompactChrome ? 150 : undefined,
-          }}
+        <KnowledgeContextPanel
+          colors={c}
+          compact={isCompactChrome}
+          tablet={isTablet}
+          activeTab={rightPanel}
+          tabs={RIGHT_PANELS}
+          onTabChange={setRightPanel}
         >
-          <div style={{ display: 'flex', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
-            {RIGHT_PANELS.map(({ key, label, icon }) => (
-              <button key={key} onClick={() => setRightPanel(key)}
-                style={{ flex: 1, background: 'none', border: 'none', borderBottom: rightPanel === key ? `2px solid ${c.accent}` : '2px solid transparent', padding: '8px 4px', cursor: 'pointer', color: rightPanel === key ? c.accent : c.textMuted, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                {icon}{label}
-              </button>
-            ))}
-          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {rightPanel === 'toc' && (
+              <OutlinePanel
+                colors={c}
+                panelRef={tocPanelRef}
+                items={visibleToc}
+                highlightedIdx={highlightedTocIdx}
+                collapsed={tocCollapsed}
+                onKeyDown={handleTocKeyDown}
+                onToggleCollapse={toggleTocCollapse}
+                onNavigate={scrollToHeading}
+              />
+            )}
 
-          {/* Outline (TOC) with collapse */}
-          {rightPanel === 'toc' && (
-            <div
-              ref={tocPanelRef}
-              role="listbox"
-              tabIndex={0}
-              aria-label={t('nvTocKeyboardHint')}
-              onKeyDown={handleTocKeyDown}
-              style={{ flex: 1, overflowY: 'auto', padding: '8px 0', outline: 'none' }}
-            >
-              {visibleToc.length > 0 && (
-                <div style={{ fontSize: 10, color: c.textFaint, padding: '0 10px 6px', fontWeight: 600 }}>
-                  목차 ({visibleToc.length})
-                  <span style={{ fontWeight: 400, marginLeft: 6, opacity: 0.85 }}>{t('nvTocKeyboardHint')}</span>
-                </div>
-              )}
-              {visibleToc.length === 0
-                ? <p style={{ fontSize: 11, color: c.textFaint, textAlign: 'center', padding: '20px 8px' }}>제목 없음<br/><span style={{ fontSize: 10 }}># · #&gt; 토글 제목 · /toggle1</span></p>
-                : visibleToc.map(item => (
-                  <div
-                    key={item.idx}
-                    role="option"
-                    aria-selected={highlightedTocIdx === item.idx}
-                    data-toc-idx={item.idx}
-                    className={`btoc${highlightedTocIdx === item.idx ? ' active' : ''}`}
-                    style={{ paddingLeft: 8 + (item.level - 1) * 12 }}
-                    onClick={() => scrollToHeading(item.idx)}>
-                    {item.hasChildren ? (
-                      <button
-                        type="button"
-                        aria-label={tocCollapsed[item.idx] ? t('nvExpandSection') : t('nvCollapseSection')}
-                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', flexShrink: 0 }}
-                        onClick={e => { e.stopPropagation(); toggleTocCollapse(item.idx); }}>
-                        {tocCollapsed[item.idx]
-                          ? <ChevronRight size={9} style={{ color: c.textFaint }}/>
-                          : <ChevronDown  size={9} style={{ color: c.textFaint }}/>}
-                      </button>
-                    ) : (
-                      <span style={{ width: 9, display: 'inline-block', flexShrink: 0 }}/>
+            {rightPanel === 'links' && pageReferences && noteReferenceSummary && (
+              <LinksContextPanel
+                colors={c}
+                structureCount={linksStructureCount}
+                connectionsCount={linksConnectionsCount}
+                sourcesCount={linksSourcesCount}
+                structure={(
+                  <>
+                    {conceptHub && (
+                      <ConceptHubPanel
+                        colors={c}
+                        data={conceptHub}
+                        onNavigateToNote={setActiveNoteId}
+                      />
                     )}
-                    <span style={{ fontSize: 8, color: item.level === 1 ? c.accent : c.textFaint, marginRight: 2, fontWeight: 700 }}>
-                      H{item.level}{item.isToggleHeading ? '▼' : ''}
-                    </span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      {item.text}
-                    </span>
-                  </div>
-                ))
-              }
-            </div>
-          )}
+                    <ConceptRelationsPanel
+                      colors={c}
+                      note={activeNote}
+                      notes={notes}
+                      wikiTargets={wikiTargets}
+                      onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
+                      onNavigateToNote={setActiveNoteId}
+                      onResolveTargetId={title =>
+                        knowledgeIndexService.resolveNoteId(title)
+                        ?? findNoteByTitle(title, notes)?.id
+                      }
+                    />
+                    {learningPath && (
+                      <LearningPathPanel
+                        colors={c}
+                        path={learningPath}
+                        onNavigateToNote={setActiveNoteId}
+                      />
+                    )}
+                  </>
+                )}
+                connections={(
+                  <>
+                    <BacklinkPanel
+                      colors={c}
+                      activeNoteTitle={activeNote.title ?? ''}
+                      incoming={pageReferences.incoming}
+                      contexts={backlinkContexts}
+                      onNavigateToNote={setActiveNoteId}
+                    />
+                    <ReferenceExplorerPanel
+                      colors={c}
+                      summary={noteReferenceSummary}
+                      mentioning={mentioningNotes}
+                      onNavigateToNote={setActiveNoteId}
+                      onNavigateToWiki={navigateToWiki}
+                    />
+                    <RelatedNotesPanel
+                      colors={c}
+                      related={relatedNotes}
+                      onNavigateToNote={setActiveNoteId}
+                    />
+                  </>
+                )}
+                sources={(
+                  <>
+                    <ReadingSourceLinkPanel
+                      colors={c}
+                      note={activeNote}
+                      notes={notes}
+                      sourceNoteCandidates={sourceNoteCandidates}
+                      onNavigateToNote={setActiveNoteId}
+                      onLinkSource={handleLinkReadingSource}
+                      onUnlinkSource={handleUnlinkReadingSource}
+                    />
+                    <BibliographyPanel colors={c} citations={noteBibliography} />
+                  </>
+                )}
+              />
+            )}
 
-          {/* Links */}
-          {rightPanel === 'links' && activeNote && pageReferences && noteReferenceSummary && (
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-              {conceptHub && (
-                <ConceptHubPanel
+            {rightPanel === 'graph' && localGraphData && (
+              <>
+                <div style={{ flex: 1, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
+                  <LocalGraphView
+                    colors={c}
+                    graphData={localGraphData}
+                    onNavigate={setActiveNoteId}
+                    onExpandNode={handleExpandGraphNode}
+                    onCollapseNode={handleCollapseGraphNode}
+                  />
+                </div>
+                <CosmosContextFooter
                   colors={c}
-                  data={conceptHub}
-                  onNavigateToNote={setActiveNoteId}
+                  onOpenFullCosmos={() => setViewMode('graph')}
                 />
-              )}
-              <ConceptRelationsPanel
+              </>
+            )}
+
+            {rightPanel === 'properties' && (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {projectEditorData && (
+                  <ProjectEditorPanel
+                    colors={c}
+                    data={projectEditorData}
+                    onUpdateDescription={handleUpdateProjectDescription}
+                    onUpdateStatus={handleUpdateProjectStatus}
+                    onNavigateToNote={setActiveNoteId}
+                    onCreateMilestone={handleCreateProjectMilestone}
+                  />
+                )}
+                {isProjectMilestone(activeNote) && (
+                  <MilestoneEditorPanel
+                    colors={c}
+                    title={displayNoteTitle(activeNote.title)}
+                    status={getMilestoneStatus(activeNote) ?? 'planned'}
+                    targetDate={getMilestoneTargetDate(activeNote)}
+                    projectId={getMilestoneProjectId(activeNote)}
+                    projectTitle={milestoneProjectTitle}
+                    onUpdateStatus={handleUpdateMilestoneStatus}
+                    onUpdateTargetDate={handleUpdateMilestoneTargetDate}
+                    onNavigateToProject={
+                      getMilestoneProjectId(activeNote)
+                        ? () => {
+                          const pid = getMilestoneProjectId(activeNote)!;
+                          setActiveNoteId(pid);
+                        }
+                        : undefined
+                    }
+                  />
+                )}
+                <NotePropertiesPanel
+                  colors={c}
+                  note={activeNote}
+                  onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
+                />
+              </div>
+            )}
+
+            {rightPanel === 'tags' && (
+              <NoteTagsPanel
                 colors={c}
                 note={activeNote}
-                notes={notes}
+                allTags={allTags}
+                activeTag={activeTag}
+                onUpdateTags={properties => noteUpdate(activeNote.id, { properties })}
+                onSelectTag={tag => {
+                  setActiveFolderId(null);
+                  setSearchQuery('');
+                  setActiveTag(tag);
+                }}
+              />
+            )}
+
+            {rightPanel === 'relations' && (
+              <NoteRelationsPanel
+                colors={c}
+                note={activeNote}
                 wikiTargets={wikiTargets}
+                outgoing={resolvedOutgoingRelations}
+                incoming={incomingRelationDisplays}
                 onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
                 onNavigateToNote={setActiveNoteId}
                 onResolveTargetId={title =>
@@ -3138,185 +3342,66 @@ export const NoteView = () => {
                   ?? findNoteByTitle(title, notes)?.id
                 }
               />
-              {learningPath && (
-                <LearningPathPanel
-                  colors={c}
-                  path={learningPath}
-                  onNavigateToNote={setActiveNoteId}
-                />
-              )}
-              <BacklinkPanel
-                colors={c}
-                activeNoteTitle={activeNote.title ?? ''}
-                incoming={pageReferences.incoming}
-                contexts={backlinkContexts}
-                onNavigateToNote={setActiveNoteId}
-              />
-              <ReferenceExplorerPanel
-                colors={c}
-                summary={noteReferenceSummary}
-                mentioning={mentioningNotes}
-                onNavigateToNote={setActiveNoteId}
-                onNavigateToWiki={navigateToWiki}
-              />
-              <RelatedNotesPanel
-                colors={c}
-                related={relatedNotes}
-                onNavigateToNote={setActiveNoteId}
-              />
-              <ReadingSourceLinkPanel
-                colors={c}
-                note={activeNote}
-                notes={notes}
-                sourceNoteCandidates={sourceNoteCandidates}
-                onNavigateToNote={setActiveNoteId}
-                onLinkSource={handleLinkReadingSource}
-                onUnlinkSource={handleUnlinkReadingSource}
-              />
-              <BibliographyPanel colors={c} citations={noteBibliography} />
-            </div>
-          )}
+            )}
 
-          {rightPanel === 'graph' && activeNote && localGraphData && (
-            <LocalGraphView
-              colors={c}
-              graphData={localGraphData}
-              onNavigate={setActiveNoteId}
-              onExpandNode={handleExpandGraphNode}
-              onCollapseNode={handleCollapseGraphNode}
-            />
-          )}
-
-          {/* Properties */}
-          {rightPanel === 'properties' && activeNote && (
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {projectEditorData && (
-                <ProjectEditorPanel
-                  colors={c}
-                  data={projectEditorData}
-                  onUpdateDescription={handleUpdateProjectDescription}
-                  onUpdateStatus={handleUpdateProjectStatus}
-                  onNavigateToNote={setActiveNoteId}
-                  onCreateMilestone={handleCreateProjectMilestone}
-                />
-              )}
-              {isProjectMilestone(activeNote) && (
-                <MilestoneEditorPanel
-                  colors={c}
-                  title={displayNoteTitle(activeNote.title)}
-                  status={getMilestoneStatus(activeNote) ?? 'planned'}
-                  targetDate={getMilestoneTargetDate(activeNote)}
-                  projectId={getMilestoneProjectId(activeNote)}
-                  projectTitle={milestoneProjectTitle}
-                  onUpdateStatus={handleUpdateMilestoneStatus}
-                  onUpdateTargetDate={handleUpdateMilestoneTargetDate}
-                  onNavigateToProject={
-                    getMilestoneProjectId(activeNote)
-                      ? () => {
-                        const pid = getMilestoneProjectId(activeNote)!;
-                        setActiveNoteId(pid);
-                      }
-                      : undefined
-                  }
-                />
-              )}
-              <NotePropertiesPanel
-                colors={c}
-                note={activeNote}
-                onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
-              />
-            </div>
-          )}
-
-          {rightPanel === 'tags' && activeNote && (
-            <NoteTagsPanel
-              colors={c}
-              note={activeNote}
-              allTags={allTags}
-              activeTag={activeTag}
-              onUpdateTags={properties => noteUpdate(activeNote.id, { properties })}
-              onSelectTag={tag => {
-                setActiveFolderId(null);
-                setSearchQuery('');
-                setActiveTag(tag);
-              }}
-            />
-          )}
-
-          {rightPanel === 'relations' && activeNote && (
-            <NoteRelationsPanel
-              colors={c}
-              note={activeNote}
-              wikiTargets={wikiTargets}
-              outgoing={resolvedOutgoingRelations}
-              incoming={incomingRelationDisplays}
-              onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-              onNavigateToNote={setActiveNoteId}
-              onResolveTargetId={title =>
-                knowledgeIndexService.resolveNoteId(title)
-                ?? findNoteByTitle(title, notes)?.id
-              }
-            />
-          )}
-
-          {/* Stats */}
-          {rightPanel === 'stats' && (() => {
-            const body = activeNote.body;
-            const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-            const chars = body.length;
-            const lines = body.split('\n').length;
-            const readMin = Math.max(1, Math.ceil(words / 200));
-            const linkCount = extractLinks(body).length;
-            const tagCount  = noteTags.length;
-            const headings  = (body.match(/^#{1,3} /gm) || []).length;
-            const codeBlocks = (body.match(/```/g) || []).length / 2;
-            const created = Number(activeNote.id.split('-')[1] || 0);
-            return (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvNoteStats')}</div>
-                {[
-                  [t('nvStatWords'), words],
-                  [t('nvStatChars'), chars],
-                  [t('nvStatLines'), lines],
-                  [t('nvStatReadTime'), t('nvStatReadMin').replace('{min}', String(readMin))],
-                  [t('nvStatHeadings'), headings],
-                  [t('nvStatWikiLinks'), linkCount],
-                  [t('nvStatTags'), tagCount],
-                  [t('nvStatCodeBlocks'), Math.floor(codeBlocks)],
-                ].map(([label, val]) => (
-                  <div key={label as string} className="bstat-row">
-                    <span style={{ color: c.textMuted }}>{label}</span>
-                    <span className="bstat-val">{val}</span>
-                  </div>
-                ))}
-                {created > 0 && (
-                  <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
-                    {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </div>
-                )}
-                {/* 태그 클라우드 */}
-                {allTags.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvTagCloud')}</div>
-                    <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {allTags.slice(0, 20).map(({ tag, count }) => {
-                        const maxCount = allTags[0]?.count ?? 1;
-                        const size = 9 + Math.round((count / maxCount) * 8);
-                        const opacity = 0.5 + (count / maxCount) * 0.5;
-                        return (
-                          <span key={tag}
-                            style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag?.toLowerCase() === tag.toLowerCase() ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag); }}>
-                            #{tag}
-                          </span>
-                        );
-                      })}
+            {rightPanel === 'stats' && (() => {
+              const body = activeNote.body;
+              const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+              const chars = body.length;
+              const lines = body.split('\n').length;
+              const readMin = Math.max(1, Math.ceil(words / 200));
+              const linkCount = extractLinks(body).length;
+              const tagCount  = noteTags.length;
+              const headings  = (body.match(/^#{1,3} /gm) || []).length;
+              const codeBlocks = (body.match(/```/g) || []).length / 2;
+              const created = Number(activeNote.id.split('-')[1] || 0);
+              return (
+                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvNoteStats')}</div>
+                  {[
+                    [t('nvStatWords'), words],
+                    [t('nvStatChars'), chars],
+                    [t('nvStatLines'), lines],
+                    [t('nvStatReadTime'), t('nvStatReadMin').replace('{min}', String(readMin))],
+                    [t('nvStatHeadings'), headings],
+                    [t('nvStatWikiLinks'), linkCount],
+                    [t('nvStatTags'), tagCount],
+                    [t('nvStatCodeBlocks'), Math.floor(codeBlocks)],
+                  ].map(([label, val]) => (
+                    <div key={label as string} className="bstat-row">
+                      <span style={{ color: c.textMuted }}>{label}</span>
+                      <span className="bstat-val">{val}</span>
                     </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
+                  ))}
+                  {created > 0 && (
+                    <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
+                      {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                  )}
+                  {allTags.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvTagCloud')}</div>
+                      <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {allTags.slice(0, 20).map(({ tag, count }) => {
+                          const maxCount = allTags[0]?.count ?? 1;
+                          const size = 9 + Math.round((count / maxCount) * 8);
+                          const opacity = 0.5 + (count / maxCount) * 0.5;
+                          return (
+                            <span key={tag}
+                              style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag?.toLowerCase() === tag.toLowerCase() ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
+                              onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag); }}>
+                              #{tag}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
           {isTrash && (
             <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
               <button onClick={() => showConfirm(
@@ -3329,7 +3414,7 @@ export const NoteView = () => {
               </button>
             </div>
           )}
-        </aside>
+        </KnowledgeContextPanel>
       )}
       {eventDialog && (
         <EventNoteDialog
