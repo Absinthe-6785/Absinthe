@@ -102,6 +102,9 @@ export interface WorkspaceDashboardUnifiedProps {
   learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
   onOpenDiscover?: () => void;
+  activeNoteCount?: number;
+  onCreateNote?: () => void;
+  onOpenCosmos?: () => void;
 }
 
 export interface WorkspaceDashboardLearningPathEditorProps {
@@ -425,6 +428,9 @@ export function WorkspaceDashboardView({
             learningPathEditor={unified.learningPathEditor}
             compact={isMobile || isTablet}
             onOpenDiscover={unified.onOpenDiscover}
+            activeNoteCount={unified.activeNoteCount}
+            onCreateNote={unified.onCreateNote}
+            onOpenCosmos={unified.onOpenCosmos}
           />
         </Card>
       )}

@@ -5,6 +5,7 @@ import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
+import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
 import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
 import { ResearchDashboardPanel } from './ResearchDashboardPanel';
@@ -30,6 +31,9 @@ export interface UnifiedWorkspaceDashboardProps {
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
   onOpenDiscover?: () => void;
+  activeNoteCount?: number;
+  onCreateNote?: () => void;
+  onOpenCosmos?: () => void;
 }
 
 function TabBar({
@@ -108,6 +112,9 @@ export function UnifiedWorkspaceDashboard({
   learningPathEditor,
   compact,
   onOpenDiscover,
+  activeNoteCount = 0,
+  onCreateNote,
+  onOpenCosmos,
 }: UnifiedWorkspaceDashboardProps) {
   const { t } = useTranslation();
   const [section, setSection] = useState<UnifiedDashboardSection>('overview');
@@ -118,6 +125,15 @@ export function UnifiedWorkspaceDashboard({
 
       {section === 'overview' && (
         <div>
+          <CosmosProductTour colors={c} compact={compact} />
+          {activeNoteCount === 0 && onCreateNote && onOpenCosmos && (
+            <CosmosStartDashboard
+              colors={c}
+              compact={compact}
+              onCreateNote={onCreateNote}
+              onOpenCosmos={onOpenCosmos}
+            />
+          )}
           {onOpenDiscover && data.discovery.summary.totalCount > 0 && (
             <DiscoveryDashboardCard
               colors={c}

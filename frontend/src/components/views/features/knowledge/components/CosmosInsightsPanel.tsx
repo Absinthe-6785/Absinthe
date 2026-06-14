@@ -1,14 +1,17 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
-import type { NoteIntelligenceSnapshot } from '../cosmos/intelligence';
+import type { KnowledgeImportanceInput, NoteIntelligenceSnapshot } from '../cosmos/intelligence';
 import { useTranslation } from '../../../../../lib/i18n';
 import { importanceClassificationLabel, areaHealthCategoryLabel, suggestionSignalLabel } from '../knowledgeLabels';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
 import { CosmosEmptyHint } from './CosmosEmptyHint';
 import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
+import { WhyThisRecommendation } from '../cosmos/onboarding/WhyThisRecommendation';
+import { WhyThisTier } from '../cosmos/onboarding/WhyThisTier';
 
 export interface CosmosInsightsPanelProps {
   colors: NoteChromeColors;
   snapshot: NoteIntelligenceSnapshot;
+  tierInput: KnowledgeImportanceInput;
   onNavigateToNote: (noteId: string) => void;
   onOpenLinks?: () => void;
 }
@@ -54,6 +57,7 @@ function ActionRow({
 export function CosmosInsightsPanel({
   colors: c,
   snapshot,
+  tierInput,
   onNavigateToNote,
   onOpenLinks,
 }: CosmosInsightsPanelProps) {
@@ -66,7 +70,13 @@ export function CosmosInsightsPanel({
       <KnowledgePanelSection colors={c} first title={t('k36InsightsImportance')} count={snapshot.importance.importanceScore}>
         <div style={{ padding: '0 10px 8px' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: c.accent, marginBottom: 4 }}>{classification}</div>
-          <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.5 }}>
+          <WhyThisTier
+            colors={c}
+            classification={snapshot.importance.classification}
+            input={tierInput}
+            result={snapshot.importance}
+          />
+          <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.5, marginTop: 6 }}>
             {t('k36InsightsConnectionSummary')
               .replace('{connections}', String(snapshot.connectionCount))
               .replace('{backlinks}', String(snapshot.backlinkCount))}
@@ -104,13 +114,21 @@ export function CosmosInsightsPanel({
           </>
         ) : (
           snapshot.suggestedConnections.map(item => (
-            <ActionRow
-              key={item.noteId}
-              c={c}
-              title={item.noteTitle}
-              detail={`${item.signals.map(s => suggestionSignalLabel(s, lang)).join(' · ')} · ${t('k36Score').replace('{score}', String(item.score))}`}
-              onClick={() => onNavigateToNote(item.noteId)}
-            />
+            <div key={item.noteId} style={{ margin: '0 8px 6px' }}>
+              <ActionRow
+                c={c}
+                title={item.noteTitle}
+                onClick={() => onNavigateToNote(item.noteId)}
+              />
+              <div style={{ margin: '0 8px 0 8px' }}>
+                <WhyThisRecommendation
+                  colors={c}
+                  compact
+                  reasons={item.signals.map(s => `• ${suggestionSignalLabel(s, lang)}`)}
+                  score={item.score}
+                />
+              </div>
+            </div>
           ))
         )}
       </KnowledgePanelSection>

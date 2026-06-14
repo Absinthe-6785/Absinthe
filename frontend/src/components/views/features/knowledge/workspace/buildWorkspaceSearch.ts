@@ -12,6 +12,7 @@ import {
 import { countActionsForNote } from '../cosmos/actions';
 import type { DiscoveryFeed } from '../discovery';
 import { isDiscoveryOpportunityNote } from '../discovery';
+import { buildTierExplanationLines } from '../cosmos/onboarding/tierExplanation';
 import { getProperty } from '../properties/noteProperties';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
@@ -29,7 +30,8 @@ import {
   getSubjectWorkspaceCollectionId,
 } from '../maps/subjectDashboards';
 import { listTags, normalizeTagName } from '../tags/noteTags';
-import type { WorkspaceSearchRecentEntry } from './workspaceSearchRecent';
+import type { Language, TranslationKey } from '../../../../../lib/i18n';
+import { getTranslator } from '../../../../../lib/i18n';
 
 export type WorkspaceSearchResultKind =
   | 'note'
@@ -88,6 +90,7 @@ export interface WorkspaceSearchResult {
   connectionCount?: number;
   actionsAvailable?: boolean;
   discoveryOpportunity?: boolean;
+  tierHint?: string;
 }
 
 export interface WorkspaceSearchGroup {
@@ -99,6 +102,23 @@ export interface BuildWorkspaceSearchOptions {
   filter?: WorkspaceSearchFilter;
   service?: KnowledgeIndexService;
   discoveryFeed?: DiscoveryFeed;
+  language?: Language;
+}
+
+function formatTierHint(
+  input: ReturnType<typeof buildImportanceInputForNote>,
+  result: ReturnType<typeof evaluateKnowledgeImportance>,
+  t: (key: TranslationKey) => string,
+): string {
+  return buildTierExplanationLines(input, result)
+    .map(line => {
+      if (!line.values) return t(line.key);
+      return Object.entries(line.values).reduce(
+        (text, [key, value]) => text.replace(`{${key}}`, value),
+        t(line.key),
+      );
+    })
+    .join(' · ');
 }
 
 const SUGGESTION_COLLECTION_IDS: readonly SmartCollectionId[] = [
@@ -178,11 +198,14 @@ function enrichNoteResult(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   discoveryFeed?: DiscoveryFeed,
+  language?: Language,
 ): WorkspaceSearchResult {
   const galaxyMap = buildNoteGalaxyMap(notes, service);
   const galaxy = galaxyMap.get(note.id);
   const input = buildImportanceInputForNote(note, service, galaxy);
-  const { classification } = evaluateKnowledgeImportance(input);
+  const importance = evaluateKnowledgeImportance(input);
+  const { classification } = importance;
+  const t = getTranslator(language ?? 'en');
   const areaLabel = getProperty(note, 'area')?.trim();
   const connectionCount = service.getConnectionScore(note.id);
   const snapshot = buildNoteIntelligenceSnapshot(note, notes, service);
@@ -201,6 +224,7 @@ function enrichNoteResult(
     subtitle: metaParts.length > 0 ? metaParts.join(' · ') : result.subtitle,
     actionsAvailable: countActionsForNote(snapshot) > 0,
     discoveryOpportunity: discoveryFeed ? isDiscoveryOpportunityNote(note.id, discoveryFeed) : false,
+    tierHint: formatTierHint(input, importance, t),
   };
 }
 
@@ -227,7 +251,7 @@ export function buildWorkspaceSearch(
     const m = matchScore(title, q);
     if (m !== null && kindAllowed('note', filter)) {
       const base = buildResult('note', note.id, title, m, { noteId: note.id });
-      results.push(service ? enrichNoteResult(note, base, notes, service, options.discoveryFeed) : base);
+      results.push(service ? enrichNoteResult(note, base, notes, service, options.discoveryFeed, options.language) : base);
     }
   }
 

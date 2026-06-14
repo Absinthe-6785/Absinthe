@@ -9,7 +9,7 @@ export interface EmptyUniverseInput {
 export function shouldShowEmptyUniverse(input: EmptyUniverseInput): boolean {
   if (input.hasSearchFilter && !input.searchHasMatches) return false;
   if (input.nodeCount === 0) return true;
-  return input.nodeCount <= 2 && input.linkCount === 0;
+  return input.linkCount === 0;
 }
 
 export const EMPTY_UNIVERSE_HEADLINE = 'Your knowledge universe will appear here.';
