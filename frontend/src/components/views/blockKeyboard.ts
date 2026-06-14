@@ -18,6 +18,10 @@ export function shouldDeleteSelectedBlocks(
   const t = e.target as HTMLElement | null;
   if (!t) return true;
 
+  // Form controls (tag inputs, search fields, …) — never steal Backspace/Delete
+  const tag = t.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+
   // Non-text focus (divider shell, image shell, …) → block delete
   if (!t.isContentEditable) return true;
 
