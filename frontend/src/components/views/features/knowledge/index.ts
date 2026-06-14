@@ -997,3 +997,20 @@ export {
 } from './cosmos/intelligence';
 
 export { CosmosInsightsPanel, type CosmosInsightsPanelProps } from './components/CosmosInsightsPanel';
+
+export {
+  CosmosActionsPanel,
+  buildCosmosActionPlan,
+  countActionsForNote,
+  enrichConnectionRecommendations,
+  formatConnectionReasons,
+  suggestAreaForNote,
+  buildAreaAssignmentPatch,
+  buildConnectPatch,
+  buildHubCreationPatch,
+  buildHubNoteTemplate,
+  type CosmosActionsPanelProps,
+  type CosmosActionItem,
+  type CosmosActionPlan,
+  type EnrichedConnectionRecommendation,
+} from './cosmos/actions';
