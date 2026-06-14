@@ -193,7 +193,7 @@ describe('WorkspaceDashboardView', () => {
       onNewNote: vi.fn(),
       onNewDatabaseView: vi.fn(),
       onOpenSearch: vi.fn(),
-      onOpenGraph: vi.fn(),
+      onOpenCosmos: vi.fn(),
     };
 
     const container = document.createElement('div');
@@ -242,6 +242,6 @@ describe('WorkspaceDashboardView', () => {
     expect(onSelectNote).toHaveBeenCalledWith('n-1');
 
     buttons.find(b => b.textContent === '코스모스 열기')?.click();
-    expect(quickActions.onOpenGraph).toHaveBeenCalled();
+    expect(quickActions.onOpenCosmos).toHaveBeenCalled();
   });
 });

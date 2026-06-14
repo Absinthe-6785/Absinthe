@@ -730,6 +730,10 @@ const translations = {
   graphHudTiers:                 { en: '{stars} stars · {planets} planets · {moons} moons', ko: '별 {stars} · 행성 {planets} · 위성 {moons}', ja: '星 {stars} · 惑星 {planets} · 衛星 {moons}' },
   graphHudBacklinksGalaxy:       { en: '{count} backlinks · {galaxy}', ko: '백링크 {count} · {galaxy}', ja: 'バックリンク {count} · {galaxy}' },
   graphHudUpdated:               { en: 'Updated {date}', ko: '수정 {date}', ja: '更新 {date}' },
+  cosmosHudSummary:              { en: '{nodes} notes · {links} links · {galaxies} galaxies', ko: '노트 {nodes} · 링크 {links} · 은하 {galaxies}', ja: 'ノート {nodes} · リンク {links} · 銀河 {galaxies}' },
+  cosmosHudTiers:                { en: '{stars} stars · {planets} planets · {moons} moons', ko: '별 {stars} · 행성 {planets} · 위성 {moons}', ja: '星 {stars} · 惑星 {planets} · 衛星 {moons}' },
+  cosmosHudBacklinksGalaxy:      { en: '{count} backlinks · {galaxy}', ko: '백링크 {count} · {galaxy}', ja: 'バックリンク {count} · {galaxy}' },
+  cosmosHudUpdated:              { en: 'Updated {date}', ko: '수정 {date}', ja: '更新 {date}' },
   graphEmptyHeadline:            { en: 'Your knowledge cosmos begins here', ko: '지식 코스모스가 여기서 시작됩니다', ja: 'ナレッジ・コスモスはここから始まります' },
   graphEmptySubline:             { en: 'Create notes and link ideas — galaxies form around areas, stars around hubs.', ko: '노트를 만들고 아이디어를 연결하세요 — 영역 주변에 은하, 허브 주변에 별이 생깁니다.', ja: 'ノートを作り、アイデアをリンク — エリアの周りに銀河、ハブの周りに星が生まれます。' },
   graphEmptyTiers:               { en: 'Stars · hub notes · Planets · core notes · Moons · supporting notes', ko: '별 · 허브 노트 · 행성 · 핵심 노트 · 위성 · 보조 노트', ja: '星 · ハブ · 惑星 · コア · 衛星 · サポート' },
@@ -1178,6 +1182,13 @@ const translations = {
   k39ReasonEmerging:           { en: '{count} recent notes in this cluster', ko: '최근 노트 {count}개 클러스터', ja: '最近{count}ノートのクラスタ' },
   k39ReasonWeakHub:            { en: '{count} notes without a major hub', ko: '허브 없는 노트 {count}개', ja: 'ハブなし{count}ノート' },
   k39CosmosHudAria:            { en: 'Cosmos intelligence summary', ko: '코스모스 인텔리전스 요약', ja: 'コスモスインテリジェンス概要' },
+
+  // ── K-40 Cosmos validation ─────────────────────────────────────────
+  k40DiscoveryScore:           { en: 'Score {score}', ko: '점수 {score}', ja: 'スコア {score}' },
+  k40ConfidenceLabel:          { en: 'Confidence', ko: '신뢰도', ja: '信頼度' },
+  k40ConfidenceShortHigh:      { en: 'High', ko: '높음', ja: '高' },
+  k40ConfidenceShortMedium:    { en: 'Medium', ko: '중간', ja: '中' },
+  k40ConfidenceShortLow:       { en: 'Low', ko: '낮음', ja: '低' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

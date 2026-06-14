@@ -220,7 +220,7 @@ describe('WorkspaceDashboardView focus and capture widgets', () => {
           onNewNote: vi.fn(),
           onNewDatabaseView: vi.fn(),
           onOpenSearch: vi.fn(),
-          onOpenGraph: vi.fn(),
+          onOpenCosmos: vi.fn(),
         },
         focus: {
           presets: [preset],

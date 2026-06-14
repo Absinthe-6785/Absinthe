@@ -1132,13 +1132,13 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           {t('cosmosUniverseTitle')}
         </div>
         <div>
-          {t('graphHudSummary')
+          {t('cosmosHudSummary')
             .replace('{nodes}', String(hudStats.nodeCount))
             .replace('{links}', String(hudStats.linkCount))
             .replace('{galaxies}', String(hudStats.galaxyCount))}
         </div>
         <div style={{ opacity: 0.85 }}>
-          {t('graphHudTiers')
+          {t('cosmosHudTiers')
             .replace('{stars}', String(hudStats.starCount))
             .replace('{planets}', String(hudStats.planetCount))
             .replace('{moons}', String(hudStats.moonCount))}
@@ -1260,7 +1260,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               {selectedNode.title.trim() || t('untitledNote')}
             </div>
             <div style={{ opacity: 0.8 }}>
-              {t('graphHudBacklinksGalaxy')
+              {t('cosmosHudBacklinksGalaxy')
                 .replace('{count}', String(selectedNode.backlinkCount))
                 .replace('{galaxy}', selectedNode.galaxyLabel)}
             </div>
@@ -1273,7 +1273,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               </div>
             )}
             <div style={{ opacity: 0.7 }}>
-              {t('graphHudUpdated').replace('{date}', formatUniverseUpdatedAt(selectedNode.updatedAt, intlLocale))}
+              {t('cosmosHudUpdated').replace('{date}', formatUniverseUpdatedAt(selectedNode.updatedAt, intlLocale))}
             </div>
           </div>
         )}

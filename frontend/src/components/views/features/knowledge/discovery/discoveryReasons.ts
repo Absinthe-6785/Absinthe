@@ -26,11 +26,9 @@ export function formatDiscoveryReasonLines(
   }
 
   if (item.kind === 'missing-connection' && item.signals?.length) {
-    const signalText = item.signals
-      .slice(0, 3)
-      .map(s => suggestionSignalLabel(s, lang))
-      .join(' + ');
-    lines.push(t('k39ReasonMissingConnection').replace('{signals}', signalText));
+    for (const signal of item.signals.slice(0, 4)) {
+      lines.push(`• ${suggestionSignalLabel(signal, lang)}`);
+    }
   }
 
   if (item.kind === 'emerging-topic' && item.noteCount != null) {

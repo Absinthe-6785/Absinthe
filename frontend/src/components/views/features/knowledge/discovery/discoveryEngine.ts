@@ -56,10 +56,25 @@ function enrichItem(item: DiscoveryItem): DiscoveryItem {
   };
 }
 
+function passesQualityGate(item: DiscoveryItem): boolean {
+  if (item.score < DISCOVERY_WEIGHTS.MIN_FEED_SCORE) return false;
+
+  if (item.kind === 'missing-connection') {
+    const signalCount = item.signals?.length ?? 0;
+    if (
+      signalCount < DISCOVERY_WEIGHTS.MIN_CONNECTION_SIGNALS
+      && item.score < DISCOVERY_WEIGHTS.MIN_SINGLE_SIGNAL_SCORE
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /** Remove duplicate or low-value discoveries before ranking. */
 function refineDiscoveryItems(items: DiscoveryItem[]): DiscoveryItem[] {
-  const minScore = DISCOVERY_WEIGHTS.MIN_FEED_SCORE;
-  const filtered = items.filter(item => item.score >= minScore);
+  const filtered = items.filter(passesQualityGate);
 
   const noteActivityBest = new Map<string, DiscoveryItem>();
   for (const item of filtered) {
@@ -97,7 +112,9 @@ function refineDiscoveryItems(items: DiscoveryItem[]): DiscoveryItem[] {
     result.push(item);
   }
 
-  return result.map(enrichItem);
+  return result
+    .map(enrichItem)
+    .filter(item => item.confidence !== 'low');
 }
 
 /** Build vault-wide ranked discovery feed from deterministic signals. */
@@ -107,8 +124,8 @@ export function buildDiscoveryFeed(
   options: BuildDiscoveryFeedOptions = {},
 ): DiscoveryFeed {
   const now = options.now ?? Date.now();
-  const perSection = options.perSectionLimit ?? 6;
-  const totalLimit = options.limit ?? 30;
+  const perSection = options.perSectionLimit ?? 4;
+  const totalLimit = options.limit ?? 15;
 
   const raw = refineDiscoveryItems([
     ...collectForgottenKnowledgeSignals(notes, service, now),
