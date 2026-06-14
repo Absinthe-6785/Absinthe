@@ -68,11 +68,46 @@ export {
 
 export {
   buildCosmosEvolutionStory,
+  buildExpandedCosmosEvolutionStory,
   buildCosmosEvolutionSummary,
   buildDiscoveryProgressSummary,
   getMilestoneNoteId,
   latestAchievedMilestone,
   type CosmosEvolutionStory,
+  type ExpandedCosmosEvolutionStory,
   type CosmosEvolutionSummary,
   type DiscoveryProgressSummary,
+  type DiscoveryTrend,
 } from './historyEvolutionQueries';
+
+export {
+  buildAreaEvolutionDetail,
+  buildEvolutionDashboardSummary,
+  noteBelongsToArea,
+  type AreaEvolutionDetail,
+  type AreaJourneyPeriod,
+  type EvolutionDashboardSummary,
+} from './historyAreaEvolutionQueries';
+
+export {
+  buildKnowledgeJourney,
+  type KnowledgeJourney,
+  type KnowledgeJourneyStep,
+} from './historyJourneyQueries';
+
+export {
+  exportCosmosEvolutionMarkdown,
+  copyCosmosEvolutionMarkdown,
+} from './knowledgeHistoryExport';
+
+export {
+  BOOTSTRAP_SUMMARY_DISMISSED_KEY,
+  BOOTSTRAP_SUMMARY_STORAGE_KEY,
+  buildBootstrapImportSummaryFromEvents,
+  dismissBootstrapSummary,
+  isBootstrapSummaryDismissed,
+  loadBootstrapImportSummary,
+  saveBootstrapImportSummary,
+  shouldShowBootstrapSummary,
+  type BootstrapImportSummary,
+} from './bootstrapSummaryStorage';

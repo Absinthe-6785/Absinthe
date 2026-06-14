@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
-import { useTranslation } from '../../../../../lib/i18n';
+import { useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useTranslation, type Language } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeHistoryEvent } from '../history/eventTypes';
@@ -9,7 +10,12 @@ import {
 } from '../history/historyEventPresentation';
 import { KnowledgePanelEmpty } from './KnowledgePanelSection';
 
-const MAX_FEED_EVENTS = 120;
+const ROW_HEIGHT_DATE = 28;
+const ROW_HEIGHT_EVENT = 52;
+
+type FeedRow =
+  | { type: 'date'; key: string; label: string }
+  | { type: 'event'; key: string; event: KnowledgeHistoryEvent };
 
 export interface TimelineActivityFeedProps {
   colors: NoteChromeColors;
@@ -19,7 +25,23 @@ export interface TimelineActivityFeedProps {
   compact?: boolean;
 }
 
-/** Chronological activity feed from recorded K-44 events. */
+function buildFeedRows(
+  events: readonly KnowledgeHistoryEvent[],
+  lang: Language,
+): FeedRow[] {
+  const sorted = [...events].sort((a, b) => b.timestamp - a.timestamp);
+  const groups = groupEventsByDate(sorted, lang);
+  const rows: FeedRow[] = [];
+  for (const group of groups) {
+    rows.push({ type: 'date', key: `d-${group.dateKey}`, label: group.label });
+    for (const event of group.events) {
+      rows.push({ type: 'event', key: event.id, event });
+    }
+  }
+  return rows;
+}
+
+/** Virtualized chronological activity feed from recorded K-44 events. */
 export function TimelineActivityFeed({
   colors: c,
   events,
@@ -28,46 +50,80 @@ export function TimelineActivityFeed({
   compact,
 }: TimelineActivityFeedProps) {
   const { t, lang } = useTranslation();
+  const parentRef = useRef<HTMLDivElement>(null);
 
-  const groups = useMemo(() => {
-    const limited = [...events]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, MAX_FEED_EVENTS);
-    return groupEventsByDate(limited, lang);
-  }, [events, lang]);
+  const rows = useMemo(() => buildFeedRows(events, lang), [events, lang]);
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: index => (rows[index]?.type === 'date' ? ROW_HEIGHT_DATE : ROW_HEIGHT_EVENT),
+    overscan: 12,
+  });
 
   if (events.length === 0) {
     return <KnowledgePanelEmpty colors={c}>{t('k45ActivityEmpty')}</KnowledgePanelEmpty>;
   }
 
   return (
-    <div style={{ padding: compact ? '0 6px 8px' : '0 8px 8px' }}>
-      {groups.map(group => (
-        <section key={group.dateKey} style={{ marginBottom: 10 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              color: c.accent,
-              margin: '4px 4px 6px',
-              letterSpacing: 0.2,
-            }}
-          >
-            {group.label}
-          </div>
-          {group.events.map(event => {
-            const row = presentHistoryEvent(event, notes);
-            const interactive = Boolean(onNavigateToNote);
+    <div
+      ref={parentRef}
+      style={{
+        padding: compact ? '0 6px 8px' : '0 8px 8px',
+        maxHeight: compact ? 320 : 420,
+        overflowY: 'auto',
+      }}
+    >
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+        {virtualizer.getVirtualItems().map(vRow => {
+          const row = rows[vRow.index];
+          if (!row) return null;
+
+          if (row.type === 'date') {
             return (
+              <div
+                key={row.key}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: vRow.size,
+                  transform: `translateY(${vRow.start}px)`,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: c.accent,
+                  padding: '4px 4px 2px',
+                  letterSpacing: 0.2,
+                }}
+              >
+                {row.label}
+              </div>
+            );
+          }
+
+          const presented = presentHistoryEvent(row.event, notes);
+          const interactive = Boolean(onNavigateToNote);
+
+          return (
+            <div
+              key={row.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${vRow.start}px)`,
+                paddingBottom: 4,
+              }}
+            >
               <button
-                key={event.id}
                 type="button"
                 disabled={!interactive}
-                onClick={() => onNavigateToNote?.(row.noteId)}
+                onClick={() => onNavigateToNote?.(presented.noteId)}
                 style={{
                   width: '100%',
                   textAlign: 'left',
-                  margin: '0 0 4px',
                   padding: '7px 9px',
                   borderRadius: 7,
                   border: `1px solid ${c.sideBdr}`,
@@ -77,24 +133,22 @@ export function TimelineActivityFeed({
                 }}
               >
                 <div style={{ fontSize: 9, fontWeight: 600, color: c.textMuted, marginBottom: 2 }}>
-                  {t(row.actionKey)}
-                  {row.imported && (
+                  {t(presented.actionKey)}
+                  {presented.imported && (
                     <span style={{ marginLeft: 6, color: c.textFaint, fontWeight: 500 }}>
                       · {t('k45ImportedBadge')}
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 10, color: c.text, lineHeight: 1.45 }}>{row.detail}</div>
+                <div style={{ fontSize: 10, color: c.text, lineHeight: 1.45 }}>{presented.detail}</div>
               </button>
-            );
-          })}
-        </section>
-      ))}
-      {events.length > MAX_FEED_EVENTS && (
-        <div style={{ fontSize: 9, color: c.textFaint, textAlign: 'center', padding: '4px 0' }}>
-          {t('k45ActivityTruncated').replace('{count}', String(MAX_FEED_EVENTS))}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 9, color: c.textFaint, textAlign: 'center', padding: '6px 0 2px' }}>
+        {t('k46ActivityTotal').replace('{count}', String(events.length))}
+      </div>
     </div>
   );
 }

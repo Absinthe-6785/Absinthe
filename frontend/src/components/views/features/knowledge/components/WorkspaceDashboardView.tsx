@@ -109,6 +109,8 @@ export interface WorkspaceDashboardUnifiedProps {
   activityRecent?: { actionKey: import('../../../../../lib/i18n').TranslationKey; detail: string; noteId: string } | null;
   activityLatestMilestone?: { titleKey: import('../../../../../lib/i18n').TranslationKey; noteId: string | null } | null;
   activityGrowthTrend?: import('../timeline').RecentEvolutionSummary | null;
+  evolutionDashboard?: import('../history/historyAreaEvolutionQueries').EvolutionDashboardSummary | null;
+  onOpenEvolution?: () => void;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -441,6 +443,8 @@ export function WorkspaceDashboardView({
             activityRecent={unified.activityRecent}
             activityLatestMilestone={unified.activityLatestMilestone}
             activityGrowthTrend={unified.activityGrowthTrend}
+            evolutionDashboard={unified.evolutionDashboard}
+            onOpenEvolution={unified.onOpenEvolution}
             activeNoteCount={unified.activeNoteCount}
             onCreateNote={unified.onCreateNote}
             onOpenCosmos={unified.onOpenCosmos}

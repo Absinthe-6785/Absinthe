@@ -9,6 +9,7 @@ import {
   loadKnowledgeHistoryEvents,
   saveKnowledgeHistoryEvents,
 } from './historyStorage';
+import { saveBootstrapImportSummary, buildBootstrapImportSummaryFromEvents } from './bootstrapSummaryStorage';
 
 export const HISTORY_BOOTSTRAP_STORAGE_KEY = 'absinthe:knowledge-history-bootstrap:v1';
 export const IMPORTED_METADATA_KEY = 'imported';
@@ -127,6 +128,7 @@ export function bootstrapKnowledgeHistory(
 
   const merged = [...existing, ...seeded].sort((a, b) => a.timestamp - b.timestamp);
   saveKnowledgeHistoryEvents(merged);
+  saveBootstrapImportSummary(buildBootstrapImportSummaryFromEvents(merged));
   markHistoryBootstrapComplete();
   return seeded.length;
 }
