@@ -101,6 +101,7 @@ export interface WorkspaceDashboardUnifiedProps {
   learningPathOverview?: Omit<React.ComponentProps<typeof LearningPathOverviewPanel>, 'colors'>;
   learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
+  onOpenDiscover?: () => void;
 }
 
 export interface WorkspaceDashboardLearningPathEditorProps {
@@ -423,6 +424,7 @@ export function WorkspaceDashboardView({
             learningPathOverview={unified.learningPathOverview}
             learningPathEditor={unified.learningPathEditor}
             compact={isMobile || isTablet}
+            onOpenDiscover={unified.onOpenDiscover}
           />
         </Card>
       )}
