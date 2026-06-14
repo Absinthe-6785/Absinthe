@@ -26,7 +26,7 @@ export function BacklinkPanel({
 
   return (
     <section className="be-backlink-panel" style={{ padding: '0 0 4px' }}>
-      <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 700 }}>
+      <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
         {t('knBacklinks')}{' '}
         <span style={{ color: incoming.length > 0 ? c.accent : c.textFaint }}>
           ({incoming.length})
