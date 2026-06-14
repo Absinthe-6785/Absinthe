@@ -39,7 +39,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
 
-  // ── 2. 날짜 상태 ──────────────────────────────────────────────────
+  // ── 2. Toast — must be declared before effects that call showToast ─
+  const { toast, showToast } = useToast();
+
+  // ── 3. 날짜 상태 ──────────────────────────────────────────────────
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
@@ -55,11 +58,6 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     return registerNotesTabSwitcher(() => setActiveTab('note'));
   }, []);
-
-  // ── 3. Toast — useToast 훅으로 분리 ──────────────────────────────
-  // 개선 전: toast state + useRef 타이머가 AppContent에 인라인
-  // 개선 후: 훅으로 캡슐화 → AppContent 코드 간소화, 재사용 가능
-  const { toast, showToast } = useToast();
 
   // ── 4. SWR ────────────────────────────────────────────────────────
   const dateStr = formatDate(selectedDate);
