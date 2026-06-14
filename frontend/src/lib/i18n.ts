@@ -1299,6 +1299,19 @@ const translations = {
   k43ArchiveTimelineLabel:     { en: 'Archive timeline (marks history)', ko: '아카이브 타임라인 (마크 기록)', ja: 'アーカイブタイムライン（マーク履歴）' },
   k43KnowledgeTimelineLabel:   { en: 'Knowledge timeline (vault growth)', ko: '지식 타임라인 (볼트 성장)', ja: 'ナレッジタイムライン（ボルト成長）' },
 
+  // ── K-44 knowledge history ─────────────────────────────────────────
+  k44ActivityTitle:            { en: 'Knowledge Activity', ko: '지식 활동', ja: 'ナレッジアクティビティ' },
+  k44ActivityPeriod:           { en: 'Last {days} days', ko: '최근 {days}일', ja: '過去{days}日' },
+  k44ActivityNotes:            { en: '+{count} Notes', ko: '+{count} 노트', ja: '+{count}ノート' },
+  k44ActivityLinks:            { en: '+{count} Links', ko: '+{count} 링크', ja: '+{count}リンク' },
+  k44ActivityHubs:             { en: '+{count} Hubs', ko: '+{count} 허브', ja: '+{count}ハブ' },
+  k44ActivityDiscoveries:      { en: '+{count} Discoveries resolved', ko: '+{count} 발견 해결', ja: '+{count}件ディスカバリー解決' },
+  k44InsightsHistory:          { en: 'History', ko: '기록', ja: '履歴' },
+  k44FirstSeen:                { en: 'First seen', ko: '처음 기록', ja: '初回記録' },
+  k44LastLinked:               { en: 'Last linked', ko: '마지막 링크', ja: '最終リンク' },
+  k44LastMajorUpdate:          { en: 'Last major update', ko: '마지막 주요 업데이트', ja: '最終主要更新' },
+  k44ActivityScore:            { en: 'Activity score (30d)', ko: '활동 점수 (30일)', ja: 'アクティビティスコア（30日）' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

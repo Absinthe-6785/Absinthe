@@ -180,6 +180,13 @@ import { KnowledgePanelEmpty } from './features/knowledge/components/KnowledgePa
 import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
 import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
 import type { TimelinePeriodMode } from './features/knowledge/timeline';
+import {
+  getActivitySummary,
+  getNoteHistoryContext,
+  loadKnowledgeHistoryEvents,
+  recordDiscoveryResolved,
+  subscribeKnowledgeHistory,
+} from './features/knowledge/history';
 import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
 import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
 import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
@@ -1288,9 +1295,17 @@ export const NoteView = () => {
     [notes],
   );
 
+  const [historyVersion, setHistoryVersion] = useState(0);
+  useEffect(() => subscribeKnowledgeHistory(() => setHistoryVersion(v => v + 1)), []);
+
+  const historyEvents = useMemo(
+    () => loadKnowledgeHistoryEvents(),
+    [historyVersion],
+  );
+
   const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService),
-    [notes],
+    () => buildDiscoveryFeed(notes, knowledgeIndexService, { historyEvents }),
+    [notes, historyEvents],
   );
 
   const unifiedWorkspaceDashboard = useMemo(
@@ -1431,8 +1446,21 @@ export const NoteView = () => {
   );
 
   const knowledgeTimeline = useMemo(
-    () => buildKnowledgeTimeline(notes, knowledgeIndexService, discoveryFeed, { mode: timelineMode }),
-    [notes, discoveryFeed, timelineMode],
+    () => buildKnowledgeTimeline(notes, knowledgeIndexService, discoveryFeed, {
+      mode: timelineMode,
+      historyEvents,
+    }),
+    [notes, discoveryFeed, timelineMode, historyEvents],
+  );
+
+  const activitySummary = useMemo(
+    () => getActivitySummary(30, Date.now(), historyEvents),
+    [historyEvents],
+  );
+
+  const noteHistoryContext = useMemo(
+    () => (activeNote ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents) : null),
+    [activeNote, historyEvents],
   );
 
   const noteTierInput = useMemo(() => {
@@ -1474,6 +1502,7 @@ export const NoteView = () => {
     if (!source) return;
     const updated = addRelationTarget(source, 'related-to', targetNoteId);
     noteUpdate(sourceNoteId, { relations: updated.relations });
+    recordDiscoveryResolved(sourceNoteId, { action: 'create-relation' }, targetNoteId);
     setActiveNoteId(sourceNoteId);
     setViewMode('edit');
     setShowRightPanel(true);
@@ -1483,6 +1512,7 @@ export const NoteView = () => {
   const handleCosmosConnect = useCallback((targetTitle: string) => {
     if (!activeNote) return;
     noteUpdate(activeNote.id, buildConnectPatch(activeNote, targetTitle));
+    recordDiscoveryResolved(activeNote.id, { action: 'connect', targetTitle });
   }, [activeNote, noteUpdate]);
 
   const handleCosmosAssignArea = useCallback((areaLabel: string, areaNoteId?: string) => {
@@ -1492,12 +1522,14 @@ export const NoteView = () => {
       : notes.find(n => (n.title ?? '').trim() === areaLabel.trim());
     const linkTitle = areaNote?.title?.trim() || areaLabel;
     noteUpdate(activeNote.id, buildAreaAssignmentPatch(activeNote, areaLabel, linkTitle));
+    recordDiscoveryResolved(activeNote.id, { action: 'assign-area', areaLabel }, areaNoteId);
   }, [activeNote, notes, noteUpdate]);
 
   const handleCosmosCreateHub = useCallback((areaLabel: string) => {
     const template = buildHubNoteTemplate(areaLabel);
     const id = createNote({ title: template.title, body: template.body });
     noteUpdate(id, { properties: applyAreaToNote({ id, title: template.title } as Note).properties });
+    recordDiscoveryResolved(id, { action: 'create-hub', areaLabel });
     setActiveNoteId(id);
     openContextPanel('actions');
   }, [createNote, noteUpdate, setActiveNoteId, openContextPanel]);
@@ -1506,6 +1538,7 @@ export const NoteView = () => {
     if (!activeNote) return;
     const updated = addRelationTarget(activeNote, 'related-to', targetNoteId);
     noteUpdate(activeNote.id, { relations: updated.relations });
+    recordDiscoveryResolved(activeNote.id, { action: 'create-relation' }, targetNoteId);
   }, [activeNote, noteUpdate]);
 
   const handleLinkRelatedNote = useCallback((_noteId: string, noteTitle: string) => {
@@ -2749,6 +2782,7 @@ export const NoteView = () => {
               onOpenDiscover: handleOpenDiscover,
               onOpenTimeline: handleOpenTimeline,
               timeline: knowledgeTimeline,
+              activitySummary,
               activeNoteCount: activeNotes.length,
               onCreateNote: () => createNote(),
               onOpenCosmos: () => setViewMode('graph'),
@@ -3437,6 +3471,7 @@ export const NoteView = () => {
                 colors={c}
                 snapshot={noteIntelligenceSnapshot}
                 tierInput={noteTierInput}
+                noteHistory={noteHistoryContext}
                 onNavigateToNote={setActiveNoteId}
                 onOpenLinks={() => openContextPanel('links')}
               />
