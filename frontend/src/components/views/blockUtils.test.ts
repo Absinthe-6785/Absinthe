@@ -271,6 +271,16 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     const md = '> A single quote';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
   });
+
+  it('roundtrips LaTeX display math through markdown conversion', () => {
+    const md = 'Fraction:\n\n$$\n\\frac{a}{b}\n$$';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
+  it('roundtrips inline LaTeX through markdown conversion', () => {
+    const md = 'Identity $a^2+b^2=c^2$ holds.';
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
 });
 
 describe('block helpers', () => {

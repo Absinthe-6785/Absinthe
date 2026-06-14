@@ -1,10 +1,9 @@
 import { Target, BookOpen, Check, ExternalLink } from 'lucide-react';
-import { useState } from 'react';
 import type { PlannerCountdownRow } from '../../calendar';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import { formatPlannerCountdownLabel } from '../../calendar/plannerCalendarPresentation';
 import { useTranslation } from '../../../../../../lib/i18n';
-import { isCountdownReviewed, markCountdownReviewed } from '../../../../../../lib/countdownReviewed';
+import { filterUnreviewedCountdowns, useCountdownReviewed } from '../../hooks/useCountdownReviewed';
 
 export interface DayCountdownStripProps {
   countdowns: readonly PlannerCountdownRow[];
@@ -18,10 +17,8 @@ export function DayCountdownStrip({
   onNoteClick,
 }: DayCountdownStripProps) {
   const { t } = useTranslation();
-  const [, setRefresh] = useState(0);
-  const upcoming = countdowns
-    .filter(c => c.daysUntil >= 0 && !isCountdownReviewed(c.sourceRefId))
-    .slice(0, 5);
+  const { isReviewed, markReviewed } = useCountdownReviewed();
+  const upcoming = filterUnreviewedCountdowns(countdowns, isReviewed, { upcomingOnly: true }).slice(0, 5);
 
   if (upcoming.length === 0) return null;
 
@@ -60,10 +57,7 @@ export function DayCountdownStrip({
                   type="button"
                   title={t('scheduleCountdownMarkReviewed')}
                   className="p-1 rounded-md hover:bg-surface text-muted hover:text-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                  onClick={() => {
-                    markCountdownReviewed(noteId);
-                    setRefresh(n => n + 1);
-                  }}
+                  onClick={() => markReviewed(noteId)}
                   data-planner-countdown-reviewed={noteId}
                 >
                   <Check size={12} strokeWidth={2.5} />

@@ -1,4 +1,12 @@
+import { COUNTDOWN_REVIEWED_CHANGED } from './countdownReviewedEvents';
+
 const STORAGE_KEY = 'absinthe:countdown-reviewed';
+
+function dispatchChange(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(COUNTDOWN_REVIEWED_CHANGED));
+  }
+}
 
 function readSet(): Set<string> {
   try {
@@ -23,10 +31,16 @@ export function markCountdownReviewed(noteId: string): void {
   const ids = readSet();
   ids.add(noteId);
   writeSet(ids);
+  dispatchChange();
 }
 
 export function unmarkCountdownReviewed(noteId: string): void {
   const ids = readSet();
   ids.delete(noteId);
   writeSet(ids);
+  dispatchChange();
+}
+
+export function getReviewedCountdownIds(): ReadonlySet<string> {
+  return readSet();
 }

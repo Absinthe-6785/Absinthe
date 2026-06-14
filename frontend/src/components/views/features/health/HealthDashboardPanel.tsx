@@ -1,27 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, ChevronRight,
+  Apple, Dumbbell, Activity, BedDouble, Lock, Scale, ChevronRight, Check,
 } from 'lucide-react';
-import { authFetch } from '../../../../lib/supabase';
-import { API_URL } from '../../../../lib/config';
 import { useTranslation } from '../../../../lib/i18n';
-import type { ExerciseBlock, HealthRoutine, Inbody, Workout, WorkoutSet, Theme } from '../../../../types';
-import { isStrengthSet } from '../../../../types';
+import type { ExerciseBlock, HealthRoutine, Inbody, Workout, Theme } from '../../../../types';
 import type { HealthWorkspaceSection } from './HealthWorkspaceNav';
-
-interface ProteinProfile {
-  daily_target_g: number;
-  weight: number;
-  goal: string;
-  activity: string;
-}
-
-interface ProteinIntakeLog {
-  id: string;
-  protein_g: number;
-  note?: string;
-  protein_sources?: { name: string } | null;
-}
+import { useProteinData } from './hooks/useProteinData';
+import { useWorkoutRangeMetrics } from './hooks/useWorkoutRangeMetrics';
+import { useHabitMetrics } from './hooks/useHabitMetrics';
 
 export interface HealthDashboardPanelProps {
   theme: Theme;
@@ -49,86 +35,18 @@ export function HealthDashboardPanel({
   const { t } = useTranslation();
   const dateStr = formatDate(selectedDate);
 
-  const [profile, setProfile] = useState<ProteinProfile | null>(null);
-  const [intakeLogs, setIntakeLogs] = useState<ProteinIntakeLog[]>([]);
-  const [weeklySessions, setWeeklySessions] = useState(0);
-  const [weeklyProteinAvg, setWeeklyProteinAvg] = useState(0);
-  const [recentPr, setRecentPr] = useState<{ name: string; kg: number } | null>(null);
+  const {
+    dailyTarget,
+    totalIntake,
+    proteinPct,
+    intakeLogs,
+    weeklyProteinAvg,
+    proteinStreak,
+  } = useProteinData(dateStr, selectedDate, formatDate);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const weekStart = new Date(selectedDate);
-        weekStart.setDate(weekStart.getDate() - 6);
-        const startStr = formatDate(weekStart);
-        const [pRes, iRes, wRes] = await Promise.all([
-          authFetch(`${API_URL}/api/protein_profile`),
-          authFetch(`${API_URL}/api/protein_intake?date=${dateStr}`),
-          authFetch(`${API_URL}/api/workouts/range?start_date=${startStr}&end_date=${dateStr}`),
-        ]);
-        if (pRes.ok) {
-          const p = await pRes.json();
-          if (p?.daily_target_g) setProfile(p);
-        }
-        if (iRes.ok) setIntakeLogs(await iRes.json());
-        else setIntakeLogs([]);
-        if (wRes.ok) {
-          const weekWorkouts = await wRes.json() as {
-            date?: string;
-            exercise_blocks: { name: string };
-            sets: WorkoutSet[];
-          }[];
-          const dates = new Set(weekWorkouts.map(w => w.date).filter(Boolean));
-          setWeeklySessions(dates.size);
-
-          const priorMax = new Map<string, number>();
-          const todayMax = new Map<string, number>();
-          for (const w of weekWorkouts) {
-            const name = w.exercise_blocks?.name ?? '';
-            if (!name) continue;
-            const bucket = w.date === dateStr ? todayMax : priorMax;
-            for (const set of w.sets ?? []) {
-              if (!isStrengthSet(set) || !set.done) continue;
-              const kg = typeof set.kg === 'number' ? set.kg : parseFloat(String(set.kg));
-              if (!kg || Number.isNaN(kg)) continue;
-              bucket.set(name, Math.max(bucket.get(name) ?? 0, kg));
-            }
-          }
-          let pr: { name: string; kg: number } | null = null;
-          for (const [name, kg] of todayMax) {
-            if (kg > (priorMax.get(name) ?? 0) && (!pr || kg > pr.kg)) {
-              pr = { name, kg };
-            }
-          }
-          setRecentPr(pr);
-        } else {
-          setWeeklySessions(0);
-          setRecentPr(null);
-        }
-
-        const proteinDays: number[] = [];
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(weekStart);
-          d.setDate(d.getDate() + i);
-          const ds = formatDate(d);
-          try {
-            const r = await authFetch(`${API_URL}/api/protein_intake?date=${ds}`);
-            if (r.ok) {
-              const logs = await r.json() as ProteinIntakeLog[];
-              proteinDays.push(logs.reduce((s, l) => s + l.protein_g, 0));
-            }
-          } catch { /* skip day */ }
-        }
-        if (proteinDays.length > 0) {
-          setWeeklyProteinAvg(Math.round(proteinDays.reduce((a, b) => a + b, 0) / proteinDays.length));
-        }
-      } catch { setIntakeLogs([]); }
-    })();
-  }, [dateStr, selectedDate, formatDate]);
-
-  const dailyTarget = profile?.daily_target_g ?? 0;
-  const totalIntake = Math.round(intakeLogs.reduce((s, l) => s + l.protein_g, 0) * 100) / 100;
-  const proteinPct = dailyTarget > 0 ? Math.min(100, Math.round((totalIntake / dailyTarget) * 1000) / 10) : 0;
+  const { weeklySessions, recentPr } = useWorkoutRangeMetrics(dateStr, selectedDate, formatDate);
+  const { todayRoutine, todayDayName, metrics: habitMetrics, isCompleted, toggleToday } =
+    useHabitMetrics(healthRoutines, selectedDate, formatDate);
 
   const completedSets = workouts.reduce((sum, w) =>
     sum + w.sets.filter(s => s.done).length, 0);
@@ -200,6 +118,11 @@ export function HealthDashboardPanel({
                   {t('healthDashboardWeeklyProtein').replace('{avg}', String(weeklyProteinAvg))}
                 </p>
               ) : null}
+              {proteinStreak > 0 ? (
+                <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
+                  {t('healthDashboardProteinStreak').replace('{days}', String(proteinStreak))}
+                </p>
+              ) : null}
             </>
           ) : (
             <p className={`text-xs ${theme.textMuted}`}>{t('healthDashboardProteinSetup')}</p>
@@ -241,23 +164,44 @@ export function HealthDashboardPanel({
         </SectionLink>
 
         <SectionLink section="habits" icon={Activity} title={t('healthNavHabits')}>
-          <div className="flex gap-4">
-            <div>
-              <span className="text-xl font-bold tabular-nums">{healthBlocks.length}</span>
-              <p className={`text-[10px] ${theme.textMuted}`}>{t('tabBlocks')}</p>
-            </div>
-            <div>
-              <span className="text-xl font-bold tabular-nums">{healthRoutines.length}</span>
-              <p className={`text-[10px] ${theme.textMuted}`}>{t('tabRoutine')}</p>
-            </div>
-          </div>
-          {(healthBlocks.length > 0 || healthRoutines.length > 0) ? (
-            <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
-              {t('healthDashboardHabitToday')
-                .replace('{blocks}', String(healthBlocks.length))
-                .replace('{routines}', String(healthRoutines.length))}
-            </p>
-          ) : null}
+          {todayRoutine ? (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className={`text-xs font-semibold ${theme.text}`}>
+                  {t('healthDashboardTodayHabit').replace('{day}', todayDayName)}
+                </p>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); toggleToday(); }}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors
+                    ${isCompleted ? 'bg-green-500/15 text-green-600 border-green-500/30' : `${theme.border} ${theme.textMuted}`}`}
+                  data-health-habit-toggle
+                >
+                  <Check size={11} strokeWidth={2.5} />
+                  {isCompleted ? t('healthDashboardHabitDone') : t('healthDashboardHabitMark')}
+                </button>
+              </div>
+              <p className={`text-[10px] ${theme.textMuted}`}>
+                {t('healthDashboardHabitBlocks').replace('{count}', String(todayRoutine.blocks.length))}
+              </p>
+              {habitMetrics ? (
+                <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
+                  {t('healthDashboardHabitStats')
+                    .replace('{streak}', String(habitMetrics.streak))
+                    .replace('{rate}', String(habitMetrics.completionRate))}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className={`text-xs ${theme.textMuted}`}>{t('healthDashboardNoHabitRoutine')}</p>
+              <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
+                {t('healthDashboardHabitToday')
+                  .replace('{blocks}', String(healthBlocks.length))
+                  .replace('{routines}', String(healthRoutines.length))}
+              </p>
+            </>
+          )}
         </SectionLink>
 
         <SectionLink section="recovery" icon={BedDouble} title={t('healthNavRecovery')}>
