@@ -1,5 +1,6 @@
 import type { ImportanceClassification } from '../cosmos/intelligence/knowledgeImportance';
 import type { SuggestionSignal } from '../cosmos/intelligence/suggestedConnections';
+import type { DiscoveryConfidence } from './discoveryScoring';
 
 export type DiscoveryKind =
   | 'forgotten-knowledge'
@@ -23,6 +24,7 @@ export interface DiscoveryItem {
   noteCount?: number;
   importanceClass?: ImportanceClassification;
   signals?: readonly SuggestionSignal[];
+  confidence?: DiscoveryConfidence;
 }
 
 export interface DiscoverySummary {

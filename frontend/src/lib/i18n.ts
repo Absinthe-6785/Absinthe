@@ -122,7 +122,7 @@ const translations = {
   weekdaySun: { en: 'Sun', ko: '일', ja: '日' },
   archiveViewUnavailable: { en: '{view} view is not available yet. Browse from Archive Home or open Notes to add marks.', ko: '{view} 보기는 아직 준비 중입니다. 아카이브 홈에서 탐색하거나 노트에서 마크를 추가하세요.', ja: '{view}ビューはまだ利用できません。アーカイブホームから探索するか、ノートでマークを追加してください。' },
   archiveEmptyCta:   { en: 'Go to Notes to start writing', ko: '노트로 이동해 작성 시작', ja: 'ノートへ移動して書き始める' },
-  graphHoverHint:      { en: 'Hover or select a node to see its title', ko: '노드에 마우스를 올리거나 선택하면 제목이 표시됩니다', ja: 'ノードにホバーまたは選択でタイトル表示' },
+  graphHoverHint:      { en: 'Hover or select a note to see its title', ko: '노트에 마우스를 올리거나 선택하면 제목이 표시됩니다', ja: 'ノートにホバーまたは選択でタイトル表示' },
   timeline:       { en: 'Timeline',       ko: '타임라인',     ja: 'タイムライン' },
   dday:           { en: 'D-Day',          ko: 'D-Day',        ja: 'D-Day'        },
   newFolder:      { en: 'New Folder',     ko: '새 폴더',      ja: '新フォルダ'   },
@@ -521,7 +521,7 @@ const translations = {
   nvTrashEmpty:             { en: 'Trash is empty', ko: '휴지통이 비어 있습니다', ja: 'ゴミ箱は空です' },
   nvTrashLabel:             { en: '🗑 Trash', ko: '🗑 휴지통', ja: '🗑 ゴミ箱' },
   nvReading:                { en: 'Reading', ko: '읽기', ja: '閲覧' },
-  nvGraph:                  { en: 'Cosmos view', ko: '코스모스', ja: 'コスモス' },
+  nvGraph:                  { en: 'Cosmos', ko: '코스모스', ja: 'コスモス' },
   nvPanelToc:               { en: 'Outline', ko: '목차', ja: '目次' },
   nvPanelLinks:             { en: 'Links', ko: '링크', ja: 'リンク' },
   nvPanelProperties:        { en: 'Properties', ko: '속성', ja: 'プロパティ' },
@@ -1028,7 +1028,7 @@ const translations = {
 
   // ── K-35 NoteView modernization ────────────────────────────────────
   k35ContextPanelTitle:        { en: 'Knowledge context', ko: '지식 컨텍스트', ja: 'ナレッジコンテキスト' },
-  k35ContextPanelSubtitle:     { en: 'Outline, links, cosmos, insights, and metadata for this note', ko: '이 노트의 목차, 링크, 코스모스, 인사이트, 메타데이터', ja: 'このノートの目次・リンク・コスモス・インサイト・メタデータ' },
+  k35ContextPanelSubtitle:     { en: 'Outline, links, cosmos, insights, actions, and discovery for this note', ko: '이 노트의 목차, 링크, 코스모스, 인사이트, 액션, 발견', ja: 'このノートの目次・リンク・コスモス・インサイト・アクション・ディスカバリー' },
   k35ContextPanelTabs:         { en: 'Context panel tabs', ko: '컨텍스트 패널 탭', ja: 'コンテキストパネルタブ' },
   k35LinksGroupStructure:      { en: 'Knowledge structure', ko: '지식 구조', ja: '知識構造' },
   k35LinksGroupConnections:    { en: 'Connections', ko: '연결', ja: '接続' },
@@ -1164,6 +1164,20 @@ const translations = {
   k38HudMissingConnections:    { en: 'Missing connections: {count}', ko: '누락 연결: {count}', ja: '不足接続: {count}' },
   k38HudWeakHubs:              { en: 'Weak hubs: {count}', ko: '약한 허브: {count}', ja: '弱いハブ: {count}' },
   k38HudEmergingTopics:        { en: 'Emerging topics: {count}', ko: '떠오르는 주제: {count}', ja: '新興トピック: {count}' },
+
+  // ── K-39 Cosmos unification ────────────────────────────────────────
+  k39CosmosSuiteTitle:         { en: 'Knowledge Cosmos', ko: '지식 코스모스', ja: 'ナレッジ・コスモス' },
+  k39CosmosSuiteActive:        { en: 'Active: {panel} — part of the unified Cosmos system', ko: '활성: {panel} — 통합 코스모스 시스템', ja: 'アクティブ: {panel} — 統合コスモス' },
+  k39ConfidenceHigh:           { en: 'High confidence', ko: '높은 신뢰도', ja: '高信頼' },
+  k39ConfidenceMedium:         { en: 'Medium confidence', ko: '중간 신뢰도', ja: '中信頼' },
+  k39ConfidenceLow:            { en: 'Low confidence', ko: '낮은 신뢰도', ja: '低信頼' },
+  k39ReasonLabel:              { en: 'Reason', ko: '이유', ja: '理由' },
+  k39ReasonForgotten:          { en: 'Core hub inactive for {days} days ({tier})', ko: '{tier} · {days}일간 미방문', ja: '{tier} · {days}日間未訪問' },
+  k39ReasonDrift:              { en: 'Structure not updated for {days} days', ko: '구조 {days}일간 미갱신', ja: '構造が{days}日間未更新' },
+  k39ReasonMissingConnection:  { en: 'Overlap: {signals}', ko: '겹침: {signals}', ja: '重なり: {signals}' },
+  k39ReasonEmerging:           { en: '{count} recent notes in this cluster', ko: '최근 노트 {count}개 클러스터', ja: '最近{count}ノートのクラスタ' },
+  k39ReasonWeakHub:            { en: '{count} notes without a major hub', ko: '허브 없는 노트 {count}개', ja: 'ハブなし{count}ノート' },
+  k39CosmosHudAria:            { en: 'Cosmos intelligence summary', ko: '코스모스 인텔리전스 요약', ja: 'コスモスインテリジェンス概要' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

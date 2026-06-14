@@ -1127,7 +1127,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         backdropFilter: 'blur(8px)',
         pointerEvents: 'none',
         maxWidth: 220,
-      }} data-ku-universe-hud>
+      }} data-ku-universe-hud aria-label={t('k39CosmosHudAria')}>
         <div style={{ fontWeight: 700, color: colors.txt, marginBottom: 4 }}>
           {t('cosmosUniverseTitle')}
         </div>

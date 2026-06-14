@@ -19,7 +19,11 @@ export {
   scoreKnowledgeDrift,
   scoreMissingConnection,
   scoreWeakHub,
+  discoveryConfidenceTier,
+  type DiscoveryConfidence,
 } from './discoveryScoring';
+
+export { formatDiscoveryReasonLines } from './discoveryReasons';
 
 export type {
   BuildDiscoveryFeedOptions,

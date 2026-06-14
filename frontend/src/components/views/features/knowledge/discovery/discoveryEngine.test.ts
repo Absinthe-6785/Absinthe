@@ -61,4 +61,20 @@ describe('discoveryEngine', () => {
       expect(feed.items[i - 1].score).toBeGreaterThanOrEqual(feed.items[i].score);
     }
   });
+
+  it('assigns confidence tiers and filters low-score noise', () => {
+    const feed = buildDiscoveryFeed(notes, service, { now, perSectionLimit: 10 });
+    for (const item of feed.items) {
+      expect(item.confidence).toBeDefined();
+      expect(item.score).toBeGreaterThanOrEqual(35);
+    }
+  });
+
+  it('deduplicates forgotten and drift for the same note', () => {
+    const feed = buildDiscoveryFeed(notes, service, { now, perSectionLimit: 20 });
+    const hubItems = feed.items.filter(
+      i => (i.kind === 'forgotten-knowledge' || i.kind === 'knowledge-drift') && i.noteId === 'hub-1',
+    );
+    expect(hubItems.length).toBeLessThanOrEqual(1);
+  });
 });
