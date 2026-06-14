@@ -46,7 +46,7 @@ export function MonthCalendarView({
           className={`text-sm mb-3 ${theme.textMuted}`}
           data-planner-calendar-month-empty-hint="true"
         >
-          No events this month yet. The grid stays visible for orientation.
+          {t('scheduleMonthEmptyHint')}
         </p>
       ) : null}
 

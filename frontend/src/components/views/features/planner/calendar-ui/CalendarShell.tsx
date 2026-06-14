@@ -33,6 +33,8 @@ export interface CalendarShellProps {
   onAnchorDateChange?: (dateKey: string) => void;
   /** Reuses PlannerView Timeline schedule modal / confirm flows in Day mode. */
   dayScheduleActions?: DayScheduleActions;
+  /** Notifies parent when calendar mode changes (e.g. hide duplicate timeline in Day view). */
+  onViewModeChange?: (mode: PlannerCalendarViewMode) => void;
 }
 
 /**
@@ -56,9 +58,15 @@ export function CalendarShell({
   onEventNoteClick,
   onAnchorDateChange,
   dayScheduleActions,
+  onViewModeChange,
 }: CalendarShellProps) {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<PlannerCalendarViewMode>(initialMode);
+
+  const handleModeChange = (mode: PlannerCalendarViewMode) => {
+    setViewMode(mode);
+    onViewModeChange?.(mode);
+  };
 
   const { projection, presentation } = usePlannerCalendarProjection({
     now,
@@ -94,7 +102,7 @@ export function CalendarShell({
     >
       <CalendarModeSwitcher
         activeMode={viewMode}
-        onModeChange={setViewMode}
+        onModeChange={handleModeChange}
         theme={theme}
       />
 

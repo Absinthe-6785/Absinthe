@@ -1,4 +1,5 @@
 import type { Theme } from '../../../../../types';
+import { useTranslation } from '../../../../../../lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { DayEventsSection } from './DayEventsSection';
 import { DayHeader } from './DayHeader';
@@ -24,13 +25,14 @@ export function DayCalendarView({
   onEventNoteClick,
   scheduleActions,
 }: DayCalendarViewProps) {
+  const { t } = useTranslation();
   const day = projection.views.day;
   const model = buildDayDisplayModel(day);
   const hasContent = dayHasContent(day);
 
   return (
     <div
-      className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}
+      className={`rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 ${theme.card}`}
       data-planner-calendar-day
     >
       <DayHeader
@@ -42,14 +44,14 @@ export function DayCalendarView({
 
       {!hasContent ? (
         <p
-          className={`text-sm mb-4 ${theme.textMuted}`}
+          className={`text-xs mb-3 ${theme.textMuted}`}
           data-planner-calendar-day-empty-hint="true"
         >
-          Nothing planned for this day yet. Sections stay visible so you can scan what remains.
+          {t('scheduleDayEmptyHint')}
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-4 lg:gap-5">
+      <div className="flex flex-col gap-2.5 lg:gap-3">
         <DayEventsSection
           allDayEvents={model.allDayEvents}
           timedEvents={model.timedEvents}

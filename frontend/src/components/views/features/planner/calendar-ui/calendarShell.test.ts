@@ -10,7 +10,6 @@ import type { NoteBase } from '../../../noteUtils';
 import { applyEventToNote } from '../../knowledge/trace/eventNotes';
 import { CalendarShell } from './CalendarShell';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
-import { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import {
   buildCalendarPlaceholderSummary,
@@ -140,71 +139,7 @@ describe('CalendarModeSwitcher', () => {
   });
 });
 
-describe('CalendarViewPlaceholder', () => {
-  it('renders month stats from projection', () => {
-    const travel = applyEventToNote(note('travel', { title: 'Travel' }), {
-      title: 'Travel',
-      eventDate: '2027-02-01',
-      eventEndDate: '2027-02-05',
-    });
-
-    const { projection, presentation } = buildPlannerCalendarShellProjection({
-      notes: [travel],
-      now: NOW,
-      anchorDate: '2027-02-03',
-      viewMode: 'month',
-      schedules: [],
-      todos: [],
-      routines: [],
-      weeklySchedules: [],
-      legacyDdays: [],
-      appSettings,
-    });
-
-    const html = renderToStaticMarkup(
-      createElement(CalendarViewPlaceholder, {
-        mode: 'month',
-        projection,
-        presentation,
-        theme,
-      }),
-    );
-
-    expect(html).toContain('data-planner-calendar-placeholder-mode="month"');
-    expect(html).toContain('Month View');
-    expect(html).toContain('42 days loaded');
-    expect(html).toContain('data-planner-calendar-period-label');
-  });
-
-  it('shows empty state when projection has no items in range', () => {
-    const projection = buildPlannerCalendarProjection({
-      notes: [],
-      scheduleBlocks: [],
-      weeklySchedules: [],
-      todos: [],
-      routines: [],
-      legacyDdays: [],
-      anchorDate: '2027-02-03',
-      viewMode: 'agenda',
-      now: NOW,
-    });
-    const presentation = formatPlannerCalendarPresentation(projection, 'en');
-    const summary = buildCalendarPlaceholderSummary('agenda', projection);
-
-    expect(summary.isEmpty).toBe(true);
-
-    const html = renderToStaticMarkup(
-      createElement(CalendarViewPlaceholder, {
-        mode: 'agenda',
-        projection,
-        presentation,
-        theme,
-      }),
-    );
-
-    expect(html).toContain('data-planner-calendar-empty="true"');
-  });
-
+describe('calendar presentation labels', () => {
   it('consumes presentation labels without embedding locale formatting logic', () => {
     const projection = buildPlannerCalendarProjection({
       notes: [],

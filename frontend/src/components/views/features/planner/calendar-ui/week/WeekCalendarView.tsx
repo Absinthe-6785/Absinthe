@@ -1,4 +1,5 @@
 import type { Theme } from '../../../../../types';
+import { useTranslation } from '../../../../../../lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { WeekDayColumns } from './WeekDayColumns';
 import { WeekHeader } from './WeekHeader';
@@ -17,6 +18,7 @@ export function WeekCalendarView({
   theme,
   onEventNoteClick,
 }: WeekCalendarViewProps) {
+  const { t } = useTranslation();
   const week = projection.views.week;
   const todayKey = resolveTodayKeyFromProjection(projection.meta.generatedAt);
   const hasContent = weekHasContent(week.columns);
@@ -36,7 +38,7 @@ export function WeekCalendarView({
           className={`text-sm mb-3 ${theme.textMuted}`}
           data-planner-calendar-week-empty-hint="true"
         >
-          Nothing scheduled this week yet. The seven-day layout stays visible for orientation.
+          {t('scheduleWeekEmptyHint')}
         </p>
       ) : null}
 
