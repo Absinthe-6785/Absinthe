@@ -211,6 +211,7 @@ function buildRecentEvolution(
   snapshots: TimelineSnapshot[],
   now: number,
   recentDays: number,
+  areaEvolution: AreaEvolutionRow[],
 ): RecentEvolutionSummary {
   const startMs = now - recentDays * 86_400_000;
   const nowSnapshot = snapshots[snapshots.length - 1];
@@ -230,7 +231,7 @@ function buildRecentEvolution(
     ? Math.max(0, nowSnapshot.linkCount - pastSnapshot.linkCount)
     : nowSnapshot?.linkCount ?? 0;
 
-  const areas = buildAreaEvolution(notes, service, 'month', now);
+  const areas = areaEvolution;
   const fastestGrowingArea = areas.find(a => a.trend === 'growing')?.areaLabel ?? areas[0]?.areaLabel ?? null;
 
   return {
@@ -256,15 +257,16 @@ export function buildKnowledgeTimeline(
   const buckets = buildPeriodBuckets(notes, mode, now);
   const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen);
   const displaySnapshots = trimSnapshotsForDisplay(snapshots, mode === 'all' ? 1 : 8);
+  const areaEvolution = buildAreaEvolution(notes, service, mode, now);
 
   return {
     mode,
     periods: buckets,
     snapshots: displaySnapshots,
     growth: buildGrowthMetrics(notes, service, snapshots, buckets, discoveriesOpen),
-    areaEvolution: buildAreaEvolution(notes, service, mode, now),
+    areaEvolution,
     milestones: buildMilestones(notes, service, snapshots, buckets),
     discoveryHistory: buildDiscoveryHistory(notes, service, now, recentDays),
-    recentEvolution: buildRecentEvolution(notes, service, snapshots, now, recentDays),
+    recentEvolution: buildRecentEvolution(notes, service, snapshots, now, recentDays, areaEvolution),
   };
 }

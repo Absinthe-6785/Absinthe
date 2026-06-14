@@ -197,10 +197,10 @@ function enrichNoteResult(
   result: WorkspaceSearchResult,
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  galaxyMap: ReturnType<typeof buildNoteGalaxyMap>,
   discoveryFeed?: DiscoveryFeed,
   language?: Language,
 ): WorkspaceSearchResult {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
   const galaxy = galaxyMap.get(note.id);
   const input = buildImportanceInputForNote(note, service, galaxy);
   const importance = evaluateKnowledgeImportance(input);
@@ -243,6 +243,7 @@ export function buildWorkspaceSearch(
   const results: WorkspaceSearchResult[] = [];
   const projectIds = new Set(filterStudyProjectContainers(notes).map(p => p.id));
   const milestoneIds = new Set(filterProjectMilestones(notes).map(m => m.id));
+  const galaxyMap = service ? buildNoteGalaxyMap(notes, service) : null;
 
   for (const note of notes) {
     if (note.deletedAt) continue;
@@ -251,7 +252,9 @@ export function buildWorkspaceSearch(
     const m = matchScore(title, q);
     if (m !== null && kindAllowed('note', filter)) {
       const base = buildResult('note', note.id, title, m, { noteId: note.id });
-      results.push(service ? enrichNoteResult(note, base, notes, service, options.discoveryFeed, options.language) : base);
+      results.push(service && galaxyMap
+        ? enrichNoteResult(note, base, notes, service, galaxyMap, options.discoveryFeed, options.language)
+        : base);
     }
   }
 

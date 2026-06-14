@@ -31,6 +31,7 @@ export interface BuildUnifiedWorkspaceDashboardOptions {
   limit?: number;
   service?: KnowledgeIndexService;
   language?: Language;
+  discoveryFeed?: DiscoveryFeed;
 }
 
 /** Composes existing dashboard builders — no new scoring or workflow logic. */
@@ -55,7 +56,7 @@ export function buildUnifiedWorkspaceDashboard(
       ? buildKnowledgeClusters(notes, service, { limit: limit + 2 })
       : { highlyConnected: [], tagClusters: [], conceptCount: 0, clusterCount: 0 },
     projects: buildProjectDashboard(notes, { limit }),
-    discovery: service ? buildDiscoveryFeed(notes, service, { perSectionLimit: limit }) : {
+    discovery: opts.discoveryFeed ?? (service ? buildDiscoveryFeed(notes, service, { perSectionLimit: limit }) : {
       items: [],
       sections: {
         'forgotten-knowledge': [],
@@ -72,6 +73,6 @@ export function buildUnifiedWorkspaceDashboard(
         knowledgeDriftCount: 0,
         totalCount: 0,
       },
-    },
+    }),
   };
 }
