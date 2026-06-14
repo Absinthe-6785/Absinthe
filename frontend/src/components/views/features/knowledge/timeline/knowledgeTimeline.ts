@@ -27,6 +27,13 @@ import { evaluateKnowledgeImportance } from '../cosmos/intelligence/knowledgeImp
 import { buildImportanceInputForNote } from '../cosmos/intelligence/knowledgeOpportunities';
 import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
 import { isAreaNote } from '../trace/areaNotes';
+import {
+  discoveryHistoryFromEvents,
+  mergeGrowthWithHistory,
+  recentEvolutionFromHistory,
+} from './timelineHistoryMetrics';
+import { hasRecordedHistory } from '../history/historyQueries';
+import type { KnowledgeHistoryEvent } from '../history/eventTypes';
 
 function buildSnapshots(
   notes: readonly NoteBase[],
@@ -54,6 +61,7 @@ function buildGrowthMetrics(
   snapshots: TimelineSnapshot[],
   buckets: ReturnType<typeof buildPeriodBuckets>,
   discoveriesOpen: number,
+  historyEvents: readonly KnowledgeHistoryEvent[],
 ): TimelineGrowthMetrics {
   const lastBucket = buckets[buckets.length - 1];
   const prevSnapshot = snapshots.length >= 2 ? snapshots[snapshots.length - 2] : null;
@@ -86,12 +94,17 @@ function buildGrowthMetrics(
     connectionsAdded: vault.linksCreated,
   };
 
-  return {
-    vault,
-    structural: structuralGrowthFrom(currentSnapshot),
-    discovery,
-    periodLabel: lastBucket.label,
-  };
+  return mergeGrowthWithHistory(
+    {
+      vault,
+      structural: structuralGrowthFrom(currentSnapshot),
+      discovery,
+      periodLabel: lastBucket.label,
+    },
+    lastBucket.startMs,
+    lastBucket.endMs,
+    historyEvents,
+  );
 }
 
 function areaLabelForNote(note: NoteBase, service: KnowledgeIndexService, galaxyLabel?: string): string | null {
@@ -212,6 +225,7 @@ function buildRecentEvolution(
   now: number,
   recentDays: number,
   areaEvolution: AreaEvolutionRow[],
+  historyEvents: readonly KnowledgeHistoryEvent[],
 ): RecentEvolutionSummary {
   const startMs = now - recentDays * 86_400_000;
   const nowSnapshot = snapshots[snapshots.length - 1];
@@ -234,9 +248,17 @@ function buildRecentEvolution(
   const areas = areaEvolution;
   const fastestGrowingArea = areas.find(a => a.trend === 'growing')?.areaLabel ?? areas[0]?.areaLabel ?? null;
 
-  return {
+  const historyCounts = recentEvolutionFromHistory(
+    startMs,
+    now,
+    historyEvents,
     notesAdded,
     linksAdded,
+  );
+
+  return {
+    notesAdded: historyCounts.notesAdded,
+    linksAdded: historyCounts.linksAdded,
     periodDays: recentDays,
     fastestGrowingArea,
   };
@@ -253,20 +275,39 @@ export function buildKnowledgeTimeline(
   const now = options.now ?? Date.now();
   const recentDays = options.recentDays ?? 30;
   const discoveriesOpen = discoveryFeed?.summary.totalCount ?? 0;
+  const historyEvents = options.historyEvents ?? [];
+  const usesEventHistory = hasRecordedHistory(historyEvents);
 
   const buckets = buildPeriodBuckets(notes, mode, now);
   const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen);
   const displaySnapshots = trimSnapshotsForDisplay(snapshots, mode === 'all' ? 1 : 8);
   const areaEvolution = buildAreaEvolution(notes, service, mode, now);
 
+  const estimatedDiscoveryHistory = buildDiscoveryHistory(notes, service, now, recentDays);
+  const windowStart = now - recentDays * 86_400_000;
+
   return {
     mode,
     periods: buckets,
     snapshots: displaySnapshots,
-    growth: buildGrowthMetrics(notes, service, snapshots, buckets, discoveriesOpen),
+    growth: buildGrowthMetrics(notes, service, snapshots, buckets, discoveriesOpen, historyEvents),
     areaEvolution,
     milestones: buildMilestones(notes, service, snapshots, buckets),
-    discoveryHistory: buildDiscoveryHistory(notes, service, now, recentDays),
-    recentEvolution: buildRecentEvolution(notes, service, snapshots, now, recentDays, areaEvolution),
+    discoveryHistory: discoveryHistoryFromEvents(
+      windowStart,
+      now,
+      historyEvents,
+      estimatedDiscoveryHistory,
+    ),
+    recentEvolution: buildRecentEvolution(
+      notes,
+      service,
+      snapshots,
+      now,
+      recentDays,
+      areaEvolution,
+      historyEvents,
+    ),
+    usesEventHistory,
   };
 }

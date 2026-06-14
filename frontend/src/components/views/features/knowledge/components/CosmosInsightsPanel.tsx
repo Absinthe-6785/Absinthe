@@ -1,5 +1,6 @@
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeImportanceInput, NoteIntelligenceSnapshot } from '../cosmos/intelligence';
+import type { NoteHistoryContext } from '../history';
 import { useTranslation } from '../../../../../lib/i18n';
 import { importanceClassificationLabel, areaHealthCategoryLabel, suggestionSignalLabel } from '../knowledgeLabels';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
@@ -12,6 +13,7 @@ export interface CosmosInsightsPanelProps {
   colors: NoteChromeColors;
   snapshot: NoteIntelligenceSnapshot;
   tierInput: KnowledgeImportanceInput;
+  noteHistory?: NoteHistoryContext | null;
   onNavigateToNote: (noteId: string) => void;
   onOpenLinks?: () => void;
 }
@@ -58,11 +60,17 @@ export function CosmosInsightsPanel({
   colors: c,
   snapshot,
   tierInput,
+  noteHistory,
   onNavigateToNote,
   onOpenLinks,
 }: CosmosInsightsPanelProps) {
   const { t, lang } = useTranslation();
   const classification = importanceClassificationLabel(snapshot.importance.classification, lang);
+
+  const formatDate = (ms: number | null) => {
+    if (!ms) return null;
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -101,6 +109,25 @@ export function CosmosInsightsPanel({
           )}
         </div>
       </KnowledgePanelSection>
+
+      {noteHistory && (noteHistory.firstSeenAt || noteHistory.lastLinkedAt || noteHistory.activityScore > 0) && (
+        <KnowledgePanelSection colors={c} title={t('k44InsightsHistory')}>
+          <div style={{ padding: '0 10px 8px', fontSize: 10, color: c.textMuted, lineHeight: 1.6 }}>
+            {noteHistory.firstSeenAt && (
+              <div>{t('k44FirstSeen')}: <span style={{ color: c.text }}>{formatDate(noteHistory.firstSeenAt)}</span></div>
+            )}
+            {noteHistory.lastLinkedAt && (
+              <div>{t('k44LastLinked')}: <span style={{ color: c.text }}>{formatDate(noteHistory.lastLinkedAt)}</span></div>
+            )}
+            {noteHistory.lastMajorUpdateAt && (
+              <div>{t('k44LastMajorUpdate')}: <span style={{ color: c.text }}>{formatDate(noteHistory.lastMajorUpdateAt)}</span></div>
+            )}
+            {noteHistory.activityScore > 0 && (
+              <div>{t('k44ActivityScore')}: <span style={{ color: c.accent, fontWeight: 700 }}>{noteHistory.activityScore}</span></div>
+            )}
+          </div>
+        </KnowledgePanelSection>
+      )}
 
       <KnowledgePanelSection
         colors={c}

@@ -1036,6 +1036,23 @@ export {
 
 export { TimelinePanel, type TimelinePanelProps } from './components/TimelinePanel';
 export { TimelineDashboardCard, type TimelineDashboardCardProps } from './components/TimelineDashboardCard';
+export { KnowledgeActivityCard, type KnowledgeActivityCardProps } from './components/KnowledgeActivityCard';
+
+export {
+  loadKnowledgeHistoryEvents,
+  getActivitySummary,
+  getNoteHistoryContext,
+  getRecentEvents,
+  getGrowthMetrics,
+  recordDiscoveryResolved,
+  subscribeKnowledgeHistory,
+  clearKnowledgeHistory,
+  MAX_HISTORY_EVENTS,
+  type KnowledgeHistoryEvent,
+  type KnowledgeHistoryEventType,
+  type KnowledgeActivitySummary,
+  type NoteHistoryContext,
+} from './history';
 
 export {
   resolveCosmosVaultPhase,

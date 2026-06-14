@@ -8,6 +8,7 @@ import {
   collectMissingConnectionSignals,
   collectWeakHubSignals,
 } from './discoverySignals';
+import { applyHistoryToDiscoveryItems } from './historyDiscoveryBoost';
 import { DISCOVERY_WEIGHTS, discoveryConfidenceTier } from './discoveryScoring';
 
 const DISCOVERY_KINDS: DiscoveryKind[] = [
@@ -127,13 +128,19 @@ export function buildDiscoveryFeed(
   const perSection = options.perSectionLimit ?? 4;
   const totalLimit = options.limit ?? 15;
 
-  const raw = refineDiscoveryItems([
-    ...collectForgottenKnowledgeSignals(notes, service, now),
-    ...collectMissingConnectionSignals(notes, service),
-    ...collectEmergingTopicSignals(notes, service, now),
-    ...collectWeakHubSignals(notes, service),
-    ...collectKnowledgeDriftSignals(notes, service, now),
-  ]);
+  const raw = refineDiscoveryItems(
+    applyHistoryToDiscoveryItems(
+      [
+        ...collectForgottenKnowledgeSignals(notes, service, now),
+        ...collectMissingConnectionSignals(notes, service),
+        ...collectEmergingTopicSignals(notes, service, now),
+        ...collectWeakHubSignals(notes, service),
+        ...collectKnowledgeDriftSignals(notes, service, now),
+      ],
+      options.historyEvents ?? [],
+      now,
+    ),
+  );
 
   const sections = emptySections();
   for (const kind of DISCOVERY_KINDS) {

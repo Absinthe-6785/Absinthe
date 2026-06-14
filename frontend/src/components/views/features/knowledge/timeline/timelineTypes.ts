@@ -82,10 +82,13 @@ export interface KnowledgeTimeline {
   milestones: KnowledgeMilestone[];
   discoveryHistory: DiscoveryHistorySummary;
   recentEvolution: RecentEvolutionSummary;
+  /** True when growth metrics use recorded events instead of estimates only. */
+  usesEventHistory: boolean;
 }
 
 export interface BuildKnowledgeTimelineOptions {
   mode?: TimelinePeriodMode;
   now?: number;
   recentDays?: number;
+  historyEvents?: readonly import('../history/eventTypes').KnowledgeHistoryEvent[];
 }

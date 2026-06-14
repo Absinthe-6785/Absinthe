@@ -34,6 +34,12 @@ import {
   LOCAL_FOLDERS_SAVE_ERROR,
 } from '../components/views/noteUtils';
 import { knowledgeIndexService } from '../components/views/features/knowledge';
+import {
+  clearKnowledgeHistory,
+  recordNoteCreated,
+  recordNoteDeleted,
+  recordNoteUpdateDiff,
+} from '../components/views/features/knowledge/history';
 
 export type { Note, NoteFolder };
 
@@ -280,6 +286,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(note);
+      recordNoteCreated(id);
       void syncNoteToDB(note);
       return id;
     },
@@ -294,6 +301,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     updateNote: (id, patch) => {
+      const previous = get().notes.find(n => n.id === id);
       const normalizedPatch = 'properties' in patch
         ? { ...patch, properties: normalizeNoteProperties(patch.properties) }
         : patch;
@@ -304,6 +312,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       persistNotes(notes);
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
+      if (previous) recordNoteUpdateDiff(previous, updated);
       syncKnowledgeIndexForNote(updated, patch);
       if ('body' in patch) {
         scheduleBodySync(updated);
@@ -339,6 +348,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(copy);
+      recordNoteCreated(id);
       void syncNoteToDB(copy);
       return id;
     },
@@ -380,6 +390,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     permanentDeleteNote: (id) => {
       clearBodySyncTimer(id);
       pendingBodySync.delete(id);
+      recordNoteDeleted(id);
       knowledgeIndexService.removeNote(id);
       const notes = get().notes.filter(n => n.id !== id);
       const nextActive = get().activeNoteId === id
@@ -516,6 +527,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       lastFailedNote = null;
       lastFailedDeleteId = null;
       clearNotesStorage();
+      clearKnowledgeHistory();
       const notes = createDefaultWelcomeNotes();
       set({
         notes,

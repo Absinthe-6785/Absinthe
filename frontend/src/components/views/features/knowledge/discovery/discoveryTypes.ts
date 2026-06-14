@@ -46,4 +46,5 @@ export interface BuildDiscoveryFeedOptions {
   limit?: number;
   perSectionLimit?: number;
   now?: number;
+  historyEvents?: readonly import('../history/eventTypes').KnowledgeHistoryEvent[];
 }

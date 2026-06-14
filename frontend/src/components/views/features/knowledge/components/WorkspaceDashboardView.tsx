@@ -105,6 +105,7 @@ export interface WorkspaceDashboardUnifiedProps {
   onOpenDiscover?: () => void;
   onOpenTimeline?: () => void;
   timeline?: KnowledgeTimeline;
+  activitySummary?: import('../history').KnowledgeActivitySummary;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -433,6 +434,7 @@ export function WorkspaceDashboardView({
             onOpenDiscover={unified.onOpenDiscover}
             onOpenTimeline={unified.onOpenTimeline}
             timeline={unified.timeline}
+            activitySummary={unified.activitySummary}
             activeNoteCount={unified.activeNoteCount}
             onCreateNote={unified.onCreateNote}
             onOpenCosmos={unified.onOpenCosmos}

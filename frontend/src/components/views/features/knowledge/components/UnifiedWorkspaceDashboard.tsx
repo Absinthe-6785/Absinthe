@@ -6,6 +6,8 @@ import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWor
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
 import { TimelineDashboardCard } from './TimelineDashboardCard';
+import { KnowledgeActivityCard } from './KnowledgeActivityCard';
+import type { KnowledgeActivitySummary } from '../history';
 import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
 import type { KnowledgeTimeline } from '../timeline';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
@@ -35,6 +37,7 @@ export interface UnifiedWorkspaceDashboardProps {
   onOpenDiscover?: () => void;
   onOpenTimeline?: () => void;
   timeline?: KnowledgeTimeline;
+  activitySummary?: KnowledgeActivitySummary;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -118,6 +121,7 @@ export function UnifiedWorkspaceDashboard({
   onOpenDiscover,
   onOpenTimeline,
   timeline,
+  activitySummary,
   activeNoteCount = 0,
   onCreateNote,
   onOpenCosmos,
@@ -139,6 +143,9 @@ export function UnifiedWorkspaceDashboard({
               onCreateNote={onCreateNote}
               onOpenCosmos={onOpenCosmos}
             />
+          )}
+          {activitySummary && (
+            <KnowledgeActivityCard colors={c} summary={activitySummary} compact={compact} />
           )}
           {timeline && onOpenTimeline && timeline.snapshots.length > 0 && (
             <TimelineDashboardCard
