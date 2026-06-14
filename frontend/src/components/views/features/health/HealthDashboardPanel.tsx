@@ -245,6 +245,12 @@ export function HealthDashboardPanel({
         </SectionLink>
 
         <SectionLink section="recovery" icon={BedDouble} title={t('healthNavRecovery')}>
+          {recovery.latestSleep != null ? (
+            <p className={`text-xs mb-1`}>
+              <span className="text-2xl font-bold tabular-nums">{recovery.latestSleep}</span>
+              <span className={`text-xs ml-1 ${theme.textMuted}`}>h {t('k54RecoveryLatestSleep')}</span>
+            </p>
+          ) : null}
           {inbody && (inbody.weight > 0 || inbody.smm > 0 || inbody.pbf > 0) ? (
             <div className="flex items-center gap-3">
               <Scale size={16} strokeWidth={2.25} className="text-primary shrink-0" />
@@ -253,12 +259,19 @@ export function HealthDashboardPanel({
                 <p>SMM: <span className="font-semibold text-foreground">{inbody.smm} kg</span> · PBF: <span className="font-semibold text-foreground">{inbody.pbf}%</span></p>
               </div>
             </div>
-          ) : (
+          ) : !recovery.latestSleep ? (
             <p className={`text-xs ${theme.textMuted}`}>{t('healthDashboardNoInbody')}</p>
-          )}
+          ) : null}
           {recovery.avgSleep ? (
             <p className={`text-[10px] mt-1 ${theme.textMuted}`}>
               {t('healthDashboardAvgSleep').replace('{hours}', String(recovery.avgSleep))}
+            </p>
+          ) : null}
+          {recovery.trend ? (
+            <p className={`text-[10px] mt-0.5 ${theme.textMuted}`}>
+              {recovery.trend === 'up' ? t('k54RecoveryTrendUp')
+                : recovery.trend === 'down' ? t('k54RecoveryTrendDown')
+                  : t('k54RecoveryTrendSteady')}
             </p>
           ) : null}
           {recovery.latestNote ? (

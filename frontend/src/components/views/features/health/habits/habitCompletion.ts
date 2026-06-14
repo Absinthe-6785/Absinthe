@@ -58,6 +58,23 @@ export interface HabitMetrics {
   completedToday: boolean;
 }
 
+export function getHabitCompletionHistory(
+  habitId: string,
+  anchorDate: Date,
+  formatDate: (d: Date) => string,
+  days = 14,
+): Array<{ date: string; completed: boolean }> {
+  const map = readMap();
+  const rows: Array<{ date: string; completed: boolean }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(anchorDate);
+    d.setDate(d.getDate() - i);
+    const key = formatDate(d);
+    rows.push({ date: key, completed: Boolean(map[completionKey(habitId, key)]) });
+  }
+  return rows;
+}
+
 export function computeHabitMetrics(
   habitId: string,
   dateStr: string,

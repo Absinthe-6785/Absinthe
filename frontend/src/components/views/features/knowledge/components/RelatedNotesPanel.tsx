@@ -11,6 +11,7 @@ export interface RelatedNotesPanelProps {
   onLinkToNote?: (noteId: string, noteTitle: string) => void;
   onOpenGraph?: () => void;
   onLearnLinking?: () => void;
+  onCreateRelatedNote?: () => void;
 }
 
 /** Lightweight related-note suggestions from tags, backlinks, mentions, trace. */
@@ -21,6 +22,7 @@ export function RelatedNotesPanel({
   onLinkToNote,
   onOpenGraph,
   onLearnLinking,
+  onCreateRelatedNote,
 }: RelatedNotesPanelProps) {
   const { t, lang } = useTranslation();
 
@@ -46,8 +48,11 @@ export function RelatedNotesPanel({
           colors={c}
           actionLabel={onLearnLinking ? t('k53ContextCreateWikiLink') : undefined}
           onAction={onLearnLinking}
-          secondaryActionLabel={onOpenGraph ? t('k53ContextOpenCosmos') : undefined}
-          onSecondaryAction={onOpenGraph}
+          secondaryActionLabel={
+            onCreateRelatedNote ? t('k54ContextCreateRelatedNote')
+              : onOpenGraph ? t('k53ContextOpenCosmos') : undefined
+          }
+          onSecondaryAction={onCreateRelatedNote ?? onOpenGraph}
         >
           {t('knNoRelatedNotes')}
         </KnowledgePanelEmpty>

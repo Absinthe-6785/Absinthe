@@ -7,6 +7,7 @@ import {
   blocksToMarkdown,
   markdownToBlocks,
   insertImageAfter,
+  makeBlock,
 } from './blockUtils';
 import { loadValidatedBlocks } from './documentRecovery';
 
@@ -17,6 +18,7 @@ const HISTORY_LIMIT = 200;
 export interface BlockEditorHandle {
   insertImage: (src?: string, alt?: string) => void;
   insertEmptyImageBlock: () => void;
+  insertWikiLinkDraft: () => void;
   getBlocks: () => Block[];
   copyDocument: () => Promise<boolean>;
 }
@@ -86,21 +88,52 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
 
   const activeBlockIdRef = useRef<string | null>(null);
   const [externalFocusId, setExternalFocusId] = useState<string | null>(null);
+  const [externalFocusOffset, setExternalFocusOffset] = useState<'start' | 'end' | number>('start');
 
   const setActiveBlockId = useCallback((id: string | null) => {
     activeBlockIdRef.current = id;
   }, []);
 
+  const queueFocus = useCallback((blockId: string, offset: 'start' | 'end' | number = 'start') => {
+    activeBlockIdRef.current = blockId;
+    setExternalFocusOffset(offset);
+    setExternalFocusId(blockId);
+  }, []);
+
   const insertImage = useCallback((src: string = '', alt: string = '') => {
     const { blocks: next, imageId } = insertImageAfter(blocks, activeBlockIdRef.current, src, alt);
     handleBlockChange(next);
-    activeBlockIdRef.current = imageId;
-    setExternalFocusId(imageId);
-  }, [blocks, handleBlockChange]);
+    queueFocus(imageId, 'start');
+  }, [blocks, handleBlockChange, queueFocus]);
 
   const insertEmptyImageBlock = useCallback(() => insertImage('', ''), [insertImage]);
 
-  const clearExternalFocus = useCallback(() => setExternalFocusId(null), []);
+  const insertWikiLinkDraft = useCallback(() => {
+    const textTypes = new Set(['paragraph', 'heading1', 'heading2', 'heading3', 'heading4', 'bullet', 'numbered', 'quote']);
+    let nextBlocks = [...blocks];
+    let targetIdx = nextBlocks.length - 1;
+    while (targetIdx >= 0 && !textTypes.has(nextBlocks[targetIdx].type)) targetIdx--;
+
+    if (targetIdx >= 0) {
+      const block = nextBlocks[targetIdx];
+      const prefix = block.content && !block.content.endsWith('\n') ? '\n' : '';
+      const content = `${block.content}${prefix}[[`;
+      nextBlocks = nextBlocks.map((b, i) => (i === targetIdx ? { ...b, content } : b));
+      handleBlockChange(nextBlocks);
+      queueFocus(block.id, content.length);
+      return;
+    }
+
+    const newBlock = makeBlock('paragraph', { content: '[[' });
+    nextBlocks = [...nextBlocks, newBlock];
+    handleBlockChange(nextBlocks);
+    queueFocus(newBlock.id, 2);
+  }, [blocks, handleBlockChange, queueFocus]);
+
+  const clearExternalFocus = useCallback(() => {
+    setExternalFocusId(null);
+    setExternalFocusOffset('start');
+  }, []);
 
   const getBlocks = useCallback(() => blocks, [blocks]);
 
@@ -113,7 +146,8 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
 
   return {
     blocks, handleBlockChange, undo, redo,
-    insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
+    insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
+    setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
     getBlocks, copyDocument,
   };
 }

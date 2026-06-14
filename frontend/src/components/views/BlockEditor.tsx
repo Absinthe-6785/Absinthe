@@ -106,7 +106,7 @@ export { useBlockEditor } from './useBlockEditor';
 // ── 내부 재귀 렌더러 ─────────────────────────────────────────────────
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
-  externalFocusId, onExternalFocusConsumed,
+  externalFocusId, externalFocusOffset = 'start', onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader, onMergeFirstChildIntoHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
   searchScope = 'document', searchMatchIndex = 0,
@@ -578,9 +578,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (!externalFocusId) return;
     selectBlock(externalFocusId);
     handleActiveBlockChange(externalFocusId);
-    requestFocus({ blockId: externalFocusId, offset: 'start' });
+    requestFocus({ blockId: externalFocusId, offset: externalFocusOffset });
     onExternalFocusConsumed?.();
-  }, [externalFocusId, handleActiveBlockChange, onExternalFocusConsumed, selectBlock, requestFocus]);
+  }, [externalFocusId, externalFocusOffset, handleActiveBlockChange, onExternalFocusConsumed, selectBlock, requestFocus]);
 
   const headingIndexById = useMemo(
     () => buildHeadingIndexById(blocks, depth),
@@ -762,7 +762,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 export const BlockEditor = React.memo(function BlockEditor({
   blocks, onChange, colors, readOnly = false, searchQuery = '', searchScope = 'document',
   searchMatchIndex = 0, wikiTargets = [], onWikiNavigate,
-  onActiveBlockChange, externalFocusId, onExternalFocusConsumed,
+  onActiveBlockChange, externalFocusId, externalFocusOffset = 'start', onExternalFocusConsumed,
   virtualBlocksPoc, virtualScrollApiRef, virtualScrollParentRef,
 }: BlockEditorProps) {
   const documentFocusApiRef = useRef<{
@@ -791,6 +791,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         onWikiNavigate={onWikiNavigate}
         onActiveBlockChange={onActiveBlockChange}
         externalFocusId={externalFocusId}
+        externalFocusOffset={externalFocusOffset}
         onExternalFocusConsumed={onExternalFocusConsumed}
         documentFocusApiRef={documentFocusApiRef}
         virtualBlocksPoc={virtualBlocksPoc}

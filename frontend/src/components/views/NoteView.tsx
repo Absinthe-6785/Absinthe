@@ -271,16 +271,18 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
 ) {
   const {
     blocks, handleBlockChange, undo, redo,
-    insertImage, insertEmptyImageBlock, setActiveBlockId, externalFocusId, clearExternalFocus,
+    insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
+    setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
     getBlocks, copyDocument,
   } = useBlockEditor(body, onBodyChange);
 
   useImperativeHandle(ref, () => ({
     insertImage,
     insertEmptyImageBlock,
+    insertWikiLinkDraft,
     getBlocks,
     copyDocument,
-  }), [insertImage, insertEmptyImageBlock, getBlocks, copyDocument]);
+  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument]);
 
   // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
   // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
@@ -309,6 +311,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
       onWikiNavigate={onWikiNavigate}
       onActiveBlockChange={setActiveBlockId}
       externalFocusId={externalFocusId}
+      externalFocusOffset={externalFocusOffset}
       onExternalFocusConsumed={clearExternalFocus}
       virtualScrollApiRef={virtualScrollApiRef}
       virtualScrollParentRef={virtualScrollParentRef}
@@ -1575,6 +1578,25 @@ export const NoteView = () => {
     createNote();
   }, [activeNote, notes, createNote, setActiveNoteId, setViewMode]);
 
+  const handleStartWikiLink = useCallback(() => {
+    const target = activeNote ?? notes.find(n => !n.deletedAt);
+    if (target) {
+      setActiveNoteId(target.id);
+      setViewMode('edit');
+      setShowRightPanel(true);
+      setRightPanel('links');
+      setTimeout(() => blockEditorRef.current?.insertWikiLinkDraft(), 80);
+      return;
+    }
+    const id = createNote({ body: '' });
+    setTimeout(() => blockEditorRef.current?.insertWikiLinkDraft(), 120);
+    return id;
+  }, [activeNote, notes, createNote, setActiveNoteId, setViewMode]);
+
+  const handleCreateRelatedNote = useCallback(() => {
+    createNote({ title: '', body: '' });
+  }, [createNote]);
+
   const handleOpenDiscover = useCallback(() => {
     const target = activeNote ?? notes.find(n => !n.deletedAt);
     if (target) setActiveNoteId(target.id);
@@ -1584,8 +1606,12 @@ export const NoteView = () => {
   }, [activeNote, notes, setActiveNoteId, setViewMode]);
 
   const handleOpenCosmosGraph = useCallback(() => {
-    setViewMode('graph');
-  }, [setViewMode]);
+    const target = activeNote ?? notes.find(n => !n.deletedAt);
+    if (target) setActiveNoteId(target.id);
+    setViewMode('edit');
+    setShowRightPanel(true);
+    setRightPanel('graph');
+  }, [activeNote, notes, setActiveNoteId, setViewMode]);
 
   const handleOpenTimeline = useCallback(() => {
     setTimelineInitialArea(null);
@@ -3553,7 +3579,8 @@ export const NoteView = () => {
                       onNavigateToNote={setActiveNoteId}
                       onLinkToNote={handleLinkRelatedNote}
                       onOpenGraph={handleOpenCosmosGraph}
-                      onLearnLinking={handleLearnLinking}
+                      onLearnLinking={handleStartWikiLink}
+                      onCreateRelatedNote={handleCreateRelatedNote}
                     />
                   </>
                 )}
@@ -3578,7 +3605,7 @@ export const NoteView = () => {
               <KnowledgePanelEmpty
                 colors={c}
                 actionLabel={t('k53ContextCreateWikiLink')}
-                onAction={handleLearnLinking}
+                onAction={handleStartWikiLink}
                 secondaryActionLabel={t('k53ContextLinkingGuide')}
                 onSecondaryAction={() => openContextPanel('links')}
               >
@@ -3621,7 +3648,7 @@ export const NoteView = () => {
                 actionLabel={t('k53ContextOpenCosmos')}
                 onAction={handleOpenCosmosGraph}
                 secondaryActionLabel={t('k53ContextCreateWikiLink')}
-                onSecondaryAction={handleLearnLinking}
+                onSecondaryAction={handleStartWikiLink}
               >
                 {t('k52ContextInsightsEmpty')}
               </KnowledgePanelEmpty>
@@ -3664,7 +3691,7 @@ export const NoteView = () => {
                 onNavigateToNote={setActiveNoteId}
                 onCreateRelation={handleDiscoveryCreateRelation}
                 onCreateHub={handleCosmosCreateHub}
-                onLearnLinking={handleLearnLinking}
+                onLearnLinking={handleStartWikiLink}
                 onOpenGraph={handleOpenCosmosGraph}
               />
             )}
