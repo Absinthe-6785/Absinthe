@@ -11,6 +11,27 @@ export interface Todo { id: string; text: string; done: boolean; }
 export interface Routine { id: string; text: string; done: boolean; is_active: boolean; }
 export interface ExerciseBlock { id: string; name: string; type: string; tags?: string[]; cardio_mode?: 'time' | 'distance' | 'both'; }
 
+export interface ProteinProfile {
+  daily_target_g: number;
+  weight: number;
+  goal: string;
+  activity: string;
+}
+export interface ProteinSource {
+  id: string;
+  name: string;
+  category: string;
+  source_type: 'fixed' | 'per100g';
+  protein_per_serving: number | null;
+  protein_per_100g: number | null;
+}
+export interface ProteinIntakeLog {
+  id: string;
+  protein_g: number;
+  note?: string;
+  protein_sources?: { name: string; source_type?: string; category?: string } | null;
+}
+
 // ─── WorkoutSet — Discriminated Union ───────────────────────────────────────
 // 기존: 모든 필드가 optional인 단일 인터페이스 → `(s as any).kg` 같은 캐스팅 불가피
 // 변경: type 필드로 좁히면 해당 필드만 존재를 TypeScript가 보장

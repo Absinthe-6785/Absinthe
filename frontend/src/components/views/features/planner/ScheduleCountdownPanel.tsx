@@ -1,9 +1,10 @@
-import { Target, Plus, BookOpen } from 'lucide-react';
+import { Target, Plus, BookOpen, Check } from 'lucide-react';
 import type { PlannerCountdownRow, PlannerCalendarPresentation } from './calendar';
 import { formatPlannerCountdownLabel } from './calendar/plannerCalendarPresentation';
 import { useTranslation } from '../../../../lib/i18n';
 import { EmptyState } from '../../../common/EmptyState';
 import type { Theme } from '../../../../types';
+import { filterUnreviewedCountdowns, useCountdownReviewed } from './hooks/useCountdownReviewed';
 
 export interface ScheduleCountdownPanelProps {
   countdowns: readonly PlannerCountdownRow[];
@@ -21,6 +22,8 @@ export function ScheduleCountdownPanel({
   onAddCountdown,
 }: ScheduleCountdownPanelProps) {
   const { t } = useTranslation();
+  const { isReviewed, markReviewed } = useCountdownReviewed();
+  const visible = filterUnreviewedCountdowns(countdowns, isReviewed, { upcomingOnly: true });
 
   return (
     <div
@@ -49,7 +52,7 @@ export function ScheduleCountdownPanel({
       </p>
 
       <div className="max-h-[200px] overflow-y-auto pr-1 space-y-2">
-        {countdowns.length === 0 ? (
+        {visible.length === 0 ? (
           <EmptyState
             theme={theme}
             icon={Target}
@@ -57,31 +60,38 @@ export function ScheduleCountdownPanel({
             onClick={onAddCountdown}
           />
         ) : (
-          countdowns.map(countdown => {
+          visible.map(countdown => {
             const label = formatPlannerCountdownLabel(countdown.daysUntil, presentation.locale);
+            const noteId = countdown.sourceRefId;
             return (
               <div
                 key={countdown.id}
-                className={`group flex justify-between items-center border-b ${theme.border} pb-2.5
-                  ${onNoteClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-                onClick={onNoteClick ? () => onNoteClick(countdown.sourceRefId) : undefined}
-                onKeyDown={onNoteClick ? e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onNoteClick(countdown.sourceRefId);
-                  }
-                } : undefined}
-                role={onNoteClick ? 'button' : undefined}
-                tabIndex={onNoteClick ? 0 : undefined}
-                data-schedule-countdown-note={countdown.sourceRefId}
+                className={`group flex justify-between items-center border-b ${theme.border} pb-2.5`}
+                data-schedule-countdown-note={noteId}
               >
-                <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+                <button
+                  type="button"
+                  className={`flex items-center gap-2 min-w-0 flex-1 mr-2 text-left
+                    ${onNoteClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  onClick={onNoteClick ? () => onNoteClick(noteId) : undefined}
+                >
                   <BookOpen size={13} className="shrink-0 text-primary" strokeWidth={2.25} />
                   <p className="text-sm font-semibold truncate">{countdown.title}</p>
+                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="font-heading text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-xl">
+                    {label}
+                  </span>
+                  <button
+                    type="button"
+                    title={t('scheduleCountdownMarkReviewed')}
+                    className="p-1 rounded-lg hover:bg-surface-alt text-muted hover:text-green-500"
+                    onClick={() => markReviewed(noteId)}
+                    data-schedule-countdown-reviewed={noteId}
+                  >
+                    <Check size={13} strokeWidth={2.5} />
+                  </button>
                 </div>
-                <span className="font-heading text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-xl shrink-0">
-                  {label}
-                </span>
               </div>
             );
           })

@@ -3485,7 +3485,7 @@ export const NoteView = () => {
               />
             )}
 
-            {rightPanel === 'links' && pageReferences && noteReferenceSummary && (
+            {rightPanel === 'links' && activeNote && pageReferences && noteReferenceSummary && (
               <LinksContextPanel
                 colors={c}
                 structureCount={linksStructureCount}
@@ -3562,6 +3562,16 @@ export const NoteView = () => {
               />
             )}
 
+            {rightPanel === 'links' && activeNote && (!pageReferences || !noteReferenceSummary) && (
+              <KnowledgePanelEmpty
+                colors={c}
+                actionLabel={t('k52ContextAddWikiLink')}
+                onAction={() => setRightPanel('links')}
+              >
+                {t('k52ContextLinksEmpty')}
+              </KnowledgePanelEmpty>
+            )}
+
             {rightPanel === 'graph' && localGraphData && (
               <>
                 <div style={{ flex: 1, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
@@ -3591,6 +3601,12 @@ export const NoteView = () => {
               />
             )}
 
+            {rightPanel === 'insights' && activeNote && (!noteIntelligenceSnapshot || !noteTierInput) && (
+              <KnowledgePanelEmpty colors={c}>
+                {t('k52ContextInsightsEmpty')}
+              </KnowledgePanelEmpty>
+            )}
+
             {rightPanel === 'actions' && activeNote && noteIntelligenceSnapshot && (
               <CosmosActionsPanel
                 colors={c}
@@ -3605,6 +3621,16 @@ export const NoteView = () => {
                 onCreateRelation={handleCosmosCreateRelation}
                 onNavigateToNote={setActiveNoteId}
               />
+            )}
+
+            {rightPanel === 'actions' && activeNote && !noteIntelligenceSnapshot && (
+              <KnowledgePanelEmpty
+                colors={c}
+                actionLabel={t('k52ContextOpenLinks')}
+                onAction={() => openContextPanel('links')}
+              >
+                {t('k52ContextActionsEmpty')}
+              </KnowledgePanelEmpty>
             )}
 
             {rightPanel === 'discover' && (

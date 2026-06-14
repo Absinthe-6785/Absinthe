@@ -14,6 +14,7 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { HealthWorkspaceNav, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { HealthDashboardPanel } from './features/health/HealthDashboardPanel';
+import { useProteinData } from './features/health/hooks/useProteinData';
 
 const PROTEIN_CATEGORY_KEYS = ['Meat', 'Fish', 'Egg & Dairy', 'Plant', 'Supplement', 'Meal', 'Other'] as const;
 type Category = typeof PROTEIN_CATEGORY_KEYS[number];
@@ -54,13 +55,25 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
 
   const [tab, setTab] = useState<'goal' | 'sources' | 'log'>('log');
 
-  const [profile, setProfile]             = useState<ProteinProfile | null>(null);
+  const dateStr = formatDate(selectedDate);
+  const {
+    profile,
+    sources,
+    intakeLogs,
+    totalIntake,
+    dailyTarget,
+    proteinPct: pct,
+    isLoading: proteinLoading,
+    mutateProfile,
+    mutateSources,
+    mutateIntake,
+  } = useProteinData(dateStr, selectedDate, formatDate);
+
   const [profWeight, setProfWeight]       = useState('');
   const [profGoal, setProfGoal]           = useState<'muscle'|'maintain'|'fat'|'athlete'>('muscle');
   const [profAct, setProfAct]             = useState<'low'|'mod'|'high'|'very'>('mod');
-  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileFormSynced, setProfileFormSynced] = useState(false);
 
-  const [sources, setSources]             = useState<ProteinSource[]>([]);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSrcName, setNewSrcName]       = useState('');
   const [newSrcType, setNewSrcType]       = useState<'fixed'|'per100g'>('fixed');
@@ -74,54 +87,23 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const [editSrcType, setEditSrcType]     = useState<'fixed'|'per100g'>('fixed');
   const [editSrcVal, setEditSrcVal]       = useState('');
 
-  const [intakeLogs, setIntakeLogs]       = useState<ProteinIntakeLog[]>([]);
-  const [selectedSrc, setSelectedSrc]     = useState<string>('');   // '' = 미선택, '__custom__' = 직접입력
   const [intakeAmt, setIntakeAmt]         = useState('');
   const [customNote, setCustomNote]       = useState('');
   const [customProtein, setCustomProtein] = useState('');
 
-  const dateStr = formatDate(selectedDate);
-
   useEffect(() => {
-    (async () => {
-      try {
-        const [pRes, sRes] = await Promise.all([
-          authFetch(`${API_URL}/api/protein_profile`),
-          authFetch(`${API_URL}/api/protein_sources`),
-        ]);
-        if (pRes.ok) {
-          const p = await pRes.json();
-          if (p?.daily_target_g) {
-            setProfile(p);
-            setProfWeight(String(p.weight));
-            setProfGoal(p.goal as typeof profGoal);
-            setProfAct(p.activity as typeof profAct);
-          }
-        }
-        if (sRes.ok) setSources(await sRes.json());
-      } catch { /* silent */ }
-      setProfileLoaded(true);
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await authFetch(`${API_URL}/api/protein_intake?date=${dateStr}`);
-        if (res.ok) setIntakeLogs(await res.json());
-        else setIntakeLogs([]);
-      } catch { setIntakeLogs([]); }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr]);
+    if (profile && !profileFormSynced) {
+      setProfWeight(String(profile.weight));
+      setProfGoal(profile.goal as typeof profGoal);
+      setProfAct(profile.activity as typeof profAct);
+      setProfileFormSynced(true);
+    }
+  }, [profile, profileFormSynced, profGoal, profAct]);
 
   const wNum        = parseFloat(profWeight) || 0;
   const [lo, hi]    = PROTEIN_FACTORS[`${profGoal}-${profAct}`] ?? [1.6, 2.0];
   const calcTarget  = Math.round((wNum * lo + wNum * hi) / 2);
-  const dailyTarget = profile?.daily_target_g ?? 0;
-  const totalIntake = Math.round(intakeLogs.reduce((s, l) => s + l.protein_g, 0) * 100) / 100;
-  const pct         = dailyTarget > 0 ? Math.min(100, Math.round((totalIntake / dailyTarget) * 1000) / 10) : 0;
+  const [selectedSrc, setSelectedSrc]     = useState<string>('');
 
   const GOAL_OPTS = [
     { v: 'muscle'   as const, label: t('goalMuscle'),  color: 'bg-blue-500'   },
@@ -142,7 +124,8 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
     try {
       const res = await authFetch(`${API_URL}/api/protein_profile`, { method: 'POST', body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      setProfile(payload);
+      mutateProfile();
+      setProfileFormSynced(true);
       showToast(t('proteinGoalSaved'));
       setTab('log');
     } catch { showToast(t('failedSaveGoal'), 'error'); }
@@ -158,8 +141,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
     try {
       const res = await authFetch(`${API_URL}/api/protein_sources`, { method: 'POST', body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setSources(prev => [...prev, data[0]]);
+      mutateSources();
       setNewSrcName(''); setNewSrcVal(''); setNewSrcCat('Other'); setShowAddSource(false);
       showToast(t('sourceCreated'));
     } catch { showToast(t('failedAddSource'), 'error'); }
@@ -174,8 +156,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
         body: JSON.stringify({ date: dateStr, source_id: null, amount_g: protein, protein_g: protein, note: customNote.trim() || 'Custom entry' }),
       });
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: null }]);
+      mutateIntake();
       setCustomNote(''); setCustomProtein(''); setSelectedSrc('');
       showToast(t('intakeLogged'));
     } catch { showToast(t('failedLogIntake'), 'error'); }
@@ -191,8 +172,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
     try {
       const res = await authFetch(`${API_URL}/api/protein_sources/${editSrcId}`, { method: 'PUT', body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setSources(prev => prev.map(s => s.id === editSrcId ? { ...s, ...payload } : s));
+      mutateSources();
       setEditSrcId(null);
       showToast(t('sourceUpdated'));
     } catch { showToast(t('failedUpdateSource'), 'error'); }
@@ -201,7 +181,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const handleDeleteSource = async (id: string) => {
     try {
       await authFetch(`${API_URL}/api/protein_sources/${id}`, { method: 'DELETE' });
-      setSources(prev => prev.filter(s => s.id !== id));
+      mutateSources();
       showToast(t('sourceDeleted'));
     } catch { /* silent */ }
   };
@@ -221,8 +201,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
         body: JSON.stringify({ date: dateStr, source_id: src.id, amount_g: amt, protein_g: protein }),
       });
       if (!res.ok) throw new Error();
-      const data = await res.json();
-      setIntakeLogs(prev => [...prev, { ...data[0], protein_sources: { name: src.name, source_type: src.source_type, category: src.category } }]);
+      mutateIntake();
       setIntakeAmt('');
       showToast(t('intakeLogged'));
     } catch { showToast(t('failedLogIntake'), 'error'); }
@@ -231,7 +210,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   const handleDeleteIntake = async (id: string) => {
     try {
       await authFetch(`${API_URL}/api/protein_intake/${id}`, { method: 'DELETE' });
-      setIntakeLogs(prev => prev.filter(l => l.id !== id));
+      mutateIntake();
       showToast(t('intakeDeleted'));
     } catch { /* silent */ }
   };
@@ -243,7 +222,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
       : Math.round((selectedSrcObj.protein_per_100g ?? 0) * parseFloat(intakeAmt || '0') / 100 * 100) / 100
     : null;
 
-  if (!profileLoaded) return (
+  if (proteinLoading) return (
     <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 h-full min-h-[480px] ${theme.card}`}>
       <div className="h-7 w-36 rounded-xl bg-current opacity-10 animate-pulse"/>
       <div className="h-10 w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
