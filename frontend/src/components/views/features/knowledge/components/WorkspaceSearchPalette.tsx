@@ -14,10 +14,8 @@ import {
   type WorkspaceSearchGroup,
   type WorkspaceSearchResult,
 } from '../workspace/buildWorkspaceSearch';
-import {
-  loadWorkspaceSearchRecent,
-  pushWorkspaceSearchRecent,
-} from '../workspace/workspaceSearchRecent';
+import { importanceClassificationLabel } from '../knowledgeLabels';
+import { knowledgeIndexService } from '../KnowledgeIndexService';
 
 const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
   note: 'searchGroupNotes',
@@ -68,7 +66,7 @@ export function WorkspaceSearchPalette({
   onSelectCollection,
   onSelectLearningPath,
 }: WorkspaceSearchPaletteProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<WorkspaceSearchFilter>('all');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -95,7 +93,7 @@ export function WorkspaceSearchPalette({
   }, [open]);
 
   const queryGroups = useMemo(
-    () => buildWorkspaceSearch(query, notes, folders, { filter }),
+    () => buildWorkspaceSearch(query, notes, folders, { filter, service: knowledgeIndexService }),
     [query, notes, folders, filter],
   );
 
@@ -324,7 +322,21 @@ export function WorkspaceSearchPalette({
                         boxShadow: active ? `inset 3px 0 0 ${c.accent}` : undefined,
                       }}
                     >
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{result.title}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{result.title}</span>
+                        {result.importanceClass && (
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: c.accent,
+                            background: c.accentBg,
+                            borderRadius: 999,
+                            padding: '1px 6px',
+                          }}>
+                            {importanceClassificationLabel(result.importanceClass, lang)}
+                          </span>
+                        )}
+                      </div>
                       {result.subtitle && (
                         <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{result.subtitle}</div>
                       )}

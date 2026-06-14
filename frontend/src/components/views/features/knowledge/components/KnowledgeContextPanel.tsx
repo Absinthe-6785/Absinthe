@@ -6,6 +6,7 @@ export type KnowledgeContextTab =
   | 'toc'
   | 'links'
   | 'graph'
+  | 'insights'
   | 'properties'
   | 'tags'
   | 'relations'

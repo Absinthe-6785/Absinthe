@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle, Star, CalendarDays,
   Tag, Link, AlignLeft, Image as ImageIcon, Save,
   ChevronDown, ChevronUp, ChevronRight, ChevronLeft, GitFork, Upload, Keyboard,
-  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy,
+  SlidersHorizontal, ArrowRightLeft, LayoutDashboard, Folder, Copy, Lightbulb,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -110,6 +110,8 @@ import {
   NotePropertiesPanel,
   NoteTagsPanel,
   NoteRelationsPanel,
+  buildNoteIntelligenceSnapshot,
+  CosmosInsightsPanel,
   parseNoteMarkdown,
   serializeNoteMarkdown,
   type SavedView,
@@ -410,7 +412,7 @@ export const NoteView = () => {
   const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
   const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
   const [activeTag,      setActiveTag]      = useState<string | null>(null);
-  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
+  const [rightPanel,     setRightPanel]     = useState<'toc' | 'links' | 'graph' | 'insights' | 'tags' | 'properties' | 'relations' | 'stats'>('toc');
   const [tocCollapsed,   setTocCollapsed]   = useState<Record<number, boolean>>({});
   const [focusMode,      setFocusMode]      = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
@@ -1387,6 +1389,11 @@ export const NoteView = () => {
     setRightPanel(tab);
   }, []);
 
+  const noteIntelligenceSnapshot = useMemo(
+    () => (activeNote ? buildNoteIntelligenceSnapshot(activeNote, notes, knowledgeIndexService) : null),
+    [activeNote, notes],
+  );
+
   useEffect(() => {
     setHeaderTagsExpanded(false);
   }, [activeNote?.id]);
@@ -1806,6 +1813,7 @@ export const NoteView = () => {
     { key: 'toc'        as const, label: t('nvPanelToc'), icon: <AlignLeft size={12}/> },
     { key: 'links'      as const, label: t('nvPanelLinks'),   icon: <Link size={12}/> },
     { key: 'graph'      as const, label: t('nvGraph'),   icon: <GitFork size={12}/> },
+    { key: 'insights'   as const, label: t('k36PanelInsights'), icon: <Lightbulb size={12}/> },
     { key: 'properties' as const, label: t('nvPanelProperties'),   icon: <SlidersHorizontal size={12}/> },
     { key: 'tags'       as const, label: t('nvPanelTags'),    icon: <Tag size={12}/> },
     { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
@@ -3271,6 +3279,15 @@ export const NoteView = () => {
                   onOpenFullCosmos={() => setViewMode('graph')}
                 />
               </>
+            )}
+
+            {rightPanel === 'insights' && noteIntelligenceSnapshot && (
+              <CosmosInsightsPanel
+                colors={c}
+                snapshot={noteIntelligenceSnapshot}
+                onNavigateToNote={setActiveNoteId}
+                onOpenLinks={() => openContextPanel('links')}
+              />
             )}
 
             {rightPanel === 'properties' && (

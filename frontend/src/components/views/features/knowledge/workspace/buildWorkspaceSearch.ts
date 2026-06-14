@@ -1,6 +1,14 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteFolder } from '../../../../../store/useNotesStore';
+import type { KnowledgeIndexService } from '../KnowledgeIndexService';
+import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+import {
+  buildImportanceInputForNote,
+  evaluateKnowledgeImportance,
+  type ImportanceClassification,
+} from '../cosmos/intelligence';
+import { getProperty } from '../properties/noteProperties';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import {
@@ -70,6 +78,10 @@ export interface WorkspaceSearchResult {
   folderId?: string;
   tag?: string;
   pathId?: string;
+  importanceClass?: ImportanceClassification;
+  areaLabel?: string;
+  galaxyLabel?: string;
+  connectionCount?: number;
 }
 
 export interface WorkspaceSearchGroup {
@@ -79,6 +91,7 @@ export interface WorkspaceSearchGroup {
 
 export interface BuildWorkspaceSearchOptions {
   filter?: WorkspaceSearchFilter;
+  service?: KnowledgeIndexService;
 }
 
 const SUGGESTION_COLLECTION_IDS: readonly SmartCollectionId[] = [
@@ -152,6 +165,34 @@ function groupResults(results: WorkspaceSearchResult[], limitPerGroup = 8): Work
     .map(kind => ({ kind, results: byKind.get(kind)!.slice(0, limitPerGroup) }));
 }
 
+function enrichNoteResult(
+  note: NoteBase,
+  result: WorkspaceSearchResult,
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+): WorkspaceSearchResult {
+  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const galaxy = galaxyMap.get(note.id);
+  const input = buildImportanceInputForNote(note, service, galaxy);
+  const { classification } = evaluateKnowledgeImportance(input);
+  const areaLabel = getProperty(note, 'area')?.trim();
+  const connectionCount = service.getConnectionScore(note.id);
+  const metaParts = [
+    areaLabel,
+    galaxy?.galaxyLabel,
+    connectionCount > 0 ? `${connectionCount}` : undefined,
+  ].filter(Boolean);
+
+  return {
+    ...result,
+    importanceClass: classification,
+    areaLabel: areaLabel || undefined,
+    galaxyLabel: galaxy?.galaxyLabel,
+    connectionCount,
+    subtitle: metaParts.length > 0 ? metaParts.join(' · ') : result.subtitle,
+  };
+}
+
 /** Global workspace search — grouped, ranked results for command palette. */
 export function buildWorkspaceSearch(
   query: string,
@@ -160,6 +201,7 @@ export function buildWorkspaceSearch(
   options: BuildWorkspaceSearchOptions = {},
 ): WorkspaceSearchGroup[] {
   const filter = options.filter ?? 'all';
+  const service = options.service;
   const q = normalizeQuery(query);
   if (!q) return [];
 
@@ -173,7 +215,8 @@ export function buildWorkspaceSearch(
     const title = displayNoteTitle(note.title);
     const m = matchScore(title, q);
     if (m !== null && kindAllowed('note', filter)) {
-      results.push(buildResult('note', note.id, title, m, { noteId: note.id }));
+      const base = buildResult('note', note.id, title, m, { noteId: note.id });
+      results.push(service ? enrichNoteResult(note, base, notes, service) : base);
     }
   }
 

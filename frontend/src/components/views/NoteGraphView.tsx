@@ -10,7 +10,10 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useTranslation, resolveIntlLocale } from '../../lib/i18n';
-import { buildGlobalGraphData, knowledgeIndexService } from './features/knowledge';
+import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis } from './features/knowledge';
+import { importanceClassificationLabel, areaHealthCategoryLabel } from './features/knowledge/knowledgeLabels';
+import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
+import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
 import {
@@ -548,6 +551,20 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     () => computeUniverseHudStats(visibleNodes, visibleEdges.length),
     [visibleNodes, visibleEdges.length],
   );
+
+  const vaultAnalysis = useMemo(
+    () => buildCosmosVaultAnalysis(notes, knowledgeIndexService),
+    [notes],
+  );
+
+  const selectedImportance = useMemo(() => {
+    if (!activeNoteId) return null;
+    const note = notes.find(n => n.id === activeNoteId);
+    if (!note) return null;
+    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
+    const input = buildImportanceInputForNote(note, knowledgeIndexService, galaxyMap.get(note.id));
+    return evaluateKnowledgeImportance(input);
+  }, [activeNoteId, notes]);
 
   const selectedNode = activeNoteId ? renderMap.get(activeNoteId) : null;
   const showEmptyUniverse = shouldShowEmptyUniverse({
@@ -1117,6 +1134,29 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             .replace('{planets}', String(hudStats.planetCount))
             .replace('{moons}', String(hudStats.moonCount))}
         </div>
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
+          <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('k36HudAnalysisTitle')}</div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k36HudCoreHubs').replace('{count}', String(vaultAnalysis.coreHubCount))}
+          </div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k36HudIsolated').replace('{count}', String(vaultAnalysis.isolatedCount))}
+          </div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k36HudOpportunities').replace('{count}', String(vaultAnalysis.opportunityCount))}
+          </div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k36HudWeakAreas').replace('{count}', String(vaultAnalysis.weakAreaCount))}
+          </div>
+          {vaultAnalysis.areaHealthRows.slice(0, 3).map(row => (
+            <div key={row.galaxyId} style={{ opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t('k36HudAreaHealth')
+                .replace('{label}', row.label)
+                .replace('{score}', String(row.score))
+                .replace('{category}', areaHealthCategoryLabel(row.category, lang))}
+            </div>
+          ))}
+        </div>
         {selectedNode && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
             <div style={{ fontWeight: 600, color: colors.act, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1127,6 +1167,14 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 .replace('{count}', String(selectedNode.backlinkCount))
                 .replace('{galaxy}', selectedNode.galaxyLabel)}
             </div>
+            {selectedImportance && (
+              <div style={{ opacity: 0.8 }}>
+                {t('k36HudImportanceTier').replace(
+                  '{tier}',
+                  importanceClassificationLabel(selectedImportance.classification, lang),
+                )}
+              </div>
+            )}
             <div style={{ opacity: 0.7 }}>
               {t('graphHudUpdated').replace('{date}', formatUniverseUpdatedAt(selectedNode.updatedAt, intlLocale))}
             </div>
