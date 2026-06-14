@@ -941,7 +941,7 @@ export const NoteView = () => {
     const created = notes.find(n => n.id === id);
     if (created) {
       let readingNote = buildReadingNote(created, { title });
-      let sourceRelations: NoteBase['relations'];
+      let sourceRelations: Note['relations'];
       if (activeNote && getNoteKind(activeNote) === 'source') {
         const linked = linkReadingNoteToSource(readingNote, activeNote);
         readingNote = linked.reading;

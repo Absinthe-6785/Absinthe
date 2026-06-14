@@ -7,7 +7,10 @@
     "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.editor.json"
+    "typecheck:editor": "tsc --noEmit -p tsconfig.editor.json",
+    "typecheck:app": "tsc --noEmit -p tsconfig.app.json",
+    "typecheck:undefined": "node scripts/typecheck-bare-identifiers.mjs",
+    "typecheck": "npm run typecheck:editor && npm run typecheck:undefined"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",

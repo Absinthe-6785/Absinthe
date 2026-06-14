@@ -1441,7 +1441,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             ◉ {hoveredNode.title}
           </div>
           <div style={{ opacity: 0.75, fontWeight: 500, marginTop: 2 }}>
-            {hoveredNode.galaxyLabel} · {tierLabel} · {hoveredNode.backlinkCount} {t('knBacklinks').toLowerCase()} · {t('graphHoverScore').replace('{score}', String(Math.round(hoveredNode.importance)))}
+            {hoveredNode.galaxyLabel} · {hoveredNode.tier === 'star' ? t('graphTierStar') : hoveredNode.tier === 'planet' ? t('graphTierPlanet') : t('graphTierMoon')} · {hoveredNode.backlinkCount} {t('knBacklinks').toLowerCase()} · {t('graphHoverScore').replace('{score}', String(Math.round(hoveredNode.importance)))}
           </div>
         </div>
       )}

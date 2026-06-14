@@ -33,6 +33,7 @@ import {
 import { listTags, normalizeTagName } from '../tags/noteTags';
 import type { Language, TranslationKey } from '../../../../../lib/i18n';
 import { getTranslator } from '../../../../../lib/i18n';
+import type { WorkspaceSearchRecentEntry } from './workspaceSearchRecent';
 
 export type WorkspaceSearchResultKind =
   | 'note'

@@ -4,7 +4,7 @@ import { useTranslation } from '../../../../lib/i18n';
 import type { HealthRoutine, Theme } from '../../../../types';
 import { useHabitMetrics } from './hooks/useHabitMetrics';
 import {
-  isHabitCompleted,
+  getHabitCompletionHistory,
   setHabitCompleted,
   HABIT_COMPLETION_CHANGED,
 } from './habits/habitCompletion';
