@@ -171,13 +171,14 @@ describe('DayCalendarView schedule execution wiring', () => {
     expect(html).toContain('data-planner-day-schedule-add="true"');
   });
 
-  it('keeps schedule section hidden on empty days without scheduleActions', () => {
+  it('shows schedule section shell on empty days without scheduleActions', () => {
     const { projection, presentation } = buildDayFixture();
     const html = renderToStaticMarkup(
       createElement(DayCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).not.toContain('data-planner-day-schedule-timeline');
+    expect(html).toContain('data-planner-day-schedule-timeline');
+    expect(html).not.toContain('data-planner-day-schedule-add="true"');
   });
 });
 

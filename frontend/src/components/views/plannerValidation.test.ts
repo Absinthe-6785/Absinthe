@@ -32,7 +32,8 @@ describe('K-32.1 planner validation', () => {
 
   it('does not define duplicate planner calendar components in src', () => {
     const plannerView = readSource('PlannerView.tsx');
-    expect(plannerView).not.toMatch(/MobileCalendar|PlannerCalendarView/);
+    expect(plannerView).not.toMatch(/MobileCalendar/);
+    expect(plannerView).not.toMatch(/<PlannerCalendarView[\s/>]/);
   });
 
   it('defaults calendar mode to Day with Day-first tab order', () => {
@@ -68,9 +69,9 @@ describe('K-32.1 planner validation', () => {
     expect(monthIdx).toBeLessThan(agendaIdx);
   });
 
-  it('orders mobile planner tabs Timeline → Tasks → Memo', () => {
+  it('orders mobile planner tabs Timeline → Tasks (memo retired K-48)', () => {
     const source = readSource('PlannerView.tsx');
-    expect(source).toContain("MOBILE_PLANNER_TABS = ['timeline', 'todo', 'memo']");
+    expect(source).toContain("MOBILE_PLANNER_TABS = ['timeline', 'todo']");
     expect(source).toContain("useState<(typeof MOBILE_PLANNER_TABS)[number]>('timeline')");
   });
 
@@ -78,9 +79,8 @@ describe('K-32.1 planner validation', () => {
     const source = readSource('PlannerView.tsx');
     expect(source).toContain('data-planner-column="timeline"');
     expect(source).toContain('data-planner-column="planning"');
-    expect(source).toContain('data-planner-column="memo"');
+    expect(source).not.toContain('data-planner-column="memo"');
     expect(source).toContain('lg:order-1');
     expect(source).toContain('lg:order-2');
-    expect(source).toContain('lg:order-3');
   });
 });

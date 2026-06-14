@@ -5,8 +5,6 @@ export { CalendarModeSwitcher } from './CalendarModeSwitcher';
 export type { CalendarPeriodNavProps } from './CalendarPeriodNav';
 export { CalendarPeriodNav } from './CalendarPeriodNav';
 export { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
-export type { CalendarViewPlaceholderProps } from './CalendarViewPlaceholder';
-export { CalendarViewPlaceholder } from './CalendarViewPlaceholder';
 export {
   DEFAULT_PLANNER_CALENDAR_MODE,
   PLANNER_CALENDAR_MODES,

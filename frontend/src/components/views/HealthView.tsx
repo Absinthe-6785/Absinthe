@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, Apple, Scale } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -12,14 +12,26 @@ import { useTranslation } from '../../lib/i18n';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
+import { HealthWorkspaceNav, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 
-// ── 프로틴 트래커 서브 컴포넌트 ─────────────────────────────────────────
-interface ProteinSource { id: string; name: string; category: string; source_type: 'fixed' | 'per100g'; protein_per_serving: number | null; protein_per_100g: number | null; }
-interface ProteinIntakeLog { id: string; source_id: string | null; amount_g: number; protein_g: number; note: string | null; protein_sources: { name: string; source_type: string; category: string } | null; }
-interface ProteinProfile { weight: number; goal: string; activity: string; daily_target_g: number; }
+const PROTEIN_CATEGORY_KEYS = ['Meat', 'Fish', 'Egg & Dairy', 'Plant', 'Supplement', 'Meal', 'Other'] as const;
+type Category = typeof PROTEIN_CATEGORY_KEYS[number];
 
-const CATEGORIES = ['🍗 Meat', '🐟 Fish', '🥚 Egg & Dairy', '🌱 Plant', '🥤 Supplement', '🍽️ Meal', 'Other'] as const;
-type Category = typeof CATEGORIES[number];
+const CATEGORY_I18N: Record<Category, 'proteinCategoryMeat' | 'proteinCategoryFish' | 'proteinCategoryDairy' | 'proteinCategoryPlant' | 'proteinCategorySupplement' | 'proteinCategoryMeal' | 'proteinCategoryOther'> = {
+  'Meat': 'proteinCategoryMeat',
+  'Fish': 'proteinCategoryFish',
+  'Egg & Dairy': 'proteinCategoryDairy',
+  'Plant': 'proteinCategoryPlant',
+  'Supplement': 'proteinCategorySupplement',
+  'Meal': 'proteinCategoryMeal',
+  'Other': 'proteinCategoryOther',
+};
+
+function normalizeProteinCategory(raw: string): Category {
+  const stripped = raw.replace(/^[^\w]+/, '').trim() || raw;
+  const match = PROTEIN_CATEGORY_KEYS.find(k => k === stripped || k === raw);
+  return match ?? 'Other';
+}
 
 interface ProteinTrackerProps {
   theme: { card: string; input: string; textMuted: string; border: string; text: string; hoverBg: string };
@@ -241,7 +253,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
   return (
     <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${theme.card}`}>
       <div className="flex items-center justify-between">
-        <h2 className="font-heading text-lg font-bold flex items-center gap-2">🥤 {t('proteinTracker')}</h2>
+        <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Apple size={18} className="text-primary" /> {t('proteinTracker')}</h2>
       </div>
       <div className="flex rounded-2xl p-1 gap-1 shrink-0 bg-surface-alt">
         {([['goal', t('proteinProfile')], ['sources', t('proteinSources')], ['log', t('proteinLog')]] as const).map(([v, label]) => (
@@ -266,7 +278,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                 <span className={`text-sm font-semibold mb-1 ${theme.textMuted}`}>kg</span>
               </div>
             </div>
-            <span className="text-2xl mr-1">⚖️</span>
+            <span className="text-muted mr-1"><Scale size={20} /></span>
           </div>
           <div>
             <p className={`text-xs font-bold mb-2 ${theme.textMuted}`}>{t('goal').toUpperCase()}</p>
@@ -312,12 +324,12 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
             {sources.length === 0 && !showAddSource && (
               <p className={`text-sm text-center py-4 ${theme.textMuted}`}>{t('noSources')}</p>
             )}
-            {CATEGORIES.map(cat => {
-              const catSources = sources.filter(s => (s.category || 'Other') === cat);
+            {PROTEIN_CATEGORY_KEYS.map(cat => {
+              const catSources = sources.filter(s => normalizeProteinCategory(s.category || 'Other') === cat);
               if (catSources.length === 0) return null;
               return (
                 <div key={cat} className="mb-3">
-                  <p className={`text-[10px] font-black uppercase tracking-wider mb-1.5 px-0.5 ${theme.textMuted}`}>{cat}</p>
+                  <p className={`text-[10px] font-black uppercase tracking-wider mb-1.5 px-0.5 ${theme.textMuted}`}>{t(CATEGORY_I18N[cat])}</p>
                   <div className="flex flex-col gap-2">
                     {catSources.map(src => (
                       <div key={src.id} className={`rounded-2xl shrink-0 overflow-hidden ${theme.input}`}>
@@ -353,7 +365,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                               className="w-full bg-transparent text-sm font-semibold outline-none pt-2"/>
                             <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as Category)}
                               className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'}`}>
-                              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                              {PROTEIN_CATEGORY_KEYS.map(c => <option key={c} value={c}>{t(CATEGORY_I18N[c])}</option>)}
                             </select>
                             <div className="flex gap-2">
                               {(['fixed', 'per100g'] as const).map(v => (
@@ -394,7 +406,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
                   className="w-full bg-transparent text-sm font-semibold outline-none"/>
                 <select value={newSrcCat} onChange={e => setNewSrcCat(e.target.value as Category)}
                   className={`w-full bg-transparent text-sm font-semibold outline-none ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'} rounded-xl px-2 py-1.5`}>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {PROTEIN_CATEGORY_KEYS.map(c => <option key={c} value={c}>{t(CATEGORY_I18N[c])}</option>)}
                 </select>
                 <div className="flex gap-2">
                   {(['fixed', 'per100g'] as const).map(v => (
@@ -458,7 +470,7 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
               <option value="">{t('addIntakeLabel')}</option>
               <option value="__custom__">{t('directInput')}</option>
               {/* 카테고리별 optgroup */}
-              {CATEGORIES.filter(cat => sources.some(s => (s.category || 'Other') === cat)).map(cat => (
+              {PROTEIN_CATEGORY_KEYS.filter(cat => sources.some(s => normalizeProteinCategory(s.category || 'Other') === cat)).map(cat => (
                 <optgroup key={cat} label={cat}>
                   {sources.filter(s => (s.category || 'Other') === cat).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -533,12 +545,12 @@ const ProteinTracker = ({ theme, darkMode, selectedDate, formatDate, showToast }
           {/* 로그 목록 — 카테고리별 섹션 그룹핑 */}
           {intakeLogs.length > 0 ? (
             <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-0 pt-0.5">
-              {(['__custom__', ...CATEGORIES] as const).map(cat => {
+              {(['__custom__', ...PROTEIN_CATEGORY_KEYS] as const).map(cat => {
                 const logs = cat === '__custom__'
                   ? intakeLogs.filter(l => !l.protein_sources)
-                  : intakeLogs.filter(l => l.protein_sources && (l.protein_sources.category || 'Other') === cat);
+                  : intakeLogs.filter(l => l.protein_sources && normalizeProteinCategory(l.protein_sources.category || 'Other') === cat);
                 if (logs.length === 0) return null;
-                const catLabel = cat === '__custom__' ? t('customEntryLabel') : cat;
+                const catLabel = cat === '__custom__' ? t('customEntryLabel') : t(CATEGORY_I18N[cat]);
                 return (
                   <div key={cat} className="mb-2">
                     <p className={`text-[10px] font-black uppercase tracking-wider mb-1 px-1 ${theme.textMuted}`}>{catLabel}</p>
@@ -604,6 +616,7 @@ export const HealthView = ({
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'protein'>('workout');
+  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1113,7 +1126,31 @@ export const HealthView = ({
   }, [currentDate]);
 
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 animate-in fade-in duration-300">
+    <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300">
+      <div className="shrink-0 mb-3 px-0.5">
+        <div className="hidden lg:block">
+          <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} />
+        </div>
+        <div className="lg:hidden">
+          <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} compact />
+        </div>
+      </div>
+
+      {healthSection === 'dashboard' && (
+        <div className={`rounded-[24px] p-5 mb-4 shrink-0 ${theme.card}`} data-health-dashboard>
+          <h2 className="font-heading text-lg font-bold mb-2">{t('healthNavDashboard')}</h2>
+          <p className={`text-sm ${theme.textMuted}`}>{t('healthDashboardHint')}</p>
+        </div>
+      )}
+
+      {healthSection === 'nutrition' && (
+        <div className="flex-1 min-h-0 overflow-y-auto pb-4">
+          <ProteinTracker theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} />
+        </div>
+      )}
+
+      {(healthSection === 'habits' || healthSection === 'workout' || healthSection === 'recovery' || healthSection === 'dashboard') && (
+    <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0">
       {/* ── 좌측: 블록 / 루틴 설정 — 모바일에서 가로 탭 전환 ── */}
       <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0 lg:overflow-y-auto lg:pb-4">
         {/* 모바일 전용 탭 헤더 */}
@@ -1602,7 +1639,7 @@ export const HealthView = ({
             )}
             {/* ── 날짜별 메모 ── */}
             <div className="mt-3 rounded-2xl p-3 bg-surface-alt">
-              <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>📝 MEMO</p>
+              <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>{t('memo')}</p>
               <textarea
                 value={workoutMemo}
                 onChange={e => {
@@ -1720,6 +1757,7 @@ export const HealthView = ({
 
           {/* ── 프로틴 트래커 — 데스크탑 인라인, 모바일은 별도 탭으로 이동 ── */}
           <div className="flex-1 min-w-0 hidden lg:block">
+            {healthSection !== 'nutrition' ? (
             <ProteinTracker
               theme={theme}
               darkMode={appSettings.darkMode}
@@ -1727,6 +1765,7 @@ export const HealthView = ({
               formatDate={formatDate}
               showToast={showToast}
             />
+            ) : null}
           </div>
         </div>
       </div>
@@ -1741,6 +1780,8 @@ export const HealthView = ({
           showToast={showToast}
         />
       </div>
+    </div>
+      )}
 
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (

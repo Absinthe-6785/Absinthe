@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Planner wires CalendarShell event clicks and memo sidebar to openNote (K-30.34).
- * Static wiring check avoids mounting the full PlannerView surface in tests.
+ * Schedule (PlannerView) wires CalendarShell event clicks to openNote (K-30.34).
+ * Memo sidebar removed in K-48 — notes live in Note tab.
  */
 describe('PlannerView cross-tab note navigation wiring', () => {
   const source = readFileSync(
@@ -18,7 +18,8 @@ describe('PlannerView cross-tab note navigation wiring', () => {
     expect(source).toContain('onEventNoteClick={openNote}');
   });
 
-  it('uses openNote for memo sidebar note rows', () => {
-    expect(source).toContain('openNote(n.id)');
+  it('does not embed a duplicate memo note list (K-48)', () => {
+    expect(source).not.toContain('data-planner-column="memo"');
+    expect(source).not.toContain('openNote(n.id)');
   });
 });

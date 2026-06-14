@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Theme } from '../../../../../types';
+import { useTranslation } from '../../../../../../lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { AgendaCountdownSection } from './AgendaCountdownSection';
 import { AgendaEventList } from './AgendaEventList';
@@ -26,6 +27,7 @@ export function AgendaCalendarView({
   theme,
   onEventNoteClick,
 }: AgendaCalendarViewProps) {
+  const { t } = useTranslation();
   const agenda = projection.views.agenda;
 
   const eventSections = useMemo(
@@ -58,7 +60,7 @@ export function AgendaCalendarView({
           className={`text-sm mb-4 ${theme.textMuted}`}
           data-planner-calendar-agenda-empty-hint="true"
         >
-          Nothing on the agenda in this range yet. Countdowns and upcoming items will appear here.
+          {t('scheduleAgendaEmptyHint')}
         </p>
       ) : null}
 
