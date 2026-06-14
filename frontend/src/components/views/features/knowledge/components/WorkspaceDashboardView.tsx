@@ -48,6 +48,7 @@ import { LearningPathOverviewPanel } from './LearningPathOverviewPanel';
 import { LearningPathEditorPanel } from './LearningPathEditorPanel';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import { SubjectWorkspacesPanel } from './SubjectWorkspacesPanel';
+import type { KnowledgeTimeline } from '../timeline';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -102,6 +103,8 @@ export interface WorkspaceDashboardUnifiedProps {
   learningPathEditor?: Omit<React.ComponentProps<typeof LearningPathEditorPanel>, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
   onOpenDiscover?: () => void;
+  onOpenTimeline?: () => void;
+  timeline?: KnowledgeTimeline;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -428,6 +431,8 @@ export function WorkspaceDashboardView({
             learningPathEditor={unified.learningPathEditor}
             compact={isMobile || isTablet}
             onOpenDiscover={unified.onOpenDiscover}
+            onOpenTimeline={unified.onOpenTimeline}
+            timeline={unified.timeline}
             activeNoteCount={unified.activeNoteCount}
             onCreateNote={unified.onCreateNote}
             onOpenCosmos={unified.onOpenCosmos}

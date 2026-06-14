@@ -5,7 +5,9 @@ import { touchMinSize } from '../../../../../lib/responsiveLayout';
 import type { UnifiedWorkspaceDashboardData } from '../workspace/buildUnifiedWorkspaceDashboard';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import { DiscoveryDashboardCard } from './DiscoveryDashboardCard';
+import { TimelineDashboardCard } from './TimelineDashboardCard';
 import { CosmosProductTour, CosmosStartDashboard } from '../cosmos/onboarding';
+import type { KnowledgeTimeline } from '../timeline';
 import { AcademicInsightsPanel } from './AcademicInsightsPanel';
 import { KnowledgeReviewPanel } from './KnowledgeReviewPanel';
 import { ResearchDashboardPanel } from './ResearchDashboardPanel';
@@ -31,6 +33,8 @@ export interface UnifiedWorkspaceDashboardProps {
   learningPathEditor?: Omit<LearningPathEditorPanelProps, 'colors' | 'onNavigateToNote'>;
   compact?: boolean;
   onOpenDiscover?: () => void;
+  onOpenTimeline?: () => void;
+  timeline?: KnowledgeTimeline;
   activeNoteCount?: number;
   onCreateNote?: () => void;
   onOpenCosmos?: () => void;
@@ -112,6 +116,8 @@ export function UnifiedWorkspaceDashboard({
   learningPathEditor,
   compact,
   onOpenDiscover,
+  onOpenTimeline,
+  timeline,
   activeNoteCount = 0,
   onCreateNote,
   onOpenCosmos,
@@ -132,6 +138,14 @@ export function UnifiedWorkspaceDashboard({
               compact={compact}
               onCreateNote={onCreateNote}
               onOpenCosmos={onOpenCosmos}
+            />
+          )}
+          {timeline && onOpenTimeline && timeline.snapshots.length > 0 && (
+            <TimelineDashboardCard
+              colors={c}
+              timeline={timeline}
+              onOpenTimeline={onOpenTimeline}
+              compact={compact}
             />
           )}
           {onOpenDiscover && data.discovery.summary.totalCount > 0 && (

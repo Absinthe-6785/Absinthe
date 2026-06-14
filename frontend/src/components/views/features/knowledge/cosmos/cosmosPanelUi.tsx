@@ -5,12 +5,13 @@ import type { DiscoveryConfidence } from '../discovery/discoveryScoring';
 import type { DiscoveryKind } from '../discovery/discoveryTypes';
 import { CosmosTermTooltip } from './onboarding/CosmosTermTooltip';
 
-export type CosmosSuitePanel = 'insights' | 'actions' | 'discover';
+export type CosmosSuitePanel = 'insights' | 'actions' | 'discover' | 'timeline';
 
 const SUITE_LABELS: Record<CosmosSuitePanel, TranslationKey> = {
   insights: 'k36PanelInsights',
   actions: 'k37PanelActions',
   discover: 'k38PanelDiscover',
+  timeline: 'k42PanelTimeline',
 };
 
 export function CosmosSuiteHeader({

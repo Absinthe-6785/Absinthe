@@ -9,6 +9,7 @@ export type KnowledgeContextTab =
   | 'insights'
   | 'actions'
   | 'discover'
+  | 'timeline'
   | 'properties'
   | 'tags'
   | 'relations'
