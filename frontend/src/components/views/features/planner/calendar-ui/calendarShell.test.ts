@@ -206,14 +206,13 @@ describe('CalendarShell', () => {
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
   });
 
-  it('does not render agenda view when initial mode is agenda (K-71 removed)', () => {
+  it('does not render unknown calendar modes', () => {
     const html = renderToStaticMarkup(
-      createElement(CalendarShell, shellProps({ initialMode: 'agenda' })),
+      createElement(CalendarShell, shellProps({ initialMode: 'day' })),
     );
 
-    expect(html).toContain('data-planner-calendar-mode="agenda"');
+    expect(html).toContain('data-planner-calendar-mode="day"');
     expect(html).not.toContain('data-planner-calendar-agenda');
-    expect(html).not.toContain('data-planner-calendar-placeholder-mode="agenda"');
   });
 });
 

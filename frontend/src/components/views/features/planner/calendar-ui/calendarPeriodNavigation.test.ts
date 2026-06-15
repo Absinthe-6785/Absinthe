@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
 
 describe('shiftPlannerAnchorDate', () => {
-  it('shifts day and agenda anchors by one day', () => {
+  it('shifts day anchors by one day', () => {
     expect(shiftPlannerAnchorDate('day', '2027-02-03', 1)).toBe('2027-02-04');
     expect(shiftPlannerAnchorDate('day', '2027-02-03', -1)).toBe('2027-02-02');
-    expect(shiftPlannerAnchorDate('agenda', '2027-02-03', 1)).toBe('2027-02-04');
   });
 
   it('shifts week anchors by seven days', () => {

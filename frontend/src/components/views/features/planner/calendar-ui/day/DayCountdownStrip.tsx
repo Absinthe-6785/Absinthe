@@ -9,12 +9,17 @@ export interface DayCountdownStripProps {
   countdowns: readonly PlannerCountdownRow[];
   presentation: PlannerCalendarPresentation;
   onNoteClick?: (noteId: string) => void;
+  hideHeading?: boolean;
+  /** Match event row styling when nested under unified events section. */
+  inline?: boolean;
 }
 
 export function DayCountdownStrip({
   countdowns,
   presentation,
   onNoteClick,
+  hideHeading = false,
+  inline = false,
 }: DayCountdownStripProps) {
   const { t } = useTranslation();
   const { isReviewed, markReviewed } = useCountdownReviewed();
@@ -22,12 +27,18 @@ export function DayCountdownStrip({
 
   if (upcoming.length === 0) return null;
 
+  const rowClass = inline
+    ? 'flex items-center justify-between gap-2 px-2 py-2.5 min-h-[44px] rounded-md bg-primary/10 text-primary'
+    : 'flex items-center justify-between gap-2 px-2 py-2 min-h-[44px] rounded-md border border-border bg-surface-alt';
+
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-countdowns>
-      <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted flex items-center gap-1">
-        <Target size={12} strokeWidth={2.25} className="text-red-500" />
-        {t('scheduleSectionDeadlines')}
-      </h4>
+      {!hideHeading ? (
+        <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted flex items-center gap-1">
+          <Target size={12} strokeWidth={2.25} className="text-red-500" />
+          {t('scheduleSectionDeadlines')}
+        </h4>
+      ) : null}
       <ul className="flex flex-col gap-1">
         {upcoming.map(countdown => {
           const label = formatPlannerCountdownLabel(countdown.daysUntil, presentation.locale);
@@ -36,7 +47,7 @@ export function DayCountdownStrip({
           return (
             <li
               key={countdown.id}
-              className="flex items-center justify-between gap-2 px-2 py-2 min-h-[44px] rounded-md border border-border bg-surface-alt"
+              className={rowClass}
               data-planner-day-countdown={countdown.id}
             >
               <button

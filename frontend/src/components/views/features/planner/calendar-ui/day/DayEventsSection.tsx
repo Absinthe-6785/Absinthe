@@ -7,17 +7,20 @@ export interface DayEventsSectionProps {
   allDayEvents: readonly PlannerEventOccurrence[];
   timedEvents: readonly PlannerEventOccurrence[];
   onEventNoteClick?: (noteId: string) => void;
+  hideHeading?: boolean;
 }
 
-export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick }: DayEventsSectionProps) {
+export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, hideHeading = false }: DayEventsSectionProps) {
   const { t } = useTranslation();
   const empty = allDayEvents.length === 0 && timedEvents.length === 0;
 
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-events>
-      <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
-        {t('scheduleSectionEvents')}
-      </h4>
+      {!hideHeading ? (
+        <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
+          {t('scheduleSectionEvents')}
+        </h4>
+      ) : null}
       {empty ? (
         <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (

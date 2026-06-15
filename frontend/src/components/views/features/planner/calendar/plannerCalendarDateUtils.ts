@@ -97,7 +97,7 @@ export interface PlannerCalendarRange {
 }
 
 export function resolvePlannerCalendarRange(
-  viewMode: 'month' | 'week' | 'day' | 'agenda',
+  viewMode: 'month' | 'week' | 'day',
   anchorDate: string,
 ): PlannerCalendarRange | null {
   if (!parseDateKey(anchorDate)) return null;
@@ -118,11 +118,6 @@ export function resolvePlannerCalendarRange(
     }
     case 'day':
       return { startDate: anchorDate, endDate: anchorDate };
-    case 'agenda': {
-      const endDate = addDays(anchorDate, PLANNER_AGENDA_HORIZON_DAYS - 1);
-      if (!endDate) return null;
-      return { startDate: anchorDate, endDate };
-    }
     default:
       return null;
   }
@@ -133,7 +128,6 @@ export function resolvePlannerIndexRange(anchorDate: string): PlannerCalendarRan
     resolvePlannerCalendarRange('month', anchorDate),
     resolvePlannerCalendarRange('week', anchorDate),
     resolvePlannerCalendarRange('day', anchorDate),
-    resolvePlannerCalendarRange('agenda', anchorDate),
   ].filter((range): range is PlannerCalendarRange => range != null);
 
   if (candidates.length === 0) return null;

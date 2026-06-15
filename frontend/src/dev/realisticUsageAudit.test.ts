@@ -7,7 +7,6 @@ import {
   REALISTIC_USAGE_ANCHOR,
 } from '@/dev/realisticUsageFixture';
 import { buildMonthCellDisplayModel } from '@/components/views/features/planner/calendar-ui/month/monthCalendarPresentation';
-import { buildAgendaChronologicalStream } from '@/components/views/features/planner/calendar-ui/agenda/agendaCalendarPresentation';
 
 describe('K-69 realistic usage audit', () => {
   it('builds dataset meeting minimum scale targets', () => {
@@ -38,26 +37,24 @@ describe('K-69 realistic usage audit', () => {
     expect(elapsed).toBeLessThan(200);
   });
 
-  it('builds agenda stream with 100+ entries from dense month', () => {
+  it('projects day view with dense events under 200ms', () => {
     const denseDay = '2027-02-10';
     const notes = buildDenseMonthDayEvents(denseDay, 25);
+    const start = performance.now();
     const projection = buildPlannerCalendarProjection({
       notes,
       scheduleBlocks: [],
       weeklySchedules: [],
       todos: [],
       routines: [],
-      anchorDate: '2027-02-10',
-      viewMode: 'agenda',
+      anchorDate: denseDay,
+      viewMode: 'day',
       now: REALISTIC_USAGE_ANCHOR,
     });
-    const presentation = formatPlannerCalendarPresentation(projection, 'en');
+    const elapsed = performance.now() - start;
 
-    const stream = buildAgendaChronologicalStream(
-      projection.views.agenda.dayGroups,
-      presentation.labels.agendaDateHeaders,
-    );
-    expect(stream.length).toBeGreaterThanOrEqual(20);
+    expect(projection.views.day.timedEvents.length + projection.views.day.allDayEvents.length).toBeGreaterThanOrEqual(20);
+    expect(elapsed).toBeLessThan(200);
   });
 
   it('caps month cell overflow at configured visible limits', () => {

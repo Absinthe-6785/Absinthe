@@ -1,7 +1,4 @@
 import type {
-  PlannerAgendaItem,
-  PlannerAgendaViewPayload,
-  PlannerCountdownRow,
   PlannerDayBundle,
   PlannerDayViewPayload,
   PlannerDatedSchedule,
@@ -16,7 +13,6 @@ import {
   isoWeekBounds,
   isoWeekdayFromDateKey,
   monthGridBounds,
-  resolvePlannerCalendarRange,
 } from './plannerCalendarDateUtils';
 import { parseDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
 import type { MonthGridBounds } from './plannerCalendarDateUtils';
@@ -213,94 +209,5 @@ export function buildDayViewPayload(params: {
       carryOverBlocks,
     },
     isToday: params.anchorDate === params.todayKey,
-  };
-}
-
-export function buildAgendaViewPayload(params: {
-  anchorDate: string;
-  byDate: ReadonlyMap<string, PlannerDayBundle>;
-  countdowns: readonly PlannerCountdownRow[];
-}): PlannerAgendaViewPayload {
-  const range = resolvePlannerCalendarRange('agenda', params.anchorDate);
-  const horizon = range ?? { startDate: params.anchorDate, endDate: params.anchorDate };
-
-  const countdownSection = params.countdowns.map(countdown => ({
-    id: countdown.id,
-    kind: 'countdown' as const,
-    dateKey: countdown.targetDate,
-    sortKey: `0000-${String(countdown.daysUntil).padStart(4, '0')}-${countdown.id}`,
-    title: countdown.title,
-    sourceRef: { type: countdown.source, id: countdown.sourceRefId },
-    meta: { daysUntil: countdown.daysUntil },
-  }));
-
-  const dayGroups = enumerateDateKeys(horizon.startDate, horizon.endDate).map(dateKey => {
-    const bundle = params.byDate.get(dateKey);
-    const items: PlannerAgendaItem[] = [];
-
-    for (const event of bundle?.events ?? []) {
-      items.push({
-        id: event.occurrenceId,
-        kind: event.isAllDay || !event.startTime ? 'all-day-event' : 'timed-event',
-        dateKey,
-        sortKey: `${dateKey}T${event.startTime ?? '00:00'}-${event.occurrenceId}`,
-        title: event.title,
-        sourceRef: { type: 'note', id: event.noteId },
-        meta: {
-          startTime: event.startTime,
-          endTime: event.endTime,
-        },
-      });
-    }
-
-    for (const block of bundle?.blocks ?? []) {
-      items.push({
-        id: block.id,
-        kind: 'schedule-block',
-        dateKey,
-        sortKey: `${dateKey}T${block.startTime}-${block.id}`,
-        title: block.title,
-        sourceRef: { type: 'schedule', id: block.id },
-        meta: {
-          startTime: block.startTime,
-          endTime: block.endTime,
-          category: block.category,
-        },
-      });
-    }
-
-    for (const milestone of bundle?.milestones ?? []) {
-      items.push({
-        id: `milestone:${milestone.noteId}`,
-        kind: 'milestone',
-        dateKey,
-        sortKey: `${dateKey}T23:58-${milestone.noteId}`,
-        title: milestone.label,
-        sourceRef: { type: 'note', id: milestone.noteId },
-        meta: {},
-      });
-    }
-
-    for (const todo of bundle?.todos ?? []) {
-      items.push({
-        id: todo.id,
-        kind: 'todo',
-        dateKey,
-        sortKey: `${dateKey}T23:59-${todo.id}`,
-        title: todo.text,
-        sourceRef: { type: 'todo', id: todo.id },
-        meta: { done: todo.done },
-      });
-    }
-
-    items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-    return { dateKey, items };
-  }).filter(group => group.items.length > 0);
-
-  return {
-    horizon: { startDate: horizon.startDate, endDate: horizon.endDate },
-    countdownSection,
-    dayGroups,
   };
 }

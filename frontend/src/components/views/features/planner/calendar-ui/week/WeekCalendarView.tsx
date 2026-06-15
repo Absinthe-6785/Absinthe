@@ -6,8 +6,6 @@ import { WeekHeader } from './WeekHeader';
 import { resolveTodayKeyFromProjection, weekHasContent } from './weekCalendarPresentation';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
 import type { DayScheduleActions } from '../day/dayScheduleActions';
-import type { DayRoutineActions } from '../day/dayRoutineActions';
-import type { DayTodoActions } from '../day/dayTodoActions';
 
 export interface WeekCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -16,8 +14,6 @@ export interface WeekCalendarViewProps {
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
   scheduleActions?: DayScheduleActions;
-  routineActions?: DayRoutineActions;
-  todoActions?: DayTodoActions;
 }
 
 export function WeekCalendarView({
@@ -27,8 +23,6 @@ export function WeekCalendarView({
   onEventNoteClick,
   onDateSelect,
   scheduleActions,
-  routineActions,
-  todoActions,
 }: WeekCalendarViewProps) {
   const { t } = useTranslation();
   const week = projection.views.week;
@@ -72,8 +66,6 @@ export function WeekCalendarView({
         theme={theme}
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
-        routineActions={routineActions}
-        todoActions={todoActions}
         bare
       />
     </div>

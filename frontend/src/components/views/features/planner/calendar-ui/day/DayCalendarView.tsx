@@ -6,8 +6,6 @@ import { DayHeader } from './DayHeader';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
 import { buildDayDisplayModel, dayHasContent } from './dayCalendarPresentation';
 import type { DayScheduleActions } from './dayScheduleActions';
-import type { DayRoutineActions } from './dayRoutineActions';
-import type { DayTodoActions } from './dayTodoActions';
 
 export interface DayCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -15,8 +13,6 @@ export interface DayCalendarViewProps {
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   scheduleActions?: DayScheduleActions;
-  routineActions?: DayRoutineActions;
-  todoActions?: DayTodoActions;
 }
 
 /** K-71 single-flow day view — no empty side column. */
@@ -26,8 +22,6 @@ export function DayCalendarView({
   theme,
   onEventNoteClick,
   scheduleActions,
-  routineActions,
-  todoActions,
 }: DayCalendarViewProps) {
   const { t } = useTranslation();
   const day = projection.views.day;
@@ -61,8 +55,6 @@ export function DayCalendarView({
         theme={theme}
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
-        routineActions={routineActions}
-        todoActions={todoActions}
         hideHeading
         bare
       />

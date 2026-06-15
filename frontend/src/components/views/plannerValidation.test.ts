@@ -68,9 +68,10 @@ describe('K-32.1 planner validation', () => {
     expect(html).not.toContain('data-planner-calendar-mode-option="agenda"');
   });
 
-  it('uses calendar-only PlannerView surface (K-71)', () => {
+  it('uses Schedule + Timetable workspace tabs (K-74)', () => {
     const source = readSource('PlannerView.tsx');
-    expect(source).not.toContain('WeeklyTimetableSection');
+    expect(source).toContain('ScheduleWorkspaceNav');
+    expect(source).toContain('WeeklyTimetableSection');
     expect(source).not.toContain('ScheduleCountdownPanel');
     expect(source).not.toContain('MOBILE_PLANNER_TABS');
     expect(source).not.toContain('data-planner-column="timeline"');

@@ -15,7 +15,6 @@ import {
   type ProteinCategory,
 } from './proteinConstants';
 import {
-  formatProteinLogTime,
   rankQuickAddSources,
   recordProteinSourceUse,
 } from './proteinQuickAdd';
@@ -349,7 +348,6 @@ export function ProteinTracker({
           <ul className="flex flex-col gap-1 max-h-24 overflow-y-auto">
             {timelineLogs.slice(0, 4).map(log => (
               <li key={log.id} className={`text-[11px] font-semibold truncate ${theme.textMuted}`}>
-                {formatProteinLogTime(log.created_at)}{' '}
                 {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}{' '}
                 <span className="text-primary">+{log.protein_g}g</span>
               </li>
@@ -375,22 +373,19 @@ export function ProteinTracker({
       {quickAddBlock(false)}
 
       <section className="flex flex-col gap-2 min-h-0" data-protein-timeline>
-        <h3 className="text-xs font-bold uppercase tracking-wide text-muted">{t('k73TodayTimeline')}</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-muted">{t('k74TodaysFoods')}</h3>
         {timelineLogs.length > 0 ? (
-          <ul className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
+          <ul className="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto">
             {timelineLogs.map(log => (
-              <li key={log.id} className={`rounded-xl px-3 py-2 flex items-center justify-between gap-2 ${theme.input}`}>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold truncate tabular-nums">
-                    <span className={`${theme.textMuted} font-semibold mr-2`}>{formatProteinLogTime(log.created_at)}</span>
-                    {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
-                    <span className="text-primary ml-1.5">+{log.protein_g}g</span>
-                  </p>
-                </div>
+              <li key={log.id} className={`rounded-xl px-3 py-3 flex items-center justify-between gap-2 min-h-[48px] ${theme.input}`}>
+                <p className="text-sm font-bold truncate flex-1">
+                  {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}
+                  <span className="text-primary ml-1.5 tabular-nums">+{log.protein_g}g</span>
+                </p>
                 <button
                   type="button"
                   onClick={() => handleDeleteIntake(log.id)}
-                  className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400 transition-colors shrink-0"
+                  className="p-2 rounded-full hover:bg-red-500/20 text-red-400 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <X size={13} />
                 </button>

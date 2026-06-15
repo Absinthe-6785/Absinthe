@@ -204,31 +204,13 @@ describe('DayCalendarView', () => {
     expect(html).toContain('07:00–08:00 Morning Run');
   });
 
-  it('renders routine summary and individual routine rows', () => {
+  it('renders unified events and deadlines section without routines or tasks (K-74)', () => {
     const { projection, presentation } = buildDayFixture({
       routines: [
         { id: 'r1', date: '2027-02-03', text: 'Stretch', done: true, is_active: true },
-        { id: 'r2', date: '2027-02-03', text: 'Read', done: false, is_active: true },
       ],
-    });
-
-    const html = renderToStaticMarkup(
-      createElement(DayCalendarView, { projection, presentation, theme }),
-    );
-
-    expect(html).toContain('data-planner-day-routines');
-    expect(html).toContain('1/2 routines complete');
-    expect(html).toContain('data-planner-day-routine="r1"');
-    expect(html).toContain('data-planner-day-routine-done="true"');
-    expect(html).toContain('Stretch');
-    expect(html).toContain('Read');
-  });
-
-  it('renders todo summary and individual todo rows', () => {
-    const { projection, presentation } = buildDayFixture({
       todos: [
         { id: 't1', date: '2027-02-03', text: 'Pack bag', done: false },
-        { id: 't2', date: '2027-02-03', text: 'Send email', done: true },
       ],
     });
 
@@ -236,11 +218,9 @@ describe('DayCalendarView', () => {
       createElement(DayCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).toContain('data-planner-day-todos');
-    expect(html).toContain('1/2 todos done');
-    expect(html).toContain('data-planner-day-todo="t1"');
-    expect(html).toContain('Pack bag');
-    expect(html).toContain('Send email');
+    expect(html).toContain('data-planner-day-events-deadlines');
+    expect(html).not.toContain('data-planner-day-routines');
+    expect(html).not.toContain('data-planner-day-todos');
   });
 
   it('shows milestone dot without rendering milestone titles', () => {
