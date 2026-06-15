@@ -128,6 +128,33 @@ describe('blockPaste', () => {
     const blocks = clipboardToBlocks(dt)!;
     expect(isDocumentLevelPaste(dt, blocks)).toBe(true);
   });
+
+  it('Notion KaTeX inline equation preserves $\\rightarrow$ through clipboardToBlocks', () => {
+    const html = [
+      '<p>See ',
+      '<span class="katex">',
+      '<span class="katex-mathml">',
+      '<math><semantics><mrow><mo>→</mo></mrow>',
+      '<annotation encoding="application/x-tex">\\rightarrow</annotation>',
+      '</semantics></math>',
+      '</span>',
+      '<span class="katex-html" aria-hidden="true"><span>→</span></span>',
+      '</span>',
+      ' for details</p>',
+    ].join('');
+    const dt = { getData: (t: string) => (t === 'text/html' ? html : '') };
+    const blocks = clipboardToBlocks(dt);
+    expect(blocks).toHaveLength(1);
+    expect(blocks![0].type).toBe('paragraph');
+    expect(blocks![0].content).toBe('See $\\rightarrow$ for details');
+  });
+
+  it('Notion equation token preserves $\\rightarrow$ through clipboardToBlocks', () => {
+    const html = '<p>Arrow <span class="notion-text-equation-token">\\rightarrow</span> here</p>';
+    const dt = { getData: (t: string) => (t === 'text/html' ? html : '') };
+    const blocks = clipboardToBlocks(dt);
+    expect(blocks![0].content).toBe('Arrow $\\rightarrow$ here');
+  });
 });
 
 describe('applyPasteAtBlock tree validation', () => {

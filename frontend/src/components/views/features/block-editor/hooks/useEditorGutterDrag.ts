@@ -40,7 +40,7 @@ export function useEditorGutterDrag({
   }, []);
 
   const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
-    if (readOnly || depth !== 0) return;
+    if (readOnly) return;
     if (!isGutterDragStart(e.target)) return;
     if (e.button !== 0) return;
 
@@ -88,7 +88,7 @@ export function useEditorGutterDrag({
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, [readOnly, depth, getRootBlocks, onActiveBlockChange]);
+  }, [readOnly, getRootBlocks, onActiveBlockChange]);
 
   return {
     handleGutterPointerDown,

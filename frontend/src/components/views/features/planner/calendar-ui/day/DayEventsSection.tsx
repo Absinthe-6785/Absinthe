@@ -1,5 +1,6 @@
 import type { PlannerEventOccurrence } from '../../calendar';
 import { useTranslation } from '@/lib/i18n';
+import { formatEventTimeLabel } from './dayCalendarPresentation';
 import { spanPositionClass } from '../month/monthCalendarPresentation';
 
 export interface DayEventsSectionProps {
@@ -38,10 +39,12 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick }
             </div>
           ))}
 
-          {timedEvents.map(event => (
+          {timedEvents.map(event => {
+            const timeLabel = formatEventTimeLabel(event.startTime, event.endTime);
+            return (
             <div
               key={event.occurrenceId}
-              className={`px-2 py-1 text-xs lg:text-sm font-semibold truncate rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
+              className={`px-2 py-1 rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
               data-planner-day-event={event.noteId}
               data-planner-day-event-kind="timed"
               title={event.title}
@@ -50,9 +53,13 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick }
               role={onEventNoteClick ? 'button' : undefined}
               tabIndex={onEventNoteClick ? 0 : undefined}
             >
-              {event.startTime ? `${event.startTime} ` : ''}{event.title}
+              {timeLabel && (
+                <div className="text-[10px] lg:text-xs font-medium text-muted leading-tight">{timeLabel}</div>
+              )}
+              <div className="text-xs lg:text-sm font-semibold truncate">{event.title}</div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

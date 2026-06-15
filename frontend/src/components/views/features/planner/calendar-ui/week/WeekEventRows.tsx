@@ -1,4 +1,5 @@
 import type { PlannerEventOccurrence } from '../../calendar';
+import { formatEventTimeLabel } from '../day/dayCalendarPresentation';
 import { spanPositionClass } from '../month/monthCalendarPresentation';
 
 export interface WeekEventRowsProps {
@@ -28,10 +29,12 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
           </div>
         ))}
 
-        {timedEvents.map(event => (
+        {timedEvents.map(event => {
+          const timeLabel = formatEventTimeLabel(event.startTime, event.endTime);
+          return (
           <div
             key={event.occurrenceId}
-            className={`px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`px-1.5 py-1 rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-week-event={event.noteId}
             data-planner-week-event-kind="timed"
             title={event.title}
@@ -39,9 +42,13 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
             role={onEventNoteClick ? 'button' : undefined}
             tabIndex={onEventNoteClick ? 0 : undefined}
           >
-          {event.startTime ? `${event.startTime} ` : ''}{event.title}
-        </div>
-      ))}
+            {timeLabel && (
+              <div className="text-[9px] lg:text-[10px] font-medium text-muted leading-tight">{timeLabel}</div>
+            )}
+            <div className="text-[10px] lg:text-[11px] font-semibold truncate">{event.title}</div>
+          </div>
+          );
+        })}
     </div>
   );
 }

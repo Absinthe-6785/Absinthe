@@ -61,6 +61,63 @@ export function parseCodeFromCodeElement(el: HTMLElement): Block {
   return makeBlock('code', { code: el.textContent ?? '', language });
 }
 
+const MATH_LATEX_ATTRS = [
+  'data-math',
+  'data-math-source',
+  'data-latex',
+  'data-equation',
+  'data-original',
+] as const;
+
+const MATH_ELEMENT_CLASSES = [
+  'katex',
+  'katex-display',
+  'notion-equation',
+  'notion-text-equation-token',
+  'notion-equation-token',
+  'be-math-inline',
+  'be-math-display',
+] as const;
+
+/** True for KaTeX / Notion equation spans and our math clipboard markers. */
+export function isMathHtmlElement(el: Element): boolean {
+  if (el.getAttribute('data-block-type') === 'math') return true;
+  for (const attr of MATH_LATEX_ATTRS) {
+    if (el.hasAttribute(attr)) return true;
+  }
+  const htmlEl = el as HTMLElement;
+  return MATH_ELEMENT_CLASSES.some(cls => htmlEl.classList.contains(cls));
+}
+
+/** Extract LaTeX source from rendered math HTML (Notion, KaTeX, our copy format). */
+export function extractLatexFromMathElement(el: Element): string | null {
+  for (const attr of MATH_LATEX_ATTRS) {
+    const val = el.getAttribute(attr)?.trim();
+    if (val) return val;
+  }
+
+  const root = el.closest(
+    '.katex, .notion-equation, .notion-text-equation-token, [data-math], [data-math-source], [data-block-type="math"]',
+  ) ?? el;
+  const annotation = root.querySelector('annotation[encoding="application/x-tex"]');
+  const fromAnnotation = annotation?.textContent?.trim();
+  if (fromAnnotation) return fromAnnotation;
+
+  if (isMathHtmlElement(el)) {
+    const text = el.textContent?.trim();
+    if (text && /\\[a-zA-Z{]/.test(text)) return text;
+  }
+
+  return null;
+}
+
+export function isBlockMathElement(el: HTMLElement): boolean {
+  return el.getAttribute('data-math-block') === 'true'
+    || el.classList.contains('be-math-display')
+    || el.classList.contains('katex-display')
+    || (el.tagName.toUpperCase() === 'DIV' && el.classList.contains('katex'));
+}
+
 export function mathBlockToHtml(block: Block): string {
   const expr = block.math ?? block.content ?? '';
   const isBlock = block.mathBlock === true || expr.includes('\n');
@@ -70,10 +127,8 @@ export function mathBlockToHtml(block: Block): string {
 }
 
 export function parseMathElement(el: HTMLElement): Block {
-  const isBlock = el.getAttribute('data-math-block') === 'true'
-    || el.tagName.toUpperCase() === 'DIV';
-  const math = el.textContent ?? '';
-  return makeBlock('math', { math, mathBlock: isBlock });
+  const math = extractLatexFromMathElement(el) ?? (el.textContent ?? '');
+  return makeBlock('math', { math, mathBlock: isBlockMathElement(el) });
 }
 
 export function imageBlockToHtml(block: Block): string {

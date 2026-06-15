@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { ArrowRight, Plus, X } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
+import type { TranslationKey } from '../../../../../lib/i18n';
 import { filterWikiTargets } from '../../block-editor/features/menus/utils/wikiSearch';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
@@ -8,7 +9,15 @@ import type { NoteBase } from '../../../noteUtils';
 import type { RelationEdge, ResolvedRelationTarget } from '../relations/relationModels';
 import { addRelationTarget, listRelationKeys, removeRelationTarget } from '../relations/noteRelations';
 
-const SUGGESTED_RELATION_KEYS = ['course', 'project', 'book', 'person', 'chapter'] as const;
+const PRESET_RELATION_KEYS = [
+  { value: 'course', labelKey: null },
+  { value: 'prerequisite', labelKey: 'knRelationPrerequisite' as TranslationKey },
+  { value: 'reference', labelKey: 'knRelationReference' as TranslationKey },
+  { value: 'related', labelKey: 'knRelationRelated' as TranslationKey },
+  { value: 'project', labelKey: null },
+] as const;
+
+const CUSTOM_RELATION_VALUE = '__custom__';
 
 export interface IncomingRelationDisplay {
   edge: RelationEdge;
@@ -48,16 +57,24 @@ export function NoteRelationsPanel({
   onResolveTargetId,
 }: NoteRelationsPanelProps) {
   const { t } = useTranslation();
-  const [propertyKey, setPropertyKey] = useState('course');
+  const [relationType, setRelationType] = useState('');
+  const [customKey, setCustomKey] = useState('');
   const [targetQuery, setTargetQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const outgoingGroups = useMemo(() => groupOutgoing(outgoing), [outgoing]);
   const existingKeys = useMemo(() => listRelationKeys(note), [note]);
 
+  const isCustomType = relationType === CUSTOM_RELATION_VALUE;
+  const effectiveKey = isCustomType ? customKey.trim() : relationType.trim();
+
   const suggestions = useMemo(
     () => filterWikiTargets(targetQuery, wikiTargets.filter(title => title !== (note.title ?? ''))),
     [note.title, targetQuery, wikiTargets],
+  );
+
+  const canAdd = Boolean(
+    effectiveKey && targetQuery.trim() && onResolveTargetId(targetQuery.trim()),
   );
 
   const commitNote = useCallback(
@@ -68,7 +85,7 @@ export function NoteRelationsPanel({
   );
 
   const handleAdd = useCallback(() => {
-    const trimmedKey = propertyKey.trim();
+    const trimmedKey = effectiveKey;
     const trimmedTarget = targetQuery.trim();
     if (!trimmedKey || !trimmedTarget) return;
 
@@ -79,7 +96,7 @@ export function NoteRelationsPanel({
     commitNote(addRelationTarget(note, trimmedKey, targetId));
     setTargetQuery('');
     setShowSuggestions(false);
-  }, [commitNote, note, onResolveTargetId, propertyKey, targetQuery]);
+  }, [commitNote, note, onResolveTargetId, effectiveKey, targetQuery]);
 
   const handleRemove = useCallback(
     (key: string, targetId: string) => {
@@ -94,6 +111,16 @@ export function NoteRelationsPanel({
     border: `1px solid ${c.sideBdr}`,
     background: c.cardHov,
     overflow: 'hidden',
+  };
+
+  const inputStyle: CSSProperties = {
+    background: c.input,
+    border: `1px solid ${c.inputBdr}`,
+    borderRadius: 5,
+    padding: '4px 6px',
+    fontSize: 10,
+    color: c.text,
+    outline: 'none',
   };
 
   const renderTargetRow = (item: ResolvedRelationTarget) => {
@@ -231,23 +258,40 @@ export function NoteRelationsPanel({
       </div>
 
       <div style={{ padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <input
-          value={propertyKey}
-          onChange={e => setPropertyKey(e.target.value)}
-          placeholder={t('knPropertyKey')}
-          list="relation-key-suggestions"
-          style={{
-            background: c.input,
-            border: `1px solid ${c.inputBdr}`,
-            borderRadius: 5,
-            padding: '4px 6px',
-            fontSize: 10,
-            color: c.text,
-            outline: 'none',
+        <select
+          value={relationType}
+          onChange={e => {
+            setRelationType(e.target.value);
+            if (e.target.value !== CUSTOM_RELATION_VALUE) setCustomKey('');
           }}
-        />
+          style={{ ...inputStyle, width: '100%' }}
+        >
+          <option value="">{t('knSelectRelationType')}</option>
+          {PRESET_RELATION_KEYS.map(({ value, labelKey }) => (
+            <option key={value} value={value}>
+              {labelKey ? t(labelKey) : value}
+            </option>
+          ))}
+          {existingKeys
+            .filter(key => !PRESET_RELATION_KEYS.some(p => p.value === key))
+            .map(key => (
+              <option key={key} value={key}>{key}</option>
+            ))}
+          <option value={CUSTOM_RELATION_VALUE}>{t('knPropertyKey')}…</option>
+        </select>
+
+        {isCustomType && (
+          <input
+            value={customKey}
+            onChange={e => setCustomKey(e.target.value)}
+            placeholder={t('knPropertyKey')}
+            list="relation-key-suggestions"
+            style={inputStyle}
+          />
+        )}
+
         <datalist id="relation-key-suggestions">
-          {[...SUGGESTED_RELATION_KEYS, ...existingKeys].map(key => (
+          {[...PRESET_RELATION_KEYS.map(p => p.value), ...existingKeys].map(key => (
             <option key={key} value={key} />
           ))}
         </datalist>
@@ -265,17 +309,7 @@ export function NoteRelationsPanel({
             onKeyDown={e => {
               if (e.key === 'Enter') handleAdd();
             }}
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              background: c.input,
-              border: `1px solid ${c.inputBdr}`,
-              borderRadius: 5,
-              padding: '4px 6px',
-              fontSize: 10,
-              color: c.text,
-              outline: 'none',
-            }}
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
           />
           {showSuggestions && suggestions.length > 0 && (
             <div
@@ -323,7 +357,7 @@ export function NoteRelationsPanel({
         <button
           type="button"
           onClick={handleAdd}
-          disabled={!propertyKey.trim() || !targetQuery.trim() || !onResolveTargetId(targetQuery.trim())}
+          disabled={!canAdd}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -335,8 +369,8 @@ export function NoteRelationsPanel({
             padding: '6px 8px',
             fontSize: 10,
             color: c.accent,
-            cursor: 'pointer',
-            opacity: !propertyKey.trim() || !targetQuery.trim() ? 0.5 : 1,
+            cursor: canAdd ? 'pointer' : 'not-allowed',
+            opacity: canAdd ? 1 : 0.5,
           }}
         >
           <Plus size={11} />

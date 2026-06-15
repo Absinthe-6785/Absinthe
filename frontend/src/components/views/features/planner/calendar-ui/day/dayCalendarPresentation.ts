@@ -27,6 +27,12 @@ export function formatDayTimeRange(startTime: string, endTime: string): string {
   return `${startTime}–${endTime}`;
 }
 
+export function formatEventTimeLabel(startTime?: string, endTime?: string): string {
+  if (startTime && endTime) return formatDayTimeRange(startTime, endTime);
+  if (startTime) return startTime;
+  return '';
+}
+
 export function buildDayDisplayModel(day: PlannerDayViewPayload): DayDisplayModel {
   const milestoneCount = day.bundle.hints.milestoneCount;
   const isEmpty = day.allDayEvents.length === 0
