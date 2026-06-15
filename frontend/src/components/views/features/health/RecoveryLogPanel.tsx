@@ -161,7 +161,7 @@ export function RecoveryLogPanel({
         </button>
 
         {isWorkoutLocked && !restDayNote && (
-          <p className={`text-xs mt-3 text-green-500 font-medium`}>{t('healthDashboardRestDay')}</p>
+          <p className={`text-xs mt-3 text-green-500 font-medium`}>{t('k54RecoveryRestDaySaved')}</p>
         )}
       </div>
 
@@ -202,7 +202,7 @@ export function RecoveryLogPanel({
         </div>
         {metrics.latestNote ? (
           <p className={`text-xs mt-3 ${theme.textMuted}`}>
-            {t('healthDashboardRecoveryNote')}: {metrics.latestNote}
+            {t('k54RecoveryNote')}: {metrics.latestNote}
           </p>
         ) : null}
       </div>

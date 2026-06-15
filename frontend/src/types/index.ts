@@ -148,6 +148,7 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
   routines: Routine[];
   markedDates: string[];
   weeklySchedules: WeeklySchedule[];
+  isDailyLoading?: boolean;
 }
 
 export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
@@ -155,6 +156,7 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
   inbody: Inbody;
   healthBlocks: ExerciseBlock[];
   healthRoutines: HealthRoutine[];
+  isDailyLoading?: boolean;
 }
 
 export interface AnalyticsProps extends BaseViewProps {
@@ -185,4 +187,5 @@ export interface ViewProps
   healthBlocks: ExerciseBlock[];
   healthRoutines: HealthRoutine[];
   weeklySchedules: WeeklySchedule[];
+  isDailyLoading?: boolean;
 }
