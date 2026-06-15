@@ -88,6 +88,7 @@ export function EditableBlock({
   const composingRef = useRef(false);
   const liveRafRef = useRef<number | null>(null);
   const staticMouseRef = useRef<{ x: number; y: number } | null>(null);
+  const staticActivateFromPointerRef = useRef(false);
   const isEditing = isActive;
 
   const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
@@ -405,19 +406,59 @@ export function EditableBlock({
     const start = staticMouseRef.current;
     staticMouseRef.current = null;
     if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
-    requestAnimationFrame(() => {
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return;
-      const el = editableRef.current;
-      const offset = el ? getCaretOffsetFromPoint(el, e.clientX, e.clientY) : null;
-      onActivate(offset ?? 'end');
-    });
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const el = editableRef.current;
+    if (!el) {
+      onActivate('end');
+      return;
+    }
+    let offset: number | null = getCaretOffsetFromPoint(el, e.clientX, e.clientY);
+    if (offset == null && sel && sel.rangeCount > 0 && sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (el.contains(range.startContainer)) offset = getCaretOffset(el);
+    }
+    onActivate(offset ?? 'end');
+    staticActivateFromPointerRef.current = true;
+  }, [onActivate, editableRef]);
+
+  const handleStaticFocus = useCallback(() => {
+    if (staticActivateFromPointerRef.current) {
+      staticActivateFromPointerRef.current = false;
+      return;
+    }
+    const el = editableRef.current;
+    if (!el) {
+      onActivate?.('end');
+      return;
+    }
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (el.contains(range.startContainer)) {
+        onActivate?.(getCaretOffset(el));
+        return;
+      }
+    }
+    onActivate?.('end');
   }, [onActivate, editableRef]);
 
   const handleStaticDoubleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
     const el = editableRef.current;
-    const offset = el ? getCaretOffsetFromPoint(el, e.clientX, e.clientY) : null;
+    if (!el) {
+      onActivate?.('end');
+      return;
+    }
+    let offset: number | null = getCaretOffsetFromPoint(el, e.clientX, e.clientY);
+    if (offset == null) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        if (el.contains(range.startContainer)) offset = getCaretOffset(el);
+      }
+    }
     onActivate?.(offset ?? 'end');
+    staticActivateFromPointerRef.current = true;
   }, [onActivate, editableRef]);
 
   if (!isActive) {
@@ -438,7 +479,7 @@ export function EditableBlock({
         onMouseDown={handleStaticMouseDown}
         onMouseUp={handleStaticMouseUp}
         onDoubleClick={handleStaticDoubleClick}
-        onFocus={() => { onActivate?.('end'); }}
+        onFocus={handleStaticFocus}
         tabIndex={-1}
         data-block-id={block.id}
         data-block-type={block.type}

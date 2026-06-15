@@ -58,8 +58,7 @@ export function useNoteKeyboardActions(
     shortcutRef.current = {
       showSortMenu, viewMode, activeNote, createNote, duplicateNote,
       focusSearch: () => {
-        searchInputRef.current?.focus();
-        if (activeNote) setSearchScope('document');
+        setWorkspaceSearchOpen(true);
       },
     };
     syncShortcutRef.current = {

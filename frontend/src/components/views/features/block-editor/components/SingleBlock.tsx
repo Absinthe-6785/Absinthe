@@ -8,7 +8,9 @@ import {
   updateBlockById,
   isTextBlockType,
 } from '../../../blockUtils';
-import { readBlockText, setCaretOffset } from '../../../editableDom';
+import { readBlockText } from '../../../editableDom';
+import { paintEditableLive } from '../../../editableLive';
+import { getCaretOffsetFromPoint } from '../features/selection';
 import { blockTintStyle } from '../../../blockColors';
 import {
   isPasteTraceActive,
@@ -190,17 +192,19 @@ export const SingleBlock = React.memo(function SingleBlock({
       const el = editableRef.current;
       if (!el) return;
       el.focus();
-      requestAnimationFrame(() => {
-        if (!editableRef.current) return;
-        const target = editableRef.current;
-        if (cmd.offset === 'start')       setCaretOffset(target, 0);
-        else if (cmd.offset === 'end')    setCaretOffset(target, getElText(target).length);
-        else                              setCaretOffset(target, cmd.offset as number);
-      });
+      const text = block.content ?? '';
+      const caret = cmd.offset === 'start'
+        ? 0
+        : cmd.offset === 'end'
+          ? text.length
+          : typeof cmd.offset === 'number'
+            ? Math.min(Math.max(0, cmd.offset), text.length)
+            : text.length;
+      paintEditableLive(el, text, c, wikiTargets, searchQuery, caret);
     } else {
       shellRef.current?.focus();
     }
-  }, [block.type]);
+  }, [block.type, block.content, c, wikiTargets, searchQuery]);
 
   const handleActivateBlock = useCallback((blockId: string, offset?: 'start' | 'end' | number) => {
     if (blockId !== block.id) return;
@@ -306,7 +310,9 @@ export const SingleBlock = React.memo(function SingleBlock({
     onBlockSelect(block.id, e);
     onActiveBlockChange?.(block.id);
     if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      applyFocusCommand({ blockId: block.id, offset: 'end' });
+      const host = shellRef.current?.querySelector('.be-editable-static, .be-editable[contenteditable="true"]') as HTMLElement | null;
+      const offset = host ? getCaretOffsetFromPoint(host, e.clientX, e.clientY) : null;
+      applyFocusCommand({ blockId: block.id, offset: offset ?? 'end' });
     }
   }, [readOnly, block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
 

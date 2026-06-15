@@ -350,24 +350,36 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               </select>
             )}
             {!isTrash && !isCompactChrome && (
-              <NoteClassificationSelector
-                colors={c}
-                value={activeNoteKind}
-                onChange={kind => {
-                  const updated = setNoteKind(activeNote, kind);
-                  noteUpdate(activeNote.id, { properties: updated.properties });
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  flexShrink: 0,
+                  padding: '1px 3px',
+                  borderRadius: 6,
+                  border: `1px solid ${c.inputBdr}`,
+                  background: c.input,
                 }}
-              />
-            )}
-            {!isTrash && !isCompactChrome && (
-              <WeakTopicToggle
-                colors={c}
-                active={isWeakTopic(activeNote)}
-                onChange={weak => {
-                  const updated = setWeakTopic(activeNote, weak);
-                  noteUpdate(activeNote.id, { properties: updated.properties });
-                }}
-              />
+                data-note-header-classification-group
+              >
+                <NoteClassificationSelector
+                  colors={c}
+                  value={activeNoteKind}
+                  onChange={kind => {
+                    const updated = setNoteKind(activeNote, kind);
+                    noteUpdate(activeNote.id, { properties: updated.properties });
+                  }}
+                />
+                <WeakTopicToggle
+                  colors={c}
+                  active={isWeakTopic(activeNote)}
+                  onChange={weak => {
+                    const updated = setWeakTopic(activeNote, weak);
+                    noteUpdate(activeNote.id, { properties: updated.properties });
+                  }}
+                />
+              </div>
             )}
             {/* Cloud sync status */}
             {!isTrash && (
@@ -515,17 +527,25 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
                   {activeNote && (
-                    <button
-                      type="button"
-                      className="btbtn"
-                      title={t('nvNoteSearchPlaceholder')}
-                      onClick={() => {
-                        searchInputRef.current?.focus();
+                    <input
+                      ref={searchInputRef}
+                      type="search"
+                      value={searchQuery}
+                      onChange={e => {
+                        setSearchQuery(e.target.value);
                         setSearchScope('document');
                       }}
-                      style={{ fontSize: 10, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Search size={11}/> {t('nvSearchButton')}
-                    </button>
+                      placeholder={t('k81SearchInDocument')}
+                      title={t('k81SearchInDocument')}
+                      className="bwsi"
+                      style={{
+                        fontSize: 10,
+                        padding: '3px 8px',
+                        width: 120,
+                        maxWidth: '28vw',
+                      }}
+                      data-editor-document-search
+                    />
                   )}
                   {searchQuery.trim() && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, flexWrap: 'wrap' }}>

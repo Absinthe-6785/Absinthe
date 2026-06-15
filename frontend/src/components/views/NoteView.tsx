@@ -8,7 +8,6 @@ import {
   Clock, Calendar, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
-import { noteMatchesSearch, noteSearchScore } from '../../lib/math/noteSearch';
 import {
   navigateToNoteWithHistory,
   seedNoteNavigationStack,
@@ -27,7 +26,6 @@ import {
   extractTOC, extractTags, extractLinks,
   extractLinkContexts,
   findNoteByTitle,
-  parseNoteSearchQuery, noteMatchesTagSearch,
   normalizeNoteFolderId,
 } from './noteUtils';
 import { displayNoteTitle } from './noteDisplayTitle';
@@ -36,7 +34,6 @@ import {
   buildExpandedGraphData,
   collapseNode,
   expandNode,
-  filterNotes,
   formatParsedQuery,
   hasKnowledgeQuerySyntax,
   buildFormulaQueryCatalog,
@@ -253,6 +250,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     titleInputRef,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,
+    noteListFilter, setNoteListFilter,
     searchScope, setSearchScope,
     searchMatchIdx, setSearchMatchIdx,
     showFolderForm, setShowFolderForm,
@@ -641,6 +639,27 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   const visibleNotes = useMemo(() => {
     const safeNotes = Array.isArray(notes) ? notes : [];
+
+    if (noteListFilter === 'favorites') {
+      let list = safeNotes.filter(n => n.starred && !n.deletedAt);
+      list = applyWorkspaceToNotes(list);
+      if (!shouldSkipUserSort) {
+        list = [...list].sort((a, b) => {
+          if (sortOrder === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
+          if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
+          return b.updatedAt - a.updatedAt;
+        });
+      }
+      return list;
+    }
+
+    if (noteListFilter === 'recent') {
+      let list = safeNotes.filter(n => !n.deletedAt && n.lastOpenedAt);
+      list = applyWorkspaceToNotes(list);
+      list = [...list].sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
+      return list;
+    }
+
     let list: Note[] =
       activeFolderId === 'trash'   ? safeNotes.filter(n => n.deletedAt) :
       activeFolderId === 'starred' ? safeNotes.filter(n => n.starred && !n.deletedAt) :
@@ -651,40 +670,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       list = list.filter(n => taggedIds.has(n.id));
     }
     list = applyWorkspaceToNotes(list);
-    if (searchQuery.trim()) {
-      if (knowledgeQueryInfo.active) {
-        list = filterNotes(list, knowledgeIndexService, searchQuery, {
-          formulaColumns: formulaQueryCatalog,
-        }).notes;
-      } else {
-        const parsed = parseNoteSearchQuery(searchQuery);
-        if (parsed.mode === 'tag') {
-          list = list.filter(n =>
-            noteMatchesTagSearch(n.body ?? '', parsed.value) ||
-            noteMatchesPageTag(n, parsed.value),
-          );
-        } else {
-          list = list.filter(n =>
-            noteMatchesSearch(n, parsed.value) ||
-            noteMatchesPageTag(n, parsed.value),
-          );
-        }
-      }
-    }
-    const plainSearchRank =
-      searchQuery.trim() &&
-      !knowledgeQueryInfo.active &&
-      parseNoteSearchQuery(searchQuery).mode !== 'tag';
-    if (plainSearchRank) {
-      const rankQuery = parseNoteSearchQuery(searchQuery).value;
-      list = [...list].sort((a, b) => {
-        const ra = noteSearchScore(a, rankQuery) ?? 99;
-        const rb = noteSearchScore(b, rankQuery) ?? 99;
-        if (ra !== rb) return ra - rb;
-        return b.updatedAt - a.updatedAt;
-      });
-      return list;
-    }
     if (!shouldSkipUserSort) {
       list = [...list].sort((a, b) => {
         if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
@@ -693,7 +678,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       });
     }
     return list;
-  }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
+  }, [notes, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter]);
 
   // ── E. Layout-derived constants ───────────────────────────────────
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
@@ -1205,7 +1190,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const childPropInput = useNoteViewChildPropInput(useMemo(() => ({
     sidebarLayout: { hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen },
     sidebarData: {
-      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, isTrash,
+      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, isTrash, noteListFilter,
       searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
       isTraceRangeMode, traceRange, currentTraceMonthKey, currentTraceQuarterKey, currentTraceYearKey, areaNotes,
       isTraceAreaMode, traceAreaId, isTraceDiscoveryMode, renamingFolderId, renameVal, showFolderForm, newFolderName,
@@ -1220,7 +1205,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       knowledgeTimeline, activitySummary, dashboardRecentActivity, dashboardLatestMilestone, evolutionInsights,
     },
     sidebarHandlers: {
-      searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag, setSearchQuery,
+      searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag, setNoteListFilter, setSearchQuery,
       setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange, openCreatedNote, openTraceArea,
       openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal, deleteFolder, setShowFolderForm,
       setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange, setTraceAreaId,
@@ -1295,7 +1280,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode,
     sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount,
-    trashCount, starredCount, isTrash, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
+      trashCount, starredCount, isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
     todayTraceKey, isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId, isTraceDiscoveryMode,
     renamingFolderId, renameVal, showFolderForm, newFolderName, allTags, workspaceExpanded, isDashboardMode,
@@ -1398,7 +1383,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
           tabs={RIGHT_PANELS}
           onTabChange={setRightPanel}
         >
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <NoteContextPanelBody {...contextPanelProps} />
           </div>
 

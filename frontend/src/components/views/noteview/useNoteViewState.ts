@@ -22,6 +22,8 @@ export type MilestoneDialogState = {
   hasExistingMilestone: boolean;
 };
 
+export type NoteListFilter = 'all' | 'recent' | 'favorites';
+
 export function useNoteViewState() {
   const [activeFolderId, setActiveFolderId] = useState<string | null | 'trash' | 'starred'>(null);
 
@@ -29,6 +31,7 @@ export function useNoteViewState() {
   const [viewMode, setViewMode] = useState<EditorMode>('edit');
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [noteListFilter, setNoteListFilter] = useState<NoteListFilter>('all');
   const [searchScope, setSearchScope] = useState<EditorSearchScope>('document');
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const [showFolderForm, setShowFolderForm] = useState(false);
@@ -93,6 +96,8 @@ export function useNoteViewState() {
     setViewMode,
     searchQuery,
     setSearchQuery,
+    noteListFilter,
+    setNoteListFilter,
     searchScope,
     setSearchScope,
     searchMatchIdx,

@@ -327,6 +327,15 @@ export function NoteContextPanelBody({
               )}
               connections={(
                 <>
+                  <RelatedNotesPanel
+                    colors={c}
+                    grouped={relatedNotes}
+                    onNavigateToNote={id => openNoteById(id, 'panel')}
+                    onLinkToNote={handleLinkRelatedNote}
+                    onOpenGraph={handleOpenCosmosGraph}
+                    onLearnLinking={handleStartWikiLink}
+                    onCreateRelatedNote={handleCreateRelatedNote}
+                  />
                   <BacklinkPanel
                     colors={c}
                     activeNoteTitle={activeNote.title ?? ''}
@@ -340,15 +349,6 @@ export function NoteContextPanelBody({
                     mentioning={mentioningNotes}
                     onNavigateToNote={id => openNoteById(id, 'panel')}
                     onNavigateToWiki={navigateToWiki}
-                  />
-                  <RelatedNotesPanel
-                    colors={c}
-                    grouped={relatedNotes}
-                    onNavigateToNote={id => openNoteById(id, 'panel')}
-                    onLinkToNote={handleLinkRelatedNote}
-                    onOpenGraph={handleOpenCosmosGraph}
-                    onLearnLinking={handleStartWikiLink}
-                    onCreateRelatedNote={handleCreateRelatedNote}
                   />
                 </>
               )}
