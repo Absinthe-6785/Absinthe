@@ -78,7 +78,7 @@ export function NoteEditorHeaderActions({
         type="button"
         onClick={onMarkEvent}
         className="btbtn"
-        style={{ fontSize: 10, color: isEvent ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+        style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isEvent ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
         title={isEvent ? t('nvEditEventTitle') : t('nvMarkEventTitle')}
       >
         {isEvent ? t('nvEditEvent') : t('nvMarkEvent')}
@@ -87,7 +87,7 @@ export function NoteEditorHeaderActions({
         type="button"
         onClick={onMarkMilestone}
         className="btbtn"
-        style={{ fontSize: 10, color: isMilestone ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+        style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isMilestone ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
         title={isMilestone ? t('nvEditMilestoneTitle') : t('nvMarkMilestoneTitle')}
       >
         {isMilestone ? t('nvEditMilestone') : t('nvMarkMilestone')}
@@ -97,7 +97,7 @@ export function NoteEditorHeaderActions({
           type="button"
           onClick={onToggleArea}
           className="btbtn"
-          style={{ fontSize: 10, color: isArea ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
+          style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isArea ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
           title={isArea ? t('nvClearAreaTitle') : t('nvMarkAreaTitle')}
         >
           {isArea ? t('nvClearArea') : t('nvMarkArea')}

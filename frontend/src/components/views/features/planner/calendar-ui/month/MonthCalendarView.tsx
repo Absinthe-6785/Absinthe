@@ -4,7 +4,7 @@ import { useTranslation } from '@/lib/i18n';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { monthGridHasAnchors } from './monthCalendarPresentation';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
-import type { DayScheduleActions } from '../day/dayScheduleActions';
+import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
 
 export interface MonthCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -13,8 +13,10 @@ export interface MonthCalendarViewProps {
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
   scheduleActions?: DayScheduleActions;
+  eventActions?: AgendaEventActions;
 }
 
+/** K-79 month-primary layout — 70% calendar / 30% compact agenda panel. */
 export function MonthCalendarView({
   projection,
   presentation,
@@ -22,6 +24,7 @@ export function MonthCalendarView({
   onEventNoteClick,
   onDateSelect,
   scheduleActions,
+  eventActions,
 }: MonthCalendarViewProps) {
   const { t } = useTranslation();
   const month = projection.views.month;
@@ -29,15 +32,15 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4 items-start min-h-[420px]"
+      className="flex flex-col lg:flex-row gap-3 lg:gap-3 items-stretch min-h-0"
       data-planner-calendar-month
     >
-      <div className={`rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 ${theme.card}`}>
-        <div className="flex flex-col gap-1 mb-3">
-          <h3 className="font-heading text-base lg:text-lg font-bold">{t('monthView')}</h3>
+      <div className={`w-full lg:w-[70%] lg:min-w-0 rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 ${theme.card}`}>
+        <div className="flex flex-col gap-0.5 mb-2">
+          <h3 className="font-heading text-sm lg:text-base font-bold">{t('monthView')}</h3>
           {presentation.labels.monthTitle ? (
             <p
-              className={`text-sm font-semibold ${theme.textMuted}`}
+              className={`text-xs font-semibold ${theme.textMuted}`}
               data-planner-calendar-period-label
             >
               {presentation.labels.monthTitle}
@@ -47,7 +50,7 @@ export function MonthCalendarView({
 
         {!hasAnchors ? (
           <p
-            className={`text-sm mb-3 ${theme.textMuted}`}
+            className={`text-xs mb-2 ${theme.textMuted}`}
             data-planner-calendar-month-empty-hint="true"
           >
             {t('scheduleMonthEmptyHint')}
@@ -65,15 +68,18 @@ export function MonthCalendarView({
         />
       </div>
 
-      <SelectedDayDetailPanel
-        projection={projection}
-        presentation={presentation}
-        theme={theme}
-        onEventNoteClick={onEventNoteClick}
-        scheduleActions={scheduleActions}
-        variant="month"
-        suppressEmptySections
-      />
+      <div className="w-full lg:w-[30%] lg:min-w-[200px] lg:max-w-[300px] shrink-0">
+        <SelectedDayDetailPanel
+          projection={projection}
+          presentation={presentation}
+          theme={theme}
+          onEventNoteClick={onEventNoteClick}
+          scheduleActions={scheduleActions}
+          eventActions={eventActions}
+          variant="month"
+          suppressEmptySections
+        />
+      </div>
     </div>
   );
 }

@@ -202,7 +202,7 @@ describe('CalendarShell', () => {
 
     expect(html).toContain('data-planner-calendar-mode="day"');
     expect(html).toContain('data-planner-calendar-day');
-    expect(html).toContain('Day View');
+    expect(html).toContain('Today');
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
   });
 

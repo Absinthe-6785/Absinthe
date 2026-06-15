@@ -11,7 +11,7 @@ import { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
 import { DayCalendarView } from './day';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
-import type { DayScheduleActions } from './day/dayScheduleActions';
+import type { DayScheduleActions, AgendaEventActions } from './day/dayScheduleActions';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import type { PlannerCalendarViewMode } from '../calendar';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
@@ -36,6 +36,7 @@ export interface CalendarShellProps {
   onAnchorDateChange?: (dateKey: string) => void;
   /** Reuses PlannerView Timeline schedule modal / confirm flows in Day mode. */
   dayScheduleActions?: DayScheduleActions;
+  eventActions?: AgendaEventActions;
   onViewModeChange?: (mode: PlannerCalendarViewMode) => void;
 }
 
@@ -58,6 +59,7 @@ export function CalendarShell({
   onEventNoteClick,
   onAnchorDateChange,
   dayScheduleActions,
+  eventActions,
   onViewModeChange,
 }: CalendarShellProps) {
   const { t } = useTranslation();
@@ -153,6 +155,7 @@ export function CalendarShell({
           onEventNoteClick={onEventNoteClick}
           onDateSelect={onAnchorDateChange}
           scheduleActions={dayScheduleActions}
+          eventActions={eventActions}
         />
       ) : viewMode === 'week' ? (
         <WeekCalendarView
@@ -163,6 +166,7 @@ export function CalendarShell({
           onEventNoteClick={onEventNoteClick}
           onDateSelect={onAnchorDateChange}
           scheduleActions={dayScheduleActions}
+          eventActions={eventActions}
         />
       ) : viewMode === 'day' ? (
         <DayCalendarView
@@ -172,6 +176,7 @@ export function CalendarShell({
           theme={theme}
           onEventNoteClick={onEventNoteClick}
           scheduleActions={dayScheduleActions}
+          eventActions={eventActions}
         />
       ) : null}
         </div>

@@ -31,6 +31,20 @@ vi.mock('swr', () => ({
   default: () => ({ data: undefined, isLoading: false, error: undefined }),
 }));
 
+vi.mock('./features/planner/hooks/usePlannerScheduleEventActions', () => ({
+  usePlannerScheduleEventActions: () => ({
+    eventDialog: null,
+    setEventDialog: vi.fn(),
+    agendaEventActions: {},
+    handleEventDialogSave: vi.fn(),
+    handleRemoveEventStatus: vi.fn(),
+  }),
+}));
+
+vi.mock('./features/knowledge/trace/EventNoteDialog', () => ({
+  EventNoteDialog: () => null,
+}));
+
 vi.mock('../../store/useNotesStore', () => {
   const state = {
     notes: [],

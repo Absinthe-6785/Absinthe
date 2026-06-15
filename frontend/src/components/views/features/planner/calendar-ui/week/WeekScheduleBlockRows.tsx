@@ -13,11 +13,13 @@ export function WeekScheduleBlockRows({ blocks }: WeekScheduleBlockRowsProps) {
       {blocks.map(block => (
         <div
           key={block.id}
-          className="px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt border border-border"
+          className="px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate rounded-md bg-surface-alt border border-border/70"
           data-planner-week-block={block.id}
           title={block.title}
         >
-          {formatWeekTimeRange(block.startTime, block.endTime)} {block.title}
+          <span className="text-muted tabular-nums">{formatWeekTimeRange(block.startTime, block.endTime)}</span>
+          {' '}
+          {block.title}
         </div>
       ))}
     </div>

@@ -170,13 +170,13 @@ describe('DayCalendarView schedule execution wiring', () => {
     expect(html).not.toContain('data-planner-day-combined-empty');
   });
 
-  it('shows combined empty hint on empty days without scheduleActions', () => {
+  it('shows empty hint on empty days without scheduleActions', () => {
     const { projection, presentation } = buildDayFixture();
     const html = renderToStaticMarkup(
       createElement(DayCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).toContain('data-planner-day-combined-empty');
+    expect(html).toContain('data-planner-agenda-empty');
     expect(html).not.toContain('data-planner-day-schedule-add="true"');
   });
 });

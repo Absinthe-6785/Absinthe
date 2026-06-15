@@ -12,6 +12,9 @@ import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
 import { ScheduleWorkspaceNav, type ScheduleWorkspaceSection } from './features/planner/ScheduleWorkspaceNav';
 import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
+import { usePlannerScheduleEventActions } from './features/planner/hooks/usePlannerScheduleEventActions';
+import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
+import { buildNoteChrome } from './noteEditorTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
 
@@ -24,6 +27,19 @@ export const PlannerView = ({
   const isMobile = useIsMobile();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+
+  const {
+    eventDialog,
+    setEventDialog,
+    agendaEventActions,
+    handleEventDialogSave,
+    handleRemoveEventStatus,
+  } = usePlannerScheduleEventActions({ showToast, showConfirm, t });
+
+  const noteChrome = useMemo(
+    () => buildNoteChrome(appSettings.darkMode, appSettings),
+    [appSettings],
+  );
 
   const [workspaceSection, setWorkspaceSection] = useState<ScheduleWorkspaceSection>('schedule');
 
@@ -52,6 +68,7 @@ export const PlannerView = ({
 
   useEscapeKey(() => {
     setShowForm(false);
+    setEventDialog(null);
     clearConfirm();
   });
 
@@ -101,6 +118,22 @@ export const PlannerView = ({
       { confirmLabel: t('deleteLabel') },
     );
 
+  const handleDuplicateSchedule = useCallback((id: string) => {
+    const sch = schedules.find(s => s.id === id);
+    if (!sch) return;
+    setNewSch({
+      text: sch.text,
+      start_time: sch.start_time,
+      end_time: sch.end_time,
+      is_dday: false,
+      color: sch.color,
+      category: sch.category,
+    });
+    setEditingId(null);
+    setEndNextDay(sch.end_next_day ?? false);
+    setShowForm(true);
+  }, [schedules]);
+
   const handleCalendarAnchorChange = useCallback((dateKey: string) => {
     const [y, m, d] = dateKey.split('-').map(Number);
     if (!y || !m || !d) return;
@@ -138,7 +171,9 @@ export const PlannerView = ({
             if (sch) openModal(sch);
           },
           onDelete: handleDeleteSchedule,
+          onDuplicate: handleDuplicateSchedule,
         }}
+        eventActions={agendaEventActions}
       />
       ) : (
         <WeeklyTimetableSection
@@ -263,6 +298,17 @@ export const PlannerView = ({
       )}
 
       {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+
+      {eventDialog ? (
+        <EventNoteDialog
+          colors={noteChrome}
+          mode={eventDialog.mode}
+          initialValues={eventDialog.initialValues}
+          onSave={handleEventDialogSave}
+          onRemoveEvent={eventDialog.mode === 'edit' ? handleRemoveEventStatus : undefined}
+          onClose={() => setEventDialog(null)}
+        />
+      ) : null}
     </div>
   );
 };

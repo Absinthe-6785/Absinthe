@@ -5,7 +5,7 @@ import { WeekDayColumns } from './WeekDayColumns';
 import { WeekHeader } from './WeekHeader';
 import { resolveTodayKeyFromProjection, weekHasContent } from './weekCalendarPresentation';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
-import type { DayScheduleActions } from '../day/dayScheduleActions';
+import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
 
 export interface WeekCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -14,6 +14,7 @@ export interface WeekCalendarViewProps {
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
   scheduleActions?: DayScheduleActions;
+  eventActions?: AgendaEventActions;
 }
 
 export function WeekCalendarView({
@@ -23,6 +24,7 @@ export function WeekCalendarView({
   onEventNoteClick,
   onDateSelect,
   scheduleActions,
+  eventActions,
 }: WeekCalendarViewProps) {
   const { t } = useTranslation();
   const week = projection.views.week;
@@ -31,10 +33,10 @@ export function WeekCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-2 lg:gap-3"
+      className="flex flex-col gap-2"
       data-planner-calendar-week
     >
-      <div className={`rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 ${theme.card}`}>
+      <div className={`rounded-[20px] lg:rounded-[24px] p-2 lg:p-2.5 ${theme.card}`}>
         <WeekHeader
           periodLabel={presentation.labels.weekRangeLabel}
           theme={theme}
@@ -42,7 +44,7 @@ export function WeekCalendarView({
 
         {!hasContent ? (
           <p
-            className={`text-[11px] mb-2 ${theme.textMuted}`}
+            className={`text-[11px] mb-1.5 ${theme.textMuted}`}
             data-planner-calendar-week-empty-hint="true"
           >
             {t('scheduleWeekEmptyHint')}
@@ -66,6 +68,7 @@ export function WeekCalendarView({
         theme={theme}
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
+        eventActions={eventActions}
         bare
         suppressEmptySections
       />

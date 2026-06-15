@@ -32,7 +32,7 @@ export function MonthCalendarCell({
           onDateSelect(model.dateKey);
         }
       } : undefined}
-      className={`min-h-[88px] lg:min-h-[96px] border p-1.5 lg:p-2 flex flex-col gap-1
+      className={`min-h-[72px] lg:min-h-[80px] border p-1 lg:p-1.5 flex flex-col gap-0.5
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}
@@ -106,11 +106,13 @@ export function MonthCalendarCell({
         {model.countdownRows.map(({ countdown, label }) => (
           <div
             key={countdown.id}
-            className="px-1 py-0.5 text-[9px] lg:text-[10px] font-bold truncate rounded-md bg-primary/20 text-primary tabular-nums"
+            className="px-1 py-0.5 text-[9px] lg:text-[10px] font-bold truncate rounded-md bg-primary/20 text-primary"
             data-planner-month-countdown={countdown.id}
             title={`${label} ${countdown.title}`}
           >
-            {label}
+            <span className="tabular-nums">{label}</span>
+            {' '}
+            <span className="font-semibold">{countdown.title}</span>
           </div>
         ))}
 

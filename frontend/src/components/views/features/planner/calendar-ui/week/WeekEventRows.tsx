@@ -1,4 +1,4 @@
-import type { PlannerEventOccurrence } from '../../calendar';
+import type { PlannerEventOccurrence, PlannerScheduleRow } from '../../calendar';
 import { formatEventTimeLabel } from '../day/dayCalendarPresentation';
 import { spanPositionClass } from '../month/monthCalendarPresentation';
 
@@ -16,7 +16,7 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
         {allDayEvents.map(event => (
           <div
             key={event.occurrenceId}
-            className={`px-1.5 py-2 min-h-[40px] text-[10px] lg:text-[11px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`px-1 py-0.5 min-h-[24px] text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-week-event={event.noteId}
             data-planner-week-event-kind="all-day"
             data-planner-week-event-span={event.spanPosition}
@@ -34,7 +34,7 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
           return (
           <div
             key={event.occurrenceId}
-            className={`px-1.5 py-2 min-h-[40px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`px-1 py-0.5 min-h-[24px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-week-event={event.noteId}
             data-planner-week-event-kind="timed"
             title={event.title}
@@ -42,13 +42,30 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
             role={onEventNoteClick ? 'button' : undefined}
             tabIndex={onEventNoteClick ? 0 : undefined}
           >
-            {timeLabel && (
-              <div className="text-[9px] lg:text-[10px] font-medium text-muted leading-tight">{timeLabel}</div>
-            )}
-            <div className="text-[10px] lg:text-[11px] font-semibold truncate">{event.title}</div>
+            <span className="text-[9px] lg:text-[10px] font-semibold truncate block">
+              {timeLabel ? <span className="text-muted tabular-nums mr-0.5">{timeLabel}</span> : null}
+              {event.title}
+            </span>
           </div>
           );
         })}
     </div>
   );
+}
+
+export function formatWeekDayPreview(
+  timedEvents: readonly PlannerEventOccurrence[],
+  allDayEvents: readonly PlannerEventOccurrence[],
+  blocks: readonly PlannerScheduleRow[],
+): string | null {
+  const timed = timedEvents[0];
+  if (timed) {
+    const time = timed.startTime ?? '';
+    return time ? `${time} ${timed.title}` : timed.title;
+  }
+  const allDay = allDayEvents[0];
+  if (allDay) return allDay.title;
+  const block = blocks[0];
+  if (block) return `${block.startTime} ${block.title}`;
+  return null;
 }

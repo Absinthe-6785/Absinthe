@@ -285,7 +285,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
       {activeNote ? (
         <>
           {/* Note Header */}
-          <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}>
+          <div style={{ padding: isMobile ? '6px 10px' : '6px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}>
             {isMobile ? (
               <>
                 <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={handleMobileBack}
@@ -437,7 +437,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_HEADER_TAGS);
             const hiddenTagCount = noteTags.length - visibleHeaderTags.length;
             return (
-            <div style={{ padding: '5px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
+            <div style={{ padding: '4px 13px 3px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
               <TagChipRow>
                 {visibleHeaderTags.map(tag => (
                   <TagChip
