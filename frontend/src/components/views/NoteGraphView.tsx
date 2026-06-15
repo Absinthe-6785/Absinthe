@@ -1499,17 +1499,25 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
       {/* 검색 결과 없음 */}
       {matchedIds !== null && matchedIds.size === 0 && (
-        <div style={{
-          position: 'absolute', top: '50%', left: '50%',
-          transform: 'translate(-50%, -50%)',
-          fontSize: 12, color: colors.toolTxt,
-          pointerEvents: 'none',
-          background: colors.toolbar,
-          padding: '6px 12px', borderRadius: 8,
-          border: `1px solid ${colors.toolbarB}`,
-        }}>
+        <button
+          type="button"
+          onClick={() => setSearchQuery('')}
+          style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            fontSize: 12, color: colors.toolTxt,
+            pointerEvents: 'all',
+            cursor: 'pointer',
+            background: colors.toolbar,
+            padding: '8px 14px', borderRadius: 8,
+            border: `1px solid ${colors.toolbarB}`,
+          }}
+        >
           {t('graphSearchNoResults').replace('{query}', searchQuery)}
-        </div>
+          <span style={{ display: 'block', marginTop: 4, fontSize: 10, color: colors.act }}>
+            {t('nvClearQuery')}
+          </span>
+        </button>
       )}
       <style>{`
         @keyframes ku-star-pulse {

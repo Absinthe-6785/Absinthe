@@ -4,6 +4,10 @@ import {
   openNote,
   peekNotesTabSwitcher,
   registerNotesTabSwitcher,
+  registerAppTabSwitcher,
+  getNoteReturnTab,
+  returnFromNote,
+  clearNoteReturnTab,
 } from './noteNavigation';
 
 const storage = new Map<string, string>();
@@ -15,17 +19,28 @@ vi.stubGlobal('localStorage', {
   key: () => null,
   length: 0,
 });
+vi.stubGlobal('sessionStorage', {
+  getItem: (k: string) => storage.get(`s:${k}`) ?? null,
+  setItem: (k: string, v: string) => { storage.set(`s:${k}`, v); },
+  removeItem: (k: string) => { storage.delete(`s:${k}`); },
+  clear: () => { storage.clear(); },
+  key: () => null,
+  length: 0,
+});
 
 vi.mock('./supabase', () => ({
   authFetch: vi.fn(),
 }));
 
 const { useNotesStore } = await import('../store/useNotesStore');
+const { resetNoteNavigationStack } = await import('./noteNavigationStack');
 
 describe('noteNavigation', () => {
   beforeEach(() => {
     storage.clear();
     registerNotesTabSwitcher(() => {})();
+    registerAppTabSwitcher(() => {})();
+    resetNoteNavigationStack();
     useNotesStore.setState({ notes: [], folders: [], activeNoteId: null });
   });
 
@@ -47,6 +62,20 @@ describe('noteNavigation', () => {
     expect(useNotesStore.getState().activeNoteId).toBe('note-xyz');
   });
 
+  it('openNote with returnTab stores schedule return path', () => {
+    openNote('note-sched', { returnTab: 'planner' });
+    expect(getNoteReturnTab()).toBe('planner');
+  });
+
+  it('returnFromNote switches tab and clears return path', () => {
+    const appSwitcher = vi.fn();
+    registerAppTabSwitcher(appSwitcher);
+    openNote('note-health', { returnTab: 'health' });
+    expect(returnFromNote()).toBe(true);
+    expect(appSwitcher).toHaveBeenCalledWith('health');
+    expect(getNoteReturnTab()).toBeNull();
+  });
+
   it('openNote works without a registered switcher (note selection only)', () => {
     expect(peekNotesTabSwitcher()).toBeNull();
     openNote('note-solo');
@@ -61,5 +90,11 @@ describe('noteNavigation', () => {
     openNote('note-after');
     expect(switcher).not.toHaveBeenCalled();
     expect(useNotesStore.getState().activeNoteId).toBe('note-after');
+  });
+
+  it('clearNoteReturnTab removes stored tab', () => {
+    openNote('n', { returnTab: 'planner' });
+    clearNoteReturnTab();
+    expect(getNoteReturnTab()).toBeNull();
   });
 });

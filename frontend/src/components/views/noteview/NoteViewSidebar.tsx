@@ -392,6 +392,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   <Search size={12}/>
                 </button>
               </div>
+              {isMobile && (
+                <p style={{ padding: '0 10px 6px', fontSize: 9, color: c.textFaint, borderBottom: `1px solid ${c.sideBdr}` }}>
+                  {t('nvSearchShortcutHint')}
+                </p>
+              )}
               {knowledgeQueryInfo.active && knowledgeQueryInfo.error && (
                 <div style={{ padding: '4px 10px', fontSize: 10, color: c.danger, borderBottom: `1px solid ${c.sideBdr}` }}>
                   {knowledgeQueryInfo.error}
@@ -696,7 +701,19 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}`, gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-            {isCompactChrome && (
+            {isMobile && (
+              <button
+                type="button"
+                className="btbtn btbtn-mobile"
+                onClick={() => setWorkspaceSearchOpen(true)}
+                title={t('nvWorkspaceSearchBtn')}
+                aria-label={t('nvScWorkspaceSearch')}
+                style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
+              >
+                <Search size={16} />
+              </button>
+            )}
+            {isCompactChrome && !isMobile && (
               <button
                 type="button"
                 className="btbtn btbtn-mobile"

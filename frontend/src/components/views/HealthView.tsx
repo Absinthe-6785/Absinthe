@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -11,6 +11,8 @@ import { EmptyState } from '../common/EmptyState';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
+import { useNotesStore } from '../../store/useNotesStore';
+import { openHealthDayNote } from '../../lib/noteNavigation';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
@@ -28,6 +30,8 @@ export const HealthView = ({
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
+  const createNote = useNotesStore(s => s.createNote);
+  const updateNote = useNotesStore(s => s.updateNote);
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -564,6 +568,10 @@ export const HealthView = ({
   }, [currentDate]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
+  const openHealthLogNote = useCallback(() => {
+    openHealthDayNote(formatDate(selectedDate), createNote, updateNote);
+  }, [formatDate, selectedDate, createNote, updateNote]);
+
   const swipeHealthSection = useSwipeNavigation(
     () => {
       const next = HEALTH_WORKSPACE_SECTIONS[healthSectionIndex + 1];
@@ -1189,6 +1197,14 @@ export const HealthView = ({
                 rows={3}
                 className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
               />
+              <button
+                type="button"
+                onClick={openHealthLogNote}
+                className={`mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border ${theme.border} ${theme.textMuted} hover:text-foreground transition-colors min-h-[44px]`}
+              >
+                <FileText size={14} />
+                {t('healthOpenDayNote')}
+              </button>
             </div>
           </div>
         </div>
