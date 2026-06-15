@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { logMemAudit } from '../../../../../lib/memAudit';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
+import { getNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
 import type { BuildDiscoveryFeedOptions, DiscoveryFeed, DiscoveryItem, DiscoveryKind, DiscoverySummary } from './discoveryTypes';
 import {
   collectForgottenKnowledgeSignals,
@@ -143,15 +144,17 @@ export function buildDiscoveryFeed(
   const perSection = options.perSectionLimit ?? 3;
   const totalLimit = options.limit ?? 18;
 
+  const galaxyMap = getNoteGalaxyMap(notes, service, options.galaxyCacheKey);
+
   const raw = refineDiscoveryItems(
     applyHistoryToDiscoveryItems(
       [
         ...collectIsolatedNotesSignals(notes, service),
-        ...collectAreaInsightSignals(notes, service, now).filter(item => item.kind === 'stale-area'),
-        ...collectForgottenKnowledgeSignals(notes, service, now),
-        ...collectMissingConnectionSignals(notes, service),
-        ...collectWeakHubSignals(notes, service),
-        ...collectKnowledgeDriftSignals(notes, service, now),
+        ...collectAreaInsightSignals(notes, service, now, galaxyMap).filter(item => item.kind === 'stale-area'),
+        ...collectForgottenKnowledgeSignals(notes, service, now, galaxyMap),
+        ...collectMissingConnectionSignals(notes, service, galaxyMap),
+        ...collectWeakHubSignals(notes, service, galaxyMap),
+        ...collectKnowledgeDriftSignals(notes, service, now, galaxyMap),
       ],
       options.historyEvents ?? [],
       now,

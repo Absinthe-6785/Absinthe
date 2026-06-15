@@ -1,7 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { buildGlobalGraphData } from '../graph/buildGlobalGraphData';
-import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
 import {
   evaluateKnowledgeImportance,
   type ImportanceClassification,
@@ -36,15 +36,16 @@ export function isHubClassification(classification: ImportanceClassification): b
 export function countHubs(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): number {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = galaxyMap ?? getNoteGalaxyMap(notes, service);
   let count = 0;
   for (const note of notes) {
     if (isAreaNote(note)) {
       count += 1;
       continue;
     }
-    const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
+    const input = buildImportanceInputForNote(note, service, map.get(note.id));
     if (isHubClassification(evaluateKnowledgeImportance(input).classification)) {
       count += 1;
     }
@@ -55,11 +56,12 @@ export function countHubs(
 export function countGalaxies(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): number {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = galaxyMap ?? getNoteGalaxyMap(notes, service);
   const ids = new Set<string>();
   for (const note of notes) {
-    const galaxy = galaxyMap.get(note.id);
+    const galaxy = map.get(note.id);
     if (galaxy && galaxy.galaxyId !== 'uncategorized') ids.add(galaxy.galaxyId);
   }
   return ids.size;
@@ -92,6 +94,7 @@ export function buildSnapshotMetrics(
   discoveriesOpen: number,
   periodId: string,
   label: string,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): TimelineSnapshot {
   const linkCount = countLinksForNotes(active, service);
   const noteCount = active.length;
@@ -100,8 +103,8 @@ export function buildSnapshotMetrics(
     label,
     noteCount,
     linkCount,
-    hubCount: countHubs(active, service),
-    galaxyCount: countGalaxies(active, service),
+    hubCount: countHubs(active, service, galaxyMap),
+    galaxyCount: countGalaxies(active, service, galaxyMap),
     areaCount: countAreas(active),
     connectionDensity: connectionDensity(linkCount, noteCount),
     discoveriesOpen,
@@ -147,8 +150,9 @@ export function buildDiscoveryHistory(
   service: KnowledgeIndexService,
   now: number,
   windowDays = 30,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryHistorySummary {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = galaxyMap ?? getNoteGalaxyMap(notes, service);
   const active = notes.filter(n => !n.deletedAt);
   const windowMs = windowDays * 86_400_000;
 
@@ -173,7 +177,7 @@ export function buildDiscoveryHistory(
 
   let forgottenNotesRevisited = 0;
   for (const note of active) {
-    const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
+    const input = buildImportanceInputForNote(note, service, map.get(note.id));
     const { classification } = evaluateKnowledgeImportance(input);
     if (!isHubClassification(classification)) continue;
     const lastOpened = note.lastOpenedAt ?? 0;

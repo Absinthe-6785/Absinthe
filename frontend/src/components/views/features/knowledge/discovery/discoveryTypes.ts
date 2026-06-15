@@ -53,4 +53,6 @@ export interface BuildDiscoveryFeedOptions {
   perSectionLimit?: number;
   now?: number;
   historyEvents?: readonly import('../history/eventTypes').KnowledgeHistoryEvent[];
+  /** Vault structure generation — shared galaxy map cache key (K-83A). */
+  galaxyCacheKey?: string;
 }

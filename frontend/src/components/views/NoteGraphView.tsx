@@ -17,7 +17,8 @@ import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
 import { loadKnowledgeHistoryEvents } from './features/knowledge/history';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
-import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
+import { useNotesStore } from '../../store/useNotesStore';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
 import type { NoteBase as Note } from './noteUtils';
 import {
@@ -167,6 +168,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const [hoveredEdgeKind, setHoveredEdgeKind] = useState<EdgeSemanticKind | null>(null);
 
   const reducedMotion = usePrefersReducedMotion();
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const graphViewModeRef = useRef(graphViewMode);
   const orbitTimeRef = useRef(0);
 
@@ -380,11 +382,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       }
 
       renderTickRef.current += 1;
-      const throttleRender = simActive && renderTickRef.current % 3 !== 0;
-      if (!throttleRender) {
-        setTick(t => t + 1);
-      }
-      if (simActive || (universeMode && !reducedMotion)) {
+      if (simActive) {
+        const throttleRender = renderTickRef.current % 3 !== 0;
+        if (!throttleRender) {
+          setTick(t => t + 1);
+        }
         frameRef.current = requestAnimationFrame(step);
       }
     };
@@ -603,8 +605,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const highlightNodeId = previewNodeId ?? activeNoteId;
 
   const galaxyMap = useMemo(
-    () => buildNoteGalaxyMap(notes, knowledgeIndexService),
-    [notes],
+    () => getNoteGalaxyMap(notes, knowledgeIndexService, String(vaultStructureVersion)),
+    [vaultStructureVersion, notes],
   );
 
   const selectedImportance = useMemo(() => {

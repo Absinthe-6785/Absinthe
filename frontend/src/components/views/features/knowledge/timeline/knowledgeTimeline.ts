@@ -25,7 +25,7 @@ import {
 import { buildPeriodBuckets, earliestNoteTime, trimSnapshotsForDisplay } from './timelineSnapshots';
 import { evaluateKnowledgeImportance } from '../cosmos/intelligence/knowledgeImportance';
 import { buildImportanceInputForNote } from '../cosmos/intelligence/knowledgeOpportunities';
-import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
 import { isAreaNote } from '../trace/areaNotes';
 import {
   discoveryHistoryFromEvents,
@@ -41,6 +41,7 @@ function buildSnapshots(
   mode: TimelinePeriodMode,
   now: number,
   discoveriesOpen: number,
+  galaxyMap: Map<string, GalaxyAssignment>,
 ): TimelineSnapshot[] {
   const buckets = buildPeriodBuckets(notes, mode, now);
   return buckets.map(bucket => {
@@ -51,6 +52,7 @@ function buildSnapshots(
       discoveriesOpen,
       bucket.id,
       bucket.label,
+      galaxyMap,
     );
   });
 }
@@ -120,11 +122,11 @@ function buildAreaEvolution(
   service: KnowledgeIndexService,
   mode: TimelinePeriodMode,
   now: number,
+  galaxyMap: Map<string, GalaxyAssignment>,
 ): AreaEvolutionRow[] {
   const buckets = buildPeriodBuckets(notes, mode, now);
   if (buckets.length === 0) return [];
 
-  const galaxyMap = buildNoteGalaxyMap(notes.filter(n => !n.deletedAt), service);
   const areaMap = new Map<string, { label: string; periods: { label: string; noteCount: number }[] }>();
 
   for (const bucket of buckets.slice(-6)) {
@@ -179,10 +181,10 @@ function buildMilestones(
   service: KnowledgeIndexService,
   snapshots: TimelineSnapshot[],
   buckets: ReturnType<typeof buildPeriodBuckets>,
+  galaxyMap: Map<string, GalaxyAssignment>,
 ): KnowledgeMilestone[] {
   const active = notes.filter(n => !n.deletedAt);
   const earliest = earliestNoteTime(notes);
-  const galaxyMap = buildNoteGalaxyMap(active, service);
 
   const firstLinkMs = milestoneAtThreshold(snapshots, buckets, 'linkCount', 1);
   const notes100Ms = milestoneAtThreshold(snapshots, buckets, 'noteCount', 100);
@@ -278,12 +280,18 @@ export function buildKnowledgeTimeline(
   const historyEvents = options.historyEvents ?? [];
   const usesEventHistory = hasRecordedHistory(historyEvents);
 
-  const buckets = buildPeriodBuckets(notes, mode, now);
-  const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen);
-  const displaySnapshots = trimSnapshotsForDisplay(snapshots, mode === 'all' ? 1 : 8);
-  const areaEvolution = buildAreaEvolution(notes, service, mode, now);
+  const galaxyMap = getNoteGalaxyMap(
+    notes.filter(n => !n.deletedAt),
+    service,
+    options.galaxyCacheKey,
+  );
 
-  const estimatedDiscoveryHistory = buildDiscoveryHistory(notes, service, now, recentDays);
+  const buckets = buildPeriodBuckets(notes, mode, now);
+  const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen, galaxyMap);
+  const displaySnapshots = trimSnapshotsForDisplay(snapshots, mode === 'all' ? 1 : 8);
+  const areaEvolution = buildAreaEvolution(notes, service, mode, now, galaxyMap);
+
+  const estimatedDiscoveryHistory = buildDiscoveryHistory(notes, service, now, recentDays, galaxyMap);
   const windowStart = now - recentDays * 86_400_000;
 
   return {
@@ -292,7 +300,7 @@ export function buildKnowledgeTimeline(
     snapshots: displaySnapshots,
     growth: buildGrowthMetrics(notes, service, snapshots, buckets, discoveriesOpen, historyEvents),
     areaEvolution,
-    milestones: buildMilestones(notes, service, snapshots, buckets),
+    milestones: buildMilestones(notes, service, snapshots, buckets, galaxyMap),
     discoveryHistory: discoveryHistoryFromEvents(
       windowStart,
       now,

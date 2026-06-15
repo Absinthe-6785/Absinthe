@@ -1,7 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+import { buildNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
 import {
   evaluateKnowledgeImportance,
   type ImportanceClassification,
@@ -55,6 +55,14 @@ function hasExistingLink(
   return getRelationTargets(target, 'related-to').includes(sourceId);
 }
 
+function resolveGalaxyMap(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  galaxyMap?: Map<string, GalaxyAssignment>,
+): Map<string, GalaxyAssignment> {
+  return galaxyMap ?? buildNoteGalaxyMap(notes, service);
+}
+
 function importanceRank(classification: ImportanceClassification): number {
   switch (classification) {
     case 'core-hub': return 5;
@@ -69,12 +77,13 @@ export function collectForgottenKnowledgeSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   now: number,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryItem[] {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
   const active = notes.filter(n => !n.deletedAt);
   const ranked = active
     .map(note => {
-      const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
+      const input = buildImportanceInputForNote(note, service, map.get(note.id));
       const result = evaluateKnowledgeImportance(input);
       return { note, result };
     })
@@ -105,12 +114,13 @@ export function collectForgottenKnowledgeSignals(
 export function collectMissingConnectionSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryItem[] {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
   const active = notes.filter(n => !n.deletedAt);
   const sources = active
     .map(note => {
-      const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
+      const input = buildImportanceInputForNote(note, service, map.get(note.id));
       return { note, importance: evaluateKnowledgeImportance(input).importanceScore };
     })
     .sort((a, b) => b.importance - a.importance)
@@ -125,7 +135,7 @@ export function collectMissingConnectionSignals(
       source.id,
       notes,
       service,
-      galaxyMap,
+      map,
       { limit: DISCOVERY_WEIGHTS.CONNECTIONS_PER_SOURCE + 2 },
     );
     for (const suggestion of suggestions) {
@@ -139,7 +149,7 @@ export function collectMissingConnectionSignals(
 
       const relevance = importanceRank(
         evaluateKnowledgeImportance(
-          buildImportanceInputForNote(source, service, galaxyMap.get(source.id)),
+          buildImportanceInputForNote(source, service, map.get(source.id)),
         ).classification,
       ) * suggestion.score;
       const score = scoreMissingConnection(suggestion.score, relevance);
@@ -224,9 +234,10 @@ export function collectEmergingTopicSignals(
 export function collectWeakHubSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryItem[] {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
-  const areaHealth = buildAreaHealthSummaries(notes, service, galaxyMap);
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
+  const areaHealth = buildAreaHealthSummaries(notes, service, map);
   const gaps = buildKnowledgeGaps(notes, service, areaHealth, { limit: 12 })
     .filter(g => g.kind === 'missing-hub');
 
@@ -246,14 +257,15 @@ export function collectKnowledgeDriftSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   now: number,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryItem[] {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
   const active = notes.filter(n => !n.deletedAt);
   const items: DiscoveryItem[] = [];
 
   for (const note of active) {
     const isHub = isAreaNote(note);
-    const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
+    const input = buildImportanceInputForNote(note, service, map.get(note.id));
     const result = evaluateKnowledgeImportance(input);
     const isImportant = isHub || result.classification === 'core-hub' || result.classification === 'major-hub';
     if (!isImportant) continue;
@@ -273,7 +285,7 @@ export function collectKnowledgeDriftSignals(
       noteId: note.id,
       daysSinceActivity: inactivityDays,
       importanceClass: result.classification,
-      areaLabel: galaxyMap.get(note.id)?.galaxyLabel,
+      areaLabel: map.get(note.id)?.galaxyLabel,
     });
   }
 
@@ -305,9 +317,10 @@ export function collectAreaInsightSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   _now: number,
+  galaxyMap?: Map<string, GalaxyAssignment>,
 ): DiscoveryItem[] {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
-  const summaries = buildAreaHealthSummaries(notes, service, galaxyMap);
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
+  const summaries = buildAreaHealthSummaries(notes, service, map);
   const items: DiscoveryItem[] = [];
 
   const activeAreas = summaries
