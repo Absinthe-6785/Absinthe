@@ -1,6 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
-import { noteMatchesPlainSearch } from '../../../../../lib/math/noteSearch';
+import { noteSearchScore } from '../../../../../lib/math/noteSearch';
 import type { NoteFolder } from '../../../../../store/useNotesStore';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
@@ -251,12 +251,9 @@ export function buildWorkspaceSearch(
     if (note.deletedAt) continue;
     if (projectIds.has(note.id) || milestoneIds.has(note.id)) continue;
     const title = displayNoteTitle(note.title);
-    const m = matchScore(title, q);
-    const bodyMatch = note.body && noteMatchesPlainSearch(note.body, q);
-    if ((m !== null || bodyMatch) && kindAllowed('note', filter)) {
-      const score = m ?? (bodyMatch ? 40 : null);
-      if (score === null) continue;
-      const base = buildResult('note', note.id, title, score, { noteId: note.id });
+    const matchRank = noteSearchScore(note, q);
+    if (matchRank !== null && kindAllowed('note', filter)) {
+      const base = buildResult('note', note.id, title, matchRank, { noteId: note.id });
       results.push(service && galaxyMap
         ? enrichNoteResult(note, base, notes, service, galaxyMap, options.discoveryFeed, options.language)
         : base);
@@ -438,9 +435,9 @@ export function isMilestoneNote(note: NoteBase): boolean {
   return isProjectMilestone(note);
 }
 
-/** Documented ranking: exact title → prefix → contains; then kind priority note > project > path > collection > tag. */
+/** Documented ranking: title tiers → body → tags; then kind priority note > project > path > collection > tag. */
 export const WORKSPACE_SEARCH_RANKING_DOC = `
-1. Match quality: exact title (0) → prefix (1) → contains (2)
+1. Note match quality: exact title (0) → title prefix (1) → title contains (2) → body word start (3) → body contains (4) → tag exact (5) → tag partial (6)
 2. Kind priority: note → project → learning-path → collection/subject → tag → milestone → folder
 3. Exact title matches receive an additional boost within their kind
 `;

@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import type { NoteBase as Note } from '../../noteUtils';
 import { normalizeNoteFolderId } from '../../noteUtils';
 import { serializeNoteMarkdown, parseNoteMarkdown } from '../../features/knowledge';
+import { buildVaultBackupManifest, downloadVaultBackup } from '../../../../lib/exportVaultBackup';
+import { useNotesStore } from '../../../../store/useNotesStore';
 import type { UseNoteViewActionsParams } from './types';
 
 export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
@@ -46,6 +48,14 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
         URL.revokeObjectURL(url);
       }, idx * 200);
     });
+  }, [notes]);
+
+  const exportVaultBackup = useCallback(() => {
+    const folders = useNotesStore.getState().folders;
+    const active = notes.filter(n => !n.deletedAt);
+    if (active.length === 0) return false;
+    downloadVaultBackup(buildVaultBackupManifest(active, folders));
+    return true;
   }, [notes]);
 
   const handleCopyDocument = useCallback(async () => {
@@ -103,6 +113,7 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
   return {
     exportNote,
     exportAllNotes,
+    exportVaultBackup,
     handleCopyDocument,
     insertImageAtCursor,
     insertEmptyImageBlockAtCursor,

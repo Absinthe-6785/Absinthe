@@ -22,6 +22,7 @@ export function useNoteViewActions(params: UseNoteViewActionsParams) {
     deleteFolder: crud.deleteFolder,
     exportNote: importExport.exportNote,
     exportAllNotes: importExport.exportAllNotes,
+    exportVaultBackup: importExport.exportVaultBackup,
     openTraceDay: trace.openTraceDay,
     openTraceRange: trace.openTraceRange,
     openTraceArea: trace.openTraceArea,

@@ -16,7 +16,7 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
         {allDayEvents.map(event => (
           <div
             key={event.occurrenceId}
-            className={`px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`px-1.5 py-2 min-h-[40px] text-[10px] lg:text-[11px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-week-event={event.noteId}
             data-planner-week-event-kind="all-day"
             data-planner-week-event-span={event.spanPosition}
@@ -34,7 +34,7 @@ export function WeekEventRows({ allDayEvents, timedEvents, onEventNoteClick }: W
           return (
           <div
             key={event.occurrenceId}
-            className={`px-1.5 py-1 rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`px-1.5 py-2 min-h-[40px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-week-event={event.noteId}
             data-planner-week-event-kind="timed"
             title={event.title}
