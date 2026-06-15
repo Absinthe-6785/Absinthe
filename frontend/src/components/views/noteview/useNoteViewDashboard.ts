@@ -34,6 +34,7 @@ import {
   dismissBootstrapSummary,
   isBootstrapSummaryDismissed,
 } from '../features/knowledge/history';
+import { logMemAudit } from '@/lib/memAudit';
 
 export function useNoteViewDashboard(params: {
   notes: Note[];
@@ -93,6 +94,15 @@ export function useNoteViewDashboard(params: {
     }),
     [notes, discoveryFeed, timelineMode, historyEvents],
   );
+
+  useEffect(() => {
+    logMemAudit({
+      source: 'useNoteViewDashboard',
+      notes: notes.filter(n => !n.deletedAt).length,
+      discoveryItems: discoveryFeed.items.length,
+      timelinePeriods: knowledgeTimeline.periods?.length,
+    });
+  }, [notes, discoveryFeed, knowledgeTimeline]);
 
   const activitySummary = useMemo(
     () => getActivitySummary(30, Date.now(), historyEvents),

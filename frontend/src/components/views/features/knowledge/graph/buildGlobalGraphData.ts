@@ -1,4 +1,5 @@
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
+import { logMemAudit } from '../../../../../lib/memAudit';
 import { RELATED_SCORE } from '../related/relatedNotesScoring';
 import { addEdge, incrementDegree } from './graphEdgeUtils';
 import type {
@@ -80,13 +81,29 @@ export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
       edge => visibleIds.has(edge.sourceId) && visibleIds.has(edge.targetId),
     );
     nodes.sort((a, b) => a.title.localeCompare(b.title));
-    return { scope: 'global', nodes, edges };
+    const result = { scope: 'global' as const, nodes, edges };
+    logMemAudit({
+      source: 'buildGlobalGraphData',
+      notes: nodes.length,
+      links: edges.length,
+      graphNodes: nodes.length,
+      graphEdges: edges.length,
+    });
+    return result;
   }
 
   nodes.sort((a, b) => a.title.localeCompare(b.title));
-  return {
-    scope: 'global',
+  const result = {
+    scope: 'global' as const,
     nodes,
     edges: [...edgeMap.values()],
   };
+  logMemAudit({
+    source: 'buildGlobalGraphData',
+    notes: nodes.length,
+    links: result.edges.length,
+    graphNodes: nodes.length,
+    graphEdges: result.edges.length,
+  });
+  return result;
 }

@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../../noteUtils';
+import { logMemAudit } from '../../../../../lib/memAudit';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { BuildDiscoveryFeedOptions, DiscoveryFeed, DiscoveryItem, DiscoveryKind, DiscoverySummary } from './discoveryTypes';
 import {
@@ -168,6 +169,13 @@ export function buildDiscoveryFeed(
   const items = [...raw]
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
     .slice(0, totalLimit);
+
+  logMemAudit({
+    source: 'buildDiscoveryFeed',
+    notes: notes.filter(n => !n.deletedAt).length,
+    discoveryItems: items.length,
+    relatedCandidates: raw.length,
+  });
 
   return {
     items,

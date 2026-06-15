@@ -12,6 +12,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
 import { toolbarControlHeight as resolveToolbarHeight } from '../../theme/actionTokens';
 import { useTranslation } from '../../lib/i18n';
+import { logMemAudit } from '../../lib/memAudit';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
 import { loadKnowledgeHistoryEvents } from './features/knowledge/history';
@@ -217,6 +218,16 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     }),
     [visibleKey, relationshipFilter],
   );
+
+  useEffect(() => {
+    logMemAudit({
+      source: 'NoteGraphView.graphData',
+      notes: visible.length,
+      graphNodes: graphData.nodes.length,
+      graphEdges: graphData.edges.length,
+      universeMode: graphViewMode === 'universe',
+    });
+  }, [graphData, visible.length, graphViewMode]);
 
   // ── 그래프 초기화 ─────────────────────────────────────────────────
   useEffect(() => {
