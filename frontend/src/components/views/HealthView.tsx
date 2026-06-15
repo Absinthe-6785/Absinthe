@@ -16,11 +16,14 @@ import { useNotesStore } from '../../store/useNotesStore';
 import { openHealthDayNote } from '../../lib/noteNavigation';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
-import { buildCalendarDays } from '../../lib/calendarUtils';
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
+import { WorkoutHistoryPanel } from './features/health/WorkoutHistoryPanel';
+import { CompactWorkoutCalendar } from './features/health/CompactWorkoutCalendar';
+import useSWR from 'swr';
+import { fetcher } from '../../lib/fetcher';
 
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -185,17 +188,6 @@ export const HealthView = ({
       ? String(n * KG_PER_LBS)
       : val;
   };
-
-  // 배너 캘린더 — 선택 날짜를 자동으로 가운데 스크롤
-  const bannerScrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = bannerScrollRef.current;
-    if (!el) return;
-    const idx = selectedDate.getDate() - 1;
-    const itemW = 52;
-    const scrollTarget = idx * itemW - el.clientWidth / 2 + itemW / 2;
-    el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
-  }, [selectedDate]);
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const draftKey = `healthDraft:${formatDate(selectedDate)}`;
@@ -562,13 +554,22 @@ export const HealthView = ({
     if (ok) setIsInbodyDirty(false); // 저장 완료 → SWR 재검증 허용
   };
 
-  const { year, month, calendarDays } = useMemo(() => {
-    const y = currentDate.getFullYear(), m = currentDate.getMonth();
-    return {
-      year: y, month: m,
-      calendarDays: buildCalendarDays(y, m),
-    };
-  }, [currentDate]);
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const monthStart = formatDate(new Date(year, month, 1));
+  const monthEnd = formatDate(new Date(year, month + 1, 0));
+  const { data: monthWorkoutRows = [] } = useSWR<{ date?: string }[]>(
+    `${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
+  const workoutDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of monthWorkoutRows) {
+      if (row.date) set.add(row.date);
+    }
+    return set;
+  }, [monthWorkoutRows]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
   const openHealthDayLog = useCallback((section: 'workout' | 'nutrition') => {
@@ -592,7 +593,7 @@ export const HealthView = ({
   );
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300">
+    <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300" data-workspace="health">
       <div className="shrink-0 mb-3 px-0.5">
         <div className="hidden lg:block">
           <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} />
@@ -637,7 +638,7 @@ export const HealthView = ({
         </div>
         <div className={`${WORKSPACE_CARD.md} lg:max-h-[280px] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="font-heading text-lg font-bold">{t('workoutBlocks')}</h2>
+            <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
             <button onClick={() => openBlockModal()} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
           {/* 태그별 그룹 + 필터 */}
@@ -1144,79 +1145,27 @@ export const HealthView = ({
         </div>
         )}
 
-        <div className={`flex flex-col gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-          {/* Calendar — date navigation for workout history */}
-          <div className={`${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-3 lg:p-5 flex flex-col transition-colors ${theme.card}`}>
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="font-heading text-base font-bold tabular-nums">
-                {currentDate.toLocaleString(lang, { month: 'long', year: 'numeric' })}
-              </h2>
-              <div className="flex gap-1">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronLeft size={15}/></button>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className={`p-1.5 rounded-full ${theme.hoverBg}`}><ChevronRight size={15}/></button>
-              </div>
-            </div>
-
-            {/* 모바일 전용 — 가로 스크롤 배너 (해당 월 전체 날짜) */}
-            <div ref={bannerScrollRef} className="lg:hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
-              <div className="flex gap-2 w-max">
-                {(() => {
-                  const pad = (n: number) => String(n).padStart(2, '0');
-                  const days = Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, i) => i + 1);
-                  const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-                  return days.map(day => {
-                    const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
-                    const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
-                    const isTodayCell = isToday(dateStr);
-                    const dow = new Date(year, month, day).getDay();
-                    return (
-                      <button key={day}
-                        onClick={() => setSelectedDate(new Date(year, month, day))}
-                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition-colors shrink-0 w-11
-                          ${isSelected
-                            ? 'bg-primary text-primary-foreground'
-                            : isTodayCell
-                              ? `ring-2 ring-primary ${theme.input}`
-                              : theme.input}`}>
-                        <span className={`text-[10px] font-bold ${isSelected ? 'text-primary-foreground' : theme.textMuted}`}>
-                          {DAY_LABELS[dow]}
-                        </span>
-                        <span className="text-sm font-bold">{day}</span>
-                      </button>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-
-            {/* 데스크탑 전용 — 월간 그리드 */}
-            <div className="hidden lg:block">
-              <div className={`grid grid-cols-7 gap-1 text-center text-[11px] font-semibold mb-2 ${theme.textMuted}`}>
-                {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => <div key={d}>{d}</div>)}
-              </div>
-              <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-bold">
-                {calendarDays.map((day, idx) => {
-                  if (!day) return <div key={`e-${idx}`}/>;
-                  const pad = (n: number) => String(n).padStart(2, '0');
-                  const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
-                  const isSelected = selectedDate.getDate() === day && selectedDate.getMonth() === month && selectedDate.getFullYear() === year;
-                  const isTodayCell = isToday(dateStr);
-                  return (
-                    <div key={day} onClick={() => setSelectedDate(new Date(year, month, day))} className="flex justify-center items-center h-9 cursor-pointer">
-                      <div className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors font-bold text-sm
-                        ${isSelected ? 'bg-blue-500 text-white shadow-md'
-                          : isTodayCell ? `ring-2 ring-blue-400 ${theme.hoverBg}`
-                          : theme.hoverBg}`}>
-                        {day}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* InBody — supporting strip below calendar */}
+        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
+          data-workspace-zone="supporting"
+        >
+          <WorkoutHistoryPanel
+            selectedDate={selectedDate}
+            formatDate={formatDate}
+            theme={theme}
+            onSelectDate={setSelectedDate}
+            lang={lang}
+          />
+          <CompactWorkoutCalendar
+            selectedDate={selectedDate}
+            currentDate={currentDate}
+            setCurrentDate={setCurrentDate}
+            setSelectedDate={setSelectedDate}
+            formatDate={formatDate}
+            isToday={isToday}
+            theme={theme}
+            lang={lang}
+            workoutDates={workoutDates}
+          />
           <div className={`${WORKSPACE_CARD.sm} rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card}`}>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <h2 className="font-heading text-sm font-bold flex items-center gap-2"><Target size={14} className="text-primary"/> {t('inbody')}</h2>

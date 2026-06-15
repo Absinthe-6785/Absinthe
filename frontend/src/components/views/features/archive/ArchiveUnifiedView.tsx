@@ -20,6 +20,7 @@ import {
   type ArchiveBrowseDestination,
 } from './home/archiveBrowsePresentation';
 import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WorkspaceLayout } from '../../../common/workspaceLayout';
 
 export interface ArchiveUnifiedViewProps {
   projection: ArchiveHomeProjection;
@@ -28,7 +29,7 @@ export interface ArchiveUnifiedViewProps {
   isLoading?: boolean;
 }
 
-/** K-71 single Archive workspace — transitions, areas, timeline, browse. */
+/** K-71 single Archive workspace — K-72 dense 2×2 grid. */
 export function ArchiveUnifiedView({
   projection,
   theme,
@@ -85,122 +86,131 @@ export function ArchiveUnifiedView({
   }, [projection.browse.timeline.defaultPeriod]);
 
   const periodLinks = listArchivePeriodBrowseLinks(projection.browse);
-  const sectionClass = `rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${WORKSPACE_CARD.md} ${theme.card}`;
+  const sectionMd = `rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${WORKSPACE_CARD.md} ${theme.card}`;
+  const sectionSm = `rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${WORKSPACE_CARD.sm} ${theme.card}`;
+  const sectionTitle = 'font-heading text-sm font-bold mb-2';
 
   return (
-    <div
-      className="flex flex-col gap-5 px-2 lg:px-4 py-2"
-      data-archive-unified
-      data-archive-home="true"
-      data-archive-home-complete="true"
-      data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
-    >
-      <header className="flex flex-col gap-1">
-        <h1 className={`font-heading text-2xl lg:text-3xl font-bold ${headingClass}`}>
-          {t('archiveHomeTitle')}
-        </h1>
-        <p className={`text-sm lg:text-base font-medium ${theme.textMuted}`}>
-          {t('archiveHomeSubtitle')}
-        </p>
-      </header>
-
-      <section className={sectionClass} data-archive-section="transitions">
-        <h2 className="font-heading text-base font-bold mb-3">{t('archiveRecentMilestonesTitle')}</h2>
-        <ArchiveMarkCalendar
-          markCalendar={projection.markCalendar}
-          endDate={projection.youAreHere.today}
-          theme={theme}
-          appSettings={appSettings}
-          onDayClick={onMarkDayClick}
-          onMonthClick={onMarkMonthClick}
-        />
-        <div className="mt-4">
-          <ArchiveRecentMilestones
-            milestones={projection.recentMilestones}
-            theme={theme}
-            appSettings={appSettings}
-            onMilestoneClick={onMilestoneClick}
-          />
-        </div>
-      </section>
-
-      <section className={sectionClass} data-archive-section="areas">
-        <h2 className="font-heading text-base font-bold mb-3">{t('archiveAreaTitle')}</h2>
-        <ArchiveAreaPills
-          areaPills={projection.areaPills}
-          theme={theme}
-          appSettings={appSettings}
-          onAreaClick={onAreaClick}
-        />
-        <button
-          type="button"
-          className="mt-3 text-sm font-semibold text-primary hover:underline self-start"
-          onClick={() => openTraceDiscoveryNavigation()}
+    <WorkspaceLayout
+      workspace="archive"
+      header={(
+        <header className="flex flex-col gap-0.5 px-0.5">
+          <h1 className={`font-heading text-xl lg:text-2xl font-bold ${headingClass}`}>
+            {t('archiveHomeTitle')}
+          </h1>
+          <p className={`text-xs lg:text-sm font-medium ${theme.textMuted}`}>
+            {t('archiveHomeSubtitle')}
+          </p>
+        </header>
+      )}
+      primary={(
+        <div
+          className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4"
+          data-archive-unified
+          data-archive-home="true"
+          data-archive-home-complete="true"
+          data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          {t('archiveOpenDiscovery')}
-        </button>
-      </section>
+          <section className={sectionMd} data-archive-section="transitions">
+            <h2 className={sectionTitle}>{t('archiveRecentMilestonesTitle')}</h2>
+            <ArchiveMarkCalendar
+              markCalendar={projection.markCalendar}
+              endDate={projection.youAreHere.today}
+              theme={theme}
+              appSettings={appSettings}
+              onDayClick={onMarkDayClick}
+              onMonthClick={onMarkMonthClick}
+            />
+            <div className="mt-2">
+              <ArchiveRecentMilestones
+                milestones={projection.recentMilestones}
+                theme={theme}
+                appSettings={appSettings}
+                onMilestoneClick={onMilestoneClick}
+              />
+            </div>
+          </section>
 
-      <section className={sectionClass} data-archive-section="timeline">
-        <h2 className="font-heading text-base font-bold mb-3">{t('archiveViewTimeline')}</h2>
-        <button
-          type="button"
-          className="text-sm font-semibold text-primary hover:underline self-start mb-3"
-          onClick={openTimelineRange}
-        >
-          {t('archiveOpenTimelineRange')}
-        </button>
-        <button
-          type="button"
-          className="text-sm font-semibold text-primary hover:underline self-start"
-          onClick={openCurrentPeriod}
-        >
-          {t('archiveOpenCurrentPeriod')}
-        </button>
-      </section>
+          <section className={sectionSm} data-archive-section="areas">
+            <h2 className={sectionTitle}>{t('archiveAreaTitle')}</h2>
+            <ArchiveAreaPills
+              areaPills={projection.areaPills}
+              theme={theme}
+              appSettings={appSettings}
+              onAreaClick={onAreaClick}
+            />
+            <button
+              type="button"
+              className="mt-2 text-xs font-semibold text-primary hover:underline self-start"
+              onClick={() => openTraceDiscoveryNavigation()}
+            >
+              {t('archiveOpenDiscovery')}
+            </button>
+          </section>
 
-      <section className={sectionClass} data-archive-section="browse">
-        <h2 className="font-heading text-base font-bold mb-3">{t('archiveBrowseTitle')}</h2>
-        {periodLinks.length > 0 && (
-          <ul className="flex flex-col gap-1.5 mb-4">
-            {periodLinks.map(link => (
-              <li key={link.id}>
-                <button
-                  type="button"
-                  className={`w-full text-left rounded-xl px-2 py-2 flex items-center gap-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
-                    appSettings.darkMode
-                      ? 'hover:bg-white/5 text-white'
-                      : 'hover:bg-black/[0.03] text-gray-900'
-                  }`}
-                  onClick={() => onBrowseClick(link.destination)}
-                >
-                  <span className={`text-xs ${theme.textMuted}`} aria-hidden="true">→</span>
-                  {link.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <ArchiveBrowseLinks
-          browse={projection.browse}
-          theme={theme}
-          appSettings={appSettings}
-          onBrowseClick={onBrowseClick}
-        />
-      </section>
+          <section className={sectionSm} data-archive-section="timeline">
+            <h2 className={sectionTitle}>{t('archiveViewTimeline')}</h2>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                onClick={openTimelineRange}
+              >
+                {t('archiveOpenTimelineRange')}
+              </button>
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                onClick={openCurrentPeriod}
+              >
+                {t('archiveOpenCurrentPeriod')}
+              </button>
+            </div>
+          </section>
 
-      {projection.empty.isEmpty && !isLoading && (
-        <div className="flex flex-col items-start gap-3" data-archive-empty-message>
-          <p className={`text-sm ${theme.textMuted}`}>{t('archiveHomeEmptyHint')}</p>
-          <button
-            type="button"
-            className="text-sm font-semibold text-primary hover:underline"
-            onClick={() => switchToNotesTab()}
-          >
-            {t('archiveEmptyCta')}
-          </button>
+          <section className={sectionSm} data-archive-section="browse">
+            <h2 className={sectionTitle}>{t('archiveBrowseTitle')}</h2>
+            {periodLinks.length > 0 && (
+              <ul className="flex flex-wrap gap-2 mb-2">
+                {periodLinks.map(link => (
+                  <li key={link.id}>
+                    <button
+                      type="button"
+                      className={`text-xs font-semibold px-2 py-1 rounded-lg transition-colors ${
+                        appSettings.darkMode
+                          ? 'hover:bg-white/5 text-white'
+                          : 'hover:bg-black/[0.03] text-gray-900'
+                      }`}
+                      onClick={() => onBrowseClick(link.destination)}
+                    >
+                      {link.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ArchiveBrowseLinks
+              browse={projection.browse}
+              theme={theme}
+              appSettings={appSettings}
+              onBrowseClick={onBrowseClick}
+            />
+          </section>
+
+          {projection.empty.isEmpty && !isLoading && (
+            <div className="lg:col-span-2 flex flex-col items-start gap-2" data-archive-empty-message>
+              <p className={`text-xs ${theme.textMuted}`}>{t('archiveHomeEmptyHint')}</p>
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                onClick={() => switchToNotesTab()}
+              >
+                {t('archiveEmptyCta')}
+              </button>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    />
   );
 }

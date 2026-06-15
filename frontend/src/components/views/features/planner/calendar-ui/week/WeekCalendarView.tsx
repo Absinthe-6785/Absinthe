@@ -74,6 +74,7 @@ export function WeekCalendarView({
         scheduleActions={scheduleActions}
         routineActions={routineActions}
         todoActions={todoActions}
+        bare
       />
     </div>
   );

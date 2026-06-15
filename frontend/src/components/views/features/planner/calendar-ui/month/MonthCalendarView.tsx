@@ -35,7 +35,7 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-3 lg:gap-4 items-start"
+      className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4 items-start min-h-[420px]"
       data-planner-calendar-month
     >
       <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}>
@@ -77,6 +77,7 @@ export function MonthCalendarView({
         scheduleActions={scheduleActions}
         routineActions={routineActions}
         todoActions={todoActions}
+        variant="month"
       />
     </div>
   );

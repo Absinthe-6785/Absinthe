@@ -17,6 +17,8 @@ import type { DayTodoActions } from './day/dayTodoActions';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import type { PlannerCalendarViewMode } from '../calendar';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
+import { WorkspaceLayout } from '../../../../common/workspaceLayout';
+import { WORKSPACE_CARD } from '../../../../common/workspaceCardSizes';
 
 export interface CalendarShellProps {
   now: DateTime;
@@ -114,39 +116,41 @@ export function CalendarShell({
   const swipe = useSwipeNavigation(swipeNext, swipePrev, { enabled: swipeEnabled });
 
   return (
-    <section
-      className="w-full shrink-0 flex flex-col gap-3 lg:gap-4 mb-4 lg:mb-5"
-      aria-label={t('plannerCalendarRegion')}
-      data-planner-calendar-shell
-      data-planner-calendar-mode={viewMode}
-    >
-      <CalendarModeSwitcher
-        activeMode={viewMode}
-        onModeChange={handleModeChange}
-        theme={theme}
-      />
-
-      <CalendarPeriodNav
-        viewMode={viewMode}
-        anchorDate={anchorDate}
-        now={now}
-        periodLabel={periodLabel}
-        theme={theme}
-        onAnchorDateChange={onAnchorDateChange}
-        compactTouch={isMobile}
-      />
-
-      {swipeEnabled ? (
-        <p className="text-[10px] text-muted text-center -mt-1 lg:hidden" data-planner-swipe-hint>
-          {viewMode === 'day' ? t('scheduleSwipeDayHint') : t('scheduleSwipeWeekHint')}
-        </p>
-      ) : null}
-
-      <div
-        onTouchStart={swipe.onTouchStart}
-        onTouchEnd={swipe.onTouchEnd}
-        className="touch-pan-y"
-      >
+    <WorkspaceLayout
+      workspace="schedule"
+      className="w-full shrink-0 mb-4 lg:mb-5 min-h-[480px]"
+      header={(
+        <>
+          <CalendarModeSwitcher
+            activeMode={viewMode}
+            onModeChange={handleModeChange}
+            theme={theme}
+          />
+          <CalendarPeriodNav
+            viewMode={viewMode}
+            anchorDate={anchorDate}
+            now={now}
+            periodLabel={periodLabel}
+            theme={theme}
+            onAnchorDateChange={onAnchorDateChange}
+            compactTouch={isMobile}
+          />
+          {swipeEnabled ? (
+            <p className="text-[10px] text-muted text-center -mt-1 lg:hidden" data-planner-swipe-hint>
+              {viewMode === 'day' ? t('scheduleSwipeDayHint') : t('scheduleSwipeWeekHint')}
+            </p>
+          ) : null}
+        </>
+      )}
+      primary={(
+        <div
+          onTouchStart={swipe.onTouchStart}
+          onTouchEnd={swipe.onTouchEnd}
+          className={`touch-pan-y ${WORKSPACE_CARD.lg}`}
+          aria-label={t('plannerCalendarRegion')}
+          data-planner-calendar-shell
+          data-planner-calendar-mode={viewMode}
+        >
       {viewMode === 'month' ? (
         <MonthCalendarView
           key={activeViewKey}
@@ -183,7 +187,8 @@ export function CalendarShell({
           todoActions={dayTodoActions}
         />
       ) : null}
-      </div>
-    </section>
+        </div>
+      )}
+    />
   );
 }

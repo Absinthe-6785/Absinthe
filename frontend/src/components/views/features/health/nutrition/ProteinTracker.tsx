@@ -5,6 +5,7 @@ import { API_URL } from '@/lib/config';
 import { useTranslation } from '@/lib/i18n';
 import type { Theme } from '@/types';
 import type { ToastType } from '@/hooks/useToast';
+import { WORKSPACE_CARD } from '@/components/common/workspaceCardSizes';
 import { useProteinData } from '../hooks/useProteinData';
 import {
   PROTEIN_CATEGORY_KEYS,
@@ -204,7 +205,7 @@ export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, show
     : null;
 
   if (proteinLoading) return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 h-full min-h-[480px] ${theme.card}`}>
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 ${WORKSPACE_CARD.hero} ${theme.card}`} data-workspace="nutrition">
       <div className="h-7 w-36 rounded-xl bg-current opacity-10 animate-pulse"/>
       <div className="h-10 w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
       <div className="h-[320px] w-full rounded-2xl bg-current opacity-10 animate-pulse"/>
@@ -212,7 +213,7 @@ export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, show
   );
 
   return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${theme.card}`}>
+    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${WORKSPACE_CARD.hero} ${theme.card}`} data-workspace="nutrition">
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-lg font-bold flex items-center gap-2"><Apple size={18} className="text-primary" /> {t('proteinTracker')}</h2>
       </div>
