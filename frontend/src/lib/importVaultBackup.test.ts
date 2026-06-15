@@ -4,7 +4,9 @@ import {
   applyVaultRestore,
   backupEntryToNote,
   buildVaultRestorePreview,
+  filterManifestBySelection,
   parseVaultBackupJson,
+  validateVaultBackupManifest,
 } from './importVaultBackup';
 import { buildVaultBackupManifest } from './exportVaultBackup';
 
@@ -36,7 +38,7 @@ describe('importVaultBackup', () => {
     expect(parseVaultBackupJson('{}')).toBeNull();
   });
 
-  it('builds preview with conflict count', () => {
+  it('builds preview with conflict count and validation', () => {
     const manifest = buildVaultBackupManifest(
       [note('n1', 'Backup'), note('n2', 'New')],
       [],
@@ -46,6 +48,28 @@ describe('importVaultBackup', () => {
     expect(preview.noteCount).toBe(2);
     expect(preview.conflictCount).toBe(1);
     expect(preview.newNoteCount).toBe(1);
+    expect(preview.validation?.relationCount).toBeDefined();
+    expect(preview.folderOptions.length).toBeGreaterThan(0);
+    expect(preview.noteOptions).toHaveLength(2);
+  });
+
+  it('filters manifest by selection', () => {
+    const manifest = buildVaultBackupManifest(
+      [note('n1', 'A'), note('n2', 'B')],
+      [{ id: 'f1', name: 'F', createdAt: 1 }],
+    );
+    const selection = { noteIds: new Set(['n1']), folderIds: new Set(['f1']) };
+    const filtered = filterManifestBySelection(manifest, selection);
+    expect(filtered.notes).toHaveLength(1);
+    expect(filtered.notes[0]?.id).toBe('n1');
+  });
+
+  it('validates manifest metadata', () => {
+    const manifest = buildVaultBackupManifest([note('n1', 'A')], []);
+    const report = validateVaultBackupManifest(manifest, [], []);
+    expect(report.valid).toBe(true);
+    expect(report.noteCount).toBe(1);
+    expect(report.appVersion).toBeTruthy();
   });
 
   it('skips conflicting notes', () => {

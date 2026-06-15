@@ -1445,15 +1445,20 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       <input
         ref={vaultRestore.fileInputRef}
         type="file"
-        accept=".json,application/json"
+        accept=".json,.zip,application/json,application/zip"
         className="hidden"
         onChange={vaultRestore.handleFileChange}
       />
-      {vaultRestore.preview && (
+      {vaultRestore.preview && vaultRestore.selection && (
         <VaultRestoreModal
           preview={vaultRestore.preview}
           strategy={vaultRestore.strategy}
+          selection={vaultRestore.selection}
           onStrategyChange={vaultRestore.setStrategy}
+          onToggleNote={vaultRestore.toggleNote}
+          onToggleFolder={vaultRestore.toggleFolder}
+          onSelectAll={vaultRestore.selectAll}
+          onSelectNone={vaultRestore.selectNone}
           onConfirm={vaultRestore.confirmRestore}
           onCancel={vaultRestore.cancelRestore}
           importing={vaultRestore.importing}
