@@ -17,9 +17,7 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
-import { HealthDashboardPanel } from './features/health/HealthDashboardPanel';
 import { RecoveryLogPanel } from './features/health/RecoveryLogPanel';
-import { HabitQuickPanel } from './features/health/HabitQuickPanel';
 import { ProteinTracker } from './features/health/nutrition';
 
 export const HealthView = ({
@@ -56,8 +54,8 @@ export const HealthView = ({
   const [activeDayForm, setActiveDayForm] = useState('');
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
-  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'protein'>('workout');
-  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('dashboard');
+  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
+  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -568,12 +566,8 @@ export const HealthView = ({
   }, [currentDate]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
-  const openHealthDayLog = useCallback((section: 'workout' | 'nutrition' | 'recovery') => {
-    const sectionKey = section === 'workout'
-      ? 'healthNavWorkout'
-      : section === 'nutrition'
-        ? 'healthNavNutrition'
-        : 'healthNavRecovery';
+  const openHealthDayLog = useCallback((section: 'workout' | 'nutrition') => {
+    const sectionKey = section === 'workout' ? 'healthNavWorkout' : 'healthNavNutrition';
     openHealthDayNote(formatDate(selectedDate), createNote, updateNote, [
       { type: 'key', key: sectionKey },
       { type: 'key', key: 'healthOpenDayNote' },
@@ -612,104 +606,27 @@ export const HealthView = ({
         onTouchEnd={swipeHealthSection.onTouchEnd}
       >
 
-      {healthSection === 'dashboard' && (
-        <HealthDashboardPanel
-          theme={theme}
-          selectedDate={selectedDate}
-          formatDate={formatDate}
-          workouts={workouts}
-          inbody={inbody}
-          healthBlocks={healthBlocks ?? []}
-          healthRoutines={healthRoutines ?? []}
-          isWorkoutLocked={isWorkoutLocked}
-          onNavigate={setHealthSection}
-          onOpenRoutine={() => {
-            setHealthSection('habits');
-            setMobileHealthTab('routine');
-          }}
-          onOpenWorkoutHistory={() => {
-            setHealthSection('workout');
-            setMobileHealthTab('workout');
-          }}
-        />
-      )}
-
       {healthSection === 'nutrition' && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-4">
           <ProteinTracker theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
         </div>
       )}
 
-      {healthSection === 'recovery' && (
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-4">
-          <RecoveryLogPanel
-            theme={theme}
-            selectedDate={selectedDate}
-            formatDate={formatDate}
-            isWorkoutLocked={isWorkoutLocked}
-            onOpenDayNote={() => openHealthDayLog('recovery')}
-          />
-          <div className={`lg:w-[200px] shrink-0 rounded-[24px] shadow-sm px-5 py-4 ${theme.card}`}>
-            <div className="flex flex-col gap-2.5 mb-3">
-              <h2 className="font-heading text-base font-bold flex items-center gap-2">
-                <Target size={16} className="text-primary" /> {t('inbody')}
-              </h2>
-              <button onClick={handleSaveInbody} className="w-full text-xs font-bold bg-primary text-primary-foreground px-3 py-2 rounded-xl">
-                {t('save')}
-              </button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {[
-                { label: t('inbodyWeight'), field: 'weight' as const, unit: 'kg' },
-                { label: t('inbodySMM'), field: 'smm' as const, unit: 'kg' },
-                { label: t('inbodyPBF'), field: 'pbf' as const, unit: '%' },
-              ].map(({ label, field, unit }) => (
-                <div key={field} className={`rounded-2xl p-2.5 ${theme.input}`}>
-                  <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{label}</p>
-                  <div className="flex items-end gap-0.5">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.1"
-                      value={localInbody[field] !== 0 ? localInbody[field] : ''}
-                      placeholder="0"
-                      onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
-                      className="w-full bg-transparent text-lg font-black outline-none tabular-nums"
-                    />
-                    <span className={`text-xs font-semibold pb-0.5 ${theme.textMuted}`}>{unit}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(healthSection === 'habits' || healthSection === 'workout') && (
+      {healthSection === 'workout' && (
     <>
-      {healthSection === 'habits' ? (
-        <HabitQuickPanel
-          theme={theme}
-          selectedDate={selectedDate}
-          formatDate={formatDate}
-          healthRoutines={healthRoutines ?? []}
-          onOpenRoutine={() => setMobileHealthTab('routine')}
-        />
-      ) : null}
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0">
       {/* ── 좌측: 블록 / 루틴 설정 — 모바일에서 가로 탭 전환 ── */}
       <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0 lg:overflow-y-auto lg:pb-4">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
-          {(['blocks', 'routine', 'workout', 'protein'] as const).map(tab => (
+          {(['blocks', 'routine', 'workout'] as const).map(tab => (
             <button key={tab}
               onClick={() => setMobileHealthTab(tab)}
               className={`flex-1 min-h-[44px] py-2.5 rounded-2xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'workout' ? t('tabWorkout') : t('proteinTracker')}
+              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : t('tabWorkout')}
             </button>
           ))}
         </div>
@@ -1319,30 +1236,16 @@ export const HealthView = ({
             </div>
           </div>
 
-          {/* ── 프로틴 트래커 — 데스크탑 인라인, 모바일은 별도 탭으로 이동 ── */}
-          <div className="flex-1 min-w-0 hidden lg:block">
-            <ProteinTracker
+          <div className="flex flex-col gap-4 lg:w-[280px] lg:shrink-0 min-w-0">
+            <RecoveryLogPanel
               theme={theme}
-              darkMode={appSettings.darkMode}
               selectedDate={selectedDate}
               formatDate={formatDate}
-              showToast={showToast}
-              onOpenDayNote={() => openHealthDayLog('nutrition')}
+              isWorkoutLocked={isWorkoutLocked}
+              onOpenDayNote={() => openHealthDayLog('workout')}
             />
           </div>
         </div>
-      </div>
-
-      {/* ── 모바일 전용: Protein 탭 패널 ── */}
-      <div className={`flex-1 flex-col gap-4 min-h-0 overflow-y-auto pb-4 ${mobileHealthTab === 'protein' ? 'flex lg:hidden' : 'hidden'}`}>
-        <ProteinTracker
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          selectedDate={selectedDate}
-          formatDate={formatDate}
-          showToast={showToast}
-          onOpenDayNote={() => openHealthDayLog('nutrition')}
-        />
       </div>
     </div>
     </>

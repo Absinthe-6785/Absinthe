@@ -101,16 +101,16 @@ export function useProteinData(
     return Math.round((totals.filter(t => t >= dailyTarget).length / totals.length) * 100);
   }, [weeklyData, dailyTarget]);
 
-  const mutateIntakeWithWeekly = useCallback(() => {
+  const mutateIntakeOnly = useCallback(() => {
     mutateIntake();
-    globalMutate(weekKey);
-  }, [mutateIntake, globalMutate, weekKey]);
+  }, [mutateIntake]);
 
   const mutateAll = useCallback(() => {
     mutateProfile();
     mutateSources();
-    mutateIntakeWithWeekly();
-  }, [mutateProfile, mutateSources, mutateIntakeWithWeekly]);
+    mutateIntake();
+    globalMutate(weekKey);
+  }, [mutateProfile, mutateSources, mutateIntake, globalMutate, weekKey]);
 
   return {
     profile: profile && profile.daily_target_g ? profile : null,
@@ -125,7 +125,7 @@ export function useProteinData(
     isLoading: l1 || l2 || l3,
     mutateProfile,
     mutateSources,
-    mutateIntake: mutateIntakeWithWeekly,
+    mutateIntake: mutateIntakeOnly,
     mutateAll,
   };
 }

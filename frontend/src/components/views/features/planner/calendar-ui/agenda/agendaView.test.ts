@@ -119,7 +119,7 @@ describe('AgendaCalendarView', () => {
     expect(html).toContain('data-planner-calendar-agenda');
     expect(html).toContain('data-planner-calendar-agenda-empty-hint="true"');
     expect(html).not.toContain('data-planner-agenda-countdowns');
-    expect(html).not.toContain('data-planner-agenda-events');
+    expect(html).not.toContain('data-planner-agenda-stream');
   });
 
   it('renders countdown section from note-backed events', () => {
@@ -139,7 +139,7 @@ describe('AgendaCalendarView', () => {
     expect(html).toContain('data-planner-agenda-countdown-label');
   });
 
-  it('renders countdowns and events; schedules/todos live in Day view (K-50)', () => {
+  it('renders countdowns and chronological stream including schedules (K-68)', () => {
     const exam = applyEventToNote(note('exam', { title: 'TOEFL' }), {
       title: 'TOEFL',
       eventDate: '2027-02-04',
@@ -169,13 +169,13 @@ describe('AgendaCalendarView', () => {
       createElement(AgendaCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).toContain('data-planner-agenda-events');
-    expect(html).toContain('data-planner-agenda-event-kind="timed-event"');
-    expect(html).toContain('data-planner-agenda-event-note="exam"');
-    expect(html).toContain('data-planner-agenda-event-kind="milestone"');
+    expect(html).toContain('data-planner-agenda-stream');
+    expect(html).toContain('data-planner-agenda-stream-kind="timed-event"');
+    expect(html).toContain('data-planner-agenda-stream-kind="schedule-block"');
+    expect(html).toContain('Deep Work');
+    expect(html).toContain('TOEFL');
     expect(html).toContain('data-planner-agenda-countdowns');
-    expect(html).not.toContain('data-planner-agenda-schedules');
-    expect(html).not.toContain('data-planner-agenda-todos');
+    expect(html).not.toContain('data-planner-agenda-events');
   });
 
   it('wires onEventNoteClick on note-backed event rows', () => {
@@ -196,7 +196,7 @@ describe('AgendaCalendarView', () => {
       }),
     );
 
-    expect(html).toContain('data-planner-agenda-event-note="exam"');
+    expect(html).toContain('data-planner-agenda-stream-item');
     expect(html).toContain('role="button"');
   });
 

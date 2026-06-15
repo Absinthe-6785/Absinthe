@@ -632,37 +632,38 @@ export const PlannerView = ({
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelCategory')}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {([
-                    { id: 'Study',    label: 'Study',   Icon: BookOpen },
-                    { id: 'Work',     label: 'Work',    Icon: Briefcase },
-                    { id: 'Exercise', label: 'Workout', Icon: Dumbbell },
-                    { id: 'Personal', label: 'Personal', Icon: User },
-                    { id: 'Sleep',    label: 'Sleep',   Icon: Moon },
-                    { id: 'Social',   label: 'Social',  Icon: Users },
+                    { id: 'Study',    label: 'Study',   Icon: BookOpen,  color: 'gold' },
+                    { id: 'Work',     label: 'Work',    Icon: Briefcase, color: 'blue' },
+                    { id: 'Exercise', label: 'Workout', Icon: Dumbbell,  color: 'blue' },
+                    { id: 'Personal', label: 'Personal', Icon: User,     color: 'green' },
+                    { id: 'Sleep',    label: 'Sleep',   Icon: Moon,      color: 'gray' },
+                    { id: 'Social',   label: 'Social',  Icon: Users,     color: 'pink' },
                   ] as const).map(cat => (
                     <button key={cat.id} onClick={() => (() => {
                           if (cat.id === 'Exercise') {
                             setNewSch(prev => ({
                               ...prev,
                               category:   'Exercise',
-                              color:      'blue',
+                              color:      cat.color,
                               text:       prev.text || 'Workout',
                             }));
                           } else if (cat.id === 'Sleep') {
                             setNewSch(prev => ({
                               ...prev,
                               category:   'Sleep',
-                              color:      'gray',
+                              color:      cat.color,
                               text:       prev.text || 'Sleep',
                               start_time: prev.start_time === '10:00' ? '22:30' : prev.start_time,
                               end_time:   prev.end_time   === '11:00' ? '07:00' : prev.end_time,
                             }));
-                            // setEndNextDay(true) 제거 — 수동 설정 유지
                           } else {
-                            setNewSch(prev => ({ ...prev, category: cat.id }));
+                            setNewSch(prev => ({ ...prev, category: cat.id, color: cat.color }));
                           }
                         })()}
-                      className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1
-                        ${newSch.category === cat.id ? 'bg-primary text-primary-foreground' : theme.input}`}>
+                      className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1 border-2
+                        ${newSch.category === cat.id
+                          ? `${THEME_COLORS.find(c => c.id === cat.color)?.bg ?? 'bg-primary'} text-white border-transparent shadow-sm`
+                          : `border-transparent ${theme.input}`}`}>
                       <span className="leading-none flex justify-center"><cat.Icon size={16} strokeWidth={2.25} /></span>
                       {cat.label}
                     </button>

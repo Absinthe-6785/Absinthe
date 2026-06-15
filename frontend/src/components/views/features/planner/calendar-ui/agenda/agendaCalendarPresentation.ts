@@ -84,6 +84,45 @@ export function formatAgendaScheduleTimeLabel(item: PlannerAgendaItem): string {
   return start || end;
 }
 
+const STREAM_KINDS: readonly PlannerAgendaItemKind[] = [
+  'schedule-block',
+  'timed-event',
+  'all-day-event',
+  'todo',
+  'milestone',
+];
+
+export interface AgendaStreamEntry {
+  dateKey: string;
+  dateHeader: string;
+  item: PlannerAgendaItem;
+  showDateHeader: boolean;
+}
+
+export function buildAgendaChronologicalStream(
+  dayGroups: PlannerAgendaViewPayload['dayGroups'],
+  dateHeaders: ReadonlyMap<string, string>,
+): AgendaStreamEntry[] {
+  const flat = dayGroups.flatMap(group =>
+    group.items
+      .filter(item => STREAM_KINDS.includes(item.kind))
+      .map(item => ({ dateKey: group.dateKey, item })),
+  );
+  flat.sort((a, b) => a.item.sortKey.localeCompare(b.item.sortKey));
+
+  let lastDate = '';
+  return flat.map(({ dateKey, item }) => {
+    const showDateHeader = dateKey !== lastDate;
+    lastDate = dateKey;
+    return {
+      dateKey,
+      dateHeader: dateHeaders.get(dateKey) ?? dateKey,
+      item,
+      showDateHeader,
+    };
+  });
+}
+
 export function isAgendaMilestone(item: PlannerAgendaItem): boolean {
   return item.kind === MILESTONE_KIND;
 }

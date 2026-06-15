@@ -105,11 +105,11 @@ function finalizeDayHints(
     if (seen.has(event.noteId)) continue;
     seen.add(event.noteId);
     primaryEventNoteIds.push(event.noteId);
-    if (primaryEventNoteIds.length >= 2) break;
+    if (primaryEventNoteIds.length >= 3) break;
   }
 
   const eventCount = events.length;
-  const overflowEventCount = Math.max(0, eventCount - 2);
+  const overflowEventCount = Math.max(0, eventCount - 3);
 
   return {
     blockCount: blocks.length,

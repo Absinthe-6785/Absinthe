@@ -1,15 +1,12 @@
-import { Activity, Apple, BedDouble, Dumbbell, LayoutDashboard } from 'lucide-react';
+import { Apple, Dumbbell } from 'lucide-react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { Theme } from '../../../../types';
 
-export type HealthWorkspaceSection = 'dashboard' | 'nutrition' | 'workout' | 'habits' | 'recovery';
+export type HealthWorkspaceSection = 'nutrition' | 'workout';
 
 export const HEALTH_WORKSPACE_SECTIONS: readonly { id: HealthWorkspaceSection; icon: typeof Dumbbell }[] = [
-  { id: 'dashboard', icon: LayoutDashboard },
-  { id: 'nutrition', icon: Apple },
   { id: 'workout', icon: Dumbbell },
-  { id: 'habits', icon: Activity },
-  { id: 'recovery', icon: BedDouble },
+  { id: 'nutrition', icon: Apple },
 ];
 
 export interface HealthWorkspaceNavProps {
@@ -21,7 +18,7 @@ export interface HealthWorkspaceNavProps {
 
 const SECTIONS = HEALTH_WORKSPACE_SECTIONS;
 
-/** Top-level Health workspace navigation — extensible shell for K-48+. */
+/** Top-level Health workspace navigation — Workout + Nutrition (K-68). */
 export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthWorkspaceNavProps) {
   const { t } = useTranslation();
 
@@ -33,7 +30,7 @@ export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthW
     >
       {SECTIONS.map(({ id, icon: Icon }) => {
         const selected = active === id;
-        const labelKey = `healthNav${id.charAt(0).toUpperCase()}${id.slice(1)}` as 'healthNavDashboard';
+        const labelKey = `healthNav${id.charAt(0).toUpperCase()}${id.slice(1)}` as 'healthNavWorkout' | 'healthNavNutrition';
         return (
           <button
             key={id}

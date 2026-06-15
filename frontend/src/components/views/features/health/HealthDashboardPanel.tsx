@@ -172,7 +172,7 @@ export function HealthDashboardPanel({
           icon={Activity}
           title={t('healthNavHabits')}
           sectionId="habits"
-          onClick={onOpenRoutine ?? (() => onNavigate('habits'))}
+          onClick={onOpenRoutine ?? (() => onNavigate('workout'))}
         >
           {todayRoutine ? (
             <>
@@ -226,7 +226,7 @@ export function HealthDashboardPanel({
           icon={BedDouble}
           title={t('healthNavRecovery')}
           sectionId="recovery"
-          onClick={() => onNavigate('recovery')}
+          onClick={() => onNavigate('workout')}
         >
           {recovery.latestSleep != null ? (
             <p className={`text-xs mb-1`}>

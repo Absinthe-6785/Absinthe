@@ -3,13 +3,10 @@ import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { AgendaCountdownSection } from './AgendaCountdownSection';
-import { AgendaEventList } from './AgendaEventList';
+import { AgendaStreamList, buildAgendaChronologicalStream } from './AgendaStreamList';
 import { AgendaHeader } from './AgendaHeader';
 import { AgendaRoutineExceptionsSection } from './AgendaRoutineExceptionsSection';
-import {
-  agendaHasContent,
-  buildAgendaEventSections,
-} from './agendaCalendarPresentation';
+import { agendaHasContent } from './agendaCalendarPresentation';
 
 export interface AgendaCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -29,9 +26,9 @@ export function AgendaCalendarView({
   const { t } = useTranslation();
   const agenda = projection.views.agenda;
 
-  const eventSections = useMemo(
-    () => buildAgendaEventSections(agenda.dayGroups),
-    [agenda.dayGroups],
+  const streamEntries = useMemo(
+    () => buildAgendaChronologicalStream(agenda.dayGroups, presentation.labels.agendaDateHeaders),
+    [agenda.dayGroups, presentation.labels.agendaDateHeaders],
   );
 
   const exceptionDates = useMemo(() => {
@@ -69,9 +66,8 @@ export function AgendaCalendarView({
           presentation={presentation}
           onNoteClick={onEventNoteClick}
         />
-        <AgendaEventList
-          sections={eventSections}
-          presentation={presentation}
+        <AgendaStreamList
+          entries={streamEntries}
           theme={theme}
           onEventNoteClick={onEventNoteClick}
         />
