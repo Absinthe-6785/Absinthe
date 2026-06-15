@@ -18,6 +18,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
 import { buildVaultBackupManifest, downloadVaultBackup } from '../../lib/exportVaultBackup';
+import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { useNotesStore } from '../../store/useNotesStore';
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
@@ -33,7 +34,10 @@ export const SettingsView = ({
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
+  const undoLastVaultRestore = useNotesStore(s => s.undoLastVaultRestore);
+  const vaultRestoreCanUndo = useNotesStore(s => s.vaultRestoreCanUndo);
   const vaultRestore = useVaultRestoreFlow(showToast, t);
+  const [backingUpZip, setBackingUpZip] = useState(false);
 
   // ── CSV 내보내기 상태 ──────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -63,7 +67,24 @@ export const SettingsView = ({
     }
   };
 
-  const doVaultBackup = () => {
+  const doVaultBackupZip = async () => {
+    const active = notes.filter(n => !n.deletedAt);
+    if (active.length === 0) {
+      showToast(t('vaultBackupEmpty'), 'error');
+      return;
+    }
+    setBackingUpZip(true);
+    try {
+      await downloadVaultBackupZip(buildVaultBackupManifest(active, folders));
+      showToast(t('vaultBackupZipComplete'));
+    } catch {
+      showToast(t('vaultBackupFailed'), 'error');
+    } finally {
+      setBackingUpZip(false);
+    }
+  };
+
+  const doVaultBackupJson = () => {
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) {
       showToast(t('vaultBackupEmpty'), 'error');
@@ -71,6 +92,14 @@ export const SettingsView = ({
     }
     downloadVaultBackup(buildVaultBackupManifest(active, folders));
     showToast(t('vaultBackupComplete'));
+  };
+
+  const doUndoRestore = () => {
+    if (undoLastVaultRestore()) {
+      showToast(t('vaultRestoreUndoComplete'));
+    } else {
+      showToast(t('vaultRestoreUndoUnavailable'), 'error');
+    }
   };
 
   const doResetData = async () => {
@@ -196,10 +225,20 @@ export const SettingsView = ({
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                   <button
-                    onClick={doVaultBackup}
-                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2"
+                    onClick={doVaultBackupZip}
+                    disabled={backingUpZip}
+                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60"
                   >
-                    <Download size={16}/>{t('vaultBackupExport')}
+                    {backingUpZip
+                      ? <><Loader2 size={16} className="animate-spin"/>{t('vaultBackupZipping')}</>
+                      : <><Download size={16}/>{t('vaultBackupZipExport')}</>
+                    }
+                  </button>
+                  <button
+                    onClick={doVaultBackupJson}
+                    className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
+                  >
+                    <Download size={16}/>{t('vaultBackupJsonExport')}
                   </button>
                   <button
                     onClick={vaultRestore.openFilePicker}
@@ -208,10 +247,19 @@ export const SettingsView = ({
                     <Upload size={16}/>{t('vaultRestoreImport')}
                   </button>
                 </div>
+                {vaultRestoreCanUndo ? (
+                  <button
+                    type="button"
+                    onClick={doUndoRestore}
+                    className={`self-start text-xs font-bold px-3 py-2 rounded-lg border ${theme.border} ${theme.input}`}
+                  >
+                    {t('vaultRestoreUndo')}
+                  </button>
+                ) : null}
                 <input
                   ref={vaultRestore.fileInputRef}
                   type="file"
-                  accept=".json,application/json"
+                  accept=".json,.zip,application/json,application/zip"
                   className="hidden"
                   onChange={vaultRestore.handleFileChange}
                 />
@@ -302,11 +350,16 @@ export const SettingsView = ({
           darkMode={appSettings.darkMode}
         />
       )}
-      {vaultRestore.preview && (
+      {vaultRestore.preview && vaultRestore.selection && (
         <VaultRestoreModal
           preview={vaultRestore.preview}
           strategy={vaultRestore.strategy}
+          selection={vaultRestore.selection}
           onStrategyChange={vaultRestore.setStrategy}
+          onToggleNote={vaultRestore.toggleNote}
+          onToggleFolder={vaultRestore.toggleFolder}
+          onSelectAll={vaultRestore.selectAll}
+          onSelectNone={vaultRestore.selectNone}
           onConfirm={vaultRestore.confirmRestore}
           onCancel={vaultRestore.cancelRestore}
           importing={vaultRestore.importing}

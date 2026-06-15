@@ -204,7 +204,7 @@ export interface NoteViewSidebarHandlers {
   setShowSortMenu: React.Dispatch<React.SetStateAction<boolean>>;
   setSortOrder: React.Dispatch<React.SetStateAction<'updated' | 'title' | 'created'>>;
   exportAllNotes: () => void;
-  exportVaultBackup: () => boolean;
+  exportVaultBackup: () => void | Promise<void>;
   openVaultRestore: () => void;
   openCreateEventDialog: () => void;
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
@@ -798,12 +798,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               </button>
             )}
             {!isTrash && (
-              <button onClick={() => exportVaultBackup()} className="btbtn" title={t('nvExportVaultBackup')}>
+              <button onClick={() => void exportVaultBackup()} className="btbtn min-h-[44px] min-w-[44px]" title={t('nvExportVaultBackup')}>
                 <Archive size={11}/>
               </button>
             )}
             {!isTrash && (
-              <button onClick={openVaultRestore} className="btbtn" title={t('nvImportVaultBackup')}>
+              <button onClick={openVaultRestore} className="btbtn min-h-[44px] min-w-[44px]" title={t('nvImportVaultBackup')}>
                 <RotateCcw size={11}/>
               </button>
             )}

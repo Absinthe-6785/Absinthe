@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NoteBase } from '@/components/views/noteUtils';
 import { buildVaultBackupManifest, VAULT_BACKUP_SCHEMA_VERSION } from './exportVaultBackup';
+import { ABSINTHE_APP_VERSION } from './vaultBackupConstants';
 
 function note(id: string, title: string): NoteBase {
   return {
@@ -13,7 +14,7 @@ function note(id: string, title: string): NoteBase {
     createdAt: 1,
     updatedAt: 2,
     properties: {},
-    relations: {},
+    relations: { cites: ['n2'] },
   };
 }
 
@@ -25,6 +26,10 @@ describe('exportVaultBackup', () => {
     );
     expect(manifest.schemaVersion).toBe(VAULT_BACKUP_SCHEMA_VERSION);
     expect(manifest.app).toBe('absinthe');
+    expect(manifest.appVersion).toBe(ABSINTHE_APP_VERSION);
+    expect(manifest.noteCount).toBe(1);
+    expect(manifest.folderCount).toBe(1);
+    expect(manifest.relationCount).toBe(1);
     expect(manifest.folders).toHaveLength(1);
     expect(manifest.notes).toHaveLength(1);
     expect(manifest.notes[0]?.title).toBe('Alpha');

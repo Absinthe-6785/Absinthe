@@ -11,6 +11,12 @@ import {
   type VaultRestoreResult,
 } from '../lib/importVaultBackup';
 import type { VaultBackupManifest } from '../lib/exportVaultBackup';
+import {
+  saveVaultRestoreSnapshot,
+  clearVaultRestoreSnapshot,
+  hasVaultRestoreSnapshot,
+  loadVaultRestoreSnapshot,
+} from '../lib/vaultRestoreSnapshot';
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
 import {
@@ -81,6 +87,9 @@ interface NotesState {
   deleteFolder: (id: string) => void;
   importNote: (note: Note) => void;
   importVaultRestore: (manifest: VaultBackupManifest, strategy: VaultRestoreConflictStrategy) => VaultRestoreResult;
+  undoLastVaultRestore: () => boolean;
+  canUndoVaultRestore: () => boolean;
+  vaultRestoreCanUndo: boolean;
 
   hydrateFromDB: () => Promise<void>;
   syncNoteToDB: (note: Note) => Promise<boolean>;
@@ -257,6 +266,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     isSyncing: false,
     savedAt: null,
     syncError: null,
+    vaultRestoreCanUndo: hasVaultRestoreSnapshot(),
 
     setActiveNoteId: (id) => {
       if (id) {
@@ -308,6 +318,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     importVaultRestore: (manifest, strategy) => {
+      saveVaultRestoreSnapshot(get().notes, get().folders);
+      set({ vaultRestoreCanUndo: true });
       const beforeIds = new Set(get().notes.map(n => n.id));
       const prevFolderIds = new Set(get().folders.map(f => f.id));
       const { notes, folders, result } = applyVaultRestore(
@@ -336,6 +348,24 @@ export const useNotesStore = create<NotesState>((set, get) => {
         .forEach(f => { void syncFolderToDB(f); });
       flushPendingSync();
       return result;
+    },
+
+    canUndoVaultRestore: () => hasVaultRestoreSnapshot(),
+
+    undoLastVaultRestore: () => {
+      const snapshot = loadVaultRestoreSnapshot();
+      if (!snapshot) return false;
+      set({ notes: snapshot.notes, folders: snapshot.folders });
+      persistNotes(snapshot.notes);
+      persistFolders(snapshot.folders);
+      for (const note of snapshot.notes) {
+        knowledgeIndexService.updateNote(note);
+      }
+      snapshot.notes.forEach(n => { void syncNoteToDB(n); });
+      clearVaultRestoreSnapshot();
+      set({ vaultRestoreCanUndo: false });
+      flushPendingSync();
+      return true;
     },
 
     updateNote: (id, patch) => {

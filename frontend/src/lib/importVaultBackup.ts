@@ -2,6 +2,7 @@ import type { NoteBase } from '@/components/views/noteUtils';
 import { parseNoteMarkdown } from '@/components/views/features/knowledge';
 import type { NoteFolder } from '@/store/useNotesStore';
 import {
+  normalizeVaultBackupManifest,
   VAULT_BACKUP_SCHEMA_VERSION,
   type VaultBackupManifest,
   type VaultBackupNoteEntry,
@@ -16,17 +17,70 @@ When an imported note id already exists in the vault:
 - duplicate: import as a new note with a fresh id (title unchanged)
 `;
 
+export interface VaultRestoreSelection {
+  /** Note ids to include in restore. Empty = none. */
+  noteIds: ReadonlySet<string>;
+  /** Folder ids to import (folder metadata). Notes filtered by noteIds. */
+  folderIds: ReadonlySet<string>;
+}
+
+export function createFullRestoreSelection(manifest: VaultBackupManifest): VaultRestoreSelection {
+  return {
+    noteIds: new Set(manifest.notes.map(n => n.id)),
+    folderIds: new Set(manifest.folders.map(f => f.id)),
+  };
+}
+
+export function filterManifestBySelection(
+  manifest: VaultBackupManifest,
+  selection: VaultRestoreSelection,
+): VaultBackupManifest {
+  const notes = manifest.notes.filter(n => selection.noteIds.has(n.id));
+  const folderIdsUsed = new Set(notes.map(n => n.folderId).filter(Boolean) as string[]);
+  const folders = manifest.folders.filter(
+    f => selection.folderIds.has(f.id) && folderIdsUsed.has(f.id),
+  );
+  return {
+    ...manifest,
+    noteCount: notes.length,
+    folderCount: folders.length,
+    relationCount: countRelationsInEntries(notes),
+    folders,
+    notes,
+  };
+}
+
+export interface VaultRestoreValidationReport {
+  valid: boolean;
+  errors: string[];
+  noteCount: number;
+  folderCount: number;
+  relationCount: number;
+  conflictCount: number;
+  corruptedNoteIds: string[];
+  appVersion: string | null;
+  schemaVersion: number | null;
+  exportedAt: string | null;
+}
+
 export interface VaultRestorePreview {
   valid: boolean;
   error?: string;
   manifest: VaultBackupManifest | null;
+  validation: VaultRestoreValidationReport | null;
   noteCount: number;
   folderCount: number;
   newNoteCount: number;
   newFolderCount: number;
   conflictCount: number;
   conflictNoteIds: string[];
+  relationCount: number;
   exportedAt: string | null;
+  appVersion: string | null;
+  /** Folder id → display name for selection UI */
+  folderOptions: { id: string; name: string; noteCount: number }[];
+  /** Note id → title for selection UI */
+  noteOptions: { id: string; title: string; folderId: string | null }[];
 }
 
 export interface VaultRestoreResult {
@@ -37,41 +91,79 @@ export interface VaultRestoreResult {
   importedFolders: number;
 }
 
+function countRelationsInEntries(notes: readonly VaultBackupNoteEntry[]): number {
+  let total = 0;
+  for (const note of notes) {
+    const rel = note.relations ?? {};
+    for (const targets of Object.values(rel)) {
+      if (Array.isArray(targets)) total += targets.length;
+    }
+  }
+  return total;
+}
+
+function activeNotes(notes: readonly NoteBase[]): NoteBase[] {
+  return notes.filter(n => !n.deletedAt);
+}
+
 export function parseVaultBackupJson(raw: string): VaultBackupManifest | null {
   try {
     const data = JSON.parse(raw) as Partial<VaultBackupManifest>;
-    if (data.app !== 'absinthe') return null;
-    if (typeof data.schemaVersion !== 'number') return null;
-    if (!Array.isArray(data.folders) || !Array.isArray(data.notes)) return null;
-    if (typeof data.exportedAt !== 'string') return null;
-    return {
-      schemaVersion: data.schemaVersion,
-      exportedAt: data.exportedAt,
-      app: 'absinthe',
-      folders: data.folders.map(f => ({
-        id: String(f.id),
-        name: String(f.name ?? ''),
-        createdAt: typeof f.createdAt === 'number' ? f.createdAt : Date.now(),
-      })),
-      notes: data.notes.map(n => ({
-        id: String(n.id),
-        title: String(n.title ?? ''),
-        folderId: n.folderId ?? null,
-        starred: Boolean(n.starred),
-        createdAt: typeof n.createdAt === 'number' ? n.createdAt : undefined,
-        updatedAt: typeof n.updatedAt === 'number' ? n.updatedAt : Date.now(),
-        markdown: String(n.markdown ?? ''),
-        properties: (n.properties ?? {}) as NoteBase['properties'],
-        relations: (n.relations ?? {}) as NoteBase['relations'],
-      })),
-    };
+    return normalizeVaultBackupManifest(data);
   } catch {
     return null;
   }
 }
 
-function activeNotes(notes: readonly NoteBase[]): NoteBase[] {
-  return notes.filter(n => !n.deletedAt);
+export function validateVaultBackupManifest(
+  manifest: VaultBackupManifest,
+  existingNotes: readonly NoteBase[],
+  existingFolders: readonly NoteFolder[],
+): VaultRestoreValidationReport {
+  const errors: string[] = [];
+  const corruptedNoteIds: string[] = [];
+
+  if (manifest.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
+    errors.push('unsupported_schema');
+  }
+  if (manifest.app !== 'absinthe') {
+    errors.push('invalid_app');
+  }
+  if (!manifest.exportedAt) {
+    errors.push('missing_export_date');
+  }
+
+  const folderIds = new Set(manifest.folders.map(f => f.id));
+  for (const note of manifest.notes) {
+    if (!note.id || !note.title) {
+      corruptedNoteIds.push(note.id || 'unknown');
+      continue;
+    }
+    if (note.folderId && !folderIds.has(note.folderId)) {
+      // Orphan folder references are allowed — folder metadata may be missing from backup
+    }
+    try {
+      parseNoteMarkdown(note.markdown);
+    } catch {
+      corruptedNoteIds.push(note.id);
+    }
+  }
+
+  const existingIds = new Set(activeNotes(existingNotes).map(n => n.id));
+  const conflictCount = manifest.notes.filter(n => existingIds.has(n.id)).length;
+
+  return {
+    valid: errors.length === 0 && corruptedNoteIds.length === 0,
+    errors,
+    noteCount: manifest.notes.length,
+    folderCount: manifest.folders.length,
+    relationCount: countRelationsInEntries(manifest.notes),
+    conflictCount,
+    corruptedNoteIds,
+    appVersion: manifest.appVersion ?? null,
+    schemaVersion: manifest.schemaVersion,
+    exportedAt: manifest.exportedAt,
+  };
 }
 
 export function buildVaultRestorePreview(
@@ -79,18 +171,25 @@ export function buildVaultRestorePreview(
   existingNotes: readonly NoteBase[],
   existingFolders: readonly NoteFolder[],
 ): VaultRestorePreview {
-  if (manifest.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
+  const validation = validateVaultBackupManifest(manifest, existingNotes, existingFolders);
+
+  if (!validation.valid) {
     return {
       valid: false,
-      error: 'unsupported_schema',
+      error: validation.errors[0] ?? 'validation_failed',
       manifest: null,
-      noteCount: 0,
-      folderCount: 0,
+      validation,
+      noteCount: manifest.notes.length,
+      folderCount: manifest.folders.length,
       newNoteCount: 0,
       newFolderCount: 0,
-      conflictCount: 0,
+      conflictCount: validation.conflictCount,
       conflictNoteIds: [],
+      relationCount: validation.relationCount,
       exportedAt: manifest.exportedAt,
+      appVersion: manifest.appVersion ?? null,
+      folderOptions: [],
+      noteOptions: [],
     };
   }
 
@@ -98,16 +197,42 @@ export function buildVaultRestorePreview(
   const existingFolderIds = new Set(existingFolders.map(f => f.id));
   const conflictNoteIds = manifest.notes.filter(n => existingIds.has(n.id)).map(n => n.id);
 
+  const folderNoteCounts = new Map<string, number>();
+  for (const note of manifest.notes) {
+    const fid = note.folderId ?? '__unfiled__';
+    folderNoteCounts.set(fid, (folderNoteCounts.get(fid) ?? 0) + 1);
+  }
+
+  const folderOptions = [
+    ...manifest.folders.map(f => ({
+      id: f.id,
+      name: f.name,
+      noteCount: folderNoteCounts.get(f.id) ?? 0,
+    })),
+    ...(folderNoteCounts.has('__unfiled__')
+      ? [{ id: '__unfiled__', name: '__unfiled__', noteCount: folderNoteCounts.get('__unfiled__')! }]
+      : []),
+  ];
+
   return {
     valid: true,
     manifest,
+    validation,
     noteCount: manifest.notes.length,
     folderCount: manifest.folders.length,
     newNoteCount: manifest.notes.length - conflictNoteIds.length,
     newFolderCount: manifest.folders.filter(f => !existingFolderIds.has(f.id)).length,
     conflictCount: conflictNoteIds.length,
     conflictNoteIds,
+    relationCount: validation.relationCount,
     exportedAt: manifest.exportedAt,
+    appVersion: manifest.appVersion ?? null,
+    folderOptions,
+    noteOptions: manifest.notes.map(n => ({
+      id: n.id,
+      title: n.title,
+      folderId: n.folderId,
+    })),
   };
 }
 
