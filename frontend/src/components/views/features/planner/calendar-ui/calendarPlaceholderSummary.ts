@@ -5,7 +5,6 @@ const MODE_HEADLINES: Record<PlannerCalendarViewMode, string> = {
   month: 'Month View',
   week: 'Week View',
   day: 'Day View',
-  agenda: 'Agenda View',
 };
 
 export function buildCalendarPlaceholderSummary(
@@ -42,25 +41,12 @@ export function buildCalendarPlaceholderSummary(
         headline: MODE_HEADLINES.day,
         lines: [
           `${views.day.timeline.blocks.length} schedule blocks`,
-          `${views.day.bundle.todos.length} todos`,
-          `${views.day.bundle.routines.length} routines`,
+          `${views.day.allDayEvents.length + views.day.timedEvents.length} events`,
+          `${core.countdowns.length} countdowns`,
         ],
         isEmpty: views.day.timeline.blocks.length === 0
-          && views.day.bundle.todos.length === 0
-          && views.day.bundle.routines.length === 0
           && views.day.allDayEvents.length === 0
           && views.day.timedEvents.length === 0,
-      };
-    case 'agenda':
-      return {
-        headline: MODE_HEADLINES.agenda,
-        lines: [
-          `${views.agenda.dayGroups.length} days with items`,
-          `${views.agenda.countdownSection.length} countdowns`,
-          `${core.eventOccurrences.length} events in horizon`,
-        ],
-        isEmpty: views.agenda.dayGroups.length === 0
-          && views.agenda.countdownSection.length === 0,
       };
     default:
       return { headline: MODE_HEADLINES.month, lines: [], isEmpty: true };
@@ -83,8 +69,6 @@ export function resolveCalendarPeriodLabel(
       return presentation.labels.weekRangeLabel;
     case 'day':
       return presentation.labels.dayHeading;
-    case 'agenda':
-      return presentation.labels.agendaHorizonLabel;
     default:
       return '';
   }

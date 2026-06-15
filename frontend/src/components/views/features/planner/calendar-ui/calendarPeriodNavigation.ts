@@ -6,7 +6,7 @@ export type CalendarPeriodDirection = -1 | 1;
 
 /**
  * Shift the planner anchor date by one period for the active calendar mode.
- * Month → ±1 calendar month (day 1); week → ±7 days; day/agenda → ±1 day.
+ * Month → ±1 calendar month (day 1); week → ±7 days; day → ±1 day.
  */
 export function shiftPlannerAnchorDate(
   viewMode: PlannerCalendarViewMode,
@@ -17,7 +17,6 @@ export function shiftPlannerAnchorDate(
 
   switch (viewMode) {
     case 'day':
-    case 'agenda':
       return addDays(anchorDate, direction);
     case 'week':
       return addDays(anchorDate, direction * 7);

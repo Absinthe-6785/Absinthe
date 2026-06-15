@@ -30,7 +30,6 @@ import {
 } from './plannerCalendarDateUtils';
 import { parseDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
 import {
-  buildAgendaViewPayload,
   buildDayViewPayload,
   buildMonthViewPayload,
   buildWeekViewPayload,
@@ -272,11 +271,6 @@ function emptyViews(anchorDate: string): PlannerCalendarViews {
       timeline: { slotCount: 48, slotMinutes: 30, blocks: [], carryOverBlocks: [] },
       isToday: false,
     },
-    agenda: {
-      horizon: { startDate: anchorDate, endDate: anchorDate },
-      countdownSection: [],
-      dayGroups: [],
-    },
   };
 }
 
@@ -373,11 +367,6 @@ export function buildPlannerCalendarProjection(
       byDate,
       allScheduleBlocks: safeBlocks,
       todayKey,
-    }),
-    agenda: buildAgendaViewPayload({
-      anchorDate: input.anchorDate,
-      byDate,
-      countdowns,
     }),
   };
 

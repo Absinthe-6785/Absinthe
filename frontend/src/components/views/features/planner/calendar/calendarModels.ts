@@ -2,17 +2,10 @@ import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
 import type { Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
 
-export type PlannerCalendarViewMode = 'month' | 'week' | 'day' | 'agenda';
+export type PlannerCalendarViewMode = 'month' | 'week' | 'day';
 export type PlannerLocale = 'en' | 'ko' | 'ja';
 export type PlannerEventSpanPosition = 'single' | 'start' | 'middle' | 'end';
 export type PlannerCountdownSource = 'note-event';
-export type PlannerAgendaItemKind =
-  | 'countdown'
-  | 'all-day-event'
-  | 'timed-event'
-  | 'schedule-block'
-  | 'todo'
-  | 'milestone';
 
 export interface PlannerDatedSchedule extends Schedule {
   date: string;
@@ -195,38 +188,10 @@ export interface PlannerDayViewPayload {
   isToday: boolean;
 }
 
-export interface PlannerAgendaItem {
-  id: string;
-  kind: PlannerAgendaItemKind;
-  dateKey: string;
-  sortKey: string;
-  title: string;
-  sourceRef: { type: string; id: string };
-  meta: {
-    startTime?: string;
-    endTime?: string;
-    daysUntil?: number;
-    category?: string;
-    done?: boolean;
-  };
-}
-
-export interface PlannerAgendaDayGroup {
-  dateKey: string;
-  items: readonly PlannerAgendaItem[];
-}
-
-export interface PlannerAgendaViewPayload {
-  horizon: { startDate: string; endDate: string };
-  countdownSection: readonly PlannerAgendaItem[];
-  dayGroups: readonly PlannerAgendaDayGroup[];
-}
-
 export interface PlannerCalendarViews {
   month: PlannerMonthViewPayload;
   week: PlannerWeekViewPayload;
   day: PlannerDayViewPayload;
-  agenda: PlannerAgendaViewPayload;
 }
 
 export interface PlannerCalendarProjection {

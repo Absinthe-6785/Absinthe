@@ -91,25 +91,14 @@ export function formatPlannerCalendarPresentation(
       : '',
     dayHeading: formatPlannerDayHeading(projection.meta.anchorDate, locale),
     weekdayShortLabels: [0, 1, 2, 3, 4, 5, 6].map(day => formatPlannerWeekdayShort(day, locale)),
-    agendaHorizonLabel: projection.views.agenda.horizon.startDate && projection.views.agenda.horizon.endDate
-      ? formatPlannerWeekRangeLabel(
-        projection.views.agenda.horizon.startDate,
-        projection.views.agenda.horizon.endDate,
-        locale,
-      )
-      : '',
+    agendaHorizonLabel: '',
     countdownLabels: new Map(
       projection.core.countdowns.map(countdown => [
         countdown.id,
         formatPlannerCountdownLabel(countdown.daysUntil, locale),
       ]),
     ),
-    agendaDateHeaders: new Map(
-      projection.views.agenda.dayGroups.map(group => [
-        group.dateKey,
-        formatPlannerAgendaDateHeader(group.dateKey, locale),
-      ]),
-    ),
+    agendaDateHeaders: new Map(),
   };
 
   return { locale, labels };

@@ -1,8 +1,4 @@
 export type {
-  PlannerAgendaDayGroup,
-  PlannerAgendaItem,
-  PlannerAgendaItemKind,
-  PlannerAgendaViewPayload,
   PlannerCalendarCore,
   PlannerCalendarMeta,
   PlannerCalendarPresentation,
@@ -65,14 +61,12 @@ export {
 } from './buildPlannerCalendarProjection';
 
 export {
-  buildAgendaViewPayload,
   buildDayViewPayload,
   buildMonthViewPayload,
   buildWeekViewPayload,
 } from './buildPlannerViewPayloads';
 
 export {
-  formatPlannerAgendaDateHeader,
   formatPlannerCalendarPresentation,
   formatPlannerCountdownLabel,
   formatPlannerDayHeading,

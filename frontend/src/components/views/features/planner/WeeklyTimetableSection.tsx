@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { CalendarDays, Plus, X } from 'lucide-react';
 import { useConfirm } from '../../../../hooks/useConfirm';
 import { useEscapeKey } from '../../../../hooks/useEscapeKey';
 import { useApiMutation } from '../../../../hooks/useApiMutation';
 import { useTranslation } from '../../../../lib/i18n';
+import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
 import { EmptyState } from '../../../common/EmptyState';
@@ -22,6 +23,8 @@ export interface WeeklyTimetableSectionProps {
   THEME_COLORS: ThemeColor[];
   mutateStatic: () => void;
   showToast: (message: string, type?: 'success' | 'error') => void;
+  /** Dedicated Timetable tab — always expanded, no collapse toggle (K-74). */
+  standalone?: boolean;
 }
 
 export function WeeklyTimetableSection({
@@ -31,8 +34,10 @@ export function WeeklyTimetableSection({
   THEME_COLORS,
   mutateStatic,
   showToast,
+  standalone = false,
 }: WeeklyTimetableSectionProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const { mutate: api } = useApiMutation(null, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -54,6 +59,8 @@ export function WeeklyTimetableSection({
   const weekdays = WEEKDAY_KEYS.map(key => t(key));
   const hasActivities = weeklySchedules.length > 0;
   const [expanded, setExpanded] = useState(hasActivities);
+  const showGrid = standalone ? !isMobile : expanded;
+  const showMobileList = standalone && isMobile;
 
   const openWeeklyModal = (sch?: WeeklySchedule) => {
     setNewWeeklySch(sch ?? {
@@ -94,32 +101,49 @@ export function WeeklyTimetableSection({
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const ROW_H = 48;
 
+  const mobileByDay = useMemo(() => {
+    const groups = WEEKDAY_KEYS.map((_, day) => ({
+      day,
+      label: weekdays[day],
+      blocks: (weeklySchedules || [])
+        .filter(b => b.day === day)
+        .sort((a, b) => a.start_time.localeCompare(b.start_time)),
+    }));
+    return groups.filter(g => g.blocks.length > 0);
+  }, [weeklySchedules, weekdays]);
+
   return (
     <>
       <section
-        className={`w-full rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card} ${expanded ? 'min-h-[420px] lg:min-h-[480px]' : ''}`}
+        className={`w-full rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card} ${showGrid || showMobileList ? 'min-h-[360px] lg:min-h-[480px]' : ''}`}
         data-planner-weekly-timetable
-        data-planner-weekly-timetable-expanded={expanded ? 'true' : 'false'}
+        data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
+        data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
       >
         <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
               <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
             </h2>
-            {!expanded && !hasActivities && (
+            {!standalone && !expanded && !hasActivities && (
               <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
             )}
+            {standalone ? (
+              <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('k74TimetableHint')}</p>
+            ) : null}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setExpanded(v => !v)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${theme.input} ${theme.textMuted} hover:text-primary`}
-              data-planner-weekly-timetable-toggle
-              aria-expanded={expanded}
-            >
-              {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
-            </button>
+            {!standalone ? (
+              <button
+                type="button"
+                onClick={() => setExpanded(v => !v)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${theme.input} ${theme.textMuted} hover:text-primary`}
+                data-planner-weekly-timetable-toggle
+                aria-expanded={expanded}
+              >
+                {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => openWeeklyModal()}
@@ -131,13 +155,44 @@ export function WeeklyTimetableSection({
           </div>
         </div>
 
-        {!expanded && !hasActivities && (
+        {!standalone && !expanded && !hasActivities && (
           <div className="py-6" data-planner-weekly-timetable-collapsed-empty="true">
             <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
           </div>
         )}
 
-        {expanded && (
+        {showMobileList && (
+          <div className="flex flex-col gap-4" data-planner-weekly-timetable-mobile>
+            {!hasActivities ? (
+              <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
+            ) : (
+              mobileByDay.map(({ day, label, blocks }) => (
+                <div key={day}>
+                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`}>{label}</h3>
+                  <ul className="flex flex-col gap-2">
+                    {blocks.map(block => (
+                      <li key={block.id}>
+                        <button
+                          type="button"
+                          onClick={() => openWeeklyModal(block)}
+                          className={`w-full text-left rounded-xl px-3 py-3 min-h-[44px] flex items-center justify-between gap-2 ${theme.input}`}
+                          data-planner-weekly-mobile-block={block.id}
+                        >
+                          <span className="text-sm font-bold truncate">{block.title}</span>
+                          <span className={`text-xs font-semibold tabular-nums shrink-0 ${theme.textMuted}`}>
+                            {block.start_time}–{block.end_time}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {showGrid && (
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           {!hasActivities ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3" data-planner-weekly-timetable-empty="true">

@@ -7,20 +7,25 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { PlannerProps, Schedule, Routine } from '../../types';
+import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
+import { ScheduleWorkspaceNav, type ScheduleWorkspaceSection } from './features/planner/ScheduleWorkspaceNav';
+import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
 
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
-  formatDate, isToday, showToast, mutateDaily, mutateStatic,
-  mutateTodos, mutateRoutines,
+  formatDate, isToday, showToast,   mutateDaily, mutateStatic,
   appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
+  const isMobile = useIsMobile();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+
+  const [workspaceSection, setWorkspaceSection] = useState<ScheduleWorkspaceSection>('schedule');
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -31,10 +36,7 @@ export const PlannerView = ({
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
 
-  const [showExceptionModal, setShowExceptionModal] = useState(false);
-  const [exceptionForm, setExceptionForm] = useState({ start_date: '', end_date: '', reason: '' });
-
-  // 전날 스케줄 fetch — end_next_day 블록을 익일 타임라인에 표시하기 위해
+  // ── Schedule CRUD ──────────────────────────────────────────────────
   const prevDate = useMemo(() => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 1);
@@ -63,66 +65,6 @@ export const PlannerView = ({
       ],
     });
   }, []);
-
-  // ── Routine ────────────────────────────────────────────────────────
-  const handleAddRoutine = (text: string) => {
-    if (text.trim()) api('POST', '/api/routines', { text, created_date: formatDate(new Date()) }, { revalidate: 'daily' });
-  };
-  const handleToggleRoutine = (id: string, current: boolean) => {
-    // UI 즉시 반영 — 서버 응답 기다리지 않음
-    mutateRoutines(
-      (cur) => cur.map((r) => r.id === id ? { ...r, done: !current } : r),
-      false, // revalidate: false → optimistic 상태 유지, 서버 응답 후 재검증은 api()가 담당
-    );
-    api('POST', '/api/routine_logs',
-      { routine_id: id, date: formatDate(selectedDate), done: !current },
-      { revalidate: 'daily' },
-    ).then((ok) => {
-      // 실패 시 롤백
-      if (!ok) mutateRoutines((cur) => cur.map((r) => r.id === id ? { ...r, done: current } : r), false);
-    });
-  };
-  const handleUpdateRoutineText = async (id: string, text: string) => {
-    if (!text.trim()) return;
-    await api('PUT', `/api/routines/${id}`, { text }, { revalidate: 'daily' });
-  };
-
-  // ── Routine Exception ────────────────────────────────────────────────
-  const handleSaveException = useCallback(async () => {
-    if (!exceptionForm.start_date || !exceptionForm.end_date) return showToast(t('exStartEndRequired'), 'error');
-    if (exceptionForm.start_date > exceptionForm.end_date) return showToast(t('exEndAfterStart'), 'error');
-    const ok = await api('POST', '/api/routine_exceptions',
-      { start_date: exceptionForm.start_date, end_date: exceptionForm.end_date, reason: exceptionForm.reason },
-      { revalidate: 'daily', successMsg: t('exceptionSaved') }
-    );
-    if (ok) { setShowExceptionModal(false); setExceptionForm({ start_date: '', end_date: '', reason: '' }); }
-  }, [api, exceptionForm, showToast]);
-
-  // ── Todo ───────────────────────────────────────────────────────────
-  const handleAddTodo = (text: string) => {
-    if (text.trim()) api('POST', '/api/todos', { date: formatDate(selectedDate), text }, { revalidate: 'daily' });
-  };
-  const handleToggleTodo = (id: string, current: boolean) => {
-    // UI 즉시 반영
-    mutateTodos(
-      (cur) => cur.map((t) => t.id === id ? { ...t, done: !current } : t),
-      false,
-    );
-    api('PUT', `/api/todos/${id}`, { done: !current }, { revalidate: 'daily' })
-      .then((ok) => {
-        // 실패 시 롤백
-        if (!ok) mutateTodos((cur) => cur.map((t) => t.id === id ? { ...t, done: current } : t), false);
-      });
-  };
-  const handleDeleteTodo = (id: string) =>
-    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: t('taskDeleted') });
-  const handleUpdateTodoText = async (id: string, text: string) => {
-    if (!text.trim()) return;
-    await api('PUT', `/api/todos_text/${id}`,
-      { date: formatDate(selectedDate), text },
-      { revalidate: 'daily' },
-    );
-  };
 
   // ── Schedule ───────────────────────────────────────────────────────
   const openModal = (sch?: Schedule) => {
@@ -159,11 +101,6 @@ export const PlannerView = ({
       { confirmLabel: t('deleteLabel') },
     );
 
-  const routineExceptionDates = useMemo(
-    () => (routines[0]?.is_exception_day ? new Set([formatDate(selectedDate)]) : undefined),
-    [routines, selectedDate, formatDate],
-  );
-
   const handleCalendarAnchorChange = useCallback((dateKey: string) => {
     const [y, m, d] = dateKey.split('-').map(Number);
     if (!y || !m || !d) return;
@@ -172,7 +109,15 @@ export const PlannerView = ({
   }, [setSelectedDate, setCurrentDate]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0">
+    <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0" data-workspace="planner">
+      <ScheduleWorkspaceNav
+        active={workspaceSection}
+        onChange={setWorkspaceSection}
+        theme={theme}
+        compact={isMobile}
+      />
+
+      {workspaceSection === 'schedule' ? (
       <CalendarShell
         now={now}
         anchorDate={formatDate(selectedDate)}
@@ -184,7 +129,6 @@ export const PlannerView = ({
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}
         theme={theme}
-        routineExceptionDates={routineExceptionDates}
         onEventNoteClick={openPlannerNote}
         onAnchorDateChange={handleCalendarAnchorChange}
         dayScheduleActions={{
@@ -195,17 +139,18 @@ export const PlannerView = ({
           },
           onDelete: handleDeleteSchedule,
         }}
-        dayRoutineActions={{
-          onToggle: handleToggleRoutine,
-          onAdd: handleAddRoutine,
-          onEdit: handleUpdateRoutineText,
-        }}
-        dayTodoActions={{
-          onToggle: handleToggleTodo,
-          onAdd: handleAddTodo,
-          onEdit: handleUpdateTodoText,
-        }}
       />
+      ) : (
+        <WeeklyTimetableSection
+          weeklySchedules={weeklySchedules}
+          theme={theme}
+          appSettings={appSettings}
+          THEME_COLORS={THEME_COLORS}
+          mutateStatic={mutateStatic}
+          showToast={showToast}
+          standalone
+        />
+      )}
 
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
@@ -302,40 +247,6 @@ export const PlannerView = ({
                 {t('saveSchedule')}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 예외일 설정 모달 */}
-      {showExceptionModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowExceptionModal(false)}>
-          <div className={`rounded-[28px] p-6 w-full max-w-[360px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="font-heading text-lg font-bold flex items-center gap-2">{t('setException')}</h3>
-              <button onClick={() => setShowExceptionModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
-            </div>
-            <p className={`text-xs mb-4 ${theme.textMuted}`}>{t('exceptionDesc')}</p>
-            <div className="space-y-3">
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('startDate')}</label>
-                <input type="date" value={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, start_date: e.target.value }))}
-                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-primary ${theme.input}`}/>
-              </div>
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('endDate')}</label>
-                <input type="date" value={exceptionForm.end_date} min={exceptionForm.start_date} onChange={e => setExceptionForm(f => ({ ...f, end_date: e.target.value }))}
-                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold focus:ring-2 focus:ring-primary ${theme.input}`}/>
-              </div>
-              <div>
-                <label className={`block text-xs font-semibold mb-1 ${theme.textMuted}`}>{t('exReason')}</label>
-                <input type="text" value={exceptionForm.reason} onChange={e => setExceptionForm(f => ({ ...f, reason: e.target.value }))}
-                  placeholder={t('exReasonPh')} className={`w-full rounded-xl p-3 outline-none text-sm focus:ring-2 focus:ring-primary ${theme.input}`}/>
-              </div>
-            </div>
-            <button onClick={handleSaveException}
-              className="w-full mt-5 py-3 rounded-2xl font-bold text-sm bg-primary text-primary-foreground hover:scale-[1.02] transition-transform">
-              {t('saveException')}
-            </button>
           </div>
         </div>
       )}

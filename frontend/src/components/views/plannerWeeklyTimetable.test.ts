@@ -145,19 +145,17 @@ describe('WeeklyTimetableSection', () => {
   });
 });
 
-describe('PlannerView weekly timetable integration', () => {
-  it('does not mount Weekly Timetable in calendar-only PlannerView (K-71)', async () => {
+describe('PlannerView timetable integration', () => {
+  it('mounts Schedule workspace nav with calendar on default tab (K-74)', async () => {
     const { PlannerView } = await import('./PlannerView');
     const html = renderToStaticMarkup(
       createElement(PlannerView, plannerProps()),
     );
 
+    expect(html).toContain('data-schedule-workspace-nav');
+    expect(html).toContain('data-schedule-workspace-section="schedule"');
+    expect(html).toContain('data-planner-calendar-shell');
     expect(html).not.toContain('data-planner-weekly-timetable');
     expect(html).not.toContain('data-planner-column="timeline"');
-    expect(html).not.toContain('data-planner-column="planning"');
-    expect(html).not.toContain('data-planner-mobile-tabs');
-    expect(html).not.toContain('data-planner-legacy-mini-calendar');
-    expect(html).toContain('data-planner-calendar-shell');
-    expect(html).toContain('data-planner-calendar-mode="day"');
   });
 });

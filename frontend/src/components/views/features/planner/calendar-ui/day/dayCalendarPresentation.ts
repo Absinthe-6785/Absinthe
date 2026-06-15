@@ -39,9 +39,6 @@ export function buildDayDisplayModel(day: PlannerDayViewPayload): DayDisplayMode
     && day.timedEvents.length === 0
     && day.timeline.blocks.length === 0
     && day.timeline.carryOverBlocks.length === 0
-    && day.bundle.weeklySlots.length === 0
-    && day.bundle.routines.length === 0
-    && day.bundle.todos.length === 0
     && milestoneCount === 0;
 
   return {

@@ -3,16 +3,12 @@ import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../calendar';
 import { DayEventsSection } from './day/DayEventsSection';
-import { DayRoutineSummary } from './day/DayRoutineSummary';
 import { DayScheduleTimeline } from './day/DayScheduleTimeline';
-import { DayTodoSummary } from './day/DayTodoSummary';
 import { DayCountdownStrip } from './day/DayCountdownStrip';
 import { DayMilestonesSection } from './day/DayMilestonesSection';
 import { SelectedDayHistoryExtras } from './SelectedDayHistoryExtras';
 import { buildDayDisplayModel } from './day/dayCalendarPresentation';
 import type { DayScheduleActions } from './day/dayScheduleActions';
-import type { DayRoutineActions } from './day/dayRoutineActions';
-import type { DayTodoActions } from './day/dayTodoActions';
 
 export type SelectedDayDetailVariant = 'full' | 'month';
 
@@ -22,24 +18,19 @@ export interface SelectedDayDetailPanelProps {
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   scheduleActions?: DayScheduleActions;
-  routineActions?: DayRoutineActions;
-  todoActions?: DayTodoActions;
   hideHeading?: boolean;
-  /** full: day/week — all sections; month: events, schedules, countdowns only */
+  /** full: day/week; month: history-focused extras */
   variant?: SelectedDayDetailVariant;
-  /** Omit card chrome when nested inside another card (day view). */
   bare?: boolean;
 }
 
-/** Unified selected-day timeline — schedules, events, routines, tasks, countdowns. */
+/** Selected-day panel — schedules, events, deadlines only (K-74). */
 export function SelectedDayDetailPanel({
   projection,
   presentation,
   theme,
   onEventNoteClick,
   scheduleActions,
-  routineActions,
-  todoActions,
   hideHeading = false,
   variant = 'full',
   bare = false,
@@ -47,8 +38,6 @@ export function SelectedDayDetailPanel({
   const { t } = useTranslation();
   const day = projection.views.day;
   const model = useMemo(() => buildDayDisplayModel(day), [day]);
-  const showRoutines = variant === 'full';
-  const showTodos = variant === 'full';
 
   const shellClass = bare
     ? 'flex flex-col gap-2.5'
@@ -78,32 +67,26 @@ export function SelectedDayDetailPanel({
         carryOverBlocks={model.carryOverBlocks}
         scheduleActions={scheduleActions}
       />
-      <DayEventsSection
-        allDayEvents={model.allDayEvents}
-        timedEvents={model.timedEvents}
-        onEventNoteClick={onEventNoteClick}
-      />
-      <DayCountdownStrip
-        countdowns={projection.core.countdowns}
-        presentation={presentation}
-        onNoteClick={onEventNoteClick}
-      />
-      {showTodos ? (
-        <DayTodoSummary
-          todos={model.todos}
-          theme={theme}
-          todoActions={todoActions}
+
+      <section className="flex flex-col gap-1.5" data-planner-day-events-deadlines>
+        <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
+          {t('k74EventsAndDeadlines')}
+        </h4>
+        <DayEventsSection
+          allDayEvents={model.allDayEvents}
+          timedEvents={model.timedEvents}
+          onEventNoteClick={onEventNoteClick}
+          hideHeading
         />
-      ) : null}
-      {showRoutines ? (
-        <DayRoutineSummary
-          routines={model.routines}
-          isRoutineException={model.isRoutineException}
-          theme={theme}
-          routineActions={routineActions}
-          compactEmpty={model.timelineBlocks.length === 0 && model.carryOverBlocks.length === 0}
+        <DayCountdownStrip
+          countdowns={projection.core.countdowns}
+          presentation={presentation}
+          onNoteClick={onEventNoteClick}
+          hideHeading
+          inline
         />
-      ) : null}
+      </section>
+
       {variant === 'month' ? (
         <>
           <DayMilestonesSection

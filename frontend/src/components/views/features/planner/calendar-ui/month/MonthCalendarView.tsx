@@ -5,8 +5,6 @@ import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { monthGridHasAnchors } from './monthCalendarPresentation';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
 import type { DayScheduleActions } from '../day/dayScheduleActions';
-import type { DayRoutineActions } from '../day/dayRoutineActions';
-import type { DayTodoActions } from '../day/dayTodoActions';
 
 export interface MonthCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -15,8 +13,6 @@ export interface MonthCalendarViewProps {
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
   scheduleActions?: DayScheduleActions;
-  routineActions?: DayRoutineActions;
-  todoActions?: DayTodoActions;
 }
 
 export function MonthCalendarView({
@@ -26,8 +22,6 @@ export function MonthCalendarView({
   onEventNoteClick,
   onDateSelect,
   scheduleActions,
-  routineActions,
-  todoActions,
 }: MonthCalendarViewProps) {
   const { t } = useTranslation();
   const month = projection.views.month;
@@ -75,8 +69,6 @@ export function MonthCalendarView({
         theme={theme}
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
-        routineActions={routineActions}
-        todoActions={todoActions}
         variant="month"
       />
     </div>

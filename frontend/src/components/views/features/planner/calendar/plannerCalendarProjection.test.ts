@@ -45,7 +45,7 @@ function baseInput(overrides: Partial<Parameters<typeof buildPlannerCalendarProj
 }
 
 describe('plannerCalendarDateUtils', () => {
-  it('resolves month, week, day, and agenda ranges', () => {
+  it('resolves month, week, and day ranges', () => {
     expect(resolvePlannerCalendarRange('day', '2027-02-03')).toEqual({
       startDate: '2027-02-03',
       endDate: '2027-02-03',
@@ -54,9 +54,6 @@ describe('plannerCalendarDateUtils', () => {
     const week = resolvePlannerCalendarRange('week', '2027-02-03');
     expect(week).toEqual({ startDate: '2027-02-01', endDate: '2027-02-07' });
     expect(isoWeekBounds('2027-02-03')).toEqual(week);
-
-    const agenda = resolvePlannerCalendarRange('agenda', '2027-02-03');
-    expect(agenda).toEqual({ startDate: '2027-02-03', endDate: '2027-02-16' });
 
     const month = resolvePlannerCalendarRange('month', '2027-02-03');
     expect(month?.month).toEqual({ year: 2027, month: 2 });
@@ -80,14 +77,13 @@ describe('plannerCalendarDateUtils', () => {
     ]);
   });
 
-  it('builds index range as union of all calendar horizons', () => {
+  it('builds index range as union of calendar horizons', () => {
     const indexRange = resolvePlannerIndexRange('2027-02-03');
     const month = monthGridBounds('2027-02-03');
-    const agenda = resolvePlannerCalendarRange('agenda', '2027-02-03');
 
     expect(indexRange).not.toBeNull();
     expect(indexRange!.startDate <= month!.startDate).toBe(true);
-    expect(indexRange!.endDate >= agenda!.endDate).toBe(true);
+    expect(indexRange!.endDate >= month!.endDate).toBe(true);
   });
 });
 
@@ -204,43 +200,6 @@ describe('buildPlannerCalendarProjection', () => {
     expect(projection.views.week.endDate).toBe('2027-02-07');
   });
 
-  it('builds agenda groups and countdown section', () => {
-    const exam = applyEventToNote(note('exam', { title: 'TOEFL' }), {
-      title: 'TOEFL',
-      eventDate: '2027-02-10',
-      eventTime: '09:00',
-    });
-
-    const projection = buildPlannerCalendarProjection(baseInput({
-      viewMode: 'agenda',
-      anchorDate: '2027-02-03',
-      notes: [exam],
-      scheduleBlocks: [{
-        id: 'b1',
-        date: '2027-02-04',
-        text: 'Deep Work',
-        start_time: '10:00',
-        end_time: '12:00',
-        is_dday: false,
-        color: 'purple',
-        category: 'Work',
-      }],
-      todos: [{ id: 't1', date: '2027-02-05', text: 'Pack bag', done: false }],
-    }));
-
-    expect(projection.views.agenda.horizon).toEqual({
-      startDate: '2027-02-03',
-      endDate: '2027-02-16',
-    });
-    expect(projection.views.agenda.countdownSection.length).toBeGreaterThan(0);
-    expect(projection.views.agenda.dayGroups.some(group => group.items.length > 0)).toBe(true);
-    expect(
-      projection.views.agenda.dayGroups
-        .flatMap(group => group.items)
-        .some(item => item.kind === 'schedule-block'),
-    ).toBe(true);
-  });
-
   it('dedupes duplicate event countdowns by date and title', () => {
     const exam = applyEventToNote(note('exam', { title: 'TOEFL' }), {
       title: 'TOEFL',
@@ -252,7 +211,7 @@ describe('buildPlannerCalendarProjection', () => {
     });
 
     const projection = buildPlannerCalendarProjection(baseInput({
-      viewMode: 'agenda',
+      viewMode: 'month',
       notes: [exam, duplicate],
     }));
 
@@ -345,7 +304,7 @@ describe('formatPlannerCalendarPresentation', () => {
       eventDate: '2027-02-10',
     });
     const projection = buildPlannerCalendarProjection(baseInput({
-      viewMode: 'agenda',
+      viewMode: 'month',
       notes: [exam],
     }));
 

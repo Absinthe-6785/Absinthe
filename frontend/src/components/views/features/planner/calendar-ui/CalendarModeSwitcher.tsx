@@ -3,11 +3,10 @@ import type { PlannerCalendarViewMode } from '../calendar';
 import { useTranslation } from '../../../../../lib/i18n';
 import { PLANNER_CALENDAR_MODES } from './calendarShellModels';
 
-const MODE_LABEL_KEYS: Record<PlannerCalendarViewMode, 'plannerCalendarModeMonth' | 'plannerCalendarModeWeek' | 'plannerCalendarModeDay' | 'agendaView'> = {
+const MODE_LABEL_KEYS: Record<PlannerCalendarViewMode, 'plannerCalendarModeMonth' | 'plannerCalendarModeWeek' | 'plannerCalendarModeDay'> = {
   month: 'plannerCalendarModeMonth',
   week: 'plannerCalendarModeWeek',
   day: 'plannerCalendarModeDay',
-  agenda: 'agendaView',
 };
 
 export interface CalendarModeSwitcherProps {
