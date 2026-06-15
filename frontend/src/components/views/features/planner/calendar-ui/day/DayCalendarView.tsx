@@ -1,10 +1,9 @@
 import { useMemo } from 'react';
 import type { Theme } from '@/types';
-import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
 import { DayHeader } from './DayHeader';
 import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
-import { buildDayDisplayModel, dayHasContent } from './dayCalendarPresentation';
+import { buildDayDisplayModel } from './dayCalendarPresentation';
 import type { DayScheduleActions } from './dayScheduleActions';
 
 export interface DayCalendarViewProps {
@@ -23,10 +22,8 @@ export function DayCalendarView({
   onEventNoteClick,
   scheduleActions,
 }: DayCalendarViewProps) {
-  const { t } = useTranslation();
   const day = projection.views.day;
   const model = useMemo(() => buildDayDisplayModel(day), [day]);
-  const hasContent = dayHasContent(day);
 
   return (
     <div
@@ -40,15 +37,6 @@ export function DayCalendarView({
         theme={theme}
       />
 
-      {!hasContent ? (
-        <p
-          className={`text-xs ${theme.textMuted}`}
-          data-planner-calendar-day-empty-hint="true"
-        >
-          {t('scheduleDayEmptyHint')}
-        </p>
-      ) : null}
-
       <SelectedDayDetailPanel
         projection={projection}
         presentation={presentation}
@@ -57,6 +45,7 @@ export function DayCalendarView({
         scheduleActions={scheduleActions}
         hideHeading
         bare
+        suppressEmptySections
       />
     </div>
   );

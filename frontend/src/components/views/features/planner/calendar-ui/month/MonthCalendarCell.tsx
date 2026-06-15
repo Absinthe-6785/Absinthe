@@ -4,6 +4,7 @@ import {
   spanPositionClass,
   type MonthCellDisplayModel,
 } from './monthCalendarPresentation';
+import { formatEventTimeLabel } from '../day/dayCalendarPresentation';
 
 export interface MonthCalendarCellProps {
   model: MonthCellDisplayModel;
@@ -71,13 +72,17 @@ export function MonthCalendarCell({
           </div>
         ))}
 
-        {model.eventRows.map(({ occurrence, showTitle }) => (
+        {model.eventRows.map(({ occurrence, showTitle }) => {
+          const timeLabel = !occurrence.isAllDay && occurrence.startTime
+            ? formatEventTimeLabel(occurrence.startTime, occurrence.endTime)
+            : null;
+          return (
           <div
             key={occurrence.occurrenceId}
             className={`px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
             data-planner-month-event={occurrence.noteId}
             data-planner-month-event-span={occurrence.spanPosition}
-            title={occurrence.title}
+            title={timeLabel ? `${timeLabel} ${occurrence.title}` : occurrence.title}
             onClick={onEventNoteClick ? (e) => { e.stopPropagation(); onEventNoteClick(occurrence.noteId); } : undefined}
             onKeyDown={onEventNoteClick ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -88,9 +93,15 @@ export function MonthCalendarCell({
             role={onEventNoteClick ? 'button' : undefined}
             tabIndex={onEventNoteClick ? 0 : undefined}
           >
-            {showTitle ? occurrence.title : '\u00a0'}
+            {showTitle ? (
+              <>
+                {timeLabel ? <span className="opacity-70 tabular-nums">{timeLabel} </span> : null}
+                {occurrence.title}
+              </>
+            ) : '\u00a0'}
           </div>
-        ))}
+          );
+        })}
 
         {overflowLabel ? (
           <span

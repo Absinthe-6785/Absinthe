@@ -34,7 +34,7 @@ export function WeekCalendarView({
       className="flex flex-col gap-3 lg:gap-4"
       data-planner-calendar-week
     >
-      <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}>
+      <div className={`rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 ${theme.card}`}>
         <WeekHeader
           periodLabel={presentation.labels.weekRangeLabel}
           theme={theme}
@@ -67,6 +67,7 @@ export function WeekCalendarView({
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
         bare
+        suppressEmptySections
       />
     </div>
   );

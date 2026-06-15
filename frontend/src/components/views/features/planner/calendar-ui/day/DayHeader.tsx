@@ -16,7 +16,7 @@ export function DayHeader({
 }: DayHeaderProps) {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col gap-1 mb-4">
+    <div className="flex flex-col gap-1 mb-2">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <h3 className="font-heading text-base lg:text-lg font-bold">{t('dayView')}</h3>

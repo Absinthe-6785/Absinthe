@@ -21,6 +21,7 @@ import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
+import { plannedSetCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 
@@ -219,6 +220,28 @@ export const HealthView = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localWorkouts]);
 
+  const fetchPrevForBlock = useCallback(async (blockId: string) => {
+    if (prevData[blockId]?.prev_sets) return prevData[blockId].prev_sets;
+    try {
+      const res = await authFetch(`${API_URL}/api/workouts/prev/${blockId}?before_date=${formatDate(selectedDate)}`);
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      setPrevData(prev => ({ ...prev, [blockId]: data }));
+      return data.prev_sets as WorkoutSet[] | undefined;
+    } catch {
+      return undefined;
+    }
+  }, [prevData, selectedDate, formatDate]);
+
+  useEffect(() => {
+    if (!healthRoutines?.length) return;
+    const ids = [...new Set(healthRoutines.flatMap((r: HealthRoutine) => r.blocks))];
+    ids.forEach(id => {
+      if (prevData[id] !== undefined) return;
+      void fetchPrevForBlock(id);
+    });
+  }, [healthRoutines, fetchPrevForBlock, prevData]);
+
   // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
   // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
   const isDirtyRef = useRef(false);
@@ -328,24 +351,29 @@ export const HealthView = ({
   };
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
-  const handleLoadRoutine = (e: ChangeEvent<HTMLSelectElement>) => {
+  const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
     const dayName = e.target.value;
     if (!dayName || dayName === '__load__') return;
     const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = '__load__'; return; }
 
-    // routine.blocks 순서를 완전한 기준으로 삼아 최종 배열을 구성.
-    // 1) 루틴에 포함된 블록: routine.blocks[i] 순서 그대로
-    //    - 이미 localWorkouts에 있으면 기존 세트 데이터 보존
-    //    - 없으면 새 기본 세트로 생성
-    // 2) 루틴에 없는 기존 블록: 맨 뒤에 순서 유지하여 추가
-    const routineOrdered: Workout[] = routine.blocks.map((id: string) => {
+    const routineOrdered: Workout[] = [];
+    for (const id of routine.blocks) {
       const existing = localWorkouts.find(w => w.block_id === id);
-      if (existing) return existing;
+      if (existing) {
+        routineOrdered.push(existing);
+        continue;
+      }
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
-      if (!b) return null;
-      return { id: `temp-${Date.now()}-${b.id}`, block_id: b.id, exercise_blocks: b, sets: [makeDefaultSet(b.type)] };
-    }).filter((w): w is Workout => !!w);
+      if (!b) continue;
+      const prevSets = await fetchPrevForBlock(id);
+      routineOrdered.push({
+        id: `temp-${Date.now()}-${b.id}`,
+        block_id: b.id,
+        exercise_blocks: b,
+        sets: buildSetsFromPrevCount(b.type, prevSets),
+      });
+    }
 
     const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
     setLocalWorkouts([...routineOrdered, ...unrelated]);
@@ -353,10 +381,16 @@ export const HealthView = ({
     e.target.value = '__load__';
     showToast(t('loaded'));
   };
-  const handleAddWorkoutToToday = (block: ExerciseBlock) => {
+  const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
+    const prevSets = await fetchPrevForBlock(block.id);
     setIsDirty(true);
-    setLocalWorkouts([...localWorkouts, { id: `temp-${Date.now()}`, block_id: block.id, exercise_blocks: block, sets: [makeDefaultSet(block.type)] }]);
+    setLocalWorkouts([...localWorkouts, {
+      id: `temp-${Date.now()}`,
+      block_id: block.id,
+      exercise_blocks: block,
+      sets: buildSetsFromPrevCount(block.type, prevSets),
+    }]);
   };
 
   // ── 세션 구분선 ───────────────────────────────────────────────────
@@ -620,8 +654,8 @@ export const HealthView = ({
       {healthSection === 'workout' && (
     <>
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
-      {/* ── 좌측: Routine + Blocks (32%) ── */}
-      <div className="lg:w-[32%] lg:max-w-[360px] lg:flex-none flex flex-col gap-4 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      {/* ── 좌측: Routine + Blocks (~38%) ── */}
+      <div className="lg:w-[38%] lg:max-w-[420px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -635,8 +669,8 @@ export const HealthView = ({
             </button>
           ))}
         </div>
-        <div className={`${WORKSPACE_CARD.md} lg:max-h-[280px] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
-          <div className="flex justify-between items-center mb-4">
+        <div className={`${WORKSPACE_CARD.md} lg:max-h-[340px] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
+          <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
             <button onClick={() => openBlockModal()} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
           </div>
@@ -653,12 +687,19 @@ export const HealthView = ({
             const untagged = blocks.filter((b: ExerciseBlock) => (b.tags ?? []).length === 0);
             const showUntagged = !activeTagFilter;
 
-            const BlockCard = ({ b }: { b: ExerciseBlock }) => (
-              <div onClick={() => handleAddWorkoutToToday(b)}
-                className={`group relative text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}>
-                <div className="flex items-center gap-2">
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                  <span className="truncate max-w-[110px]">{b.name}</span>
+            const BlockCard = ({ b }: { b: ExerciseBlock }) => {
+              const sets = plannedSetCount(b.id, localWorkouts, prevData);
+              return (
+              <div onClick={() => void handleAddWorkoutToToday(b)}
+                className={`group relative text-xs font-semibold px-2.5 py-2 rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
+                    <span className="truncate max-w-[120px]">{b.name}</span>
+                  </div>
+                  <span className={`text-[10px] font-bold pl-3.5 ${theme.textMuted}`}>
+                    {t('k76SetCount').replace('{count}', String(sets))}
+                  </span>
                 </div>
                 <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
                   className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
@@ -669,13 +710,13 @@ export const HealthView = ({
                   <X size={10}/>
                 </button>
               </div>
-            );
+            );};
 
             return (
               <>
                 {/* 태그 필터 바 */}
                 {allTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3 shrink-0">
+                  <div className="flex flex-wrap gap-1 mb-3 shrink-0">
                     <button onClick={() => setActiveTagFilter(null)}
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
                         ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
@@ -697,14 +738,14 @@ export const HealthView = ({
                 )}
 
                 {/* 태그별 그룹 섹션 */}
-                <div className="overflow-y-auto min-h-0 pr-1 pb-2 space-y-3">
+                <div className="overflow-y-auto min-h-0 pr-1 pb-1 space-y-2">
                   {tagged.map(({ tag, items }) => (
                     <div key={tag}>
-                      <div className={`flex items-center gap-2 mb-1.5`}>
+                      <div className={`flex items-center gap-1.5 mb-1`}>
                         <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>#{tag.toUpperCase()}</span>
                         <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {items.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
                       </div>
                     </div>
@@ -719,7 +760,7 @@ export const HealthView = ({
                           <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
                         </div>
                       )}
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {untagged.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
                       </div>
                     </div>
@@ -730,8 +771,8 @@ export const HealthView = ({
           })()}
         </div>
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
-          <div className="flex justify-between items-center mb-4">
+        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+          <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
@@ -757,7 +798,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-4">
+          <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -765,16 +806,21 @@ export const HealthView = ({
                 .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
                 .filter((b): b is ExerciseBlock => !!b);
               return (
-                <div key={dayName} className={`rounded-2xl p-4 border ${theme.border}`}>
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-heading text-base font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-sm text-blue-500 font-bold">{t('assembleBtn')}</button>
+                <div key={dayName} className={`rounded-xl p-2.5 border ${theme.border}`}>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-heading text-sm font-bold">{dayName}</h3>
+                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-                    {blocks.map(b => (
-                      <span key={b.id} className={`text-xs font-semibold px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap ${theme.card} ${theme.border}`}>
-                        {b.name}
-                      </span>
+                  <div className="flex flex-col gap-1 min-h-[24px]">
+                    {blocks.length === 0 ? (
+                      <span className={`text-[10px] ${theme.textMuted}`}>—</span>
+                    ) : blocks.map(b => (
+                      <div key={b.id} className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+                        <span className="truncate">{b.name}</span>
+                        <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
+                          {t('k76SetCount').replace('{count}', String(plannedSetCount(b.id, localWorkouts, prevData)))}
+                        </span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -784,16 +830,16 @@ export const HealthView = ({
         </div>
       </div>
 
-      {/* ── 우측: Today's Workout (primary ~68%) ── */}
+      {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
         {isDailyLoading ? (
-          <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.hero} bars={4} />
+          <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.hero} ${theme.card}`}>
-          <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+          <div className={`flex justify-between items-center mb-3 border-b pb-3 ${theme.border}`}>
             <div>
-              <h2 className="font-heading text-2xl font-bold">{t('todayWorkout')}</h2>
-              <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>
+              <h2 className="font-heading text-xl font-bold">{t('todayWorkout')}</h2>
+              <p className={`text-xs font-medium mt-0.5 ${theme.textMuted}`}>
                 {selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
               </p>
             </div>
@@ -821,7 +867,7 @@ export const HealthView = ({
             )}
           </div>
 
-          <div className="space-y-3 pb-2 lg:space-y-5 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
+          <div className="space-y-3 pb-1 lg:space-y-3 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && (
               <EmptyState
                 theme={theme}
@@ -1075,7 +1121,7 @@ export const HealthView = ({
             );
             })}
           </div>
-          <div className="shrink-0 pt-4">
+          <div className="shrink-0 pt-3">
             {isWorkoutLocked ? (
               /* ── 잠금 상태: Saved 배너 + Edit 버튼만 표시 ── */
               <div className={`flex items-center justify-between gap-3 px-5 py-4 rounded-2xl border
@@ -1114,13 +1160,13 @@ export const HealthView = ({
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
                 disabled={isSaving}
-            className={`w-full bg-primary text-primary-foreground font-bold text-lg py-4 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
+            className={`w-full bg-primary text-primary-foreground font-bold text-base py-3 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
                 {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
               </button>
             )}
             {/* ── 날짜별 메모 ── */}
-            <div className="mt-3 rounded-2xl p-3 bg-surface-alt">
-              <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>{t('memo')}</p>
+            <div className="mt-2 rounded-xl p-2.5 bg-surface-alt">
+              <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
               <textarea
                 value={workoutMemo}
                 onChange={e => {
@@ -1128,7 +1174,7 @@ export const HealthView = ({
                   localStorage.setItem(memoKey, e.target.value);
                 }}
                 placeholder={t('memoPlaceholder')}
-                rows={3}
+                rows={2}
                 className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
               />
               <button

@@ -28,8 +28,8 @@ export function DayCountdownStrip({
   if (upcoming.length === 0) return null;
 
   const rowClass = inline
-    ? 'flex items-center justify-between gap-2 px-2 py-2.5 min-h-[44px] rounded-md bg-primary/10 text-primary'
-    : 'flex items-center justify-between gap-2 px-2 py-2 min-h-[44px] rounded-md border border-border bg-surface-alt';
+    ? 'flex items-center justify-between gap-2 px-2 py-1.5 min-h-[36px] rounded-md bg-primary/10 text-primary'
+    : 'flex items-center justify-between gap-2 px-2 py-1.5 min-h-[36px] rounded-md border border-border bg-surface-alt';
 
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-countdowns>

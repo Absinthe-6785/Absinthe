@@ -4,6 +4,8 @@ export const WORKSPACE_CARD = {
   md: 'min-h-[200px]',
   lg: 'min-h-[360px]',
   hero: 'min-h-[420px]',
+  /** K-76 — today's workout panel; list-focused, not oversized hero. */
+  workoutHero: 'min-h-[280px] lg:min-h-0',
 } as const;
 
 export type WorkspaceCardSize = keyof typeof WORKSPACE_CARD;
