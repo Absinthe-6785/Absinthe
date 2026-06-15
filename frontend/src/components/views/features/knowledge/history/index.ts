@@ -73,7 +73,7 @@ export {
   buildDiscoveryProgressSummary,
   getMilestoneNoteId,
   latestAchievedMilestone,
-  type CosmosEvolutionStory,
+  type CosmosEvolutionStory as CosmosEvolutionStoryData,
   type ExpandedCosmosEvolutionStory,
   type CosmosEvolutionSummary,
   type DiscoveryProgressSummary,

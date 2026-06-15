@@ -2,7 +2,7 @@
  * SlashMenu.tsx — Slash command popup (extracted from BlockEditor)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { useTranslation } from '../../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { blockTypeDesc, blockTypeLabel } from '../../../blockEditorLabels';
 import type { BlockTypeMeta } from '../../../../../blockUtils';
 import { slashMenuItemKey } from '../../../../../blockUtils';

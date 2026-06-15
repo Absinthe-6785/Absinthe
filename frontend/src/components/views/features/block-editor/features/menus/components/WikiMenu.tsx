@@ -2,7 +2,7 @@
  * WikiMenu.tsx — Wiki link autocomplete popup (Korean labels)
  */
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { useTranslation } from '../../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { filterWikiTargets } from '../utils/wikiSearch';
 

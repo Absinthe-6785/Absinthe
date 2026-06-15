@@ -23,3 +23,12 @@ export {
 export { evaluateRuleCollection } from './evaluateRuleCollection';
 export { filterByRuleCollection } from './filterByRuleCollection';
 export { loadRuleCollections, saveRuleCollections, RULE_COLLECTIONS_KEY } from './ruleCollectionsStorage';
+export {
+  SMART_COLLECTION_GROUPS,
+  getSmartCollectionIcon,
+  getSmartCollectionGroup,
+  isPrimarySmartCollection,
+  isSecondarySmartCollection,
+  PRIMARY_COLLECTION_GROUP_IDS,
+  type SmartCollectionGroup,
+} from './smartCollectionGroups';
