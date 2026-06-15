@@ -15,17 +15,9 @@ export interface MemAuditPayload {
 }
 
 export function logMemAudit(payload: MemAuditPayload): void {
-  const { source, notes, links, graphNodes, graphEdges, relatedCandidates, discoveryItems, ...extra } = payload;
-  console.info('[MEM-AUDIT]', {
-    source,
-    notes,
-    links,
-    graphNodes,
-    graphEdges,
-    relatedCandidates,
-    discoveryItems,
-    ...extra,
-  });
+  if (import.meta.env.PROD) return;
+
+  console.info('[MEM-AUDIT]', payload);
 }
 
 /** Throttle high-frequency paths (e.g. index update on every keystroke). */

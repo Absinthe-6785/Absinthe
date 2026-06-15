@@ -4,6 +4,8 @@
 **Context:** Render reported *"Web Service fOr_Absinthe exceeded its memory limit"* before merging K-83.  
 **Scope:** Audit only — no behavior fixes in this branch. Temporary `[MEM-AUDIT]` diagnostics added.
 
+> **Production:** Temporary diagnostics remain available in development builds but are disabled in production.
+
 ---
 
 ## Executive Summary

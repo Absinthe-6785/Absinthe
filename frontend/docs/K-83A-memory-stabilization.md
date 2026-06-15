@@ -190,7 +190,9 @@ npm run test        # 1962/1962 pass
 1. Structural-share `notes` updates (immer/produce) to reduce editor-adjacent re-renders
 2. Incremental `buildGlobalGraphData` for timeline buckets
 3. Panel/gutter listener cleanup on unmount
-4. Remove `[MEM-AUDIT]` diagnostics from `hotfix/k83-memory-audit` branch if merged separately
+4. ~~Remove `[MEM-AUDIT]` diagnostics~~ — logging disabled in production; dev builds retain visibility
+
+> **Production:** Temporary diagnostics remain available in development builds but are disabled in production.
 
 ---
 
