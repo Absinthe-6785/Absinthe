@@ -27,7 +27,7 @@ export function DayCalendarView({
 
   return (
     <div
-      className={`rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 flex flex-col gap-2.5 ${theme.card}`}
+      className={`rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 flex flex-col gap-2 ${theme.card}`}
       data-planner-calendar-day
     >
       <DayHeader

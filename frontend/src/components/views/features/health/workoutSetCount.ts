@@ -24,5 +24,11 @@ export function buildSetsFromPrevCount(
   prevSets?: readonly WorkoutSet[],
 ): WorkoutSet[] {
   const count = prevSets?.length ? prevSets.length : 1;
-  return Array.from({ length: count }, (_, i) => makeDefaultSet(blockType, i + 1));
+  return buildSetsFromPlannedCount(blockType, count);
+}
+
+/** Build fresh sets for a planned count (routine config or load). */
+export function buildSetsFromPlannedCount(blockType: string, count: number): WorkoutSet[] {
+  const n = blockType === 'cardio' ? 1 : Math.max(1, Math.min(12, count));
+  return Array.from({ length: n }, (_, i) => makeDefaultSet(blockType, i + 1));
 }

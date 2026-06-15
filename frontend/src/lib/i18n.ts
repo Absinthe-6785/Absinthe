@@ -340,6 +340,8 @@ const translations = {
   k76ProteinGoal:         { en: 'Goal', ko: '목표', ja: '目標' },
   k76ProteinRemaining:    { en: 'Left', ko: '남음', ja: '残り' },
   k76ScheduleDate:        { en: 'Date', ko: '날짜', ja: '日付' },
+  k77ScheduleEmptyCompact:  { en: 'No scheduled events.', ko: '예정된 일정이 없습니다.', ja: '予定がありません。' },
+  setsLabel:                { en: 'sets', ko: '세트', ja: 'セット' },
   routineSetup:   { en: 'Routine Setup',    ko: '루틴 설정',     ja: 'ルーティン設定'   },
   todayWorkout:   { en: "Today's Workout",  ko: '오늘의 운동',   ja: '本日のワークアウト' },
   completeWorkout:{ en: 'Complete Workout', ko: '운동 완료',     ja: 'ワークアウト完了' },

@@ -205,6 +205,8 @@ describe('MonthCalendarView', () => {
     const { projection, presentation, month } = buildMonthFixture({ notes });
     const busyCell = month.cells.find(cell => cell.dateKey === '2027-02-10');
     expect(busyCell?.bundle.hints.overflowEventCount).toBeGreaterThan(0);
+    const cellModel = buildMonthCellDisplayModel(busyCell!, projection.core.countdowns);
+    expect(cellModel.overflowCount).toBe(busyCell!.bundle.hints.overflowEventCount);
 
     const html = renderToStaticMarkup(
       createElement(MonthCalendarView, { projection, presentation, theme }),

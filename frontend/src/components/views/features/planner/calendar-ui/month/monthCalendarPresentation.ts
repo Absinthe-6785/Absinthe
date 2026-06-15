@@ -1,7 +1,13 @@
-import type { PlannerMonthCellPayload } from '../../calendar';
+import type { PlannerCountdownRow, PlannerMonthCellPayload } from '../../calendar';
 
 export const MONTH_CELL_MAX_VISIBLE_EVENTS = 3;
 export const MONTH_CELL_MAX_VISIBLE_BLOCKS = 2;
+export const MONTH_CELL_MAX_VISIBLE_COUNTDOWNS = 1;
+
+export interface MonthCellCountdownRow {
+  countdown: PlannerCountdownRow;
+  label: string;
+}
 
 export interface MonthCellEventRow {
   occurrence: PlannerMonthCellPayload['bundle']['events'][number];
@@ -20,6 +26,7 @@ export interface MonthCellDisplayModel {
   isAnchorSelected: boolean;
   eventRows: readonly MonthCellEventRow[];
   blockRows: readonly MonthCellBlockRow[];
+  countdownRows: readonly MonthCellCountdownRow[];
   overflowCount: number;
   milestoneCount: number;
   isEmpty: boolean;
@@ -27,6 +34,8 @@ export interface MonthCellDisplayModel {
 
 export function buildMonthCellDisplayModel(
   cell: PlannerMonthCellPayload,
+  countdowns: readonly PlannerCountdownRow[] = [],
+  formatCountdownLabel: (daysUntil: number) => string = d => `D-${d}`,
 ): MonthCellDisplayModel {
   const visibleOccurrences = cell.bundle.events.slice(0, MONTH_CELL_MAX_VISIBLE_EVENTS);
   const eventRows: MonthCellEventRow[] = visibleOccurrences.map(occurrence => ({
@@ -38,13 +47,23 @@ export function buildMonthCellDisplayModel(
     .slice(0, MONTH_CELL_MAX_VISIBLE_BLOCKS)
     .map(block => ({ block }));
 
+  const eventNoteIds = new Set(cell.bundle.events.map(event => event.noteId));
+  const cellCountdowns = countdowns
+    .filter(cd => cd.targetDate === cell.dateKey && !eventNoteIds.has(cd.sourceRefId))
+    .slice(0, MONTH_CELL_MAX_VISIBLE_COUNTDOWNS);
+  const countdownRows: MonthCellCountdownRow[] = cellCountdowns.map(countdown => ({
+    countdown,
+    label: formatCountdownLabel(countdown.daysUntil),
+  }));
+
   const milestoneCount = cell.bundle.hints.milestoneCount;
   const eventOverflow = Math.max(0, cell.bundle.events.length - MONTH_CELL_MAX_VISIBLE_EVENTS);
   const blockOverflow = Math.max(0, cell.bundle.blocks.length - MONTH_CELL_MAX_VISIBLE_BLOCKS);
   const overflowCount = eventOverflow + blockOverflow;
   const isEmpty = cell.bundle.events.length === 0
     && cell.bundle.blocks.length === 0
-    && milestoneCount === 0;
+    && milestoneCount === 0
+    && countdownRows.length === 0;
 
   return {
     dateKey: cell.dateKey,
@@ -54,6 +73,7 @@ export function buildMonthCellDisplayModel(
     isAnchorSelected: cell.isAnchorSelected,
     eventRows,
     blockRows,
+    countdownRows,
     overflowCount,
     milestoneCount,
     isEmpty,

@@ -155,7 +155,7 @@ describe('DayScheduleTimeline schedule execution wiring', () => {
 });
 
 describe('DayCalendarView schedule execution wiring', () => {
-  it('forwards scheduleActions to the schedule timeline', () => {
+  it('forwards scheduleActions to the day detail panel', () => {
     const { projection, presentation } = buildDayFixture();
     const html = renderToStaticMarkup(
       createElement(DayCalendarView, {
@@ -166,8 +166,8 @@ describe('DayCalendarView schedule execution wiring', () => {
       }),
     );
 
-    expect(html).toContain('data-planner-day-schedule-timeline');
     expect(html).toContain('data-planner-day-schedule-add="true"');
+    expect(html).not.toContain('data-planner-day-combined-empty');
   });
 
   it('shows combined empty hint on empty days without scheduleActions', () => {
