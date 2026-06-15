@@ -33,6 +33,12 @@ describe('noteNavigationStack', () => {
     resetNoteNavigationStack();
   });
 
+  it('getNoteNavigationSnapshot returns a stable reference when values unchanged', () => {
+    const a = getNoteNavigationSnapshot();
+    const b = getNoteNavigationSnapshot();
+    expect(a).toBe(b);
+  });
+
   it('seeds initial note', () => {
     seedNoteNavigationStack('a');
     expect(getNoteNavigationSnapshot().canBack).toBe(false);

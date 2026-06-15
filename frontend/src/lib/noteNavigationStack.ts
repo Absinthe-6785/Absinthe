@@ -75,11 +75,21 @@ export function subscribeNoteNavigationStack(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+let cachedNavigationSnapshot: { canBack: boolean; canForward: boolean } = {
+  canBack: false,
+  canForward: false,
+};
+
 export function getNoteNavigationSnapshot(): { canBack: boolean; canForward: boolean } {
-  return {
-    canBack: index > 0,
-    canForward: index >= 0 && index < stack.length - 1,
-  };
+  const canBack = index > 0;
+  const canForward = index >= 0 && index < stack.length - 1;
+  if (
+    cachedNavigationSnapshot.canBack !== canBack
+    || cachedNavigationSnapshot.canForward !== canForward
+  ) {
+    cachedNavigationSnapshot = { canBack, canForward };
+  }
+  return cachedNavigationSnapshot;
 }
 
 export function getNoteNavigationStack(): readonly NoteNavigationEntry[] {
@@ -151,6 +161,7 @@ export function goForwardNote(): string | null {
 export function resetNoteNavigationStack(): void {
   stack = [];
   index = -1;
+  cachedNavigationSnapshot = { canBack: false, canForward: false };
   if (canUseSessionStorage()) {
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* */ }
   }

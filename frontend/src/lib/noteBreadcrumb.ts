@@ -58,7 +58,22 @@ export function getNoteBreadcrumb(): readonly NoteBreadcrumbSegment[] {
   return segments;
 }
 
+function segmentsEqual(
+  a: readonly NoteBreadcrumbSegment[],
+  b: readonly NoteBreadcrumbSegment[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((seg, i) => {
+    const other = b[i];
+    if (seg.type !== other.type) return false;
+    if (seg.type === 'key' && other.type === 'key') return seg.key === other.key;
+    if (seg.type === 'label' && other.type === 'label') return seg.label === other.label;
+    return false;
+  });
+}
+
 export function setNoteBreadcrumb(next: readonly NoteBreadcrumbSegment[]): void {
+  if (segmentsEqual(segments, next)) return;
   segments = [...next];
   notify();
 }
