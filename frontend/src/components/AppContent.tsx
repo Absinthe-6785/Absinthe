@@ -115,6 +115,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     appSettings, updateSetting, theme, THEME_COLORS,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
     markedDates, healthBlocks, healthRoutines,
+    isDailyLoading,
     onSignOut: handleSignOut,
   }), [
     user, now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -123,6 +124,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     appSettings, updateSetting, theme,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
     markedDates, healthBlocks, healthRoutines,
+    isDailyLoading,
     handleSignOut,
   ]);
 

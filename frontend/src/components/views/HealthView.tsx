@@ -8,6 +8,7 @@ import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
+import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
@@ -24,7 +25,7 @@ export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
-  THEME_COLORS,
+  THEME_COLORS, isDailyLoading,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
@@ -614,9 +615,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: 블록 / 루틴 설정 — 모바일에서 가로 탭 전환 ── */}
-      <div className="lg:flex-[3.5] flex flex-col gap-4 lg:gap-5 shrink-0 lg:overflow-y-auto lg:pb-4">
+      <div className="lg:flex-[3] lg:max-w-[420px] flex flex-col gap-4 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -630,7 +631,7 @@ export const HealthView = ({
             </button>
           ))}
         </div>
-        <div className={`lg:h-[40%] min-h-0 max-h-[280px] lg:max-h-none rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
+        <div className={`lg:min-h-[220px] lg:max-h-[300px] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">{t('workoutBlocks')}</h2>
             <button onClick={() => openBlockModal()} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
@@ -725,7 +726,7 @@ export const HealthView = ({
           })()}
         </div>
 
-        <div className={`lg:flex-[1.5] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+        <div className={`lg:flex-1 lg:min-h-[280px] rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -779,9 +780,12 @@ export const HealthView = ({
         </div>
       </div>
 
-      {/* ── 우측: 오늘의 운동 + 캘린더 + InBody ── */}
-      <div className={`flex-1 lg:flex-[6.5] flex-col gap-4 lg:gap-5 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors lg:min-h-0 lg:flex-1 ${theme.card}`}>
+      {/* ── 우측: 오늘의 운동 + 캘린더 + InBody + Recovery ── */}
+      <div className={`flex-1 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
+        {isDailyLoading ? (
+          <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[420px] lg:flex-1" bars={4} />
+        ) : (
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors lg:flex-1 lg:min-h-[420px] ${theme.card}`}>
           <div className={`flex justify-between items-center mb-5 border-b pb-5 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-2xl font-bold">{t('todayWorkout')}</h2>
@@ -1134,10 +1138,11 @@ export const HealthView = ({
             </div>
           </div>
         </div>
+        )}
 
-        <div className={`flex-col lg:flex-row gap-4 lg:gap-5 shrink-0 ${mobileHealthTab === "workout" ? "flex" : "hidden lg:flex"}`}>
+        <div className={`flex flex-col lg:flex-row gap-4 lg:gap-4 shrink-0 lg:min-h-[200px] ${mobileHealthTab === "workout" ? "flex" : "hidden lg:flex"}`}>
           {/* 캘린더 — 모바일: 가로 스크롤 주간 배너 / 데스크탑: 월간 그리드 */}
-          <div className={`flex-1 rounded-[24px] lg:rounded-[32px] shadow-sm p-3 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
+          <div className={`flex-1 min-h-[180px] rounded-[24px] lg:rounded-[32px] shadow-sm p-3 lg:p-6 flex flex-col transition-colors ${theme.card}`}>
             {/* 공통 헤더 */}
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-heading text-base font-bold tabular-nums">
@@ -1209,7 +1214,7 @@ export const HealthView = ({
           </div>
 
           {/* InBody — 세로 배열 (데스크탑) / 가로 스크롤 (모바일) */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card} lg:w-[160px] lg:shrink-0`}>
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors min-h-[180px] ${theme.card} lg:w-[160px] lg:shrink-0`}>
             {/* 제목과 저장 버튼 — 세로 배치로 여유 확보 */}
             <div className="flex flex-col gap-2.5 mb-3">
               <h2 className="font-heading text-base font-bold flex items-center gap-2"><Target size={16} className="text-primary"/> {t('inbody')}</h2>
@@ -1236,7 +1241,7 @@ export const HealthView = ({
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 lg:w-[280px] lg:shrink-0 min-w-0">
+          <div className="flex flex-col gap-4 lg:w-[280px] lg:shrink-0 min-w-0 min-h-[180px]">
             <RecoveryLogPanel
               theme={theme}
               selectedDate={selectedDate}

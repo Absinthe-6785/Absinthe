@@ -1,5 +1,4 @@
 export { DashboardSectionTitle, type DashboardSectionTitleProps } from './DashboardSectionTitle';
-export { DashboardSection, type DashboardSectionProps } from './DashboardSection';
 export {
   DashboardCardHeader,
   type DashboardCardHeaderProps,

@@ -40,7 +40,7 @@ export function AgendaStreamList({
   if (entries.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-1" data-planner-agenda-stream>
+    <section className="flex flex-col gap-1 max-h-[480px] overflow-y-auto min-h-[120px]" data-planner-agenda-stream>
       <h4 className="text-xs lg:text-sm font-bold uppercase tracking-wide text-muted mb-1">
         Timeline
       </h4>
