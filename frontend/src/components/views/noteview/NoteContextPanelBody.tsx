@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { useMemo } from 'react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note, TocItem } from '../noteUtils';
 import { displayNoteTitle } from '../noteDisplayTitle';
@@ -52,6 +53,8 @@ import type {
 import type { BootstrapImportSummary } from '../features/knowledge/history/bootstrapSummaryStorage';
 import type { EditorMode } from '../editorMode';
 import { useTranslation } from '@/lib/i18n';
+import type { GroupedRelatedNotes } from '../features/knowledge/related/groupRelatedNotes';
+import { buildVaultHealthMetrics } from '../features/knowledge/health/vaultHealthMetrics';
 import type { NoteNavigationSource } from '@/lib/noteNavigationStack';
 import type { NoteBreadcrumbSegment } from '@/lib/noteBreadcrumb';
 
@@ -71,7 +74,7 @@ export interface NoteContextPanelData {
   wikiTargets: string[];
   backlinkContexts: ReturnType<typeof import('../noteUtils').extractLinkContexts>;
   mentioningNotes: ReturnType<typeof knowledgeIndexService.getMentioningNotes>;
-  relatedNotes: ReturnType<typeof knowledgeIndexService.getRelatedNotes>;
+  relatedNotes: GroupedRelatedNotes;
   sourceNoteCandidates: Note[];
   noteBibliography: ReturnType<typeof import('../citationUtils').collectCitationsFromMarkdown>;
   localGraphData: ReturnType<typeof import('../features/knowledge').buildExpandedGraphData> | null;
@@ -200,6 +203,11 @@ export function NoteContextPanelBody({
     incomingRelationDisplays,
     noteTags,
   } = panelData;
+
+  const vaultHealth = useMemo(
+    () => buildVaultHealthMetrics(notes, knowledgeIndexService),
+    [notes],
+  );
   const {
     createNote,
     noteUpdate,
@@ -335,7 +343,7 @@ export function NoteContextPanelBody({
                   />
                   <RelatedNotesPanel
                     colors={c}
-                    related={relatedNotes}
+                    grouped={relatedNotes}
                     onNavigateToNote={id => openNoteById(id, 'panel')}
                     onLinkToNote={handleLinkRelatedNote}
                     onOpenGraph={handleOpenCosmosGraph}
@@ -459,6 +467,7 @@ export function NoteContextPanelBody({
             <DiscoveryPanel
               colors={c}
               feed={discoveryFeed}
+              vaultHealth={vaultHealth}
               vaultPhase={cosmosVaultPhase}
               onNavigateToNote={id => openNoteById(id, 'discovery', [
                 { type: 'key', key: 'k38DashboardTitle' },

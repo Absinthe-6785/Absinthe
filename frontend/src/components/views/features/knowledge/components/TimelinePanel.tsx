@@ -17,6 +17,7 @@ import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
 import { TimelineMetricExplain } from '../timeline/TimelineMetricExplain';
 import { TimelineActivityFeed } from './TimelineActivityFeed';
+import { RecentKnowledgeHighlights } from './RecentKnowledgeHighlights';
 import { KnowledgeEvolutionSummary } from './KnowledgeEvolutionSummary';
 import { CosmosEvolutionStory as CosmosEvolutionStoryPanel } from './CosmosEvolutionStory';
 import { DiscoveryProgressSection } from './DiscoveryProgressSection';
@@ -387,6 +388,13 @@ export function TimelinePanel({
 
       {section === 'activity' && (
         <KnowledgePanelSection colors={c} first title={t('k45SectionActivity')} count={historyEvents.length}>
+          <RecentKnowledgeHighlights
+            colors={c}
+            events={historyEvents}
+            notes={notes}
+            onNavigateToNote={onNavigateToNote}
+            compact={compact}
+          />
           <TimelineActivityFeed
             colors={c}
             events={historyEvents}

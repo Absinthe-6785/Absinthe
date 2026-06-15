@@ -19,6 +19,9 @@ const RELATED_REASON: Record<RelatedReason, Record<Language, string>> = {
   backlink:          { en: 'backlink',          ko: '백링크',   ja: 'バックリンク' },
   'mutual backlink': { en: 'mutual link',       ko: '상호 링크', ja: '相互リンク' },
   mention:           { en: 'mention',           ko: '언급',     ja: '言及'       },
+  relation:          { en: 'relation',          ko: '관계',     ja: 'リレーション' },
+  'shared relation': { en: 'shared relation',   ko: '공유 관계', ja: '共有リレーション' },
+  'direct link':     { en: 'direct link',       ko: '직접 링크', ja: '直接リンク' },
 };
 
 const NOTE_KIND: Record<NoteKind, Record<Language, string>> = {

@@ -15,6 +15,7 @@ import type { DiscoveryFeed } from '../discovery';
 import { isDiscoveryOpportunityNote } from '../discovery';
 import { buildTierExplanationLines } from '../cosmos/onboarding/tierExplanation';
 import { getProperty } from '../properties/noteProperties';
+import { getRelationTargets } from '../relations/noteRelations';
 import { SMART_COLLECTIONS, findSmartCollection } from '../collections/smartCollections';
 import type { SmartCollectionId } from '../collections/smartCollectionModels';
 import {
@@ -90,6 +91,7 @@ export interface WorkspaceSearchResult {
   areaLabel?: string;
   galaxyLabel?: string;
   connectionCount?: number;
+  weakConnectivity?: boolean;
   actionsAvailable?: boolean;
   discoveryOpportunity?: boolean;
   tierHint?: string;
@@ -166,6 +168,19 @@ function kindAllowed(kind: WorkspaceSearchResultKind, filter: WorkspaceSearchFil
   return allowed === null || allowed.includes(kind);
 }
 
+function relationTitlesForNote(note: NoteBase, notes: readonly NoteBase[]): string[] {
+  const ids = new Set<string>();
+  if (note.relations) {
+    for (const targets of Object.values(note.relations)) {
+      for (const id of targets) ids.add(id);
+    }
+  }
+  for (const id of getRelationTargets(note, 'related-to')) ids.add(id);
+  return [...ids]
+    .map(id => notes.find(n => n.id === id)?.title ?? '')
+    .filter(t => t.trim().length > 0);
+}
+
 function collectTags(notes: readonly NoteBase[]): Map<string, string> {
   const tags = new Map<string, string>();
   for (const note of notes) {
@@ -223,6 +238,7 @@ function enrichNoteResult(
     areaLabel: areaLabel || undefined,
     galaxyLabel: galaxy?.galaxyLabel,
     connectionCount,
+    weakConnectivity: result.score <= 3 && connectionCount <= 1,
     subtitle: metaParts.length > 0 ? metaParts.join(' · ') : result.subtitle,
     actionsAvailable: countActionsForNote(snapshot) > 0,
     discoveryOpportunity: discoveryFeed ? isDiscoveryOpportunityNote(note.id, discoveryFeed) : false,
@@ -251,7 +267,7 @@ export function buildWorkspaceSearch(
     if (note.deletedAt) continue;
     if (projectIds.has(note.id) || milestoneIds.has(note.id)) continue;
     const title = displayNoteTitle(note.title);
-    const matchRank = noteSearchScore(note, q);
+    const matchRank = noteSearchScore(note, q, relationTitlesForNote(note, notes));
     if (matchRank !== null && kindAllowed('note', filter)) {
       const base = buildResult('note', note.id, title, matchRank, { noteId: note.id });
       results.push(service && galaxyMap

@@ -10,6 +10,7 @@ import { buildImportanceInputForNote } from '../cosmos/intelligence/knowledgeOpp
 import { buildSuggestedConnections } from '../cosmos/intelligence/suggestedConnections';
 import { buildAreaHealthSummaries } from '../cosmos/intelligence/areaHealth';
 import { buildKnowledgeGaps } from '../cosmos/intelligence/knowledgeGaps';
+import { collectIsolatedNoteIds } from '../isolation/vaultIsolation';
 import { getRelationTargets } from '../relations/noteRelations';
 import { noteLastOpenedAt, daysSince } from '../review/staleNotes';
 import { isAreaNote } from '../trace/areaNotes';
@@ -273,6 +274,75 @@ export function collectKnowledgeDriftSignals(
       daysSinceActivity: inactivityDays,
       importanceClass: result.classification,
       areaLabel: galaxyMap.get(note.id)?.galaxyLabel,
+    });
+  }
+
+  return items.sort((a, b) => b.score - a.score);
+}
+
+export function collectIsolatedNotesSignals(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+): DiscoveryItem[] {
+  const ids = collectIsolatedNoteIds(notes, service, 8);
+  const items: DiscoveryItem[] = [];
+  for (const noteId of ids) {
+    const note = notes.find(n => n.id === noteId);
+    if (!note) continue;
+    items.push({
+      id: `isolated-${noteId}`,
+      kind: 'isolated-notes',
+      score: 72,
+      title: displayNoteTitle(note.title),
+      subtitle: 'no-links',
+      noteId,
+    });
+  }
+  return items;
+}
+
+export function collectAreaInsightSignals(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  _now: number,
+): DiscoveryItem[] {
+  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const summaries = buildAreaHealthSummaries(notes, service, galaxyMap);
+  const items: DiscoveryItem[] = [];
+
+  const activeAreas = summaries
+    .filter(s => s.category === 'thriving' || s.category === 'healthy' || s.category === 'growing')
+    .sort((a, b) => b.noteCount - a.noteCount)
+    .slice(0, 3);
+
+  for (const area of activeAreas) {
+    items.push({
+      id: `active-area-${area.galaxyId}`,
+      kind: 'recently-active-area',
+      score: 65 + area.score * 0.2,
+      title: area.label,
+      subtitle: `${area.noteCount} notes`,
+      areaLabel: area.label,
+      galaxyId: area.galaxyId,
+      noteCount: area.noteCount,
+    });
+  }
+
+  const staleAreas = summaries
+    .filter(s => s.category === 'fragmented' || s.category === 'critical')
+    .sort((a, b) => b.orphanRatio - a.orphanRatio)
+    .slice(0, 3);
+
+  for (const area of staleAreas) {
+    items.push({
+      id: `stale-area-${area.galaxyId}`,
+      kind: 'stale-area',
+      score: 58 + area.orphanRatio * 20,
+      title: area.label,
+      subtitle: `orphan-ratio:${Math.round(area.orphanRatio * 100)}%`,
+      areaLabel: area.label,
+      galaxyId: area.galaxyId,
+      noteCount: area.noteCount,
     });
   }
 

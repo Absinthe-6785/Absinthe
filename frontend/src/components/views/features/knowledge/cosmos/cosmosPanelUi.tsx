@@ -81,6 +81,9 @@ export function CosmosConfidenceBadge({
 }
 
 const KIND_BADGE_KEYS: Record<DiscoveryKind, TranslationKey> = {
+  'isolated-notes': 'k38SectionIsolatedNotes',
+  'recently-active-area': 'k38SectionRecentlyActiveArea',
+  'stale-area': 'k38SectionStaleArea',
   'forgotten-knowledge': 'k38SectionForgotten',
   'missing-connection': 'k38SectionMissingConnections',
   'emerging-topic': 'k38SectionEmergingTopics',

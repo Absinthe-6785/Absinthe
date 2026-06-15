@@ -40,7 +40,7 @@ export class KnowledgeIndexService {
   /** normalized tag → note id → display tag name */
   private notesByTag = new Map<string, Map<string, string>>();
   /** active note id → title/body snapshot for mention indexing */
-  private activeNotes = new Map<string, { title: string; body: string }>();
+  private activeNotes = new Map<string, { title: string; body: string; updatedAt: number }>();
   /** target note id → source note id → reference (unlinked mentions) */
   private mentionsByTargetId = new Map<string, Map<string, PageReference>>();
   /** source note id → target note ids mentioned as plain text */
@@ -80,7 +80,11 @@ export class KnowledgeIndexService {
 
     for (const note of notes) {
       if (note.deletedAt) continue;
-      this.activeNotes.set(note.id, { title: note.title ?? '', body: note.body ?? '' });
+      this.activeNotes.set(note.id, {
+        title: note.title ?? '',
+        body: note.body ?? '',
+        updatedAt: note.updatedAt ?? 0,
+      });
       const titleKey = normalizeWikiTitle(note.title ?? '');
       if (titleKey) this.noteIdByTitleKey.set(titleKey, note.id);
     }
@@ -113,7 +117,11 @@ export class KnowledgeIndexService {
     this.removeNoteEdges(note.id);
     this.removeNoteRelations(note.id);
     this.removeMentionsFromSource(note.id);
-    this.activeNotes.set(note.id, { title: note.title ?? '', body: note.body ?? '' });
+    this.activeNotes.set(note.id, {
+      title: note.title ?? '',
+      body: note.body ?? '',
+      updatedAt: note.updatedAt ?? 0,
+    });
 
     const newTitleKey = normalizeWikiTitle(note.title ?? '');
     if (oldTitleKey && oldTitleKey !== newTitleKey) {
@@ -442,8 +450,9 @@ export class KnowledgeIndexService {
   }
 
   /** Precomputed related notes for a page — O(1) */
-  getRelatedNotes(noteId: string): readonly RelatedNote[] {
-    return this.relatedByNoteId.get(noteId) ?? [];
+  getRelatedNotes(noteId: string, limit = 12): readonly RelatedNote[] {
+    const related = this.relatedByNoteId.get(noteId) ?? [];
+    return limit > 0 ? related.slice(0, limit) : related;
   }
 
   /** Score between two notes from precomputed index — O(n) of related list, typically small */
@@ -725,6 +734,20 @@ export class KnowledgeIndexService {
       || (this.mentionsFromSourceId.get(bId) ?? []).includes(aId);
   }
 
+  private hasRelationEdge(aId: string, bId: string): boolean {
+    return this.getOutgoingRelations(aId).some(e => e.targetId === bId)
+      || this.getIncomingRelations(aId).some(e => e.sourceId === bId);
+  }
+
+  private hasSharedRelationTarget(aId: string, bId: string): boolean {
+    const aTargets = new Set(this.getOutgoingRelations(aId).map(e => e.targetId));
+    const bTargets = new Set(this.getOutgoingRelations(bId).map(e => e.targetId));
+    for (const t of aTargets) {
+      if (t !== aId && t !== bId && bTargets.has(t)) return true;
+    }
+    return false;
+  }
+
   private collectRelationshipNeighbors(noteId: string): Set<string> {
     const neighbors = new Set<string>();
     const title = this.activeNotes.get(noteId)?.title ?? '';
@@ -752,6 +775,13 @@ export class KnowledgeIndexService {
       if (tid !== noteId) neighbors.add(tid);
     }
 
+    for (const edge of this.getOutgoingRelations(noteId)) {
+      if (edge.targetId !== noteId) neighbors.add(edge.targetId);
+    }
+    for (const edge of this.getIncomingRelations(noteId)) {
+      if (edge.sourceId !== noteId) neighbors.add(edge.sourceId);
+    }
+
     return neighbors;
   }
 
@@ -772,11 +802,23 @@ export class KnowledgeIndexService {
 
       const aLinksB = this.hasWikiLinkTo(noteId, otherId);
       const bLinksA = this.hasWikiLinkTo(otherId, noteId);
+      const hasRelation = this.hasRelationEdge(noteId, otherId);
+      const hasSharedRelation = this.hasSharedRelationTarget(noteId, otherId);
+      const directOutgoing = this.getOutgoing(noteId).some(t => this.resolveNoteId(t) === otherId);
+      const otherMeta = this.activeNotes.get(otherId);
+      const recentActivity = otherMeta
+        ? otherMeta.updatedAt > Date.now() - 14 * 86_400_000
+        : false;
+
       const { score, reasons } = computeRelatedScore({
         sharedTag: this.hasSharedTag(noteId, otherId),
         backlink: aLinksB || bLinksA,
         mutualBacklink: aLinksB && bLinksA,
         mention: this.hasMentionBetween(noteId, otherId),
+        relation: hasRelation,
+        sharedRelation: hasSharedRelation,
+        directLink: directOutgoing && !aLinksB,
+        recentActivity,
       });
 
       if (score <= 0) continue;

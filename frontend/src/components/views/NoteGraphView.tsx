@@ -1289,6 +1289,9 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           <div style={{ opacity: 0.85 }}>
             {t('k36HudCoreHubs').replace('{count}', String(vaultAnalysis.coreHubCount))}
           </div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k70HudHighlyConnected').replace('{count}', String(vaultAnalysis.coreHubCount + vaultAnalysis.majorHubCount))}
+          </div>
           <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{t('k36HudIsolated').replace('{count}', String(vaultAnalysis.isolatedCount))}</span>
             {vaultAnalysis.isolatedCount > 0 && (
@@ -1345,6 +1348,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 .replace('{category}', areaHealthCategoryLabel(row.category, lang))}
             </div>
           ))}
+          <div style={{ opacity: 0.85, marginTop: 4 }}>
+            {t('k70HudGrowingClusters').replace('{count}', String(vaultAnalysis.areaHealthRows.filter(r => r.category === 'growing').length))}
+          </div>
+          <div style={{ opacity: 0.85 }}>
+            {t('k70HudLargeAreas').replace('{count}', String(vaultAnalysis.areaHealthRows.filter(r => r.noteCount >= 8).length))}
+          </div>
         </div>
         {discoveryFeed.summary.totalCount > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>

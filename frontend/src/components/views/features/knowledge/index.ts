@@ -74,5 +74,6 @@ export * from './formulas';
 export * from './workspace';
 export * from './cosmos';
 export * from './discovery';
+export * from './health';
 export * from './timeline';
 export * from './history';
