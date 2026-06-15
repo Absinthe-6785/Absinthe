@@ -138,7 +138,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         {activeTab === 'health'    && <HealthView    {...globalProps} />}
         {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
         {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
-        {activeTab === 'note'      && <NoteView />}
+        {activeTab === 'note'      && <NoteView showToast={showToast} />}
         {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
       </div>
 

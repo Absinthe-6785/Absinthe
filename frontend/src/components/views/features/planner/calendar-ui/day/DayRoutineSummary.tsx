@@ -95,8 +95,8 @@ export function DayRoutineSummary({
                     setEditingId(routine.id);
                     setEditText(routine.text);
                   } : undefined}
-                  className={`w-full text-left px-2 py-1 text-xs lg:text-sm rounded-md border ${theme.border}
-                    flex items-center gap-2 min-h-[32px]
+                  className={`w-full text-left px-2 py-2.5 text-xs lg:text-sm rounded-md border ${theme.border}
+                    flex items-center gap-2 min-h-[44px]
                     ${routine.done ? 'opacity-60 line-through' : 'font-medium'}
                     hover:bg-surface-alt focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
                   data-planner-day-routine={routine.id}

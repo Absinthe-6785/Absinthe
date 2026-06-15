@@ -620,6 +620,17 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   }, [navigableNodeIds, previewNodeId, activeNoteId]);
 
   useEffect(() => {
+    if (!previewNodeId) return;
+    const node = nodesRef.current.find(n => n.id === previewNodeId);
+    if (!node) return;
+    setTransform(prev => ({
+      ...prev,
+      x: size.w / 2 - node.x * prev.k,
+      y: size.h / 2 - node.y * prev.k,
+    }));
+  }, [previewNodeId, size.w, size.h]);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && previewNodeId) {
         e.preventDefault();
@@ -638,6 +649,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [previewNodeId, focusAdjacentNode]);
+
   const showEmptyUniverse = shouldShowEmptyUniverse({
     nodeCount: visibleNodes.length,
     linkCount: visibleEdges.length,
@@ -791,6 +803,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         )}
 
         {/* 스페이서 */}
+        {previewNodeId ? (
+          <span style={{ pointerEvents: 'none', fontSize: 9, color: colors.toolTxt, opacity: 0.85, paddingRight: 4 }}>
+            {t('cosmosKeyboardNavHint')}
+          </span>
+        ) : null}
         <div style={{ flex: 1 }} />
 
         {/* 줌 컨트롤 */}
@@ -910,7 +927,9 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                   fill={galaxyColor(galaxy.hue, dark ? 0.9 : 0.75, dark)}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
-                  {galaxy.displayTitle}
+                  {galaxy.nodeCount > 1
+                    ? `${galaxy.displayTitle} (${galaxy.nodeCount})`
+                    : galaxy.displayTitle}
                 </text>
               )}
             </g>

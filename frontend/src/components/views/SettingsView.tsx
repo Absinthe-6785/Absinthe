@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react';
-import { Settings, Save, Download, AlertTriangle, LogOut, Loader2 } from 'lucide-react';
+import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2 } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -19,6 +19,8 @@ import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
 import { buildVaultBackupManifest, downloadVaultBackup } from '../../lib/exportVaultBackup';
 import { useNotesStore } from '../../store/useNotesStore';
+import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
+import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -31,6 +33,7 @@ export const SettingsView = ({
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
+  const vaultRestore = useVaultRestoreFlow(showToast, t);
 
   // ── CSV 내보내기 상태 ──────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -191,12 +194,27 @@ export const SettingsView = ({
                   <p className="text-base font-bold">{t('vaultBackupExport')}</p>
                   <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
                 </div>
-                <button
-                  onClick={doVaultBackup}
-                  className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 shrink-0"
-                >
-                  <Download size={16}/>{t('vaultBackupExport')}
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                  <button
+                    onClick={doVaultBackup}
+                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2"
+                  >
+                    <Download size={16}/>{t('vaultBackupExport')}
+                  </button>
+                  <button
+                    onClick={vaultRestore.openFilePicker}
+                    className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
+                  >
+                    <Upload size={16}/>{t('vaultRestoreImport')}
+                  </button>
+                </div>
+                <input
+                  ref={vaultRestore.fileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={vaultRestore.handleFileChange}
+                />
               </div>
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
@@ -282,6 +300,16 @@ export const SettingsView = ({
           onConfirm={handleConfirm}
           onCancel={clearConfirm}
           darkMode={appSettings.darkMode}
+        />
+      )}
+      {vaultRestore.preview && (
+        <VaultRestoreModal
+          preview={vaultRestore.preview}
+          strategy={vaultRestore.strategy}
+          onStrategyChange={vaultRestore.setStrategy}
+          onConfirm={vaultRestore.confirmRestore}
+          onCancel={vaultRestore.cancelRestore}
+          importing={vaultRestore.importing}
         />
       )}
     </div>

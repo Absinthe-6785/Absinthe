@@ -195,9 +195,17 @@ import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
 
 
+import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
+import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
+
+interface NoteViewProps {
+  showToast?: (msg: string, type?: 'success' | 'error') => void;
+}
+
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
-export const NoteView = () => {
+export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const { t, lang } = useTranslation();
+  const vaultRestore = useVaultRestoreFlow(showToast, t);
 
   const { appSettings, updateSetting } = useAppStore();
   const dark = appSettings.darkMode;
@@ -1186,7 +1194,7 @@ export const NoteView = () => {
       handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
       handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
       handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup,
+      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
       openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId,
       duplicateNote, patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
       handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset,
@@ -1272,7 +1280,7 @@ export const NoteView = () => {
     handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
     handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup,
+    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, vaultRestore.openFilePicker,
     openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote, handleResumeLastWorkspace,
     handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset, handleExitFocusPreset, handleQuickCapture,
@@ -1432,6 +1440,23 @@ export const NoteView = () => {
           darkMode={dark}
           confirmLabel={confirm.confirmLabel}
           variant={confirm.variant}
+        />
+      )}
+      <input
+        ref={vaultRestore.fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={vaultRestore.handleFileChange}
+      />
+      {vaultRestore.preview && (
+        <VaultRestoreModal
+          preview={vaultRestore.preview}
+          strategy={vaultRestore.strategy}
+          onStrategyChange={vaultRestore.setStrategy}
+          onConfirm={vaultRestore.confirmRestore}
+          onCancel={vaultRestore.cancelRestore}
+          importing={vaultRestore.importing}
         />
       )}
     </div>

@@ -244,6 +244,12 @@ export function NoteRelationsPanel({
         })
       )}
 
+      {outgoingGroups.size === 0 && incoming.length === 0 ? (
+        <p style={{ fontSize: 10, color: c.textFaint, textAlign: 'center', padding: '4px 12px 8px', lineHeight: 1.45 }}>
+          {t('relationsDiscoverHint')}
+        </p>
+      ) : null}
+
       <div
         style={{
           padding: '10px 10px 6px',
