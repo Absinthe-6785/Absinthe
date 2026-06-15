@@ -663,7 +663,7 @@ export const HealthView = ({
           {(['blocks', 'routine', 'workout', 'protein'] as const).map(tab => (
             <button key={tab}
               onClick={() => setMobileHealthTab(tab)}
-              className={`flex-1 py-2.5 rounded-2xl text-xs font-bold transition-colors
+              className={`flex-1 min-h-[44px] py-2.5 rounded-2xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>

@@ -25,7 +25,7 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick }
           {allDayEvents.map(event => (
             <div
               key={event.occurrenceId}
-              className={`px-2 py-1 text-xs lg:text-sm font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
+              className={`px-2 py-2 min-h-[44px] text-xs lg:text-sm font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
               data-planner-day-event={event.noteId}
               data-planner-day-event-kind="all-day"
               data-planner-day-event-span={event.spanPosition}
@@ -44,7 +44,7 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick }
             return (
             <div
               key={event.occurrenceId}
-              className={`px-2 py-1 rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
+              className={`px-2 py-2.5 min-h-[44px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
               data-planner-day-event={event.noteId}
               data-planner-day-event-kind="timed"
               title={event.title}

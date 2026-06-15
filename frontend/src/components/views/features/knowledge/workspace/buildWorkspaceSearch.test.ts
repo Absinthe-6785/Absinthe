@@ -87,6 +87,15 @@ describe('buildWorkspaceSearch', () => {
     expect(notes.some(r => r.id === 'm1')).toBe(true);
   });
 
+  it('ranks title match above body-only match', () => {
+    const groups = buildWorkspaceSearch('Fourier', [
+      note('a', 'Fourier Transform'),
+      note('b', 'Signals', { body: 'A brief mention of Fourier in passing.' }),
+    ], []);
+    const notes = groups.find(g => g.kind === 'note')?.results ?? [];
+    expect(notes[0]?.title).toBe('Fourier Transform');
+  });
+
   it('documents ranking behavior', () => {
     expect(WORKSPACE_SEARCH_RANKING_DOC).toContain('exact title');
   });

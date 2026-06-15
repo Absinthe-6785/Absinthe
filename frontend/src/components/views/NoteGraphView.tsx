@@ -9,6 +9,7 @@
  */
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
 import { useTranslation } from '../../lib/i18n';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
@@ -110,6 +111,8 @@ export interface NoteGraphViewProps {
   onHudReviewDiscoveries?: () => void;
   onHudOpenTimeline?: () => void;
   recentEvolution?: RecentEvolutionSummary;
+  /** Mobile/tablet — larger touch targets and bottom-sheet preview. */
+  compactChrome?: boolean;
 }
 
 // ── 폴더 색상 팔레트 (라이트/다크 공용 — opacity로 조절) ───────────
@@ -141,11 +144,13 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries, compactChrome = false }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
   const svgRef   = useRef<SVGSVGElement>(null);
   const frameRef = useRef<number>(0);
+  const renderTickRef = useRef(0);
+  const toolbarControlHeight = compactChrome ? TOUCH_TARGET_MIN_PX : 28;
 
   const [size, setSize]         = useState({ w: 600, h: 400 });
   const [hovered, setHovered]   = useState<string | null>(null);
@@ -362,7 +367,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         });
       }
 
-      setTick(t => t + 1);
+      renderTickRef.current += 1;
+      const throttleRender = simActive && renderTickRef.current % 3 !== 0;
+      if (!throttleRender) {
+        setTick(t => t + 1);
+      }
       if (simActive || (universeMode && !reducedMotion)) {
         frameRef.current = requestAnimationFrame(step);
       }
@@ -579,17 +588,56 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   const highlightNodeId = previewNodeId ?? activeNoteId;
 
+  const galaxyMap = useMemo(
+    () => buildNoteGalaxyMap(notes, knowledgeIndexService),
+    [notes],
+  );
+
   const selectedImportance = useMemo(() => {
     if (!highlightNodeId) return null;
     const note = notes.find(n => n.id === highlightNodeId);
     if (!note) return null;
-    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
     const input = buildImportanceInputForNote(note, knowledgeIndexService, galaxyMap.get(note.id));
     return evaluateKnowledgeImportance(input);
-  }, [highlightNodeId, notes]);
+  }, [highlightNodeId, notes, galaxyMap]);
 
   const previewNote = previewNodeId ? notes.find(n => n.id === previewNodeId) : null;
   const previewGraphNode = previewNodeId ? renderMap.get(previewNodeId) : null;
+
+  const navigableNodeIds = useMemo(
+    () => visibleNodes.map(n => n.id),
+    [visibleNodes],
+  );
+
+  const focusAdjacentNode = useCallback((direction: 1 | -1) => {
+    if (!navigableNodeIds.length) return;
+    const current = previewNodeId ?? activeNoteId;
+    const currentIdx = current ? navigableNodeIds.indexOf(current) : -1;
+    const nextIdx = currentIdx < 0
+      ? (direction > 0 ? 0 : navigableNodeIds.length - 1)
+      : (currentIdx + direction + navigableNodeIds.length) % navigableNodeIds.length;
+    setPreviewNodeId(navigableNodeIds[nextIdx] ?? null);
+  }, [navigableNodeIds, previewNodeId, activeNoteId]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && previewNodeId) {
+        e.preventDefault();
+        setPreviewNodeId(null);
+        return;
+      }
+      if (!previewNodeId) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        focusAdjacentNode(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        focusAdjacentNode(-1);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewNodeId, focusAdjacentNode]);
   const showEmptyUniverse = shouldShowEmptyUniverse({
     nodeCount: visibleNodes.length,
     linkCount: visibleEdges.length,
@@ -645,7 +693,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               onChange={e => setSearchQuery(e.target.value)}
               placeholder={t('graphSearchNodes')}
               style={{
-                height: 28, paddingLeft: 24, paddingRight: 8,
+                height: toolbarControlHeight, paddingLeft: 24, paddingRight: 8,
                 fontSize: 11, borderRadius: 6,
                 border: `1px solid ${colors.searchB}`,
                 background: colors.searchBg,
@@ -675,7 +723,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           borderRadius: 6,
           border: `1px solid ${colors.searchB}`,
           overflow: 'hidden',
-          height: 28,
+          height: toolbarControlHeight,
         }}>
           {(['network', 'universe'] as const).map(mode => (
             <button
@@ -683,7 +731,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               type="button"
               onClick={() => setGraphViewMode(mode)}
               style={{
-                height: 28,
+                height: toolbarControlHeight,
                 padding: '0 10px',
                 fontSize: 11,
                 border: 'none',
@@ -703,7 +751,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           onChange={e => setRelationshipFilter(e.target.value as GlobalGraphRelationshipFilter)}
           style={{
             pointerEvents: 'all',
-            height: 28,
+            height: toolbarControlHeight,
             padding: '0 8px',
             fontSize: 11,
             borderRadius: 6,
@@ -727,7 +775,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             title={showIsolated ? t('graphIsolatedHide').replace('{count}', String(isolatedCount)) : t('graphIsolatedShow').replace('{count}', String(isolatedCount))}
             style={{
               pointerEvents: 'all',
-              height: 28, padding: '0 10px',
+              height: toolbarControlHeight, padding: '0 10px',
               borderRadius: 6, fontSize: 11,
               border: `1px solid ${colors.toolbarB}`,
               background: showIsolated ? colors.toolbar : (dark ? '#374151' : '#E5E7EB'),
@@ -753,7 +801,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           border: `1px solid ${colors.toolbarB}`,
           borderRadius: 6, padding: '0 2px',
           backdropFilter: 'blur(8px)',
-          height: 28,
+          height: toolbarControlHeight,
         }}>
           <button onClick={() => setTransform(t => {
             const newK = Math.min(MAX_K, t.k * (1 + ZOOM_STEP));
@@ -994,7 +1042,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 onKeyDown={e => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    onSelect(node.id);
+                    setPreviewNodeId(node.id);
                   }
                 }}
                 onMouseDown={e => onNodeMouseDown(e, node.id)}
@@ -1422,6 +1470,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         colors={colors}
         importance={selectedImportance}
         onOpenNote={() => onSelect(previewNodeId)}
+        onClose={() => setPreviewNodeId(null)}
+        layout={compactChrome ? 'sheet' : 'rail'}
       />
     )}
     </div>

@@ -17,6 +17,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
+import { buildVaultBackupManifest, downloadVaultBackup } from '../../lib/exportVaultBackup';
 import { useNotesStore } from '../../store/useNotesStore';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -28,6 +29,8 @@ export const SettingsView = ({
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const { t } = useTranslation();
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
+  const notes = useNotesStore(s => s.notes);
+  const folders = useNotesStore(s => s.folders);
 
   // ── CSV 내보내기 상태 ──────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -55,6 +58,16 @@ export const SettingsView = ({
       setExporting(false);
       setExportMsg('');
     }
+  };
+
+  const doVaultBackup = () => {
+    const active = notes.filter(n => !n.deletedAt);
+    if (active.length === 0) {
+      showToast(t('vaultBackupEmpty'), 'error');
+      return;
+    }
+    downloadVaultBackup(buildVaultBackupManifest(active, folders));
+    showToast(t('vaultBackupComplete'));
   };
 
   const doResetData = async () => {
@@ -173,6 +186,18 @@ export const SettingsView = ({
               <Save size={20} />{t('dataManagement')}
             </h2>
             <div className="space-y-6">
+              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0 pb-6 border-b ${theme.border}`}>
+                <div>
+                  <p className="text-base font-bold">{t('vaultBackupExport')}</p>
+                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
+                </div>
+                <button
+                  onClick={doVaultBackup}
+                  className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 shrink-0"
+                >
+                  <Download size={16}/>{t('vaultBackupExport')}
+                </button>
+              </div>
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
                   <div>

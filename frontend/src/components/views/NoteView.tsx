@@ -8,7 +8,7 @@ import {
   Clock, Calendar, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
-import { noteMatchesSearch } from '../../lib/math/noteSearch';
+import { noteMatchesSearch, noteSearchScore } from '../../lib/math/noteSearch';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -407,6 +407,7 @@ export const NoteView = () => {
     deleteFolder,
     exportNote,
     exportAllNotes,
+    exportVaultBackup,
     openTraceDay,
     openTraceRange,
     openTraceArea,
@@ -650,6 +651,20 @@ export const NoteView = () => {
           );
         }
       }
+    }
+    const plainSearchRank =
+      searchQuery.trim() &&
+      !knowledgeQueryInfo.active &&
+      parseNoteSearchQuery(searchQuery).mode !== 'tag';
+    if (plainSearchRank) {
+      const rankQuery = parseNoteSearchQuery(searchQuery).value;
+      list = [...list].sort((a, b) => {
+        const ra = noteSearchScore(a, rankQuery) ?? 99;
+        const rb = noteSearchScore(b, rankQuery) ?? 99;
+        if (ra !== rb) return ra - rb;
+        return b.updatedAt - a.updatedAt;
+      });
+      return list;
     }
     if (!shouldSkipUserSort) {
       list = [...list].sort((a, b) => {
@@ -1171,7 +1186,7 @@ export const NoteView = () => {
       handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
       handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
       handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes,
+      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup,
       openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId,
       duplicateNote, patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
       handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset,
@@ -1257,7 +1272,7 @@ export const NoteView = () => {
     handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
     handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes,
+    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup,
     openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote, handleResumeLastWorkspace,
     handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset, handleExitFocusPreset, handleQuickCapture,

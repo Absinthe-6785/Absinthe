@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
-  ChevronDown, ChevronRight, Upload, Keyboard,
+  ChevronDown, ChevronRight, Upload, Keyboard, Archive,
   Clock, Calendar, CalendarDays, LayoutDashboard, Folder,
 } from 'lucide-react';
 import { highlightText } from '../noteUtils';
@@ -204,6 +204,7 @@ export interface NoteViewSidebarHandlers {
   setShowSortMenu: React.Dispatch<React.SetStateAction<boolean>>;
   setSortOrder: React.Dispatch<React.SetStateAction<'updated' | 'title' | 'created'>>;
   exportAllNotes: () => void;
+  exportVaultBackup: () => boolean;
   openCreateEventDialog: () => void;
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   setActiveNoteId: (id: string | null) => void;
@@ -290,7 +291,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView,
     handleActivateSavedView, handleClearSavedView, handleCreateSavedView, handleRenameSavedView,
     handleDeleteSavedView, isWorkspaceKindActive, setMobileSidebarOpen, closeTraceLens,
-    handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, openCreateEventDialog,
+    handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openCreateEventDialog,
     createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
     handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset,
@@ -791,8 +792,13 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               </button>
             )}
             {!isTrash && (
-              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${activeNoteCount} notes as .md`}>
+              <button onClick={exportAllNotes} className="btbtn" title={t('nvExportAllNotes').replace('{count}', String(activeNoteCount))}>
                 <Save size={11}/>
+              </button>
+            )}
+            {!isTrash && (
+              <button onClick={() => exportVaultBackup()} className="btbtn" title={t('nvExportVaultBackup')}>
+                <Archive size={11}/>
               </button>
             )}
             {!isTrash && (
