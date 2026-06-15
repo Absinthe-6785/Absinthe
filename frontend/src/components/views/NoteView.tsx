@@ -167,14 +167,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './
 import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
-import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
 import { KnowledgeContextPanel, type KnowledgeContextTab } from './features/knowledge/components/KnowledgeContextPanel';
-import { KnowledgePanelEmpty } from './features/knowledge/components/KnowledgePanelSection';
-import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
-import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
-import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
-import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
-import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
 import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUniverse/graphNodeTier';
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';

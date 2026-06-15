@@ -6,6 +6,7 @@
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
 import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block } from '../../../../../blockUtils';
+import { normalizedOpIds } from '../../../../../dragSelection';
 import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 import { readBlockText } from '../../../../../editableDom';
 import { getSelectionOffsets } from '../../selection';
@@ -217,7 +218,7 @@ function todoGroupToHtml(blocks: Block[]): string {
 
 /** Document-order blocks matching selected ids (includes full subtrees). */
 export function collectBlocksForCopy(blocks: Block[], ids: Iterable<string>): Block[] {
-  const want = new Set(ids);
+  const want = new Set(normalizedOpIds(blocks, ids));
   const result: Block[] = [];
   const walk = (list: Block[]) => {
     for (const b of list) {

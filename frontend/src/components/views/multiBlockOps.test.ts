@@ -29,6 +29,16 @@ describe('multiBlockOps', () => {
     expect(ids[4]).not.toBe('c');
   });
 
+  it('duplicateSelectedBlocks does not double-clone toggle children when header is selected', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'toggle', children: [child] });
+    const root = [toggle, makeBlock('paragraph', { id: 'x', content: 'x' })];
+    const next = duplicateSelectedBlocks(root, ['t', 'c']);
+    const toggles = next.filter(b => b.type === 'toggle');
+    expect(toggles).toHaveLength(2);
+    expect(toggles.every(t => t.children.length === 1)).toBe(true);
+  });
+
   it('resolveFocusAfterBlockDelete focuses previous block at content end', () => {
     const next = deleteSelectedBlocks(blocks, ['b']);
     const focus = resolveFocusAfterBlockDelete(blocks, ['b'], next);

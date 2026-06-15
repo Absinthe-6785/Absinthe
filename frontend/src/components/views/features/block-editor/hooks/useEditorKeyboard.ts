@@ -1,8 +1,18 @@
 import { useEffect, type RefObject } from 'react';
 import type { Block } from '../../../blockUtils';
 import { shouldDeleteSelectedBlocks } from '../../../blockKeyboard';
-import { extendSelectionByArrow } from '../features/selection';
+import { extendSelectionByArrow, getDocumentOrderedIds } from '../features/selection';
 import { handleSelectAllKeydown } from '../features/selection/utils/documentSelectAll';
+
+function documentOrderEndpoints(blocks: Block[], selected: Set<string>): { first: string; last: string } | null {
+  const ordered = getDocumentOrderedIds(blocks);
+  const indices = [...selected]
+    .map(id => ordered.indexOf(id))
+    .filter(i => i >= 0)
+    .sort((a, b) => a - b);
+  if (!indices.length) return null;
+  return { first: ordered[indices[0]!]!, last: ordered[indices[indices.length - 1]!]! };
+}
 
 export interface UseEditorKeyboardOptions {
   readOnly: boolean;
@@ -43,14 +53,16 @@ export function useEditorKeyboard({
 
       if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && getRootBlocks && onExtendSelection) {
         const selected = getSelectedIds();
-        const focusId = selected.size > 0
-          ? [...selected][e.key === 'ArrowDown' ? selected.size - 1 : 0]!
+        const blocks = getRootBlocks();
+        const endpoints = selected.size > 0 ? documentOrderEndpoints(blocks, selected) : null;
+        const focusId = endpoints
+          ? (e.key === 'ArrowDown' ? endpoints.last : endpoints.first)
           : activeBlockId;
         if (!focusId) return;
         const target = e.target as HTMLElement | null;
         if (!target?.closest('.be-editor-root')) return;
         const extended = extendSelectionByArrow(
-          getRootBlocks(),
+          blocks,
           anchorBlockId,
           focusId,
           e.key === 'ArrowUp' ? 'up' : 'down',

@@ -141,6 +141,15 @@ describe('blockCopy semantic round-trip', () => {
     expect(collected.map(c => c.id)).toEqual(['a', 'b']);
   });
 
+  it('collectBlocksForCopy dedupes toggle header + child to single toggle', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'toggle', children: [child] });
+    const collected = collectBlocksForCopy([toggle], ['t', 'c']);
+    expect(collected).toHaveLength(1);
+    expect(collected[0]?.id).toBe('t');
+    expect(collected[0]?.children).toHaveLength(1);
+  });
+
   it('applySemanticCopy sets html and plain', () => {
     const data: Record<string, string> = {};
     applySemanticCopy([makeBlock('paragraph', { content: 'Hi' })], {
