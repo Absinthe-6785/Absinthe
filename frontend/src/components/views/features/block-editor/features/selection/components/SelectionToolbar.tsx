@@ -171,12 +171,12 @@ export function SelectionToolbar({
         onMouseDown={e => { e.preventDefault(); fn(); }}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: 32, height: 32,
-          border: active ? `2px solid ${c.accent}` : '2px solid transparent',
+          width: 24, height: 24,
+          border: active ? `1px solid ${c.accent}` : '1px solid transparent',
           borderRadius: btnRadius, cursor: 'pointer',
           background: active ? c.accent : 'transparent',
           color: active ? activeFg : c.textMuted,
-          boxShadow: active ? `0 0 0 2px ${c.accentBg}` : 'none',
+          boxShadow: active ? `0 0 0 1px ${c.accentBg}` : 'none',
           transition: 'background .12s, color .12s, box-shadow .12s',
         }}
         onMouseEnter={e => {
@@ -209,33 +209,33 @@ export function SelectionToolbar({
       style={{
         position:'fixed', top: Math.max(8, pos.top), left: pos.left,
         transform:'translateX(-50%)', zIndex:400,
-        display:'flex', alignItems:'center', gap:3, flexWrap:'nowrap',
-        padding:'5px 8px', borderRadius: c.radiusCard ?? 12,
+        display:'flex', alignItems:'center', gap:4, flexWrap:'nowrap',
+        padding:'4px 6px', borderRadius: c.radiusCard ?? 10,
         background:c.card, border:`1px solid ${c.border}`,
         boxShadow:'0 4px 12px rgba(0,0,0,0.08)',
       }}
       onMouseDown={e => e.preventDefault()}
     >
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('selectionFormat')}</span>
-      {iconBtn(<Bold size={14}/>, t('editorToolbarBold'), 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
-      {iconBtn(<Italic size={14}/>, t('editorToolbarItalic'), 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
-      {iconBtn(<Strikethrough size={14}/>, t('editorToolbarStrike'), 'Ctrl+Shift+S', formats.strike, () => applyFormat('~~', '~~'))}
-      {iconBtn(<Highlighter size={14}/>, t('editorToolbarHighlight'), 'Ctrl+Shift+M', formats.highlight, () => applyFormat('==', '=='))}
-      {iconBtn(<Code2 size={14}/>, t('editorToolbarCode'), 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
+      {iconBtn(<Bold size={12}/>, t('editorToolbarBold'), 'Ctrl+B', formats.bold, () => applyFormat('**', '**'))}
+      {iconBtn(<Italic size={12}/>, t('editorToolbarItalic'), 'Ctrl+I', formats.italic, () => applyFormat('*', '*'))}
+      {iconBtn(<Strikethrough size={12}/>, t('editorToolbarStrike'), 'Ctrl+Shift+S', formats.strike, () => applyFormat('~~', '~~'))}
+      {iconBtn(<Highlighter size={12}/>, t('editorToolbarHighlight'), 'Ctrl+Shift+M', formats.highlight, () => applyFormat('==', '=='))}
+      {iconBtn(<Code2 size={12}/>, t('editorToolbarCode'), 'Ctrl+`', formats.code, () => applyFormat('`', '`'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>
         {formats.isToggleHeading ? t('editorToolbarToggleHeading') : t('editorToolbarHeading')}
       </span>
-      {iconBtn(<Heading1 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '1') : t('editorToolbarHeadingN').replace('{n}', '1'), 'Ctrl+Shift+1', headingActive(1), () => convertHeading(1))}
-      {iconBtn(<Heading2 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '2') : t('editorToolbarHeadingN').replace('{n}', '2'), 'Ctrl+Shift+2', headingActive(2), () => convertHeading(2))}
-      {iconBtn(<Heading3 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '3') : t('editorToolbarHeadingN').replace('{n}', '3'), 'Ctrl+Shift+3', headingActive(3), () => convertHeading(3))}
-      {iconBtn(<Heading4 size={14}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '4') : t('editorToolbarHeadingN').replace('{n}', '4'), 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
+      {iconBtn(<Heading1 size={12}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '1') : t('editorToolbarHeadingN').replace('{n}', '1'), 'Ctrl+Shift+1', headingActive(1), () => convertHeading(1))}
+      {iconBtn(<Heading2 size={12}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '2') : t('editorToolbarHeadingN').replace('{n}', '2'), 'Ctrl+Shift+2', headingActive(2), () => convertHeading(2))}
+      {iconBtn(<Heading3 size={12}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '3') : t('editorToolbarHeadingN').replace('{n}', '3'), 'Ctrl+Shift+3', headingActive(3), () => convertHeading(3))}
+      {iconBtn(<Heading4 size={12}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '4') : t('editorToolbarHeadingN').replace('{n}', '4'), 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarLinks')}</span>
       {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, t('editorToolbarWikiLink'), 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarTags')}</span>
-      {iconBtn(<Hash size={14}/>, t('editorToolbarTags'), 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
+      {iconBtn(<Hash size={12}/>, t('editorToolbarTags'), 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
     </div>
   );
 }

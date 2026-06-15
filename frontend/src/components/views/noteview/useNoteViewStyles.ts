@@ -46,6 +46,13 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     /* ── 에디터/UI ── */
     .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
+    .be-context-chip-btn{background:none;cursor:pointer;font:inherit;transition:background .12s,color .12s,filter .12s}
+    .be-context-chip-btn:hover{filter:brightness(1.06)}
+    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+    .be-editor-toolbar-btn:hover{background:${c.cardHov};color:${c.accent}}
+    .be-editor-toolbar-scope{font-size:10px;padding:0 8px;height:24px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;box-sizing:border-box;border:1px solid ${c.toolBdr};background:${c.card};color:${c.textMuted};transition:all .12s}
+    .be-editor-toolbar-scope:hover{background:${c.cardHov}}
+    .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}
     .bfi{display:flex;align-items:center;gap:6px;padding:4px 10px;min-height:28px;cursor:pointer;transition:background .12s;font-size:11px;color:${c.text}}
     .bfi:hover{background:${c.cardHov}}
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}

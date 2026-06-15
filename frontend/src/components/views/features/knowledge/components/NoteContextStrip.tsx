@@ -24,7 +24,13 @@ export interface NoteContextStripProps {
   onOpenCosmos: () => void;
 }
 
-const TIER_KEYS = {
+const TIER_SHORT_KEYS = {
+  star: 'k35ContextTierStarShort',
+  planet: 'k35ContextTierPlanetShort',
+  moon: 'k35ContextTierMoonShort',
+} as const;
+
+const TIER_FULL_KEYS = {
   star: 'k35ContextTierStar',
   planet: 'k35ContextTierPlanet',
   moon: 'k35ContextTierMoon',
@@ -77,7 +83,13 @@ function ContextChip({
 
   if (interactive) {
     return (
-      <button type="button" className="btbtn" title={title ?? label} onClick={onClick} style={{ ...base, background: base.background }}>
+      <button
+        type="button"
+        className="be-context-chip-btn"
+        title={title ?? label}
+        onClick={onClick}
+        style={base}
+      >
         {icon}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
       </button>
@@ -190,8 +202,8 @@ export function NoteContextStrip({
     <ContextChip
       key="tier"
       c={c}
-      label={t(TIER_KEYS[tier])}
-      title={t('k35ContextTierHint')}
+      label={t(TIER_SHORT_KEYS[tier])}
+      title={`${t(TIER_FULL_KEYS[tier])} — ${t('k35ContextTierHint')}`}
       onClick={onOpenCosmos}
     />,
   );
