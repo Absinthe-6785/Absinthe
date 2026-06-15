@@ -27,5 +27,7 @@ describe('vaultHealthMetrics', () => {
     expect(metrics.connectedNotes).toBeGreaterThanOrEqual(1);
     expect(metrics.isolatedNotes).toBe(1);
     expect(metrics.averageLinksPerNote).toBeGreaterThanOrEqual(0);
+    expect(metrics.connectedPercent).toBeGreaterThanOrEqual(0);
+    expect(metrics.connectedPercent).toBeLessThanOrEqual(100);
   });
 });

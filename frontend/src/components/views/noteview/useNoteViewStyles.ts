@@ -44,7 +44,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btsummary:hover{background:${c.cardHov}}
     .btbody{padding:4px 0 4px 22px;border-left:2px solid ${c.textFaint};margin-left:10px}
     /* ── 에디터/UI ── */
-    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:4px 6px;border-radius:5px;transition:all .12s;display:flex;align-items:center}
+    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
     .bfi{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;transition:background .12s;font-size:12px;color:${c.text}}
     .bfi:hover{background:${c.cardHov}}
@@ -92,7 +92,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .editor-drop-overlay{position:absolute;inset:0;background:${c.accentBg};border:3px dashed ${c.accent};border-radius:12px;display:flex;align-items:center;justify-content:center;z-index:20;pointer-events:none;font-size:15px;color:${c.accent};font-weight:700;gap:8px;opacity:.92}
     /* ── 아이콘 사이드바 ── */
     .bicon-bar{display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px}
-    .bicon-btn{background:none;border:none;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:${c.textMuted};transition:all .12s;position:relative}
+    .bicon-btn{background:none;border:none;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:${c.textMuted};transition:all .12s;position:relative}
     .bicon-btn:hover{background:${c.cardHov};color:${c.accent}}
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}

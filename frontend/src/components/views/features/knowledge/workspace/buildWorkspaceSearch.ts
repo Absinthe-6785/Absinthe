@@ -132,6 +132,8 @@ const SUGGESTION_COLLECTION_IDS: readonly SmartCollectionId[] = [
   'academic-active-projects',
 ];
 
+const NOTE_ENRICH_LIMIT = 20;
+
 function normalizeQuery(query: string): string {
   return query.trim().toLowerCase();
 }
@@ -269,10 +271,7 @@ export function buildWorkspaceSearch(
     const title = displayNoteTitle(note.title);
     const matchRank = noteSearchScore(note, q, relationTitlesForNote(note, notes));
     if (matchRank !== null && kindAllowed('note', filter)) {
-      const base = buildResult('note', note.id, title, matchRank, { noteId: note.id });
-      results.push(service && galaxyMap
-        ? enrichNoteResult(note, base, notes, service, galaxyMap, options.discoveryFeed, options.language)
-        : base);
+      results.push(buildResult('note', note.id, title, matchRank, { noteId: note.id }));
     }
   }
 
@@ -331,6 +330,32 @@ export function buildWorkspaceSearch(
     const m = matchScore(folder.name, q);
     if (m !== null && kindAllowed('folder', filter)) {
       results.push(buildResult('folder', folder.id, folder.name, m, { folderId: folder.id }));
+    }
+  }
+
+  if (service && galaxyMap) {
+    const enrichIds = new Set(
+      results
+        .filter(r => r.kind === 'note')
+        .sort((a, b) => a.score - b.score || a.title.localeCompare(b.title))
+        .slice(0, NOTE_ENRICH_LIMIT)
+        .map(r => r.id),
+    );
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]!;
+      if (r.kind !== 'note' || !enrichIds.has(r.id)) continue;
+      const note = notes.find(n => n.id === r.noteId);
+      if (note) {
+        results[i] = enrichNoteResult(
+          note,
+          r,
+          notes,
+          service,
+          galaxyMap,
+          options.discoveryFeed,
+          options.language,
+        );
+      }
     }
   }
 

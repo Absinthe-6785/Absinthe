@@ -1,21 +1,30 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService, RelatedNote } from '../KnowledgeIndexService';
 
-export type RelatedNotesSection = 'mostRelated' | 'recentlyConnected' | 'frequentlyReferenced';
+export type RelatedNotesSection = 'mostRelated' | 'worthRevisiting';
 
 export interface GroupedRelatedNotes {
   mostRelated: RelatedNote[];
-  recentlyConnected: RelatedNote[];
-  frequentlyReferenced: RelatedNote[];
+  worthRevisiting: RelatedNote[];
 }
 
-const SECTION_LIMIT = 4;
+const MOST_RELATED_LIMIT = 6;
+const WORTH_REVISITING_LIMIT = 4;
 
 function incomingLinkCount(noteId: string, noteTitle: string, service: KnowledgeIndexService): number {
   return service.getIncoming(noteTitle, { excludeNoteId: noteId }).length;
 }
 
-/** Group related notes into actionable sections without duplicates. */
+function worthRevisitingScore(
+  item: RelatedNote,
+  note: NoteBase | undefined,
+  incoming: number,
+): number {
+  const recency = note?.updatedAt ?? 0;
+  return incoming * 3 + recency / 1_000_000_000 + item.score * 0.25;
+}
+
+/** Group related notes into two actionable sections without duplicates. */
 export function groupRelatedNotes(
   sourceId: string,
   notes: readonly NoteBase[],
@@ -37,30 +46,28 @@ export function groupRelatedNotes(
     return out;
   };
 
+  const incomingById = new Map<string, number>();
+  for (const item of pool) {
+    const note = noteById.get(item.noteId);
+    if (!note) continue;
+    incomingById.set(item.noteId, incomingLinkCount(item.noteId, note.title ?? '', service));
+  }
+
   const mostRelated = take(
     [...pool].sort((a, b) => b.score - a.score || a.noteTitle.localeCompare(b.noteTitle)),
-    SECTION_LIMIT,
+    MOST_RELATED_LIMIT,
   );
 
-  const recentlyConnected = take(
-    [...pool].sort((a, b) => {
-      const au = noteById.get(a.noteId)?.updatedAt ?? 0;
-      const bu = noteById.get(b.noteId)?.updatedAt ?? 0;
-      return bu - au || b.score - a.score;
-    }),
-    SECTION_LIMIT,
-  );
-
-  const frequentlyReferenced = take(
+  const worthRevisiting = take(
     [...pool].sort((a, b) => {
       const an = noteById.get(a.noteId);
       const bn = noteById.get(b.noteId);
-      const ac = an ? incomingLinkCount(a.noteId, an.title ?? '', service) : 0;
-      const bc = bn ? incomingLinkCount(b.noteId, bn.title ?? '', service) : 0;
-      return bc - ac || b.score - a.score;
+      const as = worthRevisitingScore(a, an, incomingById.get(a.noteId) ?? 0);
+      const bs = worthRevisitingScore(b, bn, incomingById.get(b.noteId) ?? 0);
+      return bs - as || b.score - a.score;
     }),
-    SECTION_LIMIT,
+    WORTH_REVISITING_LIMIT,
   );
 
-  return { mostRelated, recentlyConnected, frequentlyReferenced };
+  return { mostRelated, worthRevisiting };
 }

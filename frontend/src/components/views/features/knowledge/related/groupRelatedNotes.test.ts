@@ -26,14 +26,9 @@ describe('groupRelatedNotes', () => {
     const grouped = groupRelatedNotes('src', notes, service, 12);
     const ids = new Set([
       ...grouped.mostRelated,
-      ...grouped.recentlyConnected,
-      ...grouped.frequentlyReferenced,
+      ...grouped.worthRevisiting,
     ].map(r => r.noteId));
-    expect(ids.size).toBe(
-      grouped.mostRelated.length
-      + grouped.recentlyConnected.length
-      + grouped.frequentlyReferenced.length,
-    );
+    expect(ids.size).toBe(grouped.mostRelated.length + grouped.worthRevisiting.length);
   });
 
   it('prioritizes highest scores in mostRelated', () => {

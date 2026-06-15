@@ -33,9 +33,7 @@ describe('knowledge intelligence audit (K-69 fixture)', () => {
     const linked = dataset.notes.find(n => n.body?.includes('[['));
     if (!linked) return;
     const grouped = groupRelatedNotes(linked.id, dataset.notes, service);
-    const total = grouped.mostRelated.length
-      + grouped.recentlyConnected.length
-      + grouped.frequentlyReferenced.length;
+    const total = grouped.mostRelated.length + grouped.worthRevisiting.length;
     expect(total).toBeGreaterThan(0);
   });
 

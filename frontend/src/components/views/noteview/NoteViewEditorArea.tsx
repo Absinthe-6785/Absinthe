@@ -382,7 +382,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 </span>
               ) : savedAt ? (
                 <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  <Save size={12}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               ) : null
             )}
@@ -443,7 +443,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             {/* Star */}
             {!isTrash && (
               <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? t('nvUnstar') : t('nvStar')}>
-                <Star size={13} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
+                <Star size={14} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
               </button>
             )}
             {/* Duplicate */}
@@ -455,14 +455,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             {/* Right panel toggle */}
             <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isCompactChrome ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
               style={{ color: showRightPanel ? c.accent : c.textMuted }}>
-              <AlignLeft size={12}/>
+              <AlignLeft size={14}/>
             </button>
             {/* Copy document */}
             {!isTrash && (
               <button onClick={() => void handleCopyDocument()} className="btbtn"
                 title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
                 style={{ color: docCopied ? c.green : c.textMuted }}>
-                <Copy size={12}/>
+                <Copy size={14}/>
               </button>
             )}
             {/* Export */}
@@ -470,8 +470,8 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               <Save size={12}/>
             </button>
             {isTrash
-              ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={12}/></button>
-              : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
+              ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={14}/></button>
+              : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={14}/></button>
             }
           </div>
           <NoteBreadcrumbBar

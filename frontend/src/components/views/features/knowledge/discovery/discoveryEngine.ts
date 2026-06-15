@@ -2,7 +2,6 @@ import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { BuildDiscoveryFeedOptions, DiscoveryFeed, DiscoveryItem, DiscoveryKind, DiscoverySummary } from './discoveryTypes';
 import {
-  collectEmergingTopicSignals,
   collectForgottenKnowledgeSignals,
   collectKnowledgeDriftSignals,
   collectMissingConnectionSignals,
@@ -15,11 +14,9 @@ import { DISCOVERY_WEIGHTS, discoveryConfidenceTier } from './discoveryScoring';
 
 const DISCOVERY_KINDS: DiscoveryKind[] = [
   'isolated-notes',
-  'recently-active-area',
   'stale-area',
   'forgotten-knowledge',
   'missing-connection',
-  'emerging-topic',
   'weak-hub',
   'knowledge-drift',
 ];
@@ -149,10 +146,9 @@ export function buildDiscoveryFeed(
     applyHistoryToDiscoveryItems(
       [
         ...collectIsolatedNotesSignals(notes, service),
-        ...collectAreaInsightSignals(notes, service, now),
+        ...collectAreaInsightSignals(notes, service, now).filter(item => item.kind === 'stale-area'),
         ...collectForgottenKnowledgeSignals(notes, service, now),
         ...collectMissingConnectionSignals(notes, service),
-        ...collectEmergingTopicSignals(notes, service, now),
         ...collectWeakHubSignals(notes, service),
         ...collectKnowledgeDriftSignals(notes, service, now),
       ],
