@@ -2,6 +2,15 @@ export { useNoteViewState, type EventDialogState, type MilestoneDialogState } fr
 export { useNoteViewDashboard } from './useNoteViewDashboard';
 export { useNoteViewPanels } from './useNoteViewPanels';
 export { useNoteViewActions, type UseNoteViewActionsParams } from './useNoteViewActions';
+export { buildNoteViewStyles, useNoteViewStyles } from './useNoteViewStyles';
+export { useNoteViewSidebarProps, type UseNoteViewSidebarPropsInput } from './useNoteViewSidebarProps';
+export { useNoteContextPanelProps, type UseNoteContextPanelPropsInput } from './useNoteContextPanelProps';
+export { useNoteViewEditorAreaProps, type UseNoteViewEditorAreaPropsInput } from './useNoteViewEditorAreaProps';
+export { useNoteViewChildProps, type NoteViewChildPropsSources } from './useNoteViewChildProps';
+export { buildNoteViewChildPropSources, type NoteViewChildPropBuildParams } from './buildNoteViewChildPropSources';
+export { useNoteViewChildPropInput } from './useNoteViewChildPropInput';
+export { useNoteViewPanelConfig } from './useNoteViewPanelConfig';
+export { NoteViewShortcutsModal } from './NoteViewShortcutsModal';
 export {
   NoteContextPanelBody,
   type NoteContextPanelBodyProps,
