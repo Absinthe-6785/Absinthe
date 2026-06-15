@@ -4,6 +4,11 @@
  * Converts between editor markdown content and semantic HTML for copy/paste
  * with external editors (Google Docs, Notion, Word, AI tools).
  */
+import {
+  extractLatexFromMathElement,
+  isBlockMathElement,
+  isMathHtmlElement,
+} from '../special/specialBlockClipboard';
 
 function escapeHtml(text: string): string {
   return text
@@ -82,6 +87,13 @@ function inlineNodeToMarkdown(node: Node): string {
   const el = node as HTMLElement;
   const tag = el.tagName.toUpperCase();
   const inner = Array.from(el.childNodes).map(inlineNodeToMarkdown).join('');
+
+  if (isMathHtmlElement(el)) {
+    const latex = extractLatexFromMathElement(el);
+    if (latex) {
+      return isBlockMathElement(el) ? `$$${latex}$$` : `$${latex}$`;
+    }
+  }
 
   switch (tag) {
     case 'STRONG':

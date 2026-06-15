@@ -8,6 +8,7 @@ import {
   Clock, Calendar, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
+import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -643,12 +644,9 @@ export const NoteView = () => {
             noteMatchesPageTag(n, parsed.value),
           );
         } else {
-          const q = parsed.value.toLowerCase();
           list = list.filter(n =>
-            (n.title ?? '').toLowerCase().includes(q) ||
-            (n.body ?? '').toLowerCase().includes(q) ||
-            extractTags(n.body ?? '').some(t => t.toLowerCase().includes(q)) ||
-            noteMatchesPageTag(n, q)
+            noteMatchesSearch(n, parsed.value) ||
+            noteMatchesPageTag(n, parsed.value),
           );
         }
       }

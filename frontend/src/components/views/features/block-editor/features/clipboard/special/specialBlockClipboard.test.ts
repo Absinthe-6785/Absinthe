@@ -98,6 +98,27 @@ describe('math block clipboard (UX-5B.3)', () => {
     const blocks = clipboardToBlocks(mockClipboard('', plain))!;
     expect(blocks[0].type).toBe('math');
   });
+
+  it('paste Notion KaTeX span with annotation', () => {
+    const html = [
+      '<span class="katex">',
+      '<span class="katex-mathml">',
+      '<math><semantics><mrow><mo>→</mo></mrow>',
+      '<annotation encoding="application/x-tex">\\rightarrow</annotation>',
+      '</semantics></math>',
+      '</span>',
+      '</span>',
+    ].join('');
+    const blocks = htmlDocumentToBlocks(`<p>x ${html} y</p>`)!;
+    expect(blocks[0].content).toBe('x $\\rightarrow$ y');
+  });
+
+  it('paste notion-equation block', () => {
+    const html = '<div class="notion-equation" data-math="\\rightarrow"></div>';
+    const blocks = htmlDocumentToBlocks(html)!;
+    expect(blocks[0].type).toBe('math');
+    expect(blocks[0].math).toBe('\\rightarrow');
+  });
 });
 
 describe('image block clipboard (UX-5B.3)', () => {

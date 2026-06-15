@@ -498,7 +498,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                         setSearchScope('document');
                       }}
                       style={{ fontSize: 10, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Search size={11}/> 검색
+                      <Search size={11}/> {t('nvSearchButton')}
                     </button>
                   )}
                   {searchQuery.trim() && (

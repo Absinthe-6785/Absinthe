@@ -9,6 +9,8 @@ import { isDetailsToggleElement, toggleBlockFromDetails } from '../../../../../h
 import { parseBeToggleWrap } from './domToggleParser';
 import { elementInlineToMarkdown } from '../inline/inlineClipboard';
 import {
+  isBlockMathElement,
+  isMathHtmlElement,
   parseCalloutElement,
   parseCodeFromCodeElement,
   parseCodeFromPre,
@@ -201,9 +203,17 @@ function walkNode(node: Node, out: Block[]): void {
 
   if (
     (tag === 'SPAN' || tag === 'DIV')
-    && el.getAttribute('data-block-type') === 'math'
+    && (el.getAttribute('data-block-type') === 'math' || isMathHtmlElement(el))
   ) {
-    out.push(parseMathElement(el));
+    const asBlock = el.getAttribute('data-block-type') === 'math'
+      || isBlockMathElement(el)
+      || tag === 'DIV';
+    if (asBlock) {
+      out.push(parseMathElement(el));
+      return;
+    }
+    const content = inlineText(el);
+    if (content) out.push(makeBlock('paragraph', { content }));
     return;
   }
 
@@ -255,5 +265,8 @@ export function htmlDocumentToBlocks(html: string): Block[] | null {
 export function htmlHasBlockStructure(html: string): boolean {
   if (!/<[a-z]/i.test(html)) return false;
   return /<(h[1-6]|p|table|ul|ol|blockquote|pre|code|hr|div|li|details|img)\b/i.test(html)
-    || /data-block-type=["']math["']/i.test(html);
+    || /data-block-type=["']math["']/i.test(html)
+    || /class=["'][^"']*\bkatex\b/i.test(html)
+    || /notion-equation/i.test(html)
+    || /data-math(?:-source)?=/i.test(html);
 }

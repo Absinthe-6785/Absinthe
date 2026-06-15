@@ -55,4 +55,25 @@ describe('multiBlockDrag', () => {
     expect(applyMultiBlockDragDrop(blocks, ['p', 'd'], 't', 'inside')).toBeNull();
     expect(applyMultiBlockDragDrop(blocks, ['d'], 't', 'inside')).toBeNull();
   });
+
+  it('extracts toggle child to root before sibling', () => {
+    const child = { ...makeBlock('paragraph'), id: 'b' };
+    const toggle = { ...makeBlock('toggle'), id: 't', children: [child] };
+    const sibling = { ...makeBlock('paragraph'), id: 'c' };
+    const root = [toggle, sibling];
+
+    const next = applyMultiBlockDragDrop(root, ['b'], 'c', 'before');
+    expect(flattenBlockIds(next!)).toEqual(['t', 'b', 'c']);
+    expect(next![0].children).toHaveLength(0);
+  });
+
+  it('extracts toggle child to root before toggle', () => {
+    const child = { ...makeBlock('paragraph'), id: 'b' };
+    const toggle = { ...makeBlock('toggle'), id: 't', children: [child] };
+    const root = [toggle];
+
+    const next = applyMultiBlockDragDrop(root, ['b'], 't', 'before');
+    expect(flattenBlockIds(next!)).toEqual(['b', 't']);
+    expect(next![1].children).toHaveLength(0);
+  });
 });

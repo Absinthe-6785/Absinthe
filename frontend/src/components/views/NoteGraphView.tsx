@@ -9,9 +9,10 @@
  */
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { useTranslation, resolveIntlLocale } from '../../lib/i18n';
+import { useTranslation } from '../../lib/i18n';
+import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
-import { importanceClassificationLabel, areaHealthCategoryLabel } from './features/knowledge/knowledgeLabels';
+import { areaHealthCategoryLabel } from './features/knowledge/knowledgeLabels';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
@@ -30,7 +31,6 @@ import {
   focusUniverseEdgeOpacity,
   focusUniverseNodeOpacity,
   focusUniverseNodeOpacityByDepth,
-  formatUniverseUpdatedAt,
   galaxyColor,
   getEdgeVisualStyle,
   getTierVisualStyle,
@@ -46,6 +46,7 @@ import {
   type GraphViewMode,
 } from './features/knowledge/graph/knowledgeUniverse';
 import { resolveCosmosEmptyScenario } from './features/knowledge/cosmos/onboarding';
+import { CosmosGraphPreviewPanel } from './features/knowledge/cosmos/CosmosGraphPreviewPanel';
 import type { RecentEvolutionSummary } from './features/knowledge/timeline';
 import { edgeLegendEntries } from './features/knowledge/graphLabels';
 import {
@@ -140,9 +141,8 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries, onHudOpenTimeline, recentEvolution }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
-  const intlLocale = resolveIntlLocale(lang);
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
   const svgRef   = useRef<SVGSVGElement>(null);
   const frameRef = useRef<number>(0);
@@ -154,6 +154,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const [showIsolated, setShowIsolated] = useState(true);
   const [searchQuery, setSearchQuery]   = useState('');
+  const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
   const [relationshipFilter, setRelationshipFilter] = useState<GlobalGraphRelationshipFilter>('all');
   const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>(() => loadGraphViewMode());
   const [hoveredEdgeKind, setHoveredEdgeKind] = useState<EdgeSemanticKind | null>(null);
@@ -470,13 +471,17 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const searchLower = searchQuery.trim().toLowerCase();
   const matchedIds = useMemo(() => {
     if (!searchLower) return null;
+    const noteById = new Map(safeNotes.map(n => [n.id, n]));
     return new Set(
       nodesRef.current
-        .filter(n => n.title.toLowerCase().includes(searchLower))
-        .map(n => n.id)
+        .filter(n => {
+          const note = noteById.get(n.id);
+          return note && noteMatchesSearch(note, searchQuery.trim());
+        })
+        .map(n => n.id),
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchLower, tick]);
+  }, [searchLower, searchQuery, safeNotes, tick]);
 
   // ── 색상 팔레트 ────────────────────────────────────────────────────
   const colors = useMemo(() => ({
@@ -572,16 +577,19 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [notes],
   );
 
+  const highlightNodeId = previewNodeId ?? activeNoteId;
+
   const selectedImportance = useMemo(() => {
-    if (!activeNoteId) return null;
-    const note = notes.find(n => n.id === activeNoteId);
+    if (!highlightNodeId) return null;
+    const note = notes.find(n => n.id === highlightNodeId);
     if (!note) return null;
     const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
     const input = buildImportanceInputForNote(note, knowledgeIndexService, galaxyMap.get(note.id));
     return evaluateKnowledgeImportance(input);
-  }, [activeNoteId, notes]);
+  }, [highlightNodeId, notes]);
 
-  const selectedNode = activeNoteId ? renderMap.get(activeNoteId) : null;
+  const previewNote = previewNodeId ? notes.find(n => n.id === previewNodeId) : null;
+  const previewGraphNode = previewNodeId ? renderMap.get(previewNodeId) : null;
   const showEmptyUniverse = shouldShowEmptyUniverse({
     nodeCount: visibleNodes.length,
     linkCount: visibleEdges.length,
@@ -613,12 +621,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     });
   }, [graphViewMode, reducedMotion, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const hoveredNode = hovered ? renderMap.get(hovered) : null;
-
   const transformStr = `translate(${transform.x}, ${transform.y}) scale(${transform.k})`;
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: colors.bg, overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', background: colors.bg, overflow: 'hidden' }}>
+    <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
       {/* ── 툴바 ────────────────────────────────────────────────── */}
       <div style={{
         position: 'absolute', top: 10, left: 10, right: 10,
@@ -882,7 +889,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             if (!a || !b) return null;
             const posA = getDisplayPos(a);
             const posB = getDisplayPos(b);
-            const isAct  = e.from === activeNoteId || e.to === activeNoteId;
+            const isAct  = e.from === highlightNodeId || e.to === highlightNodeId;
             const isHovEdge = hovered === e.from || hovered === e.to;
             const depthA = focusDepthMap?.get(e.from);
             const depthB = focusDepthMap?.get(e.to);
@@ -924,7 +931,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             const pos = getDisplayPos(node);
             const tierVisual = getTierVisualStyle(node.radius, node.tier, dark);
             const r = tierVisual.renderRadius;
-            const isAct   = node.id === activeNoteId;
+            const isAct   = node.id === highlightNodeId;
             const isHov   = node.id === hovered;
             const isMatch = matchedIds !== null && matchedIds.has(node.id);
             const focusDepth = focusDepthMap?.get(node.id);
@@ -982,7 +989,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 role="button"
                 tabIndex={0}
                 aria-label={ariaLabel}
-                onClick={e => { e.stopPropagation(); onSelect(node.id); }}
+                onClick={e => { e.stopPropagation(); setPreviewNodeId(node.id); }}
+                onDoubleClick={e => { e.stopPropagation(); onSelect(node.id); }}
                 onKeyDown={e => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
@@ -1063,7 +1071,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                       ? 'url(#ku-planet-glow)'
                       : undefined}
                 >
-                  <title>{`${node.title.trim() || '제목 없음'}\n${node.galaxyLabel} · ${node.backlinkCount} backlinks · score ${Math.round(node.importance)}`}</title>
+                  <title>{node.title.trim() || t('untitledNote')}</title>
                 </circle>
                 {folderColor && !isAct && !isDim && node.tier !== 'moon' && (
                   <circle cx={pos.x + r * 0.65} cy={pos.y - r * 0.65} r={3}
@@ -1078,10 +1086,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 {showLabel && (
                 <text
                   x={pos.x} y={pos.y + r + 16}
-                  textAnchor="middle" fontSize={node.tier === 'star' ? 11 : 10}
-                  fill={isDim ? colors.dimTxt : isAct ? colors.act : colors.txt}
-                  fontWeight={isAct || isMatch || node.tier === 'star' ? '700' : '400'}
-                  opacity={isDim ? 0.35 : 1}
+                  textAnchor="middle"
+                  fontSize={(node.tier === 'star' ? 11 : 10) * (transform.k > 1.15 ? 1.12 : 1)}
+                  fill={isDim ? colors.dimTxt : isAct ? colors.act : dark ? '#E4E4E7' : '#1C1917'}
+                  fontWeight={isAct || isMatch || node.tier === 'star' ? '700' : '500'}
+                  opacity={isDim ? 0.35 : isAct ? 1 : 0.92}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {label}
@@ -1266,68 +1275,6 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             </div>
           </div>
         )}
-        {recentEvolution && (recentEvolution.notesAdded > 0 || recentEvolution.linksAdded > 0) && (
-          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}`, pointerEvents: 'auto' }}>
-            <div style={{ fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>{t('k42HudEvolutionTitle')}</span>
-              {onHudOpenTimeline && (
-                <button
-                  type="button"
-                  onClick={onHudOpenTimeline}
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    padding: '1px 6px',
-                    borderRadius: 4,
-                    border: `1px solid ${colors.toolbarB}`,
-                    background: colors.toolbar,
-                    color: colors.act,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {t('k42OpenTimeline')}
-                </button>
-              )}
-            </div>
-            <div style={{ opacity: 0.85 }}>
-              {t('k42HudEvolutionNotes').replace('{count}', String(recentEvolution.notesAdded))}
-            </div>
-            <div style={{ opacity: 0.85 }}>
-              {t('k42HudEvolutionLinks').replace('{count}', String(recentEvolution.linksAdded))}
-            </div>
-            <div style={{ opacity: 0.75, fontSize: 9 }}>
-              {t('k42HudEvolutionPeriod').replace('{days}', String(recentEvolution.periodDays))}
-            </div>
-            {recentEvolution.fastestGrowingArea && (
-              <div style={{ opacity: 0.75, fontSize: 9, marginTop: 2 }}>
-                {t('k42FastestArea').replace('{area}', recentEvolution.fastestGrowingArea)}
-              </div>
-            )}
-          </div>
-        )}
-        {selectedNode && (
-          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
-            <div style={{ fontWeight: 600, color: colors.act, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedNode.title.trim() || t('untitledNote')}
-            </div>
-            <div style={{ opacity: 0.8 }}>
-              {t('cosmosHudBacklinksGalaxy')
-                .replace('{count}', String(selectedNode.backlinkCount))
-                .replace('{galaxy}', selectedNode.galaxyLabel)}
-            </div>
-            {selectedImportance && (
-              <div style={{ opacity: 0.8 }}>
-                {t('k36HudImportanceTier').replace(
-                  '{tier}',
-                  importanceClassificationLabel(selectedImportance.classification, lang),
-                )}
-              </div>
-            )}
-            <div style={{ opacity: 0.7 }}>
-              {t('cosmosHudUpdated').replace('{date}', formatUniverseUpdatedAt(selectedNode.updatedAt, intlLocale))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Edge hover legend */}
@@ -1430,35 +1377,6 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         {' · '}<span style={{ opacity: 0.6 }}>{t('graphStatusControls')}</span>
       </div>
 
-      {hoveredNode && !selectedNode && (
-        <div style={{
-          position: 'absolute', bottom: 10, left: 10,
-          fontSize: 10, color: colors.act, fontWeight: 600,
-          pointerEvents: 'none',
-          maxWidth: 280,
-        }}>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            ◉ {hoveredNode.title}
-          </div>
-          <div style={{ opacity: 0.75, fontWeight: 500, marginTop: 2 }}>
-            {hoveredNode.galaxyLabel} · {hoveredNode.tier === 'star' ? t('graphTierStar') : hoveredNode.tier === 'planet' ? t('graphTierPlanet') : t('graphTierMoon')} · {hoveredNode.backlinkCount} {t('knBacklinks').toLowerCase()} · {t('graphHoverScore').replace('{score}', String(Math.round(hoveredNode.importance)))}
-          </div>
-        </div>
-      )}
-
-      {activeNoteId && !hovered && selectedNode && (
-        <div style={{
-          position: 'absolute', bottom: 10, left: 10,
-          fontSize: 10, color: colors.act, fontWeight: 600,
-          pointerEvents: 'none',
-          maxWidth: 280,
-        }}>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            ◉ Local universe · depth {DEFAULT_FOCUS_DEPTH}
-          </div>
-        </div>
-      )}
-
       {/* 검색 결과 없음 */}
       {matchedIds !== null && matchedIds.size === 0 && (
         <div style={{
@@ -1470,7 +1388,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           padding: '6px 12px', borderRadius: 8,
           border: `1px solid ${colors.toolbarB}`,
         }}>
-          '{searchQuery}' 와 일치하는 노드가 없습니다
+          {t('graphSearchNoResults').replace('{query}', searchQuery)}
         </div>
       )}
       <style>{`
@@ -1496,6 +1414,16 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           .ku-star-pulse, .ku-active-pulse { animation: none; }
         }
       `}</style>
+    </div>
+    {previewNote && previewGraphNode && previewNodeId && (
+      <CosmosGraphPreviewPanel
+        note={previewNote}
+        graphNode={previewGraphNode}
+        colors={colors}
+        importance={selectedImportance}
+        onOpenNote={() => onSelect(previewNodeId)}
+      />
+    )}
     </div>
   );
 }
