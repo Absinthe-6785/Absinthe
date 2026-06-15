@@ -1,6 +1,6 @@
 import type { NoteBase } from '../../../../noteUtils';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
-import { buildNoteGalaxyMap } from '../../graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap } from '../../graph/knowledgeUniverse/galaxyClustering';
 import { buildAreaHealthSummaries, type AreaHealthSummary } from './areaHealth';
 import { buildKnowledgeGaps, type KnowledgeGap } from './knowledgeGaps';
 import {
@@ -50,7 +50,7 @@ export function buildNoteIntelligenceSnapshot(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
 ): NoteIntelligenceSnapshot {
-  const galaxyMap = buildNoteGalaxyMap(notes, service);
+  const galaxyMap = getNoteGalaxyMap(notes, service);
   const galaxy = galaxyMap.get(note.id);
   const input = buildImportanceInputForNote(note, service, galaxy);
   const importance = evaluateKnowledgeImportance(input);
@@ -83,7 +83,7 @@ export function buildCosmosVaultAnalysis(
   service: KnowledgeIndexService,
 ): CosmosVaultAnalysis {
   const active = notes.filter(n => !n.deletedAt);
-  const galaxyMap = buildNoteGalaxyMap(active, service);
+  const galaxyMap = getNoteGalaxyMap(active, service);
   const areaHealthRows = buildAreaHealthSummaries(active, service, galaxyMap);
 
   let coreHubCount = 0;
@@ -123,7 +123,7 @@ export function countNotesByClassification(
   service: KnowledgeIndexService,
   classification: ImportanceClassification,
 ): number {
-  const galaxyMap = buildNoteGalaxyMap(notes.filter(n => !n.deletedAt), service);
+  const galaxyMap = getNoteGalaxyMap(notes.filter(n => !n.deletedAt), service);
   let count = 0;
   for (const note of notes) {
     if (note.deletedAt) continue;

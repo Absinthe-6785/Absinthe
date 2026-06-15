@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Language } from '@/lib/i18n';
+import { useNotesStore } from '../../../store/useNotesStore';
 import type { NoteBase as Note } from '../noteUtils';
 import type { TimelinePeriodMode } from '../features/knowledge/timeline';
 import {
@@ -42,14 +43,16 @@ export function useNoteViewDashboard(params: {
   activeNote: Note | null;
 }) {
   const { notes, lang, timelineMode } = params;
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
+  const galaxyCacheKey = String(vaultStructureVersion);
 
   const [historyVersion, setHistoryVersion] = useState(0);
   const [bootstrapDismissed, setBootstrapDismissed] = useState(() => isBootstrapSummaryDismissed());
   useEffect(() => subscribeKnowledgeHistory(() => setHistoryVersion(v => v + 1)), []);
 
   useEffect(() => {
-    maybeBootstrapKnowledgeHistory(notes, knowledgeIndexService);
-  }, [notes]);
+    maybeBootstrapKnowledgeHistory(useNotesStore.getState().notes, knowledgeIndexService);
+  }, [vaultStructureVersion]);
 
   const historyEvents = useMemo(
     () => loadKnowledgeHistoryEvents(),
@@ -57,41 +60,50 @@ export function useNoteViewDashboard(params: {
   );
 
   const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService, { historyEvents }),
-    [notes, historyEvents],
+    () => buildDiscoveryFeed(
+      useNotesStore.getState().notes,
+      knowledgeIndexService,
+      { historyEvents, galaxyCacheKey },
+    ),
+    [vaultStructureVersion, historyEvents],
   );
 
   const unifiedWorkspaceDashboard = useMemo(
-    () => buildUnifiedWorkspaceDashboard(notes, {
+    () => buildUnifiedWorkspaceDashboard(useNotesStore.getState().notes, {
       limit: 6,
       service: knowledgeIndexService,
       language: lang,
       discoveryFeed,
     }),
-    [notes, lang, discoveryFeed],
+    [vaultStructureVersion, lang, discoveryFeed],
   );
 
   const learningPathOverview = useMemo(
-    () => buildLearningPathOverview(notes),
-    [notes],
+    () => buildLearningPathOverview(useNotesStore.getState().notes),
+    [vaultStructureVersion],
   );
 
   const subjectWorkspaces = useMemo(
-    () => buildAllSubjectWorkspaces(notes, { limit: 6 }),
-    [notes],
+    () => buildAllSubjectWorkspaces(useNotesStore.getState().notes, { limit: 6 }),
+    [vaultStructureVersion],
   );
 
   const cosmosVaultPhase = useMemo(
-    () => resolveCosmosVaultPhase(notes, knowledgeIndexService, discoveryFeed.summary.totalCount),
-    [notes, discoveryFeed.summary.totalCount],
+    () => resolveCosmosVaultPhase(
+      useNotesStore.getState().notes,
+      knowledgeIndexService,
+      discoveryFeed.summary.totalCount,
+    ),
+    [vaultStructureVersion, discoveryFeed.summary.totalCount],
   );
 
   const knowledgeTimeline = useMemo(
-    () => buildKnowledgeTimeline(notes, knowledgeIndexService, discoveryFeed, {
+    () => buildKnowledgeTimeline(useNotesStore.getState().notes, knowledgeIndexService, discoveryFeed, {
       mode: timelineMode,
       historyEvents,
+      galaxyCacheKey,
     }),
-    [notes, discoveryFeed, timelineMode, historyEvents],
+    [vaultStructureVersion, discoveryFeed, timelineMode, historyEvents],
   );
 
   const activitySummary = useMemo(
@@ -100,19 +112,19 @@ export function useNoteViewDashboard(params: {
   );
 
   const cosmosEvolutionSummary = useMemo(
-    () => buildCosmosEvolutionSummary(notes, knowledgeIndexService, historyEvents),
-    [notes, historyEvents],
+    () => buildCosmosEvolutionSummary(useNotesStore.getState().notes, knowledgeIndexService, historyEvents),
+    [vaultStructureVersion, historyEvents],
   );
 
   const cosmosEvolutionStory = useMemo(
     () => buildExpandedCosmosEvolutionStory(
       cosmosEvolutionSummary,
       historyEvents,
-      notes,
+      useNotesStore.getState().notes,
       knowledgeTimeline.areaEvolution,
       knowledgeTimeline.milestones,
     ),
-    [cosmosEvolutionSummary, historyEvents, notes, knowledgeTimeline.areaEvolution, knowledgeTimeline.milestones],
+    [cosmosEvolutionSummary, historyEvents, vaultStructureVersion, knowledgeTimeline.areaEvolution, knowledgeTimeline.milestones],
   );
 
   const knowledgeJourney = useMemo(
@@ -121,8 +133,8 @@ export function useNoteViewDashboard(params: {
   );
 
   const evolutionInsights = useMemo(
-    () => buildEvolutionInsightsSummary(notes, knowledgeTimeline, historyEvents),
-    [notes, knowledgeTimeline, historyEvents],
+    () => buildEvolutionInsightsSummary(useNotesStore.getState().notes, knowledgeTimeline, historyEvents),
+    [vaultStructureVersion, knowledgeTimeline, historyEvents],
   );
 
   const bootstrapImportSummary = useMemo(() => {
@@ -178,9 +190,9 @@ export function useNoteViewDashboard(params: {
   const dashboardRecentActivity = useMemo(() => {
     const recent = getRecentEvents(1, historyEvents)[0];
     if (!recent) return null;
-    const row = presentHistoryEvent(recent, notes);
+    const row = presentHistoryEvent(recent, useNotesStore.getState().notes);
     return { actionKey: row.actionKey, detail: row.detail, noteId: row.noteId };
-  }, [historyEvents, notes]);
+  }, [historyEvents, vaultStructureVersion]);
 
   const dashboardLatestMilestone = useMemo(() => {
     const milestone = latestAchievedMilestone(knowledgeTimeline.milestones);
