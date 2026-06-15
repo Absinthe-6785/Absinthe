@@ -10,10 +10,11 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
+import { toolbarControlHeight as resolveToolbarHeight } from '../../theme/actionTokens';
 import { useTranslation } from '../../lib/i18n';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
-import { areaHealthCategoryLabel } from './features/knowledge/knowledgeLabels';
+import { loadKnowledgeHistoryEvents } from './features/knowledge/history';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { buildNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import type { GlobalGraphRelationshipFilter, GraphRelationshipType } from './features/knowledge';
@@ -150,7 +151,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const svgRef   = useRef<SVGSVGElement>(null);
   const frameRef = useRef<number>(0);
   const renderTickRef = useRef(0);
-  const toolbarControlHeight = compactChrome ? TOUCH_TARGET_MIN_PX : 28;
+  const toolbarControlHeight = resolveToolbarHeight(compactChrome);
 
   const [size, setSize]         = useState({ w: 600, h: 400 });
   const [hovered, setHovered]   = useState<string | null>(null);
@@ -581,9 +582,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [notes],
   );
 
+  const historyEvents = useMemo(() => loadKnowledgeHistoryEvents(), []);
+
   const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService),
-    [notes],
+    () => buildDiscoveryFeed(notes, knowledgeIndexService, { historyEvents }),
+    [notes, historyEvents],
   );
 
   const highlightNodeId = previewNodeId ?? activeNoteId;
@@ -1278,20 +1281,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             .replace('{links}', String(hudStats.linkCount))
             .replace('{galaxies}', String(hudStats.galaxyCount))}
         </div>
-        <div style={{ opacity: 0.85 }}>
-          {t('cosmosHudTiers')
-            .replace('{stars}', String(hudStats.starCount))
-            .replace('{planets}', String(hudStats.planetCount))
-            .replace('{moons}', String(hudStats.moonCount))}
-        </div>
         <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
           <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('k36HudAnalysisTitle')}</div>
-          <div style={{ opacity: 0.85 }}>
-            {t('k36HudCoreHubs').replace('{count}', String(vaultAnalysis.coreHubCount))}
-          </div>
-          <div style={{ opacity: 0.85 }}>
-            {t('k70HudHighlyConnected').replace('{count}', String(vaultAnalysis.coreHubCount + vaultAnalysis.majorHubCount))}
-          </div>
           <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{t('k36HudIsolated').replace('{count}', String(vaultAnalysis.isolatedCount))}</span>
             {vaultAnalysis.isolatedCount > 0 && (
@@ -1340,20 +1331,6 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
               </button>
             )}
           </div>
-          {vaultAnalysis.areaHealthRows.slice(0, 3).map(row => (
-            <div key={row.galaxyId} style={{ opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {t('k36HudAreaHealth')
-                .replace('{label}', row.label)
-                .replace('{score}', String(row.score))
-                .replace('{category}', areaHealthCategoryLabel(row.category, lang))}
-            </div>
-          ))}
-          <div style={{ opacity: 0.85, marginTop: 4 }}>
-            {t('k70HudGrowingClusters').replace('{count}', String(vaultAnalysis.areaHealthRows.filter(r => r.category === 'growing').length))}
-          </div>
-          <div style={{ opacity: 0.85 }}>
-            {t('k70HudLargeAreas').replace('{count}', String(vaultAnalysis.areaHealthRows.filter(r => r.noteCount >= 8).length))}
-          </div>
         </div>
         {discoveryFeed.summary.totalCount > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
@@ -1380,9 +1357,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             </div>
             <div style={{ opacity: 0.85 }}>{t('k38HudForgotten').replace('{count}', String(discoveryFeed.summary.forgottenCount))}</div>
             <div style={{ opacity: 0.85 }}>{t('k38HudMissingConnections').replace('{count}', String(discoveryFeed.summary.missingConnectionCount))}</div>
-            <div style={{ opacity: 0.85 }}>{t('k38HudWeakHubs').replace('{count}', String(discoveryFeed.summary.weakHubCount))}</div>
             <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>{t('k38HudEmergingTopics').replace('{count}', String(discoveryFeed.summary.emergingTopicCount))}</span>
+              <span>{t('k38HudWeakHubs').replace('{count}', String(discoveryFeed.summary.weakHubCount))}</span>
               {discoveryFeed.summary.totalCount > 0 && onHudReviewDiscoveries && (
                 <button
                   type="button"

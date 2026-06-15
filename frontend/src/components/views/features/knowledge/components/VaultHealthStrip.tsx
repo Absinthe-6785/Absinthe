@@ -8,7 +8,7 @@ export interface VaultHealthStripProps {
   compact?: boolean;
 }
 
-/** Lightweight vault health indicators — K-70. */
+/** Actionable vault health summary — K-75. */
 export function VaultHealthStrip({ colors: c, metrics, compact }: VaultHealthStripProps) {
   const { t } = useTranslation();
 
@@ -27,18 +27,19 @@ export function VaultHealthStrip({ colors: c, metrics, compact }: VaultHealthStr
       </div>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: '4px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
           fontSize: 10,
           color: c.textMuted,
           lineHeight: 1.5,
         }}
       >
-        <div>{t('k70VaultHealthConnected').replace('{count}', String(metrics.connectedNotes))}</div>
-        <div>{t('k70VaultHealthIsolated').replace('{count}', String(metrics.isolatedNotes))}</div>
-        <div>{t('k70VaultHealthAvgLinks').replace('{value}', String(metrics.averageLinksPerNote))}</div>
-        <div>{t('k70VaultHealthRecent').replace('{count}', String(metrics.recentlyActiveNotes))}</div>
+        <div>{t('k75VaultHealthConnectedPct').replace('{pct}', String(metrics.connectedPercent))}</div>
+        <div style={{ color: metrics.isolatedNotes > 0 ? c.accent : c.textMuted }}>
+          {t('k70VaultHealthIsolated').replace('{count}', String(metrics.isolatedNotes))}
+        </div>
+        <div>{t('k75VaultHealthActiveWeek').replace('{count}', String(metrics.recentlyActiveNotes))}</div>
       </div>
     </div>
   );

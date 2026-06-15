@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
+import { CARD_HEADER_ICON_SIZE } from '../../../../../theme/actionTokens';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
 export interface DashboardCardHeaderProps {
@@ -27,7 +28,7 @@ export function DashboardCardHeader({
         marginBottom: compact ? 4 : 6,
       }}
     >
-      <Icon size={14} strokeWidth={2.25} style={{ color: c.accent, flexShrink: 0 }} />
+      <Icon size={CARD_HEADER_ICON_SIZE} strokeWidth={2.25} style={{ color: c.accent, flexShrink: 0 }} />
       <span>{title}</span>
     </div>
   );

@@ -73,22 +73,22 @@ export function DayScheduleTimeline({
                     <button
                       type="button"
                       onClick={() => scheduleActions.onEdit!(block.id)}
-                      className="p-1 rounded-full hover:bg-surface text-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="p-2 min-h-[44px] min-w-[44px] rounded-full hover:bg-surface text-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
                       data-planner-day-schedule-edit={block.id}
                       aria-label={`Edit ${block.title}`}
                     >
-                      <Edit2 size={12} />
+                      <Edit2 size={14} />
                     </button>
                   ) : null}
                   {scheduleActions.onDelete ? (
                     <button
                       type="button"
                       onClick={() => scheduleActions.onDelete!(block.id)}
-                      className="p-1 rounded-full hover:bg-surface text-muted hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                      className="p-2 min-h-[44px] min-w-[44px] rounded-full hover:bg-surface text-muted hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
                       data-planner-day-schedule-delete={block.id}
                       aria-label={`Delete ${block.title}`}
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={14} />
                     </button>
                   ) : null}
                 </div>

@@ -8,8 +8,7 @@ import type { TranslationKey } from '../../../../../lib/i18n';
 
 const SECTION_TITLE_KEYS: Record<keyof GroupedRelatedNotes, TranslationKey> = {
   mostRelated: 'k70RelatedMostRelated',
-  recentlyConnected: 'k70RelatedRecentlyConnected',
-  frequentlyReferenced: 'k70RelatedFrequentlyReferenced',
+  worthRevisiting: 'k75RelatedWorthRevisiting',
 };
 
 export interface RelatedNotesPanelProps {
@@ -125,9 +124,7 @@ export function RelatedNotesPanel({
   onCreateRelatedNote,
 }: RelatedNotesPanelProps) {
   const { t, lang } = useTranslation();
-  const totalCount = grouped.mostRelated.length
-    + grouped.recentlyConnected.length
-    + grouped.frequentlyReferenced.length;
+  const totalCount = grouped.mostRelated.length + grouped.worthRevisiting.length;
   const sections = (Object.keys(SECTION_TITLE_KEYS) as (keyof GroupedRelatedNotes)[])
     .map(key => ({ key, items: grouped[key] }))
     .filter(s => s.items.length > 0);

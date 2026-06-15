@@ -825,14 +825,13 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const groupedRelatedNotes = useMemo(
     () => (activeNote
       ? groupRelatedNotes(activeNote.id, notes, knowledgeIndexService)
-      : { mostRelated: [], recentlyConnected: [], frequentlyReferenced: [] } satisfies GroupedRelatedNotes),
+      : { mostRelated: [], worthRevisiting: [] } satisfies GroupedRelatedNotes),
     [activeNote, notes],
   );
 
   const relatedNotesCount = useMemo(
     () => groupedRelatedNotes.mostRelated.length
-      + groupedRelatedNotes.recentlyConnected.length
-      + groupedRelatedNotes.frequentlyReferenced.length,
+      + groupedRelatedNotes.worthRevisiting.length,
     [groupedRelatedNotes],
   );
 

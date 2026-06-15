@@ -7,6 +7,7 @@ export interface VaultHealthMetrics {
   totalNotes: number;
   connectedNotes: number;
   isolatedNotes: number;
+  connectedPercent: number;
   averageLinksPerNote: number;
   recentlyActiveNotes: number;
   totalRelations: number;
@@ -35,13 +36,15 @@ export function buildVaultHealthMetrics(
   }
 
   const isolatedNotes = collectIsolatedNoteIds(active, service, active.length).length;
+  const total = active.length;
 
   return {
-    totalNotes: active.length,
+    totalNotes: total,
     connectedNotes,
     isolatedNotes,
-    averageLinksPerNote: active.length > 0
-      ? Math.round((linkSum / active.length) * 10) / 10
+    connectedPercent: total > 0 ? Math.round((connectedNotes / total) * 100) : 0,
+    averageLinksPerNote: total > 0
+      ? Math.round((linkSum / total) * 10) / 10
       : 0,
     recentlyActiveNotes,
     totalRelations,

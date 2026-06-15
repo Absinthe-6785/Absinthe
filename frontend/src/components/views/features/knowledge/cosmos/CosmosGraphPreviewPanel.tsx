@@ -5,7 +5,7 @@ import { TOUCH_TARGET_MIN_PX } from '@/lib/responsiveLayout';
 import { extractTags } from '../../../noteUtils';
 import type { NoteBase } from '../../../noteUtils';
 import { getNoteKind } from '../research/noteClassification';
-import { noteKindLabel, importanceClassificationLabel } from '../knowledgeLabels';
+import { noteKindLabel } from '../knowledgeLabels';
 import { formatUniverseUpdatedAt } from '../graph/knowledgeUniverse';
 import { listTags } from '../tags/noteTags';
 import type { KnowledgeImportanceResult } from './intelligence/knowledgeImportance';
@@ -221,28 +221,10 @@ export function CosmosGraphPreviewPanel({
             {t('cosmosPreviewRelations')
               .replace('{links}', String(graphNode.links))
               .replace('{backlinks}', String(graphNode.backlinkCount))}
+            {' · '}
+            {graphNode.galaxyLabel}
           </div>
 
-          <div style={{ marginTop: 4, fontSize: 10, color: colors.toolTxt, opacity: 0.85 }}>
-            {t('cosmosHudBacklinksGalaxy')
-              .replace('{count}', String(graphNode.backlinkCount))
-              .replace('{galaxy}', graphNode.galaxyLabel)}
-          </div>
-
-          {importance && (
-            <div style={{ marginTop: 6, fontSize: 10, color: colors.toolTxt }}>
-              {t('k36HudImportanceTier').replace(
-                '{tier}',
-                importanceClassificationLabel(importance.classification, lang),
-              )}
-            </div>
-          )}
-
-          {graphNode.links + graphNode.backlinkCount >= 6 && (
-            <div style={{ marginTop: 6, fontSize: 10, color: colors.act, fontWeight: 600 }}>
-              {t('k70CosmosHighlyConnected')}
-            </div>
-          )}
           {importance?.classification === 'isolated' && (
             <div style={{ marginTop: 4, fontSize: 10, color: colors.toolTxt, opacity: 0.9 }}>
               {t('k70CosmosIsolatedNote')}

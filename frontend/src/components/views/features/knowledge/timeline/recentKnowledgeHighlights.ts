@@ -27,7 +27,7 @@ export function buildRecentKnowledgeHighlights(
   events: readonly KnowledgeHistoryEvent[],
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
-  limit = 6,
+  limit = 5,
 ): KnowledgeHighlight[] {
   const sorted = [...events].sort((a, b) => b.timestamp - a.timestamp);
   const highlights: KnowledgeHighlight[] = [];
