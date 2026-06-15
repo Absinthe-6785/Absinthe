@@ -6,8 +6,8 @@ import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Search, Trash2, Star, Type, Eye, Orbit,
-  RotateCcw, AlertTriangle, Save, Copy, AlignLeft, GitFork, Upload,
+  Search, Type, Eye, Orbit,
+  AlertTriangle, Save, GitFork, Upload,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
@@ -39,6 +39,7 @@ import {
   type NoteKind,
 } from '../features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
+import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
@@ -284,7 +285,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
       {activeNote ? (
         <>
           {/* Note Header */}
-          <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}>
             {isMobile ? (
               <>
                 <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={handleMobileBack}
@@ -339,16 +340,16 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onChange={e => handleTitleChange(e.target.value)}
               onCompositionStart={() => { titleComposingRef.current = true; }}
               onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
-              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
+              style={{ flex: '1 1 120px', minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
               placeholder={t('title')}/>
-            {!isTrash && (
+            {!isTrash && !isMobile && !isCompactChrome && (
               <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
-                style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer' }}>
+                style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer', flexShrink: 0, maxWidth: 120 }}>
                 <option value="">{t('nvNoFolder')}</option>
                 {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             )}
-            {!isTrash && (
+            {!isTrash && !isCompactChrome && (
               <NoteClassificationSelector
                 colors={c}
                 value={activeNoteKind}
@@ -358,7 +359,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 }}
               />
             )}
-            {!isTrash && (
+            {!isTrash && !isCompactChrome && (
               <WeakTopicToggle
                 colors={c}
                 active={isWeakTopic(activeNote)}
@@ -386,93 +387,35 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 </span>
               ) : null
             )}
-            {/* View: edit default · Reading / Graph secondary */}
-            <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
-              {VIEW_MODES.map(({ key, icon }) => (
-                <button
-                  key={key}
-                  title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
-                  onClick={() => {
-                    if (key === 'reading') setViewMode(v => toggleEditReading(v));
-                    else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
-                  }}
-                  className="btbtn"
-                  style={{
-                    padding: '3px 7px', borderRadius: 5,
-                    background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
-                    color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
-                  }}>
-                  {icon}
-                </button>
-              ))}
-            </div>
-            {/* Event / milestone note actions */}
-            {!isTrash && (
-              <button
-                type="button"
-                onClick={() => openEditEventDialog(activeNote)}
-                className="btbtn"
-                style={{ fontSize: 10, color: isEventNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                title={isEventNote(activeNote) ? t('nvEditEventTitle') : t('nvMarkEventTitle')}
-              >
-                {isEventNote(activeNote) ? t('nvEditEvent') : t('nvMarkEvent')}
-              </button>
-            )}
-            {!isTrash && (
-              <button
-                type="button"
-                onClick={() => openMilestoneDialog(activeNote)}
-                className="btbtn"
-                style={{ fontSize: 10, color: isMilestoneNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                title={isMilestoneNote(activeNote) ? t('nvEditMilestoneTitle') : t('nvMarkMilestoneTitle')}
-              >
-                {isMilestoneNote(activeNote) ? t('nvEditMilestone') : t('nvMarkMilestone')}
-              </button>
-            )}
-            {!isTrash && (isAreaNote(activeNote) || canMarkAsArea(activeNote)) && (
-              <button
-                type="button"
-                onClick={handleToggleAreaNote}
-                className="btbtn"
-                style={{ fontSize: 10, color: isAreaNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                title={isAreaNote(activeNote) ? t('nvClearAreaTitle') : t('nvMarkAreaTitle')}
-              >
-                {isAreaNote(activeNote) ? t('nvClearArea') : t('nvMarkArea')}
-              </button>
-            )}
-            {/* Star */}
-            {!isTrash && (
-              <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? t('nvUnstar') : t('nvStar')}>
-                <Star size={14} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
-              </button>
-            )}
-            {/* Duplicate */}
-            {!isTrash && (
-              <button onClick={() => duplicateNote(activeNote)} className="btbtn" title={t('nvDuplicate')}>
-                <span style={{ fontSize: 11 }}>⎘</span>
-              </button>
-            )}
-            {/* Right panel toggle */}
-            <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isCompactChrome ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
-              style={{ color: showRightPanel ? c.accent : c.textMuted }}>
-              <AlignLeft size={14}/>
-            </button>
-            {/* Copy document */}
-            {!isTrash && (
-              <button onClick={() => void handleCopyDocument()} className="btbtn"
-                title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
-                style={{ color: docCopied ? c.green : c.textMuted }}>
-                <Copy size={14}/>
-              </button>
-            )}
-            {/* Export */}
-            <button onClick={() => exportNote(activeNote)} className="btbtn" title={t('nvExportMd')}>
-              <Save size={12}/>
-            </button>
-            {isTrash
-              ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={14}/></button>
-              : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={14}/></button>
-            }
+            <NoteEditorHeaderActions
+              colors={c}
+              isTrash={isTrash}
+              isMobile={isMobile}
+              useOverflowMenu={isMobile || isCompactChrome}
+              showRightPanel={showRightPanel}
+              viewMode={viewMode}
+              viewModeButtons={VIEW_MODES}
+              starred={!!activeNote.starred}
+              docCopied={docCopied}
+              isEvent={isEventNote(activeNote)}
+              isMilestone={isMilestoneNote(activeNote)}
+              isArea={isAreaNote(activeNote)}
+              canMarkArea={canMarkAsArea(activeNote)}
+              onViewModeToggle={key => {
+                if (key === 'reading') setViewMode(v => toggleEditReading(v));
+                else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
+              }}
+              onMarkEvent={() => openEditEventDialog(activeNote)}
+              onMarkMilestone={() => openMilestoneDialog(activeNote)}
+              onToggleArea={handleToggleAreaNote}
+              onToggleStar={() => toggleStar(activeNote.id)}
+              onDuplicate={() => duplicateNote(activeNote)}
+              onTogglePanel={() => setShowRightPanel(v => !v)}
+              onCopyDocument={() => void handleCopyDocument()}
+              onExport={() => exportNote(activeNote)}
+              onRestore={() => restoreNote(activeNote.id)}
+              onTrash={() => moveNoteToTrash(activeNote.id)}
+            />
           </div>
           <NoteBreadcrumbBar
             colors={c}

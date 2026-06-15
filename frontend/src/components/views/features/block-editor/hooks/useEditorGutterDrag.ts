@@ -4,16 +4,12 @@ import {
   beginGutterSelection,
   hitTestBlockIdFromPoint,
   isGutterDragStart,
-  updateGutterSelection,
 } from '../../../blockGutterSelection';
 
 export interface UseEditorGutterDragOptions {
   readOnly: boolean;
-  depth: number;
-  getRootBlocks: () => Block[];
-  setSelectedBlockIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  setAnchorBlockId: React.Dispatch<React.SetStateAction<string | null>>;
-  onActiveBlockChange: (id: string | null) => void;
+  anchorBlockId: string | null;
+  applyGutterRange: (anchorId: string, hoverId: string) => void;
   editorRootRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -23,13 +19,20 @@ export interface UseEditorGutterDragResult {
   gutterDragCleanupRef: React.MutableRefObject<(() => void) | null>;
 }
 
+/** True when pointer is in the block's left drag-selection zone (gutter + margin). */
+export function isBlockLeftDragZone(
+  shell: HTMLElement | null,
+  clientX: number,
+): boolean {
+  if (!shell) return false;
+  const rect = shell.getBoundingClientRect();
+  return clientX - rect.left < 56;
+}
+
 export function useEditorGutterDrag({
   readOnly,
-  depth,
-  getRootBlocks,
-  setSelectedBlockIds,
-  setAnchorBlockId,
-  onActiveBlockChange,
+  anchorBlockId,
+  applyGutterRange,
   editorRootRef,
 }: UseEditorGutterDragOptions): UseEditorGutterDragResult {
   const gutterDragCleanupRef = useRef<(() => void) | null>(null);
@@ -41,7 +44,12 @@ export function useEditorGutterDrag({
 
   const handleGutterPointerDown = useCallback((blockId: string, e: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly) return;
-    if (!isGutterDragStart(e.target)) return;
+    if (!isGutterDragStart(e.target) && !isBlockLeftDragZone(
+      (e.currentTarget as HTMLElement).closest('[data-drag-id]') as HTMLElement | null,
+      e.clientX,
+    )) {
+      return;
+    }
     if (e.button !== 0) return;
 
     e.preventDefault();
@@ -52,15 +60,12 @@ export function useEditorGutterDrag({
 
     const root = editorRootRef.current;
     root?.setPointerCapture(e.pointerId);
-    beginGutterSelection(blockId, e.pointerId);
+    const anchorId = e.shiftKey && anchorBlockId ? anchorBlockId : blockId;
+    beginGutterSelection(anchorId, e.pointerId);
     setIsGutterDragging(true);
 
-    const anchorId = blockId;
     const applyHover = (hoverId: string) => {
-      const selected = updateGutterSelection(getRootBlocks(), anchorId, hoverId);
-      setSelectedBlockIds(selected);
-      setAnchorBlockId(anchorId);
-      onActiveBlockChange(hoverId);
+      applyGutterRange(anchorId, hoverId);
     };
 
     applyHover(blockId);
@@ -88,7 +93,7 @@ export function useEditorGutterDrag({
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }, [readOnly, getRootBlocks, onActiveBlockChange]);
+  }, [readOnly, anchorBlockId, applyGutterRange, editorRootRef]);
 
   return {
     handleGutterPointerDown,

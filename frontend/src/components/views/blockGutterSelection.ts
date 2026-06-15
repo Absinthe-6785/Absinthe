@@ -53,7 +53,8 @@ export function hitTestBlockIdFromPoint(
   const el = document.elementFromPoint(x, y);
   if (!el || !root.contains(el)) return null;
   const block = (el as HTMLElement).closest('[data-drag-id]');
-  return block?.getAttribute('data-drag-id') ?? null;
+  if (!block || (root && !root.contains(block))) return null;
+  return block.getAttribute('data-drag-id') ?? null;
 }
 
 /** True when pointer starts on the dedicated drag strip (not grip). */

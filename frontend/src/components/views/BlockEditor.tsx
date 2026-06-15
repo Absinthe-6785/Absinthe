@@ -210,10 +210,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const {
     selectedBlockIds,
     setSelectedBlockIds,
+    anchorBlockId,
     setAnchorBlockId,
     selectedBlockIdsRef,
     selectBlock,
     clearSelection,
+    applyGutterRange,
     selectionCtx,
   } = useEditorSelection({
     readOnly,
@@ -381,15 +383,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     };
   }, [virtualRootEnabled, navigationApi, getBlockScrollTop, virtualScrollApiRef]);
 
+  const parentSelection = useContext(SelectionCtx);
+
   const { handleGutterPointerDown, isGutterDragging } = useEditorGutterDrag({
     readOnly,
-    depth,
-    getRootBlocks,
-    setSelectedBlockIds,
-    setAnchorBlockId,
-    onActiveBlockChange: handleActiveBlockChange,
+    anchorBlockId: depth === 0 ? anchorBlockId : (parentSelection?.anchorBlockId ?? null),
+    applyGutterRange: depth === 0 ? applyGutterRange : (parentSelection?.applyGutterRange ?? applyGutterRange),
     editorRootRef,
   });
+
+  const activeSelection = depth === 0 ? selectionCtx : parentSelection;
 
   const {
     handleMenu,
@@ -424,9 +427,6 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     documentFocusApiRef,
     getRootBlockRows: virtualRootEnabled ? getRootBlockRows : undefined,
   });
-
-  const parentSelection = useContext(SelectionCtx);
-  const activeSelection = depth === 0 ? selectionCtx : parentSelection;
 
   const {
     handleAddBelow,
@@ -591,8 +591,15 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     readOnly,
     depth,
     getSelectedIds: () => selectedBlockIdsRef.current,
+    getRootBlocks,
+    anchorBlockId,
+    activeBlockId,
     onClearSelection: clearSelection,
     onDeleteSelected: handleDeleteSelected,
+    onExtendSelection: (selected, anchor) => {
+      setSelectedBlockIds(selected);
+      setAnchorBlockId(anchor);
+    },
     documentRootRef: editorRootRef,
   });
 
@@ -643,7 +650,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       onOutdentBlock={handleOutdentBlock}
       onPasteAt={handlePasteAt}
       onPasteBlocksAt={handlePasteBlocksAt}
-      onGutterPointerDown={depth === 0 && !readOnly ? handleGutterPointerDown : undefined}
+      onGutterPointerDown={!readOnly ? handleGutterPointerDown : undefined}
       getRootBlocks={getRootBlocks}
       onRootChange={onRootChange}
       searchQueryFor={searchQueryFor}
@@ -664,7 +671,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const editorBody = (
     <>
       <div
-        ref={depth === 0 ? assignEditorRootRef : undefined}
+        ref={assignEditorRootRef}
         className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}

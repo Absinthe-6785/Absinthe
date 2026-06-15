@@ -603,6 +603,7 @@ const translations = {
   nvClearArea:              { en: 'Clear Area', ko: '영역 해제', ja: 'エリアを解除' },
   nvDuplicate:              { en: 'Duplicate (Ctrl+D)', ko: '복제 (Ctrl+D)', ja: '複製 (Ctrl+D)' },
   nvTogglePanel:            { en: 'Toggle panel', ko: '패널 토글', ja: 'パネル切替' },
+  nvMoreActions:            { en: 'More actions', ko: '더보기', ja: 'その他' },
   nvExportMd:               { en: 'Export as .md', ko: '.md로 내보내기', ja: '.mdとしてエクスポート' },
   nvRetrySync:              { en: 'Retry cloud sync', ko: '클라우드 동기화 재시도', ja: 'クラウド同期を再試行' },
   nvReadingMode:            { en: 'Reading mode (Ctrl+E)', ko: '읽기 모드 (Ctrl+E)', ja: '閲覧モード (Ctrl+E)' },

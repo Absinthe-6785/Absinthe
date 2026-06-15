@@ -7,6 +7,7 @@ import { readBlockText, deleteBeforeCaret } from './editableDom';
 import {
   applyWrapToBlockSelection,
   getCaretOffset,
+  getCaretOffsetFromPoint,
   getSelectionOffsets,
 } from './features/block-editor/features/selection';
 import { paintEditableLive } from './editableLive';
@@ -60,6 +61,8 @@ export interface EditableBlockProps {
   isActive?: boolean;
   onActivate?: (offset?: 'start' | 'end' | number) => void;
   onClearBlockSelection?: () => void;
+  /** Shift/Ctrl block selection from inactive static text. */
+  onModifierPointerDown?: (e: React.MouseEvent) => void;
 }
 
 export function EditableBlock({
@@ -79,6 +82,7 @@ export function EditableBlock({
   isActive = true,
   onActivate,
   onClearBlockSelection,
+  onModifierPointerDown,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
   const composingRef = useRef(false);
@@ -387,24 +391,34 @@ export function EditableBlock({
   }, [onWikiNavigate]);
 
   const handleStaticMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      onModifierPointerDown?.(e);
+      e.preventDefault();
+      return;
+    }
     staticMouseRef.current = { x: e.clientX, y: e.clientY };
-  }, []);
+  }, [onModifierPointerDown]);
 
   const handleStaticMouseUp = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (!onActivate) return;
+    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
     const start = staticMouseRef.current;
     staticMouseRef.current = null;
     if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
     requestAnimationFrame(() => {
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
-      onActivate('end');
+      const el = editableRef.current;
+      const offset = el ? getCaretOffsetFromPoint(el, e.clientX, e.clientY) : null;
+      onActivate(offset ?? 'end');
     });
-  }, [onActivate]);
+  }, [onActivate, editableRef]);
 
-  const handleStaticDoubleClick = useCallback(() => {
-    onActivate?.('end');
-  }, [onActivate]);
+  const handleStaticDoubleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const el = editableRef.current;
+    const offset = el ? getCaretOffsetFromPoint(el, e.clientX, e.clientY) : null;
+    onActivate?.(offset ?? 'end');
+  }, [onActivate, editableRef]);
 
   if (!isActive) {
     return (

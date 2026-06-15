@@ -276,6 +276,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     isActiveBlock: isActive,
     onActivateBlock: handleActivateBlock,
     onClearBlockSelection,
+    onModifierPointerDown: (e: React.MouseEvent) => onBlockSelect(block.id, e),
   };
 
   const inner = (
@@ -293,13 +294,35 @@ export const SingleBlock = React.memo(function SingleBlock({
     if (readOnly) return;
     const t = e.target as HTMLElement;
     if (t.closest('.be-handles, .be-block-handle-menu, .be-grip, button, input, label, a, table')) return;
-    if (t.closest('.be-editable-static')) return;
+    if (t.closest('.be-editable-static')) {
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        onBlockSelect(block.id, e);
+      }
+      return;
+    }
     if (t.isContentEditable || t.closest('.be-editable[contenteditable="true"]')) return;
     e.preventDefault();
     onBlockSelect(block.id, e);
     onActiveBlockChange?.(block.id);
-    applyFocusCommand({ blockId: block.id, offset: 'end' });
+    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      applyFocusCommand({ blockId: block.id, offset: 'end' });
+    }
   }, [readOnly, block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
+
+  const handleBlockShellPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (readOnly || !onGutterPointerDown || e.button !== 0) return;
+    const t = e.target as HTMLElement;
+    if (t.closest('.be-handles, .be-block-handle-menu, .be-grip, button, input, label, a, table')) return;
+    if (t.closest('.be-gutter-strip')) return;
+    if (t.closest('.be-editable[contenteditable="true"]')) return;
+    if (t.closest('.be-editable-static') && !e.shiftKey) return;
+    const shell = e.currentTarget;
+    const rect = shell.getBoundingClientRect();
+    const inLeftZone = e.clientX - rect.left < 56;
+    if (!inLeftZone && !e.shiftKey) return;
+    onGutterPointerDown(block.id, e);
+  }, [readOnly, block.id, onGutterPointerDown]);
 
   const gutterChrome = (
     <BlockGutter blockId={block.id} readOnly={readOnly} onPointerDown={onGutterPointerDown}>
@@ -386,6 +409,7 @@ export const SingleBlock = React.memo(function SingleBlock({
       {...blockShellProps}
       style={blockShellStyle}
       className={blockShellClass}
+      onPointerDown={handleBlockShellPointerDown}
       onMouseEnter={() => onChromeEnter?.(block.id)}
       onMouseLeave={() => onChromeLeave?.()}>
       {gutterChrome}

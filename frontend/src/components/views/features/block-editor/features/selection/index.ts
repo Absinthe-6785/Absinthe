@@ -15,6 +15,7 @@ export { SelectionToolbar, type SelectionToolbarProps } from './components/Selec
 export {
   applyPointerSelection,
   clearSelection,
+  extendSelectionByArrow,
   getSiblingOrderedIds,
   haveSameParent,
   selectRange,
@@ -41,6 +42,7 @@ export {
 // Caret/selection offset math
 export {
   getCaretOffset,
+  getCaretOffsetFromPoint,
   getSelectionOffsets,
   nodePlainLength,
   setCaretOffset,
