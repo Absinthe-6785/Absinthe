@@ -1,7 +1,12 @@
 /**
- * blockSelection.ts — Pure multi-block selection helpers (same-parent range)
+ * blockSelection.ts — Multi-block selection helpers (document-order range, K-82)
+ *
+ * Selection uses tree preorder via flattenBlockIds — same ordering as navigation,
+ * drag, and multi-block ops. This allows shift+click and gutter drag across toggle
+ * boundaries without schema changes.
  */
 import type { Block } from '../../../../../blockUtils';
+import { flattenBlockIds } from '../../../../../blockUtils';
 import { findParentId } from '../../../../../blockTree';
 
 export function selectSingle(id: string): Set<string> {
@@ -26,7 +31,12 @@ export function haveSameParent(blocks: Block[], idA: string, idB: string): boole
   return parentA === parentB;
 }
 
-/** Ordered sibling ids under the same parent as blockId */
+/** Document-order block ids (depth-first preorder). */
+export function getDocumentOrderedIds(blocks: Block[]): string[] {
+  return flattenBlockIds(blocks);
+}
+
+/** @deprecated Use getDocumentOrderedIds — kept for legacy callers/tests. */
 export function getSiblingOrderedIds(blocks: Block[], blockId: string): string[] | null {
   const parentId = findParentId(blocks, blockId);
   if (parentId === undefined) return null;
@@ -40,15 +50,15 @@ export function getSiblingOrderedIds(blocks: Block[], blockId: string): string[]
 export function selectRange(
   anchorId: string | null,
   targetId: string,
-  orderedSiblingIds: string[],
+  orderedIds: string[],
 ): Set<string> {
-  if (!anchorId || !orderedSiblingIds.includes(anchorId) || !orderedSiblingIds.includes(targetId)) {
+  if (!anchorId || !orderedIds.includes(anchorId) || !orderedIds.includes(targetId)) {
     return selectSingle(targetId);
   }
-  const a = orderedSiblingIds.indexOf(anchorId);
-  const b = orderedSiblingIds.indexOf(targetId);
+  const a = orderedIds.indexOf(anchorId);
+  const b = orderedIds.indexOf(targetId);
   const [start, end] = a <= b ? [a, b] : [b, a];
-  return new Set(orderedSiblingIds.slice(start, end + 1));
+  return new Set(orderedIds.slice(start, end + 1));
 }
 
 export function applyPointerSelection(
@@ -59,12 +69,12 @@ export function applyPointerSelection(
   opts: { shiftKey: boolean; additiveKey: boolean },
 ): { selected: Set<string>; anchorId: string } {
   if (opts.shiftKey) {
-    const siblings = getSiblingOrderedIds(blocks, targetId);
-    if (!anchorId || !siblings || !haveSameParent(blocks, anchorId, targetId)) {
+    const ordered = getDocumentOrderedIds(blocks);
+    if (!anchorId || !ordered.includes(anchorId) || !ordered.includes(targetId)) {
       return { selected: selectSingle(targetId), anchorId: targetId };
     }
     return {
-      selected: selectRange(anchorId, targetId, siblings),
+      selected: selectRange(anchorId, targetId, ordered),
       anchorId: anchorId,
     };
   }
@@ -75,20 +85,19 @@ export function applyPointerSelection(
   return { selected: selectSingle(targetId), anchorId: targetId };
 }
 
-/** Shift+Arrow — extend same-parent block selection to adjacent sibling. */
+/** Shift+Arrow — extend selection to adjacent block in document order. */
 export function extendSelectionByArrow(
   blocks: Block[],
   anchorId: string | null,
   focusId: string,
   direction: 'up' | 'down',
 ): { selected: Set<string>; anchorId: string } | null {
-  const siblings = getSiblingOrderedIds(blocks, focusId);
-  if (!siblings) return null;
-  const idx = siblings.indexOf(focusId);
+  const ordered = getDocumentOrderedIds(blocks);
+  const idx = ordered.indexOf(focusId);
   if (idx < 0) return null;
   const nextIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (nextIdx < 0 || nextIdx >= siblings.length) return null;
-  const targetId = siblings[nextIdx]!;
-  const anchor = anchorId && siblings.includes(anchorId) ? anchorId : focusId;
-  return { selected: selectRange(anchor, targetId, siblings), anchorId: anchor };
+  if (nextIdx < 0 || nextIdx >= ordered.length) return null;
+  const targetId = ordered[nextIdx]!;
+  const anchor = anchorId && ordered.includes(anchorId) ? anchorId : focusId;
+  return { selected: selectRange(anchor, targetId, ordered), anchorId: anchor };
 }

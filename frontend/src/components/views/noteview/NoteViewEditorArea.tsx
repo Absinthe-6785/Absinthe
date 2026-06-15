@@ -420,6 +420,11 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onMarkEvent={() => openEditEventDialog(activeNote)}
               onMarkMilestone={() => openMilestoneDialog(activeNote)}
               onToggleArea={handleToggleAreaNote}
+              isWeakTopic={isWeakTopic(activeNote)}
+              onToggleWeakTopic={() => {
+                const updated = setWeakTopic(activeNote, !isWeakTopic(activeNote));
+                noteUpdate(activeNote.id, { properties: updated.properties });
+              }}
               onToggleStar={() => toggleStar(activeNote.id)}
               onDuplicate={() => duplicateNote(activeNote)}
               onTogglePanel={() => setShowRightPanel(v => !v)}
@@ -492,6 +497,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               reviewReason={noteContextReviewEntry?.reason ?? null}
               connectionCount={noteConnectionCount}
               tier={noteCosmosTier}
+              isWeakTopic={isWeakTopic(activeNote)}
               onNavigateToNote={setActiveNoteId}
               onOpenLinks={() => openContextPanel('links')}
               onOpenCosmos={() => {

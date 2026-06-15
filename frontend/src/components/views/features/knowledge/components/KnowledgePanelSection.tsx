@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 
 export interface KnowledgePanelSectionProps {
@@ -10,6 +11,9 @@ export interface KnowledgePanelSectionProps {
   hint?: string;
   children?: ReactNode;
   style?: CSSProperties;
+  /** K-82: collapsible section for density */
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 /** Shared section header for NoteView context panels — consistent rhythm and counts. */
@@ -21,7 +25,12 @@ export function KnowledgePanelSection({
   hint,
   children,
   style,
+  collapsible = false,
+  defaultCollapsed = false,
 }: KnowledgePanelSectionProps) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const showBody = !collapsible || !collapsed;
+
   return (
     <section
       className="be-knowledge-panel-section"
@@ -32,6 +41,16 @@ export function KnowledgePanelSection({
       }}
     >
       <div
+        role={collapsible ? 'button' : undefined}
+        tabIndex={collapsible ? 0 : undefined}
+        onClick={collapsible ? () => setCollapsed(v => !v) : undefined}
+        onKeyDown={collapsible ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setCollapsed(v => !v);
+          }
+        } : undefined}
+        aria-expanded={collapsible ? !collapsed : undefined}
         style={{
           padding: first ? '8px 10px 4px' : '10px 10px 4px',
           fontSize: 10,
@@ -43,8 +62,20 @@ export function KnowledgePanelSection({
           alignItems: 'baseline',
           gap: 4,
           flexWrap: 'wrap',
+          cursor: collapsible ? 'pointer' : 'default',
+          userSelect: 'none',
         }}
       >
+        {collapsible ? (
+          <ChevronDown
+            size={12}
+            style={{
+              flexShrink: 0,
+              transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+              transition: 'transform .15s',
+            }}
+          />
+        ) : null}
         <span>{title}</span>
         {count !== undefined && (
           <span style={{ color: count > 0 ? c.accent : c.textFaint, fontWeight: 700, textTransform: 'none' }}>
@@ -57,7 +88,7 @@ export function KnowledgePanelSection({
           </span>
         )}
       </div>
-      {children}
+      {showBody ? children : null}
     </section>
   );
 }

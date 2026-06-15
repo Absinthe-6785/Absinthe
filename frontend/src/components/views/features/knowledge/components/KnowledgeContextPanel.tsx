@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
@@ -59,6 +59,29 @@ export function KnowledgeContextPanel({
   const primaryTabs = tabs.filter(tab => PRIMARY_TAB_KEYS.includes(tab.key));
   const moreTabs = tabs.filter(tab => !PRIMARY_TAB_KEYS.includes(tab.key));
   const activeInMore = moreTabs.some(tab => tab.key === activeTab);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = moreRef.current;
+      if (el && !el.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false);
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const el = moreRef.current;
+      if (el && !el.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('focusin', onFocusIn);
+    };
+  }, [moreOpen]);
 
   const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();

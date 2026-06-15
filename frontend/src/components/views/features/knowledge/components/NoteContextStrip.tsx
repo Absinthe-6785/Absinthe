@@ -1,4 +1,4 @@
-import { GitFork, Link2, MapPin, Route, Star } from 'lucide-react';
+import { AlertTriangle, GitFork, Link2, MapPin, Route, Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
@@ -17,6 +17,8 @@ export interface NoteContextStripProps {
   reviewReason?: ReviewQueueReason | null;
   connectionCount: number;
   tier: GraphNodeTier;
+  /** K-82: weak-topic status visible in compact chrome via context strip */
+  isWeakTopic?: boolean;
   onNavigateToNote?: (noteId: string) => void;
   onOpenLinks: () => void;
   onOpenCosmos: () => void;
@@ -98,6 +100,7 @@ export function NoteContextStrip({
   reviewReason,
   connectionCount,
   tier,
+  isWeakTopic = false,
   onNavigateToNote,
   onOpenLinks,
   onOpenCosmos,
@@ -151,6 +154,19 @@ export function NoteContextStrip({
         label={learningPathLabel}
         title={t('k35ContextPath')}
         onClick={onOpenLinks}
+      />,
+    );
+  }
+
+  if (isWeakTopic) {
+    chips.push(
+      <ContextChip
+        key="weak-topic"
+        c={c}
+        accent
+        icon={<AlertTriangle size={10} style={{ flexShrink: 0, color: c.danger }}/>}
+        label={t('knWeakTopicActive')}
+        title={t('knWeakTopicToggleTitle')}
       />,
     );
   }

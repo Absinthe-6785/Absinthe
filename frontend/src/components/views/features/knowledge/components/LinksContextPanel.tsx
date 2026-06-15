@@ -31,10 +31,22 @@ export function LinksContextPanel({
       <KnowledgePanelSection colors={c} first title={t('k35LinksGroupConnections')} count={connectionsCount}>
         {connections}
       </KnowledgePanelSection>
-      <KnowledgePanelSection colors={c} title={t('k35LinksGroupStructure')} count={structureCount}>
+      <KnowledgePanelSection
+        colors={c}
+        title={t('k35LinksGroupStructure')}
+        count={structureCount}
+        collapsible
+        defaultCollapsed={connectionsCount > 0}
+      >
         {structure}
       </KnowledgePanelSection>
-      <KnowledgePanelSection colors={c} title={t('k35LinksGroupSources')} count={sourcesCount}>
+      <KnowledgePanelSection
+        colors={c}
+        title={t('k35LinksGroupSources')}
+        count={sourcesCount}
+        collapsible
+        defaultCollapsed={connectionsCount > 0}
+      >
         {sources}
       </KnowledgePanelSection>
     </div>
