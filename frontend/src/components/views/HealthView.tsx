@@ -20,8 +20,7 @@ import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSect
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
-import { WorkoutHistoryPanel } from './features/health/WorkoutHistoryPanel';
-import { CompactWorkoutCalendar } from './features/health/CompactWorkoutCalendar';
+import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 
@@ -614,7 +613,7 @@ export const HealthView = ({
 
       {healthSection === 'nutrition' && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-4">
-          <ProteinTracker theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
+          <ProteinTracker mode="full" theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
         </div>
       )}
 
@@ -1148,14 +1147,7 @@ export const HealthView = ({
         <div className={`grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
           data-workspace-zone="supporting"
         >
-          <WorkoutHistoryPanel
-            selectedDate={selectedDate}
-            formatDate={formatDate}
-            theme={theme}
-            onSelectDate={setSelectedDate}
-            lang={lang}
-          />
-          <CompactWorkoutCalendar
+          <WorkoutMonthCalendar
             selectedDate={selectedDate}
             currentDate={currentDate}
             setCurrentDate={setCurrentDate}
@@ -1190,6 +1182,15 @@ export const HealthView = ({
               ))}
             </div>
           </div>
+          <ProteinTracker
+            mode="compact"
+            theme={theme}
+            darkMode={appSettings.darkMode}
+            selectedDate={selectedDate}
+            formatDate={formatDate}
+            showToast={showToast}
+            onOpenFull={() => setHealthSection('nutrition')}
+          />
         </div>
       </div>
     </div>

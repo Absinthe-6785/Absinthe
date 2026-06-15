@@ -37,6 +37,7 @@ export interface ProteinIntakeLog {
   /** Grams consumed — populated for per100g sources */
   amount_g?: number;
   note?: string;
+  created_at?: string;
   protein_sources?: { name: string; source_type?: string; category?: string } | null;
 }
 
