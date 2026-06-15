@@ -49,12 +49,12 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bfi{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;transition:background .12s;font-size:12px;color:${c.text}}
     .bfi:hover{background:${c.cardHov}}
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
-    .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s}
+    .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s;min-height:44px}
     .bni:hover{background:${c.cardHov}}
     .bni.active{background:${c.cardAct};border-left:3px solid ${c.cardActBdr}}
     .bwi{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:7px;padding:6px 10px;font-size:12px;outline:none}
     .bwi:focus{border-color:${c.accent}}
-    .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
+    .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:12px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px}
     .bwbg:hover{opacity:.9}
     .bwsi{background:${c.input};border:1px solid ${c.inputBdr};border-radius:16px;padding:6px 10px 6px 28px;font-size:12px;color:${c.text};outline:none;width:100%}
     .bwsi:focus{border-color:${c.accent}80}

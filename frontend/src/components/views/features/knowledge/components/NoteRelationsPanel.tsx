@@ -8,6 +8,7 @@ import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteBase } from '../../../noteUtils';
 import type { RelationEdge, ResolvedRelationTarget } from '../relations/relationModels';
 import { addRelationTarget, listRelationKeys, removeRelationTarget } from '../relations/noteRelations';
+import { KnowledgePanelEmpty } from './KnowledgePanelSection';
 
 const PRESET_RELATION_KEYS = [
   { value: 'course', labelKey: null },
@@ -34,6 +35,7 @@ export interface NoteRelationsPanelProps {
   onUpdateRelations: (relations: Record<string, string[]> | undefined) => void;
   onNavigateToNote: (noteId: string) => void;
   onResolveTargetId: (title: string) => string | undefined;
+  onStartWikiLink?: () => void;
 }
 
 function groupOutgoing(relations: readonly ResolvedRelationTarget[]): Map<string, ResolvedRelationTarget[]> {
@@ -55,6 +57,7 @@ export function NoteRelationsPanel({
   onUpdateRelations,
   onNavigateToNote,
   onResolveTargetId,
+  onStartWikiLink,
 }: NoteRelationsPanelProps) {
   const { t } = useTranslation();
   const [relationType, setRelationType] = useState('');
@@ -245,9 +248,13 @@ export function NoteRelationsPanel({
       )}
 
       {outgoingGroups.size === 0 && incoming.length === 0 ? (
-        <p style={{ fontSize: 10, color: c.textFaint, textAlign: 'center', padding: '4px 12px 8px', lineHeight: 1.45 }}>
+        <KnowledgePanelEmpty
+          colors={c}
+          actionLabel={onStartWikiLink ? t('k53ContextCreateWikiLink') : undefined}
+          onAction={onStartWikiLink}
+        >
           {t('relationsDiscoverHint')}
-        </p>
+        </KnowledgePanelEmpty>
       ) : null}
 
       <div

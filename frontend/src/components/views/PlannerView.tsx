@@ -444,9 +444,9 @@ export const PlannerView = ({
                     <span className={`text-base font-medium ${todo.done ? 'line-through opacity-50' : ''}`}>{todo.text}</span>
                   </label>
                 )}
-                <div className={`flex gap-1 ml-2 ${theme.textMuted} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                  <button onClick={() => { setEditingTodoId(todo.id); setEditTodoText(todo.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500"><Edit2 size={15}/></button>
-                  <button onClick={() => handleDeleteTodo(todo.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500"><X size={15}/></button>
+                <div className={`flex gap-1 ml-2 ${theme.textMuted} opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 transition-opacity`}>
+                  <button onClick={() => { setEditingTodoId(todo.id); setEditTodoText(todo.text); }} className="p-2.5 rounded-lg active:scale-95 hover:text-blue-500 focus-visible:ring-2 focus-visible:ring-primary"><Edit2 size={15}/></button>
+                  <button onClick={() => handleDeleteTodo(todo.id)} className="p-2.5 rounded-lg active:scale-95 hover:text-red-500 focus-visible:ring-2 focus-visible:ring-primary"><X size={15}/></button>
                 </div>
               </div>
             ))}

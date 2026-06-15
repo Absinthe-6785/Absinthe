@@ -369,6 +369,18 @@ export function NoteContextPanelBody({
             </KnowledgePanelEmpty>
           )}
 
+          {rightPanel === 'graph' && !localGraphData && activeNote && (
+            <KnowledgePanelEmpty
+              colors={c}
+              actionLabel={t('k53ContextCreateWikiLink')}
+              onAction={handleStartWikiLink}
+              secondaryActionLabel={t('k64OpenFullCosmos')}
+              onSecondaryAction={() => setViewMode('graph')}
+            >
+              {t('graphNoConnectedNotes')}
+            </KnowledgePanelEmpty>
+          )}
+
           {rightPanel === 'graph' && localGraphData && (
             <>
               <div style={{ flex: 1, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
@@ -542,6 +554,7 @@ export function NoteContextPanelBody({
                 knowledgeIndexService.resolveNoteId(title)
                 ?? findNoteByTitle(title, notes)?.id
               }
+              onStartWikiLink={handleStartWikiLink}
             />
           )}
 

@@ -697,11 +697,11 @@ export const HealthView = ({
                   <span className="truncate max-w-[110px]">{b.name}</span>
                 </div>
                 <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
-                  className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 active:scale-90 transition-all">
+                  className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
                 <button onClick={e => handleDeleteBlock(b.id, e)}
-                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 active:scale-90 transition-all">
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
                   <X size={10}/>
                 </button>
               </div>
@@ -728,7 +728,9 @@ export const HealthView = ({
                 )}
 
                 {/* 블록 없을 때 */}
-                {blocks.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text={t('noBlocksEmpty')}/>}
+                {blocks.length === 0 && (
+                  <EmptyState theme={theme} icon={Dumbbell} text={t('noBlocksEmpty')} onClick={() => openBlockModal()}/>
+                )}
 
                 {/* 태그별 그룹 섹션 */}
                 <div className="overflow-y-auto min-h-0 pr-1 pb-2 space-y-3">
