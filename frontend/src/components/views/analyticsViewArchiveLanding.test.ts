@@ -137,11 +137,11 @@ describe('AnalyticsView archive landing', () => {
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(false);
   });
 
-  it('renders ArchiveShell with Archive Home as the default surface', () => {
+  it('renders ArchiveShell with unified archive as the default surface', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-shell');
-    expect(html).toContain('data-archive-mode="home"');
+    expect(html).toContain('data-archive-mode="unified"');
     expect(html).toContain('data-archive-home="true"');
     expect(html).toContain('Archive');
     expect(html).toContain('What remains when you look back.');

@@ -133,7 +133,7 @@ describe('CalendarModeSwitcher', () => {
     expect(html).toContain('data-planner-calendar-mode-option="day"');
     expect(html).toContain('data-planner-calendar-mode-option="week"');
     expect(html).toContain('data-planner-calendar-mode-option="month"');
-    expect(html).toContain('data-planner-calendar-mode-option="agenda"');
+    expect(html).not.toContain('data-planner-calendar-mode-option="agenda"');
   });
 });
 
@@ -206,14 +206,13 @@ describe('CalendarShell', () => {
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
   });
 
-  it('honours initial mode override for agenda view', () => {
+  it('does not render agenda view when initial mode is agenda (K-71 removed)', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps({ initialMode: 'agenda' })),
     );
 
     expect(html).toContain('data-planner-calendar-mode="agenda"');
-    expect(html).toContain('data-planner-calendar-agenda');
-    expect(html).toContain('Agenda');
+    expect(html).not.toContain('data-planner-calendar-agenda');
     expect(html).not.toContain('data-planner-calendar-placeholder-mode="agenda"');
   });
 });

@@ -8,10 +8,9 @@ import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
 import { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
-import { AgendaCalendarView } from './agenda';
+import { DayCalendarView } from './day';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
-import { DayCalendarView } from './day';
 import type { DayScheduleActions } from './day/dayScheduleActions';
 import type { DayRoutineActions } from './day/dayRoutineActions';
 import type { DayTodoActions } from './day/dayTodoActions';
@@ -44,8 +43,7 @@ export interface CalendarShellProps {
 }
 
 /**
- * Planner Calendar surface host — Month · Week · Day · Agenda.
- * All four modes mount projection-backed views (K-30.29 Agenda complete).
+ * Planner Calendar surface host — Month · Week · Day (K-71: Agenda removed).
  */
 export function CalendarShell({
   now,
@@ -157,6 +155,9 @@ export function CalendarShell({
           theme={theme}
           onEventNoteClick={onEventNoteClick}
           onDateSelect={onAnchorDateChange}
+          scheduleActions={dayScheduleActions}
+          routineActions={dayRoutineActions}
+          todoActions={dayTodoActions}
         />
       ) : viewMode === 'week' ? (
         <WeekCalendarView
@@ -165,6 +166,10 @@ export function CalendarShell({
           presentation={presentation}
           theme={theme}
           onEventNoteClick={onEventNoteClick}
+          onDateSelect={onAnchorDateChange}
+          scheduleActions={dayScheduleActions}
+          routineActions={dayRoutineActions}
+          todoActions={dayTodoActions}
         />
       ) : viewMode === 'day' ? (
         <DayCalendarView
@@ -176,15 +181,6 @@ export function CalendarShell({
           scheduleActions={dayScheduleActions}
           routineActions={dayRoutineActions}
           todoActions={dayTodoActions}
-        />
-      ) : viewMode === 'agenda' ? (
-        <AgendaCalendarView
-          key={activeViewKey}
-          projection={projection}
-          presentation={presentation}
-          theme={theme}
-          routineExceptionDates={routineExceptionDates}
-          onEventNoteClick={onEventNoteClick}
         />
       ) : null}
       </div>

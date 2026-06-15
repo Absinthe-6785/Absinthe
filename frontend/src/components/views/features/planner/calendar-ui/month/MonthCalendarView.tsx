@@ -3,6 +3,10 @@ import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../
 import { useTranslation } from '@/lib/i18n';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { monthGridHasAnchors } from './monthCalendarPresentation';
+import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
+import type { DayScheduleActions } from '../day/dayScheduleActions';
+import type { DayRoutineActions } from '../day/dayRoutineActions';
+import type { DayTodoActions } from '../day/dayTodoActions';
 
 export interface MonthCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -10,6 +14,9 @@ export interface MonthCalendarViewProps {
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
+  scheduleActions?: DayScheduleActions;
+  routineActions?: DayRoutineActions;
+  todoActions?: DayTodoActions;
 }
 
 export function MonthCalendarView({
@@ -18,6 +25,9 @@ export function MonthCalendarView({
   theme,
   onEventNoteClick,
   onDateSelect,
+  scheduleActions,
+  routineActions,
+  todoActions,
 }: MonthCalendarViewProps) {
   const { t } = useTranslation();
   const month = projection.views.month;
@@ -25,36 +35,48 @@ export function MonthCalendarView({
 
   return (
     <div
-      className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}
+      className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-3 lg:gap-4 items-start"
       data-planner-calendar-month
     >
-      <div className="flex flex-col gap-1 mb-4">
-        <h3 className="font-heading text-base lg:text-lg font-bold">{t('monthView')}</h3>
-        {presentation.labels.monthTitle ? (
+      <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}>
+        <div className="flex flex-col gap-1 mb-4">
+          <h3 className="font-heading text-base lg:text-lg font-bold">{t('monthView')}</h3>
+          {presentation.labels.monthTitle ? (
+            <p
+              className={`text-sm font-semibold ${theme.textMuted}`}
+              data-planner-calendar-period-label
+            >
+              {presentation.labels.monthTitle}
+            </p>
+          ) : null}
+        </div>
+
+        {!hasAnchors ? (
           <p
-            className={`text-sm font-semibold ${theme.textMuted}`}
-            data-planner-calendar-period-label
+            className={`text-sm mb-3 ${theme.textMuted}`}
+            data-planner-calendar-month-empty-hint="true"
           >
-            {presentation.labels.monthTitle}
+            {t('scheduleMonthEmptyHint')}
           </p>
         ) : null}
+
+        <MonthCalendarGrid
+          month={month}
+          weekdayLabels={presentation.labels.weekdayShortLabels}
+          theme={theme}
+          onEventNoteClick={onEventNoteClick}
+          onDateSelect={onDateSelect}
+        />
       </div>
 
-      {!hasAnchors ? (
-        <p
-          className={`text-sm mb-3 ${theme.textMuted}`}
-          data-planner-calendar-month-empty-hint="true"
-        >
-          {t('scheduleMonthEmptyHint')}
-        </p>
-      ) : null}
-
-      <MonthCalendarGrid
-        month={month}
-        weekdayLabels={presentation.labels.weekdayShortLabels}
+      <SelectedDayDetailPanel
+        projection={projection}
+        presentation={presentation}
         theme={theme}
         onEventNoteClick={onEventNoteClick}
-        onDateSelect={onDateSelect}
+        scheduleActions={scheduleActions}
+        routineActions={routineActions}
+        todoActions={todoActions}
       />
     </div>
   );
