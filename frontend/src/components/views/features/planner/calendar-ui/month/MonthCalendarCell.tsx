@@ -103,6 +103,17 @@ export function MonthCalendarCell({
           );
         })}
 
+        {model.countdownRows.map(({ countdown, label }) => (
+          <div
+            key={countdown.id}
+            className="px-1 py-0.5 text-[9px] lg:text-[10px] font-bold truncate rounded-md bg-primary/20 text-primary tabular-nums"
+            data-planner-month-countdown={countdown.id}
+            title={`${label} ${countdown.title}`}
+          >
+            {label}
+          </div>
+        ))}
+
         {overflowLabel ? (
           <span
             className={`text-[9px] lg:text-[10px] font-semibold ${theme.textMuted}`}

@@ -198,8 +198,8 @@ export const PlannerView = ({
                 </div>
               </div>
               <div>
-                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelCategory')}</label>
-                <div className="grid grid-cols-3 gap-1.5">
+                <label className={`block text-[10px] font-semibold uppercase tracking-wide mb-1 ${theme.textMuted}`}>{t('labelCategory')}</label>
+                <div className="grid grid-cols-3 gap-1">
                   {([
                     { id: 'Study',    label: 'Study',   Icon: BookOpen,  color: 'gold' },
                     { id: 'Work',     label: 'Work',    Icon: Briefcase, color: 'blue' },
@@ -229,25 +229,25 @@ export const PlannerView = ({
                             setNewSch(prev => ({ ...prev, category: cat.id, color: cat.color }));
                           }
                         })()}
-                      className={`py-2 rounded-lg text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 border
+                      className={`py-1.5 rounded-md text-[9px] font-medium transition-colors flex flex-col items-center gap-0.5 border
                         ${newSch.category === cat.id
-                          ? `${THEME_COLORS.find(c => c.id === cat.color)?.bg ?? 'bg-primary'} text-white border-transparent`
-                          : `border-transparent opacity-70 hover:opacity-100 ${theme.input}`}`}>
-                      <span className="leading-none flex justify-center"><cat.Icon size={14} strokeWidth={2.25} /></span>
+                          ? `${THEME_COLORS.find(c => c.id === cat.color)?.bg ?? 'bg-primary'} text-white border-transparent opacity-100`
+                          : `border-transparent opacity-50 hover:opacity-75 ${theme.input}`}`}>
+                      <span className="leading-none flex justify-center"><cat.Icon size={12} strokeWidth={2} /></span>
                       {cat.label}
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelColor')}</label>
-                <div className="flex flex-wrap gap-2">
+                <label className={`block text-[10px] font-semibold uppercase tracking-wide mb-1 ${theme.textMuted}`}>{t('labelColor')}</label>
+                <div className="flex flex-wrap gap-1.5">
                   {THEME_COLORS.map(c => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => setNewSch({ ...newSch, color: c.id })}
-                      className={`w-8 h-8 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-105 ${c.bg}
+                      className={`w-7 h-7 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-105 ${c.bg}
                         ${newSch.color === c.id ? `ring-2 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-200 ring-offset-[#2C2C2E]' : 'ring-gray-800 ring-offset-white'}` : ''}`}
                       aria-label={c.id}
                     />

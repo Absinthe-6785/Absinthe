@@ -31,10 +31,10 @@ export function WeekCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-3 lg:gap-4"
+      className="flex flex-col gap-2 lg:gap-3"
       data-planner-calendar-week
     >
-      <div className={`rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 ${theme.card}`}>
+      <div className={`rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 ${theme.card}`}>
         <WeekHeader
           periodLabel={presentation.labels.weekRangeLabel}
           theme={theme}
@@ -42,7 +42,7 @@ export function WeekCalendarView({
 
         {!hasContent ? (
           <p
-            className={`text-sm mb-3 ${theme.textMuted}`}
+            className={`text-[11px] mb-2 ${theme.textMuted}`}
             data-planner-calendar-week-empty-hint="true"
           >
             {t('scheduleWeekEmptyHint')}

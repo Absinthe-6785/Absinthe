@@ -21,7 +21,13 @@ import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
-import { plannedSetCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
+import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
+import {
+  getRoutinePlannedSetCount,
+  getRoutinePlannedSetsForDay,
+  saveRoutinePlannedSetsForDay,
+  showsPlannedSetCount,
+} from './features/health/routinePlannedSets';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 
@@ -58,6 +64,7 @@ export const HealthView = ({
   const [showAssembleModal, setShowAssembleModal] = useState(false);
   const [activeDayForm, setActiveDayForm] = useState('');
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
+  const [tempRoutineSetCounts, setTempRoutineSetCounts] = useState<Record<string, number>>({});
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout'>('workout');
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
@@ -341,13 +348,35 @@ export const HealthView = ({
     setActiveDayForm(dayName);
     const existing = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     setTempRoutineBlocks(existing?.blocks ?? []);
+    setTempRoutineSetCounts(getRoutinePlannedSetsForDay(dayName));
     setShowAssembleModal(true);
   };
-  const toggleBlockInRoutine = (blockId: string) =>
-    setTempRoutineBlocks(prev => prev.includes(blockId) ? prev.filter(id => id !== blockId) : [...prev, blockId]);
+  const toggleBlockInRoutine = (blockId: string) => {
+    setTempRoutineBlocks(prev => {
+      if (prev.includes(blockId)) {
+        setTempRoutineSetCounts(counts => {
+          const next = { ...counts };
+          delete next[blockId];
+          return next;
+        });
+        return prev.filter(id => id !== blockId);
+      }
+      const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === blockId);
+      if (b) {
+        setTempRoutineSetCounts(counts => ({
+          ...counts,
+          [blockId]: getRoutinePlannedSetCount(activeDayForm, blockId, b.type, prevData[blockId]?.prev_sets),
+        }));
+      }
+      return [...prev, blockId];
+    });
+  };
   const handleSaveRoutine = async () => {
     const ok = await api('POST', '/api/health_routines', { day_name: activeDayForm, blocks: tempRoutineBlocks }, { revalidate: 'static', successMsg: t('routineSaved') });
-    if (ok) setShowAssembleModal(false);
+    if (ok) {
+      saveRoutinePlannedSetsForDay(activeDayForm, tempRoutineBlocks, tempRoutineSetCounts);
+      setShowAssembleModal(false);
+    }
   };
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
@@ -367,11 +396,12 @@ export const HealthView = ({
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
       if (!b) continue;
       const prevSets = await fetchPrevForBlock(id);
+      const count = getRoutinePlannedSetCount(dayName, id, b.type, prevSets);
       routineOrdered.push({
         id: `temp-${Date.now()}-${b.id}`,
         block_id: b.id,
         exercise_blocks: b,
-        sets: buildSetsFromPrevCount(b.type, prevSets),
+        sets: buildSetsFromPlannedCount(b.type, count),
       });
     }
 
@@ -655,7 +685,7 @@ export const HealthView = ({
     <>
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[38%] lg:max-w-[420px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      <div className="lg:w-[42%] lg:max-w-[480px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -687,19 +717,12 @@ export const HealthView = ({
             const untagged = blocks.filter((b: ExerciseBlock) => (b.tags ?? []).length === 0);
             const showUntagged = !activeTagFilter;
 
-            const BlockCard = ({ b }: { b: ExerciseBlock }) => {
-              const sets = plannedSetCount(b.id, localWorkouts, prevData);
-              return (
+            const BlockCard = ({ b }: { b: ExerciseBlock }) => (
               <div onClick={() => void handleAddWorkoutToToday(b)}
                 className={`group relative text-xs font-semibold px-2.5 py-2 rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}>
-                <div className="flex flex-col gap-0.5 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                    <span className="truncate max-w-[120px]">{b.name}</span>
-                  </div>
-                  <span className={`text-[10px] font-bold pl-3.5 ${theme.textMuted}`}>
-                    {t('k76SetCount').replace('{count}', String(sets))}
-                  </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
+                  <span className="truncate">{b.name}</span>
                 </div>
                 <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
                   className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
@@ -710,7 +733,7 @@ export const HealthView = ({
                   <X size={10}/>
                 </button>
               </div>
-            );};
+            );
 
             return (
               <>
@@ -817,9 +840,11 @@ export const HealthView = ({
                     ) : blocks.map(b => (
                       <div key={b.id} className="flex items-center justify-between gap-2 text-[11px] font-semibold">
                         <span className="truncate">{b.name}</span>
-                        <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                          {t('k76SetCount').replace('{count}', String(plannedSetCount(b.id, localWorkouts, prevData)))}
-                        </span>
+                        {showsPlannedSetCount(b.type) ? (
+                          <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
+                            {t('k76SetCount').replace('{count}', String(getRoutinePlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
+                          </span>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -1190,7 +1215,7 @@ export const HealthView = ({
         </div>
         )}
 
-        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
+        <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
           data-workspace-zone="supporting"
         >
           <WorkoutMonthCalendar
@@ -1204,25 +1229,25 @@ export const HealthView = ({
             lang={lang}
             workoutDates={workoutDates}
           />
-          <div className={`${WORKSPACE_CARD.sm} rounded-[24px] lg:rounded-[32px] shadow-sm px-5 py-4 transition-colors ${theme.card}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-              <h2 className="font-heading text-sm font-bold flex items-center gap-2"><Target size={14} className="text-primary"/> {t('inbody')}</h2>
-              <button onClick={handleSaveInbody} className="text-xs font-bold bg-primary text-primary-foreground px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
+          <div className={`${WORKSPACE_CARD.sm} rounded-[24px] lg:rounded-[32px] shadow-sm px-4 py-3 transition-colors ${theme.card}`} data-inbody-panel>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary"/> {t('inbody')}</h2>
+              <button onClick={handleSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col gap-2">
               {[
                 { label: t('inbodyWeight'), field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
                 { label: t('inbodySMM'),    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
                 { label: t('inbodyPBF'),    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
               ].map(({ label, field, unit, color }) => (
-                <div key={field} className={`rounded-2xl p-2.5 border-2 border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
-                  <p className={`text-[10px] font-bold mb-1 ${color}`}>{label}</p>
-                  <div className="flex items-end gap-0.5">
+                <div key={field} className={`rounded-xl px-2.5 py-2 border border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
+                  <p className={`text-[9px] font-bold uppercase tracking-wide mb-0.5 ${color}`}>{label}</p>
+                  <div className="flex items-baseline gap-1">
                     <input type="number" inputMode="decimal" min="0" step="0.1"
                       value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
                       onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
-                      className="w-full bg-transparent text-lg font-black outline-none tabular-nums"/>
-                    <span className={`text-xs font-semibold pb-0.5 ${theme.textMuted}`}>{unit}</span>
+                      className="w-full bg-transparent text-base font-black outline-none tabular-nums"/>
+                    <span className={`text-[10px] font-semibold ${theme.textMuted}`}>{unit}</span>
                   </div>
                 </div>
               ))}
@@ -1353,18 +1378,18 @@ export const HealthView = ({
                 <button onClick={() => setShowAssembleModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
               </div>
 
-              {/* 선택된 순서 미리보기 — 드래그로 재정렬 */}
+              {/* 선택된 순서 미리보기 — 드래그로 재정렬 + 세트 수 */}
               {tempRoutineBlocks.length > 0 && (
                 <div className="mb-4 p-3 rounded-2xl shrink-0 bg-surface-alt">
                   <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-col gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
                       const b = (healthBlocks || []).find((bk: ExerciseBlock) => bk.id === id);
                       if (!b) return null;
                       const isDraggingThis = routineDragIdx === idx;
                       const isDragOver = routineDragOverIdx === idx && routineDragIdx !== idx;
                       return (
-                        <span
+                        <div
                           key={id}
                           draggable
                           onDragStart={() => setRoutineDragIdx(idx)}
@@ -1405,14 +1430,31 @@ export const HealthView = ({
                             setRoutineDragOverIdx(null);
                           }}
                           data-routine-idx={idx}
-                          className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg cursor-grab active:cursor-grabbing select-none transition-all
-                            ${isDraggingThis ? 'opacity-40 scale-95' : ''}
-                            ${isDragOver ? 'ring-2 ring-[#1C1C1E] scale-105' : ''}
-                            bg-primary text-primary-foreground`}>
-                          <span className="opacity-60 text-[10px]">{idx + 1}</span>
-                          {b.name}
-                          <GripVertical size={11} className="opacity-40 ml-0.5"/>
-                        </span>
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-grab active:cursor-grabbing select-none transition-all bg-primary text-primary-foreground
+                            ${isDraggingThis ? 'opacity-40 scale-[0.98]' : ''}
+                            ${isDragOver ? 'ring-2 ring-primary-foreground/40' : ''}`}>
+                          <GripVertical size={12} className="opacity-50 shrink-0"/>
+                          <span className="text-[10px] opacity-60 tabular-nums w-4">{idx + 1}</span>
+                          <span className="text-xs font-bold truncate flex-1 min-w-0">{b.name}</span>
+                          {showsPlannedSetCount(b.type) ? (
+                            <label className="flex items-center gap-1 shrink-0 text-[10px] font-bold opacity-90">
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                min={1}
+                                max={12}
+                                value={tempRoutineSetCounts[id] ?? getRoutinePlannedSetCount(activeDayForm, id, b.type, prevData[id]?.prev_sets)}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => {
+                                  const n = Math.min(12, Math.max(1, Number(e.target.value) || 1));
+                                  setTempRoutineSetCounts(prev => ({ ...prev, [id]: n }));
+                                }}
+                                className="w-9 bg-white/15 rounded px-1 py-0.5 text-center tabular-nums outline-none"
+                              />
+                              {t('setsLabel')}
+                            </label>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>

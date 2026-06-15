@@ -1,10 +1,9 @@
 import { useMemo } from 'react';
+import { Plus } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../calendar';
-import { DayEventsSection } from './day/DayEventsSection';
-import { DayScheduleTimeline } from './day/DayScheduleTimeline';
-import { DayCountdownStrip } from './day/DayCountdownStrip';
+import { DayAgendaList } from './day/DayAgendaList';
 import { DayMilestonesSection } from './day/DayMilestonesSection';
 import { SelectedDayHistoryExtras } from './SelectedDayHistoryExtras';
 import { buildDayDisplayModel } from './day/dayCalendarPresentation';
@@ -50,8 +49,8 @@ export function SelectedDayDetailPanel({
     && variant !== 'month';
 
   const shellClass = bare
-    ? 'flex flex-col gap-2.5'
-    : `rounded-[20px] lg:rounded-[24px] p-3 lg:p-4 flex flex-col gap-2.5 ${theme.card}`;
+    ? 'flex flex-col gap-2'
+    : `rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 flex flex-col gap-2 ${theme.card}`;
 
   return (
     <div
@@ -73,37 +72,33 @@ export function SelectedDayDetailPanel({
       ) : null}
 
       {showCombinedEmpty ? (
-        <p className="text-xs text-muted px-1" data-planner-day-combined-empty>{t('scheduleDayEmptyHint')}</p>
-      ) : null}
-
-      <DayScheduleTimeline
-        blocks={model.timelineBlocks}
-        carryOverBlocks={model.carryOverBlocks}
-        scheduleActions={scheduleActions}
-        suppressEmpty={suppressEmptySections}
-      />
-
-      <section className="flex flex-col gap-1" data-planner-day-events-deadlines>
-        {(hasEvents || hasCountdowns || !suppressEmptySections) ? (
-          <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
-            {t('k74EventsAndDeadlines')}
-          </h4>
-        ) : null}
-        <DayEventsSection
-          allDayEvents={model.allDayEvents}
-          timedEvents={model.timedEvents}
-          onEventNoteClick={onEventNoteClick}
-          hideHeading
-          suppressEmpty={suppressEmptySections}
-        />
-        <DayCountdownStrip
-          countdowns={projection.core.countdowns}
-          presentation={presentation}
-          onNoteClick={onEventNoteClick}
-          hideHeading
-          inline
-        />
-      </section>
+        <p className="text-[11px] text-muted py-0.5" data-planner-day-combined-empty>{t('k77ScheduleEmptyCompact')}</p>
+      ) : (
+        <>
+          {canAddSchedule ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={scheduleActions!.onAdd}
+                className="bg-primary text-primary-foreground p-1.5 rounded-full shadow-sm hover:scale-105 transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                data-planner-day-schedule-add="true"
+                aria-label={t('scheduleAddSchedule')}
+              >
+                <Plus size={14} strokeWidth={3} />
+              </button>
+            </div>
+          ) : null}
+          <DayAgendaList
+            blocks={model.timelineBlocks}
+            carryOverBlocks={model.carryOverBlocks}
+            allDayEvents={model.allDayEvents}
+            timedEvents={model.timedEvents}
+            countdowns={projection.core.countdowns}
+            presentation={presentation}
+            onEventNoteClick={onEventNoteClick}
+          />
+        </>
+      )}
 
       {variant === 'month' ? (
         <>

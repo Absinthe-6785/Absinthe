@@ -58,6 +58,8 @@ export function MonthCalendarView({
           month={month}
           weekdayLabels={presentation.labels.weekdayShortLabels}
           theme={theme}
+          countdowns={projection.core.countdowns}
+          presentation={presentation}
           onEventNoteClick={onEventNoteClick}
           onDateSelect={onDateSelect}
         />
