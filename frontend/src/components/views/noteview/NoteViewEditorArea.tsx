@@ -251,7 +251,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {/* Note Header */}
           <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
             {isMobile && (
-              <button type="button" className="btbtn" onClick={() => { setMobileShowEditor(false); setActiveNoteId(null); }}
+              <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={() => setMobileShowEditor(false)}
                 style={{ padding: '2px 4px', color: c.textMuted }} title={t('nvBackToNotes')}>
                 <ChevronLeft size={14}/>
               </button>

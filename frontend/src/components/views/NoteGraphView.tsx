@@ -632,6 +632,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && previewNodeId) {
+        e.preventDefault();
+        onSelect(previewNodeId);
+        setPreviewNodeId(null);
+        return;
+      }
       if (e.key === 'Escape' && previewNodeId) {
         e.preventDefault();
         setPreviewNodeId(null);
@@ -648,7 +654,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [previewNodeId, focusAdjacentNode]);
+  }, [previewNodeId, focusAdjacentNode, onSelect]);
 
   const showEmptyUniverse = shouldShowEmptyUniverse({
     nodeCount: visibleNodes.length,
@@ -1110,6 +1116,14 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 {isHov && !isDim && (
                   <circle cx={pos.x} cy={pos.y} r={r + 9} fill={colors.hovBg}/>
                 )}
+                <circle
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={Math.max(r + 12, compactChrome ? 22 : 18)}
+                  fill="transparent"
+                  stroke="none"
+                  style={{ pointerEvents: 'all' }}
+                />
                 {isAct && (
                   <>
                     <circle cx={pos.x} cy={pos.y} r={r + 10}
@@ -1157,7 +1171,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                   fontSize={(node.tier === 'star' ? 11 : 10) * (transform.k > 1.15 ? 1.12 : 1)}
                   fill={isDim ? colors.dimTxt : isAct ? colors.act : dark ? '#E4E4E7' : '#1C1917'}
                   fontWeight={isAct || isMatch || node.tier === 'star' ? '700' : '500'}
-                  opacity={isDim ? 0.35 : isAct ? 1 : 0.92}
+                  opacity={isDim ? 0.55 : isAct ? 1 : 0.92}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {label}
@@ -1213,7 +1227,6 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         borderRadius: 8,
         padding: '8px 10px',
         backdropFilter: 'blur(8px)',
-        pointerEvents: 'none',
         maxWidth: 220,
       }} data-ku-universe-hud aria-label={t('k39CosmosHudAria')}>
         <div style={{ fontWeight: 700, color: colors.txt, marginBottom: 4 }}>
@@ -1433,7 +1446,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       {/* ── 하단 상태바 ──────────────────────────────────────────── */}
       <div style={{
         position: 'absolute', bottom: 10, right: 12,
-        fontSize: 10, color: dark ? '#444' : '#9CA3AF',
+        fontSize: 10, color: dark ? '#71717A' : '#6B7280',
         pointerEvents: 'none',
       }}>
         {t('graphStatusNotesLinks')

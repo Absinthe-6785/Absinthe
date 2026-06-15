@@ -40,7 +40,7 @@ export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthW
             aria-current={selected ? 'page' : undefined}
             data-health-workspace-section={id}
             className={`flex items-center gap-1.5 rounded-xl font-bold transition-colors whitespace-nowrap
-              ${compact ? 'flex-1 min-w-0 px-2 py-2.5 text-[10px] justify-center' : 'px-3 py-2 text-xs'}
+              ${compact ? 'flex-1 min-w-0 min-h-[44px] px-2 py-2.5 text-[10px] justify-center' : 'px-3 py-2 text-xs'}
               ${selected
                 ? 'bg-primary text-primary-foreground shadow-sm'
                 : `${theme.input} ${theme.textMuted} hover:text-foreground`}`}

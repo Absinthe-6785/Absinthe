@@ -107,6 +107,7 @@ export function KnowledgeContextPanel({
               style={{
                 flex: '1 0 auto',
                 minWidth: 0,
+                minHeight: compact ? 44 : undefined,
                 background: 'none',
                 border: 'none',
                 borderBottom: selected ? `2px solid ${c.accent}` : '2px solid transparent',

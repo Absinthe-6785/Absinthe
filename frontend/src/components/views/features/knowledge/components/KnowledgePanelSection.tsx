@@ -82,10 +82,11 @@ export function KnowledgePanelEmpty({
     background: c.accentBg,
     color: c.accent,
     borderRadius: 6,
-    padding: '5px 10px',
+    padding: '6px 12px',
     fontSize: 10,
     fontWeight: 600,
     cursor: 'pointer',
+    minHeight: 36,
   } as const;
 
   return (

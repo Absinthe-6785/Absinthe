@@ -365,7 +365,17 @@ export function EditableBlock({
   }, [block.id, onPasteAt, onPasteBlocksAt]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    if (!onWikiNavigate || !(e.ctrlKey || e.metaKey)) return;
+    if (!onWikiNavigate) return;
+    const wl = (e.target as HTMLElement).closest('.be-wikilink') as HTMLElement | null;
+    if (wl) {
+      const title = wl.getAttribute('data-wiki');
+      if (title) {
+        e.preventDefault();
+        onWikiNavigate(title);
+        return;
+      }
+    }
+    if (!(e.ctrlKey || e.metaKey)) return;
     const el = e.currentTarget;
     const text = getElText(el);
     const offset = getCaretOffset(el);

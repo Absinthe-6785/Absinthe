@@ -813,7 +813,10 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               </button>
             )}
             {!isTrash && (
-              <button onClick={() => createNote()} style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
+                className="btbtn min-h-[44px] min-w-[44px] flex items-center justify-center"
+                style={{ background: c.accent, border: 'none', borderRadius: 8, color: dark ? '#0F0F11' : '#fff', fontWeight: 700 }}
+                title={t('nvNewNoteBtn')}>
                 <Plus size={12}/>
               </button>
             )}
@@ -1005,8 +1008,14 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         ) : (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-              {isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}
+            <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+              <span>{isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}</span>
+              {!isTrash && (
+                <button type="button" className="bwbg" onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
+                  style={{ minHeight: 44, padding: '8px 16px' }}>
+                  {t('nvCreateFirstNote')}
+                </button>
+              )}
             </div>
           ) : visibleNotes.map(n => {
             const folder  = folders.find(f => f.id === n.folderId);
