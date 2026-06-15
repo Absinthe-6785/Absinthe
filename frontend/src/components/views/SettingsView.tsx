@@ -58,9 +58,9 @@ export const SettingsView = ({
         endDate:   exportEnd,
         onProgress: msg => setExportMsg(msg),
       });
-      showToast('Export complete!');
+      showToast(t('settingsExportComplete'));
     } catch {
-      showToast('Export failed. Please try again.', 'error');
+      showToast(t('settingsExportFailed'), 'error');
     } finally {
       setExporting(false);
       setExportMsg('');

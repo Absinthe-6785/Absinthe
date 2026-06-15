@@ -102,6 +102,7 @@ export function CosmosGraphPreviewPanel({
                 flex: 'none',
                 width: '100%',
                 maxHeight: 'min(55vh, 420px)',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                 borderLeft: 'none',
                 borderTop: `1px solid ${colors.toolbarB}`,
                 borderRadius: '14px 14px 0 0',
@@ -169,7 +170,7 @@ export function CosmosGraphPreviewPanel({
           )}
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: isSheet ? '8px 14px 14px' : '8px 12px 14px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: isSheet ? '10px 16px 16px' : '8px 12px 14px' }}>
           {noteKind && (
             <div style={{ marginTop: 4, fontSize: 10, color: colors.toolTxt }}>
               <span style={{ fontWeight: 600 }}>{t('cosmosPreviewNoteType')}: </span>

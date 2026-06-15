@@ -9,6 +9,11 @@ import {
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { noteMatchesSearch, noteSearchScore } from '../../lib/math/noteSearch';
+import {
+  navigateToNoteWithHistory,
+  seedNoteNavigationStack,
+  type NoteNavigationSource,
+} from '../../lib/noteNavigationStack';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -470,6 +475,10 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     handleEditorDrop,
     handleImport,
     navigateToWiki,
+    canBackNote,
+    canForwardNote,
+    goBackNote,
+    goForwardNote,
     handleToggleAreaNote,
     openCreatedNote,
   } = useNoteViewActions({
@@ -735,6 +744,19 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     if (activeNoteId) setMobileShowEditor(true);
     else setMobileShowEditor(false);
   }, [activeNoteId]);
+
+  useEffect(() => {
+    seedNoteNavigationStack(activeNoteId);
+  }, [activeNoteId]);
+
+  const openNoteById = useCallback((noteId: string, source: NoteNavigationSource = 'panel') => {
+    navigateToNoteWithHistory(noteId, source);
+  }, []);
+
+  const onWorkspaceSearchNote = useCallback((noteId: string) => {
+    handleWorkspaceSearchNote(noteId);
+    if (isMobile) setMobileShowEditor(true);
+  }, [handleWorkspaceSearchNote, isMobile, setMobileShowEditor]);
 
   useEffect(() => () => {
     if (docCopyTimerRef.current) clearTimeout(docCopyTimerRef.current);
@@ -1195,7 +1217,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
       handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
       setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
-      openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId,
+      openCreateEventDialog, createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId,
       duplicateNote, patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
       handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset,
       handleExitFocusPreset, handleQuickCapture, handleCreateTask, handleCreateJournal, handleCreateReadingNote,
@@ -1226,6 +1248,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
       insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor,
       handleEditorDrop, handleReadingModeClick, handleActiveBodyChange, navigateToWiki,
+      canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
     },
     contextColors: c,
     contextRightPanel: rightPanel,
@@ -1238,7 +1261,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       activeTag, resolvedOutgoingRelations, incomingRelationDisplays, noteTags,
     },
     contextPanelHandlers: {
-      createNote, noteUpdate, setActiveNoteId, navigateToWiki, handleLinkRelatedNote, handleOpenCosmosGraph,
+      createNote, noteUpdate, setActiveNoteId, openNoteById, navigateToWiki, handleLinkRelatedNote, handleOpenCosmosGraph,
       handleStartWikiLink, handleCreateRelatedNote, handleLinkReadingSource, handleUnlinkReadingSource,
       handleExpandGraphNode, handleCollapseGraphNode, setViewMode, openContextPanel, handleOpenDiscover,
       handleCosmosConnect, handleCosmosAssignArea, handleCosmosCreateHub, handleCosmosCreateRelation,
@@ -1367,12 +1390,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
           {isTrash && activeNote && (
             <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
               <button onClick={() => showConfirm(
-                  'Delete this note permanently? This cannot be undone.',
+                  t('nvDeleteNotePermanentMsg'),
                   () => permanentDeleteNote(activeNote.id),
-                  { confirmLabel: 'Delete', variant: 'destructive' }
+                  { confirmLabel: t('delete'), variant: 'destructive' }
                 )}
                 style={{ width: '100%', background: `${c.danger}15`, border: `1px solid ${c.danger}40`, color: c.danger, borderRadius: 6, padding: '6px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-                Delete Permanently
+                {t('nvDeletePermanently')}
               </button>
             </div>
           )}
@@ -1406,7 +1429,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         open={workspaceSearchOpen}
         discoveryFeed={discoveryFeed}
         onClose={() => setWorkspaceSearchOpen(false)}
-        onSelectNote={handleWorkspaceSearchNote}
+        onSelectNote={onWorkspaceSearchNote}
         onSelectFolder={handleWorkspaceSearchFolder}
         onSelectTag={handleWorkspaceSearchTag}
         onSelectCollection={handleWorkspaceSearchCollection}

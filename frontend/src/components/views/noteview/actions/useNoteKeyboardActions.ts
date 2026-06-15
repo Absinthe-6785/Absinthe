@@ -3,6 +3,8 @@ import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
+import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
+import { useNoteNavigationStack } from '../../../../hooks/useNoteNavigationStack';
 import type { CreateNoteFn, UseNoteViewActionsParams } from './types';
 
 export function useNoteKeyboardActions(
@@ -33,12 +35,14 @@ export function useNoteKeyboardActions(
     if (!trimmed) return;
     const found = findNoteByTitle(trimmed, notes);
     if (found) {
-      setActiveNoteId(found.id);
+      navigateToNoteWithHistory(found.id, 'wiki');
       if (opts?.preferReading) setViewMode('reading');
       return;
     }
     createNote({ title: trimmed, body: '' });
-  }, [notes, setActiveNoteId, setViewMode, createNote]);
+  }, [notes, setViewMode, createNote]);
+
+  const { canBack, canForward, goBack, goForward } = useNoteNavigationStack();
 
   const shortcutRef = useRef({
     showSortMenu, viewMode, activeNote, createNote, duplicateNote,
@@ -81,6 +85,17 @@ export function useNoteKeyboardActions(
           e.preventDefault();
           setShowShortcuts(v => !v);
         }
+        return;
+      }
+
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goBack();
+        return;
+      }
+      if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        goForward();
         return;
       }
 
@@ -128,5 +143,5 @@ export function useNoteKeyboardActions(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { navigateToWiki };
+  return { navigateToWiki, canBack, canForward, goBack, goForward };
 }

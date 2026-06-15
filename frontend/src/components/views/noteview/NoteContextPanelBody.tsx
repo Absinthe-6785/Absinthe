@@ -52,6 +52,7 @@ import type {
 import type { BootstrapImportSummary } from '../features/knowledge/history/bootstrapSummaryStorage';
 import type { EditorMode } from '../editorMode';
 import { useTranslation } from '@/lib/i18n';
+import type { NoteNavigationSource } from '@/lib/noteNavigationStack';
 
 const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
   'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
@@ -95,6 +96,7 @@ export interface NoteContextPanelHandlers {
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   noteUpdate: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
   setActiveNoteId: (id: string) => void;
+  openNoteById: (id: string, source?: NoteNavigationSource) => void;
   navigateToWiki: (title: string, opts?: { preferReading?: boolean }) => void;
   handleLinkRelatedNote: (noteId: string, noteTitle: string) => void;
   handleOpenCosmosGraph: () => void;
@@ -201,6 +203,7 @@ export function NoteContextPanelBody({
     createNote,
     noteUpdate,
     setActiveNoteId,
+    openNoteById,
     navigateToWiki,
     handleLinkRelatedNote,
     handleOpenCosmosGraph,
@@ -289,7 +292,7 @@ export function NoteContextPanelBody({
                     <ConceptHubPanel
                       colors={c}
                       data={conceptHub}
-                      onNavigateToNote={setActiveNoteId}
+                      onNavigateToNote={id => openNoteById(id, 'panel')}
                     />
                   )}
                   <ConceptRelationsPanel
@@ -298,7 +301,7 @@ export function NoteContextPanelBody({
                     notes={notes}
                     wikiTargets={wikiTargets}
                     onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-                    onNavigateToNote={setActiveNoteId}
+                    onNavigateToNote={id => openNoteById(id, 'panel')}
                     onResolveTargetId={title =>
                       knowledgeIndexService.resolveNoteId(title)
                       ?? findNoteByTitle(title, notes)?.id
@@ -308,7 +311,7 @@ export function NoteContextPanelBody({
                     <LearningPathPanel
                       colors={c}
                       path={learningPath}
-                      onNavigateToNote={setActiveNoteId}
+                      onNavigateToNote={id => openNoteById(id, 'panel')}
                     />
                   )}
                 </>
@@ -320,19 +323,19 @@ export function NoteContextPanelBody({
                     activeNoteTitle={activeNote.title ?? ''}
                     incoming={pageReferences.incoming}
                     contexts={backlinkContexts}
-                    onNavigateToNote={setActiveNoteId}
+                    onNavigateToNote={id => openNoteById(id, 'backlink')}
                   />
                   <ReferenceExplorerPanel
                     colors={c}
                     summary={noteReferenceSummary}
                     mentioning={mentioningNotes}
-                    onNavigateToNote={setActiveNoteId}
+                    onNavigateToNote={id => openNoteById(id, 'panel')}
                     onNavigateToWiki={navigateToWiki}
                   />
                   <RelatedNotesPanel
                     colors={c}
                     related={relatedNotes}
-                    onNavigateToNote={setActiveNoteId}
+                    onNavigateToNote={id => openNoteById(id, 'panel')}
                     onLinkToNote={handleLinkRelatedNote}
                     onOpenGraph={handleOpenCosmosGraph}
                     onLearnLinking={handleStartWikiLink}
@@ -347,7 +350,7 @@ export function NoteContextPanelBody({
                     note={activeNote}
                     notes={notes}
                     sourceNoteCandidates={sourceNoteCandidates}
-                    onNavigateToNote={setActiveNoteId}
+                    onNavigateToNote={id => openNoteById(id, 'panel')}
                     onLinkSource={handleLinkReadingSource}
                     onUnlinkSource={handleUnlinkReadingSource}
                   />
@@ -387,7 +390,7 @@ export function NoteContextPanelBody({
                 <LocalGraphView
                   colors={c}
                   graphData={localGraphData}
-                  onNavigate={setActiveNoteId}
+                  onNavigate={id => openNoteById(id, 'panel')}
                   onExpandNode={handleExpandGraphNode}
                   onCollapseNode={handleCollapseGraphNode}
                 />
@@ -405,7 +408,7 @@ export function NoteContextPanelBody({
               snapshot={noteIntelligenceSnapshot}
               tierInput={noteTierInput}
               noteHistory={noteHistoryContext}
-              onNavigateToNote={setActiveNoteId}
+              onNavigateToNote={id => openNoteById(id, 'panel')}
               onOpenLinks={() => openContextPanel('links')}
             />
           )}
@@ -434,7 +437,7 @@ export function NoteContextPanelBody({
               onAssignArea={handleCosmosAssignArea}
               onCreateHub={handleCosmosCreateHub}
               onCreateRelation={handleCosmosCreateRelation}
-              onNavigateToNote={setActiveNoteId}
+              onNavigateToNote={id => openNoteById(id, 'panel')}
               onOpenDiscover={handleOpenDiscover}
             />
           )}
@@ -456,7 +459,7 @@ export function NoteContextPanelBody({
               colors={c}
               feed={discoveryFeed}
               vaultPhase={cosmosVaultPhase}
-              onNavigateToNote={setActiveNoteId}
+              onNavigateToNote={id => openNoteById(id, 'panel')}
               onCreateRelation={handleDiscoveryCreateRelation}
               onCreateHub={handleCosmosCreateHub}
               onLearnLinking={handleStartWikiLink}
@@ -481,7 +484,7 @@ export function NoteContextPanelBody({
               initialSelectedArea={timelineInitialArea}
               onDismissBootstrap={handleDismissBootstrapSummary}
               onExport={handleExportHistory}
-              onNavigateToNote={setActiveNoteId}
+              onNavigateToNote={id => openNoteById(id, 'panel')}
               onCreateNote={() => createNote()}
             />
           )}
@@ -494,7 +497,7 @@ export function NoteContextPanelBody({
                   data={projectEditorData}
                   onUpdateDescription={handleUpdateProjectDescription}
                   onUpdateStatus={handleUpdateProjectStatus}
-                  onNavigateToNote={setActiveNoteId}
+                  onNavigateToNote={id => openNoteById(id, 'panel')}
                   onCreateMilestone={handleCreateProjectMilestone}
                 />
               )}
@@ -549,7 +552,7 @@ export function NoteContextPanelBody({
               outgoing={resolvedOutgoingRelations}
               incoming={incomingRelationDisplays}
               onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-              onNavigateToNote={setActiveNoteId}
+              onNavigateToNote={id => openNoteById(id, 'relation')}
               onResolveTargetId={title =>
                 knowledgeIndexService.resolveNoteId(title)
                 ?? findNoteByTitle(title, notes)?.id

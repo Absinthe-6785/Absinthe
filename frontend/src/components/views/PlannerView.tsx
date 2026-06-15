@@ -71,6 +71,8 @@ export const PlannerView = ({
   const [editTodoText, setEditTodoText] = useState('');
 
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const newRoutineInputRef = useRef<HTMLInputElement>(null);
+  const newTodoInputRef = useRef<HTMLInputElement>(null);
 
   // 전날 스케줄 fetch — end_next_day 블록을 익일 타임라인에 표시하기 위해
   const prevDate = useMemo(() => {
@@ -183,7 +185,7 @@ export const PlannerView = ({
       });
   };
   const handleDeleteTodo = (id: string) =>
-    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: 'Task deleted' });
+    api('DELETE', `/api/todos/${id}`, undefined, { revalidate: 'daily', successMsg: t('taskDeleted') });
   const handleUpdateTodoText = async (id: string, text: string) => {
     if (!text.trim()) return setEditingTodoId(null);
     const ok = await api('PUT', `/api/todos_text/${id}`,
@@ -354,7 +356,16 @@ export const PlannerView = ({
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
-            {routines.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Activity} text={t('noRoutines')} /></div>}
+            {routines.length === 0 && (
+              <div className="h-[80px]">
+                <EmptyState
+                  theme={theme}
+                  icon={Activity}
+                  text={t('noRoutines')}
+                  onClick={() => newRoutineInputRef.current?.focus()}
+                />
+              </div>
+            )}
             {/* 예외일 배너 */}
             {routines[0]?.is_exception_day && (
               <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold mb-1 ${appSettings.darkMode ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-50 text-blue-600'}`}>
@@ -406,7 +417,7 @@ export const PlannerView = ({
             ))}
             <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
-              <input type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
+              <input ref={newRoutineInputRef} type="text" value={newRoutineText} onChange={e => setNewRoutineText(e.target.value)}
                 placeholder={t('addRoutine')} className="flex-1 bg-transparent outline-none text-sm font-medium"
                 onKeyDown={e => { if (e.key === 'Enter' && newRoutineText.trim()) { handleAddRoutine(newRoutineText); setNewRoutineText(''); } }}/>
               {newRoutineText.trim() && (
@@ -425,7 +436,16 @@ export const PlannerView = ({
           <div className="absolute left-0 right-0 top-[52px] bottom-0 pointer-events-none z-0"
             style={{ backgroundImage: `linear-gradient(transparent 43px, ${appSettings.darkMode ? '#3A3A3C' : '#E5E7EB'} 44px)`, backgroundSize: '100% 44px' }} />
           <div className="flex-1 overflow-y-auto relative z-10 pr-2">
-            {todos.length === 0 && <div className="h-[80px]"><EmptyState theme={theme} icon={Inbox} text={t('noTasks')} /></div>}
+            {todos.length === 0 && (
+              <div className="h-[80px]">
+                <EmptyState
+                  theme={theme}
+                  icon={Inbox}
+                  text={t('noTasks')}
+                  onClick={() => newTodoInputRef.current?.focus()}
+                />
+              </div>
+            )}
             {todos.map((todo: Todo) => (
               <div key={todo.id} className="min-h-[44px] flex items-center justify-between group" style={{ height: '44px' }}>
                 {editingTodoId === todo.id ? (
@@ -452,7 +472,7 @@ export const PlannerView = ({
             ))}
             <div className="flex items-center gap-2" style={{ height: '44px' }}>
               <Plus size={16} className={`shrink-0 ${theme.textMuted}`}/>
-              <input type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
+              <input ref={newTodoInputRef} type="text" value={newTodoText} onChange={e => setNewTodoText(e.target.value)}
                 placeholder={t('addTask')} className="flex-1 bg-transparent outline-none text-sm font-medium"
                 onKeyDown={e => { if (e.key === 'Enter' && newTodoText.trim()) { handleAddTodo(newTodoText); setNewTodoText(''); } }}/>
               {newTodoText.trim() && (

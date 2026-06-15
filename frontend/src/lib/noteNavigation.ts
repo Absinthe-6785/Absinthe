@@ -4,6 +4,7 @@
  * AppContent registers the tab switcher; Archive/Planner call openNote() only.
  */
 import { useNotesStore } from '../store/useNotesStore';
+import { navigateToNoteWithHistory } from './noteNavigationStack';
 
 export type NotesTabSwitcher = () => void;
 
@@ -25,7 +26,7 @@ export function switchToNotesTab(): void {
 /** Select note globally and switch to the Notes tab when a switcher is registered. */
 export function openNote(noteId: string): void {
   if (!noteId) return;
-  useNotesStore.getState().setActiveNoteId(noteId);
+  navigateToNoteWithHistory(noteId, 'external');
   switchToNotesTab();
 }
 
