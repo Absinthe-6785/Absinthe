@@ -36,7 +36,7 @@ export function DayCountdownStrip({
           return (
             <li
               key={countdown.id}
-              className="flex items-center justify-between gap-2 px-2 py-1 rounded-md border border-border bg-surface-alt"
+              className="flex items-center justify-between gap-2 px-2 py-2 min-h-[44px] rounded-md border border-border bg-surface-alt"
               data-planner-day-countdown={countdown.id}
             >
               <button

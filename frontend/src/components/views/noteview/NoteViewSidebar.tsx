@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
-  ChevronDown, ChevronRight, Upload, Keyboard, Archive,
+  ChevronDown, ChevronRight, Upload, Keyboard, Archive, RotateCcw,
   Clock, Calendar, CalendarDays, LayoutDashboard, Folder,
 } from 'lucide-react';
 import { highlightText } from '../noteUtils';
@@ -205,6 +205,7 @@ export interface NoteViewSidebarHandlers {
   setSortOrder: React.Dispatch<React.SetStateAction<'updated' | 'title' | 'created'>>;
   exportAllNotes: () => void;
   exportVaultBackup: () => boolean;
+  openVaultRestore: () => void;
   openCreateEventDialog: () => void;
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   setActiveNoteId: (id: string | null) => void;
@@ -291,7 +292,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView,
     handleActivateSavedView, handleClearSavedView, handleCreateSavedView, handleRenameSavedView,
     handleDeleteSavedView, isWorkspaceKindActive, setMobileSidebarOpen, closeTraceLens,
-    handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openCreateEventDialog,
+    handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
     createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
     handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset,
@@ -799,6 +800,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             {!isTrash && (
               <button onClick={() => exportVaultBackup()} className="btbtn" title={t('nvExportVaultBackup')}>
                 <Archive size={11}/>
+              </button>
+            )}
+            {!isTrash && (
+              <button onClick={openVaultRestore} className="btbtn" title={t('nvImportVaultBackup')}>
+                <RotateCcw size={11}/>
               </button>
             )}
             {!isTrash && (

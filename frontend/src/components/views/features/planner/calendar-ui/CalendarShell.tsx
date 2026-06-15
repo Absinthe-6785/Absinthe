@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Routine, Schedule, Theme, Todo, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { useSwipeNavigation } from '../../../../../hooks/useSwipeNavigation';
 import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { resolveCalendarPeriodLabel } from './calendarPlaceholderSummary';
+import { shiftPlannerAnchorDate } from './calendarPeriodNavigation';
 import { AgendaCalendarView } from './agenda';
 import { MonthCalendarView } from './month';
 import { WeekCalendarView } from './week';
@@ -65,6 +68,7 @@ export function CalendarShell({
   onViewModeChange,
 }: CalendarShellProps) {
   const { t } = useTranslation();
+  const { isMobile } = useViewportLayout();
   const [viewMode, setViewMode] = useState<PlannerCalendarViewMode>(initialMode);
 
   const handleModeChange = (mode: PlannerCalendarViewMode) => {
@@ -96,6 +100,21 @@ export function CalendarShell({
     [viewMode, presentation],
   );
 
+  const swipePrev = useCallback(() => {
+    if (!onAnchorDateChange) return;
+    const next = shiftPlannerAnchorDate(viewMode, anchorDate, -1);
+    if (next) onAnchorDateChange(next);
+  }, [onAnchorDateChange, viewMode, anchorDate]);
+
+  const swipeNext = useCallback(() => {
+    if (!onAnchorDateChange) return;
+    const next = shiftPlannerAnchorDate(viewMode, anchorDate, 1);
+    if (next) onAnchorDateChange(next);
+  }, [onAnchorDateChange, viewMode, anchorDate]);
+
+  const swipeEnabled = isMobile && (viewMode === 'day' || viewMode === 'week') && Boolean(onAnchorDateChange);
+  const swipe = useSwipeNavigation(swipeNext, swipePrev, { enabled: swipeEnabled });
+
   return (
     <section
       className="w-full shrink-0 flex flex-col gap-3 lg:gap-4 mb-4 lg:mb-5"
@@ -116,8 +135,20 @@ export function CalendarShell({
         periodLabel={periodLabel}
         theme={theme}
         onAnchorDateChange={onAnchorDateChange}
+        compactTouch={isMobile}
       />
 
+      {swipeEnabled ? (
+        <p className="text-[10px] text-muted text-center -mt-1 lg:hidden" data-planner-swipe-hint>
+          {viewMode === 'day' ? t('scheduleSwipeDayHint') : t('scheduleSwipeWeekHint')}
+        </p>
+      ) : null}
+
+      <div
+        onTouchStart={swipe.onTouchStart}
+        onTouchEnd={swipe.onTouchEnd}
+        className="touch-pan-y"
+      >
       {viewMode === 'month' ? (
         <MonthCalendarView
           key={activeViewKey}
@@ -156,6 +187,7 @@ export function CalendarShell({
           onEventNoteClick={onEventNoteClick}
         />
       ) : null}
+      </div>
     </section>
   );
 }

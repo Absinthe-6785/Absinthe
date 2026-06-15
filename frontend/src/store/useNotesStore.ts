@@ -5,6 +5,12 @@
  * NoteView·PlannerView 모두 이 스토어를 사용한다.
  */
 import { create } from 'zustand';
+import {
+  applyVaultRestore,
+  type VaultRestoreConflictStrategy,
+  type VaultRestoreResult,
+} from '../lib/importVaultBackup';
+import type { VaultBackupManifest } from '../lib/exportVaultBackup';
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
 import {
@@ -74,6 +80,7 @@ interface NotesState {
   renameFolder: (id: string, name: string) => void;
   deleteFolder: (id: string) => void;
   importNote: (note: Note) => void;
+  importVaultRestore: (manifest: VaultBackupManifest, strategy: VaultRestoreConflictStrategy) => VaultRestoreResult;
 
   hydrateFromDB: () => Promise<void>;
   syncNoteToDB: (note: Note) => Promise<boolean>;
@@ -298,6 +305,37 @@ export const useNotesStore = create<NotesState>((set, get) => {
       saveActiveNoteId(note.id);
       knowledgeIndexService.updateNote(note);
       void syncNoteToDB(note);
+    },
+
+    importVaultRestore: (manifest, strategy) => {
+      const beforeIds = new Set(get().notes.map(n => n.id));
+      const prevFolderIds = new Set(get().folders.map(f => f.id));
+      const { notes, folders, result } = applyVaultRestore(
+        manifest,
+        get().notes,
+        get().folders,
+        strategy,
+      );
+      set({ notes, folders });
+      persistNotes(notes);
+      persistFolders(folders);
+      for (const note of notes) {
+        knowledgeIndexService.updateNote(note);
+      }
+      const manifestIds = new Set(manifest.notes.map(n => n.id));
+      for (const note of notes) {
+        if (!note.deletedAt && (
+          !beforeIds.has(note.id) ||
+          (manifestIds.has(note.id) && strategy === 'replace')
+        )) {
+          void syncNoteToDB(note);
+        }
+      }
+      folders
+        .filter(f => !prevFolderIds.has(f.id))
+        .forEach(f => { void syncFolderToDB(f); });
+      flushPendingSync();
+      return result;
     },
 
     updateNote: (id, patch) => {

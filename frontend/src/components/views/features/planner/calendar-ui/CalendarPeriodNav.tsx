@@ -13,6 +13,7 @@ export interface CalendarPeriodNavProps {
   periodLabel?: string;
   theme: Theme;
   onAnchorDateChange?: (dateKey: string) => void;
+  compactTouch?: boolean;
 }
 
 export function CalendarPeriodNav({
@@ -22,6 +23,7 @@ export function CalendarPeriodNav({
   periodLabel,
   theme,
   onAnchorDateChange,
+  compactTouch = false,
 }: CalendarPeriodNavProps) {
   const { t } = useTranslation();
   const todayKey = toDateKey(now.toJSDate());
@@ -39,6 +41,9 @@ export function CalendarPeriodNav({
   };
 
   const showToday = canNavigate && todayKey != null && todayKey !== anchorDate;
+  const btnClass = compactTouch
+    ? `p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`
+    : `p-1.5 rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`;
 
   return (
     <div
@@ -52,7 +57,7 @@ export function CalendarPeriodNav({
           aria-label={t('plannerNavPrevPeriod')}
           disabled={!canNavigate}
           onClick={() => shift(-1)}
-          className={`p-1.5 rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`}
+          className={btnClass}
           data-planner-calendar-nav-prev
         >
           <ChevronLeft size={16} />
@@ -62,7 +67,7 @@ export function CalendarPeriodNav({
           aria-label={t('plannerNavNextPeriod')}
           disabled={!canNavigate}
           onClick={() => shift(1)}
-          className={`p-1.5 rounded-full transition-colors disabled:opacity-40 ${theme.hoverBg}`}
+          className={btnClass}
           data-planner-calendar-nav-next
         >
           <ChevronRight size={16} />
