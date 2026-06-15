@@ -16,6 +16,7 @@ export {
   applyPointerSelection,
   clearSelection,
   extendSelectionByArrow,
+  getDocumentOrderedIds,
   getSiblingOrderedIds,
   haveSameParent,
   selectRange,

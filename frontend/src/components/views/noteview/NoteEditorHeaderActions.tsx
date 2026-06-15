@@ -20,6 +20,8 @@ export interface NoteEditorHeaderActionsProps {
   isMilestone: boolean;
   isArea: boolean;
   canMarkArea: boolean;
+  isWeakTopic?: boolean;
+  onToggleWeakTopic?: () => void;
   onViewModeToggle: (key: 'reading' | 'graph') => void;
   onMarkEvent: () => void;
   onMarkMilestone: () => void;
@@ -47,6 +49,8 @@ export function NoteEditorHeaderActions({
   isMilestone,
   isArea,
   canMarkArea,
+  isWeakTopic = false,
+  onToggleWeakTopic,
   onViewModeToggle,
   onMarkEvent,
   onMarkMilestone,
@@ -117,6 +121,16 @@ export function NoteEditorHeaderActions({
       {(isArea || canMarkArea) ? (
         <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onToggleArea(); setMenuOpen(false); }}>
           {isArea ? t('nvClearArea') : t('nvMarkArea')}
+        </button>
+      ) : null}
+      {onToggleWeakTopic ? (
+        <button
+          type="button"
+          className="btbtn"
+          style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px', color: isWeakTopic ? c.danger : undefined }}
+          onClick={() => { onToggleWeakTopic(); setMenuOpen(false); }}
+        >
+          {isWeakTopic ? t('knWeakTopicActive') : t('knWeakTopicInactive')}
         </button>
       ) : null}
       <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onDuplicate(); setMenuOpen(false); }}>⎘ {t('nvDuplicate')}</button>

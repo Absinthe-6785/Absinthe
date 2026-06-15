@@ -3,8 +3,7 @@
  */
 import type { Block } from './blockUtils';
 import {
-  getSiblingOrderedIds,
-  haveSameParent,
+  getDocumentOrderedIds,
   selectRange,
   selectSingle,
 } from './features/block-editor/features/selection';
@@ -18,18 +17,17 @@ export function beginGutterSelection(anchorId: string, pointerId: number): Gutte
   return { anchorId, pointerId };
 }
 
-/** Range select between anchor and hover; clamps to same-parent siblings. */
+/** Range select between anchor and hover in document order (K-82 cross-toggle). */
 export function updateGutterSelection(
   blocks: Block[],
   anchorId: string,
   hoverId: string,
 ): Set<string> {
-  if (!haveSameParent(blocks, anchorId, hoverId)) {
+  const ordered = getDocumentOrderedIds(blocks);
+  if (!ordered.includes(anchorId) || !ordered.includes(hoverId)) {
     return selectSingle(anchorId);
   }
-  const siblings = getSiblingOrderedIds(blocks, anchorId);
-  if (!siblings) return selectSingle(anchorId);
-  return selectRange(anchorId, hoverId, siblings);
+  return selectRange(anchorId, hoverId, ordered);
 }
 
 export function finishGutterSelection(
