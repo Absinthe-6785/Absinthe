@@ -1,6 +1,6 @@
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import type { NoteChromeColors } from '../../../../noteEditorTheme';
-import { touchMinSize } from '../../../../../../lib/responsiveLayout';
+import { touchMinSize } from '@/lib/responsiveLayout';
 import { CosmosTermTooltip } from './CosmosTermTooltip';
 
 export interface CosmosStartDashboardProps {

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useTranslation, type TranslationKey } from '../../../../../../lib/i18n';
+import { useTranslation, type TranslationKey } from '@/lib/i18n';
 
 export type CosmosGlossaryTerm =
   | 'cosmos'

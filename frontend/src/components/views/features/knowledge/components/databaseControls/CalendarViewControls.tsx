@@ -1,4 +1,4 @@
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseCalendarConfig } from '../../databaseViews/databasePresentationModels';
 import { DatabasePropertyKeyField } from '../DatabasePropertyKeyField';

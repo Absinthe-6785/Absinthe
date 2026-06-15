@@ -44,7 +44,6 @@ import type { NoteHistoryContext } from '../features/knowledge/history';
 import type {
   KnowledgeHistoryEvent,
   CosmosEvolutionSummary,
-  CosmosEvolutionStoryData,
   ExpandedCosmosEvolutionStory,
   DiscoveryProgressSummary,
   KnowledgeJourney,
@@ -52,24 +51,13 @@ import type {
 } from '../features/knowledge/history';
 import type { BootstrapImportSummary } from '../features/knowledge/history/bootstrapSummaryStorage';
 import type { EditorMode } from '../editorMode';
-import { useTranslation } from '../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 
 const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
   'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
 ]);
 
-export interface NoteContextPanelBodyProps {
-  colors: NoteChromeColors;
-  rightPanel: KnowledgeContextTab;
-  activeNote: Note | null;
-  createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
-  tocPanelRef: RefObject<HTMLDivElement | null>;
-  visibleToc: (TocItem & { idx: number; hasChildren: boolean })[];
-  highlightedTocIdx: number | null;
-  tocCollapsed: Record<number, boolean>;
-  handleTocKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
-  toggleTocCollapse: (idx: number) => void;
-  scrollToHeading: (headingIdx: number) => void;
+export interface NoteContextPanelData {
   pageReferences: ReturnType<typeof knowledgeIndexService.getPageReferences> | null;
   noteReferenceSummary: ReturnType<typeof import('../features/knowledge').extractNoteReferenceSummary> | null;
   linksStructureCount: number;
@@ -79,27 +67,44 @@ export interface NoteContextPanelBodyProps {
   learningPath: ReturnType<typeof import('../features/knowledge').buildLearningPath> | null;
   notes: Note[];
   wikiTargets: string[];
-  noteUpdate: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
-  setActiveNoteId: (id: string) => void;
   backlinkContexts: ReturnType<typeof import('../noteUtils').extractLinkContexts>;
   mentioningNotes: ReturnType<typeof knowledgeIndexService.getMentioningNotes>;
   relatedNotes: ReturnType<typeof knowledgeIndexService.getRelatedNotes>;
+  sourceNoteCandidates: Note[];
+  noteBibliography: ReturnType<typeof import('../citationUtils').collectCitationsFromMarkdown>;
+  localGraphData: ReturnType<typeof import('../features/knowledge').buildExpandedGraphData> | null;
+  noteIntelligenceSnapshot: NoteIntelligenceSnapshot | null;
+  noteTierInput: KnowledgeImportanceInput | null;
+  noteHistoryContext: NoteHistoryContext | null;
+  discoveryFeed: DiscoveryFeed;
+  cosmosVaultPhase: CosmosVaultPhase;
+  projectEditorData: ReturnType<typeof import('../features/knowledge').buildProjectEditorData> | null;
+  milestoneProjectTitle: string;
+  allTags: { tag: string; count: number }[];
+  activeTag: string | null;
+  resolvedOutgoingRelations: ReturnType<typeof knowledgeIndexService.resolveRelationTargets>;
+  incomingRelationDisplays: {
+    edge: ReturnType<typeof knowledgeIndexService.getIncomingRelations>[number];
+    sourceTitle: string;
+    missing: boolean;
+  }[];
+  noteTags: string[];
+}
+
+export interface NoteContextPanelHandlers {
+  createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
+  noteUpdate: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
+  setActiveNoteId: (id: string) => void;
   navigateToWiki: (title: string, opts?: { preferReading?: boolean }) => void;
   handleLinkRelatedNote: (noteId: string, noteTitle: string) => void;
   handleOpenCosmosGraph: () => void;
   handleStartWikiLink: () => void;
   handleCreateRelatedNote: () => void;
-  sourceNoteCandidates: Note[];
   handleLinkReadingSource: (sourceNoteId: string) => void;
   handleUnlinkReadingSource: () => void;
-  noteBibliography: ReturnType<typeof import('../citationUtils').collectCitationsFromMarkdown>;
-  localGraphData: ReturnType<typeof import('../features/knowledge').buildExpandedGraphData> | null;
   handleExpandGraphNode: (noteId: string) => void;
   handleCollapseGraphNode: (noteId: string) => void;
   setViewMode: (mode: EditorMode | ((prev: EditorMode) => EditorMode)) => void;
-  noteIntelligenceSnapshot: NoteIntelligenceSnapshot | null;
-  noteTierInput: KnowledgeImportanceInput | null;
-  noteHistoryContext: NoteHistoryContext | null;
   openContextPanel: (tab: KnowledgeContextTab) => void;
   handleOpenDiscover: () => void;
   handleCosmosConnect: (targetTitle: string) => void;
@@ -107,8 +112,27 @@ export interface NoteContextPanelBodyProps {
   handleCosmosCreateHub: (areaLabel: string) => void;
   handleCosmosCreateRelation: (targetNoteId: string) => void;
   handleDiscoveryCreateRelation: (sourceNoteId: string, targetNoteId: string) => void;
-  discoveryFeed: DiscoveryFeed;
-  cosmosVaultPhase: CosmosVaultPhase;
+  handleUpdateProjectDescription: (description: string) => void;
+  handleUpdateProjectStatus: (status: 'planned' | 'active' | 'completed') => void;
+  handleCreateProjectMilestone: () => void;
+  handleUpdateMilestoneStatus: (status: 'planned' | 'active' | 'completed') => void;
+  handleUpdateMilestoneTargetDate: (targetDate: string | null) => void;
+  setActiveFolderId: (id: string | null | 'trash' | 'starred' | ((prev: string | null | 'trash' | 'starred') => string | null | 'trash' | 'starred')) => void;
+  setSearchQuery: (query: string | ((prev: string) => string)) => void;
+  setActiveTag: (tag: string | null | ((prev: string | null) => string | null)) => void;
+}
+
+export interface NoteContextEditorContext {
+  tocPanelRef: RefObject<HTMLDivElement | null>;
+  visibleToc: (TocItem & { idx: number; hasChildren: boolean })[];
+  highlightedTocIdx: number | null;
+  tocCollapsed: Record<number, boolean>;
+  handleTocKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+  toggleTocCollapse: (idx: number) => void;
+  scrollToHeading: (headingIdx: number) => void;
+}
+
+export interface NoteContextDashboardContext {
   knowledgeTimeline: KnowledgeTimeline;
   timelineMode: TimelinePeriodMode;
   setTimelineMode: (mode: TimelinePeriodMode) => void;
@@ -122,41 +146,29 @@ export interface NoteContextPanelBodyProps {
   timelineInitialArea: string | null;
   handleDismissBootstrapSummary: () => void;
   handleExportHistory: (kind: import('../features/knowledge/history').ExportKind, mode: 'copy' | 'download') => void | Promise<void>;
-  projectEditorData: ReturnType<typeof import('../features/knowledge').buildProjectEditorData> | null;
-  handleUpdateProjectDescription: (description: string) => void;
-  handleUpdateProjectStatus: (status: 'planned' | 'active' | 'completed') => void;
-  handleCreateProjectMilestone: () => void;
-  milestoneProjectTitle: string;
-  handleUpdateMilestoneStatus: (status: 'planned' | 'active' | 'completed') => void;
-  handleUpdateMilestoneTargetDate: (targetDate: string | null) => void;
-  allTags: { tag: string; count: number }[];
-  activeTag: string | null;
-  setActiveFolderId: (id: string | null | 'trash' | 'starred' | ((prev: string | null | 'trash' | 'starred') => string | null | 'trash' | 'starred')) => void;
-  setSearchQuery: (query: string | ((prev: string) => string)) => void;
-  setActiveTag: (tag: string | null | ((prev: string | null) => string | null)) => void;
-  resolvedOutgoingRelations: ReturnType<typeof knowledgeIndexService.resolveRelationTargets>;
-  incomingRelationDisplays: {
-    edge: ReturnType<typeof knowledgeIndexService.getIncomingRelations>[number];
-    sourceTitle: string;
-    missing: boolean;
-  }[];
-  noteTags: string[];
 }
 
-export function NoteContextPanelBody(props: NoteContextPanelBodyProps) {
+export interface NoteContextPanelBodyProps {
+  colors: NoteChromeColors;
+  rightPanel: KnowledgeContextTab;
+  activeNote: Note | null;
+  panelData: NoteContextPanelData;
+  panelHandlers: NoteContextPanelHandlers;
+  editorContext: NoteContextEditorContext;
+  dashboardContext: NoteContextDashboardContext;
+}
+
+export function NoteContextPanelBody({
+  colors: c,
+  rightPanel,
+  activeNote,
+  panelData,
+  panelHandlers,
+  editorContext,
+  dashboardContext,
+}: NoteContextPanelBodyProps) {
   const { t } = useTranslation();
   const {
-    colors: c,
-    rightPanel,
-    activeNote,
-    createNote,
-    tocPanelRef,
-    visibleToc,
-    highlightedTocIdx,
-    tocCollapsed,
-    handleTocKeyDown,
-    toggleTocCollapse,
-    scrollToHeading,
     pageReferences,
     noteReferenceSummary,
     linksStructureCount,
@@ -166,27 +178,39 @@ export function NoteContextPanelBody(props: NoteContextPanelBodyProps) {
     learningPath,
     notes,
     wikiTargets,
-    noteUpdate,
-    setActiveNoteId,
     backlinkContexts,
     mentioningNotes,
     relatedNotes,
+    sourceNoteCandidates,
+    noteBibliography,
+    localGraphData,
+    noteIntelligenceSnapshot,
+    noteTierInput,
+    noteHistoryContext,
+    discoveryFeed,
+    cosmosVaultPhase,
+    projectEditorData,
+    milestoneProjectTitle,
+    allTags,
+    activeTag,
+    resolvedOutgoingRelations,
+    incomingRelationDisplays,
+    noteTags,
+  } = panelData;
+  const {
+    createNote,
+    noteUpdate,
+    setActiveNoteId,
     navigateToWiki,
     handleLinkRelatedNote,
     handleOpenCosmosGraph,
     handleStartWikiLink,
     handleCreateRelatedNote,
-    sourceNoteCandidates,
     handleLinkReadingSource,
     handleUnlinkReadingSource,
-    noteBibliography,
-    localGraphData,
     handleExpandGraphNode,
     handleCollapseGraphNode,
     setViewMode,
-    noteIntelligenceSnapshot,
-    noteTierInput,
-    noteHistoryContext,
     openContextPanel,
     handleOpenDiscover,
     handleCosmosConnect,
@@ -194,8 +218,25 @@ export function NoteContextPanelBody(props: NoteContextPanelBodyProps) {
     handleCosmosCreateHub,
     handleCosmosCreateRelation,
     handleDiscoveryCreateRelation,
-    discoveryFeed,
-    cosmosVaultPhase,
+    handleUpdateProjectDescription,
+    handleUpdateProjectStatus,
+    handleCreateProjectMilestone,
+    handleUpdateMilestoneStatus,
+    handleUpdateMilestoneTargetDate,
+    setActiveFolderId,
+    setSearchQuery,
+    setActiveTag,
+  } = panelHandlers;
+  const {
+    tocPanelRef,
+    visibleToc,
+    highlightedTocIdx,
+    tocCollapsed,
+    handleTocKeyDown,
+    toggleTocCollapse,
+    scrollToHeading,
+  } = editorContext;
+  const {
     knowledgeTimeline,
     timelineMode,
     setTimelineMode,
@@ -209,22 +250,7 @@ export function NoteContextPanelBody(props: NoteContextPanelBodyProps) {
     timelineInitialArea,
     handleDismissBootstrapSummary,
     handleExportHistory,
-    projectEditorData,
-    handleUpdateProjectDescription,
-    handleUpdateProjectStatus,
-    handleCreateProjectMilestone,
-    milestoneProjectTitle,
-    handleUpdateMilestoneStatus,
-    handleUpdateMilestoneTargetDate,
-    allTags,
-    activeTag,
-    setActiveFolderId,
-    setSearchQuery,
-    setActiveTag,
-    resolvedOutgoingRelations,
-    incomingRelationDisplays,
-    noteTags,
-  } = props;
+  } = dashboardContext;
 
   return (
     <>

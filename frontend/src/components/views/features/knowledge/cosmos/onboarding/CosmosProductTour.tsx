@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslation, type TranslationKey } from '../../../../../../lib/i18n';
+import { useTranslation, type TranslationKey } from '@/lib/i18n';
 import type { NoteChromeColors } from '../../../../noteEditorTheme';
-import { touchMinSize } from '../../../../../../lib/responsiveLayout';
+import { touchMinSize } from '@/lib/responsiveLayout';
 import {
   advanceProductTour,
   completeProductTour,
