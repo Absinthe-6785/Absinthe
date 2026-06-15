@@ -32,7 +32,7 @@ export function MonthCalendarCell({
           onDateSelect(model.dateKey);
         }
       } : undefined}
-      className={`min-h-[72px] lg:min-h-[80px] border p-1 lg:p-1.5 flex flex-col gap-0.5
+      className={`min-h-[64px] lg:min-h-[72px] border p-1 lg:p-1.5 flex flex-col gap-0.5
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}

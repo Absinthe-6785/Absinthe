@@ -181,15 +181,13 @@ describe('DayCalendarView schedule execution wiring', () => {
   });
 });
 
-describe('CalendarShell day schedule execution wiring', () => {
-  it('passes dayScheduleActions through to Day view', () => {
+describe('CalendarShell month schedule execution wiring', () => {
+  it('passes dayScheduleActions through to upcoming agenda panel (K-80)', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, {
         now: NOW,
         anchorDate: '2027-02-03',
         schedules: [],
-        todos: [],
-        routines: [],
         weeklySchedules: [],
         appSettings: {
           darkMode: false,
@@ -198,12 +196,12 @@ describe('CalendarShell day schedule execution wiring', () => {
           language: 'en',
         },
         theme,
-        initialMode: 'day',
         dayScheduleActions: { onAdd: () => {} },
       }),
     );
 
-    expect(html).toContain('data-planner-calendar-day');
+    expect(html).toContain('data-planner-calendar-month');
+    expect(html).toContain('data-planner-upcoming-agenda');
     expect(html).toContain('data-planner-day-schedule-add="true"');
   });
 });

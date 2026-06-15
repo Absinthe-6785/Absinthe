@@ -1,15 +1,12 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
-import { createRoot } from 'react-dom/client';
-import { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../../types';
 import type { NoteBase } from '../../../noteUtils';
 import { applyEventToNote } from '../../knowledge/trace/eventNotes';
 import { CalendarShell } from './CalendarShell';
-import { CalendarModeSwitcher } from './CalendarModeSwitcher';
 import { DEFAULT_PLANNER_CALENDAR_MODE } from './calendarShellModels';
 import {
   buildCalendarPlaceholderSummary,
@@ -19,17 +16,10 @@ import {
   buildPlannerCalendarProjection,
   formatPlannerCalendarPresentation,
 } from '../calendar';
-import {
-  buildPlannerCalendarShellProjection,
-} from './usePlannerCalendarProjection';
+import { buildPlannerCalendarShellProjection } from './usePlannerCalendarProjection';
 
 vi.mock('../../../../../store/useNotesStore', () => ({
   useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes: [] }),
-}));
-
-vi.mock('../../../../../store/useAppStore', () => ({
-  useAppStore: (selector: (state: { appSettings: { language: 'en' } }) => unknown) =>
-    selector({ appSettings: { language: 'en' } }),
 }));
 
 const theme: Theme = {
@@ -66,8 +56,6 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
     now: NOW,
     anchorDate: '2027-02-03',
     schedules: [],
-    todos: [],
-    routines: [],
     weeklySchedules: [],
     appSettings,
     theme,
@@ -76,13 +64,13 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
 }
 
 describe('DEFAULT_PLANNER_CALENDAR_MODE', () => {
-  it('defaults to day for daily-first planner entry', () => {
-    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('day');
+  it('defaults to month for calendar-first schedule (K-80)', () => {
+    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
   });
 });
 
 describe('buildPlannerCalendarShellProjection', () => {
-  it('wires notes and operational data into projection and presentation', () => {
+  it('wires notes and schedules into projection and presentation', () => {
     const travel = applyEventToNote(note('travel', { title: 'Travel' }), {
       title: 'Travel',
       eventDate: '2027-02-01',
@@ -93,18 +81,15 @@ describe('buildPlannerCalendarShellProjection', () => {
       notes: [travel],
       now: NOW,
       anchorDate: '2027-02-03',
-      viewMode: 'month',
       schedules: [{
         id: 's1',
         text: 'Study',
         start_time: '09:00',
         end_time: '10:00',
         is_dday: false,
-        color: 'blue',
-        category: 'Study',
+        color: 'purple',
+        category: 'Personal',
       }],
-      todos: [{ id: 't1', text: 'Pack', done: false }],
-      routines: [{ id: 'r1', text: 'Stretch', done: false, is_active: true }],
       weeklySchedules: [],
       appSettings,
     });
@@ -113,27 +98,6 @@ describe('buildPlannerCalendarShellProjection', () => {
     expect(result.projection.views.month.cells).toHaveLength(42);
     expect(result.presentation.labels.monthTitle).toContain('2027');
     expect(JSON.stringify(result.projection)).not.toMatch(/February/);
-  });
-});
-
-describe('CalendarModeSwitcher', () => {
-  it('renders all calendar modes', () => {
-    const html = renderToStaticMarkup(
-      createElement(CalendarModeSwitcher, {
-        activeMode: 'month',
-        onModeChange: () => {},
-        theme,
-      }),
-    );
-
-    expect(html).toContain('data-planner-calendar-mode-switcher');
-    expect(html.indexOf('data-planner-calendar-mode-option="day"')).toBeLessThan(
-      html.indexOf('data-planner-calendar-mode-option="week"'),
-    );
-    expect(html).toContain('data-planner-calendar-mode-option="day"');
-    expect(html).toContain('data-planner-calendar-mode-option="week"');
-    expect(html).toContain('data-planner-calendar-mode-option="month"');
-    expect(html).not.toContain('data-planner-calendar-mode-option="agenda"');
   });
 });
 
@@ -157,20 +121,19 @@ describe('calendar presentation labels', () => {
 });
 
 describe('CalendarShell', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('renders shell with default day mode and day calendar view', () => {
+  it('renders month calendar with upcoming agenda panel (K-80)', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps()),
     );
 
     expect(html).toContain('data-planner-calendar-shell');
-    expect(html).toContain('data-planner-calendar-mode="day"');
+    expect(html).toContain('data-planner-calendar-mode="month"');
     expect(html).toContain('data-planner-calendar-period-nav');
-    expect(html).toContain('data-planner-calendar-day');
-    expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
+    expect(html).toContain('data-planner-calendar-month');
+    expect(html).toContain('data-planner-upcoming-agenda');
+    expect(html).not.toContain('data-planner-calendar-mode-switcher');
+    expect(html).not.toContain('data-planner-calendar-day');
+    expect(html).not.toContain('data-planner-calendar-week');
   });
 
   it('renders period navigation controls when onAnchorDateChange is provided', () => {
@@ -181,64 +144,6 @@ describe('CalendarShell', () => {
     expect(html).toContain('data-planner-calendar-nav-prev');
     expect(html).toContain('data-planner-calendar-nav-next');
     expect(html).toContain('data-planner-calendar-period-label');
-  });
-
-  it('honours initial mode override for week view', () => {
-    const html = renderToStaticMarkup(
-      createElement(CalendarShell, shellProps({ initialMode: 'week' })),
-    );
-
-    expect(html).toContain('data-planner-calendar-mode="week"');
-    expect(html).toContain('data-planner-calendar-week');
-    expect(html).toContain('data-planner-week-columns');
-    expect(html).toContain('Week View');
-    expect(html).not.toContain('data-planner-calendar-placeholder-mode="week"');
-  });
-
-  it('honours initial mode override for day view', () => {
-    const html = renderToStaticMarkup(
-      createElement(CalendarShell, shellProps({ initialMode: 'day' })),
-    );
-
-    expect(html).toContain('data-planner-calendar-mode="day"');
-    expect(html).toContain('data-planner-calendar-day');
-    expect(html).toContain('Today');
-    expect(html).not.toContain('data-planner-calendar-placeholder-mode="day"');
-  });
-
-  it('does not render unknown calendar modes', () => {
-    const html = renderToStaticMarkup(
-      createElement(CalendarShell, shellProps({ initialMode: 'day' })),
-    );
-
-    expect(html).toContain('data-planner-calendar-mode="day"');
-    expect(html).not.toContain('data-planner-calendar-agenda');
-  });
-});
-
-describe('CalendarModeSwitcher interaction', () => {
-  it('calls onModeChange when a mode button is clicked', () => {
-    const onModeChange = vi.fn();
-    const container = document.createElement('div');
-    const root = createRoot(container);
-
-    act(() => {
-      root.render(createElement(CalendarModeSwitcher, {
-        activeMode: 'month',
-        onModeChange,
-        theme,
-      }));
-    });
-
-    const weekButton = container.querySelector('[data-planner-calendar-mode-option="week"]') as HTMLButtonElement;
-    act(() => {
-      weekButton.click();
-    });
-
-    expect(onModeChange).toHaveBeenCalledWith('week');
-    act(() => {
-      root.unmount();
-    });
   });
 });
 
@@ -251,18 +156,11 @@ describe('CalendarShell projection wiring with populated vault', () => {
       }),
     ];
 
-    vi.doMock('../../../../../store/useNotesStore', () => ({
-      useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes }),
-    }));
-
     const { projection } = buildPlannerCalendarShellProjection({
       notes,
       now: NOW,
       anchorDate: '2027-02-03',
-      viewMode: 'month',
       schedules: [],
-      todos: [],
-      routines: [],
       weeklySchedules: [],
       appSettings,
     });

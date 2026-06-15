@@ -5,7 +5,7 @@ import type { Routine, Schedule, Todo, WeeklySchedule } from '../../../../../typ
 export type PlannerCalendarViewMode = 'month' | 'week' | 'day';
 export type PlannerLocale = 'en' | 'ko' | 'ja';
 export type PlannerEventSpanPosition = 'single' | 'start' | 'middle' | 'end';
-export type PlannerCountdownSource = 'note-event';
+export type PlannerCountdownSource = 'note-event' | 'schedule-dday';
 
 export interface PlannerDatedSchedule extends Schedule {
   date: string;

@@ -9,7 +9,8 @@ import {
   DEFAULT_PLANNER_CALENDAR_MODE,
   PLANNER_CALENDAR_MODES,
 } from './features/planner/calendar-ui/calendarShellModels';
-import { CalendarModeSwitcher } from './features/planner/calendar-ui/CalendarModeSwitcher';
+import { CalendarShell } from './features/planner/calendar-ui/CalendarShell';
+import { DateTime } from 'luxon';
 
 const viewsRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -36,12 +37,12 @@ describe('K-32.1 planner validation', () => {
     expect(plannerView).not.toMatch(/<PlannerCalendarView[\s/>]/);
   });
 
-  it('defaults calendar mode to Day with Day-first tab order (K-71: no Agenda)', () => {
-    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('day');
-    expect(PLANNER_CALENDAR_MODES).toEqual(['day', 'week', 'month']);
+  it('defaults calendar mode to month with no mode switcher (K-80)', () => {
+    expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
+    expect(PLANNER_CALENDAR_MODES).toEqual(['month']);
   });
 
-  it('renders calendar mode tabs in Day → Week → Month order', () => {
+  it('renders month calendar without day/week mode tabs (K-80)', () => {
     const theme = {
       card: 'bg-surface',
       input: 'bg-surface-alt',
@@ -49,23 +50,28 @@ describe('K-32.1 planner validation', () => {
       textMuted: 'text-muted',
       hoverBg: 'hover:bg-surface-alt',
     };
+    const now = DateTime.fromISO('2027-02-03T12:00:00', { zone: 'Asia/Seoul' });
 
     const html = renderToStaticMarkup(
-      createElement(CalendarModeSwitcher, {
-        activeMode: 'day',
-        onModeChange: () => {},
+      createElement(CalendarShell, {
+        now,
+        anchorDate: '2027-02-03',
+        schedules: [],
+        weeklySchedules: [],
+        appSettings: {
+          darkMode: false,
+          defaultCategory: 'Personal',
+          defaultColor: 'blue',
+          language: 'en',
+        },
         theme,
       }),
     );
 
-    const dayIdx = html.indexOf('data-planner-calendar-mode-option="day"');
-    const weekIdx = html.indexOf('data-planner-calendar-mode-option="week"');
-    const monthIdx = html.indexOf('data-planner-calendar-mode-option="month"');
-
-    expect(dayIdx).toBeGreaterThan(-1);
-    expect(dayIdx).toBeLessThan(weekIdx);
-    expect(weekIdx).toBeLessThan(monthIdx);
-    expect(html).not.toContain('data-planner-calendar-mode-option="agenda"');
+    expect(html).toContain('data-planner-calendar-mode="month"');
+    expect(html).not.toContain('data-planner-calendar-mode-switcher');
+    expect(html).not.toContain('data-planner-calendar-mode-option="day"');
+    expect(html).not.toContain('data-planner-calendar-mode-option="week"');
   });
 
   it('uses Schedule + Timetable workspace tabs (K-74)', () => {

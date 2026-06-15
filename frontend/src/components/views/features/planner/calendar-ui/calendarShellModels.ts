@@ -1,11 +1,9 @@
 import type { PlannerCalendarViewMode } from '../calendar';
 
-export const DEFAULT_PLANNER_CALENDAR_MODE: PlannerCalendarViewMode = 'day';
+/** K-80: month-only calendar surface. */
+export const DEFAULT_PLANNER_CALENDAR_MODE: PlannerCalendarViewMode = 'month';
 
-/** Day-first tab order — K-71 removes Agenda. */
 export const PLANNER_CALENDAR_MODES: readonly PlannerCalendarViewMode[] = [
-  'day',
-  'week',
   'month',
 ] as const;
 
