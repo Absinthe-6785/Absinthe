@@ -58,7 +58,8 @@ export function useNoteKeyboardActions(
     shortcutRef.current = {
       showSortMenu, viewMode, activeNote, createNote, duplicateNote,
       focusSearch: () => {
-        setWorkspaceSearchOpen(true);
+        searchInputRef.current?.focus();
+        setSearchScope('document');
       },
     };
     syncShortcutRef.current = {
@@ -128,7 +129,10 @@ export function useNoteKeyboardActions(
         case 'f':
           e.preventDefault();
           if (e.shiftKey) setFocusMode(v => !v);
-          else shortcutRef.current.focusSearch();
+          else {
+            searchInputRef.current?.focus();
+            setSearchScope('document');
+          }
           break;
         case '/':
           if (target instanceof HTMLElement && target.closest('.be-editor-root')) break;

@@ -30,16 +30,18 @@ export function TagChip({
   onDoubleClick,
   suffix,
 }: TagChipProps) {
-  const fontSize = size === 'sm' ? 9 : 10;
-  const padding = size === 'sm' ? '2px 6px' : '2px 8px';
+  const fontSize = size === 'sm' ? 10 : 10;
+  const padding = size === 'sm' ? '0 8px' : '0 8px';
+  const chipHeight = 24;
 
   const base: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 4,
+    height: chipHeight,
     maxWidth: wrap ? '100%' : undefined,
     fontSize,
-    lineHeight: 1.35,
+    lineHeight: 1,
     color: selected ? c.accent : c.tagTxt,
     background: selected ? c.cardAct : c.tag,
     border: `1px solid ${selected ? c.cardActBdr : 'transparent'}`,
@@ -49,6 +51,7 @@ export function TagChip({
     verticalAlign: 'middle',
     flexShrink: wrap ? 1 : 0,
     minWidth: 0,
+    boxSizing: 'border-box',
   };
 
   const labelStyle: CSSProperties = wrap
@@ -129,10 +132,11 @@ export function TagChipRow({ children, style }: { children: ReactNode; style?: C
       className="be-tag-chip-row"
       style={{
         display: 'flex',
-        flexWrap: 'wrap',
+        flexWrap: 'nowrap',
         alignItems: 'center',
-        gap: 5,
+        gap: 4,
         minWidth: 0,
+        overflow: 'hidden',
         ...style,
       }}
     >

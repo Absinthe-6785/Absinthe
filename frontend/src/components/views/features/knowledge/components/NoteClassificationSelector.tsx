@@ -37,12 +37,15 @@ export function NoteClassificationSelector({
         background: c.input,
         border: `1px solid ${c.inputBdr}`,
         color: value ? c.accent : c.textMuted,
-        borderRadius: 5,
-        padding: '3px 6px',
+        borderRadius: 999,
+        padding: '0 8px',
         fontSize: 10,
+        height: 24,
+        lineHeight: 1,
         outline: 'none',
         cursor: disabled ? 'default' : 'pointer',
         maxWidth: 120,
+        boxSizing: 'border-box',
       }}
     >
       <option value="">{t('knNoClassification')}</option>

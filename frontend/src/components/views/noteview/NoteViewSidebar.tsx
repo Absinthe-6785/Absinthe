@@ -64,6 +64,8 @@ export interface NoteViewSidebarData {
   activeNoteCount: number;
   trashCount: number;
   starredCount: number;
+  sidebarTodayCount: number;
+  sidebarMonthCount: number;
   isTrash: boolean;
   noteListFilter: 'all' | 'recent' | 'favorites';
   searchQuery: string;
@@ -263,6 +265,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
   } = layout;
   const {
     c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
+    sidebarTodayCount, sidebarMonthCount,
     isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey,
     isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId,
@@ -371,7 +374,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
                 </button>
               </div>
-              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', gap: 4 }}>
+              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', gap: 6, alignItems: 'stretch' }}>
                 <button
                   type="button"
                   className="btbtn"
@@ -381,18 +384,49 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     flex: 1,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 5,
-                    padding: '5px 8px',
-                    fontSize: 10,
+                    gap: 6,
+                    height: 28,
+                    minHeight: 28,
+                    padding: '0 8px',
+                    fontSize: 11,
                     color: c.textMuted,
                     border: `1px solid ${c.sideBdr}`,
                     borderRadius: 6,
+                    background: c.input,
+                    boxSizing: 'border-box',
                   }}
                   data-noteview-workspace-search-trigger
                 >
-                  <Search size={11}/>
-                  <span>{t('k81WorkspaceSearchHint')}</span>
+                  <Search size={12}/>
+                  {!sidebarCollapsed && <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t('k81WorkspaceSearchHint')}</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
+                  title={t('nvNewNoteBtn')}
+                  data-noteview-new-note-btn
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    height: 28,
+                    minHeight: 28,
+                    minWidth: 28,
+                    padding: sidebarCollapsed ? '0 8px' : '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: c.accent,
+                    color: dark ? '#0F0F11' : '#fff',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <Plus size={12} strokeWidth={2.5}/>
+                  {!sidebarCollapsed && <span>{t('nvNewNoteBtn')}</span>}
                 </button>
               </div>
               {knowledgeQueryInfo.active && knowledgeQueryInfo.error && (
@@ -413,12 +447,18 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onClick={() => openTraceDay(todayTraceKey)}
                 >
                   <span style={{ flex: 1 }}>{t('nvToday')}</span>
+                  {sidebarTodayCount > 0 && (
+                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarTodayCount})</span>
+                  )}
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                 >
                   <span style={{ flex: 1 }}>{t('nvThisMonth')}</span>
+                  {sidebarMonthCount > 0 && (
+                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarMonthCount})</span>
+                  )}
                 </div>
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
@@ -466,7 +506,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                   <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
                   <span style={{ flex: 1 }}>{t('starred')}</span>
-                  {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
+                  <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
                 </div>
                 <div className="bseclbl">{t('nvFolders')}</div>
                 {folders.map(f => (
@@ -699,29 +739,39 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
       }}>
         <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}`, gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-            {(isMobile || isCompactChrome) && (
-              <button
-                type="button"
-                className="btbtn btbtn-mobile"
-                onClick={() => setWorkspaceSearchOpen(true)}
-                title={t('nvWorkspaceSearchBtn')}
-                aria-label={t('nvScWorkspaceSearch')}
-                style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
-              >
-                <Search size={16} />
-              </button>
-            )}
-            {isMobile && (
-              <button
-                type="button"
-                className="btbtn btbtn-mobile"
-                onClick={() => setWorkspaceSearchOpen(true)}
-                title={t('nvWorkspaceSearchBtn')}
-                aria-label={t('nvScWorkspaceSearch')}
-                style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
-              >
-                <Search size={16} />
-              </button>
+            {(isMobile || isCompactChrome) && !isWorkspacePanelMode && (
+              <>
+                <button
+                  type="button"
+                  className="btbtn btbtn-mobile"
+                  onClick={() => setWorkspaceSearchOpen(true)}
+                  title={t('nvWorkspaceSearchBtn')}
+                  aria-label={t('nvScWorkspaceSearch')}
+                  style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
+                >
+                  <Search size={16} />
+                </button>
+                {!isTrash && (
+                  <button
+                    type="button"
+                    className="btbtn btbtn-mobile"
+                    onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
+                    title={t('nvNewNoteBtn')}
+                    aria-label={t('nvNewNoteBtn')}
+                    data-noteview-new-note-btn
+                    style={{
+                      padding: '4px 8px',
+                      background: c.accent,
+                      border: 'none',
+                      borderRadius: 8,
+                      color: dark ? '#0F0F11' : '#fff',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Plus size={16} />
+                  </button>
+                )}
+              </>
             )}
             {isMobile && (
               <button
@@ -828,44 +878,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 <CalendarDays size={11}/>
               </button>
             )}
-            {!isTrash && (
-              <button onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
-                className="btbtn min-h-[44px] min-w-[44px] flex items-center justify-center"
-                style={{ background: c.accent, border: 'none', borderRadius: 8, color: dark ? '#0F0F11' : '#fff', fontWeight: 700 }}
-                title={t('nvNewNoteBtn')}>
-                <Plus size={12}/>
-              </button>
-            )}
               </>
             )}
           </div>
         </div>
         {!isTrash && !isWorkspacePanelMode && (
-          <div style={{ padding: '6px 8px 4px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
-              className="bwbg"
-              data-noteview-new-note-btn
-              style={{
-                width: '100%',
-                padding: '7px 10px',
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 8,
-                background: c.accent,
-                color: dark ? '#0F0F11' : '#fff',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <Plus size={12} strokeWidth={2.5}/>
-              {t('nvNewNoteBtn')}
-            </button>
+          <div style={{ padding: '4px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 4 }} role="tablist" aria-label={t('k81NoteListFilters')}>
               {(['all', 'recent', 'favorites'] as const).map(filter => {
                 const active = noteListFilter === filter;

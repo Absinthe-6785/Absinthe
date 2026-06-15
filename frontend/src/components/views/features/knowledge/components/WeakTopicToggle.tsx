@@ -12,26 +12,29 @@ export interface WeakTopicToggleProps {
 export function WeakTopicToggle({ colors: c, active, onChange, disabled }: WeakTopicToggleProps) {
   const { t } = useTranslation();
   return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange(!active)}
-        title={t('knWeakTopicToggleTitle')}
-        className="btbtn"
-        style={{
-          fontSize: 10,
-          padding: '2px 6px',
-          height: 22,
-          lineHeight: 1.2,
-          borderRadius: 4,
-          border: 'none',
-          background: active ? `${c.danger}22` : 'transparent',
-          color: active ? c.danger : c.textMuted,
-          cursor: disabled ? 'default' : 'pointer',
-          whiteSpace: 'nowrap',
-          boxSizing: 'border-box',
-        }}
-      >
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!active)}
+      title={t('knWeakTopicToggleTitle')}
+      className="btbtn"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        fontSize: 10,
+        padding: '0 8px',
+        height: 24,
+        lineHeight: 1,
+        borderRadius: 999,
+        border: `1px solid ${active ? c.danger : c.sideBdr}`,
+        background: active ? `${c.danger}22` : c.cardHov,
+        color: active ? c.danger : c.textMuted,
+        cursor: disabled ? 'default' : 'pointer',
+        whiteSpace: 'nowrap',
+        boxSizing: 'border-box',
+        flexShrink: 0,
+      }}
+    >
       {active ? t('knWeakTopicActive') : t('knWeakTopicInactive')}
     </button>
   );

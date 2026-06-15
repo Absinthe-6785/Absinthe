@@ -1187,6 +1187,20 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const starredCount    = useMemo(() => notes.filter(n => n.starred && !n.deletedAt).length, [notes]);
   const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
 
+  const sidebarTodayCount = useMemo(() => {
+    const projection = buildDailyTraceProjection(todayTraceKey, activeNotes);
+    const ids = new Set(projection.activities.map(a => a.noteId));
+    return ids.size;
+  }, [todayTraceKey, activeNotes]);
+
+  const sidebarMonthCount = useMemo(() => {
+    try {
+      return buildRangeLensProjection({ kind: 'month', ...currentTraceMonthKey }, activeNotes).notesTouched;
+    } catch {
+      return 0;
+    }
+  }, [currentTraceMonthKey, activeNotes]);
+
   const folderLabel = useMemo(() =>
     activeFolderId === null    ? t('nvAllNotes') :
     activeFolderId === 'trash' ? t('nvTrashLabel') :
@@ -1203,7 +1217,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const childPropInput = useNoteViewChildPropInput(useMemo(() => ({
     sidebarLayout: { hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen },
     sidebarData: {
-      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, isTrash, noteListFilter,
+      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter,
       searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
       isTraceRangeMode, traceRange, currentTraceMonthKey, currentTraceQuarterKey, currentTraceYearKey, areaNotes,
       isTraceAreaMode, traceAreaId, isTraceDiscoveryMode, renamingFolderId, renameVal, showFolderForm, newFolderName,
@@ -1293,7 +1307,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode,
     sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount,
-      trashCount, starredCount, isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
+      trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
     todayTraceKey, isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId, isTraceDiscoveryMode,
     renamingFolderId, renameVal, showFolderForm, newFolderName, allTags, workspaceExpanded, isDashboardMode,

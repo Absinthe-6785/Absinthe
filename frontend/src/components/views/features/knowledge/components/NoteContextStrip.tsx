@@ -57,9 +57,10 @@ function ContextChip({
     display: 'inline-flex' as const,
     alignItems: 'center' as const,
     gap: 4,
-    fontSize: 9,
-    lineHeight: 1.3,
-    padding: '3px 7px',
+    fontSize: 10,
+    lineHeight: 1,
+    height: 24,
+    padding: '0 8px',
     borderRadius: 999,
     border: `1px solid ${accent ? c.accent : c.sideBdr}`,
     background: accent ? c.accentBg : c.cardHov,
@@ -70,6 +71,8 @@ function ContextChip({
     whiteSpace: 'nowrap' as const,
     overflow: 'hidden' as const,
     textOverflow: 'ellipsis' as const,
+    boxSizing: 'border-box' as const,
+    flexShrink: 0,
   };
 
   if (interactive) {

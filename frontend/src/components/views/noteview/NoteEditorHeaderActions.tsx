@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, Save, Trash2, RotateCcw, MoreHorizontal,
+  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -10,7 +10,6 @@ export interface NoteEditorHeaderActionsProps {
   colors: NoteChromeColors;
   isTrash: boolean;
   isMobile: boolean;
-  useOverflowMenu: boolean;
   showRightPanel: boolean;
   viewMode: EditorMode;
   viewModeButtons: ReadonlyArray<{ key: 'reading' | 'graph'; icon: ReactNode }>;
@@ -35,11 +34,13 @@ export interface NoteEditorHeaderActionsProps {
   onTrash: () => void;
 }
 
+const ACTION_BTN_SIZE = 24;
+const ACTION_GAP = 8;
+
 export function NoteEditorHeaderActions({
   colors: c,
   isTrash,
   isMobile,
-  useOverflowMenu,
   showRightPanel,
   viewMode,
   viewModeButtons,
@@ -76,50 +77,25 @@ export function NoteEditorHeaderActions({
     return () => document.removeEventListener('mousedown', close);
   }, [menuOpen]);
 
-  const metaButtons = !isTrash ? (
-    <>
-      <button
-        type="button"
-        onClick={onMarkEvent}
-        className="btbtn"
-        style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isEvent ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-        title={isEvent ? t('nvEditEventTitle') : t('nvMarkEventTitle')}
-      >
-        {isEvent ? t('nvEditEvent') : t('nvMarkEvent')}
-      </button>
-      <button
-        type="button"
-        onClick={onMarkMilestone}
-        className="btbtn"
-        style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isMilestone ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-        title={isMilestone ? t('nvEditMilestoneTitle') : t('nvMarkMilestoneTitle')}
-      >
-        {isMilestone ? t('nvEditMilestone') : t('nvMarkMilestone')}
-      </button>
-      {(isArea || canMarkArea) ? (
-        <button
-          type="button"
-          onClick={onToggleArea}
-          className="btbtn"
-          style={{ fontSize: 10, height: 24, padding: '3px 6px', boxSizing: 'border-box', color: isArea ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-          title={isArea ? t('nvClearAreaTitle') : t('nvMarkAreaTitle')}
-        >
-          {isArea ? t('nvClearArea') : t('nvMarkArea')}
-        </button>
-      ) : null}
-    </>
-  ) : null;
+  const menuItemStyle = {
+    width: '100%' as const,
+    textAlign: 'left' as const,
+    fontSize: 11,
+    padding: '8px 10px',
+    minHeight: ACTION_BTN_SIZE,
+    boxSizing: 'border-box' as const,
+  };
 
   const overflowItems = !isTrash ? (
     <>
-      <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onMarkEvent(); setMenuOpen(false); }}>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onMarkEvent(); setMenuOpen(false); }}>
         {isEvent ? t('nvEditEvent') : t('nvMarkEvent')}
       </button>
-      <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onMarkMilestone(); setMenuOpen(false); }}>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onMarkMilestone(); setMenuOpen(false); }}>
         {isMilestone ? t('nvEditMilestone') : t('nvMarkMilestone')}
       </button>
       {(isArea || canMarkArea) ? (
-        <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onToggleArea(); setMenuOpen(false); }}>
+        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onToggleArea(); setMenuOpen(false); }}>
           {isArea ? t('nvClearArea') : t('nvMarkArea')}
         </button>
       ) : null}
@@ -127,17 +103,38 @@ export function NoteEditorHeaderActions({
         <button
           type="button"
           className="btbtn"
-          style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px', color: isWeakTopic ? c.danger : undefined }}
+          style={{ ...menuItemStyle, color: isWeakTopic ? c.danger : undefined }}
           onClick={() => { onToggleWeakTopic(); setMenuOpen(false); }}
         >
           {isWeakTopic ? t('knWeakTopicActive') : t('knWeakTopicInactive')}
         </button>
       ) : null}
-      <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onDuplicate(); setMenuOpen(false); }}>⎘ {t('nvDuplicate')}</button>
-      <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { void onCopyDocument(); setMenuOpen(false); }}>{t('nvCopyDocument')}</button>
-      <button type="button" className="btbtn" style={{ width: '100%', textAlign: 'left', fontSize: 11, padding: '8px 10px' }} onClick={() => { onExport(); setMenuOpen(false); }}>{t('nvExportMd')}</button>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onDuplicate(); setMenuOpen(false); }}>
+        {t('nvDuplicate')}
+      </button>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onTrash(); setMenuOpen(false); }}>
+        {t('trash')}
+      </button>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onExport(); setMenuOpen(false); }}>
+        {t('nvExportMd')}
+      </button>
     </>
-  ) : null;
+  ) : (
+    <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onRestore(); setMenuOpen(false); }}>
+      {t('restoreLabel')}
+    </button>
+  );
+
+  const iconBtnStyle = {
+    width: isMobile ? 44 : ACTION_BTN_SIZE,
+    height: isMobile ? 44 : ACTION_BTN_SIZE,
+    minWidth: isMobile ? 44 : ACTION_BTN_SIZE,
+    padding: 0,
+    display: 'inline-flex' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexShrink: 0,
+  };
 
   return (
     <div
@@ -145,10 +142,10 @@ export function NoteEditorHeaderActions({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
+        gap: ACTION_GAP,
         flexShrink: 0,
         flexWrap: 'nowrap',
-        marginLeft: 'auto',
+        minWidth: 0,
       }}
     >
       <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
@@ -159,7 +156,11 @@ export function NoteEditorHeaderActions({
             onClick={() => onViewModeToggle(key)}
             className="btbtn"
             style={{
-              padding: '3px 7px', borderRadius: 5,
+              ...iconBtnStyle,
+              width: ACTION_BTN_SIZE,
+              height: ACTION_BTN_SIZE,
+              minWidth: ACTION_BTN_SIZE,
+              borderRadius: 5,
               background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
               color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
             }}>
@@ -168,74 +169,68 @@ export function NoteEditorHeaderActions({
         ))}
       </div>
 
-      {!useOverflowMenu && !isTrash ? metaButtons : null}
-
       {!isTrash ? (
-        <button onClick={onToggleStar} className="btbtn shrink-0" title={starred ? t('nvUnstar') : t('nvStar')}>
+        <button
+          onClick={onToggleStar}
+          className="btbtn shrink-0"
+          title={starred ? t('nvUnstar') : t('nvStar')}
+          style={iconBtnStyle}
+        >
           <Star size={14} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'}/>
         </button>
       ) : null}
 
-      {!useOverflowMenu && !isTrash ? (
-        <button onClick={onDuplicate} className="btbtn shrink-0" title={t('nvDuplicate')}>
-          <span style={{ fontSize: 11 }}>⎘</span>
+      {!isTrash ? (
+        <button
+          onClick={() => void onCopyDocument()}
+          className="btbtn shrink-0"
+          title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
+          style={{ ...iconBtnStyle, color: docCopied ? c.green : c.textMuted }}
+        >
+          <Copy size={14}/>
         </button>
       ) : null}
+
+      <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
+        <button
+          type="button"
+          className="btbtn"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          title={t('nvMoreActions')}
+          onClick={() => setMenuOpen(v => !v)}
+          style={{ ...iconBtnStyle, color: menuOpen ? c.accent : c.textMuted }}
+        >
+          <MoreHorizontal size={16}/>
+        </button>
+        {menuOpen ? (
+          <div
+            role="menu"
+            style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 200,
+              background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 168, padding: '4px 0',
+            }}
+          >
+            {overflowItems}
+          </div>
+        ) : null}
+      </div>
 
       <button
         onClick={onTogglePanel}
         className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
         title={t('nvTogglePanel')}
-        style={{ color: showRightPanel ? c.accent : c.textMuted }}
+        style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
       >
         <AlignLeft size={14}/>
       </button>
 
-      {!useOverflowMenu && !isTrash ? (
-        <>
-          <button onClick={() => void onCopyDocument()} className="btbtn shrink-0"
-            title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
-            style={{ color: docCopied ? c.green : c.textMuted }}>
-            <Copy size={14}/>
-          </button>
-          <button onClick={onExport} className="btbtn shrink-0" title={t('nvExportMd')}>
-            <Save size={12}/>
-          </button>
-        </>
+      {isTrash ? (
+        <button onClick={onRestore} className="btbtn shrink-0" style={{ ...iconBtnStyle, color: c.green }}>
+          <RotateCcw size={14}/>
+        </button>
       ) : null}
-
-      {useOverflowMenu && !isTrash ? (
-        <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
-          <button
-            type="button"
-            className="btbtn"
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-            title={t('nvMoreActions')}
-            onClick={() => setMenuOpen(v => !v)}
-            style={{ color: menuOpen ? c.accent : c.textMuted }}
-          >
-            <MoreHorizontal size={16}/>
-          </button>
-          {menuOpen ? (
-            <div
-              role="menu"
-              style={{
-                position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 200,
-                background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 10,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 168, padding: '4px 0',
-              }}
-            >
-              {overflowItems}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {isTrash
-        ? <button onClick={onRestore} className="btbtn shrink-0" style={{ color: c.green }}><RotateCcw size={14}/></button>
-        : <button onClick={onTrash} className="btbtn shrink-0"><Trash2 size={14}/></button>
-      }
     </div>
   );
 }

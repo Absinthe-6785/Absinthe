@@ -284,8 +284,11 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
       {activeNote ? (
         <>
-          {/* Note Header */}
-          <div style={{ padding: isMobile ? '6px 10px' : '6px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}>
+          {/* Note Header — title */}
+          <div
+            data-note-header-title-row
+            style={{ padding: isMobile ? '6px 10px' : '6px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}
+          >
             {isMobile ? (
               <>
                 <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={handleMobileBack}
@@ -349,12 +352,47 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             )}
-            {!isTrash && !isCompactChrome && (
+            {/* Cloud sync status */}
+            {!isTrash && (
+              syncError ? (
+                <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
+                  style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
+                  <AlertTriangle size={10}/> {syncError}
+                </button>
+              ) : isSyncing ? (
+                <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
+                  {t('nvSyncing')}
+                </span>
+              ) : savedAt ? (
+                <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Save size={12}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              ) : null
+            )}
+          </div>
+          {/* Status cluster */}
+          {!isTrash && activeNote && (
+            <div
+              data-note-header-metadata-row
+              style={{
+                padding: '5px 13px',
+                borderBottom: `1px solid ${c.sideBdr}`,
+                background: c.editor,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
+                minWidth: 0,
+              }}
+            >
+              {!isCompactChrome && (
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 2,
+                  gap: 4,
                   flexShrink: 0,
                   padding: '1px 3px',
                   borderRadius: 6,
@@ -380,30 +418,46 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   }}
                 />
               </div>
-            )}
-            {/* Cloud sync status */}
-            {!isTrash && (
-              syncError ? (
-                <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
-                  style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
-                  <AlertTriangle size={10}/> {syncError}
-                </button>
-              ) : isSyncing ? (
-                <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
-                  {t('nvSyncing')}
-                </span>
-              ) : savedAt ? (
-                <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Save size={12}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              ) : null
-            )}
+              )}
+              <NoteContextStrip
+                colors={c}
+                note={activeNote}
+                isArea={isAreaNote(activeNote)}
+                areaTitle={noteAreaProperty || undefined}
+                projectTitle={noteLinkedProjectTitle || undefined}
+                projectId={noteLinkedProjectId}
+                learningPathLabel={noteLearningPathLabel}
+                reviewReason={noteContextReviewEntry?.reason ?? null}
+                connectionCount={noteConnectionCount}
+                tier={noteCosmosTier}
+                isWeakTopic={isCompactChrome ? isWeakTopic(activeNote) : false}
+                onNavigateToNote={setActiveNoteId}
+                onOpenLinks={() => openContextPanel('links')}
+                onOpenCosmos={() => {
+                  setShowRightPanel(true);
+                  setRightPanel('graph');
+                }}
+              />
+            </div>
+          )}
+          {/* Actions toolbar */}
+          <div
+            data-note-header-actions-row
+            style={{
+              padding: isMobile ? '4px 10px' : '4px 13px',
+              borderBottom: `1px solid ${c.sideBdr}`,
+              background: c.toolbar,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              minWidth: 0,
+            }}
+          >
             <NoteEditorHeaderActions
               colors={c}
               isTrash={isTrash}
               isMobile={isMobile}
-              useOverflowMenu={isMobile || isCompactChrome}
               showRightPanel={showRightPanel}
               viewMode={viewMode}
               viewModeButtons={VIEW_MODES}
@@ -456,8 +510,8 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             onReturnArchive={goReturn}
           />
           {!isTrash && noteTags.length > 0 && (() => {
-            const MAX_HEADER_TAGS = 10;
-            const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_HEADER_TAGS);
+            const MAX_INLINE_HEADER_TAGS = 3;
+            const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_INLINE_HEADER_TAGS);
             const hiddenTagCount = noteTags.length - visibleHeaderTags.length;
             return (
             <div style={{ padding: '4px 13px 3px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
@@ -468,7 +522,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     colors={c}
                     tag={tag}
                     size="sm"
-                    wrap
                     selected={activeTag?.toLowerCase() === tag.toLowerCase()}
                     onClick={() => {
                       setActiveFolderId(null);
@@ -477,41 +530,39 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     }}
                   />
                 ))}
-                {hiddenTagCount > 0 && (
+                {hiddenTagCount > 0 && !headerTagsExpanded && (
                   <button
                     type="button"
                     className="btbtn"
-                    onClick={() => setHeaderTagsExpanded(v => !v)}
-                    style={{ fontSize: 9, color: c.textMuted, padding: '2px 6px' }}
+                    onClick={() => setHeaderTagsExpanded(true)}
+                    style={{
+                      fontSize: 10,
+                      height: 24,
+                      padding: '0 8px',
+                      color: c.textMuted,
+                      borderRadius: 999,
+                      border: `1px solid ${c.sideBdr}`,
+                      background: c.cardHov,
+                      flexShrink: 0,
+                    }}
                   >
-                    {headerTagsExpanded ? t('nvCollapseSection') : t('k35MoreTags').replace('{count}', String(hiddenTagCount))}
+                    +{hiddenTagCount}
+                  </button>
+                )}
+                {headerTagsExpanded && noteTags.length > MAX_INLINE_HEADER_TAGS && (
+                  <button
+                    type="button"
+                    className="btbtn"
+                    onClick={() => setHeaderTagsExpanded(false)}
+                    style={{ fontSize: 9, color: c.textMuted, padding: '0 6px', height: 24, flexShrink: 0 }}
+                  >
+                    {t('nvCollapseSection')}
                   </button>
                 )}
               </TagChipRow>
             </div>
             );
           })()}
-          {!isTrash && activeNote && (
-            <NoteContextStrip
-              colors={c}
-              note={activeNote}
-              isArea={isAreaNote(activeNote)}
-              areaTitle={noteAreaProperty || undefined}
-              projectTitle={noteLinkedProjectTitle || undefined}
-              projectId={noteLinkedProjectId}
-              learningPathLabel={noteLearningPathLabel}
-              reviewReason={noteContextReviewEntry?.reason ?? null}
-              connectionCount={noteConnectionCount}
-              tier={noteCosmosTier}
-              isWeakTopic={isWeakTopic(activeNote)}
-              onNavigateToNote={setActiveNoteId}
-              onOpenLinks={() => openContextPanel('links')}
-              onOpenCosmos={() => {
-                setShowRightPanel(true);
-                setRightPanel('graph');
-              }}
-            />
-          )}
           {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
             <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
               <LiteratureWorkflowIndicator

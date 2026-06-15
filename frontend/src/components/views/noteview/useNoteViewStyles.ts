@@ -46,7 +46,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     /* ── 에디터/UI ── */
     .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
-    .bfi{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;transition:background .12s;font-size:12px;color:${c.text}}
+    .bfi{display:flex;align-items:center;gap:6px;padding:4px 10px;min-height:28px;cursor:pointer;transition:background .12s;font-size:11px;color:${c.text}}
     .bfi:hover{background:${c.cardHov}}
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
     .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s;min-height:44px}
@@ -58,7 +58,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bwbg:hover{opacity:.9}
     .bwsi{background:${c.input};border:1px solid ${c.inputBdr};border-radius:16px;padding:6px 10px 6px 28px;font-size:12px;color:${c.text};outline:none;width:100%}
     .bwsi:focus{border-color:${c.accent}80}
-    .bseclbl{padding:8px 11px 3px;font-size:10px;color:${c.textFaint};font-weight:700;letter-spacing:1px;text-transform:uppercase}
+    .bseclbl{padding:6px 10px 2px;font-size:9px;color:${c.textFaint};font-weight:700;letter-spacing:1px;text-transform:uppercase}
     .btoc{display:flex;align-items:center;gap:3px;padding:3px 8px;cursor:pointer;font-size:11px;color:${c.textMuted};border-radius:4px;transition:all .12s}
     .btoc:hover{color:${c.accent};background:${c.cardHov}}
     .btoc.active{color:${c.accent};background:${c.cardHov};font-weight:600}

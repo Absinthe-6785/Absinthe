@@ -631,7 +631,7 @@ const translations = {
   nvDeleteNotePermanentMsg: { en: 'Delete this note permanently? This cannot be undone.', ko: '이 노트를 영구 삭제할까요? 되돌릴 수 없습니다.', ja: 'このノートを完全に削除しますか？元に戻せません。' },
   nvDeletePermanently:      { en: 'Delete permanently', ko: '영구 삭제', ja: '完全に削除' },
   nvSelectNoteEmpty:        { en: 'Select a note or create a new one', ko: '노트를 선택하거나 새 노트를 만드세요', ja: 'ノートを選択するか、新しいノートを作成してください' },
-  nvNewNoteBtn:             { en: '+ New Note', ko: '+ 새 노트', ja: '+ 新しいノート' },
+  nvNewNoteBtn:             { en: 'New Note', ko: '새 노트', ja: '新しいノート' },
   nvInvalidQuery:           { en: 'Invalid query', ko: '잘못된 쿼리', ja: '無効なクエリ' },
   nvFolderName:             { en: 'Folder name', ko: '폴더 이름', ja: 'フォルダ名' },
   nvSearchPrev:             { en: 'Previous match (↑)', ko: '이전 (↑)', ja: '前へ (↑)' },
