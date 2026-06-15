@@ -237,6 +237,17 @@ export function CosmosGraphPreviewPanel({
               )}
             </div>
           )}
+
+          {graphNode.links + graphNode.backlinkCount >= 6 && (
+            <div style={{ marginTop: 6, fontSize: 10, color: colors.act, fontWeight: 600 }}>
+              {t('k70CosmosHighlyConnected')}
+            </div>
+          )}
+          {importance?.classification === 'isolated' && (
+            <div style={{ marginTop: 4, fontSize: 10, color: colors.toolTxt, opacity: 0.9 }}>
+              {t('k70CosmosIsolatedNote')}
+            </div>
+          )}
         </div>
 
         <div

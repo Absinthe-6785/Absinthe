@@ -1,3 +1,4 @@
+export { groupRelatedNotes, type GroupedRelatedNotes, type RelatedNotesSection } from './groupRelatedNotes';
 export {
   computeRelatedScore,
   formatRelatedReasons,

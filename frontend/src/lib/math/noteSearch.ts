@@ -1,6 +1,7 @@
 import type { NoteBase } from '@/components/views/noteUtils';
 import { extractTags } from '@/components/views/noteUtils';
 import { listTags } from '@/components/views/features/knowledge/tags/noteTags';
+import { getRelationTargets } from '@/components/views/features/knowledge/relations/noteRelations';
 
 /** Plain-text note search against raw body (indexes LaTeX source, not rendered HTML). */
 export function noteMatchesPlainSearch(body: string, query: string): boolean {
@@ -26,8 +27,9 @@ Search ranking (lower score = higher rank):
 `;
 
 export function noteSearchScore(
-  note: Pick<NoteBase, 'title' | 'body' | 'properties'>,
+  note: Pick<NoteBase, 'title' | 'body' | 'properties' | 'relations'>,
   query: string,
+  relationTargetTitles?: readonly string[],
 ): number | null {
   const q = query.trim();
   if (!q) return null;
@@ -53,6 +55,14 @@ export function noteSearchScore(
     const tagLower = tag.toLowerCase();
     if (tagLower === lower) return 5;
     if (tagLower.includes(lower)) return 6;
+  }
+
+  const relTitles = relationTargetTitles ?? [];
+  for (const title of relTitles) {
+    const tLower = title.trim().toLowerCase();
+    if (!tLower) continue;
+    if (tLower === lower) return 7;
+    if (tLower.includes(lower)) return 8;
   }
 
   return null;

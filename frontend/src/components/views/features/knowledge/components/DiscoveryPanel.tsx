@@ -2,7 +2,9 @@ import type { ReactNode } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { DiscoveryFeed, DiscoveryItem, DiscoveryKind } from '../discovery';
+import type { VaultHealthMetrics } from '../health/vaultHealthMetrics';
 import { formatDiscoveryReasonLines } from '../discovery/discoveryReasons';
+import { VaultHealthStrip } from './VaultHealthStrip';
 import {
   CosmosDiscoveryKindBadge,
   CosmosSuiteHeader,
@@ -18,6 +20,9 @@ import { ActionButton } from '../cosmos/actions/actionUi';
 import { touchMinSize } from '../../../../../lib/responsiveLayout';
 
 const SECTION_KEYS: Record<DiscoveryKind, TranslationKey> = {
+  'isolated-notes': 'k38SectionIsolatedNotes',
+  'recently-active-area': 'k38SectionRecentlyActiveArea',
+  'stale-area': 'k38SectionStaleArea',
   'forgotten-knowledge': 'k38SectionForgotten',
   'missing-connection': 'k38SectionMissingConnections',
   'emerging-topic': 'k38SectionEmergingTopics',
@@ -28,6 +33,7 @@ const SECTION_KEYS: Record<DiscoveryKind, TranslationKey> = {
 export interface DiscoveryPanelProps {
   colors: NoteChromeColors;
   feed: DiscoveryFeed;
+  vaultHealth?: VaultHealthMetrics;
   vaultPhase?: CosmosVaultPhase;
   onNavigateToNote: (noteId: string) => void;
   onCreateRelation: (sourceNoteId: string, targetNoteId: string) => void;
@@ -101,6 +107,18 @@ function DiscoveryCard({
         {t('k37ActionCreateHub')}
       </ActionButton>
     );
+  } else if (item.kind === 'isolated-notes' && item.noteId) {
+    actions = (
+      <ActionButton c={c} onClick={() => onNavigateToNote(item.noteId!)} style={{ minHeight: touch }}>
+        {t('k37ActionOpen')}
+      </ActionButton>
+    );
+  } else if ((item.kind === 'recently-active-area' || item.kind === 'stale-area') && item.areaLabel) {
+    actions = item.noteId ? (
+      <ActionButton c={c} onClick={() => onNavigateToNote(item.noteId!)} style={{ minHeight: touch }}>
+        {t('k37ActionOpen')}
+      </ActionButton>
+    ) : null;
   }
 
   return (
@@ -174,6 +192,7 @@ function DiscoveryCardShell({
 export function DiscoveryPanel({
   colors: c,
   feed,
+  vaultHealth,
   vaultPhase,
   onNavigateToNote,
   onCreateRelation,
@@ -184,6 +203,9 @@ export function DiscoveryPanel({
 }: DiscoveryPanelProps) {
   const { t, lang } = useTranslation();
   const kinds: DiscoveryKind[] = [
+    'isolated-notes',
+    'recently-active-area',
+    'stale-area',
     'forgotten-knowledge',
     'missing-connection',
     'emerging-topic',
@@ -237,6 +259,7 @@ export function DiscoveryPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <CosmosSuiteHeader c={c} active="discover" t={t} />
+      {vaultHealth && <VaultHealthStrip colors={c} metrics={vaultHealth} compact={compact} />}
       <FirstDiscoveryBanner colors={c} topItem={topItem} />
       {kinds.map((kind, index) => {
         const section = feed.sections[kind];

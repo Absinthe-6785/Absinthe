@@ -59,6 +59,9 @@ export function buildUnifiedWorkspaceDashboard(
     discovery: opts.discoveryFeed ?? (service ? buildDiscoveryFeed(notes, service, { perSectionLimit: limit }) : {
       items: [],
       sections: {
+        'isolated-notes': [],
+        'recently-active-area': [],
+        'stale-area': [],
         'forgotten-knowledge': [],
         'missing-connection': [],
         'emerging-topic': [],
@@ -71,6 +74,9 @@ export function buildUnifiedWorkspaceDashboard(
         emergingTopicCount: 0,
         weakHubCount: 0,
         knowledgeDriftCount: 0,
+        isolatedNotesCount: 0,
+        recentlyActiveAreaCount: 0,
+        staleAreaCount: 0,
         totalCount: 0,
       },
     }),

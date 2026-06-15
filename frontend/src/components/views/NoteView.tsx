@@ -163,7 +163,8 @@ import {
   milestoneFormValuesFromNote,
   type EventFormValues,
   type MilestoneFormValues,
-  type TraceRangeLens,
+  groupRelatedNotes,
+  type GroupedRelatedNotes,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
 import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
@@ -821,9 +822,18 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     [activeNote, notes],
   );
 
-  const relatedNotes = useMemo(
-    () => (activeNote ? knowledgeIndexService.getRelatedNotes(activeNote.id) : []),
+  const groupedRelatedNotes = useMemo(
+    () => (activeNote
+      ? groupRelatedNotes(activeNote.id, notes, knowledgeIndexService)
+      : { mostRelated: [], recentlyConnected: [], frequentlyReferenced: [] } satisfies GroupedRelatedNotes),
     [activeNote, notes],
+  );
+
+  const relatedNotesCount = useMemo(
+    () => groupedRelatedNotes.mostRelated.length
+      + groupedRelatedNotes.recentlyConnected.length
+      + groupedRelatedNotes.frequentlyReferenced.length,
+    [groupedRelatedNotes],
   );
 
   const noteReferenceSummary = useMemo(
@@ -951,8 +961,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const linksConnectionsCount = useMemo(() => {
     const incoming = pageReferences?.incoming.length ?? 0;
     const outgoing = noteReferenceSummary?.outgoing.length ?? 0;
-    return incoming + outgoing + relatedNotes.length;
-  }, [pageReferences, noteReferenceSummary, relatedNotes]);
+    return incoming + outgoing + relatedNotesCount;
+  }, [pageReferences, noteReferenceSummary, relatedNotesCount]);
 
   const linksSourcesCount = useMemo(
     () => noteBibliography.length + (activeNote && getLinkedSourceNoteId(activeNote) ? 1 : 0),
@@ -1261,7 +1271,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     contextActiveNote: activeNote,
     contextPanelData: {
       pageReferences, noteReferenceSummary, linksStructureCount, linksConnectionsCount, linksSourcesCount,
-      conceptHub, learningPath, notes, wikiTargets, backlinkContexts, mentioningNotes, relatedNotes,
+      conceptHub, learningPath, notes, wikiTargets, backlinkContexts, mentioningNotes, relatedNotes: groupedRelatedNotes,
       sourceNoteCandidates, noteBibliography, localGraphData, noteIntelligenceSnapshot, noteTierInput,
       noteHistoryContext, discoveryFeed, cosmosVaultPhase, projectEditorData, milestoneProjectTitle, allTags,
       activeTag, resolvedOutgoingRelations, incomingRelationDisplays, noteTags,
@@ -1329,7 +1339,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     handleLearnLinking, handleHudReviewWeakAreas, setSearchScope, setSearchMatchIdx, insertEmptyImageBlockAtCursor,
     setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor, handleEditorDrop, handleReadingModeClick,
     handleActiveBodyChange, navigateToWiki, rightPanel, pageReferences, noteReferenceSummary, linksStructureCount,
-    linksConnectionsCount, linksSourcesCount, conceptHub, learningPath, backlinkContexts, mentioningNotes, relatedNotes,
+    linksConnectionsCount, linksSourcesCount, conceptHub, learningPath, backlinkContexts, mentioningNotes, groupedRelatedNotes,
     sourceNoteCandidates, noteBibliography, localGraphData, noteIntelligenceSnapshot, noteTierInput, noteHistoryContext,
     discoveryFeed, cosmosVaultPhase, projectEditorData, milestoneProjectTitle, resolvedOutgoingRelations,
     incomingRelationDisplays, handleLinkRelatedNote, handleOpenCosmosGraph, handleStartWikiLink, handleCreateRelatedNote,

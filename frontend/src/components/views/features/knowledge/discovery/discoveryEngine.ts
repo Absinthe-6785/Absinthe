@@ -7,11 +7,16 @@ import {
   collectKnowledgeDriftSignals,
   collectMissingConnectionSignals,
   collectWeakHubSignals,
+  collectIsolatedNotesSignals,
+  collectAreaInsightSignals,
 } from './discoverySignals';
 import { applyHistoryToDiscoveryItems } from './historyDiscoveryBoost';
 import { DISCOVERY_WEIGHTS, discoveryConfidenceTier } from './discoveryScoring';
 
 const DISCOVERY_KINDS: DiscoveryKind[] = [
+  'isolated-notes',
+  'recently-active-area',
+  'stale-area',
   'forgotten-knowledge',
   'missing-connection',
   'emerging-topic',
@@ -21,6 +26,9 @@ const DISCOVERY_KINDS: DiscoveryKind[] = [
 
 function emptySections(): Record<DiscoveryKind, DiscoveryItem[]> {
   return {
+    'isolated-notes': [],
+    'recently-active-area': [],
+    'stale-area': [],
     'forgotten-knowledge': [],
     'missing-connection': [],
     'emerging-topic': [],
@@ -35,18 +43,27 @@ function buildSummary(sections: Record<DiscoveryKind, DiscoveryItem[]>): Discove
   const emergingTopicCount = sections['emerging-topic'].length;
   const weakHubCount = sections['weak-hub'].length;
   const knowledgeDriftCount = sections['knowledge-drift'].length;
+  const isolatedNotesCount = sections['isolated-notes'].length;
+  const recentlyActiveAreaCount = sections['recently-active-area'].length;
+  const staleAreaCount = sections['stale-area'].length;
   return {
     forgottenCount,
     missingConnectionCount,
     emergingTopicCount,
     weakHubCount,
     knowledgeDriftCount,
+    isolatedNotesCount,
+    recentlyActiveAreaCount,
+    staleAreaCount,
     totalCount:
       forgottenCount
       + missingConnectionCount
       + emergingTopicCount
       + weakHubCount
-      + knowledgeDriftCount,
+      + knowledgeDriftCount
+      + isolatedNotesCount
+      + recentlyActiveAreaCount
+      + staleAreaCount,
   };
 }
 
@@ -125,12 +142,14 @@ export function buildDiscoveryFeed(
   options: BuildDiscoveryFeedOptions = {},
 ): DiscoveryFeed {
   const now = options.now ?? Date.now();
-  const perSection = options.perSectionLimit ?? 4;
-  const totalLimit = options.limit ?? 15;
+  const perSection = options.perSectionLimit ?? 3;
+  const totalLimit = options.limit ?? 18;
 
   const raw = refineDiscoveryItems(
     applyHistoryToDiscoveryItems(
       [
+        ...collectIsolatedNotesSignals(notes, service),
+        ...collectAreaInsightSignals(notes, service, now),
         ...collectForgottenKnowledgeSignals(notes, service, now),
         ...collectMissingConnectionSignals(notes, service),
         ...collectEmergingTopicSignals(notes, service, now),

@@ -7,7 +7,10 @@ export type DiscoveryKind =
   | 'missing-connection'
   | 'emerging-topic'
   | 'weak-hub'
-  | 'knowledge-drift';
+  | 'knowledge-drift'
+  | 'isolated-notes'
+  | 'recently-active-area'
+  | 'stale-area';
 
 export interface DiscoveryItem {
   id: string;
@@ -33,6 +36,9 @@ export interface DiscoverySummary {
   emergingTopicCount: number;
   weakHubCount: number;
   knowledgeDriftCount: number;
+  isolatedNotesCount: number;
+  recentlyActiveAreaCount: number;
+  staleAreaCount: number;
   totalCount: number;
 }
 

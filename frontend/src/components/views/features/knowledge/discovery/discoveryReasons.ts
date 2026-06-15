@@ -42,5 +42,17 @@ export function formatDiscoveryReasonLines(
     lines.push(t('k39ReasonWeakHub').replace('{count}', String(item.noteCount)));
   }
 
+  if (item.kind === 'isolated-notes') {
+    lines.push(t('k70ReasonIsolatedNote'));
+  }
+
+  if (item.kind === 'recently-active-area' && item.noteCount != null) {
+    lines.push(t('k70ReasonActiveArea').replace('{count}', String(item.noteCount)));
+  }
+
+  if (item.kind === 'stale-area' && item.noteCount != null) {
+    lines.push(t('k70ReasonStaleArea').replace('{count}', String(item.noteCount)));
+  }
+
   return lines;
 }

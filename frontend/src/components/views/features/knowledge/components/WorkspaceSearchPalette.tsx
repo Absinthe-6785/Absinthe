@@ -372,6 +372,11 @@ export function WorkspaceSearchPalette({
                           {t('k38SearchDiscoveryOpportunity')}
                         </div>
                       )}
+                      {result.weakConnectivity && (
+                        <div style={{ fontSize: 9, color: c.textFaint, fontWeight: 600, marginTop: 3 }}>
+                          {t('k70WeakConnectivity')}
+                        </div>
+                      )}
                     </button>
                   );
                 })}
