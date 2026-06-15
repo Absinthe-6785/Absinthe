@@ -190,6 +190,7 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
+import { logMemAudit } from '../../lib/memAudit';
 
 
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
@@ -1006,6 +1007,23 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       : null),
     [activeNote, notes, expandedGraphNodes],
   );
+
+  useEffect(() => {
+    const activeCount = notes.filter(n => !n.deletedAt).length;
+    const outgoing = activeNote ? knowledgeIndexService.getOutgoing(activeNote.id).length : 0;
+    const incoming = activeNote
+      ? knowledgeIndexService.getIncoming(activeNote.title ?? '').length
+      : 0;
+    logMemAudit({
+      source: 'NoteView.context',
+      notes: activeCount,
+      links: outgoing + incoming,
+      graphNodes: localGraphData?.nodes.length,
+      graphEdges: localGraphData?.edges.length,
+      relatedCandidates: relatedNotesCount,
+      discoveryItems: discoveryFeed.items.length,
+    });
+  }, [notes, activeNote?.id, localGraphData, relatedNotesCount, discoveryFeed]);
 
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),

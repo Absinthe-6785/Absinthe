@@ -9,6 +9,9 @@ import { normalizeQueryValue } from './query/parseQuery';
 import type { RelationEdge, ResolvedRelationTarget } from './relations/relationModels';
 import { normalizeRelationPropertyKey, relationEdgeKey, toRelationEdges } from './relations/relationNormalize';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
+import { createMemAuditThrottle } from '../../../../lib/memAudit';
+
+const logIndexMemAudit = createMemAuditThrottle(2000);
 
 export interface RelatedNote {
   noteId: string;
@@ -102,6 +105,15 @@ export class KnowledgeIndexService {
       if (note.deletedAt) continue;
       this.rebuildRelatedForNote(note.id);
     }
+
+    let relatedTotal = 0;
+    for (const list of this.relatedByNoteId.values()) relatedTotal += list.length;
+    logIndexMemAudit({
+      source: 'KnowledgeIndexService.buildFromNotes',
+      notes: this.activeNotes.size,
+      links: this.incomingByTitle.size + this.outgoingByNoteId.size,
+      relatedCandidates: relatedTotal,
+    });
   }
 
   /** Incremental update for a single note create/edit/restore */
@@ -141,6 +153,16 @@ export class KnowledgeIndexService {
       affected.add(id);
     }
     for (const id of affected) this.rebuildRelatedForNote(id);
+
+    let relatedTotal = 0;
+    for (const list of this.relatedByNoteId.values()) relatedTotal += list.length;
+    logIndexMemAudit({
+      source: 'KnowledgeIndexService.updateNote',
+      notes: this.activeNotes.size,
+      links: this.incomingByTitle.size + this.outgoingByNoteId.size,
+      relatedCandidates: relatedTotal,
+      affectedNeighbors: affected.size,
+    });
   }
 
   /** Remove a note from the index (trash / permanent delete) */
