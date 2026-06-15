@@ -36,12 +36,12 @@ describe('K-32.1 planner validation', () => {
     expect(plannerView).not.toMatch(/<PlannerCalendarView[\s/>]/);
   });
 
-  it('defaults calendar mode to Day with Day-first tab order', () => {
+  it('defaults calendar mode to Day with Day-first tab order (K-71: no Agenda)', () => {
     expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('day');
-    expect(PLANNER_CALENDAR_MODES).toEqual(['day', 'week', 'month', 'agenda']);
+    expect(PLANNER_CALENDAR_MODES).toEqual(['day', 'week', 'month']);
   });
 
-  it('renders calendar mode tabs in Day → Week → Month → Agenda order', () => {
+  it('renders calendar mode tabs in Day → Week → Month order', () => {
     const theme = {
       card: 'bg-surface',
       input: 'bg-surface-alt',
@@ -61,26 +61,24 @@ describe('K-32.1 planner validation', () => {
     const dayIdx = html.indexOf('data-planner-calendar-mode-option="day"');
     const weekIdx = html.indexOf('data-planner-calendar-mode-option="week"');
     const monthIdx = html.indexOf('data-planner-calendar-mode-option="month"');
-    const agendaIdx = html.indexOf('data-planner-calendar-mode-option="agenda"');
 
     expect(dayIdx).toBeGreaterThan(-1);
     expect(dayIdx).toBeLessThan(weekIdx);
     expect(weekIdx).toBeLessThan(monthIdx);
-    expect(monthIdx).toBeLessThan(agendaIdx);
+    expect(html).not.toContain('data-planner-calendar-mode-option="agenda"');
   });
 
-  it('orders mobile planner tabs Timeline → Tasks (memo retired K-48)', () => {
+  it('uses calendar-only PlannerView surface (K-71)', () => {
     const source = readSource('PlannerView.tsx');
-    expect(source).toContain("MOBILE_PLANNER_TABS = ['timeline', 'todo']");
-    expect(source).toContain("useState<(typeof MOBILE_PLANNER_TABS)[number]>('timeline')");
+    expect(source).not.toContain('WeeklyTimetableSection');
+    expect(source).not.toContain('ScheduleCountdownPanel');
+    expect(source).not.toContain('MOBILE_PLANNER_TABS');
+    expect(source).not.toContain('data-planner-column="timeline"');
   });
 
-  it('declares desktop column hierarchy markers', () => {
+  it('does not declare legacy side-column hierarchy markers', () => {
     const source = readSource('PlannerView.tsx');
-    expect(source).toContain('data-planner-column="timeline"');
-    expect(source).toContain('data-planner-column="planning"');
+    expect(source).not.toContain('data-planner-column="planning"');
     expect(source).not.toContain('data-planner-column="memo"');
-    expect(source).toContain('lg:order-1');
-    expect(source).toContain('lg:order-2');
   });
 });

@@ -10,6 +10,7 @@ export interface WeekDayColumnsProps {
   anchorDate: string;
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
+  onDateSelect?: (dateKey: string) => void;
 }
 
 export function WeekDayColumns({
@@ -19,6 +20,7 @@ export function WeekDayColumns({
   anchorDate,
   theme,
   onEventNoteClick,
+  onDateSelect,
 }: WeekDayColumnsProps) {
   const dayModels = buildWeekDayDisplayModels(week, weekdayLabels, todayKey, anchorDate);
 
@@ -29,7 +31,7 @@ export function WeekDayColumns({
       data-planner-week-columns-layout="stacked-mobile-two-col-tablet-grid-desktop"
     >
       {dayModels.map(model => (
-        <WeekDayColumn key={model.dateKey} model={model} theme={theme} onEventNoteClick={onEventNoteClick} />
+        <WeekDayColumn key={model.dateKey} model={model} theme={theme} onEventNoteClick={onEventNoteClick} onDateSelect={onDateSelect} />
       ))}
     </div>
   );

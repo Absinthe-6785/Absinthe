@@ -9,7 +9,6 @@ import { ArchiveBranchView } from './ArchiveBranchView';
 import { ArchiveHomeView } from './home/ArchiveHomeView';
 import { ArchivePlaceholderView } from './ArchivePlaceholderView';
 import { ArchiveShell } from './ArchiveShell';
-import { DEFAULT_ARCHIVE_VIEW_MODE } from './archiveNavigationModels';
 import { ARCHIVE_SHELL_ENABLED } from './archiveShellConfig';
 import { buildArchiveHomeProjectionForHook } from './hooks/useArchiveHomeProjection';
 
@@ -94,7 +93,7 @@ describe('ArchiveHomeView', () => {
 });
 
 describe('ArchiveShell', () => {
-  it('defaults to home mode with in-app mode switcher', () => {
+  it('renders unified archive workspace without tabs (K-71)', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
@@ -103,27 +102,12 @@ describe('ArchiveShell', () => {
       }),
     );
 
-    expect(html).toContain('data-archive-mode="home"');
+    expect(html).toContain('data-archive-mode="unified"');
+    expect(html).toContain('data-archive-unified');
     expect(html).toContain('data-archive-home="true"');
-    expect(html).toContain('data-archive-mode-switcher');
-    expect(html).toContain('role="tablist"');
-    expect(DEFAULT_ARCHIVE_VIEW_MODE).toBe('home');
-  });
-
-  it('renders actionable period branch when mode is overridden', () => {
-    const periodHtml = renderToStaticMarkup(
-      createElement(ArchiveShell, {
-        now: DateTime.fromJSDate(NOW),
-        appSettings,
-        theme,
-        initialMode: 'period',
-      }),
-    );
-    expect(periodHtml).toContain('data-archive-mode="period"');
-    expect(periodHtml).toContain('data-archive-branch="period"');
-    expect(periodHtml).toContain('data-archive-branch-period-links');
-    expect(periodHtml).toContain('data-archive-branch-open-current-period');
-    expect(periodHtml).not.toContain('not available yet');
+    expect(html).toContain('data-archive-mark-calendar');
+    expect(html).not.toContain('data-archive-mode-switcher');
+    expect(html).not.toContain('role="tablist"');
   });
 });
 

@@ -22,28 +22,29 @@ export function MonthCalendarCell({
 
   return (
     <div
+      role={onDateSelect && model.inMonth ? 'button' : undefined}
+      tabIndex={onDateSelect && model.inMonth ? 0 : undefined}
+      onClick={onDateSelect && model.inMonth ? () => onDateSelect(model.dateKey) : undefined}
+      onKeyDown={onDateSelect && model.inMonth ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onDateSelect(model.dateKey);
+        }
+      } : undefined}
       className={`min-h-[88px] lg:min-h-[96px] border p-1.5 lg:p-2 flex flex-col gap-1
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}
-        ${model.isAnchorSelected ? 'bg-primary/5' : ''}`}
+        ${model.isAnchorSelected ? 'bg-primary/5' : ''}
+        ${onDateSelect && model.inMonth ? 'cursor-pointer hover:bg-surface-alt/40 transition-colors' : ''}`}
       data-planner-month-cell={model.dateKey}
       data-planner-month-cell-in-month={model.inMonth ? 'true' : 'false'}
       data-planner-month-cell-empty={model.isEmpty ? 'true' : 'false'}
     >
       <div className="flex items-start justify-between gap-1">
         <span
-          className={`text-[11px] lg:text-xs font-bold tabular-nums ${model.inMonth ? '' : theme.textMuted}${onDateSelect && model.inMonth ? ' cursor-pointer hover:underline' : ''}`}
+          className={`text-[11px] lg:text-xs font-bold tabular-nums ${model.inMonth ? '' : theme.textMuted}`}
           data-planner-month-cell-day
-          onClick={onDateSelect && model.inMonth ? () => onDateSelect(model.dateKey) : undefined}
-          onKeyDown={onDateSelect && model.inMonth ? (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onDateSelect(model.dateKey);
-            }
-          } : undefined}
-          role={onDateSelect && model.inMonth ? 'button' : undefined}
-          tabIndex={onDateSelect && model.inMonth ? 0 : undefined}
         >
           {model.day}
         </span>
@@ -77,7 +78,7 @@ export function MonthCalendarCell({
             data-planner-month-event={occurrence.noteId}
             data-planner-month-event-span={occurrence.spanPosition}
             title={occurrence.title}
-            onClick={onEventNoteClick ? () => onEventNoteClick(occurrence.noteId) : undefined}
+            onClick={onEventNoteClick ? (e) => { e.stopPropagation(); onEventNoteClick(occurrence.noteId); } : undefined}
             onKeyDown={onEventNoteClick ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();

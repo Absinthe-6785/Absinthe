@@ -8,17 +8,23 @@ export interface WeekDayColumnProps {
   model: WeekDayDisplayModel;
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
+  onDateSelect?: (dateKey: string) => void;
 }
 
-export function WeekDayColumn({ model, theme, onEventNoteClick }: WeekDayColumnProps) {
+export function WeekDayColumn({ model, theme, onEventNoteClick, onDateSelect }: WeekDayColumnProps) {
   const routineLabel = formatWeekRoutineSummary(model.routineSummary);
+  const selectable = Boolean(onDateSelect);
 
   return (
-    <div
-      className={`min-h-[120px] border p-2 lg:p-2.5 flex flex-col gap-2
+    <button
+      type="button"
+      disabled={!selectable}
+      onClick={selectable ? () => onDateSelect!(model.dateKey) : undefined}
+      className={`min-h-[120px] border p-2 lg:p-2.5 flex flex-col gap-2 text-left w-full
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}
-        ${model.isAnchorDate ? 'bg-primary/5' : ''}`}
+        ${model.isAnchorDate ? 'bg-primary/5' : ''}
+        ${selectable ? 'cursor-pointer hover:bg-surface-alt/50 transition-colors' : ''}`}
       data-planner-week-day={model.dateKey}
       data-planner-week-day-empty={model.isEmpty ? 'true' : 'false'}
     >
@@ -63,6 +69,6 @@ export function WeekDayColumn({ model, theme, onEventNoteClick }: WeekDayColumnP
           </span>
         ) : null}
       </div>
-    </div>
+    </button>
   );
 }

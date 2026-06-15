@@ -146,24 +146,18 @@ describe('WeeklyTimetableSection', () => {
 });
 
 describe('PlannerView weekly timetable integration', () => {
-  it('mounts Weekly Timetable below the planner columns', async () => {
+  it('does not mount Weekly Timetable in calendar-only PlannerView (K-71)', async () => {
     const { PlannerView } = await import('./PlannerView');
     const html = renderToStaticMarkup(
       createElement(PlannerView, plannerProps()),
     );
 
-    expect(html).toContain('data-planner-weekly-timetable');
-    expect(html).toContain('data-planner-weekly-block="ws-1"');
-    expect(html).toContain('Morning Study');
+    expect(html).not.toContain('data-planner-weekly-timetable');
+    expect(html).not.toContain('data-planner-column="timeline"');
+    expect(html).not.toContain('data-planner-column="planning"');
+    expect(html).not.toContain('data-planner-mobile-tabs');
+    expect(html).not.toContain('data-planner-legacy-mini-calendar');
     expect(html).toContain('data-planner-calendar-shell');
     expect(html).toContain('data-planner-calendar-mode="day"');
-    expect(html).not.toContain('data-planner-column="timeline"');
-    expect(html).toContain('data-planner-column="planning"');
-    expect(html).not.toContain('data-planner-column="memo"');
-    expect(html).toContain('data-planner-mobile-tab="todo"');
-    expect(html).not.toContain('data-planner-mobile-tab="timeline"');
-    expect(html).not.toContain('data-planner-legacy-mini-calendar');
-    expect(html).not.toContain('data-planner-legacy-mini-calendar');
-    expect(html).toContain('data-planner-mobile-tabs');
   });
 });
