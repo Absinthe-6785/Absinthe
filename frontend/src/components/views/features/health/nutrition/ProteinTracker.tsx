@@ -329,7 +329,7 @@ export function ProteinTracker({
   if (mode === 'compact') {
     return (
       <div
-        className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 flex flex-col gap-3 transition-colors ${cardTier} ${theme.card}`}
+        className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-3.5 flex flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
         data-workspace="nutrition-compact"
       >
         <div className="flex items-center justify-between gap-2">
@@ -342,18 +342,27 @@ export function ProteinTracker({
             </button>
           ) : null}
         </div>
-        {progressBlock(false)}
+        {dailyTarget > 0 ? (
+          <div className="grid grid-cols-3 gap-2 text-center" data-protein-compact-stats>
+            <div className="rounded-lg bg-surface-alt px-2 py-1.5">
+              <p className={`text-[9px] font-bold uppercase ${theme.textMuted}`}>{t('k76ProteinCurrent')}</p>
+              <p className="text-base font-black text-primary tabular-nums">{totalIntake}g</p>
+            </div>
+            <div className="rounded-lg bg-surface-alt px-2 py-1.5">
+              <p className={`text-[9px] font-bold uppercase ${theme.textMuted}`}>{t('k76ProteinGoal')}</p>
+              <p className={`text-base font-black tabular-nums ${theme.text}`}>{dailyTarget}g</p>
+            </div>
+            <div className="rounded-lg bg-surface-alt px-2 py-1.5">
+              <p className={`text-[9px] font-bold uppercase ${theme.textMuted}`}>{t('k76ProteinRemaining')}</p>
+              <p className={`text-base font-black tabular-nums ${remaining > 0 ? theme.textMuted : 'text-green-500'}`}>
+                {remaining > 0 ? `${remaining}g` : '✓'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          progressBlock(false)
+        )}
         {quickAddBlock(true)}
-        {timelineLogs.length > 0 ? (
-          <ul className="flex flex-col gap-1 max-h-24 overflow-y-auto">
-            {timelineLogs.slice(0, 4).map(log => (
-              <li key={log.id} className={`text-[11px] font-semibold truncate ${theme.textMuted}`}>
-                {log.protein_sources?.name ?? log.note ?? t('customEntryLabel')}{' '}
-                <span className="text-primary">+{log.protein_g}g</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </div>
     );
   }

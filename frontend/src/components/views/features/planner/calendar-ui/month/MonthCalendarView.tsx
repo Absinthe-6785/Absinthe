@@ -32,8 +32,8 @@ export function MonthCalendarView({
       className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4 items-start min-h-[420px]"
       data-planner-calendar-month
     >
-      <div className={`rounded-[24px] lg:rounded-[32px] p-5 lg:p-6 ${theme.card}`}>
-        <div className="flex flex-col gap-1 mb-4">
+      <div className={`rounded-[24px] lg:rounded-[32px] p-4 lg:p-5 ${theme.card}`}>
+        <div className="flex flex-col gap-1 mb-3">
           <h3 className="font-heading text-base lg:text-lg font-bold">{t('monthView')}</h3>
           {presentation.labels.monthTitle ? (
             <p
@@ -70,6 +70,7 @@ export function MonthCalendarView({
         onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
         variant="month"
+        suppressEmptySections
       />
     </div>
   );

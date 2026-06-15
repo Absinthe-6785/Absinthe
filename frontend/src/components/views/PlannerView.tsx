@@ -155,21 +155,51 @@ export const PlannerView = ({
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
-          <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingId ? t('editSchedule') : t('newSchedule')}</h3>
-              <button onClick={() => setShowForm(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
+          <div className={`rounded-[24px] lg:rounded-[28px] p-5 lg:p-6 w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-heading text-lg font-bold">{editingId ? t('editSchedule') : t('newSchedule')}</h3>
+              <button onClick={() => setShowForm(false)} className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-full ${theme.hoverBg}`}><X size={18}/></button>
             </div>
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelText')}</label>
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelText')}</label>
                 <input autoFocus type="text" value={newSch.text} onChange={e => setNewSch({ ...newSch, text: e.target.value })}
                   onKeyDown={e => e.key === 'Enter' && handleSaveSchedule()}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-medium ${theme.input}`} placeholder={t('scheduleTextPh')}/>
+                  className={`w-full rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-sm font-semibold ${theme.input}`} placeholder={t('scheduleTextPh')}/>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelCategory')}</label>
-                <div className="grid grid-cols-3 gap-2">
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('k76ScheduleDate')}</label>
+                <p className={`rounded-xl p-3 text-sm font-semibold ${theme.input}`}>
+                  {selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelStart')}</label>
+                  <input type="time" value={newSch.start_time} step="1800" lang={lang}
+                    onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
+                    className={`w-full rounded-xl p-3 outline-none font-medium text-sm tabular-nums ${theme.input}`}/>
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className={`text-xs font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('labelEnd')}</label>
+                    <button type="button"
+                      onClick={() => setEndNextDay(v => !v)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-colors
+                        ${endNextDay ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>
+                      +1 day
+                    </button>
+                  </div>
+                  <input type="time" value={newSch.end_time} step="1800" lang={lang}
+                    onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
+                    className={`w-full rounded-xl p-3 outline-none font-medium text-sm tabular-nums ${theme.input}
+                      ${endNextDay ? 'ring-2 ring-primary' : ''}`}/>
+                  {endNextDay && <p className="text-[10px] text-primary font-bold mt-1">{t('nextDay')}</p>}
+                </div>
+              </div>
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelCategory')}</label>
+                <div className="grid grid-cols-3 gap-1.5">
                   {([
                     { id: 'Study',    label: 'Study',   Icon: BookOpen,  color: 'gold' },
                     { id: 'Work',     label: 'Work',    Icon: Briefcase, color: 'blue' },
@@ -199,51 +229,32 @@ export const PlannerView = ({
                             setNewSch(prev => ({ ...prev, category: cat.id, color: cat.color }));
                           }
                         })()}
-                      className={`py-2.5 rounded-xl text-xs font-semibold transition-colors flex flex-col items-center gap-1 border-2
+                      className={`py-2 rounded-lg text-[10px] font-semibold transition-colors flex flex-col items-center gap-0.5 border
                         ${newSch.category === cat.id
-                          ? `${THEME_COLORS.find(c => c.id === cat.color)?.bg ?? 'bg-primary'} text-white border-transparent shadow-sm`
-                          : `border-transparent ${theme.input}`}`}>
-                      <span className="leading-none flex justify-center"><cat.Icon size={16} strokeWidth={2.25} /></span>
+                          ? `${THEME_COLORS.find(c => c.id === cat.color)?.bg ?? 'bg-primary'} text-white border-transparent`
+                          : `border-transparent opacity-70 hover:opacity-100 ${theme.input}`}`}>
+                      <span className="leading-none flex justify-center"><cat.Icon size={14} strokeWidth={2.25} /></span>
                       {cat.label}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelStart')}</label>
-                  <input type="time" value={newSch.start_time} step="1800" lang={lang}
-                    onChange={e => setNewSch({ ...newSch, start_time: e.target.value })}
-                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}`}/>
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className={`text-sm font-semibold ${theme.textMuted}`}>{t('labelEnd')}</label>
-                    <button type="button"
-                      onClick={() => setEndNextDay(v => !v)}
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-lg transition-colors
-                        ${endNextDay ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>
-                      +1 day
-                    </button>
-                  </div>
-                  <input type="time" value={newSch.end_time} step="1800" lang={lang}
-                    onChange={e => setNewSch({ ...newSch, end_time: e.target.value })}
-                    className={`w-full rounded-2xl p-4 outline-none font-medium text-base tabular-nums ${theme.input}
-                      ${endNextDay ? 'ring-2 ring-primary' : ''}`}/>
-                  {endNextDay && <p className="text-[10px] text-primary font-bold mt-1 pl-1">{t('nextDay')}</p>}
-                </div>
-              </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('labelColor')}</label>
-                <div className="flex gap-3">
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelColor')}</label>
+                <div className="flex flex-wrap gap-2">
                   {THEME_COLORS.map(c => (
-                    <div key={c.id} onClick={() => setNewSch({ ...newSch, color: c.id })}
-                      className={`w-10 h-10 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-110 ${c.bg}
-                        ${newSch.color === c.id ? `ring-4 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-300 ring-offset-[#2C2C2E]' : 'ring-gray-800'}` : ''}`}/>
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setNewSch({ ...newSch, color: c.id })}
+                      className={`w-8 h-8 rounded-full cursor-pointer shadow-sm transition-transform hover:scale-105 ${c.bg}
+                        ${newSch.color === c.id ? `ring-2 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-200 ring-offset-[#2C2C2E]' : 'ring-gray-800 ring-offset-white'}` : ''}`}
+                      aria-label={c.id}
+                    />
                   ))}
                 </div>
               </div>
-              <button onClick={handleSaveSchedule} className="w-full bg-primary text-primary-foreground font-bold text-lg rounded-2xl p-4 mt-2 hover:bg-gray-800 transition-colors shadow-lg">
+              <button onClick={handleSaveSchedule} className="w-full bg-primary text-primary-foreground font-bold text-base rounded-xl py-3 hover:bg-gray-800 transition-colors shadow-md">
                 {t('saveSchedule')}
               </button>
             </div>

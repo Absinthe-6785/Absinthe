@@ -8,11 +8,13 @@ export interface DayEventsSectionProps {
   timedEvents: readonly PlannerEventOccurrence[];
   onEventNoteClick?: (noteId: string) => void;
   hideHeading?: boolean;
+  suppressEmpty?: boolean;
 }
 
-export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, hideHeading = false }: DayEventsSectionProps) {
+export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, hideHeading = false, suppressEmpty = false }: DayEventsSectionProps) {
   const { t } = useTranslation();
   const empty = allDayEvents.length === 0 && timedEvents.length === 0;
+  if (empty && suppressEmpty) return null;
 
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-events>
@@ -22,13 +24,13 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, 
         </h4>
       ) : null}
       {empty ? (
-        <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
+        suppressEmpty ? null : <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5">
           {allDayEvents.map(event => (
             <div
               key={event.occurrenceId}
-              className={`px-2 py-2 min-h-[44px] text-xs lg:text-sm font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
+              className={`px-2 py-1.5 min-h-[36px] text-xs font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(event.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
               data-planner-day-event={event.noteId}
               data-planner-day-event-kind="all-day"
               data-planner-day-event-span={event.spanPosition}
@@ -47,7 +49,7 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, 
             return (
             <div
               key={event.occurrenceId}
-              className={`px-2 py-2.5 min-h-[44px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
+              className={`px-2 py-1.5 min-h-[36px] rounded-md bg-primary/10 text-primary${onEventNoteClick ? ' cursor-pointer hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : ''}`}
               data-planner-day-event={event.noteId}
               data-planner-day-event-kind="timed"
               title={event.title}
@@ -59,7 +61,7 @@ export function DayEventsSection({ allDayEvents, timedEvents, onEventNoteClick, 
               {timeLabel && (
                 <div className="text-[10px] lg:text-xs font-medium text-muted leading-tight">{timeLabel}</div>
               )}
-              <div className="text-xs lg:text-sm font-semibold truncate">{event.title}</div>
+              <div className="text-xs font-semibold truncate">{event.title}</div>
             </div>
             );
           })}

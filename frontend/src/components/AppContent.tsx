@@ -25,12 +25,12 @@ import { useTranslation } from '../lib/i18n';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
-  { id: 'gold',   bg: 'bg-primary',  text: 'text-primary-foreground', border: 'border-primary' },
-  { id: 'blue',   bg: 'bg-blue-500',   text: 'text-white',      border: 'border-blue-500'   },
-  { id: 'green',  bg: 'bg-green-500',  text: 'text-white',      border: 'border-green-500'  },
-  { id: 'purple', bg: 'bg-purple-500', text: 'text-white',      border: 'border-purple-500' },
-  { id: 'pink',   bg: 'bg-pink-500',   text: 'text-white',      border: 'border-pink-500'   },
-  { id: 'gray',   bg: 'bg-gray-500',   text: 'text-white',      border: 'border-gray-500'   },
+  { id: 'gold',   bg: 'bg-amber-600',  text: 'text-white', border: 'border-amber-600' },
+  { id: 'blue',   bg: 'bg-sky-600',    text: 'text-white', border: 'border-sky-600'   },
+  { id: 'green',  bg: 'bg-emerald-600', text: 'text-white', border: 'border-emerald-600' },
+  { id: 'purple', bg: 'bg-violet-600', text: 'text-white', border: 'border-violet-600' },
+  { id: 'pink',   bg: 'bg-rose-500',   text: 'text-white', border: 'border-rose-500'   },
+  { id: 'gray',   bg: 'bg-slate-500',  text: 'text-white', border: 'border-slate-500'  },
 ];
 
 export function AppContent({ authUser }: { authUser: User }) {

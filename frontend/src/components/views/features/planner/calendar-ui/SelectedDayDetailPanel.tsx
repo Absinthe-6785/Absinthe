@@ -22,6 +22,8 @@ export interface SelectedDayDetailPanelProps {
   /** full: day/week; month: history-focused extras */
   variant?: SelectedDayDetailVariant;
   bare?: boolean;
+  /** Hide per-section empty placeholders — show one combined empty state. */
+  suppressEmptySections?: boolean;
 }
 
 /** Selected-day panel — schedules, events, deadlines only (K-74). */
@@ -34,10 +36,18 @@ export function SelectedDayDetailPanel({
   hideHeading = false,
   variant = 'full',
   bare = false,
+  suppressEmptySections = false,
 }: SelectedDayDetailPanelProps) {
   const { t } = useTranslation();
   const day = projection.views.day;
   const model = useMemo(() => buildDayDisplayModel(day), [day]);
+  const hasSchedules = model.timelineBlocks.length > 0 || model.carryOverBlocks.length > 0;
+  const hasEvents = model.allDayEvents.length > 0 || model.timedEvents.length > 0;
+  const hasCountdowns = projection.core.countdowns.length > 0;
+  const canAddSchedule = !!scheduleActions?.onAdd;
+  const showCombinedEmpty = suppressEmptySections && !hasSchedules && !hasEvents && !hasCountdowns
+    && !canAddSchedule
+    && variant !== 'month';
 
   const shellClass = bare
     ? 'flex flex-col gap-2.5'
@@ -62,21 +72,29 @@ export function SelectedDayDetailPanel({
         </div>
       ) : null}
 
+      {showCombinedEmpty ? (
+        <p className="text-xs text-muted px-1" data-planner-day-combined-empty>{t('scheduleDayEmptyHint')}</p>
+      ) : null}
+
       <DayScheduleTimeline
         blocks={model.timelineBlocks}
         carryOverBlocks={model.carryOverBlocks}
         scheduleActions={scheduleActions}
+        suppressEmpty={suppressEmptySections}
       />
 
-      <section className="flex flex-col gap-1.5" data-planner-day-events-deadlines>
-        <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
-          {t('k74EventsAndDeadlines')}
-        </h4>
+      <section className="flex flex-col gap-1" data-planner-day-events-deadlines>
+        {(hasEvents || hasCountdowns || !suppressEmptySections) ? (
+          <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
+            {t('k74EventsAndDeadlines')}
+          </h4>
+        ) : null}
         <DayEventsSection
           allDayEvents={model.allDayEvents}
           timedEvents={model.timedEvents}
           onEventNoteClick={onEventNoteClick}
           hideHeading
+          suppressEmpty={suppressEmptySections}
         />
         <DayCountdownStrip
           countdowns={projection.core.countdowns}

@@ -9,16 +9,19 @@ export interface DayScheduleTimelineProps {
   blocks: readonly PlannerScheduleRow[];
   carryOverBlocks: readonly PlannerScheduleRow[];
   scheduleActions?: DayScheduleActions;
+  suppressEmpty?: boolean;
 }
 
 export function DayScheduleTimeline({
   blocks,
   carryOverBlocks,
   scheduleActions,
+  suppressEmpty = false,
 }: DayScheduleTimelineProps) {
   const { t } = useTranslation();
   const actionable = dayScheduleActionsEnabled(scheduleActions);
   const empty = blocks.length === 0 && carryOverBlocks.length === 0;
+  if (empty && suppressEmpty && !dayScheduleActionsEnabled(scheduleActions)) return null;
 
   return (
     <section className="flex flex-col gap-1.5" data-planner-day-schedule-timeline>
@@ -39,7 +42,7 @@ export function DayScheduleTimeline({
         ) : null}
       </div>
       {empty ? (
-        <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
+        suppressEmpty ? null : <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (
         <div className="flex flex-col gap-1">
           {carryOverBlocks.map(block => (
