@@ -40,6 +40,16 @@ describe('noteBreadcrumb', () => {
     expect(JSON.parse(raw!)).toEqual(segments);
   });
 
+  it('setNoteBreadcrumb skips notify when segments are unchanged', () => {
+    const segments = [{ type: 'key' as const, key: 'healthNavWorkout' as const }];
+    setNoteBreadcrumb(segments);
+    const calls: number[] = [];
+    const unsub = subscribeNoteBreadcrumb(() => calls.push(calls.length));
+    setNoteBreadcrumb([...segments]);
+    unsub();
+    expect(calls.length).toBe(0);
+  });
+
   it('clearNoteBreadcrumb removes persisted state', () => {
     setNoteBreadcrumb([{ type: 'key', key: 'healthNavWorkout' }]);
     clearNoteBreadcrumb();
