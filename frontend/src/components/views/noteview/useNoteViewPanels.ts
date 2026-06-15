@@ -15,7 +15,8 @@ import {
   applyAreaToNote,
 } from '../features/knowledge';
 import { getNoteHistoryContext, recordDiscoveryResolved } from '../features/knowledge/history';
-import { buildNoteGalaxyMap } from '../features/knowledge/graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap } from '../features/knowledge/graph/knowledgeUniverse/galaxyClustering';
+import { useNotesStore } from '../../../store/useNotesStore';
 
 export function useNoteViewPanels(params: {
   notes: Note[];
@@ -49,9 +50,14 @@ export function useNoteViewPanels(params: {
     setRightPanel(tab);
   }, [setShowRightPanel, setRightPanel]);
 
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
+  const galaxyCacheKey = String(vaultStructureVersion);
+
   const noteIntelligenceSnapshot = useMemo(
-    () => (activeNote ? buildNoteIntelligenceSnapshot(activeNote, notes, knowledgeIndexService) : null),
-    [activeNote, notes],
+    () => (activeNote
+      ? buildNoteIntelligenceSnapshot(activeNote, useNotesStore.getState().notes, knowledgeIndexService)
+      : null),
+    [activeNote?.id, vaultStructureVersion],
   );
 
   const noteHistoryContext = useMemo(
@@ -61,9 +67,9 @@ export function useNoteViewPanels(params: {
 
   const noteTierInput = useMemo(() => {
     if (!activeNote) return null;
-    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
+    const galaxyMap = getNoteGalaxyMap(useNotesStore.getState().notes, knowledgeIndexService, galaxyCacheKey);
     return buildImportanceInputForNote(activeNote, knowledgeIndexService, galaxyMap.get(activeNote.id));
-  }, [activeNote, notes]);
+  }, [activeNote?.id, vaultStructureVersion]);
 
   const handleLearnLinking = useCallback(() => {
     const target = activeNote ?? notes.find(n => !n.deletedAt);
@@ -190,7 +196,7 @@ export function useNoteViewPanels(params: {
       .filter(row => row.category === 'fragmented' || row.category === 'critical')
       .sort((a, b) => a.score - b.score)[0];
     if (!weak) return;
-    const galaxyMap = buildNoteGalaxyMap(notes, knowledgeIndexService);
+    const galaxyMap = getNoteGalaxyMap(useNotesStore.getState().notes, knowledgeIndexService, galaxyCacheKey);
     const member = notes.find(
       n => !n.deletedAt && galaxyMap.get(n.id)?.galaxyId === weak.galaxyId && n.id !== weak.galaxyId,
     );

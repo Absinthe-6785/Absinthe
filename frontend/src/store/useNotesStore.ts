@@ -46,6 +46,7 @@ import {
   LOCAL_FOLDERS_SAVE_ERROR,
 } from '../components/views/noteUtils';
 import { knowledgeIndexService } from '../components/views/features/knowledge';
+import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
   clearKnowledgeHistory,
   recordNoteCreated,
@@ -67,6 +68,10 @@ interface NotesState {
   notes: Note[];
   folders: NoteFolder[];
   activeNoteId: string | null;
+  /** Bumps on title/properties/relations/folder/create/delete — not body-only edits (K-83A). */
+  vaultStructureVersion: number;
+  /** Bumps on debounced body index flush — backlinks/links context (K-83A). */
+  indexContentVersion: number;
   /** Planner Memo 패널용 폴더 필터 (NoteView는 자체 activeFolderId + starred 사용) */
   activeFolderId: string | null | 'trash';
   isSyncing: boolean;
@@ -106,6 +111,26 @@ const bodySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 const BODY_SYNC_MS = 600;
+
+function isBodyOnlyPatch(patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>): boolean {
+  const keys = Object.keys(patch) as (keyof typeof patch)[];
+  return keys.length === 1 && keys[0] === 'body';
+}
+
+function bumpVaultStructure(
+  set: (partial: Partial<NotesState> | ((state: NotesState) => Partial<NotesState>)) => void,
+  get: () => NotesState,
+): void {
+  invalidateNoteGalaxyMapCache();
+  set({ vaultStructureVersion: get().vaultStructureVersion + 1 });
+}
+
+function bumpIndexContent(
+  set: (partial: Partial<NotesState> | ((state: NotesState) => Partial<NotesState>)) => void,
+  get: () => NotesState,
+): void {
+  set({ indexContentVersion: get().indexContentVersion + 1 });
+}
 
 function clearBodySyncTimer(noteId: string) {
   const t = bodySyncTimers.get(noteId);
@@ -163,17 +188,20 @@ knowledgeIndexService.buildFromNotes(initialNotes);
 
 function rebuildKnowledgeIndex(notes: Note[]) {
   knowledgeIndexService.buildFromNotes(notes);
+  invalidateNoteGalaxyMapCache();
 }
 
 function syncKnowledgeIndexForNote(note: Note, patch?: Partial<Note>) {
   if (
     !patch ||
-    'body' in patch ||
     'title' in patch ||
     'deletedAt' in patch ||
     'properties' in patch ||
-    'relations' in patch
+    'relations' in patch ||
+    'folderId' in patch
   ) {
+    knowledgeIndexService.updateNote(note);
+  } else if ('body' in patch && !isBodyOnlyPatch(patch)) {
     knowledgeIndexService.updateNote(note);
   }
 }
@@ -244,17 +272,25 @@ export const useNotesStore = create<NotesState>((set, get) => {
     clearAllBodySyncTimers();
     const pending = [...pendingBodySync.values()];
     pendingBodySync.clear();
-    for (const note of pending) void syncNoteToDB(note);
+    for (const note of pending) {
+      knowledgeIndexService.updateNote(note);
+      void syncNoteToDB(note);
+    }
+    if (pending.length > 0) bumpIndexContent(set, get);
   };
 
-  const scheduleBodySync = (note: Note) => {
+  const scheduleBodySync = (note: Note, set: (partial: Partial<NotesState> | ((state: NotesState) => Partial<NotesState>)) => void, get: () => NotesState) => {
     pendingBodySync.set(note.id, note);
     clearBodySyncTimer(note.id);
     bodySyncTimers.set(note.id, setTimeout(() => {
       bodySyncTimers.delete(note.id);
       const latest = pendingBodySync.get(note.id);
       pendingBodySync.delete(note.id);
-      if (latest) void syncNoteToDB(latest);
+      if (latest) {
+        knowledgeIndexService.updateNote(latest);
+        bumpIndexContent(set, get);
+        void syncNoteToDB(latest);
+      }
     }, BODY_SYNC_MS));
   };
 
@@ -263,6 +299,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
     folders: initialFolders,
     activeNoteId: loadActiveNoteId(initialNotes),
     activeFolderId: null,
+    vaultStructureVersion: 0,
+    indexContentVersion: 0,
     isSyncing: false,
     savedAt: null,
     syncError: null,
@@ -274,8 +312,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const notes = get().notes.map(n =>
           n.id === id ? { ...n, lastOpenedAt: now } : n,
         );
-        set({ activeNoteId: id, notes });
+        set({ activeNoteId: id, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
         persistNotes(notes);
+        invalidateNoteGalaxyMapCache();
       } else {
         set({ activeNoteId: id });
       }
@@ -299,10 +338,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         starred: false,
       };
       const notes = [note, ...get().notes];
-      set({ notes, activeNoteId: id });
+      set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(note);
+      invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
       void syncNoteToDB(note);
       return id;
@@ -310,10 +350,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     importNote: (note) => {
       const notes = [note, ...get().notes];
-      set({ notes, activeNoteId: note.id });
+      set({ notes, activeNoteId: note.id, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       saveActiveNoteId(note.id);
       knowledgeIndexService.updateNote(note);
+      invalidateNoteGalaxyMapCache();
       void syncNoteToDB(note);
     },
 
@@ -331,9 +372,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ notes, folders });
       persistNotes(notes);
       persistFolders(folders);
-      for (const note of notes) {
-        knowledgeIndexService.updateNote(note);
-      }
+      rebuildKnowledgeIndex(notes);
+      bumpVaultStructure(set, get);
       const manifestIds = new Set(manifest.notes.map(n => n.id));
       for (const note of notes) {
         if (!note.deletedAt && (
@@ -381,10 +421,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
       if (previous) recordNoteUpdateDiff(previous, updated);
-      syncKnowledgeIndexForNote(updated, patch);
-      if ('body' in patch) {
-        scheduleBodySync(updated);
+      const bodyOnly = isBodyOnlyPatch(normalizedPatch);
+      if (bodyOnly) {
+        scheduleBodySync(updated, set, get);
       } else {
+        syncKnowledgeIndexForNote(updated, normalizedPatch);
+        bumpVaultStructure(set, get);
         flushPendingSync();
         void syncNoteToDB(updated);
       }
@@ -394,8 +436,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const notes = get().notes.map(n =>
         n.id === id ? { ...n, starred: !n.starred, updatedAt: Date.now() } : n
       );
-      set({ notes });
+      set({ notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
+      invalidateNoteGalaxyMapCache();
       const note = notes.find(n => n.id === id);
       if (note) void syncNoteToDB(note);
     },
@@ -412,10 +455,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         deletedAt: null,
       };
       const notes = [copy, ...get().notes];
-      set({ notes, activeNoteId: id });
+      set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(copy);
+      invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
       void syncNoteToDB(copy);
       return id;
@@ -427,9 +471,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
         n.id === id ? { ...n, deletedAt: now, updatedAt: now } : n
       );
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
-      set({ notes, activeNoteId: nextActive });
+      set({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       saveActiveNoteId(nextActive);
+      invalidateNoteGalaxyMapCache();
       const trashed = notes.find(n => n.id === id);
       if (trashed) {
         knowledgeIndexService.removeNote(id);
@@ -446,9 +491,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         notes,
         activeNoteId: id,
         activeFolderId: restored?.folderId ?? get().activeFolderId,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
       });
       persistNotes(notes);
       saveActiveNoteId(id);
+      invalidateNoteGalaxyMapCache();
       if (restored) {
         knowledgeIndexService.updateNote(restored);
         void syncNoteToDB(restored);
@@ -464,9 +511,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const nextActive = get().activeNoteId === id
         ? (notes.find(n => !n.deletedAt)?.id ?? null)
         : get().activeNoteId;
-      set({ notes, activeNoteId: nextActive });
+      set({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       saveActiveNoteId(nextActive);
+      invalidateNoteGalaxyMapCache();
       void removeNoteFromDB(id);
     },
 
@@ -496,11 +544,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
       );
       const folders = get().folders.filter(f => f.id !== id);
       const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
-      set({ folders, notes, activeFolderId });
+      set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
       persistFolders(folders);
+      invalidateNoteGalaxyMapCache();
+      for (const n of notes.filter(n => movedIds.has(n.id))) {
+        knowledgeIndexService.updateNote(n);
+        void syncNoteToDB(n);
+      }
       void removeFolderFromDB(id);
-      notes.filter(n => movedIds.has(n.id)).forEach(n => { void syncNoteToDB(n); });
     },
 
     hydrateFromDB: async () => {
@@ -552,7 +604,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             const prevActive = get().activeNoteId;
             const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
             const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
-            set({ notes: merged, activeNoteId: nextActive });
+            set({ notes: merged, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
             persistNotes(merged);
             saveActiveNoteId(nextActive);
             rebuildKnowledgeIndex(merged);
@@ -605,6 +657,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         syncError: null,
         savedAt: null,
         isSyncing: false,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
+        indexContentVersion: 0,
       });
       rebuildKnowledgeIndex(notes);
     },
@@ -624,7 +678,11 @@ function applyStorageMerge(key: string | null, newValue: string | null) {
     const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
     const nextActive = stillValid ? prevActive : loadActiveNoteId(merged);
     applyingStorageMerge = true;
-    useNotesStore.setState({ notes: merged, activeNoteId: nextActive });
+    useNotesStore.setState({
+      notes: merged,
+      activeNoteId: nextActive,
+      vaultStructureVersion: state.vaultStructureVersion + 1,
+    });
     rebuildKnowledgeIndex(merged);
     if (!saveNotes(merged)) useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
     if (nextActive !== prevActive) saveActiveNoteId(nextActive);
@@ -661,3 +719,8 @@ if (typeof window !== 'undefined') {
 }
 
 export { applyStorageMerge };
+
+knowledgeIndexService.setBodyProvider((noteId) => {
+  const note = useNotesStore.getState().notes.find(n => n.id === noteId);
+  return note?.body ?? '';
+});

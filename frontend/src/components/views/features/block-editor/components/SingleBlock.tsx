@@ -405,6 +405,8 @@ export const SingleBlock = React.memo(function SingleBlock({
         onChromeLeave={() => onChromeLeave?.()}
         onSelect={handleContentMouseDown}
         gutterChrome={gutterChrome}
+        onGutterPointerDown={onGutterPointerDown}
+        readOnly={readOnly}
         renderNested={renderToggleNested}
       />
     );

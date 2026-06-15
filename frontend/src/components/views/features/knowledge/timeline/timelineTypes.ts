@@ -91,4 +91,5 @@ export interface BuildKnowledgeTimelineOptions {
   now?: number;
   recentDays?: number;
   historyEvents?: readonly import('../history/eventTypes').KnowledgeHistoryEvent[];
+  galaxyCacheKey?: string;
 }

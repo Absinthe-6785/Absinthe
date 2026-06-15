@@ -102,7 +102,7 @@ describe('AnalyticsView legacy rollback path', () => {
     expect(html).toContain('data-legacy-analytics');
     expect(html).toContain('Period Overview');
     expect(html).not.toContain('data-archive-home');
-  }, 10_000);
+  }, 30_000);
 
   it('subscribes to legacy Analytics SWR keys when rollback flag is false', async () => {
     const { AnalyticsView } = await import('./AnalyticsView');

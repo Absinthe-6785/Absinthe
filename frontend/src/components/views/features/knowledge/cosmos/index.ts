@@ -47,4 +47,4 @@ export {
   type CosmosVaultPhase,
 } from './onboarding';
 
-export { buildNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+export { buildNoteGalaxyMap, getNoteGalaxyMap, invalidateNoteGalaxyMapCache } from '../graph/knowledgeUniverse/galaxyClustering';

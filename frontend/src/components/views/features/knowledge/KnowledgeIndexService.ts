@@ -9,6 +9,9 @@ import { normalizeQueryValue } from './query/parseQuery';
 import type { RelationEdge, ResolvedRelationTarget } from './relations/relationModels';
 import { normalizeRelationPropertyKey, relationEdgeKey, toRelationEdges } from './relations/relationNormalize';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
+import { createMemAuditThrottle } from '../../../../lib/memAudit';
+
+const logIndexMemAudit = createMemAuditThrottle(2000);
 
 export interface RelatedNote {
   noteId: string;
@@ -39,8 +42,9 @@ export class KnowledgeIndexService {
   private tagsByNoteId = new Map<string, readonly string[]>();
   /** normalized tag → note id → display tag name */
   private notesByTag = new Map<string, Map<string, string>>();
-  /** active note id → title/body snapshot for mention indexing */
-  private activeNotes = new Map<string, { title: string; body: string; updatedAt: number }>();
+  /** active note id → title/updatedAt metadata (body read via bodyProvider — K-83A) */
+  private activeNotes = new Map<string, { title: string; updatedAt: number }>();
+  private bodyProvider: ((noteId: string) => string) | null = null;
   /** target note id → source note id → reference (unlinked mentions) */
   private mentionsByTargetId = new Map<string, Map<string, PageReference>>();
   /** source note id → target note ids mentioned as plain text */
@@ -59,6 +63,15 @@ export class KnowledgeIndexService {
   private incomingRelationsByTargetId = new Map<string, RelationEdge[]>();
   /** normalized relation property key → source note ids with outgoing relation */
   private notesWithOutgoingRelationKey = new Map<string, Set<string>>();
+
+  /** Resolve note body from Zustand store — avoids duplicating bodies in the index. */
+  setBodyProvider(provider: (noteId: string) => string): void {
+    this.bodyProvider = provider;
+  }
+
+  private resolveBody(noteId: string, fallback = ''): string {
+    return this.bodyProvider?.(noteId) ?? fallback;
+  }
 
   /** Cold start / bulk sync — full rebuild */
   buildFromNotes(notes: NoteBase[]): void {
@@ -82,7 +95,6 @@ export class KnowledgeIndexService {
       if (note.deletedAt) continue;
       this.activeNotes.set(note.id, {
         title: note.title ?? '',
-        body: note.body ?? '',
         updatedAt: note.updatedAt ?? 0,
       });
       const titleKey = normalizeWikiTitle(note.title ?? '');
@@ -102,6 +114,15 @@ export class KnowledgeIndexService {
       if (note.deletedAt) continue;
       this.rebuildRelatedForNote(note.id);
     }
+
+    let relatedTotal = 0;
+    for (const list of this.relatedByNoteId.values()) relatedTotal += list.length;
+    logIndexMemAudit({
+      source: 'KnowledgeIndexService.buildFromNotes',
+      notes: this.activeNotes.size,
+      links: this.incomingByTitle.size + this.outgoingByNoteId.size,
+      relatedCandidates: relatedTotal,
+    });
   }
 
   /** Incremental update for a single note create/edit/restore */
@@ -119,7 +140,6 @@ export class KnowledgeIndexService {
     this.removeMentionsFromSource(note.id);
     this.activeNotes.set(note.id, {
       title: note.title ?? '',
-      body: note.body ?? '',
       updatedAt: note.updatedAt ?? 0,
     });
 
@@ -141,6 +161,16 @@ export class KnowledgeIndexService {
       affected.add(id);
     }
     for (const id of affected) this.rebuildRelatedForNote(id);
+
+    let relatedTotal = 0;
+    for (const list of this.relatedByNoteId.values()) relatedTotal += list.length;
+    logIndexMemAudit({
+      source: 'KnowledgeIndexService.updateNote',
+      notes: this.activeNotes.size,
+      links: this.incomingByTitle.size + this.outgoingByNoteId.size,
+      relatedCandidates: relatedTotal,
+      affectedNeighbors: affected.size,
+    });
   }
 
   /** Remove a note from the index (trash / permanent delete) */
@@ -700,7 +730,7 @@ export class KnowledgeIndexService {
     const nextBucket = new Map<string, PageReference>();
     for (const [sourceId, source] of this.activeNotes) {
       if (sourceId === targetId) continue;
-      if (hasUnlinkedMention(source.body, target.title)) {
+      if (hasUnlinkedMention(this.resolveBody(sourceId), target.title)) {
         nextBucket.set(sourceId, { noteId: sourceId, noteTitle: source.title });
         const existing = this.mentionsFromSourceId.get(sourceId) ?? [];
         if (!existing.includes(targetId)) {

@@ -427,7 +427,13 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               }}
               onToggleStar={() => toggleStar(activeNote.id)}
               onDuplicate={() => duplicateNote(activeNote)}
-              onTogglePanel={() => setShowRightPanel(v => !v)}
+              onTogglePanel={() => {
+                setShowRightPanel(v => {
+                  const opening = !v;
+                  if (opening && noteConnectionCount > 0) setRightPanel('links');
+                  return opening;
+                });
+              }}
               onCopyDocument={() => void handleCopyDocument()}
               onExport={() => exportNote(activeNote)}
               onRestore={() => restoreNote(activeNote.id)}

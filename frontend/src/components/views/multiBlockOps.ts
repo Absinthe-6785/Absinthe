@@ -12,6 +12,7 @@ import {
   type Block,
 } from './blockUtils';
 import { isToggleBlockType } from './toggleBlockTypes';
+import { normalizedOpIds } from './dragSelection';
 
 export type BlockFocusOffset = 'start' | 'end' | number;
 
@@ -50,8 +51,7 @@ export function resolveFocusAfterBlockDelete(
 }
 
 function orderedIds(blocks: Block[], ids: Iterable<string>): string[] {
-  const want = new Set(ids);
-  return flattenBlockIds(blocks).filter(id => want.has(id));
+  return normalizedOpIds(blocks, ids);
 }
 
 export function deleteSelectedBlocks(blocks: Block[], ids: Iterable<string>): Block[] {

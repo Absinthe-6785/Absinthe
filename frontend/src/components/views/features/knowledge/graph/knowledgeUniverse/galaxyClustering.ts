@@ -85,6 +85,27 @@ export function buildNoteGalaxyMap(
   return result;
 }
 
+let cachedGalaxyMap: Map<string, GalaxyAssignment> | null = null;
+let cachedGalaxyKey = '';
+
+/** Shared memoized galaxy map — invalidate via `invalidateNoteGalaxyMapCache` on vault structure changes. */
+export function getNoteGalaxyMap(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  cacheKey?: string,
+): Map<string, GalaxyAssignment> {
+  const key = cacheKey ?? `ephemeral:${notes.filter(n => !n.deletedAt).length}`;
+  if (cachedGalaxyMap && key === cachedGalaxyKey) return cachedGalaxyMap;
+  cachedGalaxyMap = buildNoteGalaxyMap(notes, service);
+  cachedGalaxyKey = key;
+  return cachedGalaxyMap;
+}
+
+export function invalidateNoteGalaxyMapCache(): void {
+  cachedGalaxyMap = null;
+  cachedGalaxyKey = '';
+}
+
 export function computeGalaxyCenters(
   nodes: ReadonlyArray<{ id: string; x: number; y: number; galaxyId: string }>,
 ): Map<string, GalaxyCenter> {

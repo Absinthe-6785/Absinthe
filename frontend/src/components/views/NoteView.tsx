@@ -167,14 +167,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './
 import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
-import { TagChip, TagChipRow } from './features/knowledge/components/TagChip';
 import { KnowledgeContextPanel, type KnowledgeContextTab } from './features/knowledge/components/KnowledgeContextPanel';
-import { KnowledgePanelEmpty } from './features/knowledge/components/KnowledgePanelSection';
-import { DiscoveryPanel } from './features/knowledge/components/DiscoveryPanel';
-import { TimelinePanel } from './features/knowledge/components/TimelinePanel';
-import { OutlinePanel } from './features/knowledge/components/OutlinePanel';
-import { LinksContextPanel, CosmosContextFooter } from './features/knowledge/components/LinksContextPanel';
-import { NoteContextStrip } from './features/knowledge/components/NoteContextStrip';
 import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUniverse/graphNodeTier';
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
@@ -197,6 +190,7 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
+import { logMemAudit } from '../../lib/memAudit';
 
 
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
@@ -217,6 +211,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   // ── A. Store selectors ────────────────────────────────────────────
   const notes = useNotesStore(s => s.notes);
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
+  const indexContentVersion = useNotesStore(s => s.indexContentVersion);
   const folders = useNotesStore(s => s.folders);
   const activeNoteId = useNotesStore(s => s.activeNoteId);
   const isSyncing = useNotesStore(s => s.isSyncing);
@@ -788,30 +784,30 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   // 위키링크 [[ 자동완성 후보 — 삭제되지 않은 노트의 제목
   const wikiTargets = useMemo(
-    () => notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
-    [notes]
+    () => useNotesStore.getState().notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
+    [vaultStructureVersion],
   );
   const pageReferences = useMemo(
-    () => (activeNote ? knowledgeIndexService.getPageReferences(activeNote, notes) : null),
-    [activeNote, notes],
+    () => (activeNote ? knowledgeIndexService.getPageReferences(activeNote, useNotesStore.getState().notes) : null),
+    [activeNote?.id, indexContentVersion, vaultStructureVersion],
   );
 
   // Linked reference excerpts — contextual paragraphs from referring pages
   const backlinkContexts = useMemo(
-    () => (activeNote ? extractLinkContexts(activeNote.title ?? '', notes) : []),
-    [notes, activeNote?.id, activeNote?.title],
+    () => (activeNote ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes) : []),
+    [activeNote?.id, activeNote?.title, indexContentVersion],
   );
 
   const mentioningNotes = useMemo(
     () => (activeNote ? knowledgeIndexService.getMentioningNotes(activeNote.id, { excludeNoteId: activeNote.id }) : []),
-    [activeNote, notes],
+    [activeNote?.id, indexContentVersion],
   );
 
   const groupedRelatedNotes = useMemo(
     () => (activeNote
-      ? groupRelatedNotes(activeNote.id, notes, knowledgeIndexService)
+      ? groupRelatedNotes(activeNote.id, useNotesStore.getState().notes, knowledgeIndexService)
       : { mostRelated: [], worthRevisiting: [] } satisfies GroupedRelatedNotes),
-    [activeNote, notes],
+    [activeNote?.id, vaultStructureVersion, indexContentVersion],
   );
 
   const relatedNotesCount = useMemo(
@@ -821,13 +817,13 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   );
 
   const noteReferenceSummary = useMemo(
-    () => (activeNote ? extractNoteReferenceSummary(activeNote, notes) : null),
-    [activeNote, notes],
+    () => (activeNote ? extractNoteReferenceSummary(activeNote, useNotesStore.getState().notes) : null),
+    [activeNote?.id, indexContentVersion, vaultStructureVersion],
   );
 
   const knowledgeMaintenance = useMemo(
-    () => buildKnowledgeMaintenanceData(notes),
-    [notes],
+    () => buildKnowledgeMaintenanceData(useNotesStore.getState().notes),
+    [vaultStructureVersion],
   );
 
   const {
@@ -870,12 +866,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     () => (activeNote
       ? buildConceptHub({
         note: activeNote,
-        notes,
+        notes: useNotesStore.getState().notes,
         service: knowledgeIndexService,
         referenceSummary: noteReferenceSummary,
       })
       : null),
-    [activeNote, notes, noteReferenceSummary],
+    [activeNote?.id, noteReferenceSummary, vaultStructureVersion, indexContentVersion],
   );
 
   const learningPath = useMemo(() => {
@@ -1011,12 +1007,29 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         service: knowledgeIndexService,
       })
       : null),
-    [activeNote, notes, expandedGraphNodes],
+    [activeNote?.id, activeNote?.title, expandedGraphNodes, vaultStructureVersion, indexContentVersion],
   );
+
+  useEffect(() => {
+    const activeCount = notes.filter(n => !n.deletedAt).length;
+    const outgoing = activeNote ? knowledgeIndexService.getOutgoing(activeNote.id).length : 0;
+    const incoming = activeNote
+      ? knowledgeIndexService.getIncoming(activeNote.title ?? '').length
+      : 0;
+    logMemAudit({
+      source: 'NoteView.context',
+      notes: activeCount,
+      links: outgoing + incoming,
+      graphNodes: localGraphData?.nodes.length,
+      graphEdges: localGraphData?.edges.length,
+      relatedCandidates: relatedNotesCount,
+      discoveryItems: discoveryFeed.items.length,
+    });
+  }, [notes, activeNote?.id, localGraphData, relatedNotesCount, discoveryFeed]);
 
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),
-    [notes],
+    [vaultStructureVersion, indexContentVersion],
   );
   const noteTags = useMemo(
     () => (activeNote ? listTags(activeNote) : []),
