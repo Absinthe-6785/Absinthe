@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const sessionStore = new Map<string, string>();
+vi.stubGlobal('sessionStorage', {
+  getItem: (k: string) => sessionStore.get(k) ?? null,
+  setItem: (k: string, v: string) => { sessionStore.set(k, v); },
+  removeItem: (k: string) => { sessionStore.delete(k); },
+  clear: () => { sessionStore.clear(); },
+  key: () => null,
+  length: 0,
+});
+
 vi.mock('../store/useNotesStore', () => ({
   useNotesStore: {
     getState: () => ({ setActiveNoteId: vi.fn() }),
@@ -8,6 +18,7 @@ vi.mock('../store/useNotesStore', () => ({
 
 import {
   getNoteNavigationSnapshot,
+  getNoteNavigationStack,
   goBackNote,
   goForwardNote,
   navigateToNoteWithHistory,
@@ -18,12 +29,14 @@ import {
 
 describe('noteNavigationStack', () => {
   beforeEach(() => {
+    sessionStore.clear();
     resetNoteNavigationStack();
   });
 
   it('seeds initial note', () => {
     seedNoteNavigationStack('a');
     expect(getNoteNavigationSnapshot().canBack).toBe(false);
+    expect(getNoteNavigationStack()[0]?.source).toBe('panel');
   });
 
   it('supports back and forward', () => {
@@ -50,5 +63,22 @@ describe('noteNavigationStack', () => {
     seedNoteNavigationStack('n1');
     navigateToNoteWithHistory('n2', 'wiki');
     expect(getNoteNavigationSnapshot().canBack).toBe(true);
+  });
+
+  it('persists stack to sessionStorage', () => {
+    seedNoteNavigationStack('a');
+    pushNoteNavigation('b', 'schedule');
+    const raw = sessionStore.get('absinthe.noteNav.v1');
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw!);
+    expect(parsed.stack[1].source).toBe('schedule');
+    expect(parsed.index).toBe(1);
+  });
+
+  it('does not clear stack when seeding with null', () => {
+    seedNoteNavigationStack('a');
+    pushNoteNavigation('b', 'wiki');
+    seedNoteNavigationStack(null);
+    expect(getNoteNavigationStack()).toHaveLength(2);
   });
 });

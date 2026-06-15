@@ -14,6 +14,7 @@ import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useTranslation } from '../../lib/i18n';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -22,17 +23,18 @@ export const SettingsView = ({
 }: ViewProps) => {
   // ✅ DRY: useConfirm으로 3줄 → 1줄
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+  const { t } = useTranslation();
 
   const doResetData = async () => {
     try {
       const res = await authFetch(`${API_URL}/api/reset`, { method: 'DELETE' });
       if (res.ok) {
-        showToast('All data has been permanently deleted.');
+        showToast(t('resetSuccess'));
         mutateDaily();
         mutateStatic();
       } else throw new Error();
     } catch {
-      showToast('Failed to reset data.', 'error');
+      showToast(t('resetFailed'), 'error');
     }
   };
 

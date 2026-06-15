@@ -116,6 +116,10 @@ export const PlannerView = ({
   }, [selectedDate]);
 
 
+  const openPlannerNote = useCallback((id: string) => {
+    openNote(id, { returnTab: 'planner' });
+  }, []);
+
   const handleCreateCountdownNote = useCallback(() => {
     const dateKey = formatDate(selectedDate);
     const id = createNote({ title: '' });
@@ -124,8 +128,8 @@ export const PlannerView = ({
       const withEvent = applyEventToNote(note, { title: t('scheduleCountdownNewTitle'), eventDate: dateKey });
       updateNote(id, { title: withEvent.title, properties: withEvent.properties });
     }
-    openNote(id);
-  }, [createNote, updateNote, formatDate, selectedDate, t]);
+    openPlannerNote(id);
+  }, [createNote, updateNote, formatDate, selectedDate, t, openPlannerNote]);
 
   // ── Routine ────────────────────────────────────────────────────────
   const handleAddRoutine = (text: string) => {
@@ -283,7 +287,7 @@ export const PlannerView = ({
         appSettings={appSettings}
         theme={theme}
         routineExceptionDates={routineExceptionDates}
-        onEventNoteClick={openNote}
+        onEventNoteClick={openPlannerNote}
         onAnchorDateChange={handleCalendarAnchorChange}
         onViewModeChange={setCalendarViewMode}
         dayScheduleActions={{
@@ -334,7 +338,7 @@ export const PlannerView = ({
           countdowns={calendarProjection.core.countdowns}
           presentation={calendarPresentation}
           theme={theme}
-          onNoteClick={openNote}
+          onNoteClick={openPlannerNote}
           onAddCountdown={handleCreateCountdownNote}
         />
 

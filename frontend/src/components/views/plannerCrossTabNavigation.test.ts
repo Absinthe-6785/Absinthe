@@ -13,9 +13,10 @@ describe('PlannerView cross-tab note navigation wiring', () => {
     'utf8',
   );
 
-  it('imports openNote and passes it to CalendarShell event clicks', () => {
+  it('imports openNote and passes planner return path to CalendarShell event clicks', () => {
     expect(source).toContain("from '../../lib/noteNavigation'");
-    expect(source).toContain('onEventNoteClick={openNote}');
+    expect(source).toContain('openPlannerNote');
+    expect(source).toContain('onEventNoteClick={openPlannerNote}');
   });
 
   it('does not embed a duplicate memo note list (K-48)', () => {

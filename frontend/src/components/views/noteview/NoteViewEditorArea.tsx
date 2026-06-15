@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useEffect, type RefObject, type MutableRefObject } from 'react';
+import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import {
   Search, Trash2, Star, Type, Eye, Orbit,
   RotateCcw, AlertTriangle, Save, Copy, AlignLeft, GitFork, Upload,
@@ -249,8 +250,16 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
   } = handlers;
 
+  const { returnTab, goReturn } = useNoteReturnTab();
+  const returnLabel = returnTab === 'planner'
+    ? t('nvReturnToSchedule')
+    : returnTab === 'health'
+      ? t('nvReturnToHealth')
+      : null;
+
   const handleMobileBack = () => {
     if (canBackNote) goBackNote();
+    else if (returnTab) goReturn();
     else setMobileShowEditor(false);
   };
 
@@ -293,6 +302,17 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 </button>
               </div>
             ) : null}
+            {returnLabel && (
+              <button
+                type="button"
+                className="btbtn"
+                onClick={goReturn}
+                title={returnLabel}
+                style={{ fontSize: 10, color: c.accent, whiteSpace: 'nowrap', minHeight: isMobile ? 44 : undefined }}
+              >
+                ← {returnLabel}
+              </button>
+            )}
             {isFocusPresetActive && activeFocusPreset && (
               <button
                 type="button"

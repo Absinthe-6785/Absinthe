@@ -3,7 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
-import { registerNotesTabSwitcher } from '../lib/noteNavigation';
+import { registerNotesTabSwitcher, registerAppTabSwitcher } from '../lib/noteNavigation';
 import { useAppStore } from '../store/useAppStore';
 import { useNotesStore } from '../store/useNotesStore';
 import { useNow } from '../hooks/useNow';
@@ -57,7 +57,12 @@ export function AppContent({ authUser }: { authUser: User }) {
   }, [hydrateFromDB, showToast]);
 
   useEffect(() => {
-    return registerNotesTabSwitcher(() => setActiveTab('note'));
+    const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));
+    const unregisterApp = registerAppTabSwitcher(setActiveTab);
+    return () => {
+      unregisterNotes();
+      unregisterApp();
+    };
   }, []);
 
   // ── 4. SWR ────────────────────────────────────────────────────────
