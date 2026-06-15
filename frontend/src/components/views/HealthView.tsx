@@ -568,8 +568,16 @@ export const HealthView = ({
   }, [currentDate]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
-  const openHealthLogNote = useCallback(() => {
-    openHealthDayNote(formatDate(selectedDate), createNote, updateNote);
+  const openHealthDayLog = useCallback((section: 'workout' | 'nutrition' | 'recovery') => {
+    const sectionKey = section === 'workout'
+      ? 'healthNavWorkout'
+      : section === 'nutrition'
+        ? 'healthNavNutrition'
+        : 'healthNavRecovery';
+    openHealthDayNote(formatDate(selectedDate), createNote, updateNote, [
+      { type: 'key', key: sectionKey },
+      { type: 'key', key: 'healthOpenDayNote' },
+    ]);
   }, [formatDate, selectedDate, createNote, updateNote]);
 
   const swipeHealthSection = useSwipeNavigation(
@@ -628,7 +636,7 @@ export const HealthView = ({
 
       {healthSection === 'nutrition' && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-4">
-          <ProteinTracker theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} />
+          <ProteinTracker theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
         </div>
       )}
 
@@ -639,6 +647,7 @@ export const HealthView = ({
             selectedDate={selectedDate}
             formatDate={formatDate}
             isWorkoutLocked={isWorkoutLocked}
+            onOpenDayNote={() => openHealthDayLog('recovery')}
           />
           <div className={`lg:w-[200px] shrink-0 rounded-[24px] shadow-sm px-5 py-4 ${theme.card}`}>
             <div className="flex flex-col gap-2.5 mb-3">
@@ -1199,7 +1208,7 @@ export const HealthView = ({
               />
               <button
                 type="button"
-                onClick={openHealthLogNote}
+                onClick={() => openHealthDayLog('workout')}
                 className={`mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border ${theme.border} ${theme.textMuted} hover:text-foreground transition-colors min-h-[44px]`}
               >
                 <FileText size={14} />
@@ -1318,6 +1327,7 @@ export const HealthView = ({
               selectedDate={selectedDate}
               formatDate={formatDate}
               showToast={showToast}
+              onOpenDayNote={() => openHealthDayLog('nutrition')}
             />
           </div>
         </div>
@@ -1331,6 +1341,7 @@ export const HealthView = ({
           selectedDate={selectedDate}
           formatDate={formatDate}
           showToast={showToast}
+          onOpenDayNote={() => openHealthDayLog('nutrition')}
         />
       </div>
     </div>

@@ -14,6 +14,7 @@ import {
   seedNoteNavigationStack,
   type NoteNavigationSource,
 } from '../../lib/noteNavigationStack';
+import { setNoteBreadcrumb, type NoteBreadcrumbSegment } from '../../lib/noteNavigation';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -749,7 +750,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     seedNoteNavigationStack(activeNoteId);
   }, [activeNoteId]);
 
-  const openNoteById = useCallback((noteId: string, source: NoteNavigationSource = 'panel') => {
+  const openNoteById = useCallback((
+    noteId: string,
+    source: NoteNavigationSource = 'panel',
+    breadcrumb?: readonly NoteBreadcrumbSegment[],
+  ) => {
+    if (breadcrumb?.length) setNoteBreadcrumb(breadcrumb);
     navigateToNoteWithHistory(noteId, source);
   }, []);
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BedDouble, Moon, TrendingDown, TrendingUp, Minus } from 'lucide-react';
+import { BedDouble, Moon, TrendingDown, TrendingUp, Minus, FileText } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import type { Theme } from '@/types';
 import {
@@ -16,6 +16,7 @@ export interface RecoveryLogPanelProps {
   selectedDate: Date;
   formatDate: (d: Date) => string;
   isWorkoutLocked: boolean;
+  onOpenDayNote?: () => void;
 }
 
 const QUALITY_OPTIONS: SleepQuality[] = [1, 2, 3, 4, 5];
@@ -25,6 +26,7 @@ export function RecoveryLogPanel({
   selectedDate,
   formatDate,
   isWorkoutLocked,
+  onOpenDayNote,
 }: RecoveryLogPanelProps) {
   const { t } = useTranslation();
   const dateStr = formatDate(selectedDate);
@@ -222,6 +224,17 @@ export function RecoveryLogPanel({
           ))}
         </ul>
       </div>
+
+      {onOpenDayNote ? (
+        <button
+          type="button"
+          onClick={onOpenDayNote}
+          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold ${theme.input} border ${theme.border} ${theme.textMuted} hover:opacity-90 transition-opacity`}
+        >
+          <FileText size={14} />
+          {t('healthOpenDayNote')}
+        </button>
+      ) : null}
     </div>
   );
 }

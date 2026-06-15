@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { X, Pencil, Apple, Scale } from 'lucide-react';
+import { X, Pencil, Apple, Scale, FileText } from 'lucide-react';
 import { authFetch } from '@/lib/supabase';
 import { API_URL } from '@/lib/config';
 import { useTranslation } from '@/lib/i18n';
 import type { Theme } from '@/types';
+import type { ToastType } from '@/hooks/useToast';
 import { useProteinData } from '../hooks/useProteinData';
 import {
   PROTEIN_CATEGORY_KEYS,
@@ -18,10 +19,11 @@ export interface ProteinTrackerProps {
   darkMode: boolean;
   selectedDate: Date;
   formatDate: (d: Date) => string;
-  showToast: (m: string, t?: 'success' | 'error') => void;
+  showToast: (m: string, t?: ToastType) => void;
+  onOpenDayNote?: () => void;
 }
 
-export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, showToast }: ProteinTrackerProps) {
+export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, showToast, onOpenDayNote }: ProteinTrackerProps) {
   const { t } = useTranslation();
 
   const [tab, setTab] = useState<'goal' | 'sources' | 'log'>('log');
@@ -517,6 +519,17 @@ export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, show
           ) : (
             <p className={`text-xs text-center py-3 ${theme.textMuted}`}>{t('noIntakeToday')}</p>
           )}
+
+          {onOpenDayNote ? (
+            <button
+              type="button"
+              onClick={onOpenDayNote}
+              className={`mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold shrink-0 ${theme.input} border ${theme.border} ${theme.textMuted} hover:opacity-90 transition-opacity`}
+            >
+              <FileText size={14} />
+              {t('healthOpenDayNote')}
+            </button>
+          ) : null}
         </div>
       )}
     </div>

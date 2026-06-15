@@ -12,7 +12,10 @@ export type NoteNavigationSource =
   | 'panel'
   | 'external'
   | 'schedule'
-  | 'health';
+  | 'health'
+  | 'archive'
+  | 'discovery'
+  | 'timeline';
 
 export interface NoteNavigationEntry {
   id: string;

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
-import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { registerNotesTabSwitcher, registerAppTabSwitcher } from '../lib/noteNavigation';
@@ -21,6 +21,7 @@ import { SettingsView } from './views/SettingsView';
 import { NoteView } from './views/NoteView';
 import { RecipeView } from './views/RecipeView';
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
+import { useTranslation } from '../lib/i18n';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -34,6 +35,7 @@ const THEME_COLORS: ThemeColor[] = [
 
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting } = useAppStore();
+  const { t } = useTranslation();
   const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
   const [activeTab, setActiveTab] = useState<TabId>('note');
 
@@ -51,10 +53,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     hydrateFromDB().then(() => {
       void migrateLegacyDdays(count => {
-        if (count > 0) showToast(`Migrated ${count} countdown${count === 1 ? '' : 's'} to notes`);
+        if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
       });
     });
-  }, [hydrateFromDB, showToast]);
+  }, [hydrateFromDB, showToast, t]);
 
   useEffect(() => {
     const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));
@@ -150,10 +152,19 @@ export function AppContent({ authUser }: { authUser: User }) {
       {toast && (
         <div
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-[999] animate-in slide-in-from-bottom-5 font-semibold text-sm flex items-center gap-2 ${
-            toast.type === 'error' ? 'bg-danger text-white' : 'bg-surface-alt text-primary'
+            toast.type === 'error'
+              ? 'bg-danger text-white'
+              : toast.type === 'warning'
+                ? 'bg-amber-500 text-white'
+                : toast.type === 'info'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-surface-alt text-primary'
           }`}
         >
-          {toast.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
+          {toast.type === 'error' ? <AlertCircle size={16} />
+            : toast.type === 'warning' ? <AlertTriangle size={16} />
+              : toast.type === 'info' ? <Info size={16} />
+                : <CheckCircle size={16} />}
           {toast.msg}
         </div>
       )}

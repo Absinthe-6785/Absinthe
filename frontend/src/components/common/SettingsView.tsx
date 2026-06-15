@@ -121,7 +121,7 @@ export const SettingsView = ({
                 </div>
                 <button
                   disabled
-                  onClick={() => showToast('Export feature coming soon!', 'error')}
+                  onClick={() => showToast(t('settingsExportComingSoon'), 'info')}
                   className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 opacity-50 cursor-not-allowed ${theme.input}`}
                 >
                   <Download size={18} /> Coming Soon

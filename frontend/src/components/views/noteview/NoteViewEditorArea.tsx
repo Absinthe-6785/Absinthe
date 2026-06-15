@@ -1,5 +1,10 @@
 import { forwardRef, useImperativeHandle, useEffect, type RefObject, type MutableRefObject } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
+import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
+import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
+import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
+import { WorkspaceContextBanner } from './WorkspaceContextBanner';
+import { displayNoteTitle } from '../noteDisplayTitle';
 import {
   Search, Trash2, Star, Type, Eye, Orbit,
   RotateCcw, AlertTriangle, Save, Copy, AlignLeft, GitFork, Upload,
@@ -214,7 +219,7 @@ export interface NoteViewEditorHandlers {
   canForwardNote: boolean;
   goBackNote: () => void;
   goForwardNote: () => void;
-  openNoteById: (id: string, source?: import('../../../lib/noteNavigationStack').NoteNavigationSource) => void;
+  openNoteById: (id: string, source?: import('../../../lib/noteNavigationStack').NoteNavigationSource, breadcrumb?: import('../../../lib/noteBreadcrumb').NoteBreadcrumbSegment[]) => void;
 }
 
 export interface NoteViewEditorAreaProps {
@@ -251,11 +256,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   } = handlers;
 
   const { returnTab, goReturn } = useNoteReturnTab();
+  const breadcrumb = useNoteBreadcrumb();
   const returnLabel = returnTab === 'planner'
     ? t('nvReturnToSchedule')
     : returnTab === 'health'
       ? t('nvReturnToHealth')
-      : null;
+      : returnTab === 'analytics'
+        ? t('nvReturnToArchive')
+        : null;
 
   const handleMobileBack = () => {
     if (canBackNote) goBackNote();
@@ -264,6 +272,9 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   };
 
   const handleCosmosSelect = (id: string) => {
+    setNoteBreadcrumb([
+      { type: 'key', key: 'graphModeCosmos' },
+    ]);
     openNoteById(id, 'cosmos');
     setViewMode('edit');
   };
@@ -463,6 +474,21 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
             }
           </div>
+          <NoteBreadcrumbBar
+            colors={c}
+            segments={breadcrumb}
+            noteTitle={breadcrumb.length > 0 ? displayNoteTitle(activeNote.title) : undefined}
+          />
+          <WorkspaceContextBanner
+            colors={c}
+            note={activeNote}
+            hasReturnSchedule={returnTab === 'planner'}
+            hasReturnHealth={returnTab === 'health'}
+            hasReturnArchive={returnTab === 'analytics'}
+            onReturnSchedule={goReturn}
+            onReturnHealth={goReturn}
+            onReturnArchive={goReturn}
+          />
           {!isTrash && noteTags.length > 0 && (() => {
             const MAX_HEADER_TAGS = 10;
             const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_HEADER_TAGS);
