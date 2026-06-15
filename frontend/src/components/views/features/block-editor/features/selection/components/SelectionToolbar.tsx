@@ -2,7 +2,7 @@
  * SelectionToolbar.tsx — Floating format toolbar for text selection (extracted from BlockEditor)
  */
 import React, { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
-import { useTranslation } from '../../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import {
   Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3, Heading4,
   Strikethrough, Highlighter,

@@ -199,12 +199,7 @@ import {
 import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
-import { registerTraceNavigation } from '../../lib/traceNavigation';
-import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels } from './noteview/index';
-
-const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
-  'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
-]);
+import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody } from './noteview/index';
 
 
 // ── 블록 에디터 어댑터 ────────────────────────────────────────────────
@@ -317,11 +312,6 @@ export const NoteView = () => {
     [notes, activeNoteId],
   );
 
-  // ── C. Helper functions ───────────────────────────────────────────
-  const noteUpdate = useCallback((id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => {
-    updateNote(id, patch);
-  }, [updateNote]);
-
   // ── Local UI state ────────────────────────────────────────────────
   const {
     activeFolderId, setActiveFolderId,
@@ -372,66 +362,6 @@ export const NoteView = () => {
     createMilestoneDialogOpen, setCreateMilestoneDialogOpen,
     resetBrowseScope,
   } = useNoteViewState();
-
-  const createNote = useCallback((initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => {
-    const id = storeCreateNote({
-      title: initial?.title,
-      body: initial?.body,
-      folderId: initial?.folderId,
-      folderContext: initial?.folderId !== undefined ? undefined : activeFolderId,
-    });
-    setViewMode('edit');
-    setTimeout(() => titleInputRef.current?.focus(), 50);
-    return id;
-  }, [activeFolderId, storeCreateNote]);
-
-  const duplicateNote = useCallback((note: Note) => {
-    storeDuplicateNote(note);
-  }, [storeDuplicateNote]);
-
-  const createFolder = useCallback((name: string) => {
-    const id = storeCreateFolder(name);
-    setActiveFolderId(id);
-  }, [storeCreateFolder]);
-
-  const deleteFolder = useCallback((id: string) => {
-    storeDeleteFolder(id);
-    setActiveFolderId(prev => (prev === id ? null : prev));
-  }, [storeDeleteFolder]);
-
-  const exportNote = useCallback((note: Note) => {
-    const blob = new Blob([serializeNoteMarkdown(note)], { type: 'text/markdown;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `${note.title.replace(/[/\\?%*:|"<>]/g, '-') || 'untitled'}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, []);
-
-  // 전체 노트 ZIP 없이 개별 .md 파일로 순차 다운로드 (삭제된 노트 제외)
-  const exportAllNotes = useCallback(() => {
-    const active = notes.filter(n => !n.deletedAt);
-    if (active.length === 0) return;
-    // 파일명 중복 방지를 위해 인덱스 추가
-    const nameCount: Record<string, number> = {};
-    active.forEach((note, idx) => {
-      const safeName = (note.title ?? 'untitled').replace(/[/\\?%*:|"<>]/g, '-') || 'untitled';
-      const count = nameCount[safeName] ?? 0;
-      nameCount[safeName] = count + 1;
-      const fileName = count > 0 ? `${safeName}_${count}.md` : `${safeName}.md`;
-      // 순차 다운로드 (브라우저 팝업 차단 방지)
-      setTimeout(() => {
-        const blob = new Blob([serializeNoteMarkdown(note)], { type: 'text/markdown;charset=utf-8' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = fileName;
-        a.click();
-        URL.revokeObjectURL(url);
-      }, idx * 200);
-    });
-  }, [notes]);
 
   const { isMobile, isTablet } = useViewportLayout();
   const isCompactChrome = isMobile || isTablet;
@@ -534,71 +464,157 @@ export const NoteView = () => {
     handleCreateJournalDatabase,
   } = workspace;
 
+  const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const blockEditorRef = useRef<BlockEditorHandle>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+  const virtualScrollApiRef = useRef<{
+    scrollToBlockId: (blockId: string) => boolean;
+    getBlockScrollTop?: (blockId: string) => number | null;
+  } | null>(null);
+  const tocScrollSpyPausedRef = useRef(false);
+  const tocPanelRef = useRef<HTMLDivElement>(null);
+
+  const isTrash = activeFolderId === 'trash';
+
+  const {
+    noteUpdate,
+    createNote,
+    duplicateNote,
+    createFolder,
+    deleteFolder,
+    exportNote,
+    exportAllNotes,
+    openTraceDay,
+    openTraceRange,
+    openTraceArea,
+    openTraceDiscovery,
+    closeTraceLens,
+    openCreateEventDialog,
+    openEditEventDialog,
+    openMilestoneDialog,
+    handleEventDialogSave,
+    handleRemoveEventStatus,
+    handleMilestoneDialogSave,
+    handleRemoveMilestone,
+    createQuickCapture,
+    createTask,
+    createJournal,
+    handleCreateReadingNote,
+    handleCreateStudyNote,
+    handleCreateProject,
+    handleSubmitCreateProject,
+    handleCreateProjectMilestone,
+    handleSubmitCreateMilestone,
+    handleOpenStudyCollection,
+    handleOpenResearchCollection,
+    handleActivateSubjectWorkspace,
+    handleWorkspaceSearchNote,
+    handleWorkspaceSearchFolder,
+    handleWorkspaceSearchTag,
+    handleWorkspaceSearchCollection,
+    handleWorkspaceSearchLearningPath,
+    handleOpenProjectNotes,
+    handleNavigateToProjectEditor,
+    handleEditProject,
+    handleUpdateProjectDescription,
+    handleUpdateProjectStatus,
+    handleUpdateMilestoneStatus,
+    handleUpdateMilestoneTargetDate,
+    handleCreateLearningPathStepNote,
+    handleUpdateNoteProperties,
+    handleActivateDashboardWithTraceClear,
+    handleCopyDocument,
+    handleTitleChange,
+    handleTitleCompositionEnd,
+    handleActiveBodyChange,
+    handlePromoteNoteKind,
+    handleLinkReadingSource,
+    handleUnlinkReadingSource,
+    handleExpandGraphNode,
+    handleCollapseGraphNode,
+    addFolder,
+    insertImageAtCursor,
+    insertEmptyImageBlockAtCursor,
+    handleEditorDrop,
+    handleImport,
+    navigateToWiki,
+    handleToggleAreaNote,
+    openCreatedNote,
+  } = useNoteViewActions({
+    notes,
+    activeNote,
+    activeNoteId,
+    activeFolderId,
+    isTrash,
+    traceAreaId,
+    viewMode,
+    showSortMenu,
+    newFolderName,
+    eventDialog,
+    milestoneDialog,
+    titleInputRef,
+    titleComposingRef,
+    docCopyTimerRef,
+    blockEditorRef,
+    searchInputRef,
+    openCreateEventDialogRef,
+    setViewMode,
+    setActiveFolderId,
+    setSearchQuery,
+    setShowFolderForm,
+    setNewFolderName,
+    setEventDialog,
+    setMilestoneDialog,
+    setCreateProjectDialogOpen,
+    setCreateMilestoneDialogOpen,
+    setTraceDate,
+    setTraceRange,
+    setTraceAreaId,
+    setTraceAreaRange,
+    setTraceDiscoveryMode,
+    setWorkspaceActivation,
+    setWorkspaceSearchOpen,
+    setShowShortcuts,
+    setShowSortMenu,
+    setFocusMode,
+    setDocCopied,
+    setSearchScope,
+    setActiveTag,
+    setMobileSidebarOpen,
+    setExpandedGraphNodes,
+    setIsDragOver,
+    setTitleDraft,
+    setActiveNoteId,
+    setShowRightPanel,
+    setRightPanel,
+    setEditingLearningPathId,
+    updateNote,
+    storeCreateNote,
+    storeCreateFolder,
+    storeDuplicateNote,
+    storeDeleteFolder,
+    importNote,
+    flushPendingSync,
+    syncNoteToDB,
+    handleLeaveDashboardForNote,
+    handleActivateSmartCollection,
+    handleActivateDashboard,
+    resetBrowseScope,
+    isMobile,
+  });
+
+  createQuickCaptureRef.current = createQuickCapture;
+  createTaskRef.current = createTask;
+  createJournalRef.current = createJournal;
+
   const todayTraceKey = toDateKey(new Date());
 
   const currentTraceMonthKey = currentTraceMonth();
   const currentTraceQuarterKey = currentTraceQuarter();
   const currentTraceYearKey = currentTraceYear();
-
-  const openTraceDay = useCallback((dateKey: string) => {
-    setTraceDate(dateKey);
-    setTraceRange(null);
-    setTraceAreaId(null);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-  }, [setWorkspaceActivation, setSearchQuery]);
-
-  const openTraceRange = useCallback((lens: TraceRangeLens) => {
-    setTraceRange(lens);
-    setTraceDate(null);
-    setTraceAreaId(null);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-  }, [setWorkspaceActivation, setSearchQuery]);
-
-  const openTraceArea = useCallback((areaNoteId: string) => {
-    setTraceAreaId(areaNoteId);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-    setTraceDate(null);
-    setTraceRange(null);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-  }, [setWorkspaceActivation, setSearchQuery]);
-
-  const openTraceDiscovery = useCallback(() => {
-    setTraceDiscoveryMode(true);
-    setTraceAreaId(null);
-    setTraceAreaRange(null);
-    setTraceDate(null);
-    setTraceRange(null);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setSearchQuery('');
-  }, [setWorkspaceActivation, setSearchQuery]);
-
-  useEffect(() => {
-    return registerTraceNavigation({
-      openTraceDay,
-      openTraceRange,
-      openTraceDiscovery,
-    });
-  }, [openTraceDay, openTraceRange, openTraceDiscovery]);
-
-  const closeTraceLens = useCallback(() => {
-    setTraceDate(null);
-    setTraceRange(null);
-    setTraceAreaId(null);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-  }, []);
 
   const isTraceDayMode = traceDate !== null;
   const isTraceRangeMode = traceRange !== null;
@@ -728,353 +744,6 @@ export const NoteView = () => {
     return list;
   }, [notes, activeFolderId, searchQuery, activeTag, sortOrder, knowledgeQueryInfo.active, applyWorkspaceToNotes, shouldSkipUserSort, formulaQueryCatalog]);
 
-  // ── D. Callbacks (event / capture / productivity) ───────────────
-  const openCreateEventDialog = useCallback((defaults?: Partial<EventFormValues>) => {
-    setEventDialog({
-      mode: 'create',
-      initialValues: {
-        title: defaults?.title?.trim() ?? '',
-        eventDate: defaults?.eventDate ?? toDateKey(new Date()),
-        eventTime: defaults?.eventTime,
-        eventEndDate: defaults?.eventEndDate,
-        eventEndTime: defaults?.eventEndTime,
-      },
-    });
-  }, []);
-
-  const openEditEventDialog = useCallback((note: Note) => {
-    setEventDialog({
-      mode: 'edit',
-      noteId: note.id,
-      initialValues: eventFormValuesFromNote(note, toDateKey(new Date())),
-    });
-  }, []);
-
-  const openMilestoneDialog = useCallback((note: Note) => {
-    setMilestoneDialog({
-      noteId: note.id,
-      noteTitle: displayNoteTitle(note.title),
-      initialValues: milestoneFormValuesFromNote(note, toDateKey(new Date())),
-      hasExistingMilestone: isMilestoneNote(note),
-    });
-  }, []);
-
-  openCreateEventDialogRef.current = openCreateEventDialog;
-
-  const openCreatedNote = useCallback((id: string) => {
-    handleLeaveDashboardForNote(id);
-    setActiveNoteId(id);
-    setViewMode('edit');
-    return id;
-  }, [handleLeaveDashboardForNote, setActiveNoteId]);
-
-  const handleEventDialogSave = useCallback((values: EventFormValues) => {
-    if (!eventDialog) return;
-
-    if (eventDialog.mode === 'create') {
-      const id = storeCreateNote({ title: values.title.trim() || 'Untitled', body: '' });
-      const created = useNotesStore.getState().notes.find(n => n.id === id);
-      if (created) {
-        const withEvent = applyEventToNote(created, values);
-        updateNote(id, { title: withEvent.title, properties: withEvent.properties });
-      }
-      openCreatedNote(id);
-    } else if (eventDialog.noteId) {
-      const note = useNotesStore.getState().notes.find(n => n.id === eventDialog.noteId);
-      if (note) {
-        const withEvent = applyEventToNote(note, values);
-        updateNote(note.id, { title: withEvent.title, properties: withEvent.properties });
-      }
-    }
-
-    setEventDialog(null);
-  }, [eventDialog, storeCreateNote, updateNote, openCreatedNote]);
-
-  const handleRemoveEventStatus = useCallback(() => {
-    if (!eventDialog?.noteId) return;
-    const note = useNotesStore.getState().notes.find(n => n.id === eventDialog.noteId);
-    if (!note) return;
-    const cleared = clearEventFromNote(note);
-    updateNote(note.id, { properties: cleared.properties });
-    setEventDialog(null);
-  }, [eventDialog, updateNote]);
-
-  const handleMilestoneDialogSave = useCallback((values: MilestoneFormValues) => {
-    if (!milestoneDialog) return;
-    const note = useNotesStore.getState().notes.find(n => n.id === milestoneDialog.noteId);
-    if (!note) return;
-    const withMilestone = applyMilestoneToNote(note, values);
-    updateNote(note.id, { properties: withMilestone.properties });
-    setMilestoneDialog(null);
-  }, [milestoneDialog, updateNote]);
-
-  const handleRemoveMilestone = useCallback(() => {
-    if (!milestoneDialog) return;
-    const note = useNotesStore.getState().notes.find(n => n.id === milestoneDialog.noteId);
-    if (!note) return;
-    const cleared = clearMilestoneFromNote(note);
-    updateNote(note.id, { properties: cleared.properties });
-    setMilestoneDialog(null);
-  }, [milestoneDialog, updateNote]);
-
-  createQuickCaptureRef.current = (input: QuickCaptureInput) => {
-    if (input.captureType === 'event') {
-      openCreateEventDialogRef.current({
-        title: input.title,
-        eventDate: toDateKey(new Date()),
-      });
-      return;
-    }
-    const id = storeCreateNote({ title: input.title, body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      if (input.captureType === 'task') {
-        const template = resolveTaskTemplateId(input.taskTemplateId, TASK_TEMPLATES);
-        if (template) {
-          const taskNote = buildTaskNote(created, template, {
-            title: input.title,
-            toInbox: true,
-          });
-          updateNote(id, { title: taskNote.title, properties: taskNote.properties });
-        }
-      } else {
-        const tagged = createInboxNote(created, { captureType: input.captureType });
-        updateNote(id, { properties: tagged.properties });
-      }
-    }
-    return openCreatedNote(id);
-  };
-
-  createTaskRef.current = (input: CreateTaskInput) => {
-    const template = resolveTaskTemplateId(input.templateId, TASK_TEMPLATES);
-    if (!template) return;
-    const id = storeCreateNote({ title: input.title?.trim() || template.defaultTitle, body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      const taskNote = buildTaskNote(created, template, {
-        title: input.title,
-        toInbox: input.toInbox ?? true,
-      });
-      updateNote(id, { title: taskNote.title, body: taskNote.body, properties: taskNote.properties });
-    }
-    return openCreatedNote(id);
-  };
-
-  createJournalRef.current = (input: CreateJournalInput) => {
-    const template = resolveJournalTemplateId(input.templateId, JOURNAL_TEMPLATES);
-    if (!template) return;
-    const id = storeCreateNote({ title: input.title?.trim() || template.defaultTitle, body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      const journalNote = buildJournalNote(created, template, { title: input.title });
-      updateNote(id, {
-        title: journalNote.title,
-        body: journalNote.body,
-        properties: journalNote.properties,
-      });
-    }
-    return openCreatedNote(id);
-  };
-
-  const handleCreateReadingNote = useCallback((title?: string) => {
-    const id = storeCreateNote({ title: title?.trim() || 'Reading Notes', body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      let readingNote = buildReadingNote(created, { title });
-      let sourceRelations: Note['relations'];
-      if (activeNote && getNoteKind(activeNote) === 'source') {
-        const linked = linkReadingNoteToSource(readingNote, activeNote);
-        readingNote = linked.reading;
-        sourceRelations = linked.source.relations;
-      }
-      updateNote(id, {
-        title: readingNote.title,
-        body: readingNote.body,
-        properties: readingNote.properties,
-        relations: readingNote.relations,
-      });
-      if (sourceRelations && activeNote) {
-        noteUpdate(activeNote.id, { relations: sourceRelations });
-      }
-    }
-    return openCreatedNote(id);
-  }, [notes, activeNote, storeCreateNote, updateNote, noteUpdate, openCreatedNote]);
-
-  const handleCreateStudyNote = useCallback((title?: string) => {
-    const id = storeCreateNote({ title: title?.trim() || 'Study Notes', body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      const studyNote = buildStudyNote(created, { title });
-      updateNote(id, {
-        title: studyNote.title,
-        body: studyNote.body,
-        properties: studyNote.properties,
-      });
-    }
-    return openCreatedNote(id);
-  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
-
-  const handleCreateProject = useCallback(() => {
-    setCreateProjectDialogOpen(true);
-  }, []);
-
-  const handleSubmitCreateProject = useCallback((values: CreateProjectFormValues) => {
-    const id = storeCreateNote({ title: values.name, body: '' });
-    const created = useNotesStore.getState().notes.find(n => n.id === id);
-    if (created) {
-      let project = setStudyProjectContainer(created, values.status, values.description || undefined);
-      if (values.subjectId) {
-        const subject = SUBJECT_DASHBOARDS.find(s => s.id === values.subjectId);
-        if (subject) project = addTag(project, subject.tag);
-      }
-      updateNote(id, { title: values.name, properties: project.properties });
-    }
-    setCreateProjectDialogOpen(false);
-    openCreatedNote(id);
-  }, [storeCreateNote, updateNote, openCreatedNote]);
-
-  const handleCreateProjectMilestone = useCallback(() => {
-    setCreateMilestoneDialogOpen(true);
-  }, []);
-
-  const handleSubmitCreateMilestone = useCallback((values: CreateMilestoneFormValues) => {
-    const id = storeCreateNote({ title: values.name, body: '' });
-    const created = useNotesStore.getState().notes.find(n => n.id === id);
-    if (created) {
-      const milestone = setProjectMilestone(
-        created,
-        values.projectId,
-        values.status,
-        values.targetDate || undefined,
-      );
-      updateNote(id, { title: values.name, properties: milestone.properties });
-    }
-    setCreateMilestoneDialogOpen(false);
-    openCreatedNote(id);
-  }, [storeCreateNote, updateNote, openCreatedNote]);
-
-  const handleOpenStudyCollection = useCallback(() => {
-    const collection = findSmartCollection('exam-study-notes');
-    if (collection) handleActivateSmartCollection(collection);
-  }, [handleActivateSmartCollection]);
-
-  const handleOpenResearchCollection = useCallback(() => {
-    const collection = findSmartCollection('research-sources');
-    if (collection) handleActivateSmartCollection(collection);
-  }, [handleActivateSmartCollection]);
-
-  const handleActivateSubjectWorkspace = useCallback((collectionId: SmartCollectionId) => {
-    const collection = findSmartCollection(collectionId);
-    if (collection) handleActivateSmartCollection(collection);
-  }, [handleActivateSmartCollection]);
-
-  const handleWorkspaceSearchNote = useCallback((noteId: string) => {
-    handleLeaveDashboardForNote(noteId);
-    setActiveNoteId(noteId);
-    if (isMobile) setMobileSidebarOpen(false);
-  }, [handleLeaveDashboardForNote, isMobile]);
-
-  const handleWorkspaceSearchFolder = useCallback((folderId: string) => {
-    resetBrowseScope();
-    setActiveFolderId(folderId);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    if (isMobile) setMobileSidebarOpen(false);
-  }, [resetBrowseScope, isMobile]);
-
-  const handleWorkspaceSearchTag = useCallback((tag: string) => {
-    resetBrowseScope();
-    setActiveTag(tag);
-    setWorkspaceActivation(INACTIVE_WORKSPACE);
-    if (isMobile) setMobileSidebarOpen(false);
-  }, [resetBrowseScope, isMobile]);
-
-  const handleWorkspaceSearchCollection = useCallback((collectionId: string) => {
-    const collection = findSmartCollection(collectionId as SmartCollectionId);
-    if (collection) handleActivateSmartCollection(collection);
-    if (isMobile) setMobileSidebarOpen(false);
-  }, [handleActivateSmartCollection, isMobile]);
-
-  const handleWorkspaceSearchLearningPath = useCallback((pathId: string) => {
-    handleActivateDashboard();
-    setEditingLearningPathId(pathId);
-    if (isMobile) setMobileSidebarOpen(false);
-  }, [handleActivateDashboard, isMobile]);
-
-  const handleOpenProjectNotes = useCallback(() => {
-    const collection = findSmartCollection('academic-active-projects');
-    if (collection) handleActivateSmartCollection(collection);
-  }, [handleActivateSmartCollection]);
-
-  const handleNavigateToProjectEditor = useCallback((projectId: string) => {
-    handleLeaveDashboardForNote(projectId);
-    setActiveNoteId(projectId);
-    setShowRightPanel(true);
-    setRightPanel('properties');
-  }, [handleLeaveDashboardForNote]);
-
-  const handleEditProject = useCallback(() => {
-    const project = filterStudyProjectContainers(notes, 'active')[0]
-      ?? filterStudyProjectContainers(notes)[0];
-    if (project) handleNavigateToProjectEditor(project.id);
-  }, [notes, handleNavigateToProjectEditor]);
-
-  const handleUpdateProjectDescription = useCallback((description: string) => {
-    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
-    const status = getStudyProjectStatus(activeNote) ?? 'planned';
-    const updated = setStudyProjectContainer(activeNote, status, description);
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateProjectStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
-    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
-    const updated = setStudyProjectContainer(activeNote, status, getStudyProjectDescription(activeNote));
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateMilestoneStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
-    if (!activeNote || !isProjectMilestone(activeNote)) return;
-    const projectId = getMilestoneProjectId(activeNote);
-    if (!projectId) return;
-    const updated = setProjectMilestone(
-      activeNote,
-      projectId,
-      status,
-      getMilestoneTargetDate(activeNote) ?? undefined,
-    );
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateMilestoneTargetDate = useCallback((targetDate: string | null) => {
-    if (!activeNote || !isProjectMilestone(activeNote)) return;
-    const projectId = getMilestoneProjectId(activeNote);
-    if (!projectId) return;
-    const status = getMilestoneStatus(activeNote) ?? 'planned';
-    const updated = setProjectMilestone(
-      activeNote,
-      projectId,
-      status,
-      targetDate ?? undefined,
-    );
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleCreateLearningPathStepNote = useCallback((title: string) => {
-    const id = storeCreateNote({ title: title.trim() || 'New Step', body: '' });
-    return id;
-  }, [storeCreateNote]);
-
-  const handleUpdateNoteProperties = useCallback((noteId: string, properties: Record<string, string>) => {
-    noteUpdate(noteId, { properties });
-  }, [noteUpdate]);
-
-  const handleActivateDashboardWithTraceClear = useCallback(() => {
-    setTraceDate(null);
-    setTraceRange(null);
-    setTraceAreaId(null);
-    setTraceAreaRange(null); setTraceDiscoveryMode(false);
-    handleActivateDashboard();
-  }, [handleActivateDashboard]);
-
   // ── E. Layout-derived constants ───────────────────────────────────
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
@@ -1103,20 +772,6 @@ export const NoteView = () => {
       ? workspaceActivation.id
       : null;
 
-  const [expandedGraphNodes, setExpandedGraphNodes] = useState<string[]>([]);
-  // ── 이미지 드래그&드롭 ───────────────────────────────────────────
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const blockEditorRef = useRef<BlockEditorHandle>(null);
-  const editorScrollRef = useRef<HTMLDivElement>(null);
-  const virtualScrollApiRef = useRef<{
-    scrollToBlockId: (blockId: string) => boolean;
-    getBlockScrollTop?: (blockId: string) => number | null;
-  } | null>(null);
-  const tocScrollSpyPausedRef = useRef(false);
-  const tocPanelRef = useRef<HTMLDivElement>(null);
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
   useEffect(() => {
@@ -1144,32 +799,6 @@ export const NoteView = () => {
   useEffect(() => () => {
     if (docCopyTimerRef.current) clearTimeout(docCopyTimerRef.current);
   }, []);
-
-  const handleCopyDocument = useCallback(async () => {
-    const ok = await blockEditorRef.current?.copyDocument();
-    if (!ok) return;
-    setDocCopied(true);
-    if (docCopyTimerRef.current) clearTimeout(docCopyTimerRef.current);
-    docCopyTimerRef.current = setTimeout(() => setDocCopied(false), 1500);
-  }, []);
-
-  const handleTitleChange = useCallback((value: string) => {
-    setTitleDraft(value);
-    if (!titleComposingRef.current && activeNoteId) {
-      noteUpdate(activeNoteId, { title: value });
-    }
-  }, [activeNoteId, noteUpdate]);
-
-  const handleTitleCompositionEnd = useCallback((value: string) => {
-    titleComposingRef.current = false;
-    setTitleDraft(value);
-    if (activeNoteId) noteUpdate(activeNoteId, { title: value });
-  }, [activeNoteId, noteUpdate]);
-
-  const handleActiveBodyChange = useCallback(
-    (md: string) => { if (activeNoteId) noteUpdate(activeNoteId, { body: md }); },
-    [activeNoteId, noteUpdate],
-  );
 
   useEffect(() => { setSearchMatchIdx(0); }, [searchQuery, activeNoteId, searchScope]);
 
@@ -1407,32 +1036,6 @@ export const NoteView = () => {
     [notes, activeNote?.id],
   );
 
-  const handlePromoteNoteKind = useCallback(() => {
-    if (!activeNote) return;
-    const updated = promoteNoteKind(activeNote);
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleLinkReadingSource = useCallback((sourceNoteId: string) => {
-    if (!activeNote) return;
-    const source = notes.find(n => n.id === sourceNoteId);
-    if (!source) return;
-    const { reading, source: updatedSource } = linkReadingNoteToSource(activeNote, source);
-    noteUpdate(activeNote.id, { relations: reading.relations });
-    noteUpdate(source.id, { relations: updatedSource.relations });
-  }, [activeNote, notes, noteUpdate]);
-
-  const handleUnlinkReadingSource = useCallback(() => {
-    if (!activeNote) return;
-    const sourceId = getLinkedSourceNoteId(activeNote);
-    if (!sourceId) return;
-    const source = notes.find(n => n.id === sourceId);
-    if (!source) return;
-    const { reading, source: updatedSource } = unlinkReadingNoteFromSource(activeNote, source);
-    noteUpdate(activeNote.id, { relations: reading.relations });
-    noteUpdate(source.id, { relations: updatedSource.relations });
-  }, [activeNote, notes, noteUpdate]);
-
   useEffect(() => {
     setExpandedGraphNodes([]);
   }, [activeNote?.id]);
@@ -1449,23 +1052,6 @@ export const NoteView = () => {
     [activeNote, notes, expandedGraphNodes],
   );
 
-  const handleExpandGraphNode = useCallback((noteId: string) => {
-    if (!activeNote) return;
-    const baseGraph = buildExpandedGraphData({
-      centerId: activeNote.id,
-      centerTitle: activeNote.title ?? '',
-      expandedNodeIds: [],
-      service: knowledgeIndexService,
-    });
-    const expandableIds = baseGraph.nodes
-      .filter(node => node.expandable)
-      .map(node => node.noteId);
-    setExpandedGraphNodes(prev => expandNode(prev, noteId, expandableIds));
-  }, [activeNote]);
-
-  const handleCollapseGraphNode = useCallback((noteId: string) => {
-    setExpandedGraphNodes(prev => collapseNode(prev, noteId));
-  }, []);
   const allTags = useMemo(
     () => knowledgeIndexService.getAllTags(),
     [notes],
@@ -1494,163 +1080,6 @@ export const NoteView = () => {
     },
     [activeNote, notes],
   );
-
-  // ── 폴더 ────────────────────────────────────────────────────────
-  const addFolder = useCallback(() => {
-    if (!newFolderName.trim()) return;
-    createFolder(newFolderName.trim());
-    setNewFolderName(''); setShowFolderForm(false);
-  }, [newFolderName, createFolder]);
-
-  // 포커스된 블록 뒤에 이미지 삽입 (edit 모드 BlockEditor ref 경유)
-  const insertImageAtCursor = useCallback((name: string, src: string) => {
-    if (viewMode !== 'edit' || !blockEditorRef.current) return;
-    blockEditorRef.current.insertImage(src, name);
-  }, [viewMode]);
-
-  const insertEmptyImageBlockAtCursor = useCallback(() => {
-    if (viewMode !== 'edit' || !blockEditorRef.current) return;
-    blockEditorRef.current.insertEmptyImageBlock();
-  }, [viewMode]);
-
-  // ── 이미지 드래그&드롭 (에디터 영역 — 이미지 블록 위는 제외) ─────
-  const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (!activeNote || viewMode !== 'edit') return;
-    if ((e.target as HTMLElement).closest('.be-image-block')) return;
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
-      reader.readAsDataURL(file);
-    });
-  }, [activeNote, viewMode, insertImageAtCursor]);
-
-  // ── .md 파일 Import ─────────────────────────────────────────────
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const raw = ev.target?.result as string;
-        const { body, properties } = parseNoteMarkdown(raw);
-        const title = file.name.replace(/\.md$/i, '');
-        const id = `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        importNote({
-          id, title, body, updatedAt: Date.now(),
-          folderId: normalizeNoteFolderId(activeFolderId),
-          deletedAt: null, starred: false,
-          properties,
-        });
-      };
-      reader.readAsText(file);
-    });
-    e.target.value = '';
-  };
-
-  // ── 전역 단축키 — ref 패턴으로 핸들러를 한 번만 등록 ─────────────
-  // 가변 값은 ref에 저장해 stale closure 없이 항상 최신 값 읽기
-  const shortcutRef = useRef({
-    showSortMenu, viewMode, activeNote, createNote, duplicateNote,
-    focusSearch: () => {},
-  });
-  const syncShortcutRef = useRef({
-    flushPendingSync,
-    syncNoteToDB,
-    getActiveNote: () => null as Note | null,
-  });
-  useEffect(() => {
-    shortcutRef.current = {
-      showSortMenu, viewMode, activeNote, createNote, duplicateNote,
-      focusSearch: () => {
-        searchInputRef.current?.focus();
-        if (activeNote) setSearchScope('document');
-      },
-    };
-    syncShortcutRef.current = {
-      flushPendingSync,
-      syncNoteToDB,
-      getActiveNote: () => useNotesStore.getState().notes.find(n => n.id === activeNoteId) ?? null,
-    };
-  });
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const { showSortMenu: sm, activeNote: an, createNote: cn, duplicateNote: dn } = shortcutRef.current;
-      const mod = e.ctrlKey || e.metaKey;
-      if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
-
-      const target = e.target;
-      if (!mod && e.key === '?') {
-        if (
-          target instanceof HTMLElement
-          && !target.closest('[contenteditable="true"], .be-editable, input, textarea')
-          && !target.closest('.be-editor-root')
-        ) {
-          e.preventDefault();
-          setShowShortcuts(v => !v);
-        }
-        return;
-      }
-
-      if (!mod) return;
-
-      // ── Save (Ctrl+S) — debounce flush + 즉시 cloud sync ─────
-      if (e.key === 's') {
-        e.preventDefault();
-        const { flushPendingSync: flush, syncNoteToDB: sync, getActiveNote } = syncShortcutRef.current;
-        flush();
-        const note = getActiveNote();
-        if (note) void sync(note);
-        return;
-      }
-
-      if (
-        target instanceof HTMLElement
-        && target.closest('[contenteditable="true"], .be-editable')
-      ) {
-        return;
-      }
-
-      switch (e.key) {
-        case 'k':
-          e.preventDefault();
-          setWorkspaceSearchOpen(true);
-          break;
-        case 'n': e.preventDefault(); cn(); break;
-        case 'd': e.preventDefault(); { if (an) dn(an); } break;
-        case 'e': e.preventDefault(); setViewMode(v => toggleEditReading(v)); break;
-        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
-        case 'f':
-          e.preventDefault();
-          if (e.shiftKey) setFocusMode(v => !v);
-          else shortcutRef.current.focusSearch();
-          break;
-        case '/':
-          if (target instanceof HTMLElement && target.closest('.be-editor-root')) break;
-          e.preventDefault();
-          setShowShortcuts(v => !v);
-          break;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 핸들러는 마운트 시 한 번만 등록 — 최신 값은 shortcutRef를 통해 읽음
-
-  // 위키링크 따라가기 — 있으면 이동, 없으면 [[제목]] 노트 자동 생성
-  const navigateToWiki = useCallback((title: string, opts?: { preferReading?: boolean }) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    const found = findNoteByTitle(trimmed, notes);
-    if (found) {
-      setActiveNoteId(found.id);
-      if (opts?.preferReading) setViewMode('reading');
-      return;
-    }
-    createNote({ title: trimmed, body: '' });
-  }, [notes, setActiveNoteId, setViewMode, createNote]);
 
   useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
 
@@ -1782,21 +1211,6 @@ export const NoteView = () => {
   const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
   const starredCount    = useMemo(() => notes.filter(n => n.starred && !n.deletedAt).length, [notes]);
   const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
-  const isTrash      = activeFolderId === 'trash';
-
-  const handleToggleAreaNote = useCallback(() => {
-    if (!activeNote || isTrash) return;
-    if (isAreaNote(activeNote)) {
-      updateNote(activeNote.id, { properties: clearAreaFromNote(activeNote).properties });
-      if (traceAreaId === activeNote.id) {
-        setTraceAreaId(null);
-        setTraceAreaRange(null); setTraceDiscoveryMode(false);
-      }
-      return;
-    }
-    if (!canMarkAsArea(activeNote)) return;
-    updateNote(activeNote.id, { properties: applyAreaToNote(activeNote).properties });
-  }, [activeNote, isTrash, traceAreaId, updateNote]);
 
   const folderLabel = useMemo(() =>
     activeFolderId === null    ? t('nvAllNotes') :
@@ -3191,355 +2605,86 @@ export const NoteView = () => {
           onTabChange={setRightPanel}
         >
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {!activeNote && NOTE_REQUIRED_CONTEXT_TABS.has(rightPanel) ? (
-              <KnowledgePanelEmpty
-                colors={c}
-                actionLabel={t('k53ContextCreateNote')}
-                onAction={() => createNote()}
-              >
-                {t('k43ContextPanelSelectNote')}
-              </KnowledgePanelEmpty>
-            ) : (
-            <>
-            {rightPanel === 'toc' && (
-              <OutlinePanel
-                colors={c}
-                panelRef={tocPanelRef}
-                items={visibleToc}
-                highlightedIdx={highlightedTocIdx}
-                collapsed={tocCollapsed}
-                onKeyDown={handleTocKeyDown}
-                onToggleCollapse={toggleTocCollapse}
-                onNavigate={scrollToHeading}
-              />
-            )}
-
-            {rightPanel === 'links' && activeNote && pageReferences && noteReferenceSummary && (
-              <LinksContextPanel
-                colors={c}
-                structureCount={linksStructureCount}
-                connectionsCount={linksConnectionsCount}
-                sourcesCount={linksSourcesCount}
-                structure={(
-                  <>
-                    {conceptHub && (
-                      <ConceptHubPanel
-                        colors={c}
-                        data={conceptHub}
-                        onNavigateToNote={setActiveNoteId}
-                      />
-                    )}
-                    <ConceptRelationsPanel
-                      colors={c}
-                      note={activeNote}
-                      notes={notes}
-                      wikiTargets={wikiTargets}
-                      onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-                      onNavigateToNote={setActiveNoteId}
-                      onResolveTargetId={title =>
-                        knowledgeIndexService.resolveNoteId(title)
-                        ?? findNoteByTitle(title, notes)?.id
-                      }
-                    />
-                    {learningPath && (
-                      <LearningPathPanel
-                        colors={c}
-                        path={learningPath}
-                        onNavigateToNote={setActiveNoteId}
-                      />
-                    )}
-                  </>
-                )}
-                connections={(
-                  <>
-                    <BacklinkPanel
-                      colors={c}
-                      activeNoteTitle={activeNote.title ?? ''}
-                      incoming={pageReferences.incoming}
-                      contexts={backlinkContexts}
-                      onNavigateToNote={setActiveNoteId}
-                    />
-                    <ReferenceExplorerPanel
-                      colors={c}
-                      summary={noteReferenceSummary}
-                      mentioning={mentioningNotes}
-                      onNavigateToNote={setActiveNoteId}
-                      onNavigateToWiki={navigateToWiki}
-                    />
-                    <RelatedNotesPanel
-                      colors={c}
-                      related={relatedNotes}
-                      onNavigateToNote={setActiveNoteId}
-                      onLinkToNote={handleLinkRelatedNote}
-                      onOpenGraph={handleOpenCosmosGraph}
-                      onLearnLinking={handleStartWikiLink}
-                      onCreateRelatedNote={handleCreateRelatedNote}
-                    />
-                  </>
-                )}
-                sources={(
-                  <>
-                    <ReadingSourceLinkPanel
-                      colors={c}
-                      note={activeNote}
-                      notes={notes}
-                      sourceNoteCandidates={sourceNoteCandidates}
-                      onNavigateToNote={setActiveNoteId}
-                      onLinkSource={handleLinkReadingSource}
-                      onUnlinkSource={handleUnlinkReadingSource}
-                    />
-                    <BibliographyPanel colors={c} citations={noteBibliography} />
-                  </>
-                )}
-              />
-            )}
-
-            {rightPanel === 'links' && activeNote && (!pageReferences || !noteReferenceSummary) && (
-              <KnowledgePanelEmpty
-                colors={c}
-                actionLabel={t('k53ContextCreateWikiLink')}
-                onAction={handleStartWikiLink}
-                secondaryActionLabel={t('k53ContextLinkingGuide')}
-                onSecondaryAction={() => openContextPanel('links')}
-              >
-                {t('k52ContextLinksEmpty')}
-              </KnowledgePanelEmpty>
-            )}
-
-            {rightPanel === 'graph' && localGraphData && (
-              <>
-                <div style={{ flex: 1, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
-                  <LocalGraphView
-                    colors={c}
-                    graphData={localGraphData}
-                    onNavigate={setActiveNoteId}
-                    onExpandNode={handleExpandGraphNode}
-                    onCollapseNode={handleCollapseGraphNode}
-                  />
-                </div>
-                <CosmosContextFooter
-                  colors={c}
-                  onOpenFullCosmos={() => setViewMode('graph')}
-                />
-              </>
-            )}
-
-            {rightPanel === 'insights' && noteIntelligenceSnapshot && noteTierInput && (
-              <CosmosInsightsPanel
-                colors={c}
-                snapshot={noteIntelligenceSnapshot}
-                tierInput={noteTierInput}
-                noteHistory={noteHistoryContext}
-                onNavigateToNote={setActiveNoteId}
-                onOpenLinks={() => openContextPanel('links')}
-              />
-            )}
-
-            {rightPanel === 'insights' && activeNote && (!noteIntelligenceSnapshot || !noteTierInput) && (
-              <KnowledgePanelEmpty
-                colors={c}
-                actionLabel={t('k53ContextOpenCosmos')}
-                onAction={handleOpenCosmosGraph}
-                secondaryActionLabel={t('k53ContextCreateWikiLink')}
-                onSecondaryAction={handleStartWikiLink}
-              >
-                {t('k52ContextInsightsEmpty')}
-              </KnowledgePanelEmpty>
-            )}
-
-            {rightPanel === 'actions' && activeNote && noteIntelligenceSnapshot && (
-              <CosmosActionsPanel
-                colors={c}
-                note={activeNote}
-                snapshot={noteIntelligenceSnapshot}
-                notes={notes}
-                service={knowledgeIndexService}
-                onConnect={handleCosmosConnect}
-                onViewCandidates={() => openContextPanel('links')}
-                onAssignArea={handleCosmosAssignArea}
-                onCreateHub={handleCosmosCreateHub}
-                onCreateRelation={handleCosmosCreateRelation}
-                onNavigateToNote={setActiveNoteId}
-                onOpenDiscover={handleOpenDiscover}
-              />
-            )}
-
-            {rightPanel === 'actions' && activeNote && !noteIntelligenceSnapshot && (
-              <KnowledgePanelEmpty
-                colors={c}
-                actionLabel={t('k52ContextOpenLinks')}
-                onAction={() => openContextPanel('links')}
-                secondaryActionLabel={t('k53ContextOpenDiscover')}
-                onSecondaryAction={handleOpenDiscover}
-              >
-                {t('k52ContextActionsEmpty')}
-              </KnowledgePanelEmpty>
-            )}
-
-            {rightPanel === 'discover' && (
-              <DiscoveryPanel
-                colors={c}
-                feed={discoveryFeed}
-                vaultPhase={cosmosVaultPhase}
-                onNavigateToNote={setActiveNoteId}
-                onCreateRelation={handleDiscoveryCreateRelation}
-                onCreateHub={handleCosmosCreateHub}
-                onLearnLinking={handleStartWikiLink}
-                onOpenGraph={handleOpenCosmosGraph}
-              />
-            )}
-
-            {rightPanel === 'timeline' && (
-              <TimelinePanel
-                colors={c}
-                timeline={knowledgeTimeline}
-                mode={timelineMode}
-                onModeChange={setTimelineMode}
-                historyEvents={historyEvents}
-                notes={notes}
-                evolutionSummary={cosmosEvolutionSummary}
-                evolutionStory={cosmosEvolutionStory}
-                discoveryProgress={discoveryProgress}
-                knowledgeJourney={knowledgeJourney}
-                evolutionInsights={evolutionInsights}
-                bootstrapSummary={bootstrapImportSummary}
-                initialSelectedArea={timelineInitialArea}
-                onDismissBootstrap={handleDismissBootstrapSummary}
-                onExport={handleExportHistory}
-                onNavigateToNote={setActiveNoteId}
-                onCreateNote={() => createNote()}
-              />
-            )}
-
-            {rightPanel === 'properties' && activeNote && (
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                {projectEditorData && (
-                  <ProjectEditorPanel
-                    colors={c}
-                    data={projectEditorData}
-                    onUpdateDescription={handleUpdateProjectDescription}
-                    onUpdateStatus={handleUpdateProjectStatus}
-                    onNavigateToNote={setActiveNoteId}
-                    onCreateMilestone={handleCreateProjectMilestone}
-                  />
-                )}
-                {isProjectMilestone(activeNote) && (
-                  <MilestoneEditorPanel
-                    colors={c}
-                    title={displayNoteTitle(activeNote.title)}
-                    status={getMilestoneStatus(activeNote) ?? 'planned'}
-                    targetDate={getMilestoneTargetDate(activeNote)}
-                    projectId={getMilestoneProjectId(activeNote)}
-                    projectTitle={milestoneProjectTitle}
-                    onUpdateStatus={handleUpdateMilestoneStatus}
-                    onUpdateTargetDate={handleUpdateMilestoneTargetDate}
-                    onNavigateToProject={
-                      getMilestoneProjectId(activeNote)
-                        ? () => {
-                          const pid = getMilestoneProjectId(activeNote)!;
-                          setActiveNoteId(pid);
-                        }
-                        : undefined
-                    }
-                  />
-                )}
-                <NotePropertiesPanel
-                  colors={c}
-                  note={activeNote}
-                  onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
-                />
-              </div>
-            )}
-
-            {rightPanel === 'tags' && activeNote && (
-              <NoteTagsPanel
-                colors={c}
-                note={activeNote}
-                allTags={allTags}
-                activeTag={activeTag}
-                onUpdateTags={properties => noteUpdate(activeNote.id, { properties })}
-                onSelectTag={tag => {
-                  setActiveFolderId(null);
-                  setSearchQuery('');
-                  setActiveTag(tag);
-                }}
-              />
-            )}
-
-            {rightPanel === 'relations' && activeNote && (
-              <NoteRelationsPanel
-                colors={c}
-                note={activeNote}
-                wikiTargets={wikiTargets}
-                outgoing={resolvedOutgoingRelations}
-                incoming={incomingRelationDisplays}
-                onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-                onNavigateToNote={setActiveNoteId}
-                onResolveTargetId={title =>
-                  knowledgeIndexService.resolveNoteId(title)
-                  ?? findNoteByTitle(title, notes)?.id
-                }
-              />
-            )}
-
-            {rightPanel === 'stats' && activeNote && (() => {
-              const body = activeNote.body;
-              const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-              const chars = body.length;
-              const lines = body.split('\n').length;
-              const readMin = Math.max(1, Math.ceil(words / 200));
-              const linkCount = extractLinks(body).length;
-              const tagCount  = noteTags.length;
-              const headings  = (body.match(/^#{1,3} /gm) || []).length;
-              const codeBlocks = (body.match(/```/g) || []).length / 2;
-              const created = Number(activeNote.id.split('-')[1] || 0);
-              return (
-                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
-                  <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvNoteStats')}</div>
-                  {[
-                    [t('nvStatWords'), words],
-                    [t('nvStatChars'), chars],
-                    [t('nvStatLines'), lines],
-                    [t('nvStatReadTime'), t('nvStatReadMin').replace('{min}', String(readMin))],
-                    [t('nvStatHeadings'), headings],
-                    [t('nvStatWikiLinks'), linkCount],
-                    [t('nvStatTags'), tagCount],
-                    [t('nvStatCodeBlocks'), Math.floor(codeBlocks)],
-                  ].map(([label, val]) => (
-                    <div key={label as string} className="bstat-row">
-                      <span style={{ color: c.textMuted }}>{label}</span>
-                      <span className="bstat-val">{val}</span>
-                    </div>
-                  ))}
-                  {created > 0 && (
-                    <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
-                      {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-                  )}
-                  {allTags.length > 0 && (
-                    <>
-                      <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvTagCloud')}</div>
-                      <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                        {allTags.slice(0, 20).map(({ tag, count }) => {
-                          const maxCount = allTags[0]?.count ?? 1;
-                          const size = 9 + Math.round((count / maxCount) * 8);
-                          const opacity = 0.5 + (count / maxCount) * 0.5;
-                          return (
-                            <span key={tag}
-                              style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag?.toLowerCase() === tag.toLowerCase() ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                              onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag); }}>
-                              #{tag}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
-            </>
-            )}
+            <NoteContextPanelBody
+              colors={c}
+              rightPanel={rightPanel}
+              activeNote={activeNote}
+              createNote={createNote}
+              tocPanelRef={tocPanelRef}
+              visibleToc={visibleToc}
+              highlightedTocIdx={highlightedTocIdx}
+              tocCollapsed={tocCollapsed}
+              handleTocKeyDown={handleTocKeyDown}
+              toggleTocCollapse={toggleTocCollapse}
+              scrollToHeading={scrollToHeading}
+              pageReferences={pageReferences}
+              noteReferenceSummary={noteReferenceSummary}
+              linksStructureCount={linksStructureCount}
+              linksConnectionsCount={linksConnectionsCount}
+              linksSourcesCount={linksSourcesCount}
+              conceptHub={conceptHub}
+              learningPath={learningPath}
+              notes={notes}
+              wikiTargets={wikiTargets}
+              noteUpdate={noteUpdate}
+              setActiveNoteId={setActiveNoteId}
+              backlinkContexts={backlinkContexts}
+              mentioningNotes={mentioningNotes}
+              relatedNotes={relatedNotes}
+              navigateToWiki={navigateToWiki}
+              handleLinkRelatedNote={handleLinkRelatedNote}
+              handleOpenCosmosGraph={handleOpenCosmosGraph}
+              handleStartWikiLink={handleStartWikiLink}
+              handleCreateRelatedNote={handleCreateRelatedNote}
+              sourceNoteCandidates={sourceNoteCandidates}
+              handleLinkReadingSource={handleLinkReadingSource}
+              handleUnlinkReadingSource={handleUnlinkReadingSource}
+              noteBibliography={noteBibliography}
+              localGraphData={localGraphData}
+              handleExpandGraphNode={handleExpandGraphNode}
+              handleCollapseGraphNode={handleCollapseGraphNode}
+              setViewMode={setViewMode}
+              noteIntelligenceSnapshot={noteIntelligenceSnapshot}
+              noteTierInput={noteTierInput}
+              noteHistoryContext={noteHistoryContext}
+              openContextPanel={openContextPanel}
+              handleOpenDiscover={handleOpenDiscover}
+              handleCosmosConnect={handleCosmosConnect}
+              handleCosmosAssignArea={handleCosmosAssignArea}
+              handleCosmosCreateHub={handleCosmosCreateHub}
+              handleCosmosCreateRelation={handleCosmosCreateRelation}
+              handleDiscoveryCreateRelation={handleDiscoveryCreateRelation}
+              discoveryFeed={discoveryFeed}
+              cosmosVaultPhase={cosmosVaultPhase}
+              knowledgeTimeline={knowledgeTimeline}
+              timelineMode={timelineMode}
+              setTimelineMode={setTimelineMode}
+              historyEvents={historyEvents}
+              cosmosEvolutionSummary={cosmosEvolutionSummary}
+              cosmosEvolutionStory={cosmosEvolutionStory}
+              discoveryProgress={discoveryProgress}
+              knowledgeJourney={knowledgeJourney}
+              evolutionInsights={evolutionInsights}
+              bootstrapImportSummary={bootstrapImportSummary}
+              timelineInitialArea={timelineInitialArea}
+              handleDismissBootstrapSummary={handleDismissBootstrapSummary}
+              handleExportHistory={handleExportHistory}
+              projectEditorData={projectEditorData}
+              handleUpdateProjectDescription={handleUpdateProjectDescription}
+              handleUpdateProjectStatus={handleUpdateProjectStatus}
+              handleCreateProjectMilestone={handleCreateProjectMilestone}
+              milestoneProjectTitle={milestoneProjectTitle}
+              handleUpdateMilestoneStatus={handleUpdateMilestoneStatus}
+              handleUpdateMilestoneTargetDate={handleUpdateMilestoneTargetDate}
+              allTags={allTags}
+              activeTag={activeTag}
+              setActiveFolderId={setActiveFolderId}
+              setSearchQuery={setSearchQuery}
+              setActiveTag={setActiveTag}
+              resolvedOutgoingRelations={resolvedOutgoingRelations}
+              incomingRelationDisplays={incomingRelationDisplays}
+              noteTags={noteTags}
+            />
           </div>
 
           {isTrash && activeNote && (

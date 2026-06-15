@@ -1,5 +1,5 @@
 import type { BlockType } from '../../../../../blockUtils';
-import type { Language } from '../../../../../../../lib/i18n';
+import type { Language } from '@/lib/i18n';
 import { slashDisplayLabel as localizedSlashLabel } from '../../../blockEditorLabels';
 
 /** Exact slash shortcuts — `/h1`, `/todo`, `/number`, etc. */

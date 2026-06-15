@@ -44,3 +44,6 @@ export type {
   DiscoveryKind,
   DiscoverySummary,
 } from './discoveryTypes';
+
+export { DiscoveryPanel, type DiscoveryPanelProps } from '../components/DiscoveryPanel';
+export { DiscoveryDashboardCard, type DiscoveryDashboardCardProps } from '../components/DiscoveryDashboardCard';

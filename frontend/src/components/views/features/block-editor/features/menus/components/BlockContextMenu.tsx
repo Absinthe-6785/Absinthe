@@ -12,7 +12,7 @@ import {
   type BlockType,
 } from '../../../../../blockUtils';
 import { slashDisplayLabel } from '../utils/slashCommands';
-import { useTranslation } from '../../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import { BLOCK_TINT_OPTIONS, type BlockTint } from '../../../../../blockColors';
 import { blockIcon } from '../../../../../blockIcons';
 import type { BlockEditorColors } from '../../../../../editorTypes';
