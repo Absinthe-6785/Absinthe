@@ -68,7 +68,7 @@ export function UnifiedAgendaList({
   }, [scheduleActions, eventActions]);
 
   const resolveMenuActions = useCallback((item: UnifiedAgendaItem) => {
-    if (item.kind === 'block' && item.blockId && !item.carryOver) {
+    if ((item.kind === 'block' || item.kind === 'countdown') && item.blockId) {
       return {
         onEdit: scheduleActions?.onEdit ? () => scheduleActions.onEdit!(item.blockId!) : undefined,
         onDelete: scheduleActions?.onDelete ? () => scheduleActions.onDelete!(item.blockId!) : undefined,

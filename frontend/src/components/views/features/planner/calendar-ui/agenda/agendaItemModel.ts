@@ -94,13 +94,15 @@ export function buildUnifiedAgendaItems({
 
   const locale = presentation?.locale ?? 'en';
   for (const cd of filterUnreviewedCountdowns(countdowns, isReviewed, { upcomingOnly: true }).slice(0, maxCountdowns)) {
+    const isScheduleDday = cd.source === 'schedule-dday';
     items.push({
       kind: 'countdown',
       key: cd.id,
       sort: `zz-${String(cd.daysUntil).padStart(4, '0')}`,
       title: cd.title,
       countdownLabel: formatPlannerCountdownLabel(cd.daysUntil, locale),
-      noteId: cd.sourceRefId,
+      noteId: isScheduleDday ? undefined : cd.sourceRefId,
+      blockId: isScheduleDday ? cd.sourceRefId : undefined,
     });
   }
 
@@ -113,6 +115,9 @@ export function agendaItemHasActions(
   eventActions?: { onEdit?: (id: string) => void; onDelete?: (id: string) => void; onDuplicate?: (id: string) => void },
 ): boolean {
   if (item.kind === 'block' && item.blockId && !item.carryOver) {
+    return Boolean(scheduleActions?.onEdit || scheduleActions?.onDelete || scheduleActions?.onDuplicate);
+  }
+  if (item.kind === 'countdown' && item.blockId) {
     return Boolean(scheduleActions?.onEdit || scheduleActions?.onDelete || scheduleActions?.onDuplicate);
   }
   if ((item.kind === 'event' || item.kind === 'countdown') && item.noteId) {

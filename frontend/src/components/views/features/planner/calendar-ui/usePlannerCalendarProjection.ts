@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
-import type { AppSettings, Routine, Schedule, Todo, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Schedule, WeeklySchedule } from '../../../../../types';
 import { useNotesStore } from '../../../../../store/useNotesStore';
 import {
   buildPlannerCalendarProjection,
@@ -10,10 +10,7 @@ import {
   resolvePlannerLocale,
   type PlannerCalendarPresentation,
   type PlannerCalendarProjection,
-  type PlannerCalendarViewMode,
-  type PlannerDatedRoutine,
   type PlannerDatedSchedule,
-  type PlannerDatedTodo,
   type PlannerEventCatalog,
 } from '../calendar';
 
@@ -22,15 +19,11 @@ type ScheduleWithCarry = Schedule & { end_next_day?: boolean };
 export interface UsePlannerCalendarProjectionInput {
   now: DateTime;
   anchorDate: string;
-  viewMode: PlannerCalendarViewMode;
   schedules: readonly Schedule[];
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
-  todos: readonly Todo[];
-  routines: readonly Routine[];
   weeklySchedules: readonly WeeklySchedule[];
   appSettings: AppSettings;
-  routineExceptionDates?: ReadonlySet<string>;
 }
 
 export interface UsePlannerCalendarProjectionResult {
@@ -43,24 +36,14 @@ function toDatedSchedules(
   schedules: readonly Schedule[],
   date: string,
 ): PlannerDatedSchedule[] {
-  return schedules
-    .filter(schedule => !schedule.is_dday)
-    .map(schedule => {
-      const extended = schedule as ScheduleWithCarry;
-      return {
-        ...schedule,
-        date,
-        end_next_day: extended.end_next_day,
-      };
-    });
-}
-
-function toDatedTodos(todos: readonly Todo[], date: string): PlannerDatedTodo[] {
-  return todos.map(todo => ({ ...todo, date }));
-}
-
-function toDatedRoutines(routines: readonly Routine[], date: string): PlannerDatedRoutine[] {
-  return routines.map(routine => ({ ...routine, date }));
+  return schedules.map(schedule => {
+    const extended = schedule as ScheduleWithCarry;
+    return {
+      ...schedule,
+      date,
+      end_next_day: extended.end_next_day,
+    };
+  });
 }
 
 export function buildPlannerCalendarShellProjection(
@@ -81,12 +64,11 @@ export function buildPlannerCalendarShellProjection(
     notes: input.notes,
     scheduleBlocks,
     weeklySchedules: input.weeklySchedules ?? [],
-    todos: toDatedTodos(input.todos, input.anchorDate),
-    routines: toDatedRoutines(input.routines, input.anchorDate),
+    todos: [],
+    routines: [],
     anchorDate: input.anchorDate,
-    viewMode: input.viewMode,
+    viewMode: 'month',
     now: input.now,
-    routineExceptionDates: input.routineExceptionDates,
     eventCatalog,
   });
 
@@ -98,10 +80,7 @@ export function buildPlannerCalendarShellProjection(
   return { projection, presentation, eventCatalog };
 }
 
-/**
- * Thin hook — assembles Planner Calendar read model from vault + operational props.
- * All business logic lives in buildPlannerCalendarProjection.
- */
+/** Assembles calendar read model — month-only, no routine/todo domain (K-80). */
 export function usePlannerCalendarProjection(
   input: UsePlannerCalendarProjectionInput,
 ): UsePlannerCalendarProjectionResult {
@@ -122,39 +101,24 @@ export function usePlannerCalendarProjection(
     [input.schedules, input.anchorDate, input.previousDaySchedules, input.previousDayDate],
   );
 
-  const datedTodos = useMemo(
-    () => toDatedTodos(input.todos, input.anchorDate),
-    [input.todos, input.anchorDate],
-  );
-
-  const datedRoutines = useMemo(
-    () => toDatedRoutines(input.routines, input.anchorDate),
-    [input.routines, input.anchorDate],
-  );
-
   const projection = useMemo(
     () => buildPlannerCalendarProjection({
       notes,
       scheduleBlocks,
       weeklySchedules: input.weeklySchedules,
-      todos: datedTodos,
-      routines: datedRoutines,
+      todos: [],
+      routines: [],
       anchorDate: input.anchorDate,
-      viewMode: input.viewMode,
+      viewMode: 'month',
       now: input.now,
-      routineExceptionDates: input.routineExceptionDates,
       eventCatalog,
     }),
     [
       notes,
       scheduleBlocks,
       input.weeklySchedules,
-      datedTodos,
-      datedRoutines,
       input.anchorDate,
-      input.viewMode,
       input.now,
-      input.routineExceptionDates,
       eventCatalog,
     ],
   );

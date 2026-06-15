@@ -251,6 +251,53 @@ export function buildPlannerCountdowns(
   return rows;
 }
 
+function buildScheduleDdayCountdowns(
+  blocks: readonly PlannerDatedSchedule[],
+  now: DateTime,
+): PlannerCountdownRow[] {
+  const todayKey = now.toFormat('yyyy-MM-dd');
+  const rows: PlannerCountdownRow[] = [];
+
+  for (const block of blocks) {
+    if (!block.date || !block.is_dday) continue;
+    const daysUntil = daysBetween(todayKey, block.date);
+    if (daysUntil == null || daysUntil < 0) continue;
+
+    rows.push({
+      id: `schedule-dday:${block.id}`,
+      title: block.text,
+      targetDate: block.date,
+      daysUntil,
+      source: 'schedule-dday',
+      sourceRefId: block.id,
+    });
+  }
+
+  return rows;
+}
+
+function mergeCountdownRows(
+  noteCountdowns: PlannerCountdownRow[],
+  scheduleDdays: PlannerCountdownRow[],
+): PlannerCountdownRow[] {
+  const seen = new Set<string>();
+  const merged: PlannerCountdownRow[] = [];
+
+  for (const row of [...noteCountdowns, ...scheduleDdays]) {
+    const key = `${row.targetDate}:${normalizeCountdownTitle(row.title)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+
+  merged.sort((a, b) => {
+    if (a.daysUntil !== b.daysUntil) return a.daysUntil - b.daysUntil;
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  });
+
+  return merged;
+}
+
 function emptyViews(anchorDate: string): PlannerCalendarViews {
   const emptyBundle = createEmptyBundle(anchorDate, false);
   return {
@@ -337,7 +384,10 @@ export function buildPlannerCalendarProjection(
   });
 
   const blocksById = new Map(scheduleBlocks.map(block => [block.id, block]));
-  const countdowns = buildPlannerCountdowns(catalog.definitions, input.now);
+  const countdowns = mergeCountdownRows(
+    buildPlannerCountdowns(catalog.definitions, input.now),
+    buildScheduleDdayCountdowns(safeBlocks, input.now),
+  );
   const todayKey = input.now.toFormat('yyyy-MM-dd');
 
   const core: PlannerCalendarCore = {
