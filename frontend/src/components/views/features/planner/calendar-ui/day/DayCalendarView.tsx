@@ -1,10 +1,7 @@
-import { useMemo } from 'react';
 import type { Theme } from '@/types';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
-import { DayHeader } from './DayHeader';
-import { SelectedDayDetailPanel } from '../SelectedDayDetailPanel';
-import { buildDayDisplayModel } from './dayCalendarPresentation';
-import type { DayScheduleActions } from './dayScheduleActions';
+import { TodayDashboardView } from './TodayDashboardView';
+import type { DayScheduleActions, AgendaEventActions } from './dayScheduleActions';
 
 export interface DayCalendarViewProps {
   projection: PlannerCalendarProjection;
@@ -12,40 +9,36 @@ export interface DayCalendarViewProps {
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   scheduleActions?: DayScheduleActions;
+  eventActions?: AgendaEventActions;
 }
 
-/** K-71 single-flow day view — no empty side column. */
+/** K-79 Today dashboard — replaces sparse day timeline layout. */
 export function DayCalendarView({
   projection,
   presentation,
   theme,
   onEventNoteClick,
   scheduleActions,
+  eventActions,
 }: DayCalendarViewProps) {
-  const day = projection.views.day;
-  const model = useMemo(() => buildDayDisplayModel(day), [day]);
+  const mergedEventActions: AgendaEventActions | undefined = onEventNoteClick || eventActions
+    ? {
+        ...eventActions,
+        onOpen: eventActions?.onOpen ?? onEventNoteClick,
+      }
+    : eventActions;
 
   return (
     <div
-      className={`rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 flex flex-col gap-2 ${theme.card}`}
+      className={`rounded-[20px] lg:rounded-[24px] p-2.5 lg:p-3 flex flex-col ${theme.card}`}
       data-planner-calendar-day
     >
-      <DayHeader
-        dayHeading={presentation.labels.dayHeading}
-        isToday={model.isToday}
-        milestoneCount={model.milestoneCount}
-        theme={theme}
-      />
-
-      <SelectedDayDetailPanel
+      <TodayDashboardView
         projection={projection}
         presentation={presentation}
         theme={theme}
-        onEventNoteClick={onEventNoteClick}
         scheduleActions={scheduleActions}
-        hideHeading
-        bare
-        suppressEmptySections
+        eventActions={mergedEventActions}
       />
     </div>
   );

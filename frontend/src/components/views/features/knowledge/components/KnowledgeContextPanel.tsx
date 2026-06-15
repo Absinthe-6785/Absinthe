@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
+import { useResizablePanelWidth } from '../../../../../hooks/useResizablePanelWidth';
 
 export type KnowledgeContextTab =
   | 'toc'
@@ -33,7 +34,7 @@ export interface KnowledgeContextPanelProps {
   children: ReactNode;
 }
 
-/** Unified right-side Knowledge Context shell — tab bar, header, scroll body. */
+/** Unified right-side Knowledge Context shell — resizable width (K-79). */
 export function KnowledgeContextPanel({
   colors: c,
   compact,
@@ -44,22 +45,67 @@ export function KnowledgeContextPanel({
   children,
 }: KnowledgeContextPanelProps) {
   const { t } = useTranslation();
+  const { width, onResizeDrag } = useResizablePanelWidth(compact, tablet);
+  const asideRef = useRef<HTMLElement>(null);
+
+  const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const aside = asideRef.current;
+    if (!aside) return;
+    const right = aside.getBoundingClientRect().right;
+    const pointerId = e.pointerId;
+    aside.setPointerCapture(pointerId);
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      onResizeDrag(ev.clientX, right);
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      aside.releasePointerCapture(pointerId);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [onResizeDrag]);
 
   return (
     <aside
+      ref={asideRef}
       aria-label={t('nvSidePanel')}
       className={compact ? 'mobile-panel-drawer' : undefined}
       style={{
-        width: compact ? undefined : (tablet ? 210 : 230),
-        minWidth: compact ? undefined : (tablet ? 210 : 230),
+        width: compact ? undefined : width,
+        minWidth: compact ? undefined : width,
         background: c.sidebar,
         borderLeft: `1px solid ${c.sideBdr}`,
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
+        position: 'relative',
         zIndex: compact ? 150 : undefined,
       }}
     >
+      {!compact ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('k79ContextPanelResize')}
+          onPointerDown={startResize}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 5,
+            cursor: 'col-resize',
+            zIndex: 2,
+          }}
+          data-knowledge-panel-resize
+        />
+      ) : null}
+
       <div
         style={{
           padding: '8px 10px 6px',
