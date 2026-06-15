@@ -1,4 +1,4 @@
-import { useTranslation, type TranslationKey } from '../../../../../../lib/i18n';
+import { useTranslation, type TranslationKey } from '@/lib/i18n';
 import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import type { DiscoveryConfidence } from '../../discovery/discoveryScoring';
 import { CosmosConfidenceBadge, CosmosReasonBlock } from '../cosmosPanelUi';

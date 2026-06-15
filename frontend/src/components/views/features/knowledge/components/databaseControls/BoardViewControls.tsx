@@ -1,4 +1,4 @@
-import { useTranslation } from '../../../../../../lib/i18n';
+import { useTranslation } from '@/lib/i18n';
 import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import { getDatabasePropertyFieldPreset } from '../../databaseViews/databasePresentationMeta';
 import type { DatabaseBoardConfig } from '../../databaseViews/databasePresentationModels';

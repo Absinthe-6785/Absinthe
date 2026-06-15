@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Eye, Type,
   RotateCcw, AlertTriangle, Star, CalendarDays,
@@ -174,20 +174,12 @@ import { classifyGraphNodeTier } from './features/knowledge/graph/knowledgeUnive
 import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
-import {
-  BlockEditor,
-  useBlockEditor,
-  type BlockEditorColors,
-  type BlockEditorHandle,
-} from './BlockEditor';
+import { type BlockEditorHandle } from './BlockEditor';
 import {
   buildNoteChrome,
   buildBlockEditorColors,
-  NOTE_FONT_OPTIONS,
-  NOTE_DOCUMENT_MAX_WIDTH,
-  NOTE_RADIUS_CARD,
 } from './noteEditorTheme';
-import { type EditorMode, toggleEditReading } from './editorMode';
+import { type EditorMode } from './editorMode';
 import {
   flashHeadingElement,
   navigateToHeading,
@@ -199,81 +191,8 @@ import {
 import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
-import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody } from './noteview/index';
+import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea } from './noteview/index';
 
-
-// ── 블록 에디터 어댑터 ────────────────────────────────────────────────
-// useBlockEditor 훅은 조건부로 호출할 수 없으므로 별도 컴포넌트로 분리한다.
-// 부모에서 key={note.id}로 마운트해 노트 전환 시 블록 상태가 초기화되도록 한다.
-interface NoteBlockEditorProps {
-  body: string;
-  onBodyChange: (md: string) => void;
-  colors: BlockEditorColors;
-  readOnly: boolean;
-  searchQuery: string;
-  searchScope: EditorSearchScope;
-  searchMatchIndex: number;
-  wikiTargets: string[];
-  onWikiNavigate?: (title: string) => void;
-  virtualScrollApiRef?: VirtualScrollApiRef;
-  virtualScrollParentRef?: React.RefObject<HTMLElement | null>;
-}
-const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
-  {
-    body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex,
-    wikiTargets, onWikiNavigate, virtualScrollApiRef, virtualScrollParentRef,
-  },
-  ref,
-) {
-  const {
-    blocks, handleBlockChange, undo, redo,
-    insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
-    setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
-    getBlocks, copyDocument,
-  } = useBlockEditor(body, onBodyChange);
-
-  useImperativeHandle(ref, () => ({
-    insertImage,
-    insertEmptyImageBlock,
-    insertWikiLinkDraft,
-    getBlocks,
-    copyDocument,
-  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument]);
-
-  // Ctrl+Z / Ctrl+Y(또는 Ctrl+Shift+Z) — capture 단계에서 가로채 블록 단위 undo/redo 실행.
-  // capture + stopImmediatePropagation으로 NoteView 전역 단축키와 충돌 방지.
-  useEffect(() => {
-    if (readOnly) return;
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'z' && !e.shiftKey)              { e.preventDefault(); e.stopImmediatePropagation(); undo(); }
-      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); redo(); }
-    };
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [undo, redo, readOnly]);
-
-  return (
-    <BlockEditor
-      blocks={blocks}
-      onChange={handleBlockChange}
-      colors={colors}
-      readOnly={readOnly}
-      searchQuery={searchQuery}
-      searchScope={searchScope}
-      searchMatchIndex={searchMatchIndex}
-      wikiTargets={wikiTargets}
-      onWikiNavigate={onWikiNavigate}
-      onActiveBlockChange={setActiveBlockId}
-      externalFocusId={externalFocusId}
-      externalFocusOffset={externalFocusOffset}
-      onExternalFocusConsumed={clearExternalFocus}
-      virtualScrollApiRef={virtualScrollApiRef}
-      virtualScrollParentRef={virtualScrollParentRef}
-    />
-  );
-});
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = () => {
@@ -1411,1188 +1330,300 @@ export const NoteView = () => {
         </div>
       )}
 
-      {/* ── Left Sidebar ── */}
-      {(!hideLeftChrome || (isMobile && mobileSidebarOpen)) && (
-        <nav
-          id="noteview-navigation"
-          aria-label={t('nvSidebarNav')}
-          className={isMobile ? 'mobile-sidebar-drawer' : undefined}
-          style={{
-            width: isMobile ? undefined : (sidebarCollapsed ? 44 : 185),
-            minWidth: isMobile ? undefined : (sidebarCollapsed ? 44 : 185),
-            background: c.sidebar,
-            borderRight: `1px solid ${c.sideBdr}`,
-            display: isMobile && !mobileSidebarOpen ? 'none' : 'flex',
-            flexDirection: 'column',
-            flexShrink: 0,
-            transition: isMobile ? undefined : 'width .2s, min-width .2s',
-            overflow: 'hidden',
-            zIndex: isMobile ? 150 : 99,
-          }}
-        >
-          {sidebarCollapsed ? (
-            <div className="bicon-bar" style={{ flex: 1 }}>
-              <button className="bicon-btn" onClick={() => setSidebarCollapsed(false)} style={{ marginBottom: 4 }}>
-                <ChevronRight size={14}/>
-                <span className="bicon-tooltip">{t('nvExpandSidebar')}</span>
-              </button>
-              <div style={{ width: 20, height: 1, background: c.sideBdr, margin: '2px 0 6px' }}/>
-              <button className={`bicon-btn ${activeFolderId === null && !activeTag ? 'active' : ''}`}
-                onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); }}>
-                <AlignLeft size={14}/>
-                <span className="bicon-tooltip">{t('nvAllNotes')} ({activeNoteCount})</span>
-              </button>
-              <button className={`bicon-btn ${activeFolderId === 'starred' ? 'active' : ''}`}
-                onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); }}>
-                <Star size={14} fill={activeFolderId === 'starred' ? c.accent : 'none'} color={activeFolderId === 'starred' ? c.accent : c.textMuted}/>
-                <span className="bicon-tooltip">{t('starred')}</span>
-              </button>
-              {folders.map(f => (
-                <button key={f.id} className={`bicon-btn ${activeFolderId === f.id ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(f.id); setActiveTag(null); }}>
-                  <Folder size={14} color={activeFolderId === f.id ? c.accent : c.textMuted}/>
-                  <span className="bicon-tooltip">{f.name} ({notes.filter(n => n.folderId === f.id && !n.deletedAt).length})</span>
-                </button>
-              ))}
-              <div style={{ flex: 1 }}/>
-              <button className={`bicon-btn ${isTrash ? 'active' : ''}`}
-                onClick={() => setActiveFolderId('trash')} style={{ color: isTrash ? c.danger : c.textMuted }}>
-                <Trash2 size={14}/>
-                {trashCount > 0 && <span className="bicon-tooltip">{t('trash')} ({trashCount})</span>}
-                {trashCount === 0 && <span className="bicon-tooltip">{t('trash')}</span>}
-              </button>
-            </div>
-          ) : (
-            <>
-              <div style={{ padding: '10px 10px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 800, fontSize: 13, color: c.accent, letterSpacing: -.3 }}>{t('note')}</span>
-                <div style={{ flex: 1 }}/>
-                <button onClick={() => setShowShortcuts(true)} className="btbtn" style={{ padding: '2px 3px' }}                 title={t('nvShortcuts')}><Keyboard size={11}/></button>
-                <button onClick={() => setSidebarCollapsed(true)} className="btbtn" style={{ padding: '2px 3px' }} title={t('nvCollapseSidebar')}>
-                  <ChevronRight size={11} style={{ transform: 'rotate(180deg)' }}/>
-                </button>
-              </div>
-              <div style={{ padding: '6px 8px', borderBottom: `1px solid ${c.sideBdr}`, position: 'relative', display: 'flex', gap: 4 }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={10} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: c.textMuted }}/>
-                <input
-                  ref={searchInputRef}
-                  className="bwsi"
-                  style={{ fontSize: 11, paddingRight: searchQuery.trim() ? 24 : undefined, width: '100%' }}
-                  placeholder={t('nvNoteSearchPlaceholder')}
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-                </div>
-                <button
-                  type="button"
-                  className="btbtn"
-                  title={t('nvWorkspaceSearchBtn')}
-                  onClick={() => setWorkspaceSearchOpen(true)}
-                  style={{ padding: '4px 6px', flexShrink: 0, color: c.accent }}
-                >
-                  <Search size={12}/>
-                </button>
-              </div>
-              {knowledgeQueryInfo.active && knowledgeQueryInfo.error && (
-                <div style={{ padding: '4px 10px', fontSize: 10, color: c.danger, borderBottom: `1px solid ${c.sideBdr}` }}>
-                  {knowledgeQueryInfo.error}
-                </div>
-              )}
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                  <span style={{ flex: 1 }}>{t('nvAllNotes')}</span>
-                  <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>
-                    {notes.filter(n => !n.deletedAt).length}
-                  </span>
-                </div>
-                <div
-                  className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
-                  onClick={() => openTraceDay(todayTraceKey)}
-                >
-                  <span style={{ flex: 1 }}>{t('nvToday')}</span>
-                </div>
-                <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
-                  onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
-                >
-                  <span style={{ flex: 1 }}>{t('nvThisMonth')}</span>
-                </div>
-                <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
-                  onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey })}
-                >
-                  <span style={{ flex: 1 }}>{t('nvThisQuarter')}</span>
-                </div>
-                <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active' : ''}`}
-                  onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
-                >
-                  <span style={{ flex: 1 }}>{t('nvThisYear')}</span>
-                </div>
-                <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active' : ''}`}
-                  onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
-                >
-                  <span style={{ flex: 1 }}>{t('nvCustomRange')}</span>
-                </div>
-                <div className="bseclbl">{t('nvAreas')}</div>
-                {areaNotes.map(area => (
-                  <div
-                    key={area.id}
-                    className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
-                    onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey || e.altKey) {
-                        openTraceArea(area.id);
-                      } else {
-                        openCreatedNote(area.id);
-                      }
-                    }}
-                  >
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {displayNoteTitle(area.title)}
-                    </span>
-                  </div>
-                ))}
-                <div
-                  className={`bfi ${isTraceDiscoveryMode ? 'active' : ''}`}
-                  onClick={openTraceDiscovery}
-                >
-                  <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
-                </div>
-                <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                  <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-                  <span style={{ flex: 1 }}>{t('starred')}</span>
-                  {starredCount > 0 && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{starredCount}</span>}
-                </div>
-                <div className="bseclbl">{t('nvFolders')}</div>
-                {folders.map(f => (
-                  <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
-                    onClick={() => {
-                      if (renamingFolderId === f.id) return;
-                      setActiveFolderId(f.id); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false);
-                    }}
-                    onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('bdrag-over'); }}
-                    onDragLeave={e => e.currentTarget.classList.remove('bdrag-over')}
-                    onDrop={e => { e.currentTarget.classList.remove('bdrag-over'); if (dragNoteId) { noteUpdate(dragNoteId, { folderId: f.id }); setDragNoteId(null); } }}
-                    style={{ gap: 4 }}>
-                    {renamingFolderId === f.id ? (
-                      <input
-                        autoFocus
-                        value={renameVal}
-                        onChange={e => setRenameVal(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && renameVal.trim()) {
-                            storeRenameFolder(f.id, renameVal.trim());
-                            setRenamingFolderId(null);
-                          }
-                          if (e.key === 'Escape') setRenamingFolderId(null);
-                        }}
-                        onBlur={() => {
-                          if (renameVal.trim()) storeRenameFolder(f.id, renameVal.trim());
-                          setRenamingFolderId(null);
-                        }}
-                        className="bwi"
-                        style={{ flex: 1, fontSize: 11, margin: '0 4px' }}
-                        onClick={e => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span
-                        style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}
-                        onDoubleClick={e => {
-                          e.stopPropagation();
-                          setRenamingFolderId(f.id);
-                          setRenameVal(f.name);
-                        }}>
-                        {f.name}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 9, color: c.textMuted }}>{notes.filter(n => n.folderId === f.id && !n.deletedAt).length}</span>
-                    <button onClick={e => { e.stopPropagation(); deleteFolder(f.id); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: '1px 2px', borderRadius: 3, opacity: 0 }}
-                      className="folder-del"
-                      onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                      onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
-                      <Trash2 size={9}/>
-                    </button>
-                  </div>
-                ))}
-                {showFolderForm ? (
-                  <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <input className="bwi" style={{ width: '100%', fontSize: 11 }} placeholder={t('nvFolderName')}
-                      value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') addFolder(); if (e.key === 'Escape') setShowFolderForm(false); }}
-                      autoFocus/>
-                    <div style={{ display: 'flex', gap: 3 }}>
-                      <button className="bwbg" style={{ flex: 1, padding: '3px', fontSize: 11 }} onClick={addFolder}>추가</button>
-                      <button onClick={() => setShowFolderForm(false)}
-                        style={{ flex: 1, background: c.cardHov, border: 'none', borderRadius: 5, color: c.textMuted, fontSize: 11, cursor: 'pointer', padding: '3px' }}>취소</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bfi" onClick={() => setShowFolderForm(true)} style={{ color: c.textMuted, fontSize: 10 }}>
-                    <FolderPlus size={10} color={c.textMuted}/><span>{t('nvNewFolder')}</span>
-                  </div>
-                )}
-                {allTags.length > 0 && (
-                  <>
-                    <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvPanelTags')}</div>
-                    <div style={{ padding: '3px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                      {allTags.map(({ tag, count }) => (
-                        <span key={tag} className={`btpill ${activeTag === tag ? 'active' : ''}`}
-                          onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev === tag ? null : tag); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                          #{tag} <span style={{ color: c.textMuted, marginLeft: 1 }}>{count}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                )}
-                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                  <div
-                    className="bseclbl"
-                    onClick={() => setWorkspaceExpanded(v => !v)}
-                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                  >
-                    {workspaceExpanded
-                      ? <ChevronDown size={10} style={{ flexShrink: 0, color: c.textFaint }} />
-                      : <ChevronRight size={10} style={{ flexShrink: 0, color: c.textFaint }} />}
-                    <span>{t('nvWorkspace')}</span>
-                  </div>
-                  {workspaceExpanded && (
-                    <>
-                      <div
-                        className={`bfi ${isDashboardMode ? 'active' : ''}`}
-                        onClick={handleActivateDashboardWithTraceClear}
-                        style={{ gap: 4, fontSize: 11 }}
-                      >
-                        <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
-                        <span style={{ flex: 1 }}>{t('wsDashboard')}</span>
-                      </div>
-                      <SmartCollectionsSection
-                        colors={c}
-                        collections={SMART_COLLECTIONS}
-                        activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
-                        counts={smartCollectionCounts}
-                        onActivate={handleActivateSmartCollection}
-                        onClearActive={handleClearSmartCollection}
-                        isPinned={id => isWorkspacePinned('smart-collection', id)}
-                        onTogglePin={collection => handleTogglePinWorkspace({
-                          kind: 'smart-collection',
-                          id: collection.id,
-                          name: collection.name,
-                          subtitle: collection.description,
-                        })}
-                      />
-                    </>
-                  )}
-                </div>
-                <PinnedWorkspacesSection
-                  colors={c}
-                  pinned={pinnedWorkspaces}
-                  activeKind={activeWorkspaceKind}
-                  activeId={activeWorkspaceId}
-                  onActivate={handleActivateWorkspaceRef}
-                  onUnpin={handleUnpinWorkspace}
-                  onMovePinned={handleMovePinnedWorkspace}
-                />
-                <RecentWorkSection
-                  colors={c}
-                  recent={recentWork}
-                  activeKind={activeWorkspaceKind}
-                  activeId={activeWorkspaceId}
-                  isPinned={isWorkspacePinned}
-                  onActivate={entry => handleActivateWorkspaceRef(entry.workspace)}
-                  onTogglePin={entry => handleTogglePinWorkspace(entry.workspace)}
-                  onClearRecent={handleClearRecentWork}
-                />
-                <RuleCollectionsSection
-                  colors={c}
-                  collections={ruleCollections}
-                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'rule-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
-                  counts={ruleCollectionCounts}
-                  canCreateFromCurrent={canCreateRuleCollection}
-                  currentQuery={searchQuery.trim()}
-                  onActivate={handleActivateRuleCollection}
-                  onClearActive={handleClearRuleCollection}
-                  onCreate={handleCreateRuleCollection}
-                  onRename={handleRenameRuleCollection}
-                  onDelete={handleDeleteRuleCollection}
-                  isPinned={id => isWorkspacePinned('rule-collection', id)}
-                  onTogglePin={collection => handleTogglePinWorkspace({
-                    kind: 'rule-collection',
-                    id: collection.id,
-                    name: collection.name,
-                    subtitle: collection.query,
-                  })}
-                />
-                <DatabaseViewsSection
-                  colors={c}
-                  views={databaseViews}
-                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'database-view') && 'id' in workspaceActivation ? workspaceActivation.id : null}
-                  counts={databaseViewCounts}
-                  canCreateFromCurrent={canCreateDatabaseView}
-                  currentQuery={searchQuery.trim()}
-                  onActivate={handleActivateDatabaseView}
-                  onClearActive={handleClearDatabaseView}
-                  onCreate={handleCreateDatabaseView}
-                  onCreateFromTemplate={handleCreateDatabaseViewFromTemplate}
-                  onRename={handleRenameDatabaseView}
-                  onDelete={handleDeleteDatabaseView}
-                  isPinned={id => isWorkspacePinned('database-view', id)}
-                  onTogglePin={view => handleTogglePinWorkspace({
-                    kind: 'database-view',
-                    id: view.id,
-                    name: view.name,
-                    subtitle: view.query,
-                  })}
-                  openCreateFormSignal={databaseCreateSignal}
-                />
-                <SavedViewsSection
-                  colors={c}
-                  views={savedViews}
-                  activeViewId={isWorkspaceKindActive(workspaceActivation, 'saved-view') && 'id' in workspaceActivation ? workspaceActivation.id : null}
-                  canSaveCurrent={canSaveCurrentView}
-                  onActivate={handleActivateSavedView}
-                  onClearActive={handleClearSavedView}
-                  onCreate={handleCreateSavedView}
-                  onRename={handleRenameSavedView}
-                  onDelete={handleDeleteSavedView}
-                  isPinned={id => isWorkspacePinned('saved-view', id)}
-                  onTogglePin={view => handleTogglePinWorkspace({
-                    kind: 'saved-view',
-                    id: view.id,
-                    name: view.name,
-                    subtitle: view.query,
-                  })}
-                />
-                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                  <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
-                    <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
-                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>{t('trash')}</span>
-                    {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </nav>
-      )}
-      {/* ── Note List / Database Table ── */}
-      <div
-        id="noteview-note-list"
-        role="region"
-        aria-label={t('nvNoteList')}
-        style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '38%' : '45%')) : (isMobile ? '100%' : (isTablet ? 168 : 200)))),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 280)) : (isMobile ? 0 : (isTablet ? 168 : 200)))),
-        overflow: 'hidden',
-        background: c.notelist,
-        borderRight: `1px solid ${c.sideBdr}`,
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: isWorkspacePanelMode ? 1 : 0,
-        transition: 'width .2s, min-width .2s',
-        zIndex: 99,
-      }}>
-        <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${c.sideBdr}`, gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-            {isCompactChrome && (
-              <button
-                type="button"
-                className="btbtn btbtn-mobile"
-                onClick={() => setWorkspaceSearchOpen(true)}
-                title={t('nvWorkspaceSearchBtn')}
-                aria-label={t('nvScWorkspaceSearch')}
-                style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
-              >
-                <Search size={16} />
-              </button>
-            )}
-            {isMobile && (
-              <button
-                type="button"
-                className="btbtn btbtn-mobile"
-                onClick={() => setMobileSidebarOpen(true)}
-                title={t('nvOpenMenu')}
-                aria-label={t('nvOpenMenu')}
-                style={{ padding: '4px 6px', color: c.textMuted, flexShrink: 0 }}
-              >
-                <AlignLeft size={16} />
-              </button>
-            )}
-          <span style={{ fontSize: 11, color: c.textMuted, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-            {isTraceDiscoveryMode
-              ? t('nvPatternDiscovery')
-              : isTraceAreaMode && traceAreaProjection
-              ? (traceAreaRange
-                ? formatAreaRangeHeading(traceAreaProjection.areaTitle, traceAreaRange)
-                : traceAreaProjection.areaTitle)
-              : isTraceRangeMode && traceRange
-              ? formatRangeLensHeading(traceRange)
-              : isTraceDayMode && traceDate
-              ? formatTraceDayHeading(traceDate)
-              : isDashboardMode
-              ? dashboard.name
-              : activeDatabaseView
-              ? activeDatabaseView.name
-              : activeSmartCollection
-              ? activeSmartCollection.name
-              : activeRuleCollection
-              ? activeRuleCollection.name
-              : activeSavedView
-              ? activeSavedView.name
-              : knowledgeQueryInfo.active
-              ? (knowledgeQueryInfo.error ? t('nvInvalidQuery') : knowledgeQueryInfo.label)
-              : activeTag ? `#${activeTag}` : folderLabel}
-            <span style={{ color: c.textFaint, marginLeft: 4 }}>
-              ({isTraceLensMode ? traceLensMarkCount : isDatabaseViewMode ? activeDatabaseViewNoteCount : isDashboardMode ? recentNotes.length : visibleNotes.length})
-            </span>
-          </span>
-          </div>
-          <div style={{ display: 'flex', gap: 3, alignItems: 'center', position: 'relative', flexShrink: 0 }}>
-            {searchQuery.trim() && (
-              <button onClick={handleClearSavedView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearQuery')}>✕</button>
-            )}
-            {isTraceLensMode && (
-              <button onClick={closeTraceLens} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvLeaveTrace')}>✕</button>
-            )}
-            {isWorkspaceKindActive(workspaceActivation, 'dashboard') && !searchQuery.trim() && (
-              <button onClick={handleClearDashboard} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvLeaveDashboard')}>✕</button>
-            )}
-            {isWorkspaceKindActive(workspaceActivation, 'database-view') && !searchQuery.trim() && (
-              <button onClick={handleClearDatabaseView} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearDbView')}>✕</button>
-            )}
-            {isWorkspaceKindActive(workspaceActivation, 'smart-collection') && !searchQuery.trim() && (
-              <button onClick={handleClearSmartCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearCollection')}>✕</button>
-            )}
-            {isWorkspaceKindActive(workspaceActivation, 'rule-collection') && !searchQuery.trim() && !isWorkspaceKindActive(workspaceActivation, 'smart-collection') && (
-              <button onClick={handleClearRuleCollection} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }} title={t('nvClearCollection')}>✕</button>
-            )}
-            {activeTag && workspaceActivation.kind === 'none' && !searchQuery.trim() && (
-              <button onClick={() => setActiveTag(null)} className="btbtn" style={{ padding: '2px 4px', fontSize: 9 }}>✕</button>
-            )}
-            {!isWorkspacePanelMode && (
-              <>
-            {/* 정렬 */}
-            <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
-              title={t('nvSort')}>
-              {sortOrder === 'updated' ? <Clock size={10} /> : sortOrder === 'title' ? 'Az' : <Calendar size={10} />}
-            </button>
-            {showSortMenu && (
-              <div className="bsort-menu" onClick={e => e.stopPropagation()}>
-                {(['updated', 'title', 'created'] as const).map(s => (
-                  <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
-                    onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {!isTrash && (
-              <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')}>
-                <Upload size={11}/>
-              </button>
-            )}
-            {!isTrash && (
-              <button onClick={exportAllNotes} className="btbtn" title={`Export all ${activeNoteCount} notes as .md`}>
-                <Save size={11}/>
-              </button>
-            )}
-            {!isTrash && (
-              <button onClick={() => openCreateEventDialog()} className="btbtn" title={t('nvCreateEvent')}>
-                <CalendarDays size={11}/>
-              </button>
-            )}
-            {!isTrash && (
-              <button onClick={() => createNote()} style={{ background: c.accent, border: 'none', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', color: dark ? '#0F0F11' : '#fff', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center' }}>
-                <Plus size={12}/>
-              </button>
-            )}
-              </>
-            )}
-          </div>
-        </div>
-        {isTraceDiscoveryMode ? (
-          <AreaDiscoveryView
-            colors={c}
-            notes={activeNotes}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-          />
-        ) : isTraceAreaMode && traceAreaId ? (
-          <AreaTraceView
-            colors={c}
-            areaNoteId={traceAreaId}
-            areaRange={traceAreaRange}
-            notes={activeNotes}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-            onAreaRangeChange={setTraceAreaRange}
-          />
-        ) : isTraceRangeMode && traceRange ? (
-          <RangeTraceLensView
-            colors={c}
-            lens={traceRange}
-            notes={activeNotes}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-            onLensChange={setTraceRange}
-          />
-        ) : isTraceDayMode && traceDate ? (
-          <DailyTraceDayView
-            colors={c}
-            date={traceDate}
-            notes={activeNotes}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-            onDateChange={setTraceDate}
-          />
-        ) : isDashboardMode && !searchQuery.trim() ? (
-          <WorkspaceDashboardView
-            colors={c}
-            dashboard={dashboard}
-            pinned={pinnedWorkspaces}
-            recent={recentWork}
-            resumeWorkspace={resumeWorkspace}
-            recentNotes={recentNotes}
-            onActivateWorkspace={handleActivateWorkspaceRef}
-            onResumeWorkspace={handleResumeLastWorkspace}
-            onSelectNote={noteId => {
-              handleLeaveDashboardForNote(noteId);
-              setActiveNoteId(noteId);
-            }}
-            quickActions={{
-              onNewNote: () => createNote(),
-              onNewDatabaseView: () => {
-                setSidebarCollapsed(false);
-                setDatabaseCreateSignal(signal => signal + 1);
-              },
-              onOpenSearch: () => {
-                setSidebarCollapsed(false);
-                searchInputRef.current?.focus();
-              },
-              onOpenCosmos: () => setViewMode('graph'),
-            }}
-            focus={{
-              presets: focusPresets,
-              presetTargets: focusPresetTargets,
-              activePresetId: focusSession.activePresetId,
-              workspaceOptions: focusWorkspaceOptions,
-              onCreatePreset: handleCreateFocusPreset,
-              onDeletePreset: handleDeleteFocusPreset,
-              onActivatePreset: handleActivateFocusPreset,
-              onExitPreset: handleExitFocusPreset,
-            }}
-            quickCapture={{
-              taskTemplates,
-              onCapture: handleQuickCapture,
-            }}
-            productivity={{
-              taskTemplates,
-              journalTemplates,
-              onCreateTask: handleCreateTask,
-              onCreateJournal: handleCreateJournal,
-              onCreateReadingNote: handleCreateReadingNote,
-              onCreateStudyNote: handleCreateStudyNote,
-              onCreateTaskDatabase: handleCreateTaskDatabase,
-              onCreateJournalDatabase: handleCreateJournalDatabase,
-            }}
-            maintenance={{
-              data: knowledgeMaintenance,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-            }}
-            unified={{
-              data: unifiedWorkspaceDashboard,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-              onActivateSubjectWorkspace: collectionId => {
-                handleActivateSubjectWorkspace(collectionId);
-                handleLeaveDashboardForNote('');
-              },
-              projectQuickActions: {
-                onCreateProject: handleCreateProject,
-                onCreateMilestone: handleCreateProjectMilestone,
-                onOpenProjectNotes: handleOpenProjectNotes,
-                onEditProject: handleEditProject,
-              },
-              onOpenStudyCollection: handleOpenStudyCollection,
-              onOpenResearchCollection: handleOpenResearchCollection,
-              onOpenDiscover: handleOpenDiscover,
-              onOpenTimeline: handleOpenTimeline,
-              timeline: knowledgeTimeline,
-              activitySummary,
-              activityRecent: dashboardRecentActivity,
-              activityLatestMilestone: dashboardLatestMilestone,
-              activityGrowthTrend: knowledgeTimeline.recentEvolution,
-              evolutionInsights,
-              onOpenEvolution: handleOpenEvolution,
-              onNavigateToArea: handleNavigateToArea,
-              activeNoteCount: activeNotes.length,
-              onCreateNote: () => createNote(),
-              onOpenCosmos: () => setViewMode('graph'),
-              learningPathOverview: {
-                data: learningPathOverview,
-                onNavigateToNote: noteId => {
-                  handleLeaveDashboardForNote(noteId);
-                  setActiveNoteId(noteId);
-                },
-                onCreatePath: () => setEditingLearningPathId(null),
-                onOpenPathEditor: pathId => setEditingLearningPathId(pathId),
-              },
-              learningPathEditor: editingLearningPathId !== undefined ? {
-                pathId: editingLearningPathId,
-                notes,
-                activeNoteId,
-                onPathIdChange: id => setEditingLearningPathId(id ?? undefined),
-                onUpdateNoteProperties: handleUpdateNoteProperties,
-                onCreateNote: handleCreateLearningPathStepNote,
-              } : undefined,
-            }}
-            learningPath={{
-              data: learningPathOverview,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-              onCreatePath: () => setEditingLearningPathId(null),
-              onOpenPathEditor: pathId => setEditingLearningPathId(pathId),
-              editor: editingLearningPathId !== undefined ? {
-                pathId: editingLearningPathId,
-                notes,
-                activeNoteId,
-                onPathIdChange: id => setEditingLearningPathId(id ?? undefined),
-                onUpdateNoteProperties: handleUpdateNoteProperties,
-                onCreateNote: handleCreateLearningPathStepNote,
-              } : undefined,
-            }}
-            subjectWorkspaces={{
-              subjects: subjectWorkspaces,
-              onSelectNote: noteId => {
-                handleLeaveDashboardForNote(noteId);
-                setActiveNoteId(noteId);
-              },
-              onActivateSubjectWorkspace: collectionId => {
-                handleActivateSubjectWorkspace(collectionId);
-                handleLeaveDashboardForNote('');
-              },
-              onEditProject: handleNavigateToProjectEditor,
-            }}
-          />
-        ) : isDatabaseViewMode && activeDatabaseView ? (
-          <DatabaseViewPanel
-            colors={c}
-            view={activeDatabaseView}
-            notes={safeNotesForDatabase}
-            service={knowledgeIndexService}
-            activeNoteId={activeNoteId}
-            onSelectNote={setActiveNoteId}
-            onViewChange={patchActiveDatabaseView}
-          />
-        ) : (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {visibleNotes.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12 }}>
-              {isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}
-            </div>
-          ) : visibleNotes.map(n => {
-            const folder  = folders.find(f => f.id === n.folderId);
-            const tags    = listTags(n).slice(0, 2);
-            const rawPreview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
-            const displayTitle = displayNoteTitle(n.title);
-            const hlTitle   = searchQuery.trim() ? highlightText(displayTitle, searchQuery) : displayTitle;
-            const hlPreview = searchQuery.trim() ? highlightText(rawPreview, searchQuery) : rawPreview;
-            return (
-              <div key={n.id}
-                className={`bni ${n.id === activeNoteId ? 'active' : ''} ${dragNoteId === n.id ? 'bnote-drag' : ''}`}
-                onClick={() => { setActiveNoteId(n.id); if (isMobile) setMobileShowEditor(true); }}
-                draggable={!isTrash}
-                onDragStart={() => setDragNoteId(n.id)}
-                onDragEnd={() => setDragNoteId(null)}
-                title={t('nvDragHint')}
-                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNote(n); } }}
-                tabIndex={0}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                  {n.starred && <Star size={9} color={c.accent} fill={c.accent} style={{ flexShrink: 0 }}/>}
-                  <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    dangerouslySetInnerHTML={{ __html: hlTitle }}/>
-                </div>
-                <div style={{ fontSize: 10, color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 3 }}
-                  dangerouslySetInnerHTML={{ __html: hlPreview }}/>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap', minWidth: 0 }}>
-                  {folder && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>{folder.name}</span>}
-                  {tags.map(tag => (
-                    <TagChip key={tag} colors={c} tag={tag} size="sm" />
-                  ))}
-                  <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto' }}>
-                    {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        )}
-      </div>
-
-      {/* ── Editor Area ── */}
-      <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
-        {activeNote ? (
-          <>
-            {/* Note Header */}
-            <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-              {isMobile && (
-                <button type="button" className="btbtn" onClick={() => { setMobileShowEditor(false); setActiveNoteId(null); }}
-                  style={{ padding: '2px 4px', color: c.textMuted }} title={t('nvBackToNotes')}>
-                  <ChevronLeft size={14}/>
-                </button>
-              )}
-              {isFocusPresetActive && activeFocusPreset && (
-                <button
-                  type="button"
-                  className="btbtn"
-                  onClick={handleExitFocusPreset}
-                  style={{ fontSize: 10, color: c.accent, whiteSpace: 'nowrap' }}
-                  title={t('nvExitFocus')}
-                >
-                  {t('nvExitFocus')}
-                </button>
-              )}
-              <input ref={titleInputRef} value={titleDraft} readOnly={isTrash}
-                onChange={e => handleTitleChange(e.target.value)}
-                onCompositionStart={() => { titleComposingRef.current = true; }}
-                onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
-                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
-                placeholder={t('title')}/>
-              {!isTrash && (
-                <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}
-                  style={{ background: c.input, border: `1px solid ${c.inputBdr}`, color: c.textMuted, borderRadius: 5, padding: '3px 6px', fontSize: 10, outline: 'none', cursor: 'pointer' }}>
-                  <option value="">{t('nvNoFolder')}</option>
-                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              )}
-              {!isTrash && (
-                <NoteClassificationSelector
-                  colors={c}
-                  value={activeNoteKind}
-                  onChange={kind => {
-                    const updated = setNoteKind(activeNote, kind);
-                    noteUpdate(activeNote.id, { properties: updated.properties });
-                  }}
-                />
-              )}
-              {!isTrash && (
-                <WeakTopicToggle
-                  colors={c}
-                  active={isWeakTopic(activeNote)}
-                  onChange={weak => {
-                    const updated = setWeakTopic(activeNote, weak);
-                    noteUpdate(activeNote.id, { properties: updated.properties });
-                  }}
-                />
-              )}
-              {/* Cloud sync status */}
-              {!isTrash && (
-                syncError ? (
-                  <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
-                    style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
-                    <AlertTriangle size={10}/> {syncError}
-                  </button>
-                ) : isSyncing ? (
-                  <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
-                    {t('nvSyncing')}
-                  </span>
-                ) : savedAt ? (
-                  <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Save size={9}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                ) : null
-              )}
-              {/* View: edit default · Reading / Graph secondary */}
-              <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1 }}>
-                {VIEW_MODES.map(({ key, icon }) => (
-                  <button
-                    key={key}
-                    title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
-                    onClick={() => {
-                      if (key === 'reading') setViewMode(v => toggleEditReading(v));
-                      else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
-                    }}
-                    className="btbtn"
-                    style={{
-                      padding: '3px 7px', borderRadius: 5,
-                      background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
-                      color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
-                    }}>
-                    {icon}
-                  </button>
-                ))}
-              </div>
-              {/* Event / milestone note actions */}
-              {!isTrash && (
-                <button
-                  type="button"
-                  onClick={() => openEditEventDialog(activeNote)}
-                  className="btbtn"
-                  style={{ fontSize: 10, color: isEventNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isEventNote(activeNote) ? t('nvEditEventTitle') : t('nvMarkEventTitle')}
-                >
-                  {isEventNote(activeNote) ? t('nvEditEvent') : t('nvMarkEvent')}
-                </button>
-              )}
-              {!isTrash && (
-                <button
-                  type="button"
-                  onClick={() => openMilestoneDialog(activeNote)}
-                  className="btbtn"
-                  style={{ fontSize: 10, color: isMilestoneNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isMilestoneNote(activeNote) ? t('nvEditMilestoneTitle') : t('nvMarkMilestoneTitle')}
-                >
-                  {isMilestoneNote(activeNote) ? t('nvEditMilestone') : t('nvMarkMilestone')}
-                </button>
-              )}
-              {!isTrash && (isAreaNote(activeNote) || canMarkAsArea(activeNote)) && (
-                <button
-                  type="button"
-                  onClick={handleToggleAreaNote}
-                  className="btbtn"
-                  style={{ fontSize: 10, color: isAreaNote(activeNote) ? c.accent : c.textMuted, whiteSpace: 'nowrap' }}
-                  title={isAreaNote(activeNote) ? t('nvClearAreaTitle') : t('nvMarkAreaTitle')}
-                >
-                  {isAreaNote(activeNote) ? t('nvClearArea') : t('nvMarkArea')}
-                </button>
-              )}
-              {/* Star */}
-              {!isTrash && (
-                <button onClick={() => toggleStar(activeNote.id)} className="btbtn" title={activeNote.starred ? t('nvUnstar') : t('nvStar')}>
-                  <Star size={13} color={activeNote.starred ? c.accent : c.textMuted} fill={activeNote.starred ? c.accent : 'none'}/>
-                </button>
-              )}
-              {/* Duplicate */}
-              {!isTrash && (
-                <button onClick={() => duplicateNote(activeNote)} className="btbtn" title={t('nvDuplicate')}>
-                  <span style={{ fontSize: 11 }}>⎘</span>
-                </button>
-              )}
-              {/* Right panel toggle */}
-              <button onClick={() => setShowRightPanel(v => !v)} className={`btbtn${isCompactChrome ? ' btbtn-mobile' : ''}`} title={t('nvTogglePanel')}
-                style={{ color: showRightPanel ? c.accent : c.textMuted }}>
-                <AlignLeft size={12}/>
-              </button>
-              {/* Copy document */}
-              {!isTrash && (
-                <button onClick={() => void handleCopyDocument()} className="btbtn"
-                  title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
-                  style={{ color: docCopied ? c.green : c.textMuted }}>
-                  <Copy size={12}/>
-                </button>
-              )}
-              {/* Export */}
-              <button onClick={() => exportNote(activeNote)} className="btbtn" title={t('nvExportMd')}>
-                <Save size={12}/>
-              </button>
-              {isTrash
-                ? <button onClick={() => restoreNote(activeNote.id)} className="btbtn" style={{ color: c.green }}><RotateCcw size={12}/></button>
-                : <button onClick={() => moveNoteToTrash(activeNote.id)} className="btbtn"><Trash2 size={12}/></button>
-              }
-            </div>
-            {!isTrash && noteTags.length > 0 && (() => {
-              const MAX_HEADER_TAGS = 10;
-              const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_HEADER_TAGS);
-              const hiddenTagCount = noteTags.length - visibleHeaderTags.length;
-              return (
-              <div style={{ padding: '5px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
-                <TagChipRow>
-                  {visibleHeaderTags.map(tag => (
-                    <TagChip
-                      key={tag}
-                      colors={c}
-                      tag={tag}
-                      size="sm"
-                      wrap
-                      selected={activeTag?.toLowerCase() === tag.toLowerCase()}
-                      onClick={() => {
-                        setActiveFolderId(null);
-                        setSearchQuery('');
-                        setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag);
-                      }}
-                    />
-                  ))}
-                  {hiddenTagCount > 0 && (
-                    <button
-                      type="button"
-                      className="btbtn"
-                      onClick={() => setHeaderTagsExpanded(v => !v)}
-                      style={{ fontSize: 9, color: c.textMuted, padding: '2px 6px' }}
-                    >
-                      {headerTagsExpanded ? t('nvCollapseSection') : t('k35MoreTags').replace('{count}', String(hiddenTagCount))}
-                    </button>
-                  )}
-                </TagChipRow>
-              </div>
-              );
-            })()}
-            {!isTrash && activeNote && (
-              <NoteContextStrip
-                colors={c}
-                note={activeNote}
-                isArea={isAreaNote(activeNote)}
-                areaTitle={noteAreaProperty || undefined}
-                projectTitle={noteLinkedProjectTitle || undefined}
-                projectId={noteLinkedProjectId}
-                learningPathLabel={noteLearningPathLabel}
-                reviewReason={noteContextReviewEntry?.reason ?? null}
-                connectionCount={noteConnectionCount}
-                tier={noteCosmosTier}
-                onNavigateToNote={setActiveNoteId}
-                onOpenLinks={() => openContextPanel('links')}
-                onOpenCosmos={() => {
-                  setShowRightPanel(true);
-                  setRightPanel('graph');
-                }}
-              />
-            )}
-            {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
-              <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
-                <LiteratureWorkflowIndicator
-                  colors={c}
-                  kind={activeNoteKind}
-                  onPromote={handlePromoteNoteKind}
-                />
-              </div>
-            )}
-
-            {/* Graph View (full area) */}
-            {viewMode === 'graph' ? (
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
-              </div>
-            ) : (
-              <>
-                {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
-                {!isTrash && viewMode === 'edit' && (
-                  <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
-                      {t('editorToolbarSlash')} ·
-                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> {t('editorToolbarBold')} ·
-                      <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
-                    </span>
-                    {activeNote && (
-                      <button
-                        type="button"
-                        className="btbtn"
-                        title={t('nvNoteSearchPlaceholder')}
-                        onClick={() => {
-                          searchInputRef.current?.focus();
-                          setSearchScope('document');
-                        }}
-                        style={{ fontSize: 10, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Search size={11}/> 검색
-                      </button>
-                    )}
-                    {searchQuery.trim() && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, flexWrap: 'wrap' }}>
-                        {(['block', 'document', 'all'] as const).map(scope => (
-                          <button key={scope} type="button" className="btbtn"
-                            onClick={() => setSearchScope(scope)}
-                            style={{
-                              fontSize: 10, padding: '2px 8px',
-                              background: searchScope === scope ? c.accentBg : c.card,
-                              color: searchScope === scope ? c.accent : c.textMuted,
-                              border: `1px solid ${searchScope === scope ? c.accent : c.toolBdr}`,
-                              borderRadius: 5, cursor: 'pointer',
-                            }}>
-                            {scope === 'block' ? t('nvSearchScopeBlock') : scope === 'document' ? t('nvSearchScopeDocument') : t('nvSearchScopeAll')}
-                          </button>
-                        ))}
-                        {searchScope !== 'all' && (
-                          <>
-                            <button type="button" className="btbtn" title={t('nvSearchPrev')}
-                              onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
-                              style={{ padding: '2px 5px' }}><ChevronUp size={12}/></button>
-                            <button type="button" className="btbtn" title={t('nvSearchNext')}
-                              onClick={() => setSearchMatchIdx(i => i + 1)}
-                              style={{ padding: '2px 5px' }}><ChevronDown size={12}/></button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')} style={{ marginLeft: 4 }}>
-                      <Upload size={13}/>
-                    </button>
-                    <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title={t('nvInsertImage')}>
-                      <ImageIcon size={13}/>
-                    </button>
-                    <div
-                      style={{ position: 'relative', marginLeft: 'auto' }}
-                      onMouseLeave={e => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node)) setShowAppearance(false);
-                      }}>
-                      <button
-                        type="button"
-                        onClick={() => setShowAppearance(v => !v)}
-                        className="btbtn"
-                        title={t('nvAppearance')}
-                        style={{ color: showAppearance ? c.accent : c.textMuted }}>
-                        <Type size={13}/>
-                      </button>
-                      {showAppearance && (
-                        <div style={{
-                          position: 'absolute', top: '100%', right: 0, paddingTop: 6, zIndex: 50,
-                        }}>
-                        <div style={{
-                          background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: NOTE_RADIUS_CARD,
-                          padding: '12px 14px', width: 240, boxShadow: '0 8px 28px #00000020',
-                        }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: c.textMuted, marginBottom: 10 }}>편집기 모양</div>
-                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>글꼴</label>
-                          <select
-                            value={appSettings.notesFontFamily ?? 'system'}
-                            onChange={e => updateSetting('notesFontFamily', e.target.value as AppSettings['notesFontFamily'])}
-                            style={{ width: '100%', marginBottom: 10, background: c.input, border: `1px solid ${c.inputBdr}`, color: c.text, borderRadius: 6, padding: '5px 8px', fontSize: 12 }}>
-                            {NOTE_FONT_OPTIONS.map(o => (
-                              <option key={o.id} value={o.id}>{o.label}</option>
-                            ))}
-                          </select>
-                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>
-                            글자 크기 ({appSettings.notesFontSize ?? 16}px)
-                          </label>
-                          <input
-                            type="range" min={12} max={22} step={1}
-                            value={appSettings.notesFontSize ?? 16}
-                            onChange={e => updateSetting('notesFontSize', Number(e.target.value))}
-                            style={{ width: '100%', marginBottom: 10 }}
-                          />
-                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>본문 색상</label>
-                          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                            <input
-                              type="color"
-                              value={appSettings.notesTextColor?.trim() || (dark ? '#dcddde' : '#2e3338')}
-                              onChange={e => updateSetting('notesTextColor', e.target.value)}
-                              style={{ width: 36, height: 28, padding: 0, border: 'none', background: 'none' }}
-                            />
-                            <button type="button" className="btbtn" style={{ fontSize: 10 }}
-                              onClick={() => updateSetting('notesTextColor', '')}>
-                              기본값
-                            </button>
-                          </div>
-                          <label style={{ display: 'block', fontSize: 11, color: c.textMuted, marginBottom: 4 }}>링크·강조 색</label>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <input
-                              type="color"
-                              value={appSettings.notesAccentColor?.trim() || (dark ? '#7f6df2' : '#7c3aed')}
-                              onChange={e => updateSetting('notesAccentColor', e.target.value)}
-                              style={{ width: 36, height: 28, padding: 0, border: 'none', background: 'none' }}
-                            />
-                            <button type="button" className="btbtn" style={{ fontSize: 10 }}
-                              onClick={() => updateSetting('notesAccentColor', '')}>
-                              기본값
-                            </button>
-                          </div>
-                          <div style={{ fontSize: 10, color: c.textFaint, marginTop: 10 }}>
-                            문서 폭 {NOTE_DOCUMENT_MAX_WIDTH}px
-                          </div>
-                        </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Body — 드래그&드롭 + 단일 컬럼 전체 너비 */}
-                <div
-                  className="editor-drop-zone"
-                  ref={editorScrollRef}
-                  style={{ flex: 1, overflow: 'auto', position: 'relative' }}
-                  onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
-                  onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
-                  onPaste={e => {
-                    if (!activeNote || viewMode !== 'edit') return;
-                    const items = Array.from(e.clipboardData?.items ?? []);
-                    const imageItem = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
-                    if (!imageItem) return;
-                    e.preventDefault();
-                    const file = imageItem.getAsFile();
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = ev => {
-                      const src = ev.target?.result as string;
-                      if (src) insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), src);
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                  onDrop={handleEditorDrop}>
-                  {isDragOver && (
-                    <div className="editor-drop-overlay">
-                      <ImageIcon size={22}/> 이미지를 놓아 삽입
-                    </div>
-                  )}
-                  {(
-                    isTrash ? (
-                      <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
-                          <AlertTriangle size={14}/> {t('nvInTrashRestore')}
-                        </div>
-                        <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
-                        style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
-                        {viewMode === 'reading' && (
-                          <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
-                            {t('nvReadingModeHint')}
-                          </div>
-                        )}
-                        <NoteBlockEditor
-                          ref={blockEditorRef}
-                          key={activeNote.id}
-                          body={activeNote.body}
-                          onBodyChange={handleActiveBodyChange}
-                          colors={blockColors}
-                          readOnly={viewMode === 'reading'}
-                          searchQuery={editorSearchQuery}
-                          searchScope={searchScope}
-                          searchMatchIndex={searchMatchIdx}
-                          wikiTargets={wikiTargets}
-                          onWikiNavigate={navigateToWiki}
-                          virtualScrollApiRef={virtualScrollApiRef}
-                          virtualScrollParentRef={editorScrollRef}
-                        />
-                      </div>
-                    )
-                  )}
-                </div>
-              </>
-            )}
-          </>
-        ) : (
-          // Graph View without active note
-          viewMode === 'graph' ? (
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
-            </div>
-          ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
-              <FileText size={32} strokeWidth={1.5} style={{ opacity: 0.4 }} />
-              <p style={{ fontSize: 13 }}>{t('nvSelectNoteEmpty')}</p>
-              <button className="bwbg" onClick={() => createNote()}>{t('nvNewNoteBtn')}</button>
-              <button onClick={() => setViewMode('graph')}
-                style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <GitFork size={12}/> {t('nvScGraph')}
-              </button>
-            </div>
-          )
-        )}
-      </main>
+      <NoteViewSidebar
+        layout={{
+          hideLeftChrome,
+          hideSecondaryChrome,
+          hideNoteList,
+          isMobile,
+          isTablet,
+          isCompactChrome,
+          isWorkspacePanelMode,
+          sidebarCollapsed,
+          mobileSidebarOpen,
+        }}
+        data={{
+          c,
+          dark,
+          notes,
+          folders,
+          activeFolderId,
+          activeTag,
+          activeNoteCount,
+          trashCount,
+          starredCount,
+          isTrash,
+          searchQuery,
+          knowledgeQueryInfo,
+          workspaceActivation,
+          isTraceLensMode,
+          todayTraceKey,
+          isTraceDayMode,
+          traceDate,
+          isTraceRangeMode,
+          traceRange,
+          currentTraceMonthKey,
+          currentTraceQuarterKey,
+          currentTraceYearKey,
+          areaNotes,
+          isTraceAreaMode,
+          traceAreaId,
+          isTraceDiscoveryMode,
+          renamingFolderId,
+          renameVal,
+          showFolderForm,
+          newFolderName,
+          allTags,
+          workspaceExpanded,
+          isDashboardMode,
+          smartCollectionCounts,
+          pinnedWorkspaces,
+          activeWorkspaceKind,
+          activeWorkspaceId,
+          recentWork,
+          ruleCollections,
+          ruleCollectionCounts,
+          canCreateRuleCollection,
+          databaseViews,
+          databaseViewCounts,
+          canCreateDatabaseView,
+          databaseCreateSignal,
+          savedViews,
+          canSaveCurrentView,
+          traceAreaProjection,
+          traceAreaRange,
+          activeDatabaseView,
+          activeSmartCollection,
+          activeRuleCollection,
+          activeSavedView,
+          folderLabel,
+          traceLensMarkCount,
+          isDatabaseViewMode,
+          activeDatabaseViewNoteCount,
+          recentNotes,
+          visibleNotes,
+          activeNotes,
+          activeNoteId,
+          safeNotesForDatabase,
+          dashboard,
+          sortOrder,
+          showSortMenu,
+          dragNoteId,
+          editingLearningPathId,
+          focusPresets,
+          focusPresetTargets,
+          focusSession,
+          focusWorkspaceOptions,
+          taskTemplates,
+          journalTemplates,
+          knowledgeMaintenance,
+          unifiedWorkspaceDashboard,
+          subjectWorkspaces,
+          learningPathOverview,
+          knowledgeTimeline,
+          activitySummary,
+          dashboardRecentActivity,
+          dashboardLatestMilestone,
+          evolutionInsights,
+        }}
+        handlers={{
+          searchInputRef,
+          importInputRef,
+          setSidebarCollapsed,
+          setActiveFolderId,
+          setActiveTag,
+          setSearchQuery,
+          setShowShortcuts,
+          setWorkspaceSearchOpen,
+          openTraceDay,
+          openTraceRange,
+          openCreatedNote,
+          openTraceArea,
+          openTraceDiscovery,
+          storeRenameFolder,
+          setRenamingFolderId,
+          setRenameVal,
+          deleteFolder,
+          setShowFolderForm,
+          setNewFolderName,
+          addFolder,
+          setWorkspaceActivation,
+          setTraceDate,
+          setTraceRange,
+          setTraceAreaId,
+          setTraceAreaRange,
+          setTraceDiscoveryMode,
+          setWorkspaceExpanded,
+          handleActivateDashboardWithTraceClear,
+          handleActivateSmartCollection,
+          handleClearSmartCollection,
+          handleTogglePinWorkspace,
+          isWorkspacePinned,
+          handleActivateWorkspaceRef,
+          handleUnpinWorkspace,
+          handleMovePinnedWorkspace,
+          handleClearRecentWork,
+          handleActivateRuleCollection,
+          handleClearRuleCollection,
+          handleCreateRuleCollection,
+          handleRenameRuleCollection,
+          handleDeleteRuleCollection,
+          handleActivateDatabaseView,
+          handleClearDatabaseView,
+          handleCreateDatabaseView,
+          handleCreateDatabaseViewFromTemplate,
+          handleRenameDatabaseView,
+          handleDeleteDatabaseView,
+          handleActivateSavedView,
+          handleClearSavedView,
+          handleCreateSavedView,
+          handleRenameSavedView,
+          handleDeleteSavedView,
+          isWorkspaceKindActive,
+          setMobileSidebarOpen,
+          closeTraceLens,
+          handleClearDashboard,
+          setShowSortMenu,
+          setSortOrder,
+          exportAllNotes,
+          openCreateEventDialog,
+          createNote,
+          setActiveNoteId,
+          setMobileShowEditor,
+          noteUpdate,
+          setDragNoteId,
+          duplicateNote,
+          patchActiveDatabaseView,
+          setDatabaseCreateSignal,
+          setViewMode,
+          handleLeaveDashboardForNote,
+          handleResumeLastWorkspace,
+          handleCreateFocusPreset,
+          handleDeleteFocusPreset,
+          handleActivateFocusPreset,
+          handleExitFocusPreset,
+          handleQuickCapture,
+          handleCreateTask,
+          handleCreateJournal,
+          handleCreateReadingNote,
+          handleCreateStudyNote,
+          handleCreateTaskDatabase,
+          handleCreateJournalDatabase,
+          handleCreateProject,
+          handleCreateProjectMilestone,
+          handleOpenProjectNotes,
+          handleEditProject,
+          handleActivateSubjectWorkspace,
+          handleOpenStudyCollection,
+          handleOpenResearchCollection,
+          handleOpenDiscover,
+          handleOpenTimeline,
+          handleOpenEvolution,
+          handleNavigateToArea,
+          handleCreateLearningPathStepNote,
+          handleUpdateNoteProperties,
+          handleNavigateToProjectEditor,
+          setEditingLearningPathId,
+          resumeWorkspace,
+        }}
+      />
+      <NoteViewEditorArea
+        layout={{
+          hideEditorArea,
+          isMobile,
+          isCompactChrome,
+          isFocusPresetActive,
+          isTrash,
+          showRightPanel,
+          viewMode,
+          showAppearance,
+          isDragOver,
+          headerTagsExpanded,
+          docCopied,
+          dark,
+        }}
+        data={{
+          c,
+          activeNote,
+          activeNoteId,
+          notes,
+          folders,
+          titleDraft,
+          activeNoteKind,
+          noteTags,
+          syncError,
+          isSyncing,
+          savedAt,
+          viewModes: VIEW_MODES,
+          noteAreaProperty,
+          noteLinkedProjectTitle,
+          noteLinkedProjectId,
+          noteLearningPathLabel,
+          noteContextReviewEntry,
+          noteConnectionCount,
+          noteCosmosTier,
+          activeTag,
+          searchQuery,
+          searchScope,
+          searchMatchIdx,
+          editorSearchQuery,
+          blockColors,
+          wikiTargets,
+          appSettings,
+          knowledgeTimeline,
+          activeFocusPreset,
+        }}
+        handlers={{
+          titleInputRef,
+          titleComposingRef,
+          blockEditorRef,
+          editorScrollRef,
+          virtualScrollApiRef,
+          searchInputRef,
+          importInputRef,
+          setMobileShowEditor,
+          setActiveNoteId,
+          handleExitFocusPreset,
+          handleTitleChange,
+          handleTitleCompositionEnd,
+          noteUpdate,
+          retrySync,
+          setViewMode,
+          openEditEventDialog,
+          openMilestoneDialog,
+          handleToggleAreaNote,
+          toggleStar,
+          duplicateNote,
+          setShowRightPanel,
+          handleCopyDocument,
+          exportNote,
+          restoreNote,
+          moveNoteToTrash,
+          setActiveFolderId,
+          setSearchQuery,
+          setActiveTag,
+          setHeaderTagsExpanded,
+          openContextPanel,
+          setRightPanel,
+          handlePromoteNoteKind,
+          handleLearnLinking,
+          handleHudReviewWeakAreas,
+          handleOpenDiscover,
+          handleOpenTimeline,
+          createNote,
+          setSearchScope,
+          setSearchMatchIdx,
+          insertEmptyImageBlockAtCursor,
+          setShowAppearance,
+          updateSetting,
+          setIsDragOver,
+          insertImageAtCursor,
+          handleEditorDrop,
+          handleReadingModeClick,
+          handleActiveBodyChange,
+          navigateToWiki,
+        }}
+      />
 
       {/* ── Knowledge Context Panel ── */}
       {(activeNote || rightPanel === 'discover' || rightPanel === 'timeline') && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
@@ -2609,81 +1640,89 @@ export const NoteView = () => {
               colors={c}
               rightPanel={rightPanel}
               activeNote={activeNote}
-              createNote={createNote}
-              tocPanelRef={tocPanelRef}
-              visibleToc={visibleToc}
-              highlightedTocIdx={highlightedTocIdx}
-              tocCollapsed={tocCollapsed}
-              handleTocKeyDown={handleTocKeyDown}
-              toggleTocCollapse={toggleTocCollapse}
-              scrollToHeading={scrollToHeading}
-              pageReferences={pageReferences}
-              noteReferenceSummary={noteReferenceSummary}
-              linksStructureCount={linksStructureCount}
-              linksConnectionsCount={linksConnectionsCount}
-              linksSourcesCount={linksSourcesCount}
-              conceptHub={conceptHub}
-              learningPath={learningPath}
-              notes={notes}
-              wikiTargets={wikiTargets}
-              noteUpdate={noteUpdate}
-              setActiveNoteId={setActiveNoteId}
-              backlinkContexts={backlinkContexts}
-              mentioningNotes={mentioningNotes}
-              relatedNotes={relatedNotes}
-              navigateToWiki={navigateToWiki}
-              handleLinkRelatedNote={handleLinkRelatedNote}
-              handleOpenCosmosGraph={handleOpenCosmosGraph}
-              handleStartWikiLink={handleStartWikiLink}
-              handleCreateRelatedNote={handleCreateRelatedNote}
-              sourceNoteCandidates={sourceNoteCandidates}
-              handleLinkReadingSource={handleLinkReadingSource}
-              handleUnlinkReadingSource={handleUnlinkReadingSource}
-              noteBibliography={noteBibliography}
-              localGraphData={localGraphData}
-              handleExpandGraphNode={handleExpandGraphNode}
-              handleCollapseGraphNode={handleCollapseGraphNode}
-              setViewMode={setViewMode}
-              noteIntelligenceSnapshot={noteIntelligenceSnapshot}
-              noteTierInput={noteTierInput}
-              noteHistoryContext={noteHistoryContext}
-              openContextPanel={openContextPanel}
-              handleOpenDiscover={handleOpenDiscover}
-              handleCosmosConnect={handleCosmosConnect}
-              handleCosmosAssignArea={handleCosmosAssignArea}
-              handleCosmosCreateHub={handleCosmosCreateHub}
-              handleCosmosCreateRelation={handleCosmosCreateRelation}
-              handleDiscoveryCreateRelation={handleDiscoveryCreateRelation}
-              discoveryFeed={discoveryFeed}
-              cosmosVaultPhase={cosmosVaultPhase}
-              knowledgeTimeline={knowledgeTimeline}
-              timelineMode={timelineMode}
-              setTimelineMode={setTimelineMode}
-              historyEvents={historyEvents}
-              cosmosEvolutionSummary={cosmosEvolutionSummary}
-              cosmosEvolutionStory={cosmosEvolutionStory}
-              discoveryProgress={discoveryProgress}
-              knowledgeJourney={knowledgeJourney}
-              evolutionInsights={evolutionInsights}
-              bootstrapImportSummary={bootstrapImportSummary}
-              timelineInitialArea={timelineInitialArea}
-              handleDismissBootstrapSummary={handleDismissBootstrapSummary}
-              handleExportHistory={handleExportHistory}
-              projectEditorData={projectEditorData}
-              handleUpdateProjectDescription={handleUpdateProjectDescription}
-              handleUpdateProjectStatus={handleUpdateProjectStatus}
-              handleCreateProjectMilestone={handleCreateProjectMilestone}
-              milestoneProjectTitle={milestoneProjectTitle}
-              handleUpdateMilestoneStatus={handleUpdateMilestoneStatus}
-              handleUpdateMilestoneTargetDate={handleUpdateMilestoneTargetDate}
-              allTags={allTags}
-              activeTag={activeTag}
-              setActiveFolderId={setActiveFolderId}
-              setSearchQuery={setSearchQuery}
-              setActiveTag={setActiveTag}
-              resolvedOutgoingRelations={resolvedOutgoingRelations}
-              incomingRelationDisplays={incomingRelationDisplays}
-              noteTags={noteTags}
+              panelData={{
+                pageReferences,
+                noteReferenceSummary,
+                linksStructureCount,
+                linksConnectionsCount,
+                linksSourcesCount,
+                conceptHub,
+                learningPath,
+                notes,
+                wikiTargets,
+                backlinkContexts,
+                mentioningNotes,
+                relatedNotes,
+                sourceNoteCandidates,
+                noteBibliography,
+                localGraphData,
+                noteIntelligenceSnapshot,
+                noteTierInput,
+                noteHistoryContext,
+                discoveryFeed,
+                cosmosVaultPhase,
+                projectEditorData,
+                milestoneProjectTitle,
+                allTags,
+                activeTag,
+                resolvedOutgoingRelations,
+                incomingRelationDisplays,
+                noteTags,
+              }}
+              panelHandlers={{
+                createNote,
+                noteUpdate,
+                setActiveNoteId,
+                navigateToWiki,
+                handleLinkRelatedNote,
+                handleOpenCosmosGraph,
+                handleStartWikiLink,
+                handleCreateRelatedNote,
+                handleLinkReadingSource,
+                handleUnlinkReadingSource,
+                handleExpandGraphNode,
+                handleCollapseGraphNode,
+                setViewMode,
+                openContextPanel,
+                handleOpenDiscover,
+                handleCosmosConnect,
+                handleCosmosAssignArea,
+                handleCosmosCreateHub,
+                handleCosmosCreateRelation,
+                handleDiscoveryCreateRelation,
+                handleUpdateProjectDescription,
+                handleUpdateProjectStatus,
+                handleCreateProjectMilestone,
+                handleUpdateMilestoneStatus,
+                handleUpdateMilestoneTargetDate,
+                setActiveFolderId,
+                setSearchQuery,
+                setActiveTag,
+              }}
+              editorContext={{
+                tocPanelRef,
+                visibleToc,
+                highlightedTocIdx,
+                tocCollapsed,
+                handleTocKeyDown,
+                toggleTocCollapse,
+                scrollToHeading,
+              }}
+              dashboardContext={{
+                knowledgeTimeline,
+                timelineMode,
+                setTimelineMode,
+                historyEvents,
+                cosmosEvolutionSummary,
+                cosmosEvolutionStory,
+                discoveryProgress,
+                knowledgeJourney,
+                evolutionInsights,
+                bootstrapImportSummary,
+                timelineInitialArea,
+                handleDismissBootstrapSummary,
+                handleExportHistory,
+              }}
             />
           </div>
 

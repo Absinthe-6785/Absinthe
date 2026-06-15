@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useTranslation, type TranslationKey } from '../../../../../../lib/i18n';
+import { useTranslation, type TranslationKey } from '@/lib/i18n';
 import type { NoteChromeColors } from '../../../../noteEditorTheme';
 import type { NoteBase } from '../../../../noteUtils';
 import type { NoteIntelligenceSnapshot } from '../intelligence';
