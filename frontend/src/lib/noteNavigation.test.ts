@@ -8,6 +8,8 @@ import {
   getNoteReturnTab,
   returnFromNote,
   clearNoteReturnTab,
+  getNoteBreadcrumb,
+  openHealthDayNote,
 } from './noteNavigation';
 
 const storage = new Map<string, string>();
@@ -34,6 +36,7 @@ vi.mock('./supabase', () => ({
 
 const { useNotesStore } = await import('../store/useNotesStore');
 const { resetNoteNavigationStack } = await import('./noteNavigationStack');
+const { resetNoteBreadcrumb } = await import('./noteBreadcrumb');
 
 describe('noteNavigation', () => {
   beforeEach(() => {
@@ -41,6 +44,7 @@ describe('noteNavigation', () => {
     registerNotesTabSwitcher(() => {})();
     registerAppTabSwitcher(() => {})();
     resetNoteNavigationStack();
+    resetNoteBreadcrumb();
     useNotesStore.setState({ notes: [], folders: [], activeNoteId: null });
   });
 
@@ -96,5 +100,56 @@ describe('noteNavigation', () => {
     openNote('n', { returnTab: 'planner' });
     clearNoteReturnTab();
     expect(getNoteReturnTab()).toBeNull();
+  });
+
+  it('openNote with analytics returnTab stores archive return path', () => {
+    openNote('note-arch', { returnTab: 'analytics' });
+    expect(getNoteReturnTab()).toBe('analytics');
+  });
+
+  it('returnFromNote returns to analytics tab', () => {
+    const appSwitcher = vi.fn();
+    registerAppTabSwitcher(appSwitcher);
+    openNote('note-arch', { returnTab: 'analytics' });
+    expect(returnFromNote()).toBe(true);
+    expect(appSwitcher).toHaveBeenCalledWith('analytics');
+  });
+
+  it('openNote with breadcrumb persists segments', () => {
+    const crumbs = [
+      { type: 'key' as const, key: 'archiveHomeTitle' as const },
+      { type: 'key' as const, key: 'archiveRecentMilestonesTitle' as const },
+    ];
+    openNote('note-bc', { breadcrumb: crumbs });
+    expect(getNoteBreadcrumb()).toEqual(crumbs);
+  });
+
+  it('openHealthDayNote creates dated note with health return path', () => {
+    const createNote = vi.fn(() => 'new-health-note');
+    const updateNote = vi.fn();
+    openHealthDayNote('2026-06-14', createNote, updateNote, [
+      { type: 'key', key: 'healthNavNutrition' },
+      { type: 'key', key: 'healthOpenDayNote' },
+    ]);
+    expect(createNote).toHaveBeenCalled();
+    expect(updateNote).toHaveBeenCalledWith('new-health-note', { title: '2026-06-14' });
+    expect(getNoteReturnTab()).toBe('health');
+    expect(getNoteBreadcrumb()).toEqual([
+      { type: 'key', key: 'healthNavNutrition' },
+      { type: 'key', key: 'healthOpenDayNote' },
+    ]);
+    expect(useNotesStore.getState().activeNoteId).toBe('new-health-note');
+  });
+
+  it('openHealthDayNote reuses existing day note', () => {
+    useNotesStore.setState({
+      notes: [{ id: 'existing', title: '2026-06-14', body: '', updatedAt: 0, folderId: null, deletedAt: null }],
+      folders: [],
+      activeNoteId: null,
+    });
+    const createNote = vi.fn();
+    openHealthDayNote('2026-06-14', createNote, vi.fn());
+    expect(createNote).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().activeNoteId).toBe('existing');
   });
 });

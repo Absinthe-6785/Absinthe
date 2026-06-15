@@ -10,6 +10,7 @@
     "typecheck:editor": "tsc --noEmit -p tsconfig.editor.json",
     "typecheck:app": "tsc --noEmit -p tsconfig.app.json",
     "typecheck:undefined": "node scripts/typecheck-bare-identifiers.mjs",
+    "lint:hardcoded-toasts": "node scripts/lint-hardcoded-toasts.mjs",
     "typecheck": "npm run typecheck:editor && npm run typecheck:undefined && npm run typecheck:app"
   },
   "dependencies": {

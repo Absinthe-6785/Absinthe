@@ -53,6 +53,7 @@ import type { BootstrapImportSummary } from '../features/knowledge/history/boots
 import type { EditorMode } from '../editorMode';
 import { useTranslation } from '@/lib/i18n';
 import type { NoteNavigationSource } from '@/lib/noteNavigationStack';
+import type { NoteBreadcrumbSegment } from '@/lib/noteBreadcrumb';
 
 const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
   'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
@@ -96,7 +97,7 @@ export interface NoteContextPanelHandlers {
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   noteUpdate: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
   setActiveNoteId: (id: string) => void;
-  openNoteById: (id: string, source?: NoteNavigationSource) => void;
+  openNoteById: (id: string, source?: NoteNavigationSource, breadcrumb?: readonly NoteBreadcrumbSegment[]) => void;
   navigateToWiki: (title: string, opts?: { preferReading?: boolean }) => void;
   handleLinkRelatedNote: (noteId: string, noteTitle: string) => void;
   handleOpenCosmosGraph: () => void;
@@ -459,7 +460,9 @@ export function NoteContextPanelBody({
               colors={c}
               feed={discoveryFeed}
               vaultPhase={cosmosVaultPhase}
-              onNavigateToNote={id => openNoteById(id, 'panel')}
+              onNavigateToNote={id => openNoteById(id, 'discovery', [
+                { type: 'key', key: 'k38DashboardTitle' },
+              ])}
               onCreateRelation={handleDiscoveryCreateRelation}
               onCreateHub={handleCosmosCreateHub}
               onLearnLinking={handleStartWikiLink}
@@ -484,7 +487,9 @@ export function NoteContextPanelBody({
               initialSelectedArea={timelineInitialArea}
               onDismissBootstrap={handleDismissBootstrapSummary}
               onExport={handleExportHistory}
-              onNavigateToNote={id => openNoteById(id, 'panel')}
+              onNavigateToNote={id => openNoteById(id, 'timeline', [
+                { type: 'key', key: 'k42PanelTimeline' },
+              ])}
               onCreateNote={() => createNote()}
             />
           )}

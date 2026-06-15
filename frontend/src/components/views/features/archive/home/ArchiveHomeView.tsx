@@ -31,11 +31,23 @@ export function ArchiveHomeView({
 }: ArchiveHomeViewProps) {
   const t = getTranslator(resolveAppLanguage(appSettings.language));
   const onMilestoneClick = useCallback(
-    (entry: { noteId: string }) => openNote(entry.noteId),
+    (entry: { noteId: string }) => openNote(entry.noteId, {
+      returnTab: 'analytics',
+      breadcrumb: [
+        { type: 'key', key: 'archiveHomeTitle' },
+        { type: 'key', key: 'archiveRecentMilestonesTitle' },
+      ],
+    }),
     [],
   );
   const onAreaClick = useCallback(
-    (pill: { areaNoteId: string }) => openNote(pill.areaNoteId),
+    (pill: { areaNoteId: string }) => openNote(pill.areaNoteId, {
+      returnTab: 'analytics',
+      breadcrumb: [
+        { type: 'key', key: 'archiveHomeTitle' },
+        { type: 'key', key: 'archiveAreaTitle' },
+      ],
+    }),
     [],
   );
   const onMarkDayClick = useCallback(

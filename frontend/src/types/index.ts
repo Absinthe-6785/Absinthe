@@ -97,6 +97,8 @@ export interface AppSettings {
   notesTextColor?: string;
   notesAccentColor?: string;
 }
+import type { ToastType } from '../hooks/useToast';
+
 export interface HealthRoutine { id: string; day_name: string; blocks: string[]; }
 export interface Theme {
   card: string; input: string; border: string; text: string; textMuted: string; hoverBg: string;
@@ -107,7 +109,7 @@ export type ThemeColor = { id: string; bg: string; text: string; border: string 
 // 공통 베이스 — 모든 뷰에서 사용
 // ─────────────────────────────────────────────
 export interface BaseViewProps {
-  showToast: (m: string, t?: 'success' | 'error') => void;
+  showToast: (m: string, t?: ToastType) => void;
   appSettings: AppSettings;
   updateSetting: (k: keyof AppSettings, v: AppSettings[keyof AppSettings]) => void;
   theme: Theme;

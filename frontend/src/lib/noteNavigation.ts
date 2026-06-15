@@ -1,8 +1,10 @@
 /**
- * Cross-tab note navigation — open a note and switch to the Notes tab (K-30.34, K-66).
+ * Cross-tab note navigation — open a note and switch to the Notes tab (K-30.34, K-66, K-67).
  */
 import type { TabId } from '../components/common/Sidebar';
 import { useNotesStore } from '../store/useNotesStore';
+import { setNoteBreadcrumb, type NoteBreadcrumbSegment } from './noteBreadcrumb';
+import { healthDayNoteTitle } from './healthDayNotes';
 import { navigateToNoteWithHistory, type NoteNavigationSource } from './noteNavigationStack';
 
 export type NotesTabSwitcher = () => void;
@@ -10,6 +12,7 @@ export type AppTabSwitcher = (tab: TabId) => void;
 
 export interface OpenNoteOptions {
   returnTab?: TabId;
+  breadcrumb?: readonly NoteBreadcrumbSegment[];
 }
 
 const RETURN_TAB_KEY = 'absinthe.noteNav.returnTab';
@@ -25,6 +28,7 @@ function notifyReturnTab(): void {
 function sourceForReturnTab(tab: TabId | undefined): NoteNavigationSource {
   if (tab === 'planner') return 'schedule';
   if (tab === 'health') return 'health';
+  if (tab === 'analytics') return 'archive';
   return 'external';
 }
 
@@ -83,10 +87,22 @@ export function switchToTab(tab: TabId): void {
   appTabSwitcher?.(tab);
 }
 
+/** Navigate to a note with optional return path and breadcrumb (in-tab or cross-tab). */
+export function navigateToNote(
+  toId: string,
+  source: NoteNavigationSource = 'panel',
+  options?: Pick<OpenNoteOptions, 'breadcrumb'>,
+): void {
+  if (!toId) return;
+  if (options?.breadcrumb?.length) setNoteBreadcrumb(options.breadcrumb);
+  navigateToNoteWithHistory(toId, source);
+}
+
 /** Select note globally and switch to the Notes tab when a switcher is registered. */
 export function openNote(noteId: string, options?: OpenNoteOptions): void {
   if (!noteId) return;
   if (options?.returnTab) setNoteReturnTab(options.returnTab);
+  if (options?.breadcrumb?.length) setNoteBreadcrumb(options.breadcrumb);
   navigateToNoteWithHistory(noteId, sourceForReturnTab(options?.returnTab));
   switchToNotesTab();
 }
@@ -105,18 +121,27 @@ export function openHealthDayNote(
   dateLabel: string,
   createNote: () => string,
   updateNote: (id: string, patch: { title: string }) => void,
+  breadcrumb?: readonly NoteBreadcrumbSegment[],
 ): void {
+  const title = healthDayNoteTitle(dateLabel);
   const notes = useNotesStore.getState().notes;
-  const existing = notes.find(n => !n.deletedAt && n.title.trim() === dateLabel);
+  const existing = notes.find(n => !n.deletedAt && n.title.trim() === title);
   const noteId = existing?.id ?? (() => {
     const id = createNote();
-    updateNote(id, { title: dateLabel });
+    updateNote(id, { title });
     return id;
   })();
-  openNote(noteId, { returnTab: 'health' });
+  const crumbs = breadcrumb ?? [
+    { type: 'key' as const, key: 'healthNavWorkout' },
+    { type: 'key' as const, key: 'healthOpenDayNote' },
+  ];
+  openNote(noteId, { returnTab: 'health', breadcrumb: crumbs });
 }
 
 /** Test-only visibility into registration state. */
 export function peekNotesTabSwitcher(): NotesTabSwitcher | null {
   return notesTabSwitcher;
 }
+
+export type { NoteBreadcrumbSegment } from './noteBreadcrumb';
+export { setNoteBreadcrumb, clearNoteBreadcrumb, getNoteBreadcrumb } from './noteBreadcrumb';

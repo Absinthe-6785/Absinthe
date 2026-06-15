@@ -116,8 +116,14 @@ export const PlannerView = ({
   }, [selectedDate]);
 
 
-  const openPlannerNote = useCallback((id: string) => {
-    openNote(id, { returnTab: 'planner' });
+  const openPlannerNote = useCallback((id: string, breadcrumb?: readonly import('../../lib/noteBreadcrumb').NoteBreadcrumbSegment[]) => {
+    openNote(id, {
+      returnTab: 'planner',
+      breadcrumb: breadcrumb ?? [
+        { type: 'key', key: 'planner' },
+        { type: 'key', key: 'scheduleCountdownTitle' },
+      ],
+    });
   }, []);
 
   const handleCreateCountdownNote = useCallback(() => {
