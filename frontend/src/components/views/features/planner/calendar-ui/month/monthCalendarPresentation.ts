@@ -1,10 +1,15 @@
 import type { PlannerMonthCellPayload } from '../../calendar';
 
-export const MONTH_CELL_MAX_VISIBLE_EVENTS = 2;
+export const MONTH_CELL_MAX_VISIBLE_EVENTS = 3;
+export const MONTH_CELL_MAX_VISIBLE_BLOCKS = 2;
 
 export interface MonthCellEventRow {
   occurrence: PlannerMonthCellPayload['bundle']['events'][number];
   showTitle: boolean;
+}
+
+export interface MonthCellBlockRow {
+  block: PlannerMonthCellPayload['bundle']['blocks'][number];
 }
 
 export interface MonthCellDisplayModel {
@@ -14,6 +19,7 @@ export interface MonthCellDisplayModel {
   isToday: boolean;
   isAnchorSelected: boolean;
   eventRows: readonly MonthCellEventRow[];
+  blockRows: readonly MonthCellBlockRow[];
   overflowCount: number;
   milestoneCount: number;
   isEmpty: boolean;
@@ -28,9 +34,17 @@ export function buildMonthCellDisplayModel(
     showTitle: occurrence.spanPosition === 'single' || occurrence.spanPosition === 'start',
   }));
 
+  const blockRows: MonthCellBlockRow[] = cell.bundle.blocks
+    .slice(0, MONTH_CELL_MAX_VISIBLE_BLOCKS)
+    .map(block => ({ block }));
+
   const milestoneCount = cell.bundle.hints.milestoneCount;
-  const overflowCount = cell.bundle.hints.overflowEventCount;
-  const isEmpty = cell.bundle.events.length === 0 && milestoneCount === 0;
+  const eventOverflow = Math.max(0, cell.bundle.events.length - MONTH_CELL_MAX_VISIBLE_EVENTS);
+  const blockOverflow = Math.max(0, cell.bundle.blocks.length - MONTH_CELL_MAX_VISIBLE_BLOCKS);
+  const overflowCount = eventOverflow + blockOverflow;
+  const isEmpty = cell.bundle.events.length === 0
+    && cell.bundle.blocks.length === 0
+    && milestoneCount === 0;
 
   return {
     dateKey: cell.dateKey,
@@ -39,6 +53,7 @@ export function buildMonthCellDisplayModel(
     isToday: cell.isToday,
     isAnchorSelected: cell.isAnchorSelected,
     eventRows,
+    blockRows,
     overflowCount,
     milestoneCount,
     isEmpty,
@@ -61,6 +76,7 @@ export function chunkMonthCells<T>(cells: readonly T[], columns = 7): T[][] {
 export function monthGridHasAnchors(cells: readonly PlannerMonthCellPayload[]): boolean {
   return cells.some(cell =>
     cell.bundle.events.length > 0
+    || cell.bundle.blocks.length > 0
     || cell.bundle.hints.milestoneCount > 0,
   );
 }

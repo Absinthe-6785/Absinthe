@@ -85,7 +85,7 @@ describe('monthCalendarPresentation', () => {
     const startCell = month.cells.find(cell => cell.dateKey === '2027-02-01');
     expect(startCell).toBeDefined();
 
-    const model = buildMonthCellDisplayModel(startCell!, []);
+    const model = buildMonthCellDisplayModel(startCell!);
     const startOccurrence = startCell!.bundle.events.find(event => event.noteId === 'travel');
 
     expect(model.eventRows).toHaveLength(1);
@@ -115,7 +115,7 @@ describe('monthCalendarPresentation', () => {
     expect(formatMonthOverflowLabel(0)).toBeNull();
     expect(formatMonthOverflowLabel(1)).toBe('+1 more');
     expect(formatMonthOverflowLabel(3)).toBe('+3 more');
-    expect(MONTH_CELL_MAX_VISIBLE_EVENTS).toBe(2);
+    expect(MONTH_CELL_MAX_VISIBLE_EVENTS).toBe(3);
   });
 
   it('builds countdowns from note-backed events in projection core', () => {
@@ -196,6 +196,10 @@ describe('MonthCalendarView', () => {
         title: 'Exam C',
         eventDate: '2027-02-10',
       }),
+      applyEventToNote(note('e4', { title: 'Exam D' }), {
+        title: 'Exam D',
+        eventDate: '2027-02-10',
+      }),
     ];
 
     const { projection, presentation, month } = buildMonthFixture({ notes });
@@ -271,7 +275,7 @@ describe('MonthCalendarView', () => {
     expect(enHtml).toContain(en.labels.weekdayShortLabels[0]!);
   });
 
-  it('does not render todos, routines, or schedule blocks in month cells', () => {
+  it('renders schedule blocks in month cells but not todos or routines', () => {
     const { projection, presentation } = buildMonthFixture({
       scheduleBlocks: [{
         id: 'b1',
@@ -291,7 +295,8 @@ describe('MonthCalendarView', () => {
       createElement(MonthCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).not.toContain('Deep Work');
+    expect(html).toContain('Deep Work');
+    expect(html).toContain('10:00');
     expect(html).not.toContain('Pack bag');
     expect(html).not.toContain('Stretch');
   });

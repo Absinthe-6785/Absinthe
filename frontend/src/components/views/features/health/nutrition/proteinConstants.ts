@@ -12,6 +12,7 @@ export const CATEGORY_I18N: Record<ProteinCategory, 'proteinCategoryMeat' | 'pro
 };
 
 export function normalizeProteinCategory(raw: string): ProteinCategory {
+  if (raw === '기타' || raw.trim() === '기타') return 'Other';
   const stripped = raw.replace(/^[^\w]+/, '').trim() || raw;
   const match = PROTEIN_CATEGORY_KEYS.find(k => k === stripped || k === raw);
   return match ?? 'Other';

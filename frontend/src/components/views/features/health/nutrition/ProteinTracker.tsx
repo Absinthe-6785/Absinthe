@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Pencil, Apple, Scale, FileText } from 'lucide-react';
 import { authFetch } from '@/lib/supabase';
 import { API_URL } from '@/lib/config';
@@ -76,6 +76,16 @@ export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, show
   const [lo, hi]    = PROTEIN_FACTORS[`${profGoal}-${profAct}`] ?? [1.6, 2.0];
   const calcTarget  = Math.round((wNum * lo + wNum * hi) / 2);
   const [selectedSrc, setSelectedSrc]     = useState<string>('');
+
+  const sourcesByCategory = useMemo(() => {
+    const grouped = new Map<ProteinCategory, typeof sources>();
+    for (const cat of PROTEIN_CATEGORY_KEYS) grouped.set(cat, []);
+    for (const src of sources) {
+      const cat = normalizeProteinCategory(src.category || 'Other');
+      grouped.get(cat)!.push(src);
+    }
+    return grouped;
+  }, [sources]);
 
   const GOAL_OPTS = [
     { v: 'muscle'   as const, label: t('goalMuscle'),  color: 'bg-blue-500'   },
@@ -410,25 +420,22 @@ export function ProteinTracker({ theme, darkMode, selectedDate, formatDate, show
             </button>
           )}
 
-          <div className={`rounded-2xl p-3 flex flex-col gap-2 border-2 border-transparent focus-within:border-primary/40 transition-colors shrink-0 mb-2.5 ${theme.input}`}>
+          <div className={`rounded-2xl p-3 flex flex-col gap-2 border-2 border-transparent focus-within:border-primary/40 transition-colors shrink-0 mb-2.5 ${theme.input} relative z-10`}>
             <select value={selectedSrc} onChange={e => { setSelectedSrc(e.target.value); setIntakeAmt(''); setCustomNote(''); setCustomProtein(''); }}
               className={`w-full bg-transparent text-sm font-semibold outline-none ${!selectedSrc ? theme.textMuted : ''}`}>
               <option value="">{t('addIntakeLabel')}</option>
               <option value="__custom__">{t('directInput')}</option>
-              {PROTEIN_CATEGORY_KEYS.filter(cat => sources.some(s => normalizeProteinCategory(s.category || 'Other') === cat)).map(cat => (
-                <optgroup key={cat} label={cat}>
-                  {sources.filter(s => (s.category || 'Other') === cat).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-              {sources.filter(s => !s.category).length > 0 && (
-                <optgroup label="Other">
-                  {sources.filter(s => !s.category).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </optgroup>
-              )}
+              {PROTEIN_CATEGORY_KEYS.map(cat => {
+                const catSources = sourcesByCategory.get(cat) ?? [];
+                if (catSources.length === 0) return null;
+                return (
+                  <optgroup key={cat} label={t(CATEGORY_I18N[cat])}>
+                    {catSources.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
 
             {selectedSrc === '__custom__' && (
