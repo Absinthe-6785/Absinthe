@@ -18,6 +18,10 @@ import {
   type BlockEditorHandle,
 } from '../BlockEditor';
 import {
+  EDITOR_TOOLBAR_GAP,
+  METADATA_CHIP_HEIGHT,
+} from './metadataChipStyles';
+import {
   NOTE_FONT_OPTIONS,
   NOTE_DOCUMENT_MAX_WIDTH,
   NOTE_RADIUS_CARD,
@@ -582,12 +586,25 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <>
               {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
               {!isTrash && viewMode === 'edit' && (
-                <div style={{ padding: '5px 12px', borderBottom: `1px solid ${c.toolBdr}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: c.toolbar, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text }}>/</kbd>
+                <div
+                  className="be-editor-toolbar"
+                  style={{
+                    padding: '5px 12px',
+                    borderBottom: `1px solid ${c.toolBdr}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: EDITOR_TOOLBAR_GAP,
+                    flexShrink: 0,
+                    background: c.toolbar,
+                    flexWrap: 'wrap',
+                    minHeight: METADATA_CHIP_HEIGHT + 10,
+                  }}
+                >
+                  <span style={{ fontSize: 10, color: c.textMuted, display: 'flex', alignItems: 'center', gap: EDITOR_TOOLBAR_GAP, flexWrap: 'wrap', lineHeight: 1 }}>
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text, height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>/</kbd>
                     {t('editorToolbarSlash')} ·
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘B</kbd> {t('editorToolbarBold')} ·
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '1px 4px', fontSize: 10, fontFamily: 'monospace' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
                   {activeNote && (
                     <input
@@ -603,58 +620,59 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                       className="bwsi"
                       style={{
                         fontSize: 10,
-                        padding: '3px 8px',
+                        padding: '0 8px',
+                        height: METADATA_CHIP_HEIGHT,
                         width: 120,
                         maxWidth: '28vw',
+                        boxSizing: 'border-box',
                       }}
                       data-editor-document-search
                     />
                   )}
                   {searchQuery.trim() && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: EDITOR_TOOLBAR_GAP, flexWrap: 'wrap' }}>
                       {(['block', 'document', 'all'] as const).map(scope => (
-                        <button key={scope} type="button" className="btbtn"
+                        <button
+                          key={scope}
+                          type="button"
+                          className={`be-editor-toolbar-scope${searchScope === scope ? ' active' : ''}`}
                           onClick={() => setSearchScope(scope)}
-                          style={{
-                            fontSize: 10, padding: '2px 8px',
-                            background: searchScope === scope ? c.accentBg : c.card,
-                            color: searchScope === scope ? c.accent : c.textMuted,
-                            border: `1px solid ${searchScope === scope ? c.accent : c.toolBdr}`,
-                            borderRadius: 5, cursor: 'pointer',
-                          }}>
+                        >
                           {scope === 'block' ? t('nvSearchScopeBlock') : scope === 'document' ? t('nvSearchScopeDocument') : t('nvSearchScopeAll')}
                         </button>
                       ))}
                       {searchScope !== 'all' && (
                         <>
-                          <button type="button" className="btbtn" title={t('nvSearchPrev')}
-                            onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
-                            style={{ padding: '2px 5px' }}><ChevronUp size={12}/></button>
-                          <button type="button" className="btbtn" title={t('nvSearchNext')}
-                            onClick={() => setSearchMatchIdx(i => i + 1)}
-                            style={{ padding: '2px 5px' }}><ChevronDown size={12}/></button>
+                          <button type="button" className="be-editor-toolbar-btn" title={t('nvSearchPrev')}
+                            onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}>
+                            <ChevronUp size={12}/>
+                          </button>
+                          <button type="button" className="be-editor-toolbar-btn" title={t('nvSearchNext')}
+                            onClick={() => setSearchMatchIdx(i => i + 1)}>
+                            <ChevronDown size={12}/>
+                          </button>
                         </>
                       )}
                     </div>
                   )}
-                  <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')} style={{ marginLeft: 4 }}>
-                    <Upload size={13}/>
+                  <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
+                    <Upload size={12}/>
                   </button>
-                  <button onClick={insertEmptyImageBlockAtCursor} className="btbtn" title={t('nvInsertImage')}>
-                    <ImageIcon size={13}/>
+                  <button onClick={insertEmptyImageBlockAtCursor} className="be-editor-toolbar-btn" title={t('nvInsertImage')}>
+                    <ImageIcon size={12}/>
                   </button>
                   <div
-                    style={{ position: 'relative', marginLeft: 'auto' }}
+                    style={{ position: 'relative' }}
                     onMouseLeave={e => {
                       if (!e.currentTarget.contains(e.relatedTarget as Node)) setShowAppearance(false);
                     }}>
                     <button
                       type="button"
                       onClick={() => setShowAppearance(v => !v)}
-                      className="btbtn"
+                      className="be-editor-toolbar-btn"
                       title={t('nvAppearance')}
-                      style={{ color: showAppearance ? c.accent : c.textMuted }}>
-                      <Type size={13}/>
+                      style={{ color: showAppearance ? c.accent : undefined }}>
+                      <Type size={12}/>
                     </button>
                     {showAppearance && (
                       <div style={{

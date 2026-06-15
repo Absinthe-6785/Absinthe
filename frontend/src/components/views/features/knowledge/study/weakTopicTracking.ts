@@ -25,3 +25,8 @@ export function setWeakTopic(note: NoteBase, weak: boolean): NoteBase {
 export function filterWeakTopicNotes(notes: readonly NoteBase[]): NoteBase[] {
   return notes.filter(n => !n.deletedAt && isWeakTopic(n));
 }
+
+/** K-85: align weakTopic property and weak-topic tag after load/migration. */
+export function reconcileWeakTopicNote(note: NoteBase): NoteBase {
+  return setWeakTopic(note, isWeakTopic(note));
+}

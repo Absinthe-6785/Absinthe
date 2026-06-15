@@ -88,12 +88,18 @@ export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: Lite
               )}
               <span
                 style={{
-                  padding: '2px 6px',
-                  borderRadius: 4,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  height: 24,
+                  padding: '0 8px',
+                  borderRadius: 999,
+                  fontSize: 10,
+                  lineHeight: 1,
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? c.accent : isPast ? c.text : c.textFaint,
                   background: isActive ? c.accentBg : 'transparent',
                   border: `1px solid ${isActive ? c.accent : c.sideBdr}`,
+                  boxSizing: 'border-box',
                 }}
               >
                 {noteKindLabel(stepKind, lang)}
@@ -105,15 +111,19 @@ export function LiteratureWorkflowIndicator({ colors: c, kind, onPromote }: Lite
       {showPromote && nextKind && (
         <button
           type="button"
-          className="btbtn"
           onClick={onPromote}
           style={{
-            fontSize: 9,
-            padding: '3px 8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            height: 24,
+            fontSize: 10,
+            padding: '0 8px',
             color: c.accent,
             border: `1px solid ${c.accent}`,
-            borderRadius: 5,
+            borderRadius: 999,
             background: c.accentBg,
+            cursor: 'pointer',
+            boxSizing: 'border-box',
           }}
         >
           → {t('knPromoteTo').replace('{kind}', noteKindLabel(nextKind, lang))}

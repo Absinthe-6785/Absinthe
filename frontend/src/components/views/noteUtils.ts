@@ -6,6 +6,7 @@
  */
 
 import { normalizeNoteRelations } from './features/knowledge/relations/relationNormalize';
+import { reconcileWeakTopicNote } from './features/knowledge/study/weakTopicTracking';
 import {
   isTagsPropertyKey,
   TAGS_PROPERTY_KEY,
@@ -95,7 +96,7 @@ export function normalizeNoteProperties(
 }
 
 export function normalizeNote(n: Partial<NoteBase>): NoteBase {
-  return {
+  const base: NoteBase = {
     id: n.id ?? `note-${Date.now()}-${Math.random()}`,
     title: n.title ?? '',
     body: n.body ?? '',
@@ -108,6 +109,7 @@ export function normalizeNote(n: Partial<NoteBase>): NoteBase {
     properties: normalizeNoteProperties(n.properties),
     relations: normalizeNoteRelations(n.relations),
   };
+  return reconcileWeakTopicNote(base);
 }
 
 function loadRawNotes(key: string): NoteBase[] | null {

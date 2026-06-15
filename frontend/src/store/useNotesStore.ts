@@ -112,7 +112,12 @@ let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 const BODY_SYNC_MS = 600;
 
-function isBodyOnlyPatch(patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>): boolean {
+import {
+  mergeNotePatch,
+  type NoteContentPatch,
+} from './notePatchPolicy';
+
+function isBodyOnlyPatch(patch: NoteContentPatch): boolean {
   const keys = Object.keys(patch) as (keyof typeof patch)[];
   return keys.length === 1 && keys[0] === 'body';
 }
@@ -414,7 +419,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ? { ...patch, properties: normalizeNoteProperties(patch.properties) }
         : patch;
       const notes = get().notes.map(n =>
-        n.id === id ? { ...n, ...normalizedPatch, updatedAt: Date.now() } : n
+        n.id === id ? mergeNotePatch(n, normalizedPatch) : n
       );
       set({ notes });
       persistNotes(notes);
@@ -434,7 +439,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     toggleStar: (id) => {
       const notes = get().notes.map(n =>
-        n.id === id ? { ...n, starred: !n.starred, updatedAt: Date.now() } : n
+        n.id === id ? { ...n, starred: !n.starred } : n
       );
       set({ notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
       persistNotes(notes);
