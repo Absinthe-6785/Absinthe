@@ -1,25 +1,7 @@
 import { useCallback } from 'react';
-import { useNotesStore } from '../../../../store/useNotesStore';
 import type { NoteBase as Note } from '../../noteUtils';
-import type { CreateMilestoneFormValues } from '../../features/knowledge/components/CreateMilestoneDialog';
-import type { CreateProjectFormValues } from '../../features/knowledge/components/CreateProjectDialog';
 import {
-  buildReadingNote,
-  buildStudyNote,
-  setStudyProjectContainer,
-  setProjectMilestone,
-  isStudyProjectContainer,
-  isProjectMilestone,
-  getStudyProjectDescription,
-  getStudyProjectStatus,
-  getMilestoneStatus,
-  getMilestoneTargetDate,
-  getMilestoneProjectId,
-  getNoteKind,
   promoteNoteKind,
-  linkReadingNoteToSource,
-  unlinkReadingNoteFromSource,
-  getLinkedSourceNoteId,
   createInboxNote,
   buildTaskNote,
   buildJournalNote,
@@ -27,8 +9,6 @@ import {
   resolveJournalTemplateId,
   TASK_TEMPLATES,
   JOURNAL_TEMPLATES,
-  addTag,
-  SUBJECT_DASHBOARDS,
   buildExpandedGraphData,
   expandNode,
   collapseNode,
@@ -43,6 +23,9 @@ import {
   type CreateJournalInput,
 } from '../../features/knowledge';
 import type { UseNoteViewActionsParams } from './types';
+import { useNoteProjectActions } from './useNoteProjectActions';
+import { useNoteMilestoneActions } from './useNoteMilestoneActions';
+import { useNoteReadingActions } from './useNoteReadingActions';
 
 export function useNoteCrudActions(params: UseNoteViewActionsParams) {
   const {
@@ -114,6 +97,33 @@ export function useNoteCrudActions(params: UseNoteViewActionsParams) {
     return id;
   }, [handleLeaveDashboardForNote, setActiveNoteId, setViewMode]);
 
+  const projectActions = useNoteProjectActions({
+    activeNote,
+    storeCreateNote,
+    updateNote,
+    noteUpdate,
+    openCreatedNote,
+    setCreateProjectDialogOpen,
+  });
+
+  const milestoneActions = useNoteMilestoneActions({
+    activeNote,
+    storeCreateNote,
+    updateNote,
+    noteUpdate,
+    openCreatedNote,
+    setCreateMilestoneDialogOpen,
+  });
+
+  const readingActions = useNoteReadingActions({
+    notes,
+    activeNote,
+    storeCreateNote,
+    updateNote,
+    noteUpdate,
+    openCreatedNote,
+  });
+
   const createQuickCapture = useCallback((input: QuickCaptureInput) => {
     if (input.captureType === 'event') {
       openCreateEventDialogRef.current({
@@ -173,123 +183,6 @@ export function useNoteCrudActions(params: UseNoteViewActionsParams) {
     return openCreatedNote(id);
   }, [notes, storeCreateNote, updateNote, openCreatedNote]);
 
-  const handleCreateReadingNote = useCallback((title?: string) => {
-    const id = storeCreateNote({ title: title?.trim() || 'Reading Notes', body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      let readingNote = buildReadingNote(created, { title });
-      let sourceRelations: Note['relations'];
-      if (activeNote && getNoteKind(activeNote) === 'source') {
-        const linked = linkReadingNoteToSource(readingNote, activeNote);
-        readingNote = linked.reading;
-        sourceRelations = linked.source.relations;
-      }
-      updateNote(id, {
-        title: readingNote.title,
-        body: readingNote.body,
-        properties: readingNote.properties,
-        relations: readingNote.relations,
-      });
-      if (sourceRelations && activeNote) {
-        noteUpdate(activeNote.id, { relations: sourceRelations });
-      }
-    }
-    return openCreatedNote(id);
-  }, [notes, activeNote, storeCreateNote, updateNote, noteUpdate, openCreatedNote]);
-
-  const handleCreateStudyNote = useCallback((title?: string) => {
-    const id = storeCreateNote({ title: title?.trim() || 'Study Notes', body: '' });
-    const created = notes.find(n => n.id === id);
-    if (created) {
-      const studyNote = buildStudyNote(created, { title });
-      updateNote(id, {
-        title: studyNote.title,
-        body: studyNote.body,
-        properties: studyNote.properties,
-      });
-    }
-    return openCreatedNote(id);
-  }, [notes, storeCreateNote, updateNote, openCreatedNote]);
-
-  const handleCreateProject = useCallback(() => {
-    setCreateProjectDialogOpen(true);
-  }, [setCreateProjectDialogOpen]);
-
-  const handleSubmitCreateProject = useCallback((values: CreateProjectFormValues) => {
-    const id = storeCreateNote({ title: values.name, body: '' });
-    const created = useNotesStore.getState().notes.find(n => n.id === id);
-    if (created) {
-      let project = setStudyProjectContainer(created, values.status, values.description || undefined);
-      if (values.subjectId) {
-        const subject = SUBJECT_DASHBOARDS.find(s => s.id === values.subjectId);
-        if (subject) project = addTag(project, subject.tag);
-      }
-      updateNote(id, { title: values.name, properties: project.properties });
-    }
-    setCreateProjectDialogOpen(false);
-    openCreatedNote(id);
-  }, [storeCreateNote, updateNote, openCreatedNote, setCreateProjectDialogOpen]);
-
-  const handleCreateProjectMilestone = useCallback(() => {
-    setCreateMilestoneDialogOpen(true);
-  }, [setCreateMilestoneDialogOpen]);
-
-  const handleSubmitCreateMilestone = useCallback((values: CreateMilestoneFormValues) => {
-    const id = storeCreateNote({ title: values.name, body: '' });
-    const created = useNotesStore.getState().notes.find(n => n.id === id);
-    if (created) {
-      const milestone = setProjectMilestone(
-        created,
-        values.projectId,
-        values.status,
-        values.targetDate || undefined,
-      );
-      updateNote(id, { title: values.name, properties: milestone.properties });
-    }
-    setCreateMilestoneDialogOpen(false);
-    openCreatedNote(id);
-  }, [storeCreateNote, updateNote, openCreatedNote, setCreateMilestoneDialogOpen]);
-
-  const handleUpdateProjectDescription = useCallback((description: string) => {
-    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
-    const status = getStudyProjectStatus(activeNote) ?? 'planned';
-    const updated = setStudyProjectContainer(activeNote, status, description);
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateProjectStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
-    if (!activeNote || !isStudyProjectContainer(activeNote)) return;
-    const updated = setStudyProjectContainer(activeNote, status, getStudyProjectDescription(activeNote));
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateMilestoneStatus = useCallback((status: 'planned' | 'active' | 'completed') => {
-    if (!activeNote || !isProjectMilestone(activeNote)) return;
-    const projectId = getMilestoneProjectId(activeNote);
-    if (!projectId) return;
-    const updated = setProjectMilestone(
-      activeNote,
-      projectId,
-      status,
-      getMilestoneTargetDate(activeNote) ?? undefined,
-    );
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
-  const handleUpdateMilestoneTargetDate = useCallback((targetDate: string | null) => {
-    if (!activeNote || !isProjectMilestone(activeNote)) return;
-    const projectId = getMilestoneProjectId(activeNote);
-    if (!projectId) return;
-    const status = getMilestoneStatus(activeNote) ?? 'planned';
-    const updated = setProjectMilestone(
-      activeNote,
-      projectId,
-      status,
-      targetDate ?? undefined,
-    );
-    noteUpdate(activeNote.id, { properties: updated.properties });
-  }, [activeNote, noteUpdate]);
-
   const handleCreateLearningPathStepNote = useCallback((title: string) => {
     const id = storeCreateNote({ title: title.trim() || 'New Step', body: '' });
     return id;
@@ -322,26 +215,6 @@ export function useNoteCrudActions(params: UseNoteViewActionsParams) {
     const updated = promoteNoteKind(activeNote);
     noteUpdate(activeNote.id, { properties: updated.properties });
   }, [activeNote, noteUpdate]);
-
-  const handleLinkReadingSource = useCallback((sourceNoteId: string) => {
-    if (!activeNote) return;
-    const source = notes.find(n => n.id === sourceNoteId);
-    if (!source) return;
-    const { reading, source: updatedSource } = linkReadingNoteToSource(activeNote, source);
-    noteUpdate(activeNote.id, { relations: reading.relations });
-    noteUpdate(source.id, { relations: updatedSource.relations });
-  }, [activeNote, notes, noteUpdate]);
-
-  const handleUnlinkReadingSource = useCallback(() => {
-    if (!activeNote) return;
-    const sourceId = getLinkedSourceNoteId(activeNote);
-    if (!sourceId) return;
-    const source = notes.find(n => n.id === sourceId);
-    if (!source) return;
-    const { reading, source: updatedSource } = unlinkReadingNoteFromSource(activeNote, source);
-    noteUpdate(activeNote.id, { relations: reading.relations });
-    noteUpdate(source.id, { relations: updatedSource.relations });
-  }, [activeNote, notes, noteUpdate]);
 
   const handleExpandGraphNode = useCallback((noteId: string) => {
     if (!activeNote) return;
@@ -393,24 +266,15 @@ export function useNoteCrudActions(params: UseNoteViewActionsParams) {
     createQuickCapture,
     createTask,
     createJournal,
-    handleCreateReadingNote,
-    handleCreateStudyNote,
-    handleCreateProject,
-    handleSubmitCreateProject,
-    handleCreateProjectMilestone,
-    handleSubmitCreateMilestone,
-    handleUpdateProjectDescription,
-    handleUpdateProjectStatus,
-    handleUpdateMilestoneStatus,
-    handleUpdateMilestoneTargetDate,
+    ...projectActions,
+    ...milestoneActions,
+    ...readingActions,
     handleCreateLearningPathStepNote,
     handleUpdateNoteProperties,
     handleTitleChange,
     handleTitleCompositionEnd,
     handleActiveBodyChange,
     handlePromoteNoteKind,
-    handleLinkReadingSource,
-    handleUnlinkReadingSource,
     handleExpandGraphNode,
     handleCollapseGraphNode,
     addFolder,
