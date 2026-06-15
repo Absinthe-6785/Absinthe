@@ -4,6 +4,14 @@ import type { Theme } from '../../../../types';
 
 export type HealthWorkspaceSection = 'dashboard' | 'nutrition' | 'workout' | 'habits' | 'recovery';
 
+export const HEALTH_WORKSPACE_SECTIONS: readonly { id: HealthWorkspaceSection; icon: typeof Dumbbell }[] = [
+  { id: 'dashboard', icon: LayoutDashboard },
+  { id: 'nutrition', icon: Apple },
+  { id: 'workout', icon: Dumbbell },
+  { id: 'habits', icon: Activity },
+  { id: 'recovery', icon: BedDouble },
+];
+
 export interface HealthWorkspaceNavProps {
   active: HealthWorkspaceSection;
   onChange: (section: HealthWorkspaceSection) => void;
@@ -11,13 +19,7 @@ export interface HealthWorkspaceNavProps {
   compact?: boolean;
 }
 
-const SECTIONS: readonly { id: HealthWorkspaceSection; icon: typeof Dumbbell }[] = [
-  { id: 'dashboard', icon: LayoutDashboard },
-  { id: 'nutrition', icon: Apple },
-  { id: 'workout', icon: Dumbbell },
-  { id: 'habits', icon: Activity },
-  { id: 'recovery', icon: BedDouble },
-];
+const SECTIONS = HEALTH_WORKSPACE_SECTIONS;
 
 /** Top-level Health workspace navigation — extensible shell for K-48+. */
 export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthWorkspaceNavProps) {

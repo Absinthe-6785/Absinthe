@@ -99,6 +99,11 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     handleReadingModeClick,
     handleActiveBodyChange,
     navigateToWiki,
+    canBackNote,
+    canForwardNote,
+    goBackNote,
+    goForwardNote,
+    openNoteById,
   } = input;
 
   return useMemo(() => ({
@@ -196,6 +201,11 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
       handleReadingModeClick,
       handleActiveBodyChange,
       navigateToWiki,
+      canBackNote,
+      canForwardNote,
+      goBackNote,
+      goForwardNote,
+      openNoteById,
     },
   }), [
     hideEditorArea, isMobile, isCompactChrome, isFocusPresetActive, isTrash, showRightPanel,
@@ -214,6 +224,6 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     handleLearnLinking, handleHudReviewWeakAreas, handleOpenDiscover, handleOpenTimeline, createNote,
     setSearchScope, setSearchMatchIdx, insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting,
     setIsDragOver, insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
-    navigateToWiki,
+    navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
   ]);
 }

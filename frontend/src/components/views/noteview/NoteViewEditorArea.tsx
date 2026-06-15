@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useEffect, type RefObject, type Mutabl
 import {
   Search, Trash2, Star, Type, Eye, Orbit,
   RotateCcw, AlertTriangle, Save, Copy, AlignLeft, GitFork, Upload,
-  ChevronUp, ChevronDown, ChevronLeft, Image as ImageIcon, FileText,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
 import {
@@ -209,6 +209,11 @@ export interface NoteViewEditorHandlers {
   handleReadingModeClick: React.MouseEventHandler<HTMLDivElement>;
   handleActiveBodyChange: (md: string) => void;
   navigateToWiki: (title: string, options?: { preferReading?: boolean }) => void;
+  canBackNote: boolean;
+  canForwardNote: boolean;
+  goBackNote: () => void;
+  goForwardNote: () => void;
+  openNoteById: (id: string, source?: import('../../../lib/noteNavigationStack').NoteNavigationSource) => void;
 }
 
 export interface NoteViewEditorAreaProps {
@@ -241,8 +246,18 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
     insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver,
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
-    navigateToWiki,
+    navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
   } = handlers;
+
+  const handleMobileBack = () => {
+    if (canBackNote) goBackNote();
+    else setMobileShowEditor(false);
+  };
+
+  const handleCosmosSelect = (id: string) => {
+    openNoteById(id, 'cosmos');
+    setViewMode('edit');
+  };
 
   return (
     <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
@@ -250,12 +265,34 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         <>
           {/* Note Header */}
           <div style={{ padding: isMobile ? '7px 10px' : '7px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 6, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-            {isMobile && (
-              <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={() => setMobileShowEditor(false)}
-                style={{ padding: '2px 4px', color: c.textMuted }} title={t('nvBackToNotes')}>
-                <ChevronLeft size={14}/>
-              </button>
-            )}
+            {isMobile ? (
+              <>
+                <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={handleMobileBack}
+                  style={{ padding: '2px 4px', color: c.textMuted }} title={canBackNote ? t('nvBackToPreviousNote') : t('nvBackToNotes')}>
+                  <ChevronLeft size={14}/>
+                </button>
+                {canForwardNote && (
+                  <button type="button" className="btbtn min-h-[44px] min-w-[44px]" onClick={goForwardNote}
+                    title={t('nvForwardNote')} aria-label={t('nvForwardNote')}
+                    style={{ padding: '2px 4px', color: c.textMuted }}>
+                    <ChevronRight size={14}/>
+                  </button>
+                )}
+              </>
+            ) : (canBackNote || canForwardNote) ? (
+              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <button type="button" className="btbtn" disabled={!canBackNote}
+                  onClick={goBackNote} title={t('nvBackToPreviousNote')} aria-label={t('nvBackToPreviousNote')}
+                  style={{ padding: '2px 4px', color: canBackNote ? c.textMuted : c.textFaint, opacity: canBackNote ? 1 : 0.4 }}>
+                  <ChevronLeft size={14}/>
+                </button>
+                <button type="button" className="btbtn" disabled={!canForwardNote}
+                  onClick={goForwardNote} title={t('nvForwardNote')} aria-label={t('nvForwardNote')}
+                  style={{ padding: '2px 4px', color: canForwardNote ? c.textMuted : c.textFaint, opacity: canForwardNote ? 1 : 0.4 }}>
+                  <ChevronRight size={14}/>
+                </button>
+              </div>
+            ) : null}
             {isFocusPresetActive && activeFocusPreset && (
               <button
                 type="button"
@@ -475,7 +512,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {/* Graph View (full area) */}
           {viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
+              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
             </div>
           ) : (
             <>
@@ -681,7 +718,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         // Graph View without active note
         viewMode === 'graph' ? (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={id => { setActiveNoteId(id); setViewMode('edit'); }} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
+            <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>

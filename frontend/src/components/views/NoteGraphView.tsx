@@ -697,9 +697,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         position: 'absolute', top: 10, left: 10, right: 10,
         display: 'flex', alignItems: 'center', gap: 6, zIndex: 10,
         pointerEvents: 'none',
+        flexWrap: compactChrome ? 'wrap' : 'nowrap',
       }}>
         {/* 검색 */}
-        <div style={{ pointerEvents: 'all', flex: '0 0 auto' }}>
+        <div style={{ pointerEvents: 'all', flex: compactChrome ? '1 1 96px' : '0 0 auto', minWidth: compactChrome ? 96 : undefined, maxWidth: compactChrome ? 180 : undefined }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <span style={{
               position: 'absolute', left: 7, fontSize: 11,
@@ -716,7 +717,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 border: `1px solid ${colors.searchB}`,
                 background: colors.searchBg,
                 color: colors.searchTxt,
-                outline: 'none', width: 140,
+                outline: 'none',
+                width: compactChrome ? '100%' : 140,
                 backdropFilter: 'blur(8px)',
               }}
             />
@@ -764,6 +766,43 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         </div>
 
         {/* Relationship filter */}
+        {compactChrome ? (
+          <div style={{
+            pointerEvents: 'all',
+            display: 'flex',
+            gap: 4,
+            overflowX: 'auto',
+            maxWidth: '100%',
+            flex: '1 1 auto',
+          }}>
+            {([
+              { value: 'all', label: t('graphFilterAll') },
+              { value: 'backlinks', label: t('graphFilterBacklinks') },
+              { value: 'mentions', label: t('graphFilterMentions') },
+              { value: 'relations', label: t('graphFilterRelations') },
+            ] as const).map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setRelationshipFilter(value)}
+                style={{
+                  minHeight: TOUCH_TARGET_MIN_PX,
+                  padding: '0 10px',
+                  fontSize: 10,
+                  borderRadius: 6,
+                  border: `1px solid ${colors.searchB}`,
+                  background: relationshipFilter === value ? colors.act : colors.searchBg,
+                  color: relationshipFilter === value ? '#fff' : colors.searchTxt,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
         <select
           value={relationshipFilter}
           onChange={e => setRelationshipFilter(e.target.value as GlobalGraphRelationshipFilter)}
@@ -785,6 +824,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
           <option value="mentions">{t('graphFilterMentions')}</option>
           <option value="relations">{t('graphFilterRelations')}</option>
         </select>
+        )}
 
         {/* 고립 노드 토글 */}
         {isolatedCount > 0 && (
@@ -1126,12 +1166,12 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
                 />
                 {isAct && (
                   <>
-                    <circle cx={pos.x} cy={pos.y} r={r + 10}
-                      fill="none" stroke={colors.act} strokeWidth={1.5} strokeOpacity={0.25}
+                    <circle cx={pos.x} cy={pos.y} r={r + (compactChrome ? 12 : 10)}
+                      fill="none" stroke={colors.act} strokeWidth={compactChrome ? 2 : 1.5} strokeOpacity={compactChrome ? 0.4 : 0.25}
                       className={reducedMotion ? undefined : 'ku-active-pulse'}
                     />
-                    <circle cx={pos.x} cy={pos.y} r={r + 6}
-                      fill="none" stroke={colors.act} strokeWidth={2} strokeOpacity={0.55}
+                    <circle cx={pos.x} cy={pos.y} r={r + (compactChrome ? 8 : 6)}
+                      fill="none" stroke={colors.act} strokeWidth={compactChrome ? 2.5 : 2} strokeOpacity={compactChrome ? 0.75 : 0.55}
                     />
                   </>
                 )}
@@ -1196,7 +1236,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         }}>
           {folderIds.map((fid, i) => {
             const folderName =
-              folders.find(f => f.id === fid)?.name ?? `폴더 ${i + 1}`;
+              folders.find(f => f.id === fid)?.name ?? t('graphFolderFallback').replace('{n}', String(i + 1));
             return (
               <div key={fid} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <div style={{

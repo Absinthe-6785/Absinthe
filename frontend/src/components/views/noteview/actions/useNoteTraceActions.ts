@@ -20,6 +20,7 @@ import {
   type SmartCollectionId,
 } from '../../features/knowledge';
 import { registerTraceNavigation } from '../../../../lib/traceNavigation';
+import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
 import type { OpenCreatedNote, UseNoteViewActionsParams } from './types';
 
 export function useNoteTraceActions(
@@ -227,9 +228,9 @@ export function useNoteTraceActions(
 
   const handleWorkspaceSearchNote = useCallback((noteId: string) => {
     handleLeaveDashboardForNote(noteId);
-    setActiveNoteId(noteId);
+    navigateToNoteWithHistory(noteId, 'search');
     if (isMobile) setMobileSidebarOpen(false);
-  }, [handleLeaveDashboardForNote, isMobile, setActiveNoteId, setMobileSidebarOpen]);
+  }, [handleLeaveDashboardForNote, isMobile, setMobileSidebarOpen]);
 
   const handleWorkspaceSearchFolder = useCallback((folderId: string) => {
     resetBrowseScope();

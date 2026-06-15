@@ -77,6 +77,10 @@ export function useNoteViewActions(params: UseNoteViewActionsParams) {
     handleEditorDrop: importExport.handleEditorDrop,
     handleImport: importExport.handleImport,
     navigateToWiki: keyboard.navigateToWiki,
+    canBackNote: keyboard.canBack,
+    canForwardNote: keyboard.canForward,
+    goBackNote: keyboard.goBack,
+    goForwardNote: keyboard.goForward,
     handleToggleAreaNote: crud.handleToggleAreaNote,
     openCreatedNote: crud.openCreatedNote,
   };

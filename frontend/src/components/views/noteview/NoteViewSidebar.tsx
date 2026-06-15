@@ -209,6 +209,7 @@ export interface NoteViewSidebarHandlers {
   openCreateEventDialog: () => void;
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   setActiveNoteId: (id: string | null) => void;
+  openNoteById: (id: string) => void;
   setMobileShowEditor: React.Dispatch<React.SetStateAction<boolean>>;
   noteUpdate: (id: string, patch: Partial<Note>) => void;
   setDragNoteId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -293,7 +294,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleActivateSavedView, handleClearSavedView, handleCreateSavedView, handleRenameSavedView,
     handleDeleteSavedView, isWorkspaceKindActive, setMobileSidebarOpen, closeTraceLens,
     handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
-    createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
+    createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
     handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset,
     handleActivateFocusPreset, handleExitFocusPreset, handleQuickCapture, handleCreateTask,
@@ -1009,11 +1010,17 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {visibleNotes.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-              <span>{isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}</span>
-              {!isTrash && (
+              <span>{isTrash ? t('nvTrashEmpty') : searchQuery.trim() ? t('nvSearchNoResults') : t('nvNoNotes')}</span>
+              {!isTrash && !searchQuery.trim() && (
                 <button type="button" className="bwbg" onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
                   style={{ minHeight: 44, padding: '8px 16px' }}>
                   {t('nvCreateFirstNote')}
+                </button>
+              )}
+              {!isTrash && searchQuery.trim() && (
+                <button type="button" className="bwbg" onClick={() => setSearchQuery('')}
+                  style={{ minHeight: 44, padding: '8px 16px' }}>
+                  {t('nvClearQuery')}
                 </button>
               )}
             </div>
@@ -1027,7 +1034,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             return (
               <div key={n.id}
                 className={`bni ${n.id === activeNoteId ? 'active' : ''} ${dragNoteId === n.id ? 'bnote-drag' : ''}`}
-                onClick={() => { setActiveNoteId(n.id); if (isMobile) setMobileShowEditor(true); }}
+                onClick={() => { openNoteById(n.id); if (isMobile) setMobileShowEditor(true); }}
                 draggable={!isTrash}
                 onDragStart={() => setDragNoteId(n.id)}
                 onDragEnd={() => setDragNoteId(null)}

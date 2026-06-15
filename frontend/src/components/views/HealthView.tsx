@@ -9,10 +9,12 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { EmptyState } from '../common/EmptyState';
 import { useTranslation } from '../../lib/i18n';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { buildCalendarDays } from '../../lib/calendarUtils';
-import { HealthWorkspaceNav, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
+import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { HealthDashboardPanel } from './features/health/HealthDashboardPanel';
 import { RecoveryLogPanel } from './features/health/RecoveryLogPanel';
 import { HabitQuickPanel } from './features/health/HabitQuickPanel';
@@ -25,6 +27,7 @@ export const HealthView = ({
   THEME_COLORS,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
+  const isMobile = useIsMobile();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -560,6 +563,19 @@ export const HealthView = ({
     };
   }, [currentDate]);
 
+  const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
+  const swipeHealthSection = useSwipeNavigation(
+    () => {
+      const next = HEALTH_WORKSPACE_SECTIONS[healthSectionIndex + 1];
+      if (next) setHealthSection(next.id);
+    },
+    () => {
+      const prev = HEALTH_WORKSPACE_SECTIONS[healthSectionIndex - 1];
+      if (prev) setHealthSection(prev.id);
+    },
+    { enabled: isMobile },
+  );
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300">
       <div className="shrink-0 mb-3 px-0.5">
@@ -568,8 +584,17 @@ export const HealthView = ({
         </div>
         <div className="lg:hidden">
           <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} compact />
+          {isMobile && (
+            <p className={`text-[10px] text-center mt-1 ${theme.textMuted}`}>{t('healthSwipeSectionHint')}</p>
+          )}
         </div>
       </div>
+
+      <div
+        className="flex-1 flex flex-col min-h-0 overflow-hidden"
+        onTouchStart={swipeHealthSection.onTouchStart}
+        onTouchEnd={swipeHealthSection.onTouchEnd}
+      >
 
       {healthSection === 'dashboard' && (
         <HealthDashboardPanel
@@ -855,7 +880,14 @@ export const HealthView = ({
           </div>
 
           <div className="space-y-3 pb-2 lg:space-y-5 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
-            {localWorkouts.length === 0 && <EmptyState theme={theme} icon={Dumbbell} text={t('noWorkoutsEmpty')}/>}
+            {localWorkouts.length === 0 && (
+              <EmptyState
+                theme={theme}
+                icon={Dumbbell}
+                text={t('noWorkoutsEmpty')}
+                onClick={() => setMobileHealthTab('blocks')}
+              />
+            )}
             {localWorkouts.map((w: Workout, wIdx: number) => {
 
               /* ── 세션 구분선 렌더링 ── */
@@ -1008,7 +1040,7 @@ export const HealthView = ({
                           {/* 세트 번호 — 탭하면 해당 세트 삭제 */}
                           <button
                             onClick={() => !isWorkoutLocked && w.sets.length > 1 && handleRemoveSet(wIdx, sIdx)}
-                            title={isWorkoutLocked ? '' : 'Tap to delete'}
+                            title={isWorkoutLocked ? '' : t('healthTapDeleteSet')}
                             className={`w-8 h-8 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
                               ${isWorkoutLocked
                                 ? theme.textMuted
@@ -1122,7 +1154,7 @@ export const HealthView = ({
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={handleCopySummary}
-                    title="Copy workout summary to clipboard"
+                    title={t('healthCopyWorkoutSummary')}
                     className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all
                       ${copied
                         ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')
@@ -1503,6 +1535,8 @@ export const HealthView = ({
           </div>
         );
       })()}
+
+      </div>
 
       {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
