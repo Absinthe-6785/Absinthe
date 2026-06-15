@@ -259,7 +259,9 @@ export function DiscoveryPanel({
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <CosmosSuiteHeader c={c} active="discover" t={t} />
-      {vaultHealth && <VaultHealthStrip colors={c} metrics={vaultHealth} compact={compact} />}
+      {vaultHealth && feed.sections['isolated-notes'].length === 0 ? (
+        <VaultHealthStrip colors={c} metrics={vaultHealth} compact={compact} />
+      ) : null}
       <FirstDiscoveryBanner colors={c} topItem={topItem} />
       {kinds.map((kind, index) => {
         const section = feed.sections[kind];

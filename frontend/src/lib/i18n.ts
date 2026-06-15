@@ -307,6 +307,13 @@ const translations = {
 
   // ── HealthView ────────────────────────────────────────────────────
   workoutBlocks:  { en: 'Workout Blocks',   ko: '운동 블록',     ja: 'ワークアウトブロック' },
+  workoutLibrary: { en: 'Workout Library',  ko: '운동 라이브러리', ja: 'ワークアウトライブラリ' },
+  k72WorkoutHistory:      { en: 'Workout History', ko: '운동 기록', ja: 'ワークアウト履歴' },
+  k72WorkoutHistoryEmpty: { en: 'No sessions logged this month.', ko: '이번 달 기록이 없습니다.', ja: '今月の記録はありません。' },
+  k72WorkoutSession:      { en: 'session', ko: '세션', ja: 'セッション' },
+  k72WorkoutSessions:     { en: 'sessions', ko: '세션', ja: 'セッション' },
+  k72PrevWeek:            { en: 'Previous week', ko: '이전 주', ja: '前の週' },
+  k72NextWeek:            { en: 'Next week', ko: '다음 주', ja: '次の週' },
   routineSetup:   { en: 'Routine Setup',    ko: '루틴 설정',     ja: 'ルーティン設定'   },
   todayWorkout:   { en: "Today's Workout",  ko: '오늘의 운동',   ja: '本日のワークアウト' },
   completeWorkout:{ en: 'Complete Workout', ko: '운동 완료',     ja: 'ワークアウト完了' },

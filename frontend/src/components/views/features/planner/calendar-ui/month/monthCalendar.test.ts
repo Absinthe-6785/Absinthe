@@ -275,7 +275,7 @@ describe('MonthCalendarView', () => {
     expect(enHtml).toContain(en.labels.weekdayShortLabels[0]!);
   });
 
-  it('renders schedule blocks in month cells; todos and routines in selected-day panel', () => {
+  it('renders schedule blocks in month cells; month detail omits routines and tasks', () => {
     const { projection, presentation } = buildMonthFixture({
       scheduleBlocks: [{
         id: 'b1',
@@ -297,15 +297,14 @@ describe('MonthCalendarView', () => {
 
     expect(html).toContain('Deep Work');
     expect(html).toContain('10:00');
-    expect(html).toContain('data-planner-selected-day-detail');
-    expect(html).toContain('Pack bag');
-    expect(html).toContain('Stretch');
+    expect(html).toContain('data-planner-selected-day-variant="month"');
+    expect(html).not.toContain('Pack bag');
+    expect(html).not.toContain('Stretch');
     const cellFeb3 = html.slice(
       html.indexOf('data-planner-month-cell="2027-02-03"'),
       html.indexOf('data-planner-month-cell="2027-02-04"'),
     );
     expect(cellFeb3).toContain('Deep Work');
     expect(cellFeb3).not.toContain('Pack bag');
-    expect(cellFeb3).not.toContain('Stretch');
   });
 });

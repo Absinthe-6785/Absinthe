@@ -64,6 +64,7 @@ export function DayCalendarView({
         routineActions={routineActions}
         todoActions={todoActions}
         hideHeading
+        bare
       />
     </div>
   );

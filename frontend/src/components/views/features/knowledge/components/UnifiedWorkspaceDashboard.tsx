@@ -148,7 +148,7 @@ export function UnifiedWorkspaceDashboard({
               onOpenCosmos={onOpenCosmos}
             />
           )}
-          {evolutionInsights && onOpenEvolution && (
+          {evolutionInsights && onOpenEvolution && !activitySummary && (
             <KnowledgeEvolutionCard
               colors={c}
               insights={evolutionInsights}
@@ -169,7 +169,7 @@ export function UnifiedWorkspaceDashboard({
               onNavigateToNote={onNavigateToNote}
             />
           )}
-          {timeline && onOpenTimeline && timeline.snapshots.length > 0 && (
+          {timeline && onOpenTimeline && timeline.snapshots.length > 0 && !activitySummary && (
             <TimelineDashboardCard
               colors={c}
               timeline={timeline}

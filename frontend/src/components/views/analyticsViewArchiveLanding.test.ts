@@ -190,7 +190,7 @@ describe('AnalyticsView archive home audit', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('px-2 lg:px-4');
-    expect(html).toContain('text-2xl lg:text-3xl');
+    expect(html).toContain('text-xl lg:text-2xl');
     expect(html).toContain('lg:rounded-[32px]');
   });
 });
