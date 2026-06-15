@@ -7,6 +7,8 @@ import { DayRoutineSummary } from './day/DayRoutineSummary';
 import { DayScheduleTimeline } from './day/DayScheduleTimeline';
 import { DayTodoSummary } from './day/DayTodoSummary';
 import { DayCountdownStrip } from './day/DayCountdownStrip';
+import { DayMilestonesSection } from './day/DayMilestonesSection';
+import { SelectedDayHistoryExtras } from './SelectedDayHistoryExtras';
 import { buildDayDisplayModel } from './day/dayCalendarPresentation';
 import type { DayScheduleActions } from './day/dayScheduleActions';
 import type { DayRoutineActions } from './day/dayRoutineActions';
@@ -86,20 +88,30 @@ export function SelectedDayDetailPanel({
         presentation={presentation}
         onNoteClick={onEventNoteClick}
       />
-      {showRoutines ? (
-        <DayRoutineSummary
-          routines={model.routines}
-          isRoutineException={model.isRoutineException}
-          theme={theme}
-          routineActions={routineActions}
-        />
-      ) : null}
       {showTodos ? (
         <DayTodoSummary
           todos={model.todos}
           theme={theme}
           todoActions={todoActions}
         />
+      ) : null}
+      {showRoutines ? (
+        <DayRoutineSummary
+          routines={model.routines}
+          isRoutineException={model.isRoutineException}
+          theme={theme}
+          routineActions={routineActions}
+          compactEmpty={model.timelineBlocks.length === 0 && model.carryOverBlocks.length === 0}
+        />
+      ) : null}
+      {variant === 'month' ? (
+        <>
+          <DayMilestonesSection
+            milestones={day.bundle.milestones}
+            onEventNoteClick={onEventNoteClick}
+          />
+          <SelectedDayHistoryExtras dateKey={day.dateKey} theme={theme} />
+        </>
       ) : null}
     </div>
   );

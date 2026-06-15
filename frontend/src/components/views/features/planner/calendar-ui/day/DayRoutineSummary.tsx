@@ -11,6 +11,8 @@ export interface DayRoutineSummaryProps {
   isRoutineException: boolean;
   theme: Theme;
   routineActions?: DayRoutineActions;
+  /** De-emphasize routine block when schedules are empty (day view hierarchy). */
+  compactEmpty?: boolean;
 }
 
 export function DayRoutineSummary({
@@ -18,6 +20,7 @@ export function DayRoutineSummary({
   isRoutineException,
   theme,
   routineActions,
+  compactEmpty = false,
 }: DayRoutineSummaryProps) {
   const { t } = useTranslation();
   const summaryLabel = formatDayRoutineSummary(routines);
@@ -44,7 +47,10 @@ export function DayRoutineSummary({
   };
 
   return (
-    <section className="flex flex-col gap-1.5" data-planner-day-routines>
+    <section
+      className={`flex flex-col gap-1.5 ${compactEmpty && routines.length === 0 ? 'opacity-80' : ''}`}
+      data-planner-day-routines
+    >
       <div className="flex items-center justify-between gap-2">
         <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
           {t('scheduleSectionRoutines')}
