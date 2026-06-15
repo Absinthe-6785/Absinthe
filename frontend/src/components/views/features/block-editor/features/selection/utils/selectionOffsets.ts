@@ -64,6 +64,30 @@ export function getCaretOffset(el: HTMLElement): number {
   return offsetAtPoint(el, range.startContainer, range.startOffset);
 }
 
+/** Map a viewport point to a plain-text caret offset inside a contenteditable host. */
+export function getCaretOffsetFromPoint(
+  el: HTMLElement,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const doc = el.ownerDocument;
+  let range: Range | null = null;
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    range = doc.caretRangeFromPoint(clientX, clientY);
+  } else {
+    const pos = (doc as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    }).caretPositionFromPoint?.(clientX, clientY);
+    if (pos) {
+      range = doc.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+    }
+  }
+  if (!range || !el.contains(range.startContainer)) return null;
+  return offsetAtPoint(el, range.startContainer, range.startOffset);
+}
+
 export function getSelectionOffsets(el: HTMLElement): { start: number; end: number } | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;

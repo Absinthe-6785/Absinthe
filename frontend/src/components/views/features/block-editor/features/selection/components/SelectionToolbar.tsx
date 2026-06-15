@@ -105,11 +105,20 @@ export function SelectionToolbar({
       setFormats(deriveToolbarFormats(host, blockId, activeBlockId, getBlockType));
 
       const rect = range.getBoundingClientRect();
+      let top = rect.top - 46;
+      let left = rect.left + rect.width / 2;
       if (rect.width === 0 && rect.height === 0) {
-        setPos(null);
-        return;
+        const hostRect = host.getBoundingClientRect();
+        top = hostRect.top - 46;
+        left = hostRect.left + hostRect.width / 2;
       }
-      setPos({ top: rect.top - 46, left: rect.left + rect.width / 2 });
+      if (top < 8 && host) {
+        const hostRect = host.getBoundingClientRect();
+        top = hostRect.bottom + 8;
+      }
+      const margin = 120;
+      left = Math.max(margin, Math.min(window.innerWidth - margin, left));
+      setPos({ top: Math.max(8, top), left });
     };
     document.addEventListener('selectionchange', update);
     document.addEventListener('keyup', update);

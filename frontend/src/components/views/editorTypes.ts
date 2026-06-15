@@ -108,4 +108,6 @@ export interface BlockRenderContext {
   onActivateBlock?: (blockId: string, offset?: 'start' | 'end' | number) => void;
   /** Clears gutter/handle block selection when the user clicks into text. */
   onClearBlockSelection?: () => void;
+  /** Shift/Ctrl/Meta click for block range selection from static text. */
+  onModifierPointerDown?: (e: React.MouseEvent) => void;
 }

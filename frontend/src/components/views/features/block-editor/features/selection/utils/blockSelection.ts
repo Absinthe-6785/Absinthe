@@ -74,3 +74,21 @@ export function applyPointerSelection(
   }
   return { selected: selectSingle(targetId), anchorId: targetId };
 }
+
+/** Shift+Arrow — extend same-parent block selection to adjacent sibling. */
+export function extendSelectionByArrow(
+  blocks: Block[],
+  anchorId: string | null,
+  focusId: string,
+  direction: 'up' | 'down',
+): { selected: Set<string>; anchorId: string } | null {
+  const siblings = getSiblingOrderedIds(blocks, focusId);
+  if (!siblings) return null;
+  const idx = siblings.indexOf(focusId);
+  if (idx < 0) return null;
+  const nextIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (nextIdx < 0 || nextIdx >= siblings.length) return null;
+  const targetId = siblings[nextIdx]!;
+  const anchor = anchorId && siblings.includes(anchorId) ? anchorId : focusId;
+  return { selected: selectRange(anchor, targetId, siblings), anchorId: anchor };
+}

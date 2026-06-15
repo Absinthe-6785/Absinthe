@@ -3,6 +3,7 @@ import { makeBlock } from '../../../../../blockUtils';
 import {
   applyPointerSelection,
   clearSelection,
+  extendSelectionByArrow,
   haveSameParent,
   selectRange,
   selectSingle,
@@ -64,5 +65,12 @@ describe('blockSelection', () => {
     const r = applyPointerSelection(blocks, new Set(['a', 'b']), 'a', 'e', { shiftKey: false, additiveKey: false });
     expect([...r.selected]).toEqual(['e']);
     expect(r.anchorId).toBe('e');
+  });
+
+  it('extendSelectionByArrow selects adjacent siblings', () => {
+    const down = extendSelectionByArrow(blocks, 'a', 'a', 'down');
+    expect(down && [...down.selected]).toEqual(['a', 'b']);
+    const up = extendSelectionByArrow(blocks, 'e', 'e', 'up');
+    expect(up && [...up.selected]).toEqual(['t', 'e']);
   });
 });

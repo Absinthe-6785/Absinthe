@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Block } from '../../../../../blockUtils';
+import { updateGutterSelection } from '../../../../../blockGutterSelection';
 import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from '../utils/blockSelection';
 import type { SelectionCtxValue } from '../context/SelectionContext';
 
@@ -18,6 +19,7 @@ export interface UseEditorSelectionResult {
   selectBlock: (id: string) => void;
   handleBlockSelect: (id: string, e: React.MouseEvent) => void;
   clearSelection: () => void;
+  applyGutterRange: (anchorId: string, hoverId: string) => void;
   selectionCtx: SelectionCtxValue;
 }
 
@@ -55,10 +57,19 @@ export function useEditorSelection({
     onActiveBlockChange(id);
   }, [readOnly, getRootBlocks, anchorBlockId, onActiveBlockChange]);
 
+  const applyGutterRange = useCallback((anchor: string, hoverId: string) => {
+    const selected = updateGutterSelection(getRootBlocks(), anchor, hoverId);
+    setSelectedBlockIds(selected);
+    setAnchorBlockId(anchor);
+    onActiveBlockChange(hoverId);
+  }, [getRootBlocks, onActiveBlockChange]);
+
   const selectionCtx = useMemo<SelectionCtxValue>(() => ({
     selectedBlockIds,
+    anchorBlockId,
     onBlockSelect: handleBlockSelect,
-  }), [selectedBlockIds, handleBlockSelect]);
+    applyGutterRange,
+  }), [selectedBlockIds, anchorBlockId, handleBlockSelect, applyGutterRange]);
 
   return {
     selectedBlockIds,
@@ -69,6 +80,7 @@ export function useEditorSelection({
     selectBlock,
     handleBlockSelect,
     clearSelection,
+    applyGutterRange,
     selectionCtx,
   };
 }
