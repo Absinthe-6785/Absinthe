@@ -20,12 +20,12 @@ export function WeakTopicToggle({ colors: c, active, onChange, disabled }: WeakT
         className="btbtn"
         style={{
           fontSize: 10,
-          padding: '3px 6px',
-          height: 24,
+          padding: '2px 6px',
+          height: 22,
           lineHeight: 1.2,
-          borderRadius: 5,
-          border: `1px solid ${active ? c.danger : c.inputBdr}`,
-          background: active ? `${c.danger}22` : c.input,
+          borderRadius: 4,
+          border: 'none',
+          background: active ? `${c.danger}22` : 'transparent',
           color: active ? c.danger : c.textMuted,
           cursor: disabled ? 'default' : 'pointer',
           whiteSpace: 'nowrap',

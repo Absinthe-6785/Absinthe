@@ -28,11 +28,11 @@ export function LinksContextPanel({
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <KnowledgePanelSection colors={c} first title={t('k35LinksGroupStructure')} count={structureCount}>
-        {structure}
-      </KnowledgePanelSection>
-      <KnowledgePanelSection colors={c} title={t('k35LinksGroupConnections')} count={connectionsCount}>
+      <KnowledgePanelSection colors={c} first title={t('k35LinksGroupConnections')} count={connectionsCount}>
         {connections}
+      </KnowledgePanelSection>
+      <KnowledgePanelSection colors={c} title={t('k35LinksGroupStructure')} count={structureCount}>
+        {structure}
       </KnowledgePanelSection>
       <KnowledgePanelSection colors={c} title={t('k35LinksGroupSources')} count={sourcesCount}>
         {sources}

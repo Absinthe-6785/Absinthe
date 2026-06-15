@@ -685,7 +685,7 @@ export const HealthView = ({
     <>
     <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[42%] lg:max-w-[480px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -857,10 +857,11 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+        <>
           <div className={`flex justify-between items-center mb-3 border-b pb-3 ${theme.border}`}>
             <div>
               <h2 className="font-heading text-xl font-bold">{t('todayWorkout')}</h2>
@@ -1212,8 +1213,9 @@ export const HealthView = ({
               </button>
             </div>
           </div>
-        </div>
+        </>
         )}
+        </div>
 
         <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
           data-workspace-zone="supporting"

@@ -1,4 +1,5 @@
-import { useCallback, useRef, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useResizablePanelWidth } from '../../../../../hooks/useResizablePanelWidth';
@@ -24,6 +25,11 @@ export interface KnowledgeContextTabDef {
   hint?: string;
 }
 
+/** Primary tabs — high-frequency navigation (K-81). */
+const PRIMARY_TAB_KEYS: readonly KnowledgeContextTab[] = [
+  'toc', 'links', 'graph', 'insights', 'properties',
+];
+
 export interface KnowledgeContextPanelProps {
   colors: NoteChromeColors;
   compact?: boolean;
@@ -47,6 +53,12 @@ export function KnowledgeContextPanel({
   const { t } = useTranslation();
   const { width, onResizeDrag } = useResizablePanelWidth(compact, tablet);
   const asideRef = useRef<HTMLElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  const primaryTabs = tabs.filter(tab => PRIMARY_TAB_KEYS.includes(tab.key));
+  const moreTabs = tabs.filter(tab => !PRIMARY_TAB_KEYS.includes(tab.key));
+  const activeInMore = moreTabs.some(tab => tab.key === activeTab);
 
   const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -138,9 +150,10 @@ export function KnowledgeContextPanel({
           borderBottom: `1px solid ${c.sideBdr}`,
           flexShrink: 0,
           overflowX: 'auto',
+          position: 'relative',
         }}
       >
-        {tabs.map(({ key, label, icon, hint }) => {
+        {primaryTabs.map(({ key, label, icon, hint }) => {
           const selected = activeTab === key;
           return (
             <button
@@ -177,6 +190,81 @@ export function KnowledgeContextPanel({
             </button>
           );
         })}
+        {moreTabs.length > 0 ? (
+          <div ref={moreRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeInMore}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              title={t('k81ContextMoreTabs')}
+              onClick={() => setMoreOpen(v => !v)}
+              style={{
+                minHeight: compact ? 44 : undefined,
+                background: 'none',
+                border: 'none',
+                borderBottom: activeInMore ? `2px solid ${c.accent}` : '2px solid transparent',
+                padding: '8px 8px',
+                cursor: 'pointer',
+                color: activeInMore ? c.accent : c.textMuted,
+                fontSize: 9,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+              }}
+            >
+              <ChevronDown size={12}/>
+              <span>{t('k81ContextMore')}</span>
+            </button>
+            {moreOpen ? (
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  zIndex: 20,
+                  minWidth: 140,
+                  background: c.card,
+                  border: `1px solid ${c.sideBdr}`,
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,.15)',
+                  padding: 4,
+                }}
+              >
+                {moreTabs.map(({ key, label, icon, hint }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="menuitem"
+                    title={hint ?? label}
+                    onClick={() => { onTabChange(key); setMoreOpen(false); }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 8px',
+                      border: 'none',
+                      borderRadius: 6,
+                      background: activeTab === key ? c.accentBg : 'transparent',
+                      color: activeTab === key ? c.accent : c.text,
+                      fontSize: 10,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {icon}
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
