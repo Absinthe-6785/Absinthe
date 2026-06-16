@@ -17,8 +17,10 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
-import { buildVaultBackupManifest, downloadVaultBackup } from '../../lib/exportVaultBackup';
+import { buildVaultBackupManifestV3, downloadVaultBackup } from '../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
+import { fetchVaultCloudBlock } from '../../lib/vaultCloudExport';
+import { assertExportReady } from '../../lib/vaultExportValidate';
 import { useNotesStore } from '../../store/useNotesStore';
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
@@ -96,6 +98,17 @@ export const SettingsView = ({
     }
   };
 
+  const buildExportManifest = async () => {
+    const active = notes.filter(n => !n.deletedAt);
+    const cloud = cloudSyncEnabled ? await fetchVaultCloudBlock() : null;
+    const manifest = buildVaultBackupManifestV3(active, folders, cloud);
+    const validation = assertExportReady(manifest);
+    if (!validation.valid) {
+      throw new Error(validation.errors[0] ?? 'export_validation_failed');
+    }
+    return manifest;
+  };
+
   const doVaultBackupZip = async () => {
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) {
@@ -104,7 +117,7 @@ export const SettingsView = ({
     }
     setBackingUpZip(true);
     try {
-      await downloadVaultBackupZip(buildVaultBackupManifest(active, folders));
+      await downloadVaultBackupZip(await buildExportManifest());
       showToast(t('vaultBackupZipComplete'));
     } catch {
       showToast(t('vaultBackupFailed'), 'error');
@@ -113,14 +126,18 @@ export const SettingsView = ({
     }
   };
 
-  const doVaultBackupJson = () => {
+  const doVaultBackupJson = async () => {
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) {
       showToast(t('vaultBackupEmpty'), 'error');
       return;
     }
-    downloadVaultBackup(buildVaultBackupManifest(active, folders));
-    showToast(t('vaultBackupComplete'));
+    try {
+      downloadVaultBackup(await buildExportManifest());
+      showToast(t('vaultBackupComplete'));
+    } catch {
+      showToast(t('vaultBackupFailed'), 'error');
+    }
   };
 
   const doUndoRestore = () => {

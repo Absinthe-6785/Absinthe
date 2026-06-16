@@ -1,13 +1,28 @@
 import type { NoteBase } from '@/components/views/noteUtils';
 import { serializeNoteMarkdown } from '@/components/views/features/knowledge';
 import type { NoteFolder } from '@/store/useNotesStore';
+import type { VaultBackupCloudBlock } from './vaultCloudExport';
 import {
   ABSINTHE_APP_VERSION,
   VAULT_BACKUP_SCHEMA_VERSION,
   VAULT_BACKUP_FORMATS_DOC,
+  VAULT_EXPORT_KIND,
+  VAULT_SCOPE_DOC,
 } from './vaultBackupConstants';
+import type { VaultPortableExtensions } from './vaultPortableExtensions';
+import {
+  PORTABLE_VAULT_EXCLUDED,
+  PORTABLE_VAULT_INCLUDED,
+  collectPortableVaultExtensions,
+} from './vaultPortableExtensions';
+import { fingerprintJson } from './vaultSnapshotFingerprint';
 
-export { ABSINTHE_APP_VERSION, VAULT_BACKUP_SCHEMA_VERSION, VAULT_BACKUP_FORMATS_DOC };
+export {
+  ABSINTHE_APP_VERSION,
+  VAULT_BACKUP_SCHEMA_VERSION,
+  VAULT_BACKUP_FORMATS_DOC,
+  VAULT_EXPORT_KIND,
+};
 
 export interface VaultBackupNoteEntry {
   id: string;
@@ -21,8 +36,16 @@ export interface VaultBackupNoteEntry {
   relations: NoteBase['relations'];
 }
 
+export interface VaultBackupScope {
+  included: readonly string[];
+  excluded: readonly string[];
+  cloudGaps: string[];
+  manifestDoc: string;
+}
+
 export interface VaultBackupManifest {
   schemaVersion: number;
+  kind?: typeof VAULT_EXPORT_KIND;
   exportedAt: string;
   app: 'absinthe';
   appVersion: string;
@@ -31,6 +54,10 @@ export interface VaultBackupManifest {
   relationCount: number;
   folders: NoteFolder[];
   notes: VaultBackupNoteEntry[];
+  extensions?: VaultPortableExtensions;
+  scope?: VaultBackupScope;
+  contentFingerprint?: string;
+  cloud?: VaultBackupCloudBlock;
 }
 
 function countRelations(notes: readonly VaultBackupNoteEntry[]): number {
@@ -44,9 +71,35 @@ function countRelations(notes: readonly VaultBackupNoteEntry[]): number {
   return total;
 }
 
-export function buildVaultBackupManifest(
+function buildScope(cloud?: VaultBackupCloudBlock | null): VaultBackupScope {
+  const cloudGaps: string[] = [];
+  if (!cloud) {
+    cloudGaps.push('cloud:block-not-included');
+  } else if (cloud.completeness === 'skipped') {
+    cloudGaps.push('cloud:skipped-not-authenticated');
+  } else if (cloud.completeness === 'partial') {
+    cloudGaps.push(...cloud.errors.map(e => `cloud:partial:${e}`));
+  }
+  if (cloud && cloud.completeness !== 'skipped') {
+    cloudGaps.push('cloud:protein-intake-daily-logs-not-exported');
+  }
+  return {
+    included: [...PORTABLE_VAULT_INCLUDED],
+    excluded: [...PORTABLE_VAULT_EXCLUDED],
+    cloudGaps,
+    manifestDoc: VAULT_SCOPE_DOC.trim(),
+  };
+}
+
+export function isVaultBackupManifestV3(manifest: VaultBackupManifest): boolean {
+  return manifest.schemaVersion >= 3 || manifest.kind === VAULT_EXPORT_KIND;
+}
+
+export function buildVaultBackupManifestV3(
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
+  cloud?: VaultBackupCloudBlock | null,
+  extensions: VaultPortableExtensions = collectPortableVaultExtensions(),
 ): VaultBackupManifest {
   const active = notes.filter(n => !n.deletedAt);
   const entries: VaultBackupNoteEntry[] = active.map(n => ({
@@ -61,8 +114,17 @@ export function buildVaultBackupManifest(
     relations: n.relations ?? {},
   }));
 
-  return {
+  const scope = buildScope(cloud);
+  const fingerprintSource = {
+    notes: entries,
+    folders: [...folders],
+    extensions,
+    cloud: cloud ?? null,
+  };
+
+  const manifest: VaultBackupManifest = {
     schemaVersion: VAULT_BACKUP_SCHEMA_VERSION,
+    kind: VAULT_EXPORT_KIND,
     exportedAt: new Date().toISOString(),
     app: 'absinthe',
     appVersion: ABSINTHE_APP_VERSION,
@@ -71,7 +133,21 @@ export function buildVaultBackupManifest(
     relationCount: countRelations(entries),
     folders: [...folders],
     notes: entries,
+    extensions,
+    scope,
+    contentFingerprint: fingerprintJson(fingerprintSource),
   };
+
+  if (cloud) manifest.cloud = cloud;
+  return manifest;
+}
+
+/** Build v3 manifest with local extensions (no cloud fetch). */
+export function buildVaultBackupManifest(
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+): VaultBackupManifest {
+  return buildVaultBackupManifestV3(notes, folders, null);
 }
 
 export function downloadVaultBackup(manifest: VaultBackupManifest): void {
@@ -87,7 +163,21 @@ export function downloadVaultBackup(manifest: VaultBackupManifest): void {
   URL.revokeObjectURL(url);
 }
 
-/** Normalize manifest from older backups (schema v1). */
+function normalizeExtensions(raw: unknown): VaultPortableExtensions | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const ext = raw as Partial<VaultPortableExtensions>;
+  if (!ext.knowledge || !ext.health) return undefined;
+  return ext as VaultPortableExtensions;
+}
+
+function normalizeCloud(raw: unknown): VaultBackupCloudBlock | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const cloud = raw as Partial<VaultBackupCloudBlock>;
+  if (typeof cloud.schemaVersion !== 'number') return undefined;
+  return cloud as VaultBackupCloudBlock;
+}
+
+/** Normalize manifest from older backups (schema v1/v2) and v3. */
 export function normalizeVaultBackupManifest(
   raw: Partial<VaultBackupManifest>,
 ): VaultBackupManifest | null {
@@ -108,7 +198,7 @@ export function normalizeVaultBackupManifest(
     relations: (n.relations ?? {}) as NoteBase['relations'],
   }));
 
-  return {
+  const manifest: VaultBackupManifest = {
     schemaVersion: raw.schemaVersion,
     exportedAt: raw.exportedAt,
     app: 'absinthe',
@@ -123,4 +213,36 @@ export function normalizeVaultBackupManifest(
     })),
     notes,
   };
+
+  if (raw.kind === VAULT_EXPORT_KIND) manifest.kind = VAULT_EXPORT_KIND;
+  const extensions = normalizeExtensions(raw.extensions);
+  if (extensions) manifest.extensions = extensions;
+  if (raw.scope && typeof raw.scope === 'object') manifest.scope = raw.scope as VaultBackupScope;
+  if (typeof raw.contentFingerprint === 'string') manifest.contentFingerprint = raw.contentFingerprint;
+  const cloud = normalizeCloud(raw.cloud);
+  if (cloud) manifest.cloud = cloud;
+
+  return manifest;
+}
+
+/** Upgrade v2 manifest shape to v3 with empty extensions. */
+export function upgradeVaultBackupToV3(manifest: VaultBackupManifest): VaultBackupManifest {
+  if (isVaultBackupManifestV3(manifest) && manifest.extensions) return manifest;
+  return buildVaultBackupManifestV3(
+    manifest.notes.map(n => ({
+      id: n.id,
+      title: n.title,
+      body: n.markdown,
+      folderId: n.folderId,
+      starred: n.starred,
+      deletedAt: null,
+      createdAt: n.createdAt ?? n.updatedAt,
+      updatedAt: n.updatedAt,
+      properties: n.properties,
+      relations: n.relations,
+    })),
+    manifest.folders,
+    manifest.cloud ?? null,
+    manifest.extensions ?? collectPortableVaultExtensions(),
+  );
 }

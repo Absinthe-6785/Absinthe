@@ -1,12 +1,12 @@
 /**
- * K-88A — Canonical vault snapshot scope: collect local extensions, document cloud gaps.
+ * K-88A — Canonical vault snapshot scope: delegates to portable extension collector.
  */
-import { loadSavedViews } from '@/components/views/features/knowledge/views/savedViewsStorage';
-import { loadRuleCollections } from '@/components/views/features/knowledge/collections/ruleCollectionsStorage';
-import { loadDatabaseViews } from '@/components/views/features/knowledge/databaseViews/databaseViewsStorage';
-import { loadFocusPresets } from '@/components/views/features/knowledge/workspace/focusPresetsStorage';
-import { loadWorkspacePreferences } from '@/components/views/features/knowledge/workspace/workspacePreferencesStorage';
-import { loadKnowledgeHistoryPayload } from '@/components/views/features/knowledge/history/historyStorage';
+import {
+  collectPortableHealthLocal,
+  collectPortableVaultExtensions,
+  type VaultPortableExtensions,
+  type VaultPortableHealthLocal,
+} from './vaultPortableExtensions';
 import { LOCAL_STORAGE_KEYS, LOCAL_STORAGE_PREFIXES } from './storageInventory';
 
 export interface VaultSnapshotCloudScope {
@@ -17,80 +17,40 @@ export interface VaultSnapshotCloudScope {
   note: string;
 }
 
-export interface VaultSnapshotHealthLocal {
-  splitCount: number | null;
-  routinePlannedSets: Record<string, unknown> | null;
-  recoveryLog: Record<string, unknown> | null;
-  proteinRecentSources: string[] | null;
-  proteinSourceUseCounts: Record<string, number> | null;
-  drafts: Record<string, string>;
-  memos: Record<string, string>;
-}
+export type VaultSnapshotHealthLocal = VaultPortableHealthLocal;
 
-export interface VaultSnapshotExtensions {
-  appSettings: unknown | null;
-  savedViews: ReturnType<typeof loadSavedViews>;
-  ruleCollections: ReturnType<typeof loadRuleCollections>;
-  databaseViews: ReturnType<typeof loadDatabaseViews>;
-  focusPresets: ReturnType<typeof loadFocusPresets>;
-  workspacePreferences: ReturnType<typeof loadWorkspacePreferences>;
-  knowledgeHistory: ReturnType<typeof loadKnowledgeHistoryPayload>;
-  healthLocal: VaultSnapshotHealthLocal;
+export interface VaultSnapshotExtensions extends VaultPortableExtensions {
   cloudScope: VaultSnapshotCloudScope;
+  appSettings: VaultPortableExtensions['settings'];
+  savedViews: VaultPortableExtensions['knowledge']['savedViews'];
+  ruleCollections: VaultPortableExtensions['knowledge']['ruleCollections'];
+  databaseViews: VaultPortableExtensions['knowledge']['databaseViews'];
+  focusPresets: VaultPortableExtensions['knowledge']['focusPresets'];
+  workspacePreferences: VaultPortableExtensions['knowledge']['workspacePreferences'];
+  knowledgeHistory: VaultPortableExtensions['knowledge']['history'];
+  healthLocal: VaultPortableHealthLocal;
 }
 
-function readJsonKey(key: string): unknown | null {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function collectPrefixedKeys(prefix: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (typeof localStorage === 'undefined') return out;
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key?.startsWith(prefix)) continue;
-    const value = localStorage.getItem(key);
-    if (value != null) out[key.slice(prefix.length)] = value;
-  }
-  return out;
-}
-
-export function collectHealthLocalSnapshot(): VaultSnapshotHealthLocal {
-  const splitRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('healthSplitCount') : null;
-  return {
-    splitCount: splitRaw != null ? Number(splitRaw) : null,
-    routinePlannedSets: readJsonKey('healthRoutinePlannedSets') as Record<string, unknown> | null,
-    recoveryLog: readJsonKey('absinthe:recovery-log') as Record<string, unknown> | null,
-    proteinRecentSources: readJsonKey('proteinRecentSources') as string[] | null,
-    proteinSourceUseCounts: readJsonKey('proteinSourceUseCounts') as Record<string, number> | null,
-    drafts: collectPrefixedKeys(LOCAL_STORAGE_PREFIXES[0]),
-    memos: collectPrefixedKeys(LOCAL_STORAGE_PREFIXES[1]),
-  };
-}
+export const collectHealthLocalSnapshot = collectPortableHealthLocal;
 
 export function collectVaultSnapshotExtensions(): VaultSnapshotExtensions {
+  const portable = collectPortableVaultExtensions();
   return {
-    appSettings: readJsonKey('planner-storage'),
-    savedViews: loadSavedViews(),
-    ruleCollections: loadRuleCollections(),
-    databaseViews: loadDatabaseViews(),
-    focusPresets: loadFocusPresets(),
-    workspacePreferences: loadWorkspacePreferences(),
-    knowledgeHistory: loadKnowledgeHistoryPayload(),
-    healthLocal: collectHealthLocalSnapshot(),
+    ...portable,
+    appSettings: portable.settings,
+    savedViews: portable.knowledge.savedViews,
+    ruleCollections: portable.knowledge.ruleCollections,
+    databaseViews: portable.knowledge.databaseViews,
+    focusPresets: portable.knowledge.focusPresets,
+    workspacePreferences: portable.knowledge.workspacePreferences,
+    knowledgeHistory: portable.knowledge.history,
+    healthLocal: portable.health,
     cloudScope: {
       plannerSchedules: 'cloud-only',
       workoutHistory: 'cloud-only',
       recipes: 'cloud-only',
       inbodyLogs: 'cloud-only',
-      note: 'Cloud data is not embedded in local snapshots; re-hydrate after restore when authenticated.',
+      note: 'Cloud data is embedded in v3 portable export when authenticated; snapshots remain local-only.',
     },
   };
 }

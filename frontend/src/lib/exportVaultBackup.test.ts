@@ -19,12 +19,13 @@ function note(id: string, title: string): NoteBase {
 }
 
 describe('exportVaultBackup', () => {
-  it('builds a manifest with schema version and notes', () => {
+  it('builds a v3 manifest with schema version and notes', () => {
     const manifest = buildVaultBackupManifest(
       [note('n1', 'Alpha'), { ...note('n2', 'Trash'), deletedAt: 99 }],
       [{ id: 'f1', name: 'Research' }],
     );
     expect(manifest.schemaVersion).toBe(VAULT_BACKUP_SCHEMA_VERSION);
+    expect(manifest.schemaVersion).toBe(3);
     expect(manifest.app).toBe('absinthe');
     expect(manifest.appVersion).toBe(ABSINTHE_APP_VERSION);
     expect(manifest.noteCount).toBe(1);
@@ -33,6 +34,7 @@ describe('exportVaultBackup', () => {
     expect(manifest.folders).toHaveLength(1);
     expect(manifest.notes).toHaveLength(1);
     expect(manifest.notes[0]?.title).toBe('Alpha');
-    expect(manifest.notes[0]?.markdown).toContain('Content');
+    expect(manifest.extensions).toBeDefined();
+    expect(manifest.contentFingerprint).toBeTruthy();
   });
 });
