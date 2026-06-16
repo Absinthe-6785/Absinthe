@@ -141,7 +141,7 @@ Measured on audit fixture with staged inactivity (`now = 2026-06-16`, notes aged
 
 **Harness:** `discoveryCollectorBenchmark.ts` + `discoveryRediscoveryAudit.test.ts`  
 **Metrics:** `docs/k89-observed-metrics.json` (collector-level breakdown under `scales[].discovery`)  
-**Run:** `npm test -- discoveryRediscoveryAudit`
+**Run:** `npm run audit:discovery` (opt-in; skipped in CI and default `npm test`)
 
 ### Total discovery feed cost
 

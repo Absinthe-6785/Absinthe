@@ -1,6 +1,8 @@
 /**
- * K-89D — Knowledge rediscovery audit harness.
- * Run: npm test -- discoveryRediscoveryAudit
+ * K-89D — Knowledge rediscovery audit harness (opt-in benchmark).
+ * CI: skipped by default.
+ * Manual: npm run audit:discovery
+ * Direct: RUN_VAULT_AUDIT=1 npm test -- discoveryRediscoveryAudit
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { writeFileSync, readFileSync } from 'node:fs';
@@ -11,10 +13,11 @@ import {
   relatedNotesOverlapWithFeed,
   type DiscoveryScaleAuditRow,
 } from '@/dev/discoveryCollectorBenchmark';
-import { measureVaultAtScale } from '@/dev/largeVaultBenchmark';
+import { measureVaultAtScale, type LargeVaultMetricsRow } from '@/dev/largeVaultBenchmark';
 import { buildLargeVaultDataset } from '@/dev/realisticUsageFixture';
 import { KnowledgeIndexService } from '@/components/views/features/knowledge/KnowledgeIndexService';
 import { buildDiscoveryFeed } from '@/components/views/features/knowledge/discovery/discoveryEngine';
+import { shouldRunVaultAudit } from './vaultAuditGate';
 
 interface ObservedMetricsRow {
   notes: number;
@@ -41,10 +44,11 @@ interface ObservedMetricsRow {
 }
 
 const auditRows: DiscoveryScaleAuditRow[] = [];
+const vaultRows: LargeVaultMetricsRow[] = [];
 
 function buildMetricsPayload(): ObservedMetricsRow[] {
   return DISCOVERY_AUDIT_SCALES.map(scale => {
-    const vault = measureVaultAtScale(scale);
+    const vault = vaultRows.find(r => r.noteCount === scale);
     const discovery = auditRows.find(r => r.noteCount === scale);
     const collectorsMs: Record<string, number> = {};
     const collectorCandidates: Record<string, number> = {};
@@ -56,15 +60,15 @@ function buildMetricsPayload(): ObservedMetricsRow[] {
     }
     return {
       notes: scale,
-      vaultKb: Math.round(vault.estimatedBytes / 1024),
-      indexMs: Math.round(vault.indexBuildMs),
-      searchMs: Math.round(vault.workspaceSearchMs),
-      relatedMs: Math.round(vault.relatedNotesMs),
-      discoverMs: Math.round(vault.discoveryFeedMs),
-      cosmosMs: Math.round(vault.globalGraphMs),
-      healthMs: Math.round(vault.vaultHealthMs),
-      sidebarMs: Math.round(vault.sidebarSortMs),
-      plainFilterMs: Math.round(vault.plainTextFilterMs),
+      vaultKb: Math.round((vault?.estimatedBytes ?? 0) / 1024),
+      indexMs: Math.round(vault?.indexBuildMs ?? 0),
+      searchMs: Math.round(vault?.workspaceSearchMs ?? 0),
+      relatedMs: Math.round(vault?.relatedNotesMs ?? 0),
+      discoverMs: Math.round(vault?.discoveryFeedMs ?? 0),
+      cosmosMs: Math.round(vault?.globalGraphMs ?? 0),
+      healthMs: Math.round(vault?.vaultHealthMs ?? 0),
+      sidebarMs: Math.round(vault?.sidebarSortMs ?? 0),
+      plainFilterMs: Math.round(vault?.plainTextFilterMs ?? 0),
       discovery: discovery
         ? {
             totalFeedMs: Math.round(discovery.totalFeedMs),
@@ -82,13 +86,15 @@ function buildMetricsPayload(): ObservedMetricsRow[] {
   });
 }
 
-describe('K-89D discovery rediscovery audit', () => {
+describe.skipIf(!shouldRunVaultAudit())('K-89D discovery rediscovery audit', () => {
   beforeAll(() => {
     auditRows.length = 0;
+    vaultRows.length = 0;
     for (const scale of DISCOVERY_AUDIT_SCALES) {
       auditRows.push(measureDiscoveryAtScale(scale));
+      vaultRows.push(measureVaultAtScale(scale));
     }
-  }, 180_000);
+  }, 300_000);
 
   for (const scale of DISCOVERY_AUDIT_SCALES) {
     it(`profiles discovery collectors at ${scale} notes`, () => {
@@ -136,7 +142,7 @@ describe('K-89D discovery rediscovery audit', () => {
     expect(feed.items.length).toBeGreaterThan(0);
     // eslint-disable-next-line no-console
     console.log('K89D_RELATED_FEED_OVERLAP_1000', JSON.stringify(overlap));
-  });
+  }, 60_000);
 
   it('writes collector-level metrics to k89-observed-metrics.json', () => {
     const payload = buildMetricsPayload();
