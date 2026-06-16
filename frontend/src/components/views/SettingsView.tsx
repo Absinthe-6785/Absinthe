@@ -9,8 +9,8 @@
  * 변경: useConfirm() 한 줄로 대체. ConfirmModal 렌더 패턴도 단순화.
  */
 
-import { useState } from 'react';
-import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardDrive, Info } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -22,11 +22,25 @@ import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { useNotesStore } from '../../store/useNotesStore';
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
+import {
+  assessDataProtectionWarnings,
+  formatStorageMegabytes,
+  getVaultStorageMetrics,
+  type DataProtectionWarningCode,
+} from '../../lib/vaultStorageMetrics';
+import type { TranslationKey } from '../../lib/i18n';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
+const DATA_WARNING_KEYS: Record<DataProtectionWarningCode, TranslationKey> = {
+  no_snapshot: 'dataWarning_no_snapshot',
+  no_cloud_sync: 'dataWarning_no_cloud_sync',
+  large_vault_no_backup: 'dataWarning_large_vault_no_backup',
+  snapshot_quota_failed: 'dataWarning_snapshot_quota_failed',
+};
+
 export const SettingsView = ({
-  appSettings, updateSetting, showToast, theme, mutateDaily, mutateStatic, onSignOut,
+  appSettings, updateSetting, showToast, theme, mutateDaily, mutateStatic, onSignOut, user,
 }: ViewProps) => {
   // ✅ DRY: useConfirm으로 3줄 → 1줄
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -38,6 +52,21 @@ export const SettingsView = ({
   const vaultRestoreCanUndo = useNotesStore(s => s.vaultRestoreCanUndo);
   const vaultRestore = useVaultRestoreFlow(showToast, t);
   const [backingUpZip, setBackingUpZip] = useState(false);
+  const cloudSyncEnabled = Boolean(user?.id);
+  const storageMetrics = useMemo(() => getVaultStorageMetrics(), []);
+  const dataWarnings = useMemo(
+    () => assessDataProtectionWarnings(cloudSyncEnabled),
+    [cloudSyncEnabled],
+  );
+
+  const formatSnapshotTime = (iso: string | null) => {
+    if (!iso) return t('storageNoSnapshot');
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
 
   // ── CSV 내보내기 상태 ──────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
@@ -209,6 +238,63 @@ export const SettingsView = ({
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Data Storage */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
+            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
+              <HardDrive size={20} className="text-primary" />{t('dataStorageTitle')}
+            </h2>
+            <div className="space-y-4">
+              <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+                <div>
+                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('storageTypeLabel')}</p>
+                  <p className="text-sm font-bold">{t('storageTypeLocal')}</p>
+                </div>
+                <div>
+                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('vaultSizeLabel')}</p>
+                  <p className="text-sm font-bold">{formatStorageMegabytes(storageMetrics.vaultBytes)}</p>
+                </div>
+                <div>
+                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
+                  <p className="text-sm font-bold">{formatSnapshotTime(storageMetrics.lastSnapshotAt)}</p>
+                </div>
+                <div>
+                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
+                  <p className="text-sm font-bold">
+                    {cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('snapshotStorageLabel')}</p>
+                  <p className="text-sm font-bold">
+                    {t('snapshotCountSummary')
+                      .replace('{count}', String(storageMetrics.snapshotCount))
+                      .replace('{size}', formatStorageMegabytes(storageMetrics.snapshotBytes))}
+                  </p>
+                </div>
+              </div>
+              {dataWarnings.length > 0 ? (
+                <div className="space-y-2">
+                  {dataWarnings.map(w => (
+                    <div
+                      key={w.code}
+                      className={`flex items-start gap-2 text-sm font-medium rounded-xl px-4 py-3 border ${
+                        w.severity === 'caution'
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : `border-blue-500/20 bg-blue-500/5 ${theme.textMuted}`
+                      }`}
+                    >
+                      {w.severity === 'caution'
+                        ? <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                        : <Info size={16} className="shrink-0 mt-0.5" />}
+                      <span>{t(DATA_WARNING_KEYS[w.code])}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <p className={`text-xs font-medium ${theme.textMuted}`}>{t('dataStorageHint')}</p>
             </div>
           </div>
 
