@@ -20,6 +20,111 @@ export interface RealisticUsageDataset {
     relationCount: number;
     scheduleBlockCount: number;
     countdownCount: number;
+    categoryBreakdown?: Record<string, number>;
+    estimatedVaultBytes?: number;
+  };
+}
+
+export type LargeVaultCategory = 'eju' | 'toefl' | 'japanese' | 'workout' | 'reference';
+
+const LARGE_VAULT_CATEGORIES: LargeVaultCategory[] = [
+  'eju', 'toefl', 'japanese', 'workout', 'reference',
+];
+
+const CATEGORY_FOLDER: Record<LargeVaultCategory, string> = {
+  eju: 'folder-eju',
+  toefl: 'folder-toefl',
+  japanese: 'folder-japanese',
+  workout: 'folder-workout',
+  reference: 'folder-reference',
+};
+
+const CATEGORY_TITLES: Record<LargeVaultCategory, string[]> = {
+  eju: ['EJU Math Drill', 'EJU Physics Notes', 'EJU Reading Passage', 'EJU Kanji List', 'EJU Mock Exam'],
+  toefl: ['TOEFL Listening Practice', 'TOEFL Essay Template', 'TOEFL Vocabulary Deck', 'TOEFL Speaking Prompts'],
+  japanese: ['Japanese Grammar N2', 'Kanji Review', 'Reading Practice', 'JLPT Listening Log', 'Vocab Cluster'],
+  workout: ['Workout Log', 'Bench Press PR', 'Leg Day Notes', 'Recovery Checklist', 'Program Week 4'],
+  reference: ['API Reference', 'Book Summary', 'Meeting Notes', 'Research Link', 'Cheat Sheet'],
+};
+
+function estimateNotesBytes(notes: readonly NoteBase[]): number {
+  return new TextEncoder().encode(JSON.stringify(notes)).length;
+}
+
+function categoryForIndex(i: number): LargeVaultCategory {
+  return LARGE_VAULT_CATEGORIES[i % LARGE_VAULT_CATEGORIES.length]!;
+}
+
+function titleForCategory(category: LargeVaultCategory, i: number): string {
+  const pool = CATEGORY_TITLES[category];
+  const base = pool[i % pool.length]!;
+  return `${base} ${Math.floor(i / pool.length) + 1}`;
+}
+
+function bodyForCategory(category: LargeVaultCategory, i: number, linkTarget?: string): string {
+  const link = linkTarget ? `\n\nSee also [[${linkTarget}]].` : '';
+  switch (category) {
+    case 'eju':
+      return `# EJU Study ${i}\n\nProblem set and worked solutions for section ${i % 5}.\n\n- Key formula\n- Common trap${link}`;
+    case 'toefl':
+      return `# TOEFL Session ${i}\n\nListening transcript excerpt and vocabulary notes.\n\n**Score target:** 100+\n\nPractice paragraph ${i}.${link}`;
+    case 'japanese':
+      return `# 日本語ノート ${i}\n\nGrammar point and example sentences.\n\n- 例文\n- 復習メモ${link}`;
+    case 'workout':
+      return `# Workout ${i}\n\nSets, reps, RPE.\n\n| Exercise | Weight | Reps |\n| Squat | ${60 + (i % 20)}kg | 5 |${link}`;
+    default:
+      return `# Reference ${i}\n\nSummary and citations for topic ${i}.\n\n> Quick reference block${link}`;
+  }
+}
+
+/**
+ * K-89 — Representative large vault for performance and workflow validation.
+ * Distributes notes across EJU / TOEFL / Japanese / Workout / Reference with wiki links.
+ */
+export function buildLargeVaultDataset(options: { noteCount: number }): RealisticUsageDataset {
+  const noteCount = options.noteCount;
+  const notes: NoteBase[] = [];
+  let relationCount = 0;
+  const categoryBreakdown: Record<string, number> = {};
+
+  for (let i = 0; i < noteCount; i++) {
+    const category = categoryForIndex(i);
+    categoryBreakdown[category] = (categoryBreakdown[category] ?? 0) + 1;
+    const id = `lv-${category}-${i}`;
+    const title = titleForCategory(category, i);
+    let linkTarget: string | undefined;
+    if (i > 0 && i % 4 === 0) {
+      const prevCategory = categoryForIndex(i - 1);
+      linkTarget = titleForCategory(prevCategory, i - 1);
+      relationCount += 1;
+    }
+    const body = bodyForCategory(category, i, linkTarget);
+    notes.push(baseNote(id, title, {
+      body,
+      folderId: CATEGORY_FOLDER[category],
+      properties: {
+        tags: category === 'workout' ? 'workout' : category === 'japanese' || category === 'eju' ? 'study' : 'reference',
+        category,
+      },
+      updatedAt: Date.now() - i * 60_000,
+      lastOpenedAt: i % 10 === 0 ? Date.now() - i * 30_000 : undefined,
+    }));
+  }
+
+  return {
+    notes,
+    scheduleBlocks: [],
+    weeklySchedules: [],
+    stats: {
+      noteCount: notes.length,
+      eventCount: 0,
+      milestoneCount: 0,
+      relationCount,
+      scheduleBlockCount: 0,
+      countdownCount: 0,
+      categoryBreakdown,
+      estimatedVaultBytes: estimateNotesBytes(notes),
+    },
   };
 }
 
