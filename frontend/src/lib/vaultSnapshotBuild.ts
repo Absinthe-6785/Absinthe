@@ -12,7 +12,7 @@ import {
   collectVaultSnapshotExtensions,
   type VaultSnapshotExtensions,
 } from './vaultSnapshotScope';
-import { fingerprintJson } from './vaultSnapshotFingerprint';
+import { fingerprintPortableVaultContent } from './vaultSnapshotFingerprint';
 
 export interface VaultSnapshotScopeSummary {
   included: string[];
@@ -79,8 +79,11 @@ export function buildVaultSnapshot(
 ): VaultSnapshot {
   const vault = buildVaultBackupManifest(notes, folders);
   const extensions = collectVaultSnapshotExtensions();
-  const fingerprintSource = { vault, extensions };
-  const contentFingerprint = fingerprintJson(fingerprintSource);
+  const contentFingerprint = fingerprintPortableVaultContent({
+    notes: vault.notes,
+    folders: vault.folders,
+    extensions,
+  });
 
   return {
     snapshotSchemaVersion: VAULT_SNAPSHOT_SCHEMA_VERSION,

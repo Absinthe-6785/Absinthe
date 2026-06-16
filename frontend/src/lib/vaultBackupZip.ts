@@ -1,14 +1,17 @@
 import JSZip from 'jszip';
 import { normalizeVaultBackupManifest, type VaultBackupManifest } from './exportVaultBackup';
+import { buildCloudZipSidecars } from './vaultCloudCsv';
 
-const README = `Absinthe Vault Backup
-=====================
+const README_V3 = `Absinthe Vault Backup (v3)
+============================
 This archive contains:
-- manifest.json  — full vault metadata (folders, notes, relations)
+- manifest.json  — full portable vault (notes, folders, extensions, optional cloud)
 - notes/         — individual Markdown exports per note
+- cloud/         — human-readable CSV sidecars (when cloud data was exported)
 
-Restore via Settings → Import Vault Backup or Notes sidebar restore button.
-Supports .json and .zip backup files.
+Restore via Settings → Import Vault Backup.
+v2 and v3 manifests are supported on import (core notes + folders).
+Extension and cloud restore UI is planned in K-88C/K-88B-3.
 `;
 
 function safeFileName(title: string, id: string): string {
@@ -19,7 +22,7 @@ function safeFileName(title: string, id: string): string {
 export async function buildVaultBackupZip(manifest: VaultBackupManifest): Promise<Blob> {
   const zip = new JSZip();
   zip.file('manifest.json', JSON.stringify(manifest, null, 2));
-  zip.file('README.txt', README);
+  zip.file('README.txt', README_V3);
 
   const notesDir = zip.folder('notes');
   const nameCount: Record<string, number> = {};
@@ -32,6 +35,13 @@ export async function buildVaultBackupZip(manifest: VaultBackupManifest): Promis
       fileName = fileName.replace(/\.md$/, `_${count}.md`);
     }
     notesDir?.file(fileName, entry.markdown);
+  }
+
+  if (manifest.cloud && manifest.cloud.completeness !== 'skipped') {
+    const sidecars = buildCloudZipSidecars(manifest.cloud);
+    for (const [path, content] of Object.entries(sidecars)) {
+      zip.file(path, content);
+    }
   }
 
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });

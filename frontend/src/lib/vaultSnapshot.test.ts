@@ -88,6 +88,17 @@ describe('vaultSnapshot', () => {
     expect(enumerateVaultSnapshots(storage)).toHaveLength(1);
   });
 
+  it('uses stable fingerprint despite changing vault export timestamps', () => {
+    vi.useFakeTimers();
+    const notes = [note('n1')];
+    const first = buildVaultSnapshot(notes, [], 'last', 'last');
+    vi.advanceTimersByTime(5_000);
+    const second = buildVaultSnapshot(notes, [], 'last', 'last');
+    vi.useRealTimers();
+    expect(first.vault.exportedAt).not.toBe(second.vault.exportedAt);
+    expect(first.contentFingerprint).toBe(second.contentFingerprint);
+  });
+
   it('rotates daily snapshots and prunes beyond retention', () => {
     for (let day = 1; day <= 10; day++) {
       const date = new Date(`2026-06-${String(day).padStart(2, '0')}T12:00:00Z`);
