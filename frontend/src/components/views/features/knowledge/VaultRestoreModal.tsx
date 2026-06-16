@@ -7,12 +7,17 @@ import type {
   VaultRestorePreview,
   VaultRestoreSelection,
 } from '@/lib/importVaultBackup';
+import type { FullVaultRestorePreview, VaultRestoreImpact, VaultRestorePipelineOptions } from '@/lib/vaultRestorePipeline';
 
 export interface VaultRestoreModalProps {
   preview: VaultRestorePreview;
+  fullPreview?: FullVaultRestorePreview | null;
+  pipelineOptions?: VaultRestorePipelineOptions;
+  restoreSource?: 'export' | 'snapshot';
   strategy: VaultRestoreConflictStrategy;
   selection: VaultRestoreSelection;
   onStrategyChange: (strategy: VaultRestoreConflictStrategy) => void;
+  onPipelineOptionsChange?: (patch: Partial<VaultRestorePipelineOptions>) => void;
   onToggleNote: (noteId: string, selected: boolean) => void;
   onToggleFolder: (folderId: string, selected: boolean) => void;
   onSelectAll: () => void;
@@ -22,11 +27,51 @@ export interface VaultRestoreModalProps {
   importing?: boolean;
 }
 
+function ImpactSummary({ impact, t }: { impact: VaultRestoreImpact; t: (key: import('@/lib/i18n').TranslationKey) => string }) {
+  const lines: string[] = [];
+  if (impact.noteCount) lines.push(t('vaultRestoreImpactNotes').replace('{count}', String(impact.noteCount)));
+  if (impact.folderCount) lines.push(t('vaultRestoreImpactFolders').replace('{count}', String(impact.folderCount)));
+  if (impact.savedViewCount) lines.push(t('vaultRestoreImpactViews').replace('{count}', String(impact.savedViewCount)));
+  if (impact.ruleCollectionCount) lines.push(t('vaultRestoreImpactRules').replace('{count}', String(impact.ruleCollectionCount)));
+  if (impact.databaseViewCount) lines.push(t('vaultRestoreImpactDbViews').replace('{count}', String(impact.databaseViewCount)));
+  if (impact.focusPresetCount) lines.push(t('vaultRestoreImpactFocus').replace('{count}', String(impact.focusPresetCount)));
+  if (impact.hasKnowledgeHistory) lines.push(t('vaultRestoreImpactHistory'));
+  if (impact.healthDraftCount || impact.healthMemoCount) {
+    lines.push(t('vaultRestoreImpactHealth')
+      .replace('{drafts}', String(impact.healthDraftCount))
+      .replace('{memos}', String(impact.healthMemoCount)));
+  }
+  if (impact.cloudCompleteness && impact.cloudCompleteness !== 'skipped') {
+    const cloudParts: string[] = [];
+    if (impact.cloudScheduleCount) cloudParts.push(t('vaultRestoreImpactCloudSchedules').replace('{count}', String(impact.cloudScheduleCount)));
+    if (impact.cloudWorkoutCount) cloudParts.push(t('vaultRestoreImpactCloudWorkouts').replace('{count}', String(impact.cloudWorkoutCount)));
+    if (impact.cloudInbodyCount) cloudParts.push(t('vaultRestoreImpactCloudInbody').replace('{count}', String(impact.cloudInbodyCount)));
+    if (impact.cloudRecipeCount) cloudParts.push(t('vaultRestoreImpactCloudRecipes').replace('{count}', String(impact.cloudRecipeCount)));
+    if (cloudParts.length) lines.push(cloudParts.join(' · '));
+  }
+  if (impact.hasSettings) lines.push(t('vaultRestoreImpactSettings'));
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div>
+      <p className="text-xs font-bold text-muted mb-2">{t('vaultRestoreImpactTitle')}</p>
+      <ul className="text-xs text-muted space-y-1 list-disc pl-4">
+        {lines.map(line => <li key={line}>{line}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 export function VaultRestoreModal({
   preview,
+  fullPreview,
+  pipelineOptions,
+  restoreSource = 'export',
   strategy,
   selection,
   onStrategyChange,
+  onPipelineOptionsChange,
   onToggleNote,
   onToggleFolder,
   onSelectAll,
@@ -43,6 +88,16 @@ export function VaultRestoreModal({
     () => preview.noteOptions.filter(n => selection.noteIds.has(n.id)).length,
     [preview.noteOptions, selection.noteIds],
   );
+
+  const hasExtensions = Boolean(preview.manifest?.extensions);
+  const hasCloud = Boolean(
+    preview.manifest?.cloud && preview.manifest.cloud.completeness !== 'skipped',
+  );
+  const canConfirm = selectedNoteCount > 0
+    || (pipelineOptions?.restoreExtensions && hasExtensions)
+    || (pipelineOptions?.restoreCloud && hasCloud);
+
+  const titleKey = restoreSource === 'snapshot' ? 'vaultRestoreSnapshotTitle' : 'vaultRestoreTitle';
 
   if (!preview.valid || !preview.manifest) {
     const validation = preview.validation;
@@ -81,7 +136,7 @@ export function VaultRestoreModal({
         <div className="flex items-start justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2">
             <Archive size={20} className="text-primary shrink-0" />
-            <h2 id="vault-restore-title" className="text-base font-bold">{t('vaultRestoreTitle')}</h2>
+            <h2 id="vault-restore-title" className="text-base font-bold">{t(titleKey)}</h2>
           </div>
           <button type="button" onClick={onCancel} aria-label={t('cancel')} className="p-1 rounded-lg hover:bg-surface-alt">
             <X size={16} />
@@ -110,6 +165,10 @@ export function VaultRestoreModal({
               </div>
             </div>
           </div>
+
+          {fullPreview?.impact ? (
+            <ImpactSummary impact={fullPreview.impact} t={t} />
+          ) : null}
 
           <div className="text-xs text-muted flex flex-wrap gap-x-3 gap-y-1">
             {preview.exportedAt ? (
@@ -195,6 +254,43 @@ export function VaultRestoreModal({
               ))}
             </fieldset>
           ) : null}
+
+          {pipelineOptions && onPipelineOptionsChange ? (
+            <fieldset className="flex flex-col gap-2 border border-border rounded-xl p-3">
+              <legend className="text-xs font-bold text-muted mb-1 px-1">{t('vaultRestoreOptionsTitle')}</legend>
+              {hasExtensions ? (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pipelineOptions.restoreExtensions}
+                    onChange={e => onPipelineOptionsChange({ restoreExtensions: e.target.checked })}
+                    className="accent-primary"
+                  />
+                  <span>{t('vaultRestoreOptionExtensions')}</span>
+                </label>
+              ) : null}
+              {hasCloud ? (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pipelineOptions.restoreCloud}
+                    onChange={e => onPipelineOptionsChange({ restoreCloud: e.target.checked })}
+                    className="accent-primary"
+                  />
+                  <span>{t('vaultRestoreOptionCloud')}</span>
+                </label>
+              ) : null}
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pipelineOptions.backupBeforeRestore}
+                  onChange={e => onPipelineOptionsChange({ backupBeforeRestore: e.target.checked })}
+                  className="accent-primary"
+                />
+                <span>{t('vaultRestoreOptionBackup')}</span>
+              </label>
+            </fieldset>
+          ) : null}
         </div>
 
         <div className="flex gap-2 pt-1 shrink-0">
@@ -204,7 +300,7 @@ export function VaultRestoreModal({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={importing || selectedNoteCount === 0}
+            disabled={importing || !canConfirm}
             className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-50"
           >
             {importing ? t('vaultRestoreImporting') : t('vaultRestoreConfirm')}
