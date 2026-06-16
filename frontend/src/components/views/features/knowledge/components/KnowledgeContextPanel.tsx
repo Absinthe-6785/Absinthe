@@ -25,10 +25,12 @@ export interface KnowledgeContextTabDef {
   hint?: string;
 }
 
-/** Primary tabs — high-frequency navigation (K-81). */
-const PRIMARY_TAB_KEYS: readonly KnowledgeContextTab[] = [
-  'toc', 'links', 'graph', 'insights', 'properties',
+/** Primary tabs — high-frequency navigation (K-81, K-89B1: Discover promoted). */
+export const KNOWLEDGE_CONTEXT_PRIMARY_TABS: readonly KnowledgeContextTab[] = [
+  'toc', 'links', 'graph', 'discover', 'properties',
 ];
+
+const PRIMARY_TAB_KEYS = KNOWLEDGE_CONTEXT_PRIMARY_TABS;
 
 export interface KnowledgeContextPanelProps {
   colors: NoteChromeColors;
