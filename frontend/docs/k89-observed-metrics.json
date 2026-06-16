@@ -1,0 +1,50 @@
+[
+  {
+    "notes": 250,
+    "vaultKb": 72,
+    "indexMs": 200,
+    "searchMs": 6,
+    "relatedMs": 0,
+    "discoverMs": 41,
+    "cosmosMs": 1,
+    "healthMs": 1,
+    "sidebarMs": 0,
+    "plainFilterMs": 1
+  },
+  {
+    "notes": 500,
+    "vaultKb": 144,
+    "indexMs": 931,
+    "searchMs": 2,
+    "relatedMs": 0,
+    "discoverMs": 87,
+    "cosmosMs": 2,
+    "healthMs": 1,
+    "sidebarMs": 0,
+    "plainFilterMs": 1
+  },
+  {
+    "notes": 1000,
+    "vaultKb": 289,
+    "indexMs": 3574,
+    "searchMs": 7,
+    "relatedMs": 0,
+    "discoverMs": 246,
+    "cosmosMs": 2,
+    "healthMs": 2,
+    "sidebarMs": 0,
+    "plainFilterMs": 1
+  },
+  {
+    "notes": 3000,
+    "vaultKb": 873,
+    "indexMs": 22155,
+    "searchMs": 9,
+    "relatedMs": 0,
+    "discoverMs": 958,
+    "cosmosMs": 4,
+    "healthMs": 4,
+    "sidebarMs": 0,
+    "plainFilterMs": 3
+  }
+]
