@@ -54,3 +54,11 @@ export type VirtualScrollApiRef = MutableRefObject<{
   scrollToBlockId: (blockId: string) => boolean;
   getBlockScrollTop?: (blockId: string) => number | null;
 } | null>;
+
+export { VirtualBlockScrollHost, type VirtualBlockScrollHostProps } from './VirtualBlockScrollHost';
+export {
+  getVirtualScrollSnapshot,
+  resetVirtualScrollStore,
+  setVirtualScrollSnapshot,
+  type VirtualScrollSnapshot,
+} from './virtualScrollStore';

@@ -184,7 +184,9 @@ describe('drag reliability integration', () => {
     Object.defineProperty(scrollZone, 'scrollHeight', { value: 3000, configurable: true });
     scrollZone.scrollTop = 100;
 
-    const { startY } = startDrag('b0', flatIds);
+    const mountedDragId = document.querySelector('[data-drag-id]')?.getAttribute('data-drag-id');
+    expect(mountedDragId).toBeTruthy();
+    const { startY } = startDrag(mountedDragId!, flatIds);
     fireWindowPointer('pointermove', 295);
 
     expect(scrollZone.scrollTop).toBeGreaterThan(100);

@@ -23,7 +23,22 @@ export interface ToggleBlockProps {
   renderNested: ToggleNestedRenderer;
 }
 
-export function ToggleBlock({
+function toggleBlockPropsEqual(prev: ToggleBlockProps, next: ToggleBlockProps): boolean {
+  return prev.block === next.block
+    && prev.toggleOpen === next.toggleOpen
+    && prev.depth === next.depth
+    && prev.readOnly === next.readOnly
+    && prev.blockShellClass === next.blockShellClass
+    && prev.blockShellStyle === next.blockShellStyle
+    && prev.colors === next.colors
+    && prev.renderNested === next.renderNested
+    && prev.onSelect === next.onSelect
+    && prev.onGutterPointerDown === next.onGutterPointerDown
+    && prev.onChromeEnter === next.onChromeEnter
+    && prev.onChromeLeave === next.onChromeLeave;
+}
+
+export const ToggleBlock = React.memo(function ToggleBlock({
   block,
   colors: c,
   ctx,
@@ -78,4 +93,4 @@ export function ToggleBlock({
       {toggleOpen && renderToggleChildren(block, ctx, renderNested)}
     </div>
   );
-}
+}, toggleBlockPropsEqual);

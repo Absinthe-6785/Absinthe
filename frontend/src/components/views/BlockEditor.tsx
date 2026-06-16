@@ -76,6 +76,7 @@ import {
 import type { BlockEditorProps, BlockEditorInnerProps } from './features/block-editor/types/blockEditorTypes';
 import { buildHeadingIndexById } from './features/block-editor/utils/headingIndex';
 import { buildEditorCssVariables } from './features/block-editor/utils/editorThemeStyle';
+import { useRenderDiagnostic } from './noteview/renderDiagnostics';
 import { useEditorChrome } from './features/block-editor/hooks/useEditorChrome';
 import { useEditorDocumentFocus } from './features/block-editor/hooks/useEditorDocumentFocus';
 import { useEditorGutterDrag } from './features/block-editor/hooks/useEditorGutterDrag';
@@ -85,19 +86,15 @@ import { useEditorToggle } from './features/block-editor/hooks/useEditorToggle';
 import { useEditorBlockEditing } from './features/block-editor/hooks/useEditorBlockEditing';
 import { useEditorKeyboard } from './features/block-editor/hooks/useEditorKeyboard';
 import {
-  collectVirtualizationStats,
   DragOverlay,
-  estimateBlockHeight,
   getRowMetrics,
+  getVirtualScrollSnapshot,
   isVirtualBlocksPocEnabled,
   listVirtualBlockRows,
   PendingFocusQueue,
   resolveDropTargetFromRows,
-  setVirtualizationStatsSource,
   createVirtualNavigationApi,
-  useVirtualBlockList,
-  VIRTUAL_BLOCK_OVERSCAN,
-  VirtualBlockList,
+  VirtualBlockScrollHost,
   VirtualNavigationProvider,
   type RowMetricsOptions,
 } from './features/block-editor/performance';
@@ -105,6 +102,9 @@ import {
 export type { BlockEditorColors } from './editorTypes';
 export type { BlockEditorHandle } from './useBlockEditor';
 export { useBlockEditor } from './useBlockEditor';
+
+const EMPTY_SELECTION_IDS = new Set<string>();
+const noopBlockSelect = () => {};
 
 // ── 내부 재귀 렌더러 ─────────────────────────────────────────────────
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
@@ -118,6 +118,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   virtualScrollApiRef,
   virtualScrollParentRef,
 }: BlockEditorInnerProps) {
+  useRenderDiagnostic('BlockEditorInner');
+
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
 
@@ -278,24 +280,22 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     [virtualScrollElement, virtualScrollParentRef],
   );
 
-  const virtualList = useVirtualBlockList({
-    blocks,
-    enabled: virtualRootEnabled,
-    getScrollElement: getVirtualScrollElement,
-  });
+  const scrollToBlockIdViaStore = useCallback((blockId: string) => {
+    return getVirtualScrollSnapshot()?.scrollToBlockId(blockId) ?? false;
+  }, []);
 
   const rowMetricsOptionsRef = useRef<RowMetricsOptions>({
     getEditorRoot: () => editorRootRef.current,
     getRootBlockIds: () => blocksRef.current.map(b => b.id),
     getBlocks: () => blocksRef.current,
-    getVirtualizer: () => virtualList.virtualizer,
+    getVirtualizer: () => getVirtualScrollSnapshot()?.virtualizer ?? null,
     getScrollElement: getVirtualScrollElement,
   });
   rowMetricsOptionsRef.current = {
     getEditorRoot: () => editorRootRef.current,
     getRootBlockIds: () => blocksRef.current.map(b => b.id),
     getBlocks: () => blocksRef.current,
-    getVirtualizer: () => virtualList.virtualizer,
+    getVirtualizer: () => getVirtualScrollSnapshot()?.virtualizer ?? null,
     getScrollElement: getVirtualScrollElement,
   };
 
@@ -334,67 +334,22 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   const navigationApi = useMemo(
     () => createVirtualNavigationApi({
       virtualEnabled: virtualRootEnabled,
-      scrollToBlockId: virtualList.scrollToBlockId,
+      scrollToBlockId: scrollToBlockIdViaStore,
       queue: pendingFocusQueueRef.current!,
     }),
-    [virtualRootEnabled, virtualList.scrollToBlockId],
+    [virtualRootEnabled, scrollToBlockIdViaStore],
   );
 
   const requestFocus = useCallback((cmd: FocusCmd) => {
     navigationApi.requestFocus(cmd);
   }, [navigationApi]);
 
-  useEffect(() => {
-    if (depth !== 0) return;
-    setVirtualizationStatsSource(() => collectVirtualizationStats(
-      virtualRootEnabled,
-      blocksRef.current,
-      virtualList.virtualizer,
-      virtualList.heightCache,
-      VIRTUAL_BLOCK_OVERSCAN,
-    ));
-    return () => { setVirtualizationStatsSource(null); };
-  }, [
-    depth,
-    virtualRootEnabled,
-    virtualList.virtualizer,
-    virtualList.heightCache,
-    blocks.length,
-  ]);
-
   const getRootBlockRows = useCallback(() => {
     const scrollEl = getVirtualScrollElement();
-    if (!scrollEl) return [];
-    return listVirtualBlockRows(virtualList.virtualizer, blocksRef.current, scrollEl);
-  }, [getVirtualScrollElement, virtualList.virtualizer]);
-
-  const getBlockScrollTop = useCallback((blockId: string): number | null => {
-    const blocks = blocksRef.current;
-    const index = blocks.findIndex(b => b.id === blockId);
-    if (index < 0) return null;
-    const block = blocks[index];
-    const measurement = virtualList.virtualizer.measurementsCache[index];
-    const offsetInfo = virtualList.virtualizer.getOffsetForIndex(index, 'start');
-    const start = measurement?.start
-      ?? (Array.isArray(offsetInfo) ? offsetInfo[0] : undefined)
-      ?? index * estimateBlockHeight(block);
-    return start;
-  }, [virtualList.virtualizer]);
-
-  useEffect(() => {
-    if (!virtualScrollApiRef) return;
-    if (virtualRootEnabled) {
-      virtualScrollApiRef.current = {
-        scrollToBlockId: navigationApi.scrollToBlockId,
-        getBlockScrollTop,
-      };
-    } else {
-      virtualScrollApiRef.current = null;
-    }
-    return () => {
-      virtualScrollApiRef.current = null;
-    };
-  }, [virtualRootEnabled, navigationApi, getBlockScrollTop, virtualScrollApiRef]);
+    const snapshot = getVirtualScrollSnapshot();
+    if (!scrollEl || !snapshot) return [];
+    return listVirtualBlockRows(snapshot.virtualizer, blocksRef.current, scrollEl);
+  }, [getVirtualScrollElement]);
 
   const parentSelection = useContext(SelectionCtx);
 
@@ -647,9 +602,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       key={block.id}
       block={block}
       colors={c}
-      isSelected={isBlockVisuallySelected(block, activeSelection?.selectedBlockIds ?? new Set())}
+      isSelected={isBlockVisuallySelected(block, activeSelection?.selectedBlockIds ?? EMPTY_SELECTION_IDS)}
       activeBlockId={activeBlockId}
-      onBlockSelect={activeSelection?.onBlockSelect ?? (() => {})}
+      onBlockSelect={activeSelection?.onBlockSelect ?? noopBlockSelect}
       onAddBelow={handleAddBelow}
       readOnly={readOnly}
       searchQuery={searchQuery}
@@ -692,10 +647,20 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     />
   );
 
+  const renderEditorBlockRef = useRef(renderEditorBlock);
+  renderEditorBlockRef.current = renderEditorBlock;
+  const renderVirtualBlock = useCallback(
+    (block: typeof blocks[number]) => renderEditorBlockRef.current(block),
+    [],
+  );
+
   const blockList = virtualRootEnabled ? (
-    <VirtualBlockList blocks={blocks} virtualList={virtualList}>
-      {(block) => renderEditorBlock(block)}
-    </VirtualBlockList>
+    <VirtualBlockScrollHost
+      blocks={blocks}
+      getScrollElement={getVirtualScrollElement}
+      renderBlock={renderVirtualBlock}
+      virtualScrollApiRef={virtualScrollApiRef}
+    />
   ) : (
     blocks.map(block => renderEditorBlock(block))
   );
