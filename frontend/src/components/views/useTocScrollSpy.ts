@@ -29,7 +29,7 @@ export function useTocScrollSpy(
       });
     };
 
-    let raf = 0;
+    let lastIdx: number | null = null;
     const update = () => {
       if (pausedRef.current) return;
       const entries = buildEntries();
@@ -37,9 +37,13 @@ export function useTocScrollSpy(
         ? measureHeadingPositionsHybrid(root, entries, getBlockScrollTop)
         : measureHeadingPositionsHybrid(root, entries);
       if (!positions.length) return;
-      onActiveIdx(resolveActiveTocIndex(root.scrollTop, positions));
+      const next = resolveActiveTocIndex(root.scrollTop, positions);
+      if (next === lastIdx) return;
+      lastIdx = next;
+      onActiveIdx(next);
     };
 
+    let raf = 0;
     const onScroll = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(update);

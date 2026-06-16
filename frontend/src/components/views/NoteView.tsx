@@ -187,6 +187,8 @@ import {
   resolveTocOpenIndex,
 } from './tocKeyboardNavigation';
 import { useTocScrollSpy } from './useTocScrollSpy';
+import { resetTocScrollStore, setTocScrollActiveIdx, getTocScrollActiveIdx } from './noteview/tocScrollStore';
+import { useRenderDiagnostic } from './noteview/renderDiagnostics';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
@@ -216,6 +218,7 @@ interface NoteViewProps {
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
+  useRenderDiagnostic('NoteView');
   const { t, lang } = useTranslation();
   const vaultRestore = useVaultRestoreFlow(showToast, t);
 
@@ -268,7 +271,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     newFolderName, setNewFolderName,
     renamingFolderId, setRenamingFolderId,
     renameVal, setRenameVal,
-    activeTocIdx, setActiveTocIdx,
     tocKeyboardIdx, setTocKeyboardIdx,
     activeTag, setActiveTag,
     rightPanel, setRightPanel,
@@ -1096,7 +1098,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     [relationsTabActive, activeNote?.id, vaultStructureVersion],
   );
 
-  useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);
+  useEffect(() => { resetTocScrollStore(); }, [activeNoteId]);
 
   const getHeadingBlockScrollTop = useCallback(
     (blockId: string) => virtualScrollApiRef.current?.getBlockScrollTop?.(blockId) ?? null,
@@ -1114,12 +1116,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     toc,
     viewMode !== 'graph' && activeFolderId !== 'trash' && toc.length > 0,
     tocScrollSpyPausedRef,
-    setActiveTocIdx,
+    setTocScrollActiveIdx,
     getHeadingBlockScrollTop,
   );
 
   const scrollToHeading = useCallback((headingIdx: number) => {
-    setActiveTocIdx(headingIdx);
+    setTocScrollActiveIdx(headingIdx);
     tocScrollSpyPausedRef.current = true;
     const blocks = blockEditorRef.current?.getBlocks() ?? [];
     const scrollApi = virtualScrollApiRef.current;
@@ -1132,8 +1134,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     });
     window.setTimeout(() => { tocScrollSpyPausedRef.current = false; }, 800);
   }, [activeNoteId]);
-
-  const highlightedTocIdx = tocKeyboardIdx ?? activeTocIdx;
 
   useEffect(() => {
     setTocKeyboardIdx(null);
@@ -1150,7 +1150,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     if (visibleToc.length === 0) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-    const current = tocKeyboardIdx ?? activeTocIdx;
+    const current = tocKeyboardIdx ?? getTocScrollActiveIdx();
 
     if (e.key === 'j') {
       e.preventDefault();
@@ -1174,13 +1174,13 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
     if (e.key === 'Enter') {
       e.preventDefault();
-      const openIdx = resolveTocOpenIndex(visibleToc, tocKeyboardIdx, activeTocIdx);
+      const openIdx = resolveTocOpenIndex(visibleToc, tocKeyboardIdx, getTocScrollActiveIdx());
       if (openIdx !== null) {
         setTocKeyboardIdx(null);
         scrollToHeading(openIdx);
       }
     }
-  }, [visibleToc, tocKeyboardIdx, activeTocIdx, scrollToHeading, scrollTocRowIntoView]);
+  }, [visibleToc, tocKeyboardIdx, scrollToHeading, scrollTocRowIntoView]);
 
   // Reading mode click delegation — be-wikilink / be-tag data attributes
   const handleReadingModeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1337,7 +1337,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       setActiveFolderId, setSearchQuery, setActiveTag,
     },
     contextEditorContext: {
-      tocPanelRef, visibleToc, highlightedTocIdx, tocCollapsed, handleTocKeyDown, toggleTocCollapse, scrollToHeading,
+      tocPanelRef, visibleToc, tocKeyboardIdx, tocCollapsed, handleTocKeyDown, toggleTocCollapse, scrollToHeading,
     },
     contextDashboardContext: {
       knowledgeTimeline, timelineMode, setTimelineMode, historyEvents, cosmosEvolutionSummary, cosmosEvolutionStory,
@@ -1397,7 +1397,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     handleLinkReadingSource, handleUnlinkReadingSource, handleExpandGraphNode, handleCollapseGraphNode,
     handleCosmosConnect, handleCosmosAssignArea, handleCosmosCreateHub, handleCosmosCreateRelation,
     handleDiscoveryCreateRelation, handleUpdateProjectDescription, handleUpdateProjectStatus,
-    handleUpdateMilestoneStatus, handleUpdateMilestoneTargetDate, tocPanelRef, visibleToc, highlightedTocIdx,
+    handleUpdateMilestoneStatus, handleUpdateMilestoneTargetDate, tocPanelRef, visibleToc, tocKeyboardIdx,
     tocCollapsed, handleTocKeyDown, toggleTocCollapse, scrollToHeading, timelineMode, setTimelineMode, historyEvents,
     cosmosEvolutionSummary, cosmosEvolutionStory, discoveryProgress, knowledgeJourney, bootstrapImportSummary,
     timelineInitialArea, handleDismissBootstrapSummary, handleExportHistory,

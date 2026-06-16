@@ -8,7 +8,8 @@ import { extractLinks } from '../noteUtils';
 import { findNoteByTitle } from '../noteUtils';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import { KnowledgePanelEmpty } from '../features/knowledge/components/KnowledgePanelSection';
-import { OutlinePanel } from '../features/knowledge/components/OutlinePanel';
+import { NoteContextTocOutline } from './NoteContextTocOutline';
+import { useRenderDiagnostic } from './renderDiagnostics';
 import { LinksContextPanel, CosmosContextFooter } from '../features/knowledge/components/LinksContextPanel';
 import { DiscoveryPanel } from '../features/knowledge/components/DiscoveryPanel';
 import { TimelinePanel } from '../features/knowledge/components/TimelinePanel';
@@ -132,7 +133,7 @@ export interface NoteContextPanelHandlers {
 export interface NoteContextEditorContext {
   tocPanelRef: RefObject<HTMLDivElement | null>;
   visibleToc: (TocItem & { idx: number; hasChildren: boolean })[];
-  highlightedTocIdx: number | null;
+  tocKeyboardIdx: number | null;
   tocCollapsed: Record<number, boolean>;
   handleTocKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   toggleTocCollapse: (idx: number) => void;
@@ -174,6 +175,7 @@ export function NoteContextPanelBody({
   editorContext,
   dashboardContext,
 }: NoteContextPanelBodyProps) {
+  useRenderDiagnostic('NoteContextPanelBody');
   const { t } = useTranslation();
   const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const {
@@ -246,7 +248,7 @@ export function NoteContextPanelBody({
   const {
     tocPanelRef,
     visibleToc,
-    highlightedTocIdx,
+    tocKeyboardIdx,
     tocCollapsed,
     handleTocKeyDown,
     toggleTocCollapse,
@@ -281,12 +283,12 @@ export function NoteContextPanelBody({
       ) : (
         <>
           {rightPanel === 'toc' && (
-            <OutlinePanel
+            <NoteContextTocOutline
               colors={c}
               panelRef={tocPanelRef}
-              items={visibleToc}
-              highlightedIdx={highlightedTocIdx}
-              collapsed={tocCollapsed}
+              visibleToc={visibleToc}
+              tocKeyboardIdx={tocKeyboardIdx}
+              tocCollapsed={tocCollapsed}
               onKeyDown={handleTocKeyDown}
               onToggleCollapse={toggleTocCollapse}
               onNavigate={scrollToHeading}
