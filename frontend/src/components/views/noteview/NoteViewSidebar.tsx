@@ -36,6 +36,7 @@ import type { WorkspaceActivation } from '../features/knowledge/workspace/worksp
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { NoteSidebarVirtualList } from './NoteSidebarVirtualList';
+import { SIDEBAR_NOTE_SEARCH_ATTR } from '../searchFocusIsolation';
 import { useTranslation } from '../../../lib/i18n';
 import type { EditorMode } from '../editorMode';
 import type { WorkspaceDashboardViewProps } from '../features/knowledge/components/WorkspaceDashboardView';
@@ -69,6 +70,7 @@ export interface NoteViewSidebarData {
   isTrash: boolean;
   noteListFilter: 'all' | 'recent' | 'favorites';
   searchQuery: string;
+  sidebarSearchQuery: string;
   knowledgeQueryInfo: { active: boolean; label: string | null; error: string | null };
   workspaceActivation: WorkspaceActivation;
   isTraceLensMode: boolean;
@@ -150,6 +152,7 @@ export interface NoteViewSidebarHandlers {
   setActiveTag: React.Dispatch<React.SetStateAction<string | null>>;
   setNoteListFilter: React.Dispatch<React.SetStateAction<'all' | 'recent' | 'favorites'>>;
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  setSidebarSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   setShowShortcuts: React.Dispatch<React.SetStateAction<boolean>>;
   setWorkspaceSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openTraceDay: (key: string) => void;
@@ -266,7 +269,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
   const {
     c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
     sidebarTodayCount, sidebarMonthCount,
-    isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey,
+    isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey,
     isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId,
     isTraceDiscoveryMode, renamingFolderId, renameVal, showFolderForm, newFolderName, allTags,
@@ -284,7 +287,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
   } = data;
   const {
     searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag,
-    setNoteListFilter, setSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
+    setNoteListFilter, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
     openCreatedNote, openTraceArea, openTraceDiscovery, storeRenameFolder, setRenamingFolderId,
     setRenameVal, deleteFolder, setShowFolderForm, setNewFolderName, addFolder,
     setWorkspaceActivation, setTraceDate, setTraceRange, setTraceAreaId, setTraceAreaRange,
@@ -914,6 +917,27 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 );
               })}
             </div>
+            <input
+              type="search"
+              value={sidebarSearchQuery}
+              onChange={e => setSidebarSearchQuery(e.target.value)}
+              placeholder={t('nvSidebarSearchPlaceholder')}
+              title={t('nvSidebarSearchPlaceholder')}
+              className="bwsi"
+              style={{
+                width: '100%',
+                fontSize: 10,
+                padding: '4px 8px',
+                height: 26,
+                boxSizing: 'border-box',
+                background: c.input,
+                border: `1px solid ${c.sideBdr}`,
+                borderRadius: 6,
+                color: c.text,
+              }}
+              {...{ [SIDEBAR_NOTE_SEARCH_ATTR]: '' }}
+            />
+            <span style={{ fontSize: 9, color: c.textFaint }}>{t('nvSearchShortcutHint')}</span>
           </div>
         )}
         {isTraceDiscoveryMode ? (
@@ -1112,6 +1136,8 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
           setDragNoteId={setDragNoteId}
           duplicateNote={duplicateNote}
           createNote={createNote}
+          hasActiveSearch={!!sidebarSearchQuery.trim()}
+          onClearSearch={() => setSidebarSearchQuery('')}
         />
         )}
       </div>

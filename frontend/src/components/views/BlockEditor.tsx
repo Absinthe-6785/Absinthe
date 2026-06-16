@@ -32,6 +32,7 @@ import {
   WikiMenu,
 } from './features/block-editor/features/menus';
 import { collectEditorSearchMatches, shouldHighlightBlock, type EditorSearchScope } from './editorSearch';
+import { isEditorDocumentSearchFocused } from './searchFocusIsolation';
 import { type BlockTint } from './blockColors';
 import {
   canMoveIntoPreviousToggle, getPreviousSiblingToggleId, isInsideToggle,
@@ -458,8 +459,12 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const m = matches[searchMatchIndex % matches.length];
     selectBlock(m.blockId);
     handleActiveBlockChange(m.blockId);
-    requestFocus({ blockId: m.blockId, offset: m.offset });
-  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange, selectBlock, requestFocus]);
+    navigationApi.scrollToBlockId(m.blockId);
+    // Keep focus in find-in-note input while typing — only move caret on explicit match nav.
+    if (!isEditorDocumentSearchFocused()) {
+      requestFocus({ blockId: m.blockId, offset: m.offset });
+    }
+  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange, selectBlock, requestFocus, navigationApi]);
 
   const renderBlockMenu = (state: TurnIntoMenuState, onDone: () => void) => {
     const id = state.blockId;

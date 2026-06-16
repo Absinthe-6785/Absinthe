@@ -508,7 +508,7 @@ export function NoteContextPanelBody({
           )}
 
           {rightPanel === 'properties' && activeNote && (
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               {projectEditorData && (
                 <ProjectEditorPanel
                   colors={c}

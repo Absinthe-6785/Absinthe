@@ -682,6 +682,7 @@ const translations = {
   nvBackToPreviousNote:     { en: 'Back to previous note', ko: '이전 노트로', ja: '前のノートへ' },
   nvForwardNote:            { en: 'Forward to next note', ko: '다음 노트로', ja: '次のノートへ' },
   nvSearchNoResults:        { en: 'No notes match your search', ko: '검색 결과가 없습니다', ja: '検索結果がありません' },
+  nvSidebarSearchPlaceholder: { en: 'Filter notes…', ko: '노트 필터…', ja: 'ノートを絞り込み…' },
   nvSearchShortcutHint:     { en: 'Ctrl+K opens workspace search', ko: 'Ctrl+K로 작업공간 검색', ja: 'Ctrl+Kでワークスペース検索' },
   nvReturnToSchedule:       { en: 'Schedule', ko: '일정', ja: 'スケジュール' },
   nvReturnToHealth:         { en: 'Health', ko: '헬스', ja: 'ヘルス' },
