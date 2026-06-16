@@ -54,15 +54,59 @@ export function TimelineActivityFeed({
 
   const rows = useMemo(() => buildFeedRows(events, lang), [events, lang]);
 
+  const useInnerScroll = compact;
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: index => (rows[index]?.type === 'date' ? ROW_HEIGHT_DATE : ROW_HEIGHT_EVENT),
     overscan: 12,
+    enabled: useInnerScroll && rows.length > 30,
   });
 
   if (events.length === 0) {
     return <KnowledgePanelEmpty colors={c}>{t('k45ActivityEmpty')}</KnowledgePanelEmpty>;
+  }
+
+  if (!useInnerScroll) {
+    return (
+      <div style={{ padding: compact ? '0 6px 8px' : '0 8px 8px' }}>
+        {rows.map(row => {
+          if (row.type === 'date') {
+            return (
+              <div key={row.key} style={{ fontSize: 9, fontWeight: 700, color: c.textMuted, padding: '8px 4px 4px' }}>
+                {row.label}
+              </div>
+            );
+          }
+          const presented = presentHistoryEvent(row.event, notes);
+          const interactive = Boolean(onNavigateToNote);
+          return (
+            <button
+              key={row.key}
+              type="button"
+              disabled={!interactive}
+              onClick={() => onNavigateToNote?.(presented.noteId)}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                margin: '0 0 4px',
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: `1px solid ${c.sideBdr}`,
+                background: c.cardHov,
+                cursor: interactive ? 'pointer' : 'default',
+              }}
+            >
+              <div style={{ fontSize: 9, fontWeight: 600, color: c.textMuted, marginBottom: 2 }}>
+                {t(presented.actionKey)}
+              </div>
+              <div style={{ fontSize: 10, color: c.text }}>{presented.detail}</div>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -70,8 +114,9 @@ export function TimelineActivityFeed({
       ref={parentRef}
       style={{
         padding: compact ? '0 6px 8px' : '0 8px 8px',
-        maxHeight: compact ? 320 : 420,
+        maxHeight: compact ? 320 : undefined,
         overflowY: 'auto',
+        overscrollBehavior: 'contain',
       }}
     >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>

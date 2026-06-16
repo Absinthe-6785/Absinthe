@@ -26,6 +26,8 @@ export interface NoteSidebarVirtualListProps {
   setDragNoteId: (id: string | null) => void;
   duplicateNote: (note: Note) => void;
   createNote: () => void;
+  hasActiveSearch?: boolean;
+  onClearSearch?: () => void;
 }
 
 export function NoteSidebarVirtualList({
@@ -42,6 +44,8 @@ export function NoteSidebarVirtualList({
   setDragNoteId,
   duplicateNote,
   createNote,
+  hasActiveSearch = false,
+  onClearSearch,
 }: NoteSidebarVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = notes.length >= VIRTUALIZE_THRESHOLD;
@@ -94,8 +98,16 @@ export function NoteSidebarVirtualList({
   if (notes.length === 0) {
     return (
       <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-        <span>{isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}</span>
-        {!isTrash && (
+        <span role="status">
+          {isTrash ? t('nvTrashEmpty') : hasActiveSearch ? t('nvSearchNoResults') : t('nvNoNotes')}
+        </span>
+        {!isTrash && hasActiveSearch && onClearSearch && (
+          <button type="button" className="bwbg" onClick={onClearSearch}
+            style={{ minHeight: 44, padding: '8px 16px' }}>
+            {t('nvClearQuery')}
+          </button>
+        )}
+        {!isTrash && !hasActiveSearch && (
           <button type="button" className="bwbg" onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
             style={{ minHeight: 44, padding: '8px 16px' }}>
             {t('nvCreateFirstNote')}
@@ -107,7 +119,7 @@ export function NoteSidebarVirtualList({
 
   if (!useVirtual) {
     return (
-      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
         {notes.map(renderRow)}
       </div>
     );

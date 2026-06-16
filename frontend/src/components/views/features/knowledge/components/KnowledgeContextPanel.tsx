@@ -251,6 +251,9 @@ export function KnowledgeContextPanel({
                   right: 0,
                   zIndex: 20,
                   minWidth: 140,
+                  maxHeight: 'min(280px, 50vh)',
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
                   background: c.card,
                   border: `1px solid ${c.sideBdr}`,
                   borderRadius: 8,
@@ -290,7 +293,7 @@ export function KnowledgeContextPanel({
         ) : null}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', overscrollBehavior: 'contain' }}>
         {children}
       </div>
     </aside>

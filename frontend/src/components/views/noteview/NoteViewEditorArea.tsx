@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useEffect, type RefObject, type MutableRefObject } from 'react';
+import { forwardRef, useImperativeHandle, useEffect, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
 import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
@@ -11,6 +11,7 @@ import {
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
+import { shouldSuppressEditorKeyboardShortcuts, EDITOR_DOCUMENT_SEARCH_ATTR } from '../searchFocusIsolation';
 import {
   BlockEditor,
   useBlockEditor,
@@ -94,6 +95,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
   useEffect(() => {
     if (readOnly) return;
     const handler = (e: KeyboardEvent) => {
+      if (shouldSuppressEditorKeyboardShortcuts()) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
       if (k === 'z' && !e.shiftKey)              { e.preventDefault(); e.stopImmediatePropagation(); undo(); }
@@ -274,6 +276,25 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     if (canBackNote) goBackNote();
     else if (returnTab) goReturn();
     else setMobileShowEditor(false);
+  };
+
+  const handleDocumentSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (searchQuery.trim()) {
+        setSearchQuery('');
+        setSearchMatchIdx(0);
+      } else {
+        e.currentTarget.blur();
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) setSearchMatchIdx(i => Math.max(0, i - 1));
+      else setSearchMatchIdx(i => i + 1);
+    }
   };
 
   const handleCosmosSelect = (id: string) => {
@@ -615,6 +636,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                         setSearchQuery(e.target.value);
                         setSearchScope('document');
                       }}
+                      onKeyDown={handleDocumentSearchKeyDown}
                       placeholder={t('k81SearchInDocument')}
                       title={t('k81SearchInDocument')}
                       className="bwsi"
@@ -626,7 +648,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                         maxWidth: '28vw',
                         boxSizing: 'border-box',
                       }}
-                      data-editor-document-search
+                      {...{ [EDITOR_DOCUMENT_SEARCH_ATTR]: '' }}
                     />
                   )}
                   {searchQuery.trim() && (
@@ -741,7 +763,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               <div
                 className="editor-drop-zone"
                 ref={editorScrollRef}
-                style={{ flex: 1, overflow: 'auto', position: 'relative' }}
+                style={{ flex: 1, overflow: 'auto', position: 'relative', overscrollBehavior: 'contain' }}
                 onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
                 onPaste={e => {

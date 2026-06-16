@@ -190,6 +190,7 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
+import { filterNotesForSidebarList } from './noteview/sidebarNoteListFilter';
 import {
   resolveDashboardLoadScope,
   isLinksContextTabActive,
@@ -259,6 +260,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     titleInputRef,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,
+    sidebarSearchQuery, setSidebarSearchQuery,
     noteListFilter, setNoteListFilter,
     searchScope, setSearchScope,
     searchMatchIdx, setSearchMatchIdx,
@@ -648,25 +650,34 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   const visibleNotes = useMemo(() => {
     const safeNotes = useNotesStore.getState().notes;
+    const applySidebarSearch = (list: Note[]) =>
+      sidebarSearchQuery.trim()
+        ? filterNotesForSidebarList(list, sidebarSearchQuery, knowledgeIndexService, {
+            formulaColumns: formulaQueryCatalog,
+          })
+        : list;
+    const applyListSort = (list: Note[]) => {
+      if (shouldSkipUserSort || sidebarSearchQuery.trim()) return list;
+      return [...list].sort((a, b) => {
+        if (sortOrder === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
+        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
+        return b.updatedAt - a.updatedAt;
+      });
+    };
 
     if (noteListFilter === 'favorites') {
       let list = safeNotes.filter(n => n.starred && !n.deletedAt);
       list = applyWorkspaceToNotes(list);
-      if (!shouldSkipUserSort) {
-        list = [...list].sort((a, b) => {
-          if (sortOrder === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
-          if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
-          return b.updatedAt - a.updatedAt;
-        });
-      }
-      return list;
+      list = applySidebarSearch(list);
+      return applyListSort(list);
     }
 
     if (noteListFilter === 'recent') {
       let list = safeNotes.filter(n => !n.deletedAt && n.lastOpenedAt);
       list = applyWorkspaceToNotes(list);
-      list = [...list].sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
-      return list;
+      list = applySidebarSearch(list);
+      if (sidebarSearchQuery.trim()) return list;
+      return [...list].sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
     }
 
     let list: Note[] =
@@ -679,15 +690,9 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       list = list.filter(n => taggedIds.has(n.id));
     }
     list = applyWorkspaceToNotes(list);
-    if (!shouldSkipUserSort) {
-      list = [...list].sort((a, b) => {
-        if (sortOrder === 'title')   return (a.title ?? '').localeCompare(b.title ?? '');
-        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
-        return b.updatedAt - a.updatedAt;
-      });
-    }
-    return list;
-  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter]);
+    list = applySidebarSearch(list);
+    return applyListSort(list);
+  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter, sidebarSearchQuery, formulaQueryCatalog]);
 
   const contextPanelOpen = showRightPanel && viewMode !== 'graph';
   const dashboardLoadScope = useMemo(
@@ -1253,7 +1258,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     sidebarLayout: { hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen },
     sidebarData: {
       c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter,
-      searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
+      searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
       isTraceRangeMode, traceRange, currentTraceMonthKey, currentTraceQuarterKey, currentTraceYearKey, areaNotes,
       isTraceAreaMode, traceAreaId, isTraceDiscoveryMode, renamingFolderId, renameVal, showFolderForm, newFolderName,
       allTags, workspaceExpanded, isDashboardMode, smartCollectionCounts, pinnedWorkspaces, activeWorkspaceKind,
@@ -1267,7 +1272,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       knowledgeTimeline, activitySummary, dashboardRecentActivity, dashboardLatestMilestone, evolutionInsights,
     },
     sidebarHandlers: {
-      searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag, setNoteListFilter, setSearchQuery,
+      searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag, setNoteListFilter, setSearchQuery, setSidebarSearchQuery,
       setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange, openCreatedNote, openTraceArea,
       openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal, deleteFolder, setShowFolderForm,
       setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange, setTraceAreaId,
@@ -1342,7 +1347,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode,
     sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount,
-      trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
+      trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
     todayTraceKey, isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId, isTraceDiscoveryMode,
     renamingFolderId, renameVal, showFolderForm, newFolderName, allTags, workspaceExpanded, isDashboardMode,
@@ -1355,7 +1360,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     focusWorkspaceOptions, taskTemplates, journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard,
     subjectWorkspaces, learningPathOverview, knowledgeTimeline, activitySummary, dashboardRecentActivity,
     dashboardLatestMilestone, evolutionInsights, searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId,
-    setActiveTag, setSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
+    setActiveTag, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
     openCreatedNote, openTraceArea, openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal,
     deleteFolder, setShowFolderForm, setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange,
     setTraceAreaId, setTraceAreaRange, setTraceDiscoveryMode, setWorkspaceExpanded, handleActivateDashboardWithTraceClear,

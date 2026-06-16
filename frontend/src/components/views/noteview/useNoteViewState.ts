@@ -31,6 +31,7 @@ export function useNoteViewState() {
   const [viewMode, setViewMode] = useState<EditorMode>('edit');
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   const [noteListFilter, setNoteListFilter] = useState<NoteListFilter>('all');
   const [searchScope, setSearchScope] = useState<EditorSearchScope>('document');
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
@@ -96,6 +97,8 @@ export function useNoteViewState() {
     setViewMode,
     searchQuery,
     setSearchQuery,
+    sidebarSearchQuery,
+    setSidebarSearchQuery,
     noteListFilter,
     setNoteListFilter,
     searchScope,

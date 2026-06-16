@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import type { Block } from '../../../blockUtils';
 import { shouldDeleteSelectedBlocks } from '../../../blockKeyboard';
+import { shouldSuppressEditorKeyboardShortcuts } from '../../../searchFocusIsolation';
 import { extendSelectionByArrow, getDocumentOrderedIds } from '../features/selection';
 import { handleSelectAllKeydown } from '../features/selection/utils/documentSelectAll';
 import { blurActiveEditorFocus } from '../../../documentFocus';
@@ -69,6 +70,7 @@ export function useEditorKeyboard({
     if (readOnly || depth !== 0) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (handleSelectAllKeydown(e, documentRootRef?.current ?? null)) return;
+      if (shouldSuppressEditorKeyboardShortcuts()) return;
 
       if (e.key === 'Escape') {
         if (editorMenuOpen() || editorDragActive()) return;

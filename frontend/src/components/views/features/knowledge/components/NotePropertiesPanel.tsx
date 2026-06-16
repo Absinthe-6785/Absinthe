@@ -169,7 +169,7 @@ export function NotePropertiesPanel({
   };
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px 12px' }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '8px 10px 12px' }}>
       <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 }}>
         {t('propPageProperties')}
       </div>
