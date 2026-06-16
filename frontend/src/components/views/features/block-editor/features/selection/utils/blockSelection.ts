@@ -8,6 +8,7 @@
 import type { Block } from '../../../../../blockUtils';
 import { flattenBlockIds } from '../../../../../blockUtils';
 import { findParentId } from '../../../../../blockTree';
+import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 
 export function selectSingle(id: string): Set<string> {
   return new Set([id]);
@@ -34,6 +35,16 @@ export function haveSameParent(blocks: Block[], idA: string, idB: string): boole
 /** Document-order block ids (depth-first preorder). */
 export function getDocumentOrderedIds(blocks: Block[]): string[] {
   return flattenBlockIds(blocks);
+}
+
+/**
+ * Collapsed toggles hide children in the DOM — show the header as selected when any
+ * hidden descendant is in the logical selection (K-90).
+ */
+export function isBlockVisuallySelected(block: Block, selectedIds: Set<string>): boolean {
+  if (selectedIds.has(block.id)) return true;
+  if (!isToggleBlockType(block.type) || !block.collapsed || !block.children.length) return false;
+  return flattenBlockIds(block.children).some(id => selectedIds.has(id));
 }
 
 /** @deprecated Use getDocumentOrderedIds — kept for legacy callers/tests. */

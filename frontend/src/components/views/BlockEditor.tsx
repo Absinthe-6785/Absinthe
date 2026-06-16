@@ -23,6 +23,7 @@ import {
   blocksToMarkdown, markdownToBlocks,
 } from './blockUtils';
 import { indentBlock, outdentBlock } from './blockTree';
+import { indentSelectedBlocks, outdentSelectedBlocks } from './multiBlockOps';
 import { blockPlaceholder } from './blockPlaceholders';
 import {
   BlockContextMenu,
@@ -65,6 +66,7 @@ import {
   SelectionToolbar,
   useEditorSelection,
   type FocusCmd,
+  isBlockVisuallySelected,
 } from './features/block-editor/features/selection';
 import { DragCtx } from './features/block-editor/contexts/DragContext';
 import {
@@ -223,6 +225,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getRootBlocks,
     onActiveBlockChange: handleActiveBlockChange,
   });
+
+  const handleIndentSelected = useCallback(() => {
+    const next = indentSelectedBlocks(getRootBlocks(), selectedBlockIdsRef.current);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
+
+  const handleOutdentSelected = useCallback(() => {
+    const next = outdentSelectedBlocks(getRootBlocks(), selectedBlockIdsRef.current);
+    if (next) onRootChange(next);
+  }, [getRootBlocks, onRootChange]);
 
   const pendingFocusQueueRef = useRef<PendingFocusQueue | null>(null);
   if (!pendingFocusQueueRef.current) pendingFocusQueueRef.current = new PendingFocusQueue();
@@ -488,8 +500,16 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
           else handleDuplicate(id);
           onDone();
         }}
-        onIndent={() => { handleIndentBlock(id); onDone(); }}
-        onOutdent={() => { handleOutdentBlock(id); onDone(); }}
+        onIndent={() => {
+          if (multiCount) handleIndentSelected();
+          else handleIndentBlock(id);
+          onDone();
+        }}
+        onOutdent={() => {
+          if (multiCount) handleOutdentSelected();
+          else handleOutdentBlock(id);
+          onDone();
+        }}
         onMoveIntoToggle={() => { handleMoveIntoPrevToggle(id); onDone(); }}
         onMoveOutOfToggle={() => { handleMoveOutOfToggleBlock(id); onDone(); }}
         canMoveIntoToggle={canMoveIntoPreviousToggle(root, id)}
@@ -610,6 +630,8 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       handleActiveBlockChange(id);
       requestFocus({ blockId: id, offset: 'start' });
     },
+    onIndentSelected: handleIndentSelected,
+    onOutdentSelected: handleOutdentSelected,
     documentRootRef: editorRootRef,
   });
 
@@ -625,7 +647,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       key={block.id}
       block={block}
       colors={c}
-      isSelected={activeSelection?.selectedBlockIds.has(block.id) ?? false}
+      isSelected={isBlockVisuallySelected(block, activeSelection?.selectedBlockIds ?? new Set())}
       activeBlockId={activeBlockId}
       onBlockSelect={activeSelection?.onBlockSelect ?? (() => {})}
       onAddBelow={handleAddBelow}
