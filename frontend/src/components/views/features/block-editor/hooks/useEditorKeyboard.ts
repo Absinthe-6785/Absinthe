@@ -1,7 +1,11 @@
 import { useEffect, type RefObject } from 'react';
 import type { Block } from '../../../blockUtils';
 import { shouldDeleteSelectedBlocks } from '../../../blockKeyboard';
-import { shouldSuppressEditorKeyboardShortcuts } from '../../../searchFocusIsolation';
+import {
+  isEditorDocumentSearchFocused,
+  isSidebarNoteSearchFocused,
+  shouldSuppressEditorKeyboardShortcuts,
+} from '../../../searchFocusIsolation';
 import { extendSelectionByArrow, getDocumentOrderedIds } from '../features/selection';
 import { handleSelectAllKeydown } from '../features/selection/utils/documentSelectAll';
 import { blurActiveEditorFocus } from '../../../documentFocus';
@@ -49,6 +53,8 @@ export interface UseEditorKeyboardOptions {
   onExtendSelection?: (selected: Set<string>, anchorId: string) => void;
   onSelectBlock?: (id: string) => void;
   onEnterEditBlock?: (id: string) => void;
+  onIndentSelected?: () => void;
+  onOutdentSelected?: () => void;
   documentRootRef?: RefObject<HTMLElement | null>;
 }
 
@@ -64,19 +70,29 @@ export function useEditorKeyboard({
   onExtendSelection,
   onSelectBlock,
   onEnterEditBlock,
+  onIndentSelected,
+  onOutdentSelected,
   documentRootRef,
 }: UseEditorKeyboardOptions): void {
   useEffect(() => {
     if (readOnly || depth !== 0) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (handleSelectAllKeydown(e, documentRootRef?.current ?? null)) return;
-      if (shouldSuppressEditorKeyboardShortcuts()) return;
 
       if (e.key === 'Escape') {
         if (editorMenuOpen() || editorDragActive()) return;
+        if (isEditorDocumentSearchFocused() || isSidebarNoteSearchFocused()) return;
         const target = e.target as HTMLElement | null;
+        const inEditorRoot = elementClosest(target, '.be-editor-root');
+        if (
+          target
+          && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')
+          && !inEditorRoot
+        ) {
+          return;
+        }
         const editing = elementClosest(target, '.be-editable[contenteditable="true"]')
-          ? elementClosest(target, '.be-editor-root')
+          ? inEditorRoot
           : null;
         if (editing && onSelectBlock) {
           const blockId = elementClosest(target, '[data-drag-id]')?.getAttribute('data-drag-id');
@@ -89,8 +105,23 @@ export function useEditorKeyboard({
           }
         }
         if (getSelectedIds().size > 0) {
+          e.preventDefault();
           onClearSelection();
         }
+        return;
+      }
+
+      if (shouldSuppressEditorKeyboardShortcuts()) return;
+
+      if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const selected = getSelectedIds();
+        if (selected.size === 0) return;
+        const target = e.target as HTMLElement | null;
+        const editingInBlock = elementClosest(target, '.be-editable[contenteditable="true"]');
+        if (selected.size === 1 && editingInBlock) return;
+        e.preventDefault();
+        if (e.shiftKey) onOutdentSelected?.();
+        else onIndentSelected?.();
         return;
       }
 
@@ -159,6 +190,8 @@ export function useEditorKeyboard({
     onExtendSelection,
     onSelectBlock,
     onEnterEditBlock,
+    onIndentSelected,
+    onOutdentSelected,
     documentRootRef,
   ]);
 }

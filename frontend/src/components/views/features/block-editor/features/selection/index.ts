@@ -19,6 +19,7 @@ export {
   getDocumentOrderedIds,
   getSiblingOrderedIds,
   haveSameParent,
+  isBlockVisuallySelected,
   selectRange,
   selectSingle,
   toggleInSelection,

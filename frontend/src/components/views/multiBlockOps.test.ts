@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { flattenBlockIds, makeBlock } from './blockUtils';
-import { deleteSelectedBlocks, duplicateSelectedBlocks, resolveFocusAfterBlockDelete } from './multiBlockOps';
+import {
+  deleteSelectedBlocks,
+  duplicateSelectedBlocks,
+  indentSelectedBlocks,
+  outdentSelectedBlocks,
+  resolveFocusAfterBlockDelete,
+} from './multiBlockOps';
 
 describe('multiBlockOps', () => {
   const blocks = [
@@ -56,5 +62,36 @@ describe('multiBlockOps', () => {
     const focus = resolveFocusAfterBlockDelete(blocks, ['a', 'b', 'c'], next);
     expect(focus?.blockId).toBe(next[0].id);
     expect(focus?.offset).toBe('start');
+  });
+
+  it('indentSelectedBlocks indents multiple siblings in document order', () => {
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock('paragraph', { id: 'b', content: 'B' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const root = [a, b, c];
+    const next = indentSelectedBlocks(root, ['b', 'c']);
+    expect(next).not.toBeNull();
+    expect(next).toHaveLength(1);
+    expect(next![0].type).toBe('toggle');
+    expect(next![0].children.map(x => x.id)).toEqual(['b', 'c']);
+  });
+
+  it('indentSelectedBlocks collapses toggle+child to header only', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'toggle', children: [child] });
+    const para = makeBlock('paragraph', { id: 'p', content: 'p' });
+    const root = [toggle, para];
+    const next = indentSelectedBlocks(root, ['t', 'c', 'p']);
+    expect(next).not.toBeNull();
+    expect(flattenBlockIds(next!).filter(id => id === 'p').length).toBe(1);
+  });
+
+  it('outdentSelectedBlocks outdents nested toggles in reverse order', () => {
+    const inner = makeBlock('paragraph', { id: 'inner', content: 'inner' });
+    const mid = makeBlock('toggle', { id: 'mid', content: 'mid', children: [inner] });
+    const outer = makeBlock('toggle', { id: 'outer', content: 'outer', children: [mid] });
+    const next = outdentSelectedBlocks([outer], ['inner', 'mid']);
+    expect(next).not.toBeNull();
+    expect(flattenBlockIds(next!)).toEqual(['outer', 'mid', 'inner']);
   });
 });

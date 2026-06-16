@@ -12,7 +12,8 @@ import {
   type Block,
 } from './blockUtils';
 import { isToggleBlockType } from './toggleBlockTypes';
-import { normalizedOpIds } from './dragSelection';
+import { minimalDragIds, normalizedOpIds } from './dragSelection';
+import { indentBlock, outdentBlock } from './blockTree';
 
 export type BlockFocusOffset = 'start' | 'end' | number;
 
@@ -62,6 +63,38 @@ export function deleteSelectedBlocks(blocks: Block[], ids: Iterable<string>): Bl
     next = deleteBlockById(next, toDelete[i]);
   }
   return next.length > 0 ? next : [makeBlock('paragraph')];
+}
+
+/** Tab on multiple blocks — indent each in document order (K-90). */
+export function indentSelectedBlocks(blocks: Block[], ids: Iterable<string>): Block[] | null {
+  const toIndent = minimalDragIds(blocks, [...ids]);
+  if (!toIndent.length) return null;
+  let tree = blocks;
+  let changed = false;
+  for (const id of toIndent) {
+    const next = indentBlock(tree, id);
+    if (next) {
+      tree = next;
+      changed = true;
+    }
+  }
+  return changed ? tree : null;
+}
+
+/** Shift+Tab on multiple blocks — outdent in reverse document order (K-90). */
+export function outdentSelectedBlocks(blocks: Block[], ids: Iterable<string>): Block[] | null {
+  const toOutdent = minimalDragIds(blocks, [...ids]);
+  if (!toOutdent.length) return null;
+  let tree = blocks;
+  let changed = false;
+  for (const id of [...toOutdent].reverse()) {
+    const next = outdentBlock(tree, id);
+    if (next) {
+      tree = next;
+      changed = true;
+    }
+  }
+  return changed ? tree : null;
 }
 
 export function duplicateSelectedBlocks(blocks: Block[], ids: Iterable<string>): Block[] {

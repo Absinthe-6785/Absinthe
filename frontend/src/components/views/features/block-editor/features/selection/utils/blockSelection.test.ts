@@ -9,6 +9,7 @@ import {
   selectRange,
   selectSingle,
   toggleInSelection,
+  isBlockVisuallySelected,
 } from './blockSelection';
 
 describe('blockSelection', () => {
@@ -117,5 +118,22 @@ describe('blockSelection large document', () => {
       additiveKey: false,
     });
     expect(r.selected.size).toBe(ordered.length);
+  });
+});
+
+describe('isBlockVisuallySelected', () => {
+  it('marks collapsed toggle header when a hidden child is selected', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'toggle', collapsed: true, children: [child] });
+    const selected = new Set(['c']);
+    expect(isBlockVisuallySelected(toggle, selected)).toBe(true);
+    expect(isBlockVisuallySelected(child, selected)).toBe(true);
+  });
+
+  it('does not mark expanded toggle header when only child is selected', () => {
+    const child = makeBlock('paragraph', { id: 'c', content: 'child' });
+    const toggle = makeBlock('toggle', { id: 't', content: 'toggle', collapsed: false, children: [child] });
+    const selected = new Set(['c']);
+    expect(isBlockVisuallySelected(toggle, selected)).toBe(false);
   });
 });
