@@ -13,7 +13,7 @@ import {
   toRestoreReadyManifest,
   type VaultSnapshot,
 } from './vaultSnapshotBuild';
-import { fingerprintJson } from './vaultSnapshotFingerprint';
+import { fingerprintPortableVaultContent } from './vaultSnapshotFingerprint';
 
 export interface VaultSnapshotValidationReport {
   valid: boolean;
@@ -44,8 +44,9 @@ export function validateVaultSnapshot(
   if (!snapshot.extensions) errors.push('missing_extensions');
   if (!snapshot.createdAt) errors.push('missing_created_at');
 
-  const expectedFingerprint = fingerprintJson({
-    vault: snapshot.vault,
+  const expectedFingerprint = fingerprintPortableVaultContent({
+    notes: snapshot.vault.notes,
+    folders: snapshot.vault.folders,
     extensions: snapshot.extensions,
   });
   const fingerprintMatch = snapshot.contentFingerprint === expectedFingerprint;

@@ -10,3 +10,19 @@ export function fingerprintString(input: string): string {
 export function fingerprintJson(value: unknown): string {
   return fingerprintString(JSON.stringify(value));
 }
+
+/**
+ * Stable vault content identity for snapshot dedupe and validation.
+ * Excludes export envelope fields (exportedAt, contentFingerprint, kind, scope).
+ */
+export function fingerprintPortableVaultContent(parts: {
+  notes: unknown;
+  folders: unknown;
+  extensions: unknown;
+}): string {
+  return fingerprintJson({
+    notes: parts.notes,
+    folders: parts.folders,
+    extensions: parts.extensions,
+  });
+}
