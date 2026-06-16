@@ -2,11 +2,11 @@
   {
     "notes": 250,
     "vaultKb": 72,
-    "indexMs": 200,
-    "searchMs": 6,
+    "indexMs": 10,
+    "searchMs": 2,
     "relatedMs": 0,
-    "discoverMs": 41,
-    "cosmosMs": 1,
+    "discoverMs": 33,
+    "cosmosMs": 0,
     "healthMs": 1,
     "sidebarMs": 0,
     "plainFilterMs": 1
@@ -14,11 +14,11 @@
   {
     "notes": 500,
     "vaultKb": 144,
-    "indexMs": 931,
+    "indexMs": 15,
     "searchMs": 2,
     "relatedMs": 0,
-    "discoverMs": 87,
-    "cosmosMs": 2,
+    "discoverMs": 60,
+    "cosmosMs": 1,
     "healthMs": 1,
     "sidebarMs": 0,
     "plainFilterMs": 1
@@ -26,25 +26,25 @@
   {
     "notes": 1000,
     "vaultKb": 289,
-    "indexMs": 3574,
-    "searchMs": 7,
+    "indexMs": 54,
+    "searchMs": 3,
     "relatedMs": 0,
-    "discoverMs": 246,
+    "discoverMs": 159,
     "cosmosMs": 2,
-    "healthMs": 2,
+    "healthMs": 1,
     "sidebarMs": 0,
     "plainFilterMs": 1
   },
   {
     "notes": 3000,
     "vaultKb": 873,
-    "indexMs": 22155,
-    "searchMs": 9,
+    "indexMs": 596,
+    "searchMs": 11,
     "relatedMs": 0,
-    "discoverMs": 958,
-    "cosmosMs": 4,
-    "healthMs": 4,
+    "discoverMs": 1288,
+    "cosmosMs": 5,
+    "healthMs": 5,
     "sidebarMs": 0,
-    "plainFilterMs": 3
+    "plainFilterMs": 4
   }
 ]

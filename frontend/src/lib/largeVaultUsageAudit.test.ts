@@ -17,6 +17,12 @@ import type { NoteBase } from '@/components/views/noteUtils';
 const REGRESSION_SCALES = [250, 500] as const;
 const PROBE_SCALES = [1000, 3000] as const;
 
+/** K-89C — cold index rebuild budgets at large vault scales */
+const K89C_INDEX_BUILD_BUDGETS: Record<number, number> = {
+  1000: 1000,
+  3000: 5000,
+};
+
 /** Regression guard — stable fast paths at daily-use vault sizes. Index build excluded (high variance, scale probe). */
 const REGRESSION_BUDGETS: Record<number, Partial<Record<keyof Omit<LargeVaultMetricsRow, 'noteCount' | 'estimatedBytes'>, number>>> = {
   250: {
@@ -79,11 +85,19 @@ describe('K-89 large vault usage audit', () => {
 
   describe('scale probes', () => {
     for (const scale of PROBE_SCALES) {
-      it(`probes vault operations at ${scale} notes (informational)`, () => {
+      it(`probes vault operations at ${scale} notes (K-89C index budget)`, () => {
         const row = allRows.find(r => r.noteCount === scale);
         expect(row).toBeDefined();
         expect(row!.indexBuildMs).toBeGreaterThan(0);
         expect(row!.globalGraphMs).toBeGreaterThan(0);
+
+        const indexBudget = K89C_INDEX_BUILD_BUDGETS[scale];
+        if (indexBudget != null) {
+          expect(
+            row!.indexBuildMs,
+            `indexBuildMs at ${scale} notes (${row!.indexBuildMs}ms) exceeds K-89C budget ${indexBudget}ms`,
+          ).toBeLessThan(indexBudget);
+        }
       });
     }
 
