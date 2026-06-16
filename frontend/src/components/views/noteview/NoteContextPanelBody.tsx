@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import { useMemo } from 'react';
+import { useNotesStore } from '../../../store/useNotesStore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note, TocItem } from '../noteUtils';
 import { displayNoteTitle } from '../noteDisplayTitle';
@@ -143,11 +144,11 @@ export interface NoteContextDashboardContext {
   timelineMode: TimelinePeriodMode;
   setTimelineMode: (mode: TimelinePeriodMode) => void;
   historyEvents: KnowledgeHistoryEvent[];
-  cosmosEvolutionSummary: CosmosEvolutionSummary;
-  cosmosEvolutionStory: ExpandedCosmosEvolutionStory;
+  cosmosEvolutionSummary: CosmosEvolutionSummary | null;
+  cosmosEvolutionStory: ExpandedCosmosEvolutionStory | null;
   discoveryProgress: DiscoveryProgressSummary;
-  knowledgeJourney: KnowledgeJourney;
-  evolutionInsights: EvolutionInsightsSummary;
+  knowledgeJourney: KnowledgeJourney | null;
+  evolutionInsights: EvolutionInsightsSummary | null;
   bootstrapImportSummary: BootstrapImportSummary | null;
   timelineInitialArea: string | null;
   handleDismissBootstrapSummary: () => void;
@@ -174,6 +175,7 @@ export function NoteContextPanelBody({
   dashboardContext,
 }: NoteContextPanelBodyProps) {
   const { t } = useTranslation();
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const {
     pageReferences,
     noteReferenceSummary,
@@ -205,8 +207,10 @@ export function NoteContextPanelBody({
   } = panelData;
 
   const vaultHealth = useMemo(
-    () => buildVaultHealthMetrics(notes, knowledgeIndexService),
-    [notes],
+    () => (rightPanel === 'stats'
+      ? buildVaultHealthMetrics(useNotesStore.getState().notes, knowledgeIndexService)
+      : undefined),
+    [rightPanel, vaultStructureVersion],
   );
   const {
     createNote,
@@ -479,7 +483,7 @@ export function NoteContextPanelBody({
             />
           )}
 
-          {rightPanel === 'timeline' && (
+          {rightPanel === 'timeline' && cosmosEvolutionSummary && cosmosEvolutionStory && knowledgeJourney && evolutionInsights && (
             <TimelinePanel
               colors={c}
               timeline={knowledgeTimeline}

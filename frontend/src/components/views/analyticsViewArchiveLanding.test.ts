@@ -46,9 +46,12 @@ vi.mock('../../lib/i18n', async (importOriginal) => {
   };
 });
 
-vi.mock('../../store/useNotesStore', () => ({
-  useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes: [] }),
-}));
+vi.mock('../../store/useNotesStore', () => {
+  const state = { notes: [] as NoteBase[], vaultStructureVersion: 0 };
+  const useNotesStore = (selector: (s: typeof state) => unknown) => selector(state);
+  useNotesStore.getState = () => state;
+  return { useNotesStore };
+});
 
 vi.mock('./features/archive/hooks/useArchiveDomainMarks', () => ({
   useArchiveDomainMarks: () => ({

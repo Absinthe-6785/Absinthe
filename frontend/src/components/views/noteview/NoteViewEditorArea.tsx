@@ -49,7 +49,7 @@ import { NoteContextStrip } from '../features/knowledge/components/NoteContextSt
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import type { AppSettings } from '../../../types';
 import { useTranslation } from '../../../lib/i18n';
-import { NoteGraphView } from '../NoteGraphView';
+import { NoteGraphViewLazy } from './NoteGraphViewLazy';
 import type { KnowledgeTimeline } from '../features/knowledge/timeline';
 import type { ReviewQueueEntry } from '../features/knowledge/review/reviewQueue';
 import type { FocusPreset } from '../features/knowledge/workspace/focusModeModels';
@@ -580,7 +580,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {/* Graph View (full area) */}
           {viewMode === 'graph' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
+              <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={activeNoteId} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
             </div>
           ) : (
             <>
@@ -808,7 +808,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         // Graph View without active note
         viewMode === 'graph' ? (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <NoteGraphView notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
+            <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution}/>
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>

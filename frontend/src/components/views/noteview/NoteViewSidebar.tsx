@@ -35,7 +35,7 @@ import type { SmartCollectionId } from '../features/knowledge/collections/smartC
 import type { WorkspaceActivation } from '../features/knowledge/workspace/workspaceModels';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import type { NoteChromeColors } from '../noteEditorTheme';
-import { TagChip } from '../features/knowledge/components/TagChip';
+import { NoteSidebarVirtualList } from './NoteSidebarVirtualList';
 import { useTranslation } from '../../../lib/i18n';
 import type { EditorMode } from '../editorMode';
 import type { WorkspaceDashboardViewProps } from '../features/knowledge/components/WorkspaceDashboardView';
@@ -1098,54 +1098,21 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             onViewChange={patchActiveDatabaseView}
           />
         ) : (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {visibleNotes.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-              <span>{isTrash ? t('nvTrashEmpty') : t('nvNoNotes')}</span>
-              {!isTrash && (
-                <button type="button" className="bwbg" onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
-                  style={{ minHeight: 44, padding: '8px 16px' }}>
-                  {t('nvCreateFirstNote')}
-                </button>
-              )}
-            </div>
-          ) : visibleNotes.map(n => {
-            const folder  = folders.find(f => f.id === n.folderId);
-            const tags    = listTags(n).slice(0, 2);
-            const rawPreview = n.body.replace(/(^|\s)#[\w\uAC00-\uD7A3]+/g, '').replace(/[#*`[\]=~>$-]/g, '').split('\n').find(l => l.trim()) || '';
-            const displayTitle = displayNoteTitle(n.title);
-            const hlTitle   = displayTitle;
-            const hlPreview = rawPreview;
-            return (
-              <div key={n.id}
-                className={`bni ${n.id === activeNoteId ? 'active' : ''} ${dragNoteId === n.id ? 'bnote-drag' : ''}`}
-                onClick={() => { openNoteById(n.id); if (isMobile) setMobileShowEditor(true); }}
-                draggable={!isTrash}
-                onDragStart={() => setDragNoteId(n.id)}
-                onDragEnd={() => setDragNoteId(null)}
-                title={t('nvDragHint')}
-                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateNote(n); } }}
-                tabIndex={0}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                  {n.starred && <Star size={9} color={c.accent} fill={c.accent} style={{ flexShrink: 0 }}/>}
-                  <span style={{ fontSize: 12, fontWeight: 600, color: n.id === activeNoteId ? c.accent : c.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    dangerouslySetInnerHTML={{ __html: hlTitle }}/>
-                </div>
-                <div style={{ fontSize: 10, color: c.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 3 }}
-                  dangerouslySetInnerHTML={{ __html: hlPreview }}/>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap', minWidth: 0 }}>
-                  {folder && <span style={{ fontSize: 9, background: c.badge, color: c.badgeTxt, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>{folder.name}</span>}
-                  {tags.map(tag => (
-                    <TagChip key={tag} colors={c} tag={tag} size="sm" />
-                  ))}
-                  <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto' }}>
-                    {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <NoteSidebarVirtualList
+          colors={c}
+          notes={visibleNotes}
+          folders={folders}
+          activeNoteId={activeNoteId}
+          isTrash={isTrash}
+          isMobile={isMobile}
+          dragNoteId={dragNoteId}
+          t={t}
+          openNoteById={openNoteById}
+          setMobileShowEditor={setMobileShowEditor}
+          setDragNoteId={setDragNoteId}
+          duplicateNote={duplicateNote}
+          createNote={createNote}
+        />
         )}
       </div>
     </>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
 import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
@@ -13,13 +13,15 @@ import { useStaticData } from '../hooks/useStatic';
 import { ThemeColor, ViewProps } from '../types';
 import { buildThemeClasses } from '../theme';
 import { Sidebar, TabId } from './common/Sidebar';
+import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
-import { PlannerView } from './views/PlannerView';
-import { HealthView } from './views/HealthView';
-import { AnalyticsView } from './views/AnalyticsView';
-import { SettingsView } from './views/SettingsView';
 import { NoteView } from './views/NoteView';
-import { RecipeView } from './views/RecipeView';
+
+const PlannerView = lazy(() => import('./views/PlannerView').then(m => ({ default: m.PlannerView })));
+const HealthView = lazy(() => import('./views/HealthView').then(m => ({ default: m.HealthView })));
+const AnalyticsView = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
+const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
+const RecipeView = lazy(() => import('./views/RecipeView').then(m => ({ default: m.RecipeView })));
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 import { useTranslation } from '../lib/i18n';
 
@@ -143,12 +145,14 @@ export function AppContent({ authUser }: { authUser: User }) {
       />
 
       <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
-        {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
-        {activeTab === 'health'    && <HealthView    {...globalProps} />}
-        {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
-        {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
+        <Suspense fallback={<ViewLoadingFallback />}>
+          {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
+          {activeTab === 'health'    && <HealthView    {...globalProps} />}
+          {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
+          {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
+          {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
+        </Suspense>
         {activeTab === 'note'      && <NoteView showToast={showToast} />}
-        {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
       </div>
 
       {toast && (

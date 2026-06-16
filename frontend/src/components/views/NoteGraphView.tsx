@@ -15,7 +15,6 @@ import { useTranslation } from '../../lib/i18n';
 import { logMemAudit } from '../../lib/memAudit';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
-import { loadKnowledgeHistoryEvents } from './features/knowledge/history';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { getNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import { useNotesStore } from '../../store/useNotesStore';
@@ -198,19 +197,21 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   }, []);
 
   const safeNotes = Array.isArray(notes) ? notes : [];
-  const visible = useMemo(() => safeNotes.filter(n => !n.deletedAt), [safeNotes]);
-  // updatedAt 포함 — body/제목 변경 시에도 그래프 재계산
-  const visibleKey = visible.map(n => `${n.id}:${n.updatedAt}`).join(',');
+  const indexContentVersion = useNotesStore(s => s.indexContentVersion);
+  const galaxyCacheKey = String(vaultStructureVersion);
+
+  const visible = useMemo(() => safeNotes.filter(n => !n.deletedAt), [vaultStructureVersion, safeNotes.length]);
 
   // 폴더 ID 목록 (색상 인덱스용 — 안정 순서)
   const folderIds = useMemo(() => {
-    const ids = [...new Set(visible.map(n => n.folderId).filter(Boolean) as string[])].sort();
+    const active = useNotesStore.getState().notes.filter(n => !n.deletedAt);
+    const ids = [...new Set(active.map(n => n.folderId).filter(Boolean) as string[])].sort();
     return ids;
-  }, [visible]);
+  }, [vaultStructureVersion]);
 
   const noteById = useMemo(
-    () => new Map(visible.map(note => [note.id, note])),
-    [visible],
+    () => new Map(useNotesStore.getState().notes.filter(n => !n.deletedAt).map(note => [note.id, note])),
+    [vaultStructureVersion, indexContentVersion],
   );
 
   const graphData = useMemo(
@@ -218,7 +219,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       service: knowledgeIndexService,
       options: { relationshipFilter },
     }),
-    [visibleKey, relationshipFilter],
+    [vaultStructureVersion, indexContentVersion, relationshipFilter],
   );
 
   useEffect(() => {
@@ -256,6 +257,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       notesById: noteById,
       service: knowledgeIndexService,
       edges: edgeList,
+      galaxyCacheKey,
     });
     const existing = Object.fromEntries(nodesRef.current.map(n => [n.id, n]));
     const cx = size.w / 2, cy = size.h / 2;
@@ -393,7 +395,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
     frameRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [visibleKey, size.w, size.h, dragging, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [vaultStructureVersion, indexContentVersion, size.w, size.h, dragging, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG 좌표 변환 헬퍼 (클라이언트 → 그래프 공간) ──────────────
   const clientToGraph = useCallback((cx: number, cy: number) => {
@@ -590,23 +592,34 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [visibleNodes, visibleEdges.length],
   );
 
-  const vaultAnalysis = useMemo(
-    () => buildCosmosVaultAnalysis(notes, knowledgeIndexService),
-    [notes],
-  );
+  const [hudAnalysis, setHudAnalysis] = useState<{
+    vault: ReturnType<typeof buildCosmosVaultAnalysis>;
+    feed: ReturnType<typeof buildDiscoveryFeed>;
+  } | null>(null);
 
-  const historyEvents = useMemo(() => loadKnowledgeHistoryEvents(), []);
+  useEffect(() => {
+    const run = () => {
+      setHudAnalysis({
+        vault: buildCosmosVaultAnalysis(useNotesStore.getState().notes, knowledgeIndexService),
+        feed: buildDiscoveryFeed(useNotesStore.getState().notes, knowledgeIndexService, { galaxyCacheKey }),
+      });
+    };
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(run);
+      return () => cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 0);
+    return () => window.clearTimeout(id);
+  }, [vaultStructureVersion, galaxyCacheKey]);
 
-  const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService, { historyEvents }),
-    [notes, historyEvents],
-  );
+  const vaultAnalysis = hudAnalysis?.vault ?? null;
+  const discoveryFeed = hudAnalysis?.feed ?? null;
 
   const highlightNodeId = previewNodeId ?? activeNoteId;
 
   const galaxyMap = useMemo(
-    () => getNoteGalaxyMap(notes, knowledgeIndexService, String(vaultStructureVersion)),
-    [vaultStructureVersion, notes],
+    () => getNoteGalaxyMap(useNotesStore.getState().notes, knowledgeIndexService, galaxyCacheKey),
+    [vaultStructureVersion],
   );
 
   const selectedImportance = useMemo(() => {
@@ -1294,6 +1307,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             .replace('{links}', String(hudStats.linkCount))
             .replace('{galaxies}', String(hudStats.galaxyCount))}
         </div>
+        {vaultAnalysis && (
         <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
           <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('k36HudAnalysisTitle')}</div>
           <div style={{ opacity: 0.85, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1345,7 +1359,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             )}
           </div>
         </div>
-        {discoveryFeed.summary.totalCount > 0 && (
+        )}
+        {discoveryFeed && discoveryFeed.summary.totalCount > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${colors.toolbarB}` }}>
             <div style={{ fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>{t('k38HudDiscoveryTitle')}</span>
