@@ -133,7 +133,8 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onRootChange === next.onRootChange
     && prev.searchQueryFor === next.searchQueryFor
     && prev.renderToggleNested === next.renderToggleNested
-    && prev.showPersistentPlaceholder === next.showPersistentPlaceholder;
+    && prev.showPersistentPlaceholder === next.showPersistentPlaceholder
+    && prev.onClearBlockSelection === next.onClearBlockSelection;
 }
 
 export const SingleBlock = React.memo(function SingleBlock({
