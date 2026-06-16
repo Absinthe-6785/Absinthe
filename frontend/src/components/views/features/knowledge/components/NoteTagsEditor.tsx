@@ -12,13 +12,10 @@ export interface NoteTagsEditorProps {
   onUpdateTags: (properties: Record<string, string> | undefined) => void;
   activeTag?: string | null;
   onSelectTag?: (tag: string | null) => void;
-  /** Vault-wide tag browse (Tags tab only). */
-  showVaultBrowse?: boolean;
-  allTags?: { tag: string; count: number }[];
 }
 
 /**
- * Shared tag CRUD UI — used by Properties (canonical) and Tags tab (legacy path).
+ * Shared tag CRUD UI — canonical editor in Properties (K-90A1).
  * Business logic lives in `tags/noteTags.ts`.
  */
 export function NoteTagsEditor({
@@ -27,8 +24,6 @@ export function NoteTagsEditor({
   onUpdateTags,
   activeTag = null,
   onSelectTag,
-  showVaultBrowse = false,
-  allTags = [],
 }: NoteTagsEditorProps) {
   const { t } = useTranslation();
   const tags = listTags(note);
@@ -128,7 +123,7 @@ export function NoteTagsEditor({
         </TagChipRow>
       )}
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: showVaultBrowse ? 12 : 0 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
         <input
           value={newTag}
           onChange={e => setNewTag(e.target.value)}
@@ -167,36 +162,6 @@ export function NoteTagsEditor({
           <Plus size={11} />
         </button>
       </div>
-
-      {showVaultBrowse && allTags.length > 0 && (
-        <>
-          <div
-            style={{
-              fontSize: 10,
-              color: c.textMuted,
-              fontWeight: 600,
-              marginBottom: 8,
-              borderTop: `1px solid ${c.sideBdr}`,
-              paddingTop: 10,
-            }}
-          >
-            {t('knAllTags')}
-          </div>
-          <TagChipRow>
-            {allTags.map(({ tag, count }) => (
-              <TagChip
-                key={tag}
-                colors={c}
-                tag={tag}
-                size="sm"
-                selected={activeTag?.toLowerCase() === tag.toLowerCase()}
-                suffix={<span style={{ color: c.textMuted, fontSize: 9, flexShrink: 0 }}>{count}</span>}
-                onClick={() => onSelectTag?.(activeTag?.toLowerCase() === tag.toLowerCase() ? null : tag)}
-              />
-            ))}
-          </TagChipRow>
-        </>
-      )}
     </>
   );
 }
