@@ -23,10 +23,10 @@ function note(overrides: Partial<NoteBase> = {}): NoteBase {
 }
 
 describe('K-90A1 tag consolidation', () => {
-  it('NoteTagsPanel delegates to NoteTagsEditor', () => {
+  it('NoteTagsPanel delegates to NoteTagBrowser (browse only)', () => {
     const source = readFileSync(join(knowledgeComponents, 'NoteTagsPanel.tsx'), 'utf8');
-    expect(source).toContain('NoteTagsEditor');
-    expect(source).not.toContain('addTag(note');
+    expect(source).toContain('NoteTagBrowser');
+    expect(source).not.toContain('NoteTagsEditor');
   });
 
   it('NotePropertiesPanel embeds NoteTagsEditor for tag CRUD', () => {

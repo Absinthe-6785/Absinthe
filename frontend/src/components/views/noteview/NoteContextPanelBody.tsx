@@ -560,12 +560,12 @@ export function NoteContextPanelBody({
               note={activeNote}
               allTags={allTags}
               activeTag={activeTag}
-              onUpdateTags={properties => noteUpdate(activeNote.id, { properties })}
               onSelectTag={tag => {
                 setActiveFolderId(null);
                 setSearchQuery('');
                 setActiveTag(tag);
               }}
+              onOpenProperties={() => openContextPanel('properties')}
             />
           )}
 
@@ -620,25 +620,9 @@ export function NoteContextPanelBody({
                     {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </div>
                 )}
-                {allTags.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: 1 }}>{t('nvTagCloud')}</div>
-                    <div className="btag-cloud" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {allTags.slice(0, 20).map(({ tag, count }) => {
-                        const maxCount = allTags[0]?.count ?? 1;
-                        const size = 9 + Math.round((count / maxCount) * 8);
-                        const opacity = 0.5 + (count / maxCount) * 0.5;
-                        return (
-                          <span key={tag}
-                            style={{ fontSize: size, color: c.tagTxt, background: c.tag, padding: '2px 7px', borderRadius: 999, opacity, border: activeTag?.toLowerCase() === tag.toLowerCase() ? `1px solid ${c.tagTxt}` : '1px solid transparent' }}
-                            onClick={() => { setActiveFolderId(null); setSearchQuery(''); setActiveTag(prev => prev?.toLowerCase() === tag.toLowerCase() ? null : tag); }}>
-                            #{tag}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
+                <div style={{ marginTop: 12, fontSize: 9, color: c.textFaint, lineHeight: 1.45 }}>
+                  {t('k90a2StatsTagBrowseHint')}
+                </div>
               </div>
             );
           })()}

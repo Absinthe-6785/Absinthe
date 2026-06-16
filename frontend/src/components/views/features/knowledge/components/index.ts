@@ -56,6 +56,8 @@ export {
 } from './DatabaseViewControls';
 export { DatabaseViewsSection, type DatabaseViewsSectionProps } from './DatabaseViewsSection';
 export { NotePropertiesPanel, type NotePropertiesPanelProps } from './NotePropertiesPanel';
+export { NoteTagBrowser, type NoteTagBrowserProps } from './NoteTagBrowser';
+export { NoteTagVaultBrowse, type NoteTagVaultBrowseProps } from './NoteTagVaultBrowse';
 export { NoteTagsEditor, type NoteTagsEditorProps } from './NoteTagsEditor';
 export { NoteRelationsPanel, type NoteRelationsPanelProps, type IncomingRelationDisplay } from './NoteRelationsPanel';
 export { RelatedNotesPanel, type RelatedNotesPanelProps } from './RelatedNotesPanel';
