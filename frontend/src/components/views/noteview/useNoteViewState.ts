@@ -39,7 +39,6 @@ export function useNoteViewState() {
   const [newFolderName, setNewFolderName] = useState('');
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState('');
-  const [activeTocIdx, setActiveTocIdx] = useState<number | null>(null);
   const [tocKeyboardIdx, setTocKeyboardIdx] = useState<number | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [rightPanel, setRightPanel] = useState<KnowledgeContextTab>('toc');
@@ -113,8 +112,6 @@ export function useNoteViewState() {
     setRenamingFolderId,
     renameVal,
     setRenameVal,
-    activeTocIdx,
-    setActiveTocIdx,
     tocKeyboardIdx,
     setTocKeyboardIdx,
     activeTag,
