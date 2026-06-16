@@ -911,6 +911,7 @@ const translations = {
   propKey:                  { en: 'Key', ko: '키', ja: 'キー' },
   propValue:                { en: 'Value', ko: '값', ja: '値' },
   propDeleteProperty:       { en: 'Delete property', ko: '속성 삭제', ja: 'プロパティ削除' },
+  k90a1PropertiesTagsHint:   { en: 'Add, rename, or remove tags here. The Tags tab remains available during transition.', ko: '여기서 태그를 추가·이름 변경·삭제하세요. 전환 기간 동안 Tags 탭도 사용할 수 있습니다.', ja: 'ここでタグの追加・名前変更・削除ができます。移行期間中はTagsタブも利用できます。' },
   tagPageTags:              { en: 'Page tags', ko: '페이지 태그', ja: 'ページタグ' },
   tagNone:                  { en: 'No tags', ko: '태그 없음', ja: 'タグなし' },
   tagAddPlaceholder:        { en: 'Add tag', ko: '태그 추가', ja: 'タグ追加' },
