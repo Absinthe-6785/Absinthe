@@ -4,7 +4,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import os
 from dotenv import load_dotenv
+from jwt.exceptions import InvalidTokenError
 from supabase import create_client, Client
+
+from auth import AuthConfigurationError, SupabaseJWTVerifier
 
 load_dotenv()
 
@@ -23,32 +26,35 @@ app.add_middleware(
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip() or None
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError(
         "\n🚨 [보안 오류] .env 파일을 찾을 수 없거나 키가 비어있습니다!\n"
         "1. backend 폴더 안에 '.env' 파일이 정확히 존재하는지 확인하세요.\n"
         "2. 윈도우 확장자 숨김 기능 때문에 파일 이름이 '.env.txt'로 되어있지 않은지 확인하세요.\n"
-        "3. .env 내용에 띄어쓰기나 따옴표가 없는지 확인하세요. (예: SUPABASE_URL=https://...)"
+        "3. .env 내용에 띄어쓰기나 따옴표가 없는지 확인하세요.\n"
+        "   (예: SUPABASE_URL=https://..., SUPABASE_KEY=...)\n"
+        "4. ES256 프로젝트는 JWKS로 자동 검증됩니다. 레거시 HS256만 SUPABASE_JWT_SECRET이 필요합니다."
     )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==========================================
-# 🔐 JWT 인증: Authorization 헤더에서 user_id 추출
+# 🔐 JWT 인증: Authorization 헤더에서 user_id 추출 (local verify)
 # ==========================================
 security = HTTPBearer()
+
+try:
+    jwt_verifier = SupabaseJWTVerifier(supabase_url=SUPABASE_URL, jwt_secret=SUPABASE_JWT_SECRET)
+except AuthConfigurationError as e:
+    raise ValueError(str(e)) from e
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     token = credentials.credentials
     try:
-        # Supabase admin client로 서버 측 검증 — 서명 위변조 방지
-        response = supabase.auth.get_user(token)
-        user_id = response.user.id if response.user else None
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-        return user_id
-    except HTTPException:
-        raise
+        return jwt_verifier.verify_token(token)
+    except InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 

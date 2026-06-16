@@ -3,3 +3,5 @@ uvicorn
 supabase
 pydantic
 python-dotenv
+PyJWT[crypto]>=2.8.0
+pytest>=8.0.0
