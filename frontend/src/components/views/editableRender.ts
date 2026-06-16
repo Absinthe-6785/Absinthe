@@ -19,10 +19,15 @@ export function escAttr(s: string): string {
   return s.replace(/"/g, '&quot;');
 }
 
+/** Highlight query matches in rendered HTML — only in text nodes, never inside tags/attributes. */
 export function applySearchHighlight(html: string, searchQuery: string): string {
   if (!searchQuery.trim()) return html;
   const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return html.replace(new RegExp(`(${q})`, 'gi'), '<mark class="be-search-hl">$1</mark>');
+  const re = new RegExp(`(${q})`, 'gi');
+  return html.replace(/(<[^>]+>|[^<]+)/g, (segment) => {
+    if (segment.startsWith('<')) return segment;
+    return segment.replace(re, '<mark class="be-search-hl">$1</mark>');
+  });
 }
 
 function wikiSetFrom(targets: string[]): Set<string> {

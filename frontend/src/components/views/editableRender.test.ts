@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applySearchHighlight,
   escHtml,
   liveInlineHtml,
   renderInlineMarkdownHtml,
@@ -60,5 +61,30 @@ describe('editableRender', () => {
     const html = liveInlineHtml('**[[w]]**', c, ['w']);
     expect(html).toContain('<strong>');
     expect(html).toContain('be-wiki-chip');
+  });
+
+  it('applySearchHighlight does not match inside HTML tags or attributes', () => {
+    const html = '<em><span class="be-mark">*</span>hello<span class="be-mark">*</span></em>';
+    expect(applySearchHighlight(html, 'em')).toBe(html);
+    expect(applySearchHighlight(html, 'mark')).toBe(html);
+    expect(applySearchHighlight(html, 'be-mark')).toBe(html);
+  });
+
+  it('applySearchHighlight wraps visible text only', () => {
+    expect(applySearchHighlight('<em>hello</em>', 'hel'))
+      .toBe('<em><mark class="be-search-hl">hel</mark>lo</em>');
+  });
+
+  it('liveInlineHtml search does not corrupt decoration markup', () => {
+    const html = liveInlineHtml('*italic*', c, [], 'italic');
+    expect(html).not.toMatch(/e-mark"><em>/);
+    expect(html).toContain('be-search-hl');
+    expect(html).toContain('<em>');
+  });
+
+  it('renderInlineMarkdownHtml search does not corrupt emphasis tags', () => {
+    const html = renderInlineMarkdownHtml('*italic text*', c, 'em');
+    expect(html).not.toMatch(/e-mark"><em>/);
+    expect(html).toContain('<em>');
   });
 });
