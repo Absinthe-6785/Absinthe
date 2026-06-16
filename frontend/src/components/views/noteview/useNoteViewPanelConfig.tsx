@@ -23,7 +23,7 @@ export function useNoteViewPanelConfig() {
     { key: 'actions'    as const, label: t('k37PanelActions'), icon: <Zap size={12}/> },
     { key: 'timeline'   as const, label: t('k42PanelTimeline'), hint: t('k43KnowledgeTimelineLabel'), icon: <History size={12}/> },
     { key: 'tags'       as const, label: t('nvPanelTags'), hint: t('k90a2TagsTabHint'), icon: <Tag size={12}/> },
-    { key: 'relations'  as const, label: t('nvPanelRelations'), icon: <ArrowRightLeft size={12}/> },
+    { key: 'relations'  as const, label: t('nvPanelRelations'), hint: t('k90a3RelationsTabHint'), icon: <ArrowRightLeft size={12}/> },
     { key: 'stats'      as const, label: t('nvPanelStats'),   icon: <span style={{ fontSize: 11, fontWeight: 700 }}>#</span> },
   ], [t]);
 

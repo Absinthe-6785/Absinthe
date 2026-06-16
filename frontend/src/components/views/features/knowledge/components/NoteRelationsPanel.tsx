@@ -183,6 +183,9 @@ export function NoteRelationsPanel({
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0', minHeight: 0 }}>
+      <p style={{ fontSize: 9, color: c.textFaint, margin: '0 10px 8px', lineHeight: 1.45 }}>
+        {t('k90a3RelationsPanelHint')}
+      </p>
       <div style={{ padding: '0 10px 6px', fontSize: 10, color: c.textMuted, fontWeight: 600 }}>
         {t('knOutgoingRelations')}
       </div>

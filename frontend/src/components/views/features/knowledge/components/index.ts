@@ -69,6 +69,7 @@ export { ResearchDashboardPanel, type ResearchDashboardPanelProps } from './Rese
 export { StudyDashboardPanel, type StudyDashboardPanelProps } from './StudyDashboardPanel';
 export { WeakTopicToggle, type WeakTopicToggleProps } from './WeakTopicToggle';
 export { ConceptHubPanel, type ConceptHubPanelProps } from './ConceptHubPanel';
+export { ConceptRelationsBrowse, type ConceptRelationsBrowseProps } from './ConceptRelationsBrowse';
 export { ConceptRelationsPanel, type ConceptRelationsPanelProps } from './ConceptRelationsPanel';
 export { LearningPathPanel, type LearningPathPanelProps } from './LearningPathPanel';
 export { KnowledgeClusterPanel, type KnowledgeClusterPanelProps } from './KnowledgeClusterPanel';

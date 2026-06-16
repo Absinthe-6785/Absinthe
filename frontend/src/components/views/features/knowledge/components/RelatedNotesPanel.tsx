@@ -145,6 +145,9 @@ export function RelatedNotesPanel({
           <span style={{ color: c.accent }}>({totalCount})</span>
         )}
       </div>
+      <p style={{ fontSize: 9, color: c.textFaint, margin: '0 10px 6px', lineHeight: 1.45 }}>
+        {t('k90a3RelatedNotesHint')}
+      </p>
 
       {totalCount === 0 ? (
         <KnowledgePanelEmpty
