@@ -46,6 +46,9 @@ export function ReadingSourceLinkPanel({
       <div style={{ padding: '8px 10px 4px', fontSize: 10, color: c.textMuted, fontWeight: 700, borderTop: `1px solid ${c.sideBdr}` }}>
         {t('knReadingSourceLink')}
       </div>
+      <p style={{ fontSize: 9, color: c.textFaint, margin: '0 10px 6px', lineHeight: 1.45 }}>
+        {t('k90a3ReadingSourceHint')}
+      </p>
 
       {showReadingLink && (
         <div style={{ padding: '4px 10px 8px' }}>

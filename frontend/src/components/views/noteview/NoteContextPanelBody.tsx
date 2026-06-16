@@ -312,13 +312,8 @@ export function NoteContextPanelBody({
                     colors={c}
                     note={activeNote}
                     notes={notes}
-                    wikiTargets={wikiTargets}
-                    onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
                     onNavigateToNote={id => openNoteById(id, 'panel')}
-                    onResolveTargetId={title =>
-                      knowledgeIndexService.resolveNoteId(title)
-                      ?? findNoteByTitle(title, notes)?.id
-                    }
+                    onOpenRelations={() => openContextPanel('relations')}
                   />
                   {learningPath && (
                     <LearningPathPanel

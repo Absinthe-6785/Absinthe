@@ -47,6 +47,14 @@ describe('K-90A metadata surface ownership', () => {
     expect(relationsPanel).toContain('knOutgoingRelations');
   });
 
+  it('ConceptRelations in Links is browse-only — CRUD in Relations tab (K-90A3)', () => {
+    const conceptPanel = readKnowledge('components/ConceptRelationsPanel.tsx');
+    expect(conceptPanel).toContain('ConceptRelationsBrowse');
+    expect(conceptPanel).not.toContain('addRelationTarget');
+    const relationsPanel = readKnowledge('components/NoteRelationsPanel.tsx');
+    expect(relationsPanel).toContain('addRelationTarget');
+  });
+
   it('keeps Stats as read-only metrics in NoteContextPanelBody', () => {
     const body = readFileSync(join(noteviewRoot, 'NoteContextPanelBody.tsx'), 'utf8');
     expect(body).toContain("rightPanel === 'stats'");
