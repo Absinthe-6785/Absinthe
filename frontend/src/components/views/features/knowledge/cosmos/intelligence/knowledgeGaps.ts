@@ -29,6 +29,8 @@ export interface KnowledgeGap {
 export interface BuildKnowledgeGapsOptions {
   galaxyId?: string;
   limit?: number;
+  galaxyMap?: ReadonlyMap<string, import('../../graph/knowledgeUniverse/galaxyClustering').GalaxyAssignment>;
+  galaxyMemberIds?: (galaxyId: string) => readonly string[];
 }
 
 /** Rule-based structural gap detection per galaxy / area. */
@@ -40,7 +42,17 @@ export function buildKnowledgeGaps(
 ): KnowledgeGap[] {
   const limit = options.limit ?? 8;
   const active = notes.filter(n => !n.deletedAt);
-  const galaxyMap = buildNoteGalaxyMap(active, service);
+  const galaxyMap = options.galaxyMap ?? buildNoteGalaxyMap(active, service);
+  const resolveMembers = (galaxyId: string): NoteBase[] => {
+    if (options.galaxyMemberIds) {
+      return options.galaxyMemberIds(galaxyId)
+        .map(id => active.find(n => n.id === id))
+        .filter((n): n is NoteBase => n != null);
+    }
+    return active.filter(
+      n => (galaxyMap.get(n.id)?.galaxyId ?? 'uncategorized') === galaxyId,
+    );
+  };
   const areaNoteIds = new Set(listAreaNotes(active).map(a => a.id));
   const gaps: KnowledgeGap[] = [];
 
@@ -49,9 +61,7 @@ export function buildKnowledgeGaps(
     : areaHealth.filter(a => a.noteCount >= 3);
 
   for (const area of targets) {
-    const members = active.filter(
-      n => (galaxyMap.get(n.id)?.galaxyId ?? 'uncategorized') === area.galaxyId,
-    );
+    const members = resolveMembers(area.galaxyId);
 
     let linkCount = 0;
     let hasMilestone = false;

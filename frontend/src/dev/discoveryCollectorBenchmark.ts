@@ -9,12 +9,12 @@ import { getNoteGalaxyMap, type GalaxyAssignment } from '@/components/views/feat
 import {
   collectAreaInsightSignals,
   collectEmergingTopicSignals,
-  collectForgottenKnowledgeSignals,
+  collectHubActivitySignals,
   collectIsolatedNotesSignals,
-  collectKnowledgeDriftSignals,
   collectMissingConnectionSignals,
   collectWeakHubSignals,
 } from '@/components/views/features/knowledge/discovery/discoverySignals';
+import { createDiscoveryFeedContext } from '@/components/views/features/knowledge/discovery/discoveryFeedContext';
 import { applyHistoryToDiscoveryItems } from '@/components/views/features/knowledge/discovery/historyDiscoveryBoost';
 import { groupRelatedNotes } from '@/components/views/features/knowledge/related/groupRelatedNotes';
 import { evaluateDiscoveryFeedQuality } from '@/components/views/features/knowledge/discovery/validation/recommendationQuality';
@@ -138,13 +138,19 @@ export function measureDiscoveryAtScale(noteCount: number): DiscoveryScaleAuditR
     galaxyMap = getNoteGalaxyMap(notes, service, galaxyCacheKey);
   });
 
+  const ctx = createDiscoveryFeedContext(notes, service, galaxyMap, now);
+
   const isolated = timeCollector(() => collectIsolatedNotesSignals(notes, service));
-  const areaInsights = timeCollector(() => collectAreaInsightSignals(notes, service, now, galaxyMap));
+  const areaInsights = timeCollector(() => collectAreaInsightSignals(notes, service, now, galaxyMap, ctx));
   const staleArea = { items: areaInsights.items.filter(i => i.kind === 'stale-area'), ms: 0 };
-  const forgotten = timeCollector(() => collectForgottenKnowledgeSignals(notes, service, now, galaxyMap));
-  const missingConn = timeCollector(() => collectMissingConnectionSignals(notes, service, galaxyMap));
-  const weakHub = timeCollector(() => collectWeakHubSignals(notes, service, galaxyMap));
-  const drift = timeCollector(() => collectKnowledgeDriftSignals(notes, service, now, galaxyMap));
+  let hubResult = { forgotten: [] as DiscoveryItem[], drift: [] as DiscoveryItem[] };
+  const hubActivityMs = measureMs(() => {
+    hubResult = collectHubActivitySignals(ctx);
+  });
+  const forgotten = { items: hubResult.forgotten, ms: hubActivityMs };
+  const drift = { items: hubResult.drift, ms: 0 };
+  const missingConn = timeCollector(() => collectMissingConnectionSignals(notes, service, galaxyMap, ctx));
+  const weakHub = timeCollector(() => collectWeakHubSignals(notes, service, galaxyMap, ctx));
   const emerging = timeCollector(() => collectEmergingTopicSignals(notes, service, now));
 
   const rawConcat = [

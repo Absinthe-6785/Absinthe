@@ -1,6 +1,7 @@
 {
   "generatedAt": "2026-06-16",
   "k89d": "discovery-collector-audit",
+  "k89d1": "discovery-feed-performance",
   "scales": [
     {
       "notes": 250,
@@ -8,43 +9,43 @@
       "indexMs": 4,
       "searchMs": 1,
       "relatedMs": 0,
-      "discoverMs": 21,
+      "discoverMs": 6,
       "cosmosMs": 1,
       "healthMs": 0,
       "sidebarMs": 0,
       "plainFilterMs": 0,
       "discovery": {
-        "totalFeedMs": 23,
+        "totalFeedMs": 6,
         "galaxyMapMs": 0,
         "groupRelatedMs": 0,
         "feedItems": 18,
-        "rawCandidates": 93,
+        "rawCandidates": 117,
         "actionableCount": 18,
         "collectorsMs": {
-          "missing-connection": 20,
-          "area-insights (all)": 3,
-          "weak-hub": 2,
-          "forgotten-knowledge": 2,
-          "knowledge-drift": 1,
+          "missing-connection": 2,
           "isolated-notes": 1,
+          "weak-hub": 0,
           "emerging-topic (unwired)": 0,
+          "forgotten-knowledge": 0,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 0,
           "galaxyMap": 0,
           "historyBoost": 0,
-          "stale-area": 0
+          "stale-area": 0,
+          "knowledge-drift": 0
         },
         "collectorCandidates": {
-          "missing-connection": 0,
-          "area-insights (all)": 3,
-          "weak-hub": 0,
-          "forgotten-knowledge": 21,
-          "knowledge-drift": 72,
+          "missing-connection": 24,
           "isolated-notes": 0,
+          "weak-hub": 0,
           "emerging-topic (unwired)": 3,
+          "forgotten-knowledge": 21,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 3,
           "galaxyMap": 250,
-          "historyBoost": 93,
-          "stale-area": 0
+          "historyBoost": 117,
+          "stale-area": 0,
+          "knowledge-drift": 72
         },
         "overlap": [
           {
@@ -54,13 +55,13 @@
           },
           {
             "pair": "forgotten ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 4,
+            "overlapPct": 20
           },
           {
             "pair": "drift ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 1,
+            "overlapPct": 5
           },
           {
             "pair": "isolated ↔ forgotten",
@@ -78,46 +79,46 @@
     {
       "notes": 500,
       "vaultKb": 144,
-      "indexMs": 13,
-      "searchMs": 2,
+      "indexMs": 12,
+      "searchMs": 1,
       "relatedMs": 0,
-      "discoverMs": 43,
+      "discoverMs": 12,
       "cosmosMs": 1,
       "healthMs": 1,
       "sidebarMs": 0,
       "plainFilterMs": 0,
       "discovery": {
-        "totalFeedMs": 44,
+        "totalFeedMs": 13,
         "galaxyMapMs": 0,
         "groupRelatedMs": 0,
         "feedItems": 18,
-        "rawCandidates": 204,
+        "rawCandidates": 228,
         "actionableCount": 18,
         "collectorsMs": {
-          "missing-connection": 29,
-          "weak-hub": 5,
-          "area-insights (all)": 4,
-          "knowledge-drift": 4,
-          "forgotten-knowledge": 3,
-          "isolated-notes": 0,
+          "missing-connection": 4,
+          "weak-hub": 1,
+          "forgotten-knowledge": 1,
+          "isolated-notes": 1,
           "emerging-topic (unwired)": 0,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 0,
           "galaxyMap": 0,
           "historyBoost": 0,
-          "stale-area": 0
+          "stale-area": 0,
+          "knowledge-drift": 0
         },
         "collectorCandidates": {
-          "missing-connection": 0,
+          "missing-connection": 24,
           "weak-hub": 0,
-          "area-insights (all)": 3,
-          "knowledge-drift": 183,
           "forgotten-knowledge": 21,
           "isolated-notes": 0,
           "emerging-topic (unwired)": 3,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 3,
           "galaxyMap": 500,
-          "historyBoost": 204,
-          "stale-area": 0
+          "historyBoost": 228,
+          "stale-area": 0,
+          "knowledge-drift": 183
         },
         "overlap": [
           {
@@ -127,13 +128,13 @@
           },
           {
             "pair": "forgotten ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 4,
+            "overlapPct": 20
           },
           {
             "pair": "drift ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 1,
+            "overlapPct": 5
           },
           {
             "pair": "isolated ↔ forgotten",
@@ -151,46 +152,46 @@
     {
       "notes": 1000,
       "vaultKb": 289,
-      "indexMs": 62,
-      "searchMs": 3,
+      "indexMs": 43,
+      "searchMs": 2,
       "relatedMs": 0,
-      "discoverMs": 170,
+      "discoverMs": 33,
       "cosmosMs": 1,
       "healthMs": 1,
       "sidebarMs": 0,
       "plainFilterMs": 1,
       "discovery": {
-        "totalFeedMs": 141,
+        "totalFeedMs": 33,
         "galaxyMapMs": 0,
         "groupRelatedMs": 0,
         "feedItems": 18,
-        "rawCandidates": 398,
+        "rawCandidates": 422,
         "actionableCount": 18,
         "collectorsMs": {
-          "missing-connection": 68,
-          "weak-hub": 16,
-          "area-insights (all)": 16,
-          "knowledge-drift": 11,
-          "forgotten-knowledge": 11,
+          "missing-connection": 7,
+          "weak-hub": 3,
           "isolated-notes": 1,
           "emerging-topic (unwired)": 1,
+          "forgotten-knowledge": 1,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 0,
           "galaxyMap": 0,
           "historyBoost": 0,
-          "stale-area": 0
+          "stale-area": 0,
+          "knowledge-drift": 0
         },
         "collectorCandidates": {
-          "missing-connection": 0,
+          "missing-connection": 24,
           "weak-hub": 0,
-          "area-insights (all)": 3,
-          "knowledge-drift": 377,
-          "forgotten-knowledge": 21,
           "isolated-notes": 0,
           "emerging-topic (unwired)": 3,
+          "forgotten-knowledge": 21,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 3,
           "galaxyMap": 1000,
-          "historyBoost": 398,
-          "stale-area": 0
+          "historyBoost": 422,
+          "stale-area": 0,
+          "knowledge-drift": 377
         },
         "overlap": [
           {
@@ -200,13 +201,13 @@
           },
           {
             "pair": "forgotten ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 4,
+            "overlapPct": 20
           },
           {
             "pair": "drift ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 1,
+            "overlapPct": 5
           },
           {
             "pair": "isolated ↔ forgotten",
@@ -224,46 +225,46 @@
     {
       "notes": 3000,
       "vaultKb": 873,
-      "indexMs": 520,
-      "searchMs": 11,
+      "indexMs": 496,
+      "searchMs": 10,
       "relatedMs": 0,
-      "discoverMs": 1113,
-      "cosmosMs": 6,
-      "healthMs": 4,
+      "discoverMs": 313,
+      "cosmosMs": 4,
+      "healthMs": 5,
       "sidebarMs": 0,
       "plainFilterMs": 3,
       "discovery": {
-        "totalFeedMs": 1118,
+        "totalFeedMs": 322,
         "galaxyMapMs": 0,
         "groupRelatedMs": 0,
         "feedItems": 18,
-        "rawCandidates": 1241,
+        "rawCandidates": 1265,
         "actionableCount": 18,
         "collectorsMs": {
-          "missing-connection": 474,
-          "area-insights (all)": 187,
-          "weak-hub": 170,
-          "forgotten-knowledge": 144,
-          "knowledge-drift": 125,
-          "isolated-notes": 4,
+          "missing-connection": 26,
+          "weak-hub": 13,
+          "forgotten-knowledge": 3,
           "emerging-topic (unwired)": 2,
+          "isolated-notes": 2,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 0,
           "galaxyMap": 0,
           "historyBoost": 0,
-          "stale-area": 0
+          "stale-area": 0,
+          "knowledge-drift": 0
         },
         "collectorCandidates": {
-          "missing-connection": 0,
-          "area-insights (all)": 3,
+          "missing-connection": 24,
           "weak-hub": 0,
           "forgotten-knowledge": 21,
-          "knowledge-drift": 1220,
-          "isolated-notes": 0,
           "emerging-topic (unwired)": 3,
+          "isolated-notes": 0,
           "groupRelatedNotes": 0,
+          "area-insights (all)": 3,
           "galaxyMap": 3000,
-          "historyBoost": 1241,
-          "stale-area": 0
+          "historyBoost": 1265,
+          "stale-area": 0,
+          "knowledge-drift": 1220
         },
         "overlap": [
           {
@@ -273,13 +274,13 @@
           },
           {
             "pair": "forgotten ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 4,
+            "overlapPct": 20
           },
           {
             "pair": "drift ↔ missing-connection",
-            "sharedNoteIds": 0,
-            "overlapPct": 0
+            "sharedNoteIds": 1,
+            "overlapPct": 5
           },
           {
             "pair": "isolated ↔ forgotten",
@@ -293,56 +294,6 @@
           }
         ]
       }
-    }
-  ],
-  "legacyVaultOnly": [
-    {
-      "notes": 250,
-      "vaultKb": 72,
-      "indexMs": 10,
-      "searchMs": 3,
-      "relatedMs": 0,
-      "discoverMs": 38,
-      "cosmosMs": 1,
-      "healthMs": 1,
-      "sidebarMs": 0,
-      "plainFilterMs": 0
-    },
-    {
-      "notes": 500,
-      "vaultKb": 144,
-      "indexMs": 22,
-      "searchMs": 2,
-      "relatedMs": 0,
-      "discoverMs": 99,
-      "cosmosMs": 2,
-      "healthMs": 1,
-      "sidebarMs": 0,
-      "plainFilterMs": 1
-    },
-    {
-      "notes": 1000,
-      "vaultKb": 289,
-      "indexMs": 90,
-      "searchMs": 6,
-      "relatedMs": 0,
-      "discoverMs": 291,
-      "cosmosMs": 8,
-      "healthMs": 4,
-      "sidebarMs": 0,
-      "plainFilterMs": 4
-    },
-    {
-      "notes": 3000,
-      "vaultKb": 873,
-      "indexMs": 1209,
-      "searchMs": 15,
-      "relatedMs": 0,
-      "discoverMs": 1849,
-      "cosmosMs": 7,
-      "healthMs": 7,
-      "sidebarMs": 0,
-      "plainFilterMs": 4
     }
   ]
 }

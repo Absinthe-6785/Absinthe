@@ -2,13 +2,7 @@ import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { buildNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
-import {
-  evaluateKnowledgeImportance,
-  type ImportanceClassification,
-} from '../cosmos/intelligence/knowledgeImportance';
-import { buildImportanceInputForNote } from '../cosmos/intelligence/knowledgeOpportunities';
-import { buildSuggestedConnections } from '../cosmos/intelligence/suggestedConnections';
-import { buildAreaHealthSummaries } from '../cosmos/intelligence/areaHealth';
+import type { ImportanceClassification } from '../cosmos/intelligence/knowledgeImportance';
 import { buildKnowledgeGaps } from '../cosmos/intelligence/knowledgeGaps';
 import { collectIsolatedNoteIds } from '../isolation/vaultIsolation';
 import { getRelationTargets } from '../relations/noteRelations';
@@ -23,6 +17,14 @@ import {
   scoreMissingConnection,
   scoreWeakHub,
 } from './discoveryScoring';
+import {
+  createDiscoveryFeedContext,
+  getDiscoveryAreaHealth,
+  getDiscoveryImportance,
+  getGalaxyMemberIds,
+  type DiscoveryFeedContext,
+} from './discoveryFeedContext';
+import { buildDiscoveryConnectionSuggestions } from './discoveryConnectionSuggestions';
 
 function noteCreatedAt(note: NoteBase): number {
   if (note.createdAt && note.createdAt > 0) return note.createdAt;
@@ -33,18 +35,18 @@ function noteCreatedAt(note: NoteBase): number {
 function hasExistingLink(
   sourceId: string,
   targetId: string,
-  notes: readonly NoteBase[],
-  service: KnowledgeIndexService,
+  ctx: DiscoveryFeedContext,
 ): boolean {
-  const target = notes.find(n => n.id === targetId);
+  const target = ctx.noteById.get(targetId);
   if (!target) return true;
   const targetTitle = (target.title ?? '').trim();
   if (!targetTitle) return true;
 
+  const { service } = ctx;
   const outgoing = service.getOutgoing(sourceId);
   if (outgoing.some(t => t.toLowerCase() === targetTitle.toLowerCase())) return true;
 
-  const source = notes.find(n => n.id === sourceId);
+  const source = ctx.noteById.get(sourceId);
   if (source && getRelationTargets(source, 'related-to').includes(targetId)) return true;
 
   const reverseOutgoing = service.getOutgoing(targetId);
@@ -63,6 +65,18 @@ function resolveGalaxyMap(
   return galaxyMap ?? buildNoteGalaxyMap(notes, service);
 }
 
+function resolveContext(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  now: number,
+  galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
+): DiscoveryFeedContext {
+  if (ctx) return ctx;
+  const map = resolveGalaxyMap(notes, service, galaxyMap);
+  return createDiscoveryFeedContext(notes, service, map, now);
+}
+
 function importanceRank(classification: ImportanceClassification): number {
   switch (classification) {
     case 'core-hub': return 5;
@@ -73,31 +87,64 @@ function importanceRank(classification: ImportanceClassification): number {
   }
 }
 
-export function collectForgottenKnowledgeSignals(
-  notes: readonly NoteBase[],
-  service: KnowledgeIndexService,
-  now: number,
-  galaxyMap?: Map<string, GalaxyAssignment>,
-): DiscoveryItem[] {
-  const map = resolveGalaxyMap(notes, service, galaxyMap);
-  const active = notes.filter(n => !n.deletedAt);
-  const ranked = active
-    .map(note => {
-      const input = buildImportanceInputForNote(note, service, map.get(note.id));
-      const result = evaluateKnowledgeImportance(input);
-      return { note, result };
-    })
-    .filter(({ result }) => result.classification === 'core-hub' || result.classification === 'major-hub')
+export interface HubActivitySignals {
+  forgotten: DiscoveryItem[];
+  drift: DiscoveryItem[];
+}
+
+/** Single-pass hub activity scan — shared importance cache for forgotten + drift. */
+export function collectHubActivitySignals(
+  ctx: DiscoveryFeedContext,
+): HubActivitySignals {
+  const hubRankPool: { note: NoteBase; result: ReturnType<typeof getDiscoveryImportance> }[] = [];
+  const driftItems: DiscoveryItem[] = [];
+
+  for (const note of ctx.activeNotes) {
+    const isHub = isAreaNote(note);
+    const updateDays = daysSince(note.updatedAt, ctx.now);
+    const connectionScore = ctx.service.getConnectionScore(note.id);
+
+    if (!isHub && connectionScore <= 1 && updateDays < DISCOVERY_WEIGHTS.MIN_DRIFT_DAYS) {
+      continue;
+    }
+
+    const result = getDiscoveryImportance(ctx, note.id);
+    const isMajorHub = result.classification === 'core-hub' || result.classification === 'major-hub';
+
+    if (isMajorHub) {
+      hubRankPool.push({ note, result });
+    }
+
+    if (updateDays < DISCOVERY_WEIGHTS.MIN_DRIFT_DAYS) continue;
+    if (!isHub && !isMajorHub) continue;
+
+    const score = scoreKnowledgeDrift(result.importanceScore, updateDays);
+    if (score <= 0) continue;
+
+    driftItems.push({
+      id: `drift-${note.id}`,
+      kind: 'knowledge-drift',
+      score,
+      title: displayNoteTitle(note.title),
+      subtitle: `last-update:${updateDays}`,
+      noteId: note.id,
+      daysSinceActivity: updateDays,
+      importanceClass: result.classification,
+      areaLabel: ctx.galaxyMap.get(note.id)?.galaxyLabel,
+    });
+  }
+
+  const forgottenItems: DiscoveryItem[] = [];
+  const ranked = hubRankPool
     .sort((a, b) => b.result.importanceScore - a.result.importanceScore)
     .slice(0, DISCOVERY_WEIGHTS.FORGOTTEN_SCAN_LIMIT);
 
-  const items: DiscoveryItem[] = [];
   for (const { note, result } of ranked) {
-    const inactivityDays = daysSince(noteLastOpenedAt(note), now);
+    const inactivityDays = daysSince(noteLastOpenedAt(note), ctx.now);
     if (inactivityDays < DISCOVERY_WEIGHTS.MIN_FORGOTTEN_DAYS) continue;
     const score = scoreForgottenKnowledge(result.importanceScore, inactivityDays);
     if (score <= 0) continue;
-    items.push({
+    forgottenItems.push({
       id: `forgotten-${note.id}`,
       kind: 'forgotten-knowledge',
       score,
@@ -108,21 +155,36 @@ export function collectForgottenKnowledgeSignals(
       importanceClass: result.classification,
     });
   }
-  return items.sort((a, b) => b.score - a.score);
+
+  return {
+    forgotten: forgottenItems.sort((a, b) => b.score - a.score),
+    drift: driftItems.sort((a, b) => b.score - a.score),
+  };
+}
+
+export function collectForgottenKnowledgeSignals(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  now: number,
+  galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
+): DiscoveryItem[] {
+  const context = resolveContext(notes, service, now, galaxyMap, ctx);
+  return collectHubActivitySignals(context).forgotten;
 }
 
 export function collectMissingConnectionSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
 ): DiscoveryItem[] {
-  const map = resolveGalaxyMap(notes, service, galaxyMap);
-  const active = notes.filter(n => !n.deletedAt);
-  const sources = active
-    .map(note => {
-      const input = buildImportanceInputForNote(note, service, map.get(note.id));
-      return { note, importance: evaluateKnowledgeImportance(input).importanceScore };
-    })
+  const context = resolveContext(notes, service, Date.now(), galaxyMap, ctx);
+  const sources = context.activeNotes
+    .map(note => ({
+      note,
+      importance: getDiscoveryImportance(context, note.id).importanceScore,
+    }))
     .sort((a, b) => b.importance - a.importance)
     .slice(0, DISCOVERY_WEIGHTS.CONNECTION_SOURCE_LIMIT)
     .map(row => row.note);
@@ -131,27 +193,21 @@ export function collectMissingConnectionSignals(
   const items: DiscoveryItem[] = [];
 
   for (const source of sources) {
-    const suggestions = buildSuggestedConnections(
+    const sourceImportance = getDiscoveryImportance(context, source.id);
+    const suggestions = buildDiscoveryConnectionSuggestions(
       source.id,
-      notes,
-      service,
-      map,
-      { limit: DISCOVERY_WEIGHTS.CONNECTIONS_PER_SOURCE + 2 },
+      context,
+      DISCOVERY_WEIGHTS.CONNECTIONS_PER_SOURCE + 2,
     );
     for (const suggestion of suggestions) {
-      if (suggestion.signals.includes('related')) continue;
       if (suggestion.score < DISCOVERY_WEIGHTS.MIN_CONNECTION_SCORE) continue;
-      if (hasExistingLink(source.id, suggestion.noteId, notes, service)) continue;
+      if (hasExistingLink(source.id, suggestion.noteId, context)) continue;
 
       const pairKey = [source.id, suggestion.noteId].sort().join(':');
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
 
-      const relevance = importanceRank(
-        evaluateKnowledgeImportance(
-          buildImportanceInputForNote(source, service, map.get(source.id)),
-        ).classification,
-      ) * suggestion.score;
+      const relevance = importanceRank(sourceImportance.classification) * suggestion.score;
       const score = scoreMissingConnection(suggestion.score, relevance);
       items.push({
         id: `missing-conn-${pairKey}`,
@@ -235,11 +291,15 @@ export function collectWeakHubSignals(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
 ): DiscoveryItem[] {
-  const map = resolveGalaxyMap(notes, service, galaxyMap);
-  const areaHealth = buildAreaHealthSummaries(notes, service, map);
-  const gaps = buildKnowledgeGaps(notes, service, areaHealth, { limit: 12 })
-    .filter(g => g.kind === 'missing-hub');
+  const context = resolveContext(notes, service, Date.now(), galaxyMap, ctx);
+  const areaHealth = getDiscoveryAreaHealth(context);
+  const gaps = buildKnowledgeGaps(notes, service, areaHealth, {
+    limit: 12,
+    galaxyMap: context.galaxyMap,
+    galaxyMemberIds: id => getGalaxyMemberIds(context, id),
+  }).filter(g => g.kind === 'missing-hub');
 
   return gaps.map(gap => ({
     id: `weak-hub-${gap.galaxyId}`,
@@ -258,38 +318,10 @@ export function collectKnowledgeDriftSignals(
   service: KnowledgeIndexService,
   now: number,
   galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
 ): DiscoveryItem[] {
-  const map = resolveGalaxyMap(notes, service, galaxyMap);
-  const active = notes.filter(n => !n.deletedAt);
-  const items: DiscoveryItem[] = [];
-
-  for (const note of active) {
-    const isHub = isAreaNote(note);
-    const input = buildImportanceInputForNote(note, service, map.get(note.id));
-    const result = evaluateKnowledgeImportance(input);
-    const isImportant = isHub || result.classification === 'core-hub' || result.classification === 'major-hub';
-    if (!isImportant) continue;
-
-    const inactivityDays = daysSince(note.updatedAt, now);
-    if (inactivityDays < DISCOVERY_WEIGHTS.MIN_DRIFT_DAYS) continue;
-
-    const score = scoreKnowledgeDrift(result.importanceScore, inactivityDays);
-    if (score <= 0) continue;
-
-    items.push({
-      id: `drift-${note.id}`,
-      kind: 'knowledge-drift',
-      score,
-      title: displayNoteTitle(note.title),
-      subtitle: `last-update:${inactivityDays}`,
-      noteId: note.id,
-      daysSinceActivity: inactivityDays,
-      importanceClass: result.classification,
-      areaLabel: map.get(note.id)?.galaxyLabel,
-    });
-  }
-
-  return items.sort((a, b) => b.score - a.score);
+  const context = resolveContext(notes, service, now, galaxyMap, ctx);
+  return collectHubActivitySignals(context).drift;
 }
 
 export function collectIsolatedNotesSignals(
@@ -318,9 +350,10 @@ export function collectAreaInsightSignals(
   service: KnowledgeIndexService,
   _now: number,
   galaxyMap?: Map<string, GalaxyAssignment>,
+  ctx?: DiscoveryFeedContext,
 ): DiscoveryItem[] {
-  const map = resolveGalaxyMap(notes, service, galaxyMap);
-  const summaries = buildAreaHealthSummaries(notes, service, map);
+  const context = resolveContext(notes, service, _now, galaxyMap, ctx);
+  const summaries = getDiscoveryAreaHealth(context);
   const items: DiscoveryItem[] = [];
 
   const activeAreas = summaries

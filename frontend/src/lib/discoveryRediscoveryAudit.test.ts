@@ -19,6 +19,8 @@ import { KnowledgeIndexService } from '@/components/views/features/knowledge/Kno
 import { buildDiscoveryFeed } from '@/components/views/features/knowledge/discovery/discoveryEngine';
 import { shouldRunVaultAudit } from './vaultAuditGate';
 
+const K89D1_FEED_BUDGET_MS = 500;
+
 interface ObservedMetricsRow {
   notes: number;
   vaultKb: number;
@@ -106,6 +108,13 @@ describe.skipIf(!shouldRunVaultAudit())('K-89D discovery rediscovery audit', () 
       const drift = row!.collectors.find(c => c.collector === 'knowledge-drift');
       expect(missingConn).toBeDefined();
       expect(drift).toBeDefined();
+
+      if (scale === 3000) {
+        expect(
+          row!.totalFeedMs,
+          `discovery feed at 3000 notes (${row!.totalFeedMs}ms) exceeds K-89D1 budget ${K89D1_FEED_BUDGET_MS}ms`,
+        ).toBeLessThan(K89D1_FEED_BUDGET_MS);
+      }
     });
   }
 
@@ -158,6 +167,7 @@ describe.skipIf(!shouldRunVaultAudit())('K-89D discovery rediscovery audit', () 
     const merged = {
       generatedAt: new Date().toISOString().slice(0, 10),
       k89d: 'discovery-collector-audit',
+      k89d1: 'discovery-feed-performance',
       scales: payload,
       ...(Array.isArray(existing) ? { legacyVaultOnly: existing } : {}),
     };
