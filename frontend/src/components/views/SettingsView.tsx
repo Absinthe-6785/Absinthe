@@ -55,10 +55,10 @@ export const SettingsView = ({
   const folders = useNotesStore(s => s.folders);
   const undoLastVaultRestore = useNotesStore(s => s.undoLastVaultRestore);
   const vaultRestoreCanUndo = useNotesStore(s => s.vaultRestoreCanUndo);
+  const cloudSyncEnabled = Boolean(user?.id);
   const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
-  const cloudSyncEnabled = Boolean(user?.id);
   const storageMetrics = useMemo(() => getVaultStorageMetrics(), []);
   const dataWarnings = useMemo(
     () => assessDataProtectionWarnings(cloudSyncEnabled),
