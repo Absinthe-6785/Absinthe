@@ -8,6 +8,12 @@ function isEditableEmpty(el: HTMLElement): boolean {
   return readBlockText(el).trim().length === 0;
 }
 
+/** Block shell id from a DOM node inside the editor. */
+export function blockIdFromElement(el: HTMLElement | null): string | null {
+  if (!el || typeof el.closest !== 'function') return null;
+  return el.closest('[data-drag-id]')?.getAttribute('data-drag-id') ?? null;
+}
+
 export function shouldDeleteSelectedBlocks(
   e: KeyboardEvent,
   selectedIds: Set<string>,
@@ -22,7 +28,13 @@ export function shouldDeleteSelectedBlocks(
   const tag = t.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
 
-  // Non-text focus (divider shell, image shell, …) → block delete
+  const selectedId = [...selectedIds][0]!;
+  const focusBlockId = blockIdFromElement(t);
+
+  // Focus in a different block than the sole selection → block delete (gutter/shell select).
+  if (focusBlockId && focusBlockId !== selectedId) return true;
+
+  // Non-text focus (divider shell, image shell, body after blur, …) → block delete
   if (!t.isContentEditable) return true;
 
   if (e.key === 'Backspace' || e.key === 'Delete') {

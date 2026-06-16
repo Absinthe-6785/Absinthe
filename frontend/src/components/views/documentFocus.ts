@@ -37,6 +37,17 @@ export interface BlockRowHit {
 }
 
 /** True when pointer target is document chrome (not gutter, editable text, or row padding). */
+/** Blur contenteditable focus inside an editor root (block-select / gutter-select mode). */
+export function blurActiveEditorFocus(root: HTMLElement | null | undefined): void {
+  if (typeof document === 'undefined') return;
+  const active = document.activeElement as HTMLElement | null;
+  if (!active) return;
+  if (root && !root.contains(active)) return;
+  if (active.isContentEditable || active.closest('.be-editable[contenteditable="true"]')) {
+    active.blur();
+  }
+}
+
 export function shouldHandleDocumentFocus(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (isGutterDragStart(target)) return false;

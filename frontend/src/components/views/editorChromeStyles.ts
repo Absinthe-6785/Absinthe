@@ -30,7 +30,7 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-gutter-strip {
     position: absolute;
-    inset: 0;
+    inset: -2px -4px;
     z-index: 1;
     cursor: cell;
     touch-action: none;

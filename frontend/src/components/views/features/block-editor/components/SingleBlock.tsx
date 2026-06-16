@@ -10,7 +10,8 @@ import {
 } from '../../../blockUtils';
 import { readBlockText } from '../../../editableDom';
 import { paintEditableLive } from '../../../editableLive';
-import { getCaretOffsetFromPoint } from '../features/selection';
+import { blurActiveEditorFocus } from '../../../documentFocus';
+import { BLOCK_LEFT_SELECT_ZONE_PX } from '../../../blockGutterSelection';
 import { blockTintStyle } from '../../../blockColors';
 import {
   isPasteTraceActive,
@@ -308,13 +309,11 @@ export const SingleBlock = React.memo(function SingleBlock({
     if (t.isContentEditable || t.closest('.be-editable[contenteditable="true"]')) return;
     e.preventDefault();
     onBlockSelect(block.id, e);
-    onActiveBlockChange?.(block.id);
+    // Shell select: block-ops mode — keep selection without moving caret into the editable.
     if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      const host = shellRef.current?.querySelector('.be-editable-static, .be-editable[contenteditable="true"]') as HTMLElement | null;
-      const offset = host ? getCaretOffsetFromPoint(host, e.clientX, e.clientY) : null;
-      applyFocusCommand({ blockId: block.id, offset: offset ?? 'end' });
+      blurActiveEditorFocus(shellRef.current?.closest('.be-editor-root') as HTMLElement | null);
     }
-  }, [readOnly, block.id, onBlockSelect, onActiveBlockChange, applyFocusCommand]);
+  }, [readOnly, block.id, onBlockSelect, shellRef]);
 
   const handleBlockShellPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly || !onGutterPointerDown || e.button !== 0) return;
@@ -325,7 +324,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     if (t.closest('.be-editable-static') && !e.shiftKey) return;
     const shell = e.currentTarget;
     const rect = shell.getBoundingClientRect();
-    const inLeftZone = e.clientX - rect.left < 56;
+    const inLeftZone = e.clientX - rect.left < BLOCK_LEFT_SELECT_ZONE_PX;
     if (!inLeftZone && !e.shiftKey) return;
     onGutterPointerDown(block.id, e);
   }, [readOnly, block.id, onGutterPointerDown]);
