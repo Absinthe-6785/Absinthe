@@ -4,13 +4,13 @@ import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { getNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
 import type { BuildDiscoveryFeedOptions, DiscoveryFeed, DiscoveryItem, DiscoveryKind, DiscoverySummary } from './discoveryTypes';
 import {
-  collectForgottenKnowledgeSignals,
-  collectKnowledgeDriftSignals,
+  collectHubActivitySignals,
   collectMissingConnectionSignals,
   collectWeakHubSignals,
   collectIsolatedNotesSignals,
   collectAreaInsightSignals,
 } from './discoverySignals';
+import { createDiscoveryFeedContext } from './discoveryFeedContext';
 import { applyHistoryToDiscoveryItems } from './historyDiscoveryBoost';
 import { DISCOVERY_WEIGHTS, discoveryConfidenceTier } from './discoveryScoring';
 
@@ -145,16 +145,18 @@ export function buildDiscoveryFeed(
   const totalLimit = options.limit ?? 18;
 
   const galaxyMap = getNoteGalaxyMap(notes, service, options.galaxyCacheKey);
+  const ctx = createDiscoveryFeedContext(notes, service, galaxyMap, now);
+  const hubActivity = collectHubActivitySignals(ctx);
 
   const raw = refineDiscoveryItems(
     applyHistoryToDiscoveryItems(
       [
         ...collectIsolatedNotesSignals(notes, service),
-        ...collectAreaInsightSignals(notes, service, now, galaxyMap).filter(item => item.kind === 'stale-area'),
-        ...collectForgottenKnowledgeSignals(notes, service, now, galaxyMap),
-        ...collectMissingConnectionSignals(notes, service, galaxyMap),
-        ...collectWeakHubSignals(notes, service, galaxyMap),
-        ...collectKnowledgeDriftSignals(notes, service, now, galaxyMap),
+        ...hubActivity.forgotten,
+        ...collectMissingConnectionSignals(notes, service, galaxyMap, ctx),
+        ...collectAreaInsightSignals(notes, service, now, galaxyMap, ctx).filter(item => item.kind === 'stale-area'),
+        ...collectWeakHubSignals(notes, service, galaxyMap, ctx),
+        ...hubActivity.drift,
       ],
       options.historyEvents ?? [],
       now,

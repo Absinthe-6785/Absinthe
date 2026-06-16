@@ -8,7 +8,7 @@ import {
   AREA_HEALTH_CATEGORY_THRESHOLDS,
   AREA_HEALTH_WEIGHTS,
 } from './importanceWeights';
-import { evaluateKnowledgeImportance } from './knowledgeImportance';
+import { evaluateKnowledgeImportance, type ImportanceClassification } from './knowledgeImportance';
 import { buildImportanceInputForNote } from './knowledgeOpportunities';
 
 export type AreaHealthCategory =
@@ -58,8 +58,13 @@ export function buildAreaHealthSummaries(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
   galaxyMap: ReadonlyMap<string, GalaxyAssignment>,
+  options: {
+    noteById?: ReadonlyMap<string, NoteBase>;
+    getImportance?: (noteId: string) => { classification: ImportanceClassification };
+  } = {},
 ): AreaHealthSummary[] {
   const active = notes.filter(n => !n.deletedAt);
+  const noteById = options.noteById ?? new Map(active.map(n => [n.id, n]));
   const byGalaxy = new Map<string, { label: string; noteIds: string[] }>();
 
   for (const note of active) {
@@ -83,14 +88,16 @@ export function buildAreaHealthSummaries(
     let hasMilestone = false;
 
     for (const noteId of noteIds) {
-      const note = active.find(n => n.id === noteId);
+      const note = noteById.get(noteId);
       if (!note) continue;
       const score = service.getConnectionScore(noteId);
       connectionSum += score;
       if (score <= 1) orphanCount += 1;
 
       const input = buildImportanceInputForNote(note, service, galaxyMap.get(noteId));
-      const { classification } = evaluateKnowledgeImportance(input);
+      const { classification } = options.getImportance
+        ? options.getImportance(noteId)
+        : evaluateKnowledgeImportance(input);
       if (classification === 'core-hub' || classification === 'major-hub') {
         hasHub = true;
       }
