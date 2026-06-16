@@ -9,6 +9,10 @@ import {
   computeWeeklyProteinAverage,
   sumProteinIntake,
 } from '../nutrition/proteinMetrics';
+import {
+  finishHealthRequestBatch,
+  startHealthRequestBatch,
+} from '../healthRequestInstrumentation';
 
 async function fetchProteinRange(
   anchorDate: Date,
@@ -23,16 +27,21 @@ async function fetchProteinRange(
     d.setDate(d.getDate() + i);
     dates.push(formatDate(d));
   }
+  const batch = startHealthRequestBatch('useProteinData', '/api/protein_intake?date=', dates.length);
   const results = await Promise.all(
     dates.map(async ds => {
+      batch.trackStart();
       try {
         const logs = await fetcher<ProteinIntakeLog[]>(`${API_URL}/api/protein_intake?date=${ds}`);
         return { ds, total: sumProteinIntake(logs) };
       } catch {
         return { ds, total: 0 };
+      } finally {
+        batch.trackEnd();
       }
     }),
   );
+  finishHealthRequestBatch(batch, dates.length, 'unbounded');
   const dailyTotalsByDate = new Map(results.map(r => [r.ds, r.total]));
   return {
     dailyTotals: results.slice(-7).map(r => r.total),

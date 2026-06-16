@@ -22,6 +22,7 @@ import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
+import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
   getRoutinePlannedSetCount,
   getRoutinePlannedSetsForDay,
@@ -84,6 +85,8 @@ export const HealthView = ({
     prev_date: string | null;
     pr_kg: number | null;
   }>>({});
+  const prevDataRef = useRef(prevData);
+  useEffect(() => { prevDataRef.current = prevData; }, [prevData]);
 
   // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
   // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
@@ -210,44 +213,43 @@ export const HealthView = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
-  // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch
+  const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
+    const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
+      .filter(id => prevDataRef.current[id] === undefined);
+    if (missing.length === 0) return;
+    const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source);
+    if (Object.keys(fetched).length > 0) {
+      setPrevData(prev => ({ ...prev, ...fetched }));
+    }
+  }, [formatDate, selectedDate]);
+
+  // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)
   useEffect(() => {
-    const dateStr = formatDate(selectedDate);
-    const realWorkouts = localWorkouts.filter(w => w.block_id !== '__session__');
-    if (realWorkouts.length === 0) return;
-    realWorkouts.forEach(async w => {
-      if (prevData[w.block_id] !== undefined) return; // 이미 캐시됨
-      try {
-        const res = await authFetch(`${API_URL}/api/workouts/prev/${w.block_id}?before_date=${dateStr}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setPrevData(prev => ({ ...prev, [w.block_id]: data }));
-      } catch { /* silent */ }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localWorkouts]);
+    const ids = localWorkouts
+      .filter(w => w.block_id !== '__session__')
+      .map(w => w.block_id);
+    if (ids.length === 0) return;
+    void ensurePrevData(ids, 'HealthView.localWorkouts');
+  }, [localWorkouts, ensurePrevData]);
 
   const fetchPrevForBlock = useCallback(async (blockId: string) => {
     if (prevData[blockId]?.prev_sets) return prevData[blockId].prev_sets;
-    try {
-      const res = await authFetch(`${API_URL}/api/workouts/prev/${blockId}?before_date=${formatDate(selectedDate)}`);
-      if (!res.ok) return undefined;
-      const data = await res.json();
-      setPrevData(prev => ({ ...prev, [blockId]: data }));
-      return data.prev_sets as WorkoutSet[] | undefined;
-    } catch {
-      return undefined;
-    }
+    const result = await fetchPrevWorkoutForBlocks(
+      [blockId],
+      formatDate(selectedDate),
+      'HealthView.fetchPrevForBlock',
+    );
+    const data = result[blockId];
+    if (!data) return undefined;
+    setPrevData(prev => ({ ...prev, [blockId]: data }));
+    return data.prev_sets;
   }, [prevData, selectedDate, formatDate]);
 
   useEffect(() => {
     if (!healthRoutines?.length) return;
-    const ids = [...new Set(healthRoutines.flatMap((r: HealthRoutine) => r.blocks))];
-    ids.forEach(id => {
-      if (prevData[id] !== undefined) return;
-      void fetchPrevForBlock(id);
-    });
-  }, [healthRoutines, fetchPrevForBlock, prevData]);
+    const ids = healthRoutines.flatMap((r: HealthRoutine) => r.blocks);
+    void ensurePrevData(ids, 'HealthView.healthRoutines');
+  }, [healthRoutines, ensurePrevData]);
 
   // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
   // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
