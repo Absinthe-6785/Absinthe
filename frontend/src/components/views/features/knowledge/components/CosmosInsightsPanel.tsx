@@ -2,11 +2,10 @@ import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { KnowledgeImportanceInput, NoteIntelligenceSnapshot } from '../cosmos/intelligence';
 import type { NoteHistoryContext } from '../history';
 import { useTranslation } from '../../../../../lib/i18n';
-import { importanceClassificationLabel, areaHealthCategoryLabel, suggestionSignalLabel } from '../knowledgeLabels';
+import { importanceClassificationLabel, areaHealthCategoryLabel } from '../knowledgeLabels';
 import { KnowledgePanelSection, KnowledgePanelEmpty } from './KnowledgePanelSection';
 import { CosmosEmptyHint } from './CosmosEmptyHint';
 import { CosmosSuiteHeader } from '../cosmos/cosmosPanelUi';
-import { WhyThisRecommendation } from '../cosmos/onboarding/WhyThisRecommendation';
 import { WhyThisTier } from '../cosmos/onboarding/WhyThisTier';
 
 export interface CosmosInsightsPanelProps {
@@ -16,6 +15,8 @@ export interface CosmosInsightsPanelProps {
   noteHistory?: NoteHistoryContext | null;
   onNavigateToNote: (noteId: string) => void;
   onOpenLinks?: () => void;
+  /** Canonical vault link suggestions live in Discover (K-89B2B). */
+  onOpenDiscover?: () => void;
 }
 
 function ActionRow({
@@ -63,6 +64,7 @@ export function CosmosInsightsPanel({
   noteHistory,
   onNavigateToNote,
   onOpenLinks,
+  onOpenDiscover,
 }: CosmosInsightsPanelProps) {
   const { t, lang } = useTranslation();
   const classification = importanceClassificationLabel(snapshot.importance.classification, lang);
@@ -146,23 +148,16 @@ export function CosmosInsightsPanel({
             <CosmosEmptyHint colors={c}>{t('k36SuggestionsHint')}</CosmosEmptyHint>
           </>
         ) : (
-          snapshot.suggestedConnections.map(item => (
-            <div key={item.noteId} style={{ margin: '0 8px 6px' }}>
-              <ActionRow
-                c={c}
-                title={item.noteTitle}
-                onClick={() => onNavigateToNote(item.noteId)}
-              />
-              <div style={{ margin: '0 8px 0 8px' }}>
-                <WhyThisRecommendation
-                  colors={c}
-                  compact
-                  reasons={item.signals.map(s => `• ${suggestionSignalLabel(s, lang)}`)}
-                  score={item.score}
-                />
-              </div>
-            </div>
-          ))
+          <KnowledgePanelEmpty
+            colors={c}
+            actionLabel={onOpenDiscover ? t('k53ContextOpenDiscover') : undefined}
+            onAction={onOpenDiscover}
+          >
+            {t('k89b2InsightsDiscoverHint').replace(
+              '{count}',
+              String(snapshot.suggestedConnections.length),
+            )}
+          </KnowledgePanelEmpty>
         )}
       </KnowledgePanelSection>
 

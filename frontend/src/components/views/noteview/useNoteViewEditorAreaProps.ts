@@ -51,6 +51,7 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     appSettings,
     knowledgeTimeline,
     activeFocusPreset,
+    discoveryFeed,
     titleInputRef,
     titleComposingRef,
     blockEditorRef,
@@ -151,6 +152,7 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
       appSettings,
       knowledgeTimeline,
       activeFocusPreset,
+      discoveryFeed,
     },
     handlers: {
       titleInputRef,

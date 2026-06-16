@@ -168,7 +168,7 @@ export function RelatedNotesPanel({
             title={t(SECTION_TITLE_KEYS[section.key])}
             count={section.items.length}
             collapsible={section.key === 'worthRevisiting'}
-            defaultCollapsed={section.key === 'worthRevisiting' && grouped.mostRelated.length > 0}
+            defaultCollapsed={section.key === 'worthRevisiting' && grouped.mostRelated.length >= 3}
           >
             {section.items.map(item => (
               <RelatedNoteCard

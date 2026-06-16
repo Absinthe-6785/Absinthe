@@ -11,7 +11,6 @@ import { buildCosmosActionPlan, type CosmosActionItem } from './actionEngine';
 import { OpportunityActions } from './OpportunityActions';
 import { AreaGuidance } from './AreaGuidance';
 import { HubCreationAssistant } from './HubCreationAssistant';
-import { ConnectionRecommendationList } from './ConnectionRecommendationCard';
 import { ActionButton, ActionCard } from './actionUi';
 import { CosmosSuiteHeader } from '../cosmosPanelUi';
 
@@ -118,14 +117,17 @@ export function CosmosActionsPanel({
         <HubCreationAssistant colors={c} hub={plan.hubAssistant} onCreateHub={onCreateHub} />
       </KnowledgePanelSection>
 
-      <KnowledgePanelSection colors={c} title={t('k36SuggestedConnections')} count={plan.connections.length}>
-        <ConnectionRecommendationList
-          colors={c}
-          connections={plan.connections}
-          onCreateRelation={onCreateRelation}
-          onNavigate={onNavigateToNote}
-        />
-      </KnowledgePanelSection>
+      {plan.connections.length > 0 && (
+        <KnowledgePanelSection colors={c} title={t('k36SuggestedConnections')} count={plan.connections.length}>
+          <KnowledgePanelEmpty
+            colors={c}
+            actionLabel={onOpenDiscover ? t('k53ContextOpenDiscover') : undefined}
+            onAction={onOpenDiscover}
+          >
+            {t('k89b2ActionsDiscoverHint').replace('{count}', String(plan.connections.length))}
+          </KnowledgePanelEmpty>
+        </KnowledgePanelSection>
+      )}
     </div>
   );
 }
