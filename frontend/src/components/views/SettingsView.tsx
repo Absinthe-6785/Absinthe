@@ -21,9 +21,12 @@ import { buildVaultBackupManifestV3, downloadVaultBackup } from '../../lib/expor
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { fetchVaultCloudBlock } from '../../lib/vaultCloudExport';
 import { assertExportReady } from '../../lib/vaultExportValidate';
+import { recordLastVaultExport } from '../../lib/vaultRestorePipeline';
 import { useNotesStore } from '../../store/useNotesStore';
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
+import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
+import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
 import {
   assessDataProtectionWarnings,
   formatStorageMegabytes,
@@ -52,7 +55,8 @@ export const SettingsView = ({
   const folders = useNotesStore(s => s.folders);
   const undoLastVaultRestore = useNotesStore(s => s.undoLastVaultRestore);
   const vaultRestoreCanUndo = useNotesStore(s => s.vaultRestoreCanUndo);
-  const vaultRestore = useVaultRestoreFlow(showToast, t);
+  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
+  const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
   const cloudSyncEnabled = Boolean(user?.id);
   const storageMetrics = useMemo(() => getVaultStorageMetrics(), []);
@@ -106,6 +110,7 @@ export const SettingsView = ({
     if (!validation.valid) {
       throw new Error(validation.errors[0] ?? 'export_validation_failed');
     }
+    recordLastVaultExport(manifest.exportedAt);
     return manifest;
   };
 
@@ -315,6 +320,15 @@ export const SettingsView = ({
             </div>
           </div>
 
+          {/* Recovery Center */}
+          <RecoveryCenterPanel
+            recovery={recovery}
+            vaultRestore={vaultRestore}
+            cloudSyncEnabled={cloudSyncEnabled}
+            theme={theme}
+            showToast={showToast}
+          />
+
           {/* Data Management */}
           <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`}>
             <h2 className="font-heading text-lg font-bold text-red-500 mb-6 flex items-center gap-2">
@@ -456,9 +470,13 @@ export const SettingsView = ({
       {vaultRestore.preview && vaultRestore.selection && (
         <VaultRestoreModal
           preview={vaultRestore.preview}
+          fullPreview={vaultRestore.fullPreview}
+          pipelineOptions={vaultRestore.pipelineOptions}
+          restoreSource={vaultRestore.restoreSource}
           strategy={vaultRestore.strategy}
           selection={vaultRestore.selection}
           onStrategyChange={vaultRestore.setStrategy}
+          onPipelineOptionsChange={vaultRestore.updatePipelineOptions}
           onToggleNote={vaultRestore.toggleNote}
           onToggleFolder={vaultRestore.toggleFolder}
           onSelectAll={vaultRestore.selectAll}

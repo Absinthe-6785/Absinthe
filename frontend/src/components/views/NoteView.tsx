@@ -1537,9 +1537,13 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       {vaultRestore.preview && vaultRestore.selection && (
         <VaultRestoreModal
           preview={vaultRestore.preview}
+          fullPreview={vaultRestore.fullPreview}
+          pipelineOptions={vaultRestore.pipelineOptions}
+          restoreSource={vaultRestore.restoreSource}
           strategy={vaultRestore.strategy}
           selection={vaultRestore.selection}
           onStrategyChange={vaultRestore.setStrategy}
+          onPipelineOptionsChange={vaultRestore.updatePipelineOptions}
           onToggleNote={vaultRestore.toggleNote}
           onToggleFolder={vaultRestore.toggleFolder}
           onSelectAll={vaultRestore.selectAll}
