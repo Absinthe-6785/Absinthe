@@ -8,6 +8,9 @@ import {
   selectSingle,
 } from './features/block-editor/features/selection';
 
+/** Left-edge pointer zone (px) for gutter drag / block select — K-87D widened from 56. */
+export const BLOCK_LEFT_SELECT_ZONE_PX = 64;
+
 export interface GutterSelectionState {
   anchorId: string;
   pointerId: number;

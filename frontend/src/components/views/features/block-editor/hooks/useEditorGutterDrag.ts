@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { Block } from '../../../blockUtils';
 import {
   beginGutterSelection,
+  BLOCK_LEFT_SELECT_ZONE_PX,
   hitTestBlockIdFromPoint,
   isGutterDragStart,
 } from '../../../blockGutterSelection';
+import { blurActiveEditorFocus } from '../../../documentFocus';
 
 export interface UseEditorGutterDragOptions {
   readOnly: boolean;
@@ -26,7 +28,7 @@ export function isBlockLeftDragZone(
 ): boolean {
   if (!shell) return false;
   const rect = shell.getBoundingClientRect();
-  return clientX - rect.left < 56;
+  return clientX - rect.left < BLOCK_LEFT_SELECT_ZONE_PX;
 }
 
 export function useEditorGutterDrag({
@@ -59,6 +61,7 @@ export function useEditorGutterDrag({
     gutterDragCleanupRef.current?.();
 
     const root = editorRootRef.current;
+    blurActiveEditorFocus(root);
     root?.setPointerCapture(e.pointerId);
     const anchorId = e.shiftKey && anchorBlockId ? anchorBlockId : blockId;
     beginGutterSelection(anchorId, e.pointerId);
@@ -86,6 +89,7 @@ export function useEditorGutterDrag({
       if (ev.pointerId !== e.pointerId) return;
       root?.releasePointerCapture(ev.pointerId);
       setIsGutterDragging(false);
+      blurActiveEditorFocus(root);
       cleanup();
       gutterDragCleanupRef.current = null;
     };

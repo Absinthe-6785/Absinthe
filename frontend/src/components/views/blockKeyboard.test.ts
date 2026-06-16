@@ -37,6 +37,21 @@ describe('shouldDeleteSelectedBlocks', () => {
     )).toBe(false);
   });
 
+  it('returns true when focus is in a different block than the sole selection', () => {
+    const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
+    const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('hello');
+    const otherBlock = {
+      isContentEditable: true,
+      closest: (sel: string) => (sel === '[data-drag-id]' ? { getAttribute: () => 'other' } : null),
+    };
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', otherBlock),
+      new Set(['selected']),
+    )).toBe(true);
+    spySel.mockRestore();
+    spyText.mockRestore();
+  });
+
   it('returns false for non-empty editable block even when selected', () => {
     const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('hello');

@@ -340,7 +340,8 @@ describe('single-gutter-partial-fallback exact condition', () => {
       },
     }, null, 2));
 
-    expect(afterGutter.domSelection.wouldTriggerPartialFallback).toBe(true);
+    // K-87D: gutter select blurs the editable — partial fallback predicate no longer applies.
+    expect(afterGutter.domSelection.wouldTriggerPartialFallback).toBe(false);
     expect(copyWithoutClear.path).toBe('single-gutter-full-block');
     expect(copyWithoutClear.semanticSkippedReason).toBeNull();
     expect(copyWithoutClear.clipboardHtmlPreview).toContain('btoggle');

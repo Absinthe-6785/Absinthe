@@ -42,7 +42,13 @@ function mountEditor(initialBlocks: Block[]) {
     root = createRoot(host);
     root.render(createElement(StatefulEditor));
   });
-  return { getBlocks: () => current };
+  return {
+    getBlocks: () => current,
+    unmount: () => {
+      act(() => { root?.unmount(); });
+      root = null;
+    },
+  };
 }
 
 function editableFor(blockId: string) {
@@ -79,7 +85,11 @@ function fireBackspaceAtStart(blockId: string, text: string) {
 }
 
 describe('backspace empty-block navigation (K-31)', () => {
+  let unmount: (() => void) | undefined;
+
   afterEach(() => {
+    unmount?.();
+    unmount = undefined;
     setVirtualBlocksPocOverride(null);
     document.body.innerHTML = '';
     document.head.innerHTML = '';
@@ -89,10 +99,11 @@ describe('backspace empty-block navigation (K-31)', () => {
     const a = { ...makeBlock('paragraph'), id: 'blk-a', content: 'Hello' };
     const b = { ...makeBlock('paragraph'), id: 'blk-b', content: '' };
     const c = { ...makeBlock('paragraph'), id: 'blk-c', content: 'Tail' };
-    const { getBlocks } = mountEditor([a, b, c]);
+    const editor = mountEditor([a, b, c]);
+    unmount = editor.unmount;
 
     fireBackspaceAtStart('blk-b', '');
-    expect(flattenBlockIds(getBlocks())).toEqual(['blk-a', 'blk-c']);
+    expect(flattenBlockIds(editor.getBlocks())).toEqual(['blk-a', 'blk-c']);
 
     act(() => {});
     const active = document.activeElement as HTMLElement | null;
@@ -103,10 +114,11 @@ describe('backspace empty-block navigation (K-31)', () => {
     const a = { ...makeBlock('paragraph'), id: 'blk-a', content: 'First' };
     const b = { ...makeBlock('paragraph'), id: 'blk-b', content: '' };
     const c = { ...makeBlock('paragraph'), id: 'blk-c', content: 'Third' };
-    const { getBlocks } = mountEditor([a, b, c]);
+    const editor = mountEditor([a, b, c]);
+    unmount = editor.unmount;
 
     fireBackspaceAtStart('blk-b', '');
-    expect(flattenBlockIds(getBlocks())).toEqual(['blk-a', 'blk-c']);
+    expect(flattenBlockIds(editor.getBlocks())).toEqual(['blk-a', 'blk-c']);
 
     act(() => {});
     expect(document.activeElement?.getAttribute('data-block-id')).toBe('blk-a');
@@ -127,10 +139,11 @@ describe('backspace empty-block navigation (K-31)', () => {
   it('handles empty heading block backspace via merge path', () => {
     const h1 = { ...makeBlock('heading1'), id: 'h1', content: 'Title' };
     const h2 = { ...makeBlock('heading2'), id: 'h2', content: '' };
-    const { getBlocks } = mountEditor([h1, h2]);
+    const editor = mountEditor([h1, h2]);
+    unmount = editor.unmount;
 
     fireBackspaceAtStart('h2', '');
-    expect(flattenBlockIds(getBlocks())).toEqual(['h1']);
+    expect(flattenBlockIds(editor.getBlocks())).toEqual(['h1']);
 
     act(() => {});
     expect(document.activeElement?.getAttribute('data-block-id')).toBe('h1');

@@ -600,6 +600,11 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       setSelectedBlockIds(selected);
       setAnchorBlockId(anchor);
     },
+    onSelectBlock: selectBlock,
+    onEnterEditBlock: (id) => {
+      handleActiveBlockChange(id);
+      requestFocus({ blockId: id, offset: 'start' });
+    },
     documentRootRef: editorRootRef,
   });
 

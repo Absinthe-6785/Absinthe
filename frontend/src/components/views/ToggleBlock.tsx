@@ -3,6 +3,7 @@ import type { Block } from './blockUtils';
 import type { BlockEditorColors, BlockRenderContext } from './editorTypes';
 import { renderToggleChildren, renderToggleHeader, type ToggleNestedRenderer } from './toggleRender';
 import { isToggleHeadingBlockType, toggleHeadingLevel } from './toggleBlockTypes';
+import { BLOCK_LEFT_SELECT_ZONE_PX } from './blockGutterSelection';
 
 export interface ToggleBlockProps {
   block: Block;
@@ -50,7 +51,7 @@ export function ToggleBlock({
     if (t.closest('.be-editable-static') && !e.shiftKey) return;
     const shell = e.currentTarget;
     const rect = shell.getBoundingClientRect();
-    const inLeftZone = e.clientX - rect.left < 56;
+    const inLeftZone = e.clientX - rect.left < BLOCK_LEFT_SELECT_ZONE_PX;
     if (!inLeftZone && !e.shiftKey) return;
     onGutterPointerDown(block.id, e);
   }, [readOnly, block.id, onGutterPointerDown]);
