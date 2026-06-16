@@ -544,6 +544,12 @@ export function NoteContextPanelBody({
                 colors={c}
                 note={activeNote}
                 onUpdateProperties={properties => noteUpdate(activeNote.id, { properties })}
+                activeTag={activeTag}
+                onSelectTag={tag => {
+                  setActiveFolderId(null);
+                  setSearchQuery('');
+                  setActiveTag(tag);
+                }}
               />
             </div>
           )}

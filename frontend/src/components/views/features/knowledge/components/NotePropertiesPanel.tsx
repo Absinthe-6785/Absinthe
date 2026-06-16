@@ -9,13 +9,17 @@ import {
   setProperty,
 } from '../properties';
 import { groupUserProperties, type PropertyGroupId } from '../properties/propertyGroups';
+import { listTags } from '../tags';
 import { CosmosEmptyHint } from './CosmosEmptyHint';
 import { KnowledgePanelSection } from './KnowledgePanelSection';
+import { NoteTagsEditor } from './NoteTagsEditor';
 
 export interface NotePropertiesPanelProps {
   colors: NoteChromeColors;
   note: NoteBase;
   onUpdateProperties: (properties: Record<string, string> | undefined) => void;
+  activeTag?: string | null;
+  onSelectTag?: (tag: string | null) => void;
 }
 
 const GROUP_TITLE_KEYS: Record<PropertyGroupId, 'k35PropGroupStudy' | 'k35PropGroupSource' | 'k35PropGroupGeneral'> = {
@@ -109,8 +113,11 @@ export function NotePropertiesPanel({
   colors: c,
   note,
   onUpdateProperties,
+  activeTag = null,
+  onSelectTag,
 }: NotePropertiesPanelProps) {
   const { t } = useTranslation();
+  const tags = listTags(note);
   const properties = listUserProperties(note);
   const grouped = groupUserProperties(properties);
   const [newKey, setNewKey] = useState('');
@@ -170,7 +177,25 @@ export function NotePropertiesPanel({
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: '8px 10px 12px' }}>
-      <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 }}>
+      <KnowledgePanelSection
+        colors={c}
+        first
+        title={t('tagPageTags')}
+        count={tags.length}
+        hint={t('k90a1PropertiesTagsHint')}
+      >
+        <div style={{ padding: '0 0 4px' }}>
+          <NoteTagsEditor
+            colors={c}
+            note={note}
+            onUpdateTags={onUpdateProperties}
+            activeTag={activeTag}
+            onSelectTag={onSelectTag}
+          />
+        </div>
+      </KnowledgePanelSection>
+
+      <div style={{ fontSize: 10, color: c.textMuted, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8, marginTop: 4 }}>
         {t('propPageProperties')}
       </div>
 
@@ -192,7 +217,7 @@ export function NotePropertiesPanel({
             <KnowledgePanelSection
               key={groupId}
               colors={c}
-              first={groupId === GROUP_ORDER.find(g => grouped[g].length > 0)}
+              first={false}
               title={t(GROUP_TITLE_KEYS[groupId])}
               count={rows.length}
               hint={t(GROUP_HINT_KEYS[groupId])}

@@ -23,14 +23,14 @@ describe('K-90A metadata surface ownership', () => {
     expect(source).toContain('isTagsPropertyKey');
   });
 
-  it('keeps full tag CRUD in NoteTagsPanel (canonical editor until K-90A1)', () => {
-    const source = readKnowledge('components/NoteTagsPanel.tsx');
-    expect(source).toContain('addTag');
-    expect(source).toContain('removeTag');
-    expect(source).toContain('renameTag');
+  it('embeds tag CRUD in NotePropertiesPanel via shared NoteTagsEditor (K-90A1)', () => {
+    const propsPanel = readKnowledge('components/NotePropertiesPanel.tsx');
+    expect(propsPanel).toContain('NoteTagsEditor');
+    const tagsPanel = readKnowledge('components/NoteTagsPanel.tsx');
+    expect(tagsPanel).toContain('NoteTagsEditor');
   });
 
-  it('routes Tags and Relations through More, not primary tabs', () => {
+  it('keeps Tags tab as legacy path in More menu', () => {
     const config = readFileSync(join(noteviewRoot, 'useNoteViewPanelConfig.tsx'), 'utf8');
     expect(config).toContain("'tags'");
     expect(config).toContain("'relations'");
