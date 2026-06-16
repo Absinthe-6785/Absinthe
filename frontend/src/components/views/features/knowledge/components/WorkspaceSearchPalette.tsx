@@ -55,6 +55,7 @@ export interface WorkspaceSearchPaletteProps {
   onSelectCollection: (collectionId: string) => void;
   onSelectLearningPath: (pathId: string) => void;
   /** Reuse vault discovery feed when already computed upstream. */
+  /** Canonical vault feed from `useNoteViewDashboard` — avoids duplicate `buildDiscoveryFeed` (K-89B2B). */
   discoveryFeed?: DiscoveryFeed;
 }
 

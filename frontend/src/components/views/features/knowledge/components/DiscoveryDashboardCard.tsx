@@ -66,6 +66,9 @@ export function DiscoveryDashboardCard({
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <DashboardCardHeader colors={c} icon={Compass} title={t('k38DashboardTitle')} compact={compact} />
+          <div style={{ fontSize: 9, color: c.textFaint, lineHeight: 1.4, marginBottom: 4 }}>
+            {t('k89b2DashboardDiscoverHint')}
+          </div>
           {lines.map(line => (
             <div key={line} style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.5 }}>
               {line}

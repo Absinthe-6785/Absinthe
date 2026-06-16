@@ -423,6 +423,7 @@ export function NoteContextPanelBody({
               noteHistory={noteHistoryContext}
               onNavigateToNote={id => openNoteById(id, 'panel')}
               onOpenLinks={() => openContextPanel('links')}
+              onOpenDiscover={handleOpenDiscover}
             />
           )}
 

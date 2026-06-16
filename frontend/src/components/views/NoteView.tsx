@@ -1303,7 +1303,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
       noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag, searchQuery,
       searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings, knowledgeTimeline,
-      activeFocusPreset,
+      activeFocusPreset, discoveryFeed,
     },
     editorHandlers: {
       titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef, searchInputRef,

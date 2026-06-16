@@ -15,6 +15,7 @@ import { useTranslation } from '../../lib/i18n';
 import { logMemAudit } from '../../lib/memAudit';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
 import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
+import type { DiscoveryFeed } from './features/knowledge/discovery';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { getNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import { useNotesStore } from '../../store/useNotesStore';
@@ -115,6 +116,8 @@ export interface NoteGraphViewProps {
   recentEvolution?: RecentEvolutionSummary;
   /** Mobile/tablet — larger touch targets and bottom-sheet preview. */
   compactChrome?: boolean;
+  /** Reuse memoized vault feed from NoteView instead of rebuilding in HUD (K-89B2B). */
+  sharedDiscoveryFeed?: DiscoveryFeed;
 }
 
 // ── 폴더 색상 팔레트 (라이트/다크 공용 — opacity로 조절) ───────────
@@ -146,7 +149,7 @@ const MAX_K = 4.0;
 const ZOOM_STEP = 0.12;
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────
-export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries, compactChrome = false }: NoteGraphViewProps) {
+export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dark, onCreateNote, onLearnLinking, onHudReviewWeakAreas, onHudOpenIsolated, onHudOpenDiscover, onHudReviewDiscoveries, compactChrome = false, sharedDiscoveryFeed }: NoteGraphViewProps) {
   const { t, lang } = useTranslation();
   const edgeLegend = useMemo(() => edgeLegendEntries(lang), [lang]);
   const svgRef   = useRef<SVGSVGElement>(null);
@@ -592,17 +595,19 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [visibleNodes, visibleEdges.length],
   );
 
-  const [hudAnalysis, setHudAnalysis] = useState<{
-    vault: ReturnType<typeof buildCosmosVaultAnalysis>;
-    feed: ReturnType<typeof buildDiscoveryFeed>;
-  } | null>(null);
+  const [hudVaultAnalysis, setHudVaultAnalysis] = useState<ReturnType<typeof buildCosmosVaultAnalysis> | null>(null);
+  const [hudDiscoveryFeedLocal, setHudDiscoveryFeedLocal] = useState<DiscoveryFeed | null>(null);
 
   useEffect(() => {
     const run = () => {
-      setHudAnalysis({
-        vault: buildCosmosVaultAnalysis(useNotesStore.getState().notes, knowledgeIndexService),
-        feed: buildDiscoveryFeed(useNotesStore.getState().notes, knowledgeIndexService, { galaxyCacheKey }),
-      });
+      setHudVaultAnalysis(
+        buildCosmosVaultAnalysis(useNotesStore.getState().notes, knowledgeIndexService),
+      );
+      if (sharedDiscoveryFeed === undefined) {
+        setHudDiscoveryFeedLocal(
+          buildDiscoveryFeed(useNotesStore.getState().notes, knowledgeIndexService, { galaxyCacheKey }),
+        );
+      }
     };
     if (typeof requestIdleCallback === 'function') {
       const id = requestIdleCallback(run);
@@ -610,10 +615,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     }
     const id = window.setTimeout(run, 0);
     return () => window.clearTimeout(id);
-  }, [vaultStructureVersion, galaxyCacheKey]);
+  }, [vaultStructureVersion, galaxyCacheKey, sharedDiscoveryFeed]);
 
-  const vaultAnalysis = hudAnalysis?.vault ?? null;
-  const discoveryFeed = hudAnalysis?.feed ?? null;
+  const vaultAnalysis = hudVaultAnalysis;
+  const discoveryFeed = sharedDiscoveryFeed ?? hudDiscoveryFeedLocal;
 
   const highlightNodeId = previewNodeId ?? activeNoteId;
 
