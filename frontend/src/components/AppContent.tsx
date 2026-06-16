@@ -23,6 +23,7 @@ const AnalyticsView = lazy(() => import('./views/AnalyticsView').then(m => ({ de
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const RecipeView = lazy(() => import('./views/RecipeView').then(m => ({ default: m.RecipeView })));
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
+import { runPeriodicSnapshotSlots } from '../lib/vaultSnapshotAuto';
 import { useTranslation } from '../lib/i18n';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
@@ -54,6 +55,8 @@ export function AppContent({ authUser }: { authUser: User }) {
   // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
   useEffect(() => {
     hydrateFromDB().then(() => {
+      const { notes, folders } = useNotesStore.getState();
+      runPeriodicSnapshotSlots(notes, folders);
       void migrateLegacyDdays(count => {
         if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
       });

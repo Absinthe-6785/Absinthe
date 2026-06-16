@@ -19,6 +19,7 @@ import {
 } from '../lib/vaultRestoreSnapshot';
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
+import { scheduleAutoSnapshot } from '../lib/vaultSnapshotAuto';
 import {
   type NoteBase as Note,
   type NoteFolderBase as NoteFolder,
@@ -254,10 +255,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
   const persistNotes = (notes: Note[]) => {
     if (!saveNotes(notes)) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+    else scheduleAutoSnapshot(notes, get().folders);
   };
 
   const persistFolders = (folders: NoteFolder[]) => {
     if (!saveFolders(folders)) set({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
+    else scheduleAutoSnapshot(get().notes, folders);
   };
 
   const syncFolderToDB = async (folder: NoteFolder) => {
