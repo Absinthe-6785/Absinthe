@@ -30,6 +30,7 @@ export function useNoteViewPanels(params: {
   setRightPanel: (tab: KnowledgeContextTab) => void;
   setTimelineInitialArea: (area: string | null) => void;
   blockEditorRef: RefObject<BlockEditorHandle | null>;
+  insightsEnabled?: boolean;
 }) {
   const {
     notes,
@@ -43,6 +44,7 @@ export function useNoteViewPanels(params: {
     setRightPanel,
     setTimelineInitialArea,
     blockEditorRef,
+    insightsEnabled = true,
   } = params;
 
   const openContextPanel = useCallback((tab: KnowledgeContextTab) => {
@@ -54,22 +56,24 @@ export function useNoteViewPanels(params: {
   const galaxyCacheKey = String(vaultStructureVersion);
 
   const noteIntelligenceSnapshot = useMemo(
-    () => (activeNote
+    () => (insightsEnabled && activeNote
       ? buildNoteIntelligenceSnapshot(activeNote, useNotesStore.getState().notes, knowledgeIndexService)
       : null),
-    [activeNote?.id, vaultStructureVersion],
+    [insightsEnabled, activeNote?.id, vaultStructureVersion],
   );
 
   const noteHistoryContext = useMemo(
-    () => (activeNote ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents) : null),
-    [activeNote, historyEvents],
+    () => (insightsEnabled && activeNote
+      ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents)
+      : null),
+    [insightsEnabled, activeNote?.id, historyEvents],
   );
 
   const noteTierInput = useMemo(() => {
-    if (!activeNote) return null;
+    if (!insightsEnabled || !activeNote) return null;
     const galaxyMap = getNoteGalaxyMap(useNotesStore.getState().notes, knowledgeIndexService, galaxyCacheKey);
     return buildImportanceInputForNote(activeNote, knowledgeIndexService, galaxyMap.get(activeNote.id));
-  }, [activeNote?.id, vaultStructureVersion]);
+  }, [insightsEnabled, activeNote?.id, vaultStructureVersion]);
 
   const handleLearnLinking = useCallback(() => {
     const target = activeNote ?? notes.find(n => !n.deletedAt);

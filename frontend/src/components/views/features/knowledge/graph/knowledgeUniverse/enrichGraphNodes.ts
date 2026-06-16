@@ -1,7 +1,7 @@
 import type { NoteBase } from '../../../../noteUtils';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
 import { isAreaNote } from '../../trace/areaNotes';
-import { buildNoteGalaxyMap, type GalaxyAssignment } from './galaxyClustering';
+import { buildNoteGalaxyMap, getNoteGalaxyMap, type GalaxyAssignment } from './galaxyClustering';
 import { classifyGraphNodeTier, type GraphNodeTier } from './graphNodeTier';
 import { calculateKnowledgeImportance, nodeRadiusFromImportance } from './knowledgeImportance';
 import { assignOrbitHierarchy, type OrbitAssignment } from './orbitalLayout';
@@ -22,11 +22,14 @@ export interface EnrichGraphNodesInput {
   notesById: Map<string, NoteBase>;
   service: KnowledgeIndexService;
   edges: ReadonlyArray<{ from: string; to: string }>;
+  galaxyCacheKey?: string;
 }
 
 export function enrichGraphNodeMeta(input: EnrichGraphNodesInput): Map<string, EnrichedGraphNodeMeta> {
-  const { noteIds, notesById, service, edges } = input;
-  const galaxyMap = buildNoteGalaxyMap([...notesById.values()], service);
+  const { noteIds, notesById, service, edges, galaxyCacheKey } = input;
+  const galaxyMap = galaxyCacheKey
+    ? getNoteGalaxyMap([...notesById.values()], service, galaxyCacheKey)
+    : buildNoteGalaxyMap([...notesById.values()], service);
   const metaById = new Map<string, EnrichedGraphNodeMeta>();
 
   const orbitNodes = noteIds.map(id => {

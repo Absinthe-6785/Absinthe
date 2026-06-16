@@ -190,7 +190,20 @@ import { useTocScrollSpy } from './useTocScrollSpy';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
+import {
+  resolveDashboardLoadScope,
+  isLinksContextTabActive,
+  isGraphContextTabActive,
+  isInsightsContextTabActive,
+  isPropertiesContextTabActive,
+  isRelationsContextTabActive,
+  isTagsContextTabActive,
+} from './noteview/contextPanelTabGate';
 import { logMemAudit } from '../../lib/memAudit';
+
+const EMPTY_GROUPED_RELATED: GroupedRelatedNotes = { mostRelated: [], worthRevisiting: [] };
+const EMPTY_BACKLINK_CONTEXTS: ReturnType<typeof extractLinkContexts> = [];
+const EMPTY_MENTIONING_NOTES: ReturnType<typeof knowledgeIndexService.getMentioningNotes> = [];
 
 
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
@@ -634,7 +647,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   }, [searchQuery]);
 
   const visibleNotes = useMemo(() => {
-    const safeNotes = Array.isArray(notes) ? notes : [];
+    const safeNotes = useNotesStore.getState().notes;
 
     if (noteListFilter === 'favorites') {
       let list = safeNotes.filter(n => n.starred && !n.deletedAt);
@@ -674,7 +687,19 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       });
     }
     return list;
-  }, [notes, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter]);
+  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter]);
+
+  const contextPanelOpen = showRightPanel && viewMode !== 'graph';
+  const dashboardLoadScope = useMemo(
+    () => resolveDashboardLoadScope({ isDashboardMode, showRightPanel, rightPanel, viewMode }),
+    [isDashboardMode, showRightPanel, rightPanel, viewMode],
+  );
+  const linksTabActive = isLinksContextTabActive(contextPanelOpen, rightPanel);
+  const graphTabActive = isGraphContextTabActive(contextPanelOpen, rightPanel);
+  const insightsTabActive = isInsightsContextTabActive(contextPanelOpen, rightPanel);
+  const propertiesTabActive = isPropertiesContextTabActive(contextPanelOpen, rightPanel);
+  const relationsTabActive = isRelationsContextTabActive(contextPanelOpen, rightPanel);
+  const tagsTabActive = isTagsContextTabActive(contextPanelOpen, rightPanel);
 
   // ── E. Layout-derived constants ───────────────────────────────────
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
@@ -794,20 +819,24 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   // Linked reference excerpts — contextual paragraphs from referring pages
   const backlinkContexts = useMemo(
-    () => (activeNote ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes) : []),
-    [activeNote?.id, activeNote?.title, indexContentVersion],
+    () => (linksTabActive && activeNote
+      ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes)
+      : EMPTY_BACKLINK_CONTEXTS),
+    [linksTabActive, activeNote?.id, activeNote?.title, indexContentVersion],
   );
 
   const mentioningNotes = useMemo(
-    () => (activeNote ? knowledgeIndexService.getMentioningNotes(activeNote.id, { excludeNoteId: activeNote.id }) : []),
-    [activeNote?.id, indexContentVersion],
+    () => (linksTabActive && activeNote
+      ? knowledgeIndexService.getMentioningNotes(activeNote.id, { excludeNoteId: activeNote.id })
+      : EMPTY_MENTIONING_NOTES),
+    [linksTabActive, activeNote?.id, indexContentVersion],
   );
 
   const groupedRelatedNotes = useMemo(
-    () => (activeNote
+    () => (linksTabActive && activeNote
       ? groupRelatedNotes(activeNote.id, useNotesStore.getState().notes, knowledgeIndexService)
-      : { mostRelated: [], worthRevisiting: [] } satisfies GroupedRelatedNotes),
-    [activeNote?.id, vaultStructureVersion, indexContentVersion],
+      : EMPTY_GROUPED_RELATED),
+    [linksTabActive, activeNote?.id, vaultStructureVersion, indexContentVersion],
   );
 
   const relatedNotesCount = useMemo(
@@ -845,25 +874,25 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     dashboardLatestMilestone,
     handleDismissBootstrapSummary,
     handleExportHistory,
-  } = useNoteViewDashboard({ notes, lang, timelineMode, activeNote });
+  } = useNoteViewDashboard({ notes, lang, timelineMode, activeNote, loadScope: dashboardLoadScope });
 
   const projectEditorData = useMemo(
-    () => (activeNote && isStudyProjectContainer(activeNote)
-      ? buildProjectEditorData(notes, activeNote)
+    () => (propertiesTabActive && activeNote && isStudyProjectContainer(activeNote)
+      ? buildProjectEditorData(useNotesStore.getState().notes, activeNote)
       : null),
-    [activeNote, notes],
+    [propertiesTabActive, activeNote?.id, vaultStructureVersion],
   );
 
   const milestoneProjectTitle = useMemo(() => {
-    if (!activeNote || !isProjectMilestone(activeNote)) return '';
+    if (!propertiesTabActive || !activeNote || !isProjectMilestone(activeNote)) return '';
     const projectId = getMilestoneProjectId(activeNote);
     if (!projectId) return '';
-    const project = notes.find(n => n.id === projectId);
+    const project = useNotesStore.getState().notes.find(n => n.id === projectId);
     return project ? displayNoteTitle(project.title) : '';
-  }, [activeNote, notes]);
+  }, [propertiesTabActive, activeNote?.id, vaultStructureVersion]);
 
   const conceptHub = useMemo(
-    () => (activeNote
+    () => (linksTabActive && activeNote
       ? buildConceptHub({
         note: activeNote,
         notes: useNotesStore.getState().notes,
@@ -871,18 +900,18 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         referenceSummary: noteReferenceSummary,
       })
       : null),
-    [activeNote?.id, noteReferenceSummary, vaultStructureVersion, indexContentVersion],
+    [linksTabActive, activeNote?.id, noteReferenceSummary, vaultStructureVersion, indexContentVersion],
   );
 
   const learningPath = useMemo(() => {
-    if (!activeNote) return null;
+    if (!linksTabActive || !activeNote) return null;
     const pathId = getLearningPathId(activeNote);
-    return pathId ? buildLearningPath(notes, pathId) : null;
-  }, [activeNote, notes]);
+    return pathId ? buildLearningPath(useNotesStore.getState().notes, pathId) : null;
+  }, [linksTabActive, activeNote?.id, vaultStructureVersion]);
 
   const noteBibliography = useMemo(
-    () => (activeNote ? collectCitationsFromMarkdown(activeNote.body ?? '') : []),
-    [activeNote?.body, activeNote?.id],
+    () => (linksTabActive && activeNote ? collectCitationsFromMarkdown(activeNote.body ?? '') : []),
+    [linksTabActive, activeNote?.body, activeNote?.id],
   );
 
   const noteContextReviewEntry = useMemo(
@@ -900,9 +929,9 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   const noteLinkedProjectTitle = useMemo(() => {
     if (!noteLinkedProjectId) return '';
-    const project = notes.find(n => n.id === noteLinkedProjectId);
+    const project = useNotesStore.getState().notes.find(n => n.id === noteLinkedProjectId);
     return project ? displayNoteTitle(project.title) : '';
-  }, [noteLinkedProjectId, notes]);
+  }, [noteLinkedProjectId, vaultStructureVersion]);
 
   const noteLearningPathLabel = useMemo(() => {
     if (!activeNote) return null;
@@ -981,6 +1010,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     setRightPanel,
     setTimelineInitialArea,
     blockEditorRef,
+    insightsEnabled: insightsTabActive,
   });
 
   useEffect(() => {
@@ -990,8 +1020,10 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const activeNoteKind = activeNote ? getNoteKind(activeNote) : null;
 
   const sourceNoteCandidates = useMemo(
-    () => filterNotesByKind(notes, 'source').filter(n => n.id !== activeNote?.id),
-    [notes, activeNote?.id],
+    () => propertiesTabActive
+      ? filterNotesByKind(useNotesStore.getState().notes, 'source').filter(n => n.id !== activeNote?.id)
+      : [],
+    [propertiesTabActive, activeNote?.id, vaultStructureVersion],
   );
 
   useEffect(() => {
@@ -999,7 +1031,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   }, [activeNote?.id]);
 
   const localGraphData = useMemo(
-    () => (activeNote
+    () => (graphTabActive && activeNote
       ? buildExpandedGraphData({
         centerId: activeNote.id,
         centerTitle: activeNote.title ?? '',
@@ -1007,11 +1039,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         service: knowledgeIndexService,
       })
       : null),
-    [activeNote?.id, activeNote?.title, expandedGraphNodes, vaultStructureVersion, indexContentVersion],
+    [graphTabActive, activeNote?.id, activeNote?.title, expandedGraphNodes, vaultStructureVersion, indexContentVersion],
   );
 
   useEffect(() => {
-    const activeCount = notes.filter(n => !n.deletedAt).length;
+    if (!contextPanelOpen) return;
+    const activeCount = useNotesStore.getState().notes.filter(n => !n.deletedAt).length;
     const outgoing = activeNote ? knowledgeIndexService.getOutgoing(activeNote.id).length : 0;
     const incoming = activeNote
       ? knowledgeIndexService.getIncoming(activeNote.title ?? '').length
@@ -1025,11 +1058,11 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       relatedCandidates: relatedNotesCount,
       discoveryItems: discoveryFeed.items.length,
     });
-  }, [notes, activeNote?.id, localGraphData, relatedNotesCount, discoveryFeed]);
+  }, [contextPanelOpen, activeNote?.id, localGraphData, relatedNotesCount, discoveryFeed]);
 
   const allTags = useMemo(
-    () => knowledgeIndexService.getAllTags(),
-    [vaultStructureVersion, indexContentVersion],
+    () => tagsTabActive ? knowledgeIndexService.getAllTags() : [],
+    [tagsTabActive, vaultStructureVersion, indexContentVersion],
   );
   const noteTags = useMemo(
     () => (activeNote ? listTags(activeNote) : []),
@@ -1037,13 +1070,15 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   );
 
   const resolvedOutgoingRelations = useMemo(
-    () => (activeNote ? knowledgeIndexService.resolveRelationTargets(activeNote.id) : []),
-    [activeNote, notes],
+    () => (relationsTabActive && activeNote
+      ? knowledgeIndexService.resolveRelationTargets(activeNote.id)
+      : []),
+    [relationsTabActive, activeNote?.id, vaultStructureVersion],
   );
 
   const incomingRelationDisplays = useMemo(
     () => {
-      if (!activeNote) return [];
+      if (!relationsTabActive || !activeNote) return [];
       return knowledgeIndexService.getIncomingRelations(activeNote.id).map(edge => {
         const sourceTitle = knowledgeIndexService.getNoteTitle(edge.sourceId);
         return {
@@ -1053,7 +1088,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         };
       });
     },
-    [activeNote, notes],
+    [relationsTabActive, activeNote?.id, vaultStructureVersion],
   );
 
   useEffect(() => { setActiveTocIdx(null); }, [activeNoteId]);

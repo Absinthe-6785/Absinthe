@@ -20,18 +20,19 @@ export function useArchiveHomeProjection(
   now: Date,
   language?: Language | null,
 ): UseArchiveHomeProjectionResult {
-  const notes = useNotesStore(state => state.notes);
+  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const { data: domainMarks, isLoading, error } = useArchiveDomainMarks();
   const locale = resolveIntlLocale(language);
 
   const projection = useMemo(
     () => buildArchiveHomeProjection({
-      notes,
+      notes: useNotesStore.getState().notes,
       now,
       domainMarks: domainMarks ?? [],
       options: { locale },
     }),
-    [notes, now, domainMarks, locale],
+    // notes read via getState — keyed on vault structure, not body keystrokes
+    [vaultStructureVersion, now, domainMarks, locale],
   );
 
   return { projection, isLoading, error };
