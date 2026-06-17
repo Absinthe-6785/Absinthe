@@ -65,7 +65,7 @@ export function readForceSimEffectDepsFromNoteGraphView(): string[] {
   const marker = '// ── Force-directed 루프 ───────────────────────────────────────────';
   const start = src.indexOf(marker);
   if (start < 0) throw new Error('Force-directed loop marker not found in NoteGraphView.tsx');
-  const slice = src.slice(start, start + 4000);
+  const slice = src.slice(start, start + 12000);
   const depMatch = slice.match(/\}, \[([^\]]+)\]\); \/\/ eslint-disable-line react-hooks\/exhaustive-deps/);
   if (!depMatch) throw new Error('Force sim effect dependency array not found');
   return depMatch[1].split(',').map(s => s.trim());

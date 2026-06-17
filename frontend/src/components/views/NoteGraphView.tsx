@@ -62,10 +62,16 @@ import {
 } from './graphScalePolicy';
 import {
   countPreservedGraphNodes,
+  COSMOS_WARM_REHEAT_ALPHA,
   resolveCosmosSimInitialAlpha,
   type CosmosSimContextSnapshot,
 } from './cosmosSimReheat';
 import { buildGraphTopologySignatureFromGraphData } from './cosmosGraphSignature';
+import {
+  isCosmosSimNodeActive,
+  resolveCosmosLocalReheatPlan,
+  shouldIntegrateCosmosSimPair,
+} from './cosmosLocalReheat';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -344,6 +350,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
+    const prevSimContext = simContextRef.current;
     const nextSimContext: CosmosSimContextSnapshot = {
       graphTopologySignature,
       sizeW: size.w,
@@ -355,10 +362,34 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     let alpha = resolveCosmosSimInitialAlpha({
       preservedNodeCount: preservedNodeCountRef.current,
       totalNodeCount: nodesRef.current.length,
-      prev: simContextRef.current,
+      prev: prevSimContext,
       next: nextSimContext,
     });
     simContextRef.current = nextSimContext;
+
+    const topologyChange = prevSimContext != null
+      && prevSimContext.graphTopologySignature !== graphTopologySignature;
+    const sizeChange = prevSimContext != null
+      && (prevSimContext.sizeW !== size.w || prevSimContext.sizeH !== size.h);
+
+    let localActiveIds: ReadonlySet<string> | null = null;
+    if (
+      topologyChange
+      && !sizeChange
+      && alpha === COSMOS_WARM_REHEAT_ALPHA
+      && prevSimContext != null
+    ) {
+      const plan = resolveCosmosLocalReheatPlan({
+        prevSignature: prevSimContext.graphTopologySignature,
+        nextSignature: graphTopologySignature,
+        totalNodeCount: nodesRef.current.length,
+        preservedNodeCount: preservedNodeCountRef.current,
+      });
+      if (plan.mode === 'local_reheat' && plan.activeNodeIds) {
+        localActiveIds = plan.activeNodeIds;
+      }
+    }
+
     const nodeCount = nodesRef.current.length;
     const REPEL = graphRepulsionStrength(nodeCount);
     const alphaFloor = graphSimulationAlphaFloor(nodeCount);
@@ -383,6 +414,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
         for (let i = 0; i < ns.length; i++) {
           for (let j = i + 1; j < ns.length; j++) {
+            if (!shouldIntegrateCosmosSimPair(ns[i].id, ns[j].id, localActiveIds)) continue;
             const dx = ns[j].x - ns[i].x, dy = ns[j].y - ns[i].y;
             const dist2 = dx * dx + dy * dy + 1;
             const repMul = interGalaxyRepulsionMultiplier(ns[i].galaxyId, ns[j].galaxyId, universeMode);
@@ -396,6 +428,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
         const nodeMap = new Map(ns.map(n => [n.id, n]));
         es.forEach(e => {
+          if (!shouldIntegrateCosmosSimPair(e.from, e.to, localActiveIds)) return;
           const a = nodeMap.get(e.from), b = nodeMap.get(e.to);
           if (!a || !b) return;
           const dx = b.x - a.x, dy = b.y - a.y;
@@ -408,6 +441,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
         const cx = size.w / 2, cy = size.h / 2;
         ns.forEach(n => {
+          if (!isCosmosSimNodeActive(n.id, localActiveIds)) return;
           n.vx += (cx - n.x) * CENTER;
           n.vy += (cy - n.y) * CENTER;
           if (universeMode && galaxyCenters) {
@@ -417,6 +451,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
         ns.forEach(n => {
           if (n.id === draggingRef.current) return;
+          if (!isCosmosSimNodeActive(n.id, localActiveIds)) return;
           n.vx *= DAMPING; n.vy *= DAMPING;
           n.x  += n.vx * alpha;
           n.y  += n.vy * alpha;
