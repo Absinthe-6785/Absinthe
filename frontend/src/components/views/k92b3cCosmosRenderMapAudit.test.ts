@@ -26,7 +26,9 @@ describe('K-92B3C cosmos renderMap pipeline audit', () => {
     expect(policy.renderMapInlineBuild).toBe(false);
     expect(policy.renderMapMemoized).toBe(true);
     expect(policy.getDisplayPosTickCoupled).toBe(true);
-    expect(policy.getDisplayPosParentLinearScan).toBe(true);
+    expect(policy.getDisplayPosParentLinearScan).toBe(false);
+    expect(policy.getDisplayPosParentIndexed).toBe(true);
+    expect(policy.getDisplayPosCacheEnabled).toBe(true);
     expect(policy.matchedIdsTickCoupled).toBe(true);
     expect(policy.galaxyResolveGatedOnSettle).toBe(false);
     expect(policy.orbitResolveGatedOnSettle).toBe(false);

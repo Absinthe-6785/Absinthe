@@ -16,7 +16,12 @@ import {
   WARM_PARTIAL_REHEAT_ALPHA,
 } from './k92b1CosmosForceSimAudit';
 import { graphSimulationAlphaFloor } from './graphScalePolicy';
-import { runK92b2bScenarioAudit } from './k92b2bIncrementalLocalReheatAudit';
+import {
+  runK92b2bScenarioAudit,
+  type K92b2bAuditRow,
+  type K92b2bScenarioId,
+} from './k92b2bIncrementalLocalReheatAudit';
+import type { K92b1ForceSimAuditRow } from './k92b1CosmosForceSimAudit';
 import {
   COSMOS_LEGACY_SIM_RENDER_DIVISOR,
   COSMOS_SIM_SETTLE_RENDER_DIVISOR,
@@ -119,19 +124,60 @@ export function readCosmosRenderPolicyFromNoteGraphView(): CosmosRenderPolicySna
       ? Number(divisorMatch[1])
       : COSMOS_SIM_SETTLE_RENDER_DIVISOR,
     tickStateDrivesRender: src.includes('const [tick, setTick]'),
-    fullComponentRerenderOnTick: src.includes('}, [graphViewMode, reducedMotion, tick]'),
+    fullComponentRerenderOnTick:
+      src.includes('}, [graphViewMode, reducedMotion, tick]')
+      || /displayPosContext = useMemo\([\s\S]{0,200}tick/s.test(src),
     nodeEdgeMapsMemoized: src.includes('CosmosNodeLayer') && src.includes('CosmosEdgeLayer'),
     svgBackend: 'react-svg',
     universeModeDefault: true,
   };
 }
 
-function graphCounts(noteCount: number): { nodes: number; edges: number } {
+const graphCountsCache = new Map<number, { nodes: number; edges: number }>();
+const k92b1ForceSimAuditCache = new Map<number, K92b1ForceSimAuditRow>();
+const k92b2bScenarioAuditCache = new Map<string, K92b2bAuditRow>();
+
+function computeGraphCounts(noteCount: number): { nodes: number; edges: number } {
   const dataset = buildLargeVaultDataset({ noteCount });
   const service = new KnowledgeIndexService();
   service.buildFromNotes(dataset.notes);
   const global = buildGlobalGraphData({ service });
   return { nodes: global.nodes.length, edges: global.edges.length };
+}
+
+function getGraphCounts(noteCount: number): { nodes: number; edges: number } {
+  const cached = graphCountsCache.get(noteCount);
+  if (cached) return cached;
+  const counts = computeGraphCounts(noteCount);
+  graphCountsCache.set(noteCount, counts);
+  return counts;
+}
+
+function getK92b1ForceSimAudit(noteCount: number): K92b1ForceSimAuditRow {
+  const cached = k92b1ForceSimAuditCache.get(noteCount);
+  if (cached) return cached;
+  const row = runK92b1ForceSimAudit(noteCount);
+  k92b1ForceSimAuditCache.set(noteCount, row);
+  return row;
+}
+
+function getK92b2bScenarioAudit(
+  noteCount: number,
+  scenarioId: K92b2bScenarioId,
+): K92b2bAuditRow {
+  const key = `${noteCount}:${scenarioId}`;
+  const cached = k92b2bScenarioAuditCache.get(key);
+  if (cached) return cached;
+  const row = runK92b2bScenarioAudit(noteCount, scenarioId);
+  k92b2bScenarioAuditCache.set(key, row);
+  return row;
+}
+
+/** Test-only: reset memoized audit snapshots between isolated harness runs. */
+export function clearK92b3CosmosSvgRenderAuditCache(): void {
+  graphCountsCache.clear();
+  k92b1ForceSimAuditCache.clear();
+  k92b2bScenarioAuditCache.clear();
 }
 
 export function countReactCommitsDuringSettle(
@@ -145,14 +191,13 @@ export function runK92b3RenderAttributionAudit(
   noteCount: number,
   scenario: K92b3RenderAttributionRow['scenario'],
 ): K92b3RenderAttributionRow {
-  const { nodes, edges } = graphCounts(noteCount);
+  const { nodes, edges } = getGraphCounts(noteCount);
   const alphaFloor = graphSimulationAlphaFloor(noteCount);
   let simTicks = countAlphaTicks(alphaFloor, 0.97, 1.0);
 
-  if (scenario === 'warm_full_settle') {
+  if (scenario === 'warm_full_settle' || scenario === 'warm_local_link_settle') {
+    // Same α-decay model as K-92B2B harness; no physics run needed for tick attribution.
     simTicks = countAlphaTicks(alphaFloor, 0.97, WARM_PARTIAL_REHEAT_ALPHA);
-  } else if (scenario === 'warm_local_link_settle') {
-    simTicks = runK92b2bScenarioAudit(noteCount, 'link_add_1').tickCount;
   }
 
   const commits = countReactCommitsDuringSettle(simTicks);
@@ -173,7 +218,7 @@ export function runK92b3RenderAttributionAudit(
 }
 
 export function runK92b3SvgAudit(noteCount: number): K92b3SvgAuditRow {
-  const { nodes, edges } = graphCounts(noteCount);
+  const { nodes, edges } = getGraphCounts(noteCount);
   const nodeCircles = Math.round(nodes * AVG_CIRCLES_PER_NODE);
   const labelTextElements = Math.round(nodes * LABEL_VISIBLE_FRACTION);
   const edgeLineElements = edges;
@@ -216,19 +261,33 @@ export function runK92b3SvgAudit(noteCount: number): K92b3SvgAuditRow {
   };
 }
 
-export function runK92b3CostSplitAudit(
+export function runK92b3WarmVsLocalLinkCostSplitCompare(noteCount: number): {
+  warm: K92b3CostSplitRow;
+  local: K92b3CostSplitRow;
+} {
+  const k92 = getK92b1ForceSimAudit(noteCount);
+  const localB2b = getK92b2bScenarioAudit(noteCount, 'link_add_1');
+  return {
+    warm: buildK92b3CostSplitRow(noteCount, 'warm_full_settle', k92),
+    local: buildK92b3CostSplitRow(noteCount, 'warm_local_link_settle', k92, localB2b),
+  };
+}
+
+function buildK92b3CostSplitRow(
   noteCount: number,
   scenario: K92b3RenderAttributionRow['scenario'],
+  k92: K92b1ForceSimAuditRow,
+  localB2b?: K92b2bAuditRow,
 ): K92b3CostSplitRow {
   const attr = runK92b3RenderAttributionAudit(noteCount, scenario);
   const svg = runK92b3SvgAudit(noteCount);
-  const k92 = runK92b1ForceSimAudit(noteCount);
 
   let simMs = k92.coldSimSettleMs;
   if (scenario === 'warm_full_settle') simMs = k92.warmPartialReheatMs;
-  if (scenario === 'warm_local_link_settle') {
-    const local = runK92b2bScenarioAudit(noteCount, 'link_add_1');
-    simMs = Math.round(k92.warmPartialReheatMs * (local.localPairIterations / Math.max(1, local.warmFullPairIterations)) * 100) / 100;
+  if (scenario === 'warm_local_link_settle' && localB2b) {
+    simMs = Math.round(
+      k92.warmPartialReheatMs * (localB2b.localPairIterations / Math.max(1, localB2b.warmFullPairIterations)) * 100,
+    ) / 100;
   }
 
   const reactModeledMs = Math.round((
@@ -265,6 +324,17 @@ export function runK92b3CostSplitAudit(
     svgPct,
     dominantBucket,
   };
+}
+
+export function runK92b3CostSplitAudit(
+  noteCount: number,
+  scenario: K92b3RenderAttributionRow['scenario'],
+): K92b3CostSplitRow {
+  const k92 = getK92b1ForceSimAudit(noteCount);
+  const localB2b = scenario === 'warm_local_link_settle'
+    ? getK92b2bScenarioAudit(noteCount, 'link_add_1')
+    : undefined;
+  return buildK92b3CostSplitRow(noteCount, scenario, k92, localB2b);
 }
 
 export function listK92b3Hotspots(): K92b3Hotspot[] {

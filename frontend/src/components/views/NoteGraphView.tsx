@@ -24,7 +24,6 @@ import type { NoteBase as Note } from './noteUtils';
 import {
   applyGalaxyCohesion,
   buildFocusUniverseDepthMap,
-  computeDisplayPosition,
   computeGalaxyCenters,
   computeUniverseHudStats,
   DEFAULT_FOCUS_DEPTH,
@@ -71,7 +70,6 @@ import {
   CosmosGalaxyDecorationLayer,
   CosmosNodeLayer,
   CosmosOrbitPathLayer,
-  type CosmosDisplayPosNode,
 } from './cosmosGraphLayers';
 import {
   buildGalaxyVisualTopology,
@@ -81,6 +79,7 @@ import {
   resolveOrbitPathsFromTopology,
 } from './cosmosGraphMemoPipeline';
 import { buildCosmosRenderMapFromNodes } from './cosmosRenderMapMemo';
+import { createCosmosDisplayPositionResolver } from './cosmosDisplayPositionCache';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -787,23 +786,20 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     searchHasMatches: matchedIds === null || matchedIds.size > 0,
   });
 
-  const getDisplayPos = useCallback((node: CosmosDisplayPosNode) => {
-    const parent = node.orbitParentId
-      ? nodesRef.current.find(n => n.id === node.orbitParentId)
-      : null;
-    return computeDisplayPosition({
-      x: node.x,
-      y: node.y,
-      parentX: parent?.x ?? null,
-      parentY: parent?.y ?? null,
-      orbitRadius: node.orbitRadius ?? 0,
-      orbitAngle: node.orbitAngle ?? 0,
-      orbitSpeed: node.orbitSpeed ?? 0,
+  const displayPosContext = useMemo(
+    () => ({
+      renderMap,
       timeMs: orbitTimeRef.current,
       reducedMotion,
-      enabled: isUniverseMode(graphViewMode),
-    });
-  }, [graphViewMode, reducedMotion, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+      universeMode: isUniverseMode(graphViewMode),
+    }),
+    [renderMap, graphViewMode, reducedMotion, tick], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const getDisplayPos = useMemo(
+    () => createCosmosDisplayPositionResolver(displayPosContext),
+    [displayPosContext],
+  );
 
   const galaxyVisuals = showGalaxyNebula
     ? resolveGalaxyVisualsFromTopology(galaxyVisualTopology, id => renderMap.get(id))
