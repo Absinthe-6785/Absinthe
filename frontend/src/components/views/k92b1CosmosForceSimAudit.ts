@@ -87,8 +87,7 @@ const PRODUCTION_SIM_CONFIG = {
   linkDistance: 130,
   renderTickThrottle: 'setTick every 3rd rAF frame during sim',
   effectRestartDeps: [
-    'vaultStructureVersion',
-    'indexContentVersion',
+    'graphTopologySignature',
     'size.w',
     'size.h',
     'relationshipFilter',
