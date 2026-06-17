@@ -41,7 +41,7 @@ describe('K-92B1 cosmos force sim audit', () => {
     const cfg = snapshotProductionSimConfig(1000);
     expect(cfg.initialAlpha).toBe(1);
     expect(cfg.alphaDecayPerTick).toBe(0.97);
-    expect(cfg.effectRestartDeps).toContain('dragging');
+    expect(cfg.effectRestartDeps).not.toContain('dragging');
     expect(countAlphaTicks(cfg.alphaFloor)).toBeGreaterThan(100);
     expect(estimateBarnesHutSpeedup(1000)).toBeGreaterThan(10);
   });
@@ -49,7 +49,7 @@ describe('K-92B1 cosmos force sim audit', () => {
   it('warm partial reheat reduces tick count vs cold start', () => {
     const row = rows.find(r => r.noteCount === 500)!;
     expect(row.warmPartialReheatTicks).toBeLessThanOrEqual(row.coldSimTicks);
-    expect(row.raisedFloorSimMs).toBeLessThan(row.coldSimSettleMs);
+    expect(row.warmPartialReheatMs).toBeLessThan(row.coldSimSettleMs);
   });
 
   it('alpha floor policy matches graphScalePolicy', () => {

@@ -159,7 +159,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   const [size, setSize]         = useState({ w: 600, h: 400 });
   const [hovered, setHovered]   = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);  // node drag
+  const [dragging, setDragging] = useState<string | null>(null);  // node drag (UI + pointer handlers)
+  const draggingRef = useRef<string | null>(null);  // K-92B1A — sim loop reads ref; avoids sim restart on drag
   const [panning, setPanning]   = useState(false);                // canvas pan
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const [showIsolated, setShowIsolated] = useState(true);
@@ -176,6 +177,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   const dragOffset = useRef({ dx: 0, dy: 0 });
   const panStart   = useRef({ mx: 0, my: 0, tx: 0, ty: 0 });
+
+  const updateDragging = useCallback((id: string | null) => {
+    draggingRef.current = id;
+    setDragging(id);
+  }, []);
 
   // nodes/edges를 ref로 관리 — 애니메이션 루프에서 직접 변경
   const nodesRef = useRef<GraphNode[]>([]);
@@ -377,7 +383,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         });
 
         ns.forEach(n => {
-          if (n.id === dragging) return;
+          if (n.id === draggingRef.current) return;
           n.vx *= DAMPING; n.vy *= DAMPING;
           n.x  += n.vx * alpha;
           n.y  += n.vy * alpha;
@@ -398,7 +404,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
     frameRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [vaultStructureVersion, indexContentVersion, size.w, size.h, dragging, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [vaultStructureVersion, indexContentVersion, size.w, size.h, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG 좌표 변환 헬퍼 (클라이언트 → 그래프 공간) ──────────────
   const clientToGraph = useCallback((cx: number, cy: number) => {
@@ -419,7 +425,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     if (!nd) return;
     const { gx, gy } = clientToGraph(e.clientX, e.clientY);
     dragOffset.current = { dx: gx - nd.x, dy: gy - nd.y };
-    setDragging(id);
+    updateDragging(id);
     e.preventDefault();
   };
 
@@ -437,7 +443,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       nd.vx = 0; nd.vy = 0;
       setTick(t => t + 1);
     };
-    const onUp = () => setDragging(null);
+    const onUp = () => updateDragging(null);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
