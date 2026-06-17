@@ -31,17 +31,9 @@ import {
   computeUniverseHudStats,
   DEFAULT_FOCUS_DEPTH,
   enrichGraphNodeMeta,
-  edgeStrokeColor,
-  focusUniverseEdgeOpacity,
-  focusUniverseNodeOpacity,
-  focusUniverseNodeOpacityByDepth,
-  galaxyColor,
-  getEdgeVisualStyle,
-  getTierVisualStyle,
   interGalaxyRepulsionMultiplier,
   isUniverseMode,
   loadGraphViewMode,
-  resolveEdgeStrokeOpacity,
   saveGraphViewMode,
   shouldShowEmptyUniverse,
   usePrefersReducedMotion,
@@ -58,7 +50,6 @@ import {
   graphSimulationAlphaFloor,
   shouldRenderGalaxyLabels,
   shouldRenderGalaxyNebula,
-  shouldShowGraphNodeLabel,
 } from './graphScalePolicy';
 import {
   countPreservedGraphNodes,
@@ -72,6 +63,18 @@ import {
   resolveCosmosLocalReheatPlan,
   shouldIntegrateCosmosSimPair,
 } from './cosmosLocalReheat';
+import {
+  COSMOS_SIM_SETTLE_RENDER_DIVISOR,
+  shouldCommitRenderOnSimFrame,
+  shouldSuppressSettleDecorations,
+} from './cosmosRenderThrottle';
+import {
+  CosmosEdgeLayer,
+  CosmosGalaxyDecorationLayer,
+  CosmosNodeLayer,
+  CosmosOrbitPathLayer,
+  type CosmosDisplayPosNode,
+} from './cosmosGraphLayers';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -200,6 +203,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const edgesRef = useRef<GraphEdge[]>([]);
   const preservedNodeCountRef = useRef(0);
   const simContextRef = useRef<CosmosSimContextSnapshot | null>(null);
+  const simSettlingRef = useRef(false);
+  const [simSettling, setSimSettling] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -390,6 +395,9 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       }
     }
 
+    simSettlingRef.current = true;
+    setSimSettling(true);
+
     const nodeCount = nodesRef.current.length;
     const REPEL = graphRepulsionStrength(nodeCount);
     const alphaFloor = graphSimulationAlphaFloor(nodeCount);
@@ -462,16 +470,23 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
       renderTickRef.current += 1;
       if (simActive) {
-        const throttleRender = renderTickRef.current % 3 !== 0;
-        if (!throttleRender) {
+        if (shouldCommitRenderOnSimFrame(renderTickRef.current, COSMOS_SIM_SETTLE_RENDER_DIVISOR)) {
           setTick(t => t + 1);
         }
         frameRef.current = requestAnimationFrame(step);
+      } else if (simSettlingRef.current) {
+        simSettlingRef.current = false;
+        setSimSettling(false);
+        setTick(t => t + 1);
       }
     };
 
     frameRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frameRef.current);
+    return () => {
+      cancelAnimationFrame(frameRef.current);
+      simSettlingRef.current = false;
+      setSimSettling(false);
+    };
   }, [graphTopologySignature, size.w, size.h, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG 좌표 변환 헬퍼 (클라이언트 → 그래프 공간) ──────────────
@@ -777,7 +792,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     searchHasMatches: matchedIds === null || matchedIds.size > 0,
   });
 
-  const getDisplayPos = useCallback((node: GraphNode) => {
+  const getDisplayPos = useCallback((node: CosmosDisplayPosNode) => {
     const parent = node.orbitParentId
       ? nodesRef.current.find(n => n.id === node.orbitParentId)
       : null;
@@ -786,9 +801,9 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       y: node.y,
       parentX: parent?.x ?? null,
       parentY: parent?.y ?? null,
-      orbitRadius: node.orbitRadius,
-      orbitAngle: node.orbitAngle,
-      orbitSpeed: node.orbitSpeed,
+      orbitRadius: node.orbitRadius ?? 0,
+      orbitAngle: node.orbitAngle ?? 0,
+      orbitSpeed: node.orbitSpeed ?? 0,
       timeMs: orbitTimeRef.current,
       reducedMotion,
       enabled: isUniverseMode(graphViewMode),
@@ -796,6 +811,20 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   }, [graphViewMode, reducedMotion, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const transformStr = `translate(${transform.x}, ${transform.y}) scale(${transform.k})`;
+  const suppressSettleDecorations = shouldSuppressSettleDecorations(simSettling);
+  const nodeById = renderMap;
+  const tierLabels = useMemo(() => ({
+    star: t('graphTierStar'),
+    planet: t('graphTierPlanet'),
+    moon: t('graphTierMoon'),
+  }), [t]);
+  const resolveFolderColor = useCallback(
+    (folderId: string | null) => getFolderColor(folderId, folderIds),
+    [folderIds],
+  );
+  const handleHoverEdgeKind = useCallback((kind: EdgeSemanticKind | null) => {
+    setHoveredEdgeKind(kind);
+  }, []);
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', background: colors.bg, overflow: 'hidden' }}>
@@ -1033,301 +1062,60 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
         </defs>
 
         <g transform={transformStr}>
-          {/* Galaxy nebula + boundaries (universe mode) */}
-          {galaxyVisuals.map(galaxy => (
-            <g key={galaxy.galaxyId} data-ku-galaxy={galaxy.galaxyId}>
-              <circle
-                cx={galaxy.centerX}
-                cy={galaxy.centerY}
-                r={galaxy.nebulaRadius}
-                fill={galaxyColor(galaxy.hue, dark ? 0.14 : 0.1, dark)}
-                stroke="none"
-              />
-              <circle
-                cx={galaxy.centerX}
-                cy={galaxy.centerY}
-                r={galaxy.boundaryRadius}
-                fill="none"
-                stroke={galaxyColor(galaxy.hue, dark ? 0.35 : 0.28, dark)}
-                strokeWidth={1}
-                strokeDasharray="6 8"
-                opacity={0.55}
-              />
-              {galaxy.anchorNodeId && (
-                <g>
-                  <circle
-                    cx={galaxy.centerX}
-                    cy={galaxy.centerY}
-                    r={6}
-                    fill={galaxyColor(galaxy.hue, 0.55, dark)}
-                    stroke={colors.act}
-                    strokeWidth={1}
-                  />
-                  <path
-                    d={`M ${galaxy.centerX - 10} ${galaxy.centerY} L ${galaxy.centerX + 10} ${galaxy.centerY} M ${galaxy.centerX} ${galaxy.centerY - 10} L ${galaxy.centerX} ${galaxy.centerY + 10}`}
-                    stroke={galaxyColor(galaxy.hue, 0.7, dark)}
-                    strokeWidth={0.75}
-                    opacity={0.6}
-                  />
-                </g>
-              )}
-              {showGalaxyLabels && (
-                <text
-                  x={galaxy.centerX}
-                  y={galaxy.centerY - galaxy.boundaryRadius - 8}
-                  textAnchor="middle"
-                  fontSize={11}
-                  fontWeight={700}
-                  fill={galaxyColor(galaxy.hue, dark ? 0.9 : 0.75, dark)}
-                  style={{ userSelect: 'none', pointerEvents: 'none' }}
-                >
-                  {galaxy.nodeCount > 1
-                    ? `${galaxy.displayTitle} (${galaxy.nodeCount})`
-                    : galaxy.displayTitle}
-                </text>
-              )}
-            </g>
-          ))}
+          <CosmosGalaxyDecorationLayer
+            galaxies={galaxyVisuals}
+            showGalaxyLabels={showGalaxyLabels}
+            suppressDecorations={suppressSettleDecorations}
+            dark={dark}
+            colors={colors}
+          />
 
-          {/* Orbit tracks */}
-          {orbitPaths.map(path => (
-            <circle
-              key={path.id}
-              cx={path.cx}
-              cy={path.cy}
-              r={path.radius}
-              fill="none"
-              stroke={path.tier === 'moon' ? colors.dimEdge : colors.act}
-              strokeWidth={path.tier === 'moon' ? 0.75 : 1}
-              strokeOpacity={path.tier === 'moon' ? 0.18 : 0.28}
-              strokeDasharray={path.tier === 'moon' ? '2 5' : '4 6'}
-            />
-          ))}
+          <CosmosOrbitPathLayer
+            paths={orbitPaths}
+            suppressDecorations={suppressSettleDecorations}
+            colors={colors}
+          />
 
-          {/* 엣지 */}
-          {visibleEdges.map((e, i) => {
-            const a = renderMap.get(e.from), b = renderMap.get(e.to);
-            if (!a || !b) return null;
-            const posA = getDisplayPos(a);
-            const posB = getDisplayPos(b);
-            const isAct  = e.from === highlightNodeId || e.to === highlightNodeId;
-            const isHovEdge = hovered === e.from || hovered === e.to;
-            const depthA = focusDepthMap?.get(e.from);
-            const depthB = focusDepthMap?.get(e.to);
-            const inFocusCluster = focusNeighborhood === null
-              || (focusNeighborhood.has(e.from) && focusNeighborhood.has(e.to));
-            const isDim  = matchedIds !== null
-              ? !matchedIds.has(e.from) && !matchedIds.has(e.to)
-              : !inFocusCluster;
-            const edgeStyle = getEdgeVisualStyle(e.relationshipType, e.weight);
-            const focusOpacity = hasActiveSelection
-              ? focusUniverseEdgeOpacity(depthA, depthB, true)
-              : 1;
-            const strokeOpacity = resolveEdgeStrokeOpacity(edgeStyle, {
-              isActive: isAct,
-              isHovered: isHovEdge,
-              isDim,
-              focusOpacity,
-            });
-            const strokeColor = isDim
-              ? colors.dimEdge
-              : edgeStrokeColor(edgeStyle.kind, dark, colors.act);
-            return (
-              <line key={i} x1={posA.x} y1={posA.y} x2={posB.x} y2={posB.y}
-                stroke={strokeColor}
-                strokeWidth={isAct || isHovEdge ? edgeStyle.strokeWidth + 0.75 : edgeStyle.strokeWidth}
-                strokeOpacity={strokeOpacity}
-                strokeDasharray={edgeStyle.strokeDasharray}
-                filter={edgeStyle.glow && !isDim ? 'url(#ku-edge-glow)' : undefined}
-                markerEnd={isDim ? 'url(#garr-dim)' : isAct ? 'url(#garr-act)' : 'url(#garr)'}
-                onMouseEnter={() => setHoveredEdgeKind(edgeStyle.kind)}
-                onMouseLeave={() => setHoveredEdgeKind(null)}
-                style={{ pointerEvents: 'stroke' }}
-              />
-            );
-          })}
+          <CosmosEdgeLayer
+            edges={visibleEdges}
+            nodeById={nodeById}
+            getDisplayPos={getDisplayPos}
+            highlightNodeId={highlightNodeId}
+            hovered={hovered}
+            focusDepthMap={focusDepthMap}
+            focusNeighborhood={focusNeighborhood}
+            matchedIds={matchedIds}
+            hasActiveSelection={hasActiveSelection}
+            suppressDecorations={suppressSettleDecorations}
+            dark={dark}
+            colors={colors}
+            onHoverEdgeKind={handleHoverEdgeKind}
+          />
 
-          {/* 노드 */}
-          {visibleNodes.map(node => {
-            const pos = getDisplayPos(node);
-            const tierVisual = getTierVisualStyle(node.radius, node.tier, dark);
-            const r = tierVisual.renderRadius;
-            const isAct   = node.id === highlightNodeId;
-            const isHov   = node.id === hovered;
-            const isMatch = matchedIds !== null && matchedIds.has(node.id);
-            const focusDepth = focusDepthMap?.get(node.id);
-            const inFocusCluster = focusNeighborhood === null || focusNeighborhood.has(node.id);
-            const isDim   = matchedIds !== null
-              ? !matchedIds.has(node.id)
-              : !inFocusCluster;
-            const nodeOpacity = isDim
-              ? (hasActiveSelection
-                ? focusUniverseNodeOpacity(false, true)
-                : focusUniverseNodeOpacity(false, false))
-              : (hasActiveSelection
-                ? focusUniverseNodeOpacityByDepth(focusDepth, true)
-                : tierVisual.bodyOpacity);
-            const label   = node.title.length > 16 ? node.title.slice(0, 15) + '…' : node.title;
-            const showLabel = shouldShowGraphNodeLabel({
-              nodeCount: graphNodeCount,
-              zoomK: transform.k,
-              isActive: isAct,
-              isHovered: isHov,
-              isSearchMatch: isMatch,
-              isHub: node.tier === 'star',
-              nodeTier: node.tier,
-              inFocusCluster,
-              focusDepth,
-              hasSearchFilter: matchedIds !== null,
-            });
-            const tierLabel = node.tier === 'star' ? t('graphTierStar') : node.tier === 'planet' ? t('graphTierPlanet') : t('graphTierMoon');
-            const ariaLabel = `${node.title.trim() || 'Untitled'}, ${tierLabel}, ${node.backlinkCount} backlinks, importance ${Math.round(node.importance)}`;
-
-            const folderColor = getFolderColor(node.folderId, folderIds);
-            const nodeFill = isDim
-              ? colors.dimNode
-              : isAct
-                ? colors.act
-                : tierVisual.fillTint
-                  ? (dark ? tierVisual.fillTint + 'AA' : tierVisual.fillTint)
-                  : folderColor
-                    ? (dark ? folderColor + '55' : folderColor + '22')
-                    : colors.node;
-            const nodeStroke = isDim
-              ? colors.dimEdge
-              : isAct || isHov
-                ? colors.act
-                : isMatch
-                  ? '#10B981'
-                  : tierVisual.simplifiedOutline
-                    ? (dark ? '#71717A' : '#A8A29E')
-                    : folderColor ?? colors.nodeB;
-
-            return (
-              <g
-                key={node.id}
-                style={{ cursor: 'pointer', opacity: nodeOpacity }}
-                role="button"
-                tabIndex={0}
-                aria-label={ariaLabel}
-                onClick={e => { e.stopPropagation(); setPreviewNodeId(node.id); }}
-                onDoubleClick={e => { e.stopPropagation(); onSelect(node.id); }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setPreviewNodeId(node.id);
-                  }
-                }}
-                onMouseDown={e => onNodeMouseDown(e, node.id)}
-                onMouseEnter={() => setHovered(node.id)}
-                onMouseLeave={() => setHovered(null)}
-                onFocus={() => setHovered(node.id)}
-                onBlur={() => setHovered(null)}
-              >
-                {tierVisual.showCorona && !isDim && (
-                  <>
-                    <circle
-                      cx={pos.x}
-                      cy={pos.y}
-                      r={r + 14}
-                      fill="none"
-                      stroke={colors.act}
-                      strokeWidth={1.5}
-                      strokeOpacity={0.2}
-                      filter="url(#ku-star-glow)"
-                      className={reducedMotion ? undefined : 'ku-star-pulse'}
-                    />
-                    <circle
-                      cx={pos.x}
-                      cy={pos.y}
-                      r={r + 8}
-                      fill="none"
-                      stroke={colors.act}
-                      strokeWidth={1}
-                      strokeOpacity={0.45}
-                      className={reducedMotion ? undefined : 'ku-star-pulse'}
-                    />
-                  </>
-                )}
-                {tierVisual.showOrbitRing && !isDim && (
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={r + 5}
-                    fill="none"
-                    stroke={colors.act}
-                    strokeWidth={1}
-                    strokeOpacity={0.35}
-                    strokeDasharray="3 4"
-                  />
-                )}
-                {isHov && !isDim && (
-                  <circle cx={pos.x} cy={pos.y} r={r + 9} fill={colors.hovBg}/>
-                )}
-                <circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={Math.max(r + 12, compactChrome ? 22 : 18)}
-                  fill="transparent"
-                  stroke="none"
-                  style={{ pointerEvents: 'all' }}
-                />
-                {isAct && (
-                  <>
-                    <circle cx={pos.x} cy={pos.y} r={r + (compactChrome ? 12 : 10)}
-                      fill="none" stroke={colors.act} strokeWidth={compactChrome ? 2 : 1.5} strokeOpacity={compactChrome ? 0.4 : 0.25}
-                      className={reducedMotion ? undefined : 'ku-active-pulse'}
-                    />
-                    <circle cx={pos.x} cy={pos.y} r={r + (compactChrome ? 8 : 6)}
-                      fill="none" stroke={colors.act} strokeWidth={compactChrome ? 2.5 : 2} strokeOpacity={compactChrome ? 0.75 : 0.55}
-                    />
-                  </>
-                )}
-                {isMatch && (
-                  <circle cx={pos.x} cy={pos.y} r={r + 5}
-                    fill="none" stroke="#10B981" strokeWidth={1.5} strokeOpacity={0.6}
-                    strokeDasharray="3 2"
-                  />
-                )}
-                <circle
-                  cx={pos.x} cy={pos.y} r={r}
-                  fill={nodeFill}
-                  stroke={nodeStroke}
-                  strokeWidth={isAct || isHov || isMatch ? tierVisual.strokeWidth + 0.5 : tierVisual.strokeWidth}
-                  filter={tierVisual.glowFilter === 'star'
-                    ? 'url(#ku-star-glow)'
-                    : tierVisual.glowFilter === 'planet'
-                      ? 'url(#ku-planet-glow)'
-                      : undefined}
-                >
-                  <title>{node.title.trim() || t('untitledNote')}</title>
-                </circle>
-                {folderColor && !isAct && !isDim && node.tier !== 'moon' && (
-                  <circle cx={pos.x + r * 0.65} cy={pos.y - r * 0.65} r={3}
-                    fill={folderColor} opacity={0.9}
-                  />
-                )}
-                {node.starred && !isDim && (
-                  <text x={pos.x - r * 0.6} y={pos.y - r * 0.5}
-                    fontSize="9" textAnchor="middle"
-                    style={{ pointerEvents: 'none' }}>★</text>
-                )}
-                {showLabel && (
-                <text
-                  x={pos.x} y={pos.y + r + 16}
-                  textAnchor="middle"
-                  fontSize={(node.tier === 'star' ? 11 : 10) * (transform.k > 1.15 ? 1.12 : 1)}
-                  fill={isDim ? colors.dimTxt : isAct ? colors.act : dark ? '#E4E4E7' : '#1C1917'}
-                  fontWeight={isAct || isMatch || node.tier === 'star' ? '700' : '500'}
-                  opacity={isDim ? 0.55 : isAct ? 1 : 0.92}
-                  style={{ userSelect: 'none', pointerEvents: 'none' }}
-                >
-                  {label}
-                </text>
-                )}
-              </g>
-            );
-          })}
+          <CosmosNodeLayer
+            nodes={visibleNodes}
+            graphNodeCount={graphNodeCount}
+            transformK={transform.k}
+            getFolderColor={resolveFolderColor}
+            getDisplayPos={getDisplayPos}
+            highlightNodeId={highlightNodeId}
+            hovered={hovered}
+            matchedIds={matchedIds}
+            focusDepthMap={focusDepthMap}
+            focusNeighborhood={focusNeighborhood}
+            hasActiveSelection={hasActiveSelection}
+            suppressDecorations={suppressSettleDecorations}
+            compactChrome={compactChrome}
+            reducedMotion={reducedMotion}
+            dark={dark}
+            colors={colors}
+            untitledLabel={t('untitledNote')}
+            tierLabels={tierLabels}
+            onPreview={setPreviewNodeId}
+            onSelect={onSelect}
+            onNodeMouseDown={onNodeMouseDown}
+            onHover={setHovered}
+          />
         </g>
       </svg>
 
