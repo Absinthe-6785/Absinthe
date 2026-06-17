@@ -100,7 +100,7 @@ function cloneNodes(nodes: SimNode[]): SimNode[] {
   return nodes.map(n => ({ ...n, vx: 0, vy: 0 }));
 }
 
-function runForceSimSettle(
+export function runForceSimSettleForAudit(
   nodes: SimNode[],
   edges: SimEdge[],
   width: number,
@@ -111,6 +111,7 @@ function runForceSimSettle(
     alphaDecay?: number;
     alphaFloor?: number;
     maxSteps?: number;
+    activeNodeIds?: ReadonlySet<string> | null;
   } = {},
 ): ForceSimSettleResult {
   let alpha = options.initialAlpha ?? PRODUCTION_SIM_CONFIG.initialAlpha;
@@ -119,8 +120,14 @@ function runForceSimSettle(
   const alphaFloor = options.alphaFloor ?? graphSimulationAlphaFloor(nodeCount);
   const REPEL = graphRepulsionStrength(nodeCount);
   const maxSteps = options.maxSteps ?? 500;
+  const activeNodeIds = options.activeNodeIds ?? null;
   let tickCount = 0;
   let pairIterations = 0;
+
+  const integratesPair = (aId: string, bId: string) =>
+    activeNodeIds == null || activeNodeIds.has(aId) || activeNodeIds.has(bId);
+  const integratesNode = (id: string) =>
+    activeNodeIds == null || activeNodeIds.has(id);
 
   const t0 = performance.now();
   while (alpha >= alphaFloor && tickCount < maxSteps) {
@@ -133,6 +140,7 @@ function runForceSimSettle(
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
+        if (!integratesPair(nodes[i].id, nodes[j].id)) continue;
         pairIterations += 1;
         const dx = nodes[j].x - nodes[i].x;
         const dy = nodes[j].y - nodes[i].y;
@@ -151,6 +159,7 @@ function runForceSimSettle(
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     edges.forEach(e => {
+      if (!integratesPair(e.from, e.to)) return;
       const a = nodeMap.get(e.from);
       const b = nodeMap.get(e.to);
       if (!a || !b) return;
@@ -169,6 +178,7 @@ function runForceSimSettle(
     const cx = width / 2;
     const cy = height / 2;
     nodes.forEach(n => {
+      if (!integratesNode(n.id)) return;
       n.vx += (cx - n.x) * PRODUCTION_SIM_CONFIG.centerGravity;
       n.vy += (cy - n.y) * PRODUCTION_SIM_CONFIG.centerGravity;
       if (universeMode && galaxyCenters) {
@@ -287,15 +297,15 @@ export function runK92b1ForceSimAudit(noteCount: number): K92b1ForceSimAuditRow 
   });
 
   const coldNodes = cloneNodes(nodes);
-  const cold = runForceSimSettle(coldNodes, edges, 800, 600, universeMode);
+  const cold = runForceSimSettleForAudit(coldNodes, edges, 800, 600, universeMode);
 
   const warmNodes = cloneNodes(coldNodes);
-  const warm = runForceSimSettle(warmNodes, edges, 800, 600, universeMode, {
+  const warm = runForceSimSettleForAudit(warmNodes, edges, 800, 600, universeMode, {
     initialAlpha: WARM_PARTIAL_REHEAT_ALPHA,
   });
 
   const raisedFloorNodes = cloneNodes(nodes);
-  const raisedFloor = runForceSimSettle(raisedFloorNodes, edges, 800, 600, universeMode, {
+  const raisedFloor = runForceSimSettleForAudit(raisedFloorNodes, edges, 800, 600, universeMode, {
     alphaFloor: 0.05,
   });
 
