@@ -7,6 +7,7 @@ import { collectVirtualizationStats, setVirtualizationStatsSource } from './virt
 import { VIRTUAL_BLOCK_OVERSCAN } from './useVirtualBlockList';
 import { useVirtualBlockList } from './useVirtualBlockList';
 import { VirtualBlockList } from './VirtualBlockList';
+import type { VirtualRowMemoState } from './VirtualRowShell';
 import { setVirtualScrollSnapshot, resetVirtualScrollStore } from './virtualScrollStore';
 
 type VirtualScrollApiRef = MutableRefObject<{
@@ -18,6 +19,7 @@ export interface VirtualBlockScrollHostProps {
   blocks: Block[];
   getScrollElement: () => HTMLElement | null;
   renderBlock: (block: Block) => React.ReactNode;
+  getRowMemoState: (block: Block, index: number) => VirtualRowMemoState;
   virtualScrollApiRef?: VirtualScrollApiRef;
 }
 
@@ -28,6 +30,7 @@ export function VirtualBlockScrollHost({
   blocks,
   getScrollElement,
   renderBlock,
+  getRowMemoState,
   virtualScrollApiRef,
 }: VirtualBlockScrollHostProps) {
   useRenderDiagnostic('VirtualBlockScrollHost');
@@ -94,8 +97,11 @@ export function VirtualBlockScrollHost({
   }, [virtualList.virtualizer, virtualList.heightCache, blocks.length]);
 
   return (
-    <VirtualBlockList blocks={blocks} virtualList={virtualList}>
-      {renderBlock}
-    </VirtualBlockList>
+    <VirtualBlockList
+      blocks={blocks}
+      virtualList={virtualList}
+      renderBlock={renderBlock}
+      getRowMemoState={getRowMemoState}
+    />
   );
 }

@@ -1,18 +1,25 @@
 import React from 'react';
 import type { Block } from '../../../blockUtils';
 import type { UseVirtualBlockListResult } from './useVirtualBlockList';
+import { VirtualRowShell, type VirtualRowMemoState } from './VirtualRowShell';
 
 export interface VirtualBlockListProps {
   blocks: Block[];
   virtualList: UseVirtualBlockListResult;
-  children: (block: Block, index: number) => React.ReactNode;
+  renderBlock: (block: Block) => React.ReactNode;
+  getRowMemoState: (block: Block, index: number) => VirtualRowMemoState;
 }
 
 /**
  * Root-level virtual block list (UX-5E.1B POC).
  * Renders only viewport-visible SingleBlock rows.
  */
-export function VirtualBlockList({ blocks, virtualList, children }: VirtualBlockListProps) {
+export function VirtualBlockList({
+  blocks,
+  virtualList,
+  renderBlock,
+  getRowMemoState,
+}: VirtualBlockListProps) {
   const { virtualizer, enabled } = virtualList;
   if (!enabled) return null;
 
@@ -47,7 +54,11 @@ export function VirtualBlockList({ blocks, virtualList, children }: VirtualBlock
               transform: `translateY(${virtualRow.start}px)`,
             }}
           >
-            {children(block, virtualRow.index)}
+            <VirtualRowShell
+              block={block}
+              memoState={getRowMemoState(block, virtualRow.index)}
+              renderBlock={renderBlock}
+            />
           </div>
         );
       })}

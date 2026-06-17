@@ -39,6 +39,7 @@ export { useDragStateSnapshot } from './useDragStateSnapshot';
 export { scrollToBlockId, type BlockVirtualizer } from './scrollToBlockId';
 export { useVirtualBlockList, type UseVirtualBlockListResult } from './useVirtualBlockList';
 export { VirtualBlockList } from './VirtualBlockList';
+export { VirtualRowShell, setVirtualRowShellRenderHook, type VirtualRowMemoState, type VirtualRowShellProps } from './VirtualRowShell';
 export { PendingFocusQueue } from './pendingFocusQueue';
 export {
   createDirectFocusNavigation,
