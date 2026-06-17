@@ -18,6 +18,7 @@ import {
   graphRepulsionStrength,
   graphSimulationAlphaFloor,
 } from './graphScalePolicy';
+import { COSMOS_WARM_REHEAT_ALPHA } from './cosmosSimReheat';
 
 export interface ForceSimConfigSnapshot {
   initialAlpha: number;
@@ -33,6 +34,8 @@ export interface ForceSimConfigSnapshot {
   effectRestartDeps: string[];
   usesBarnesHut: false;
   usesAlphaTarget: false;
+  warmReheatAlpha: number;
+  usesWarmReheatOnTopologyChange: true;
 }
 
 export interface ForceSimSettleResult {
@@ -261,6 +264,8 @@ export function snapshotProductionSimConfig(nodeCount: number): ForceSimConfigSn
     effectRestartDeps: [...PRODUCTION_SIM_CONFIG.effectRestartDeps],
     usesBarnesHut: false,
     usesAlphaTarget: false,
+    warmReheatAlpha: COSMOS_WARM_REHEAT_ALPHA,
+    usesWarmReheatOnTopologyChange: true,
   };
 }
 

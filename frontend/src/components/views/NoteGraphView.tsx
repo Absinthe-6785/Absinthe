@@ -60,6 +60,11 @@ import {
   shouldRenderGalaxyNebula,
   shouldShowGraphNodeLabel,
 } from './graphScalePolicy';
+import {
+  countPreservedGraphNodes,
+  resolveCosmosSimInitialAlpha,
+  type CosmosSimContextSnapshot,
+} from './cosmosSimReheat';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -186,6 +191,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   // nodes/edges를 ref로 관리 — 애니메이션 루프에서 직접 변경
   const nodesRef = useRef<GraphNode[]>([]);
   const edgesRef = useRef<GraphEdge[]>([]);
+  const preservedNodeCountRef = useRef(0);
+  const simContextRef = useRef<CosmosSimContextSnapshot | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -269,6 +276,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       galaxyCacheKey,
     });
     const existing = Object.fromEntries(nodesRef.current.map(n => [n.id, n]));
+    const existingIds = new Set(Object.keys(existing));
     const cx = size.w / 2, cy = size.h / 2;
 
     nodesRef.current = graphData.nodes.map(node => {
@@ -321,11 +329,31 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       nd.folderId = note?.folderId ?? null;
       nd.updatedAt = note?.updatedAt ?? null;
     });
+
+    preservedNodeCountRef.current = countPreservedGraphNodes(
+      existingIds,
+      graphData.nodes.map(node => node.noteId),
+    );
   }, [graphData, noteById, size.w, size.h]);
 
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
-    let alpha = 1.0;
+    const nextSimContext: CosmosSimContextSnapshot = {
+      vaultStructureVersion,
+      indexContentVersion,
+      sizeW: size.w,
+      sizeH: size.h,
+      relationshipFilter,
+      graphViewMode,
+      reducedMotion,
+    };
+    let alpha = resolveCosmosSimInitialAlpha({
+      preservedNodeCount: preservedNodeCountRef.current,
+      totalNodeCount: nodesRef.current.length,
+      prev: simContextRef.current,
+      next: nextSimContext,
+    });
+    simContextRef.current = nextSimContext;
     const nodeCount = nodesRef.current.length;
     const REPEL = graphRepulsionStrength(nodeCount);
     const alphaFloor = graphSimulationAlphaFloor(nodeCount);
