@@ -10,6 +10,7 @@ import {
   formatK92b1AuditTable,
   runK92b1ForceSimAudit,
   snapshotProductionSimConfig,
+  WARM_PARTIAL_REHEAT_ALPHA,
 } from './k92b1CosmosForceSimAudit';
 import { graphSimulationAlphaFloor } from './graphScalePolicy';
 
@@ -32,7 +33,12 @@ describe('K-92B1 cosmos force sim audit', () => {
       expect(row.expandNodeMs).toBeLessThan(5);
       expect(row.coldSimSettleMs).toBeGreaterThan(0);
       expect(row.coldSimSettleMs).toBeGreaterThan(row.expandNodeMs * 10);
-      expect(row.warmPartialReheatMs).toBeLessThan(row.coldSimSettleMs);
+      const alphaFloor = graphSimulationAlphaFloor(noteCount);
+      expect(row.coldSimTicks).toBe(countAlphaTicks(alphaFloor, 0.97, 1.0));
+      expect(row.warmPartialReheatTicks).toBe(
+        countAlphaTicks(alphaFloor, 0.97, WARM_PARTIAL_REHEAT_ALPHA),
+      );
+      expect(row.warmPartialReheatTicks).toBeLessThan(row.coldSimTicks);
       expect(row.config.usesBarnesHut).toBe(false);
     });
   }
@@ -48,8 +54,12 @@ describe('K-92B1 cosmos force sim audit', () => {
 
   it('warm partial reheat reduces tick count vs cold start', () => {
     const row = rows.find(r => r.noteCount === 500)!;
-    expect(row.warmPartialReheatTicks).toBeLessThanOrEqual(row.coldSimTicks);
-    expect(row.warmPartialReheatMs).toBeLessThan(row.coldSimSettleMs);
+    const alphaFloor = graphSimulationAlphaFloor(500);
+    expect(row.warmPartialReheatTicks).toBeLessThan(row.coldSimTicks);
+    expect(row.warmPartialReheatTicks).toBe(
+      countAlphaTicks(alphaFloor, 0.97, WARM_PARTIAL_REHEAT_ALPHA),
+    );
+    expect(row.coldSimTicks).toBe(countAlphaTicks(alphaFloor, 0.97, 1.0));
   });
 
   it('alpha floor policy matches graphScalePolicy', () => {

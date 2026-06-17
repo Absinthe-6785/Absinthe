@@ -27,17 +27,20 @@ describe('K-92B1B cosmos warm reheat', () => {
   });
 
   for (const noteCount of SCALE_POINTS) {
-    it(`warm reheat beats cold settle @ ${noteCount} notes`, () => {
+    it(`warm reheat reduces settle ticks @ ${noteCount} notes`, () => {
       const row = rows.find(r => r.noteCount === noteCount)!;
-      expect(row.warmSettleMs).toBeLessThan(row.coldSettleMs);
-      expect(row.warmTicks).toBeLessThanOrEqual(row.coldTicks);
-      expect(row.settleImprovementPct).toBeGreaterThan(0);
+      expect(row.warmTicks).toBeLessThan(row.coldTicks);
+      expect(row.tickReductionPct).toBeGreaterThan(0);
+      expect(row.warmSettleMs).toBeGreaterThan(0);
+      expect(row.coldSettleMs).toBeGreaterThan(0);
     });
   }
 
   it('@ 1000 notes warm reheat uses production alpha constant', () => {
     expect(COSMOS_WARM_REHEAT_ALPHA).toBe(0.2);
     const row = rows.find(r => r.noteCount === 1000)!;
-    expect(row.settleImprovementPct).toBeGreaterThan(40);
+    expect(row.tickReductionPct).toBeGreaterThan(40);
+    expect(row.warmTicks).toBe(76);
+    expect(row.coldTicks).toBe(129);
   });
 });
