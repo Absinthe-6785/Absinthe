@@ -119,7 +119,9 @@ export function readCosmosRenderPolicyFromNoteGraphView(): CosmosRenderPolicySna
       ? Number(divisorMatch[1])
       : COSMOS_SIM_SETTLE_RENDER_DIVISOR,
     tickStateDrivesRender: src.includes('const [tick, setTick]'),
-    fullComponentRerenderOnTick: src.includes('}, [graphViewMode, reducedMotion, tick]'),
+    fullComponentRerenderOnTick:
+      src.includes('}, [graphViewMode, reducedMotion, tick]')
+      || /displayPosContext = useMemo\([\s\S]{0,200}tick/s.test(src),
     nodeEdgeMapsMemoized: src.includes('CosmosNodeLayer') && src.includes('CosmosEdgeLayer'),
     svgBackend: 'react-svg',
     universeModeDefault: true,

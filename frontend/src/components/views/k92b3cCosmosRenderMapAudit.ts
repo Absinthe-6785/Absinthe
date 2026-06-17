@@ -31,6 +31,8 @@ export interface K92b3cPolicySnapshot {
   renderMapMemoized: boolean;
   getDisplayPosTickCoupled: boolean;
   getDisplayPosParentLinearScan: boolean;
+  getDisplayPosParentIndexed: boolean;
+  getDisplayPosCacheEnabled: boolean;
   matchedIdsTickCoupled: boolean;
   galaxyResolveGatedOnSettle: boolean;
   orbitResolveGatedOnSettle: boolean;
@@ -196,9 +198,13 @@ export function readK92b3cPolicySnapshot(): K92b3cPolicySnapshot {
   return {
     renderMapInlineBuild: /const renderMap = new Map\(ns\.map/.test(src),
     renderMapMemoized: /const renderMap = useMemo\([\s\S]{0,200}graphTopologySignature/.test(src),
-    getDisplayPosTickCoupled: src.includes('getDisplayPos = useCallback')
-      && src.includes('[graphViewMode, reducedMotion, tick]'),
+    getDisplayPosTickCoupled: src.includes('createCosmosDisplayPositionResolver')
+      && /displayPosContext = useMemo\([\s\S]{0,200}tick/s.test(src),
     getDisplayPosParentLinearScan: src.includes('nodesRef.current.find(n => n.id === node.orbitParentId)'),
+    getDisplayPosParentIndexed: src.includes('createCosmosDisplayPositionResolver')
+      || readFileSync(join(viewsRoot(), 'cosmosDisplayPositionCache.ts'), 'utf8')
+        .includes('renderMap.get(node.orbitParentId)'),
+    getDisplayPosCacheEnabled: src.includes('createCosmosDisplayPositionResolver'),
     matchedIdsTickCoupled: src.includes('matchedIds = useMemo')
       && src.includes('[searchLower, searchQuery, safeNotes, tick]'),
     galaxyResolveGatedOnSettle: /const galaxyVisuals = [\s\S]{0,160}simSettling/.test(src),
