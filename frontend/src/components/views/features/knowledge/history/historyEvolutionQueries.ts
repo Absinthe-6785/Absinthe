@@ -1,7 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { KnowledgeMilestone, AreaEvolutionRow } from '../timeline/timelineTypes';
-import { countHubs, countLinksForNotes, noteEffectiveCreatedAt } from '../timeline/timelineMetrics';
+import { countHubs, noteEffectiveCreatedAt } from '../timeline/timelineMetrics';
 import type { KnowledgeHistoryEvent } from './eventTypes';
 import { loadKnowledgeHistoryEvents } from './historyStorage';
 import { hasNonImportedHistory } from './historyBootstrap';
@@ -88,7 +88,7 @@ export function buildCosmosEvolutionSummary(
     firstLinkNoteId: firstLink?.noteId ?? null,
     firstHubNoteId: firstHub?.noteId ?? null,
     currentNotes: active.length,
-    currentLinks: countLinksForNotes(active, service),
+    currentLinks: service.getGlobalEdgeCount(),
     currentHubs: countHubs(active, service),
     importedOnly: events.length > 0 && !hasNonImportedHistory(events),
   };

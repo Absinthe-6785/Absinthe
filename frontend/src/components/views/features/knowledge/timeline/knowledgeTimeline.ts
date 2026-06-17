@@ -26,6 +26,8 @@ import { buildPeriodBuckets, earliestNoteTime, trimSnapshotsForDisplay } from '.
 import { evaluateKnowledgeImportance } from '../cosmos/intelligence/knowledgeImportance';
 import { buildImportanceInputForNote } from '../cosmos/intelligence/knowledgeOpportunities';
 import { getNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
+import { collectGlobalGraphEdges } from '../graph/buildGlobalGraphData';
+import type { GraphEdge } from '../graph/graphModels';
 import { isAreaNote } from '../trace/areaNotes';
 import {
   discoveryHistoryFromEvents,
@@ -42,6 +44,7 @@ function buildSnapshots(
   now: number,
   discoveriesOpen: number,
   galaxyMap: Map<string, GalaxyAssignment>,
+  graphEdges: readonly GraphEdge[],
 ): TimelineSnapshot[] {
   const buckets = buildPeriodBuckets(notes, mode, now);
   return buckets.map(bucket => {
@@ -53,6 +56,7 @@ function buildSnapshots(
       bucket.id,
       bucket.label,
       galaxyMap,
+      graphEdges,
     );
   });
 }
@@ -228,13 +232,22 @@ function buildRecentEvolution(
   recentDays: number,
   areaEvolution: AreaEvolutionRow[],
   historyEvents: readonly KnowledgeHistoryEvent[],
+  graphEdges: readonly GraphEdge[],
 ): RecentEvolutionSummary {
   const startMs = now - recentDays * 86_400_000;
   const nowSnapshot = snapshots[snapshots.length - 1];
   const pastBuckets = buildPeriodBuckets(notes, 'month', now);
   const pastBucket = pastBuckets.find(b => b.endMs >= startMs && b.startMs <= startMs);
   const pastSnapshot = pastBucket
-    ? buildSnapshotMetrics(notesActiveAt(notes, pastBucket.startMs), service, 0, 'past', '')
+    ? buildSnapshotMetrics(
+      notesActiveAt(notes, pastBucket.startMs),
+      service,
+      0,
+      'past',
+      '',
+      undefined,
+      graphEdges,
+    )
     : null;
 
   const notesAdded = notes.filter(n => {
@@ -286,8 +299,9 @@ export function buildKnowledgeTimeline(
     options.galaxyCacheKey,
   );
 
+  const graphEdges = collectGlobalGraphEdges(service);
   const buckets = buildPeriodBuckets(notes, mode, now);
-  const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen, galaxyMap);
+  const snapshots = buildSnapshots(notes, service, mode, now, discoveriesOpen, galaxyMap, graphEdges);
   const displaySnapshots = trimSnapshotsForDisplay(snapshots, mode === 'all' ? 1 : 8);
   const areaEvolution = buildAreaEvolution(notes, service, mode, now, galaxyMap);
 
@@ -315,6 +329,7 @@ export function buildKnowledgeTimeline(
       recentDays,
       areaEvolution,
       historyEvents,
+      graphEdges,
     ),
     usesEventHistory,
   };
