@@ -195,7 +195,7 @@ export function readK92b3cPolicySnapshot(): K92b3cPolicySnapshot {
   const src = readFileSync(join(viewsRoot(), 'NoteGraphView.tsx'), 'utf8');
   return {
     renderMapInlineBuild: /const renderMap = new Map\(ns\.map/.test(src),
-    renderMapMemoized: /const renderMap = useMemo/.test(src),
+    renderMapMemoized: /const renderMap = useMemo\([\s\S]{0,200}graphTopologySignature/.test(src),
     getDisplayPosTickCoupled: src.includes('getDisplayPos = useCallback')
       && src.includes('[graphViewMode, reducedMotion, tick]'),
     getDisplayPosParentLinearScan: src.includes('nodesRef.current.find(n => n.id === node.orbitParentId)'),

@@ -80,6 +80,7 @@ import {
   resolveGalaxyVisualsFromTopology,
   resolveOrbitPathsFromTopology,
 } from './cosmosGraphMemoPipeline';
+import { buildCosmosRenderMapFromNodes } from './cosmosRenderMapMemo';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -628,7 +629,10 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   // ── 렌더 데이터 준비 ──────────────────────────────────────────────
   const ns = nodesRef.current;
   const es = edgesRef.current;
-  const renderMap = new Map(ns.map(n => [n.id, n]));
+  const renderMap = useMemo(
+    () => buildCosmosRenderMapFromNodes(nodesRef.current),
+    [graphTopologySignature],
+  );
 
   const visibleGraph = useMemo(
     () => buildVisibleGraphSnapshot(nodesRef.current, edgesRef.current, showIsolated),
