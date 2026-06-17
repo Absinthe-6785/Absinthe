@@ -17,6 +17,7 @@ import {
   runK92b3CostSplitAudit,
   runK92b3RenderAttributionAudit,
   runK92b3SvgAudit,
+  runK92b3WarmVsLocalLinkCostSplitCompare,
 } from './k92b3CosmosSvgRenderAudit';
 import { COSMOS_SIM_SETTLE_RENDER_DIVISOR } from './cosmosRenderThrottle';
 
@@ -61,8 +62,7 @@ describe('K-92B3 cosmos SVG render audit', () => {
   }, 60_000);
 
   it('post-B2B local link settle keeps tick count but lowers sim share', () => {
-    const warm = runK92b3CostSplitAudit(1000, 'warm_full_settle');
-    const local = runK92b3CostSplitAudit(1000, 'warm_local_link_settle');
+    const { warm, local } = runK92b3WarmVsLocalLinkCostSplitCompare(1000);
     expect(local.simPct).toBeLessThan(warm.simPct);
     expect(local.reactPct).toBeGreaterThan(warm.reactPct);
   }, 120_000);

@@ -12,6 +12,13 @@ Branch: `k92b3c2-display-position-cache`
 
 ```bash
 npm run typecheck
-npm test -- cosmosDisplayPositionCache k92b3c2CosmosDisplay k92b3cCosmosRenderMap
+npm test -- cosmosDisplayPositionCache k92b3c2CosmosDisplay k92b3cCosmosRenderMap k92b3CosmosSvg
 npm run build
 ```
+
+## CI stabilization (K-92B3C2)
+
+`k92b3CosmosSvgRenderAudit.ts` memoizes `graphCounts`, `runK92b1ForceSimAudit`, and
+`runK92b2bScenarioAudit` per note count. Warm-local tick attribution uses deterministic
+`countAlphaTicks` (same value as B2B harness) instead of a full physics run. The post-B2B
+assertion uses `runK92b3WarmVsLocalLinkCostSplitCompare()` to share one K-92B1 + one B2B audit.
