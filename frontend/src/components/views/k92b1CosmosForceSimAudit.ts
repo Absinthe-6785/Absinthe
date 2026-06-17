@@ -85,7 +85,6 @@ const PRODUCTION_SIM_CONFIG = {
     'indexContentVersion',
     'size.w',
     'size.h',
-    'dragging',
     'relationshipFilter',
     'graphViewMode',
     'reducedMotion',
