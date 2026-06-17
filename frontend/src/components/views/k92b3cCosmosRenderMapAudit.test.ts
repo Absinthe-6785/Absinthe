@@ -23,8 +23,8 @@ const SCALES = [100, 300, 500, 1000] as const;
 describe('K-92B3C cosmos renderMap pipeline audit', () => {
   it('reads current production policy (post-B3B baseline)', () => {
     const policy = readK92b3cPolicySnapshot();
-    expect(policy.renderMapInlineBuild).toBe(true);
-    expect(policy.renderMapMemoized).toBe(false);
+    expect(policy.renderMapInlineBuild).toBe(false);
+    expect(policy.renderMapMemoized).toBe(true);
     expect(policy.getDisplayPosTickCoupled).toBe(true);
     expect(policy.getDisplayPosParentLinearScan).toBe(true);
     expect(policy.matchedIdsTickCoupled).toBe(true);
