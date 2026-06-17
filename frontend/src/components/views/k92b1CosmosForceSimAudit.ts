@@ -18,6 +18,10 @@ import {
   graphRepulsionStrength,
   graphSimulationAlphaFloor,
 } from './graphScalePolicy';
+import { COSMOS_WARM_REHEAT_ALPHA } from './cosmosSimReheat';
+
+/** Audit harness warm reheat α (same as production `COSMOS_WARM_REHEAT_ALPHA`). */
+export const WARM_PARTIAL_REHEAT_ALPHA = COSMOS_WARM_REHEAT_ALPHA;
 
 export interface ForceSimConfigSnapshot {
   initialAlpha: number;
@@ -33,6 +37,8 @@ export interface ForceSimConfigSnapshot {
   effectRestartDeps: string[];
   usesBarnesHut: false;
   usesAlphaTarget: false;
+  warmReheatAlpha: number;
+  usesWarmReheatOnTopologyChange: true;
 }
 
 export interface ForceSimSettleResult {
@@ -261,6 +267,8 @@ export function snapshotProductionSimConfig(nodeCount: number): ForceSimConfigSn
     effectRestartDeps: [...PRODUCTION_SIM_CONFIG.effectRestartDeps],
     usesBarnesHut: false,
     usesAlphaTarget: false,
+    warmReheatAlpha: COSMOS_WARM_REHEAT_ALPHA,
+    usesWarmReheatOnTopologyChange: true,
   };
 }
 
@@ -284,7 +292,7 @@ export function runK92b1ForceSimAudit(noteCount: number): K92b1ForceSimAuditRow 
 
   const warmNodes = cloneNodes(coldNodes);
   const warm = runForceSimSettle(warmNodes, edges, 800, 600, universeMode, {
-    initialAlpha: 0.2,
+    initialAlpha: WARM_PARTIAL_REHEAT_ALPHA,
   });
 
   const raisedFloorNodes = cloneNodes(nodes);
