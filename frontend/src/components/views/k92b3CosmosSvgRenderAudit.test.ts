@@ -18,6 +18,7 @@ import {
   runK92b3RenderAttributionAudit,
   runK92b3SvgAudit,
 } from './k92b3CosmosSvgRenderAudit';
+import { COSMOS_SIM_SETTLE_RENDER_DIVISOR } from './cosmosRenderThrottle';
 
 const SCALES = [100, 300, 500, 1000] as const;
 const SCENARIOS = ['cold_open_settle', 'warm_full_settle', 'warm_local_link_settle'] as const;
@@ -25,10 +26,10 @@ const SCENARIOS = ['cold_open_settle', 'warm_full_settle', 'warm_local_link_sett
 describe('K-92B3 cosmos SVG render audit', () => {
   it('reads production render throttle policy from NoteGraphView', () => {
     const policy = readCosmosRenderPolicyFromNoteGraphView();
-    expect(policy.renderTickDivisor).toBe(PRODUCTION_RENDER_TICK_DIVISOR);
+    expect(policy.renderTickDivisor).toBe(COSMOS_SIM_SETTLE_RENDER_DIVISOR);
     expect(policy.tickStateDrivesRender).toBe(true);
     expect(policy.fullComponentRerenderOnTick).toBe(true);
-    expect(policy.nodeEdgeMapsMemoized).toBe(false);
+    expect(policy.nodeEdgeMapsMemoized).toBe(true);
   });
 
   it('prints render attribution table', () => {

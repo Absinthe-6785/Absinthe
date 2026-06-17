@@ -17,9 +17,14 @@ import {
 } from './k92b1CosmosForceSimAudit';
 import { graphSimulationAlphaFloor } from './graphScalePolicy';
 import { runK92b2bScenarioAudit } from './k92b2bIncrementalLocalReheatAudit';
+import {
+  COSMOS_LEGACY_SIM_RENDER_DIVISOR,
+  COSMOS_SIM_SETTLE_RENDER_DIVISOR,
+  countReactCommitsDuringSimTicks,
+} from './cosmosRenderThrottle';
 
-/** Production: setTick every 3rd sim rAF frame (NoteGraphView.tsx). */
-export const PRODUCTION_RENDER_TICK_DIVISOR = 3;
+/** Pre-K-92B3A baseline divisor (legacy production). */
+export const PRODUCTION_RENDER_TICK_DIVISOR = COSMOS_LEGACY_SIM_RENDER_DIVISOR;
 
 /** Weight render reconciliation vs one physics pair iteration (calibrated for SVG+React). */
 export const RENDER_PAIR_EQUIVALENCE = 12;
@@ -107,12 +112,15 @@ function viewsRoot(): string {
 
 export function readCosmosRenderPolicyFromNoteGraphView(): CosmosRenderPolicySnapshot {
   const src = readFileSync(join(viewsRoot(), 'NoteGraphView.tsx'), 'utf8');
-  const match = src.match(/renderTickRef\.current % (\d+) !== 0/);
+  const throttleSrc = readFileSync(join(viewsRoot(), 'cosmosRenderThrottle.ts'), 'utf8');
+  const divisorMatch = throttleSrc.match(/COSMOS_SIM_SETTLE_RENDER_DIVISOR = (\d+)/);
   return {
-    renderTickDivisor: match ? Number(match[1]) : PRODUCTION_RENDER_TICK_DIVISOR,
+    renderTickDivisor: divisorMatch
+      ? Number(divisorMatch[1])
+      : COSMOS_SIM_SETTLE_RENDER_DIVISOR,
     tickStateDrivesRender: src.includes('const [tick, setTick]'),
     fullComponentRerenderOnTick: src.includes('}, [graphViewMode, reducedMotion, tick]'),
-    nodeEdgeMapsMemoized: src.includes('const visibleNodes = useMemo'),
+    nodeEdgeMapsMemoized: src.includes('CosmosNodeLayer') && src.includes('CosmosEdgeLayer'),
     svgBackend: 'react-svg',
     universeModeDefault: true,
   };
@@ -126,9 +134,11 @@ function graphCounts(noteCount: number): { nodes: number; edges: number } {
   return { nodes: global.nodes.length, edges: global.edges.length };
 }
 
-export function countReactCommitsDuringSettle(simTicks: number, divisor = PRODUCTION_RENDER_TICK_DIVISOR): number {
-  if (simTicks <= 0) return 0;
-  return Math.ceil(simTicks / divisor);
+export function countReactCommitsDuringSettle(
+  simTicks: number,
+  divisor = PRODUCTION_RENDER_TICK_DIVISOR,
+): number {
+  return countReactCommitsDuringSimTicks(simTicks, divisor);
 }
 
 export function runK92b3RenderAttributionAudit(
