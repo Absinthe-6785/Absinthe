@@ -86,7 +86,7 @@ const TRIGGER_CATALOG: CosmosTriggerSpec[] = [
     storeVersionBump: 'indexContentVersion (debounced)',
     graphTopologyChanges: false,
     metadataOnly: true,
-    currentBehavior: 'warm_full',
+    currentBehavior: 'none',
     recommendedBehavior: 'none',
     notes: 'Graph data unchanged; sim restart is unnecessary today.',
   },
@@ -96,7 +96,7 @@ const TRIGGER_CATALOG: CosmosTriggerSpec[] = [
     storeVersionBump: 'vaultStructureVersion',
     graphTopologyChanges: false,
     metadataOnly: true,
-    currentBehavior: 'warm_full',
+    currentBehavior: 'none',
     recommendedBehavior: 'none',
     notes: 'Labels/radius refresh in node init; positions stable.',
   },
@@ -106,7 +106,7 @@ const TRIGGER_CATALOG: CosmosTriggerSpec[] = [
     storeVersionBump: 'vaultStructureVersion',
     graphTopologyChanges: false,
     metadataOnly: true,
-    currentBehavior: 'warm_full',
+    currentBehavior: 'none',
     recommendedBehavior: 'none',
     notes: 'May affect galaxy meta; usually no layout change needed.',
   },
@@ -116,7 +116,7 @@ const TRIGGER_CATALOG: CosmosTriggerSpec[] = [
     storeVersionBump: 'vaultStructureVersion',
     graphTopologyChanges: false,
     metadataOnly: true,
-    currentBehavior: 'warm_full',
+    currentBehavior: 'none',
     recommendedBehavior: 'none',
     notes: 'Visual only; no force change.',
   },
@@ -126,7 +126,7 @@ const TRIGGER_CATALOG: CosmosTriggerSpec[] = [
     storeVersionBump: 'vaultStructureVersion',
     graphTopologyChanges: false,
     metadataOnly: true,
-    currentBehavior: 'warm_full',
+    currentBehavior: 'none',
     recommendedBehavior: 'none',
     notes: 'Folder color only unless universe cohesion uses folder galaxies.',
   },
@@ -238,8 +238,7 @@ export function listCosmosTriggerCatalog(): readonly CosmosTriggerSpec[] {
 
 export function readForceSimEffectDeps(): string[] {
   return [
-    'vaultStructureVersion',
-    'indexContentVersion',
+    'graphTopologySignature',
     'size.w',
     'size.h',
     'relationshipFilter',
@@ -285,7 +284,7 @@ export function runK92b2ScenarioAudit(
     case 'metadata_only':
       affected = 0;
       initialAlpha = 0;
-      restartCount = 1;
+      restartCount = 0;
       break;
     default:
       break;
@@ -295,9 +294,9 @@ export function runK92b2ScenarioAudit(
     return {
       noteCount,
       scenarioId,
-      restartCount,
+      restartCount: 0,
       initialAlpha: 0,
-      settleTicks: warmTicks,
+      settleTicks: 0,
       incrementalPairShare: 0,
       affectedNodeCount: 0,
       totalNodeCount: noteCount,

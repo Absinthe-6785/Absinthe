@@ -25,7 +25,7 @@ describe('K-92B1A cosmos drag decoupling', () => {
   it('force sim effect does not list dragging as a dependency', () => {
     const deps = readForceSimEffectDepsFromNoteGraphView();
     expect(deps).not.toContain('dragging');
-    expect(deps).toContain('vaultStructureVersion');
+    expect(deps).toContain('graphTopologySignature');
     expect(deps).toContain('graphViewMode');
   });
 

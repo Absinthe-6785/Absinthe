@@ -42,6 +42,7 @@ export function noteGraphViewUsesWarmReheatPolicy(): boolean {
   const src = readFileSync(join(viewsRoot, 'NoteGraphView.tsx'), 'utf8');
   return src.includes('resolveCosmosSimInitialAlpha')
     && src.includes('preservedNodeCountRef')
+    && src.includes('graphTopologySignature')
     && !src.includes('let alpha = 1.0;');
 }
 

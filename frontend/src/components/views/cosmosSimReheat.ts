@@ -1,5 +1,5 @@
 /**
- * K-92B1B — Cosmos force simulation warm-reheat policy.
+ * K-92B1B / K-92B2A — Cosmos force simulation warm-reheat policy.
  * Shared between NoteGraphView and audit tests.
  */
 import type { GlobalGraphRelationshipFilter } from './features/knowledge';
@@ -9,8 +9,7 @@ export const COSMOS_COLD_START_ALPHA = 1.0;
 export const COSMOS_WARM_REHEAT_ALPHA = 0.2;
 
 export interface CosmosSimContextSnapshot {
-  vaultStructureVersion: number;
-  indexContentVersion: number;
+  graphTopologySignature: string;
   sizeW: number;
   sizeH: number;
   relationshipFilter: GlobalGraphRelationshipFilter;
@@ -46,12 +45,10 @@ export function resolveCosmosSimInitialAlpha(input: CosmosSimRestartInput): numb
     return COSMOS_COLD_START_ALPHA;
   }
 
-  const vaultOrContentChange =
-    prev.vaultStructureVersion !== next.vaultStructureVersion
-    || prev.indexContentVersion !== next.indexContentVersion;
+  const topologyChange = prev.graphTopologySignature !== next.graphTopologySignature;
   const sizeChange = prev.sizeW !== next.sizeW || prev.sizeH !== next.sizeH;
 
-  if (vaultOrContentChange || sizeChange) {
+  if (topologyChange || sizeChange) {
     return COSMOS_WARM_REHEAT_ALPHA;
   }
 

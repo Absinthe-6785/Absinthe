@@ -65,6 +65,7 @@ import {
   resolveCosmosSimInitialAlpha,
   type CosmosSimContextSnapshot,
 } from './cosmosSimReheat';
+import { buildGraphTopologySignatureFromGraphData } from './cosmosGraphSignature';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -238,6 +239,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [vaultStructureVersion, indexContentVersion, relationshipFilter],
   );
 
+  const graphTopologySignature = useMemo(
+    () => buildGraphTopologySignatureFromGraphData(graphData),
+    [graphData],
+  );
+
   useEffect(() => {
     logMemAudit({
       source: 'NoteGraphView.graphData',
@@ -339,8 +345,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   // ── Force-directed 루프 ───────────────────────────────────────────
   useEffect(() => {
     const nextSimContext: CosmosSimContextSnapshot = {
-      vaultStructureVersion,
-      indexContentVersion,
+      graphTopologySignature,
       sizeW: size.w,
       sizeH: size.h,
       relationshipFilter,
@@ -432,7 +437,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
     frameRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [vaultStructureVersion, indexContentVersion, size.w, size.h, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [graphTopologySignature, size.w, size.h, relationshipFilter, graphViewMode, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SVG 좌표 변환 헬퍼 (클라이언트 → 그래프 공간) ──────────────
   const clientToGraph = useCallback((cx: number, cy: number) => {

@@ -7,9 +7,11 @@ import {
   type CosmosSimContextSnapshot,
 } from './cosmosSimReheat';
 
+const SIG_A = 'n:a\nb\ne:a|b|backlink';
+const SIG_B = 'n:a\nb\nc\ne:a|b|backlink';
+
 const BASE_CONTEXT: CosmosSimContextSnapshot = {
-  vaultStructureVersion: 1,
-  indexContentVersion: 1,
+  graphTopologySignature: SIG_A,
   sizeW: 800,
   sizeH: 600,
   relationshipFilter: 'all',
@@ -27,22 +29,22 @@ describe('cosmosSimReheat', () => {
     })).toBe(COSMOS_COLD_START_ALPHA);
   });
 
-  it('uses warm alpha when vault structure changes with preserved positions', () => {
+  it('uses warm alpha when graph topology changes with preserved positions', () => {
     expect(resolveCosmosSimInitialAlpha({
       preservedNodeCount: 999,
       totalNodeCount: 1000,
       prev: BASE_CONTEXT,
-      next: { ...BASE_CONTEXT, vaultStructureVersion: 2 },
+      next: { ...BASE_CONTEXT, graphTopologySignature: SIG_B },
     })).toBe(COSMOS_WARM_REHEAT_ALPHA);
   });
 
-  it('uses warm alpha when index content changes with preserved positions', () => {
+  it('uses cold alpha when topology is unchanged (metadata-only path should not restart effect)', () => {
     expect(resolveCosmosSimInitialAlpha({
-      preservedNodeCount: 500,
-      totalNodeCount: 500,
+      preservedNodeCount: 1000,
+      totalNodeCount: 1000,
       prev: BASE_CONTEXT,
-      next: { ...BASE_CONTEXT, indexContentVersion: 2 },
-    })).toBe(COSMOS_WARM_REHEAT_ALPHA);
+      next: { ...BASE_CONTEXT, graphTopologySignature: SIG_A },
+    })).toBe(COSMOS_COLD_START_ALPHA);
   });
 
   it('uses warm alpha on panel resize when positions are preserved', () => {

@@ -12,7 +12,7 @@ import {
   readForceSimEffectDeps,
   runK92b2ScenarioAudit,
 } from './k92b2CosmosIncrementalSimAudit';
-import { resolveCosmosSimInitialAlpha, type CosmosSimContextSnapshot } from './cosmosSimReheat';
+import { COSMOS_COLD_START_ALPHA, resolveCosmosSimInitialAlpha, type CosmosSimContextSnapshot } from './cosmosSimReheat';
 
 const SCALES = [100, 300, 500, 1000] as const;
 const SCENARIOS = ['note_add_1', 'link_add_1', 'note_remove_1', 'metadata_only'] as const;
@@ -33,28 +33,39 @@ describe('K-92B2 cosmos incremental sim restart audit', () => {
 
   it('documents force sim effect dependencies', () => {
     const deps = readForceSimEffectDeps();
-    expect(deps).toContain('vaultStructureVersion');
-    expect(deps).toContain('indexContentVersion');
+    expect(deps).toContain('graphTopologySignature');
+    expect(deps).not.toContain('vaultStructureVersion');
+    expect(deps).not.toContain('indexContentVersion');
     expect(deps).not.toContain('dragging');
   });
 
-  it('metadata-only edit should not require restart (policy gap)', () => {
+  it('metadata-only edit does not restart sim (K-92B2A signature gate)', () => {
+    const sig = 'n:a\nb\ne:a|b|backlink';
     const base: CosmosSimContextSnapshot = {
-      vaultStructureVersion: 1,
-      indexContentVersion: 1,
+      graphTopologySignature: sig,
       sizeW: 800,
       sizeH: 600,
       relationshipFilter: 'all',
       graphViewMode: 'universe',
       reducedMotion: false,
     };
-    const afterTitle: CosmosSimContextSnapshot = { ...base, vaultStructureVersion: 2 };
+    const afterTitle: CosmosSimContextSnapshot = { ...base, graphTopologySignature: sig };
     expect(resolveCosmosSimInitialAlpha({
       preservedNodeCount: 1000,
       totalNodeCount: 1000,
       prev: base,
       next: afterTitle,
-    })).toBe(0.2);
+    })).toBe(COSMOS_COLD_START_ALPHA);
+    const row = runK92b2ScenarioAudit(500, 'metadata_only');
+    expect(row.restartCount).toBe(0);
+    expect(row.settleTicks).toBe(0);
+  });
+
+  it('catalog marks metadata-only triggers as fixed by K-92B2A', () => {
+    const metadata = listCosmosTriggerCatalog().filter(t => t.metadataOnly);
+    expect(metadata.length).toBeGreaterThanOrEqual(4);
+    expect(metadata.every(t => t.currentBehavior === 'none')).toBe(true);
+    expect(metadata.every(t => t.recommendedBehavior === 'none')).toBe(true);
   });
 
   it('incremental pair share shrinks with localized edits @ 1000 notes', () => {
@@ -63,10 +74,4 @@ describe('K-92B2 cosmos incremental sim restart audit', () => {
     expect(row.modeledTickCost).toBeLessThan(row.settleTicks);
     expect(incrementalPairShare(50, 1000)).toBeLessThan(0.1);
   }, 60_000);
-
-  it('catalog marks metadata-only triggers as over-restarting today', () => {
-    const overRestart = listCosmosTriggerCatalog().filter(t => t.metadataOnly && t.currentBehavior === 'warm_full');
-    expect(overRestart.length).toBeGreaterThanOrEqual(4);
-    expect(overRestart.every(t => t.recommendedBehavior === 'none')).toBe(true);
-  });
 });
