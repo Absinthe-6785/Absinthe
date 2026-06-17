@@ -1,10 +1,9 @@
 /**
  * K-89 — Large vault performance validation harness.
  * Run: npm test -- largeVaultUsageAudit
+ * Metrics JSON: npm run audit:discovery (writes docs/k89-observed-metrics.json)
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   LARGE_VAULT_SCALES,
   measureVaultAtScale,
@@ -119,10 +118,6 @@ describe('K-89 large vault usage audit', () => {
       console.log('K89_METRICS_JSON', JSON.stringify(summary));
       // eslint-disable-next-line no-console
       console.table(summary);
-      writeFileSync(
-        join(process.cwd(), 'docs', 'k89-observed-metrics.json'),
-        `${JSON.stringify(summary, null, 2)}\n`,
-      );
     });
   });
 });
