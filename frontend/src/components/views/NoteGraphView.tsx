@@ -24,8 +24,6 @@ import type { NoteBase as Note } from './noteUtils';
 import {
   applyGalaxyCohesion,
   buildFocusUniverseDepthMap,
-  buildGalaxyVisuals,
-  buildOrbitPaths,
   computeDisplayPosition,
   computeGalaxyCenters,
   computeUniverseHudStats,
@@ -75,6 +73,13 @@ import {
   CosmosOrbitPathLayer,
   type CosmosDisplayPosNode,
 } from './cosmosGraphLayers';
+import {
+  buildGalaxyVisualTopology,
+  buildOrbitPathTopology,
+  buildVisibleGraphSnapshot,
+  resolveGalaxyVisualsFromTopology,
+  resolveOrbitPathsFromTopology,
+} from './cosmosGraphMemoPipeline';
 
 // ── 타입 ─────────────────────────────────────────────────────────────
 interface GraphNode {
@@ -625,10 +630,11 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const es = edgesRef.current;
   const renderMap = new Map(ns.map(n => [n.id, n]));
 
-  // 고립 노드 필터 적용
-  const visibleNodes = showIsolated ? ns : ns.filter(n => n.links > 0);
-  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-  const visibleEdges = es.filter(e => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to));
+  const visibleGraph = useMemo(
+    () => buildVisibleGraphSnapshot(nodesRef.current, edgesRef.current, showIsolated),
+    [graphTopologySignature, showIsolated],
+  );
+  const { visibleNodes, visibleEdges } = visibleGraph;
 
   const isolatedCount = ns.filter(n => n.links === 0).length;
   const graphNodeCount = ns.length;
@@ -638,7 +644,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
   const focusDepthMap = useMemo(() => {
     if (!activeNoteId) return null;
     return buildFocusUniverseDepthMap(activeNoteId, visibleEdges, DEFAULT_FOCUS_DEPTH);
-  }, [activeNoteId, visibleEdges, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeNoteId, visibleEdges]);
 
   const focusNeighborhood = useMemo(() => {
     if (focusDepthMap) return new Set(focusDepthMap.keys());
@@ -649,35 +655,20 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       if (edge.to === focusId) ids.add(edge.from);
     });
     return ids;
-  }, [focusDepthMap, focusId, tick, visibleEdges.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusDepthMap, focusId, visibleEdges]);
 
   const showGalaxyNebula = shouldRenderGalaxyNebula(graphNodeCount, transform.k, isUniverseMode(graphViewMode));
   const showGalaxyLabels = shouldRenderGalaxyLabels(graphNodeCount, transform.k, isUniverseMode(graphViewMode));
 
-  const galaxyVisuals = useMemo(() => {
-    if (!showGalaxyNebula) return [];
-    const anchorByGalaxy = new Map<string, string | null>();
-    for (const node of visibleNodes) {
-      if (node.isAreaNote) anchorByGalaxy.set(node.galaxyId, node.id);
-    }
-    return buildGalaxyVisuals(
-      visibleNodes.map(node => ({
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        galaxyId: node.galaxyId,
-        galaxyLabel: node.galaxyLabel,
-        tier: node.tier,
-      })),
-      anchorByGalaxy,
-    );
-  }, [showGalaxyNebula, visibleNodes.length, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const galaxyVisualTopology = useMemo(
+    () => buildGalaxyVisualTopology(visibleNodes),
+    [graphTopologySignature, showIsolated],
+  );
 
-  const orbitPaths = useMemo(() => {
-    if (!isUniverseMode(graphViewMode)) return [];
-    const positions = new Map(visibleNodes.map(node => [node.id, { x: node.x, y: node.y }]));
-    return buildOrbitPaths(visibleNodes, positions);
-  }, [graphViewMode, visibleNodes.length, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const orbitPathTopology = useMemo(
+    () => buildOrbitPathTopology(visibleNodes),
+    [graphTopologySignature, showIsolated],
+  );
 
   const hudStats = useMemo(
     () => computeUniverseHudStats(visibleNodes, visibleEdges.length),
@@ -809,6 +800,13 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       enabled: isUniverseMode(graphViewMode),
     });
   }, [graphViewMode, reducedMotion, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const galaxyVisuals = showGalaxyNebula
+    ? resolveGalaxyVisualsFromTopology(galaxyVisualTopology, id => renderMap.get(id))
+    : [];
+  const orbitPaths = isUniverseMode(graphViewMode)
+    ? resolveOrbitPathsFromTopology(orbitPathTopology, id => renderMap.get(id))
+    : [];
 
   const transformStr = `translate(${transform.x}, ${transform.y}) scale(${transform.k})`;
   const suppressSettleDecorations = shouldSuppressSettleDecorations(simSettling);
