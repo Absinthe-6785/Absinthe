@@ -251,7 +251,20 @@ export function runK92b2ScenarioAudit(
   noteCount: number,
   scenarioId: 'note_add_1' | 'link_add_1' | 'note_remove_1' | 'metadata_only',
 ): K92b2ScenarioRow {
-  const baseline = runK92b1ForceSimAudit(noteCount);
+  if (scenarioId === 'metadata_only') {
+    return {
+      noteCount,
+      scenarioId,
+      restartCount: 0,
+      initialAlpha: 0,
+      settleTicks: 0,
+      incrementalPairShare: 0,
+      affectedNodeCount: 0,
+      totalNodeCount: noteCount,
+      modeledTickCost: 0,
+    };
+  }
+
   const alphaFloor = graphSimulationAlphaFloor(noteCount);
   const warmTicks = countAlphaTicks(alphaFloor, 0.97, WARM_PARTIAL_REHEAT_ALPHA);
 
@@ -281,27 +294,8 @@ export function runK92b2ScenarioAudit(
       affected = estimateAffectedNodesWithinHops([leaf], noteIds, edges, 2);
       break;
     }
-    case 'metadata_only':
-      affected = 0;
-      initialAlpha = 0;
-      restartCount = 0;
-      break;
     default:
       break;
-  }
-
-  if (scenarioId === 'metadata_only') {
-    return {
-      noteCount,
-      scenarioId,
-      restartCount: 0,
-      initialAlpha: 0,
-      settleTicks: 0,
-      incrementalPairShare: 0,
-      affectedNodeCount: 0,
-      totalNodeCount: noteCount,
-      modeledTickCost: 0,
-    };
   }
 
   const pairShare = incrementalPairShare(Math.min(affected, noteCount), noteCount);
