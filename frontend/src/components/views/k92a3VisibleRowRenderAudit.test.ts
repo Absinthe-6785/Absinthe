@@ -12,8 +12,9 @@ import {
   setVisibleRowAuditInstrumentation,
   topRenderHotspots,
   type ComponentRenderCounter,
-  type PropInstabilityRow,
 } from './k92a3VisibleRowRenderAudit';
+import { setVirtualRowShellRenderHook } from './features/block-editor/performance/VirtualRowShell';
+import { resetRenderDiagnostics } from './noteview/renderDiagnostics';
 
 const SINGLE_BLOCK_PROP_KEYS = [
   'block', 'isSelected', 'onBlockSelect', 'activeBlockId', 'controlsVisible',
@@ -107,17 +108,15 @@ setVisibleRowAuditInstrumentation({
   }),
 });
 
+setVirtualRowShellRenderHook(() => {
+  auditState.renderBlockCalls += 1;
+});
+
 vi.mock('./features/block-editor/performance/VirtualBlockList', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./features/block-editor/performance/VirtualBlockList')>();
   return {
     ...actual,
-    VirtualBlockList: wrapWithProfiler('VirtualBlockList', function WrappedVirtualBlockList(props) {
-      const wrappedChildren = (block: Parameters<typeof props.children>[0], index: number) => {
-        auditState.renderBlockCalls += 1;
-        return props.children(block, index);
-      };
-      return createElement(actual.VirtualBlockList, { ...props, children: wrappedChildren });
-    }),
+    VirtualBlockList: wrapWithProfiler('VirtualBlockList', actual.VirtualBlockList),
   };
 });
 
@@ -195,7 +194,8 @@ describe('K-92A3 visible row render audit', () => {
     console.log('\n' + formatVisibleRowRenderAuditReport(report));
 
     expect(report.blockCount).toBe(1000);
-    expect(report.renderBlockCalls).toBeGreaterThan(1000);
+    expect(report.renderBlockCalls).toBeGreaterThan(500);
+    expect(report.renderBlockCalls).toBeLessThan(5000);
     expect(report.components.SingleBlock?.renders).toBeGreaterThan(0);
 
     const singleBlock = report.components.SingleBlock!;
@@ -220,5 +220,64 @@ describe('K-92A3 visible row render audit', () => {
 
     expect(report.blockCount).toBe(2000);
     expect(report.components.SingleBlock?.renders).toBeGreaterThan(0);
+  }, 45_000);
+
+  it('K-92A3A: row memo reduces renderBlock churn @ 1000 blocks', () => {
+    resetAuditState();
+    resetRenderDiagnostics();
+
+    const report = runVisibleRowRenderAudit(auditState.counters, {
+      blockCount: 1000,
+      scrollDurationMs: 5000,
+      scrollFps: 60,
+      onScrollPhaseStart: () => {
+        resetAuditState();
+        resetRenderDiagnostics();
+      },
+    });
+
+    const singleBlock = report.components.SingleBlock!;
+    // eslint-disable-next-line no-console
+    console.log('\n=== K-92A3A row memo @ 1000 blocks ===');
+    // eslint-disable-next-line no-console
+    console.log(`renderBlock calls: ${report.renderBlockCalls} (K-92A3 baseline ~8152)`);
+    // eslint-disable-next-line no-console
+    console.log(`SingleBlock renders: ${singleBlock.renders} (K-92A3 baseline ~8295)`);
+    // eslint-disable-next-line no-console
+    console.log(`Total React time: ${report.totalReactRenderMs.toFixed(2)}ms`);
+    // eslint-disable-next-line no-console
+    console.log(`Selection rerenders: ${report.selectionPhaseSingleBlockRerenders}`);
+
+    // Primary target: renderBlock 8152 → ~1200–1500 (achieved ~999)
+    expect(report.renderBlockCalls).toBeLessThan(2000);
+    expect(report.renderBlockCalls).toBeGreaterThan(500);
+    // Secondary target: SingleBlock renders 8295 → ~2500–4000 (achieved ~1142)
+    expect(singleBlock.renders).toBeLessThan(2000);
+    expect(report.selectionPhaseSingleBlockRerenders).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('K-92A3A: row memo keeps renderBlock flat @ 2000 blocks', () => {
+    resetAuditState();
+
+    const report = runVisibleRowRenderAudit(auditState.counters, {
+      blockCount: 2000,
+      scrollDurationMs: 5000,
+      scrollFps: 60,
+      onScrollPhaseStart: resetAuditState,
+    });
+
+    const singleBlock = report.components.SingleBlock!;
+    // eslint-disable-next-line no-console
+    console.log('\n=== K-92A3A row memo @ 2000 blocks ===');
+    // eslint-disable-next-line no-console
+    console.log(`renderBlock calls: ${report.renderBlockCalls}`);
+    // eslint-disable-next-line no-console
+    console.log(`SingleBlock renders: ${singleBlock.renders} mounts=${singleBlock.mounts}`);
+    // eslint-disable-next-line no-console
+    console.log(`Total React time: ${report.totalReactRenderMs.toFixed(2)}ms`);
+
+    expect(report.renderBlockCalls).toBeLessThan(2000);
+    expect(singleBlock.renders).toBeLessThan(3500);
+    expect(singleBlock.mounts).toBeGreaterThan(2000);
   }, 45_000);
 });

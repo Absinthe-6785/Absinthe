@@ -97,6 +97,7 @@ import {
   VirtualBlockScrollHost,
   VirtualNavigationProvider,
   type RowMetricsOptions,
+  type VirtualRowMemoState,
 } from './features/block-editor/performance';
 
 export type { BlockEditorColors } from './editorTypes';
@@ -654,11 +655,50 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     [],
   );
 
+  const rowMemoContextRef = useRef({
+    selectedBlockIds: EMPTY_SELECTION_IDS,
+    activeBlockId: null as string | null | undefined,
+    isMenuOpenForBlock,
+    controlsVisibleFor,
+    headingIndexById,
+    searchQueryFor,
+    showPersistentPlaceholder,
+    readOnly,
+    searchQuery,
+  });
+  rowMemoContextRef.current = {
+    selectedBlockIds: activeSelection?.selectedBlockIds ?? EMPTY_SELECTION_IDS,
+    activeBlockId,
+    isMenuOpenForBlock,
+    controlsVisibleFor,
+    headingIndexById,
+    searchQueryFor,
+    showPersistentPlaceholder,
+    readOnly,
+    searchQuery,
+  };
+
+  const getVirtualRowMemoState = useCallback((block: typeof blocks[number], _index: number): VirtualRowMemoState => {
+    const ctx = rowMemoContextRef.current;
+    return {
+      isSelected: isBlockVisuallySelected(block, ctx.selectedBlockIds),
+      isMenuOpen: ctx.isMenuOpenForBlock(block.id),
+      controlsVisible: ctx.controlsVisibleFor(block.id),
+      activeBlockId: ctx.activeBlockId,
+      headingIndex: ctx.headingIndexById[block.id],
+      blockSearchQuery: ctx.searchQueryFor(block.id),
+      showPersistentPlaceholder: ctx.showPersistentPlaceholder(block.id),
+      readOnly: ctx.readOnly,
+      searchQuery: ctx.searchQuery,
+    };
+  }, []);
+
   const blockList = virtualRootEnabled ? (
     <VirtualBlockScrollHost
       blocks={blocks}
       getScrollElement={getVirtualScrollElement}
       renderBlock={renderVirtualBlock}
+      getRowMemoState={getVirtualRowMemoState}
       virtualScrollApiRef={virtualScrollApiRef}
     />
   ) : (
