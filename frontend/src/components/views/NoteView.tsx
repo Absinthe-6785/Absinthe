@@ -242,7 +242,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const storeDuplicateNote = useNotesStore(s => s.duplicateNote);
   const moveNoteToTrash = useNotesStore(s => s.moveNoteToTrash);
   const restoreNote = useNotesStore(s => s.restoreNote);
-  const permanentDeleteNote = useNotesStore(s => s.permanentDeleteNote);
+  const deleteNotePermanently = useNotesStore(s => s.deleteNotePermanently);
+  const emptyTrash = useNotesStore(s => s.emptyTrash);
   const storeCreateFolder = useNotesStore(s => s.createFolder);
   const storeRenameFolder = useNotesStore(s => s.renameFolder);
   const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
@@ -1229,6 +1230,25 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const starredCount    = useMemo(() => notes.filter(n => n.starred && !n.deletedAt).length, [notes]);
   const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
 
+  const handlePermanentDeleteActive = useCallback(() => {
+    if (!activeNote?.deletedAt) return;
+    showConfirm(
+      t('nvDeletePermanentConfirm'),
+      () => deleteNotePermanently(activeNote.id),
+      { confirmLabel: t('nvDeletePermanently'), variant: 'destructive' },
+    );
+  }, [activeNote, deleteNotePermanently, showConfirm, t]);
+
+  const handleEmptyTrash = useCallback(() => {
+    const count = notes.filter(n => n.deletedAt).length;
+    if (count === 0) return;
+    showConfirm(
+      t('nvEmptyTrashConfirm').replace('{count}', String(count)),
+      () => emptyTrash(),
+      { confirmLabel: t('nvEmptyTrash'), variant: 'destructive' },
+    );
+  }, [emptyTrash, notes, showConfirm, t]);
+
   const sidebarTodayCount = useMemo(() => {
     const projection = buildDailyTraceProjection(todayTraceKey, activeNotes);
     const ids = new Set(projection.activities.map(a => a.noteId));
@@ -1294,7 +1314,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleCreateProjectMilestone, handleOpenProjectNotes, handleEditProject, handleActivateSubjectWorkspace,
       handleOpenStudyCollection, handleOpenResearchCollection, handleOpenDiscover, handleOpenTimeline,
       handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote, handleUpdateNoteProperties,
-      handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace,
+      handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace, handleEmptyTrash,
     },
     editorLayout: {
       hideEditorArea, isMobile, isCompactChrome, isFocusPresetActive, isTrash, showRightPanel, viewMode,
@@ -1312,7 +1332,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       importInputRef, setMobileShowEditor, setActiveNoteId, handleExitFocusPreset, handleTitleChange,
       handleTitleCompositionEnd, noteUpdate, retrySync, setViewMode, openEditEventDialog, openMilestoneDialog,
       handleToggleAreaNote, toggleStar, duplicateNote, setShowRightPanel, handleCopyDocument, exportNote,
-      restoreNote, moveNoteToTrash, setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded,
+      restoreNote, moveNoteToTrash, onPermanentDelete: handlePermanentDeleteActive, setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded,
       openContextPanel, setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
       handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
       insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor,
@@ -1380,7 +1400,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     handleCreateJournalDatabase, handleCreateProject, handleCreateProjectMilestone, handleOpenProjectNotes, handleEditProject,
     handleActivateSubjectWorkspace, handleOpenStudyCollection, handleOpenResearchCollection, handleOpenDiscover,
     handleOpenTimeline, handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote,
-    handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace, hideEditorArea,
+    handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace, handleEmptyTrash, hideEditorArea,
     isFocusPresetActive, showRightPanel, viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied,
     activeNote, titleDraft, activeNoteKind, noteTags, syncError, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
     noteLinkedProjectTitle, noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
@@ -1388,7 +1408,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     activeFocusPreset, titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,
     setMobileShowEditor, handleExitFocusPreset, handleTitleChange, handleTitleCompositionEnd, retrySync,
     openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, setShowRightPanel, handleCopyDocument,
-    exportNote, restoreNote, moveNoteToTrash, setHeaderTagsExpanded, openContextPanel, setRightPanel, handlePromoteNoteKind,
+    exportNote, restoreNote, moveNoteToTrash, handlePermanentDeleteActive, handleEmptyTrash, setHeaderTagsExpanded, openContextPanel, setRightPanel, handlePromoteNoteKind,
     handleLearnLinking, handleHudReviewWeakAreas, setSearchScope, setSearchMatchIdx, insertEmptyImageBlockAtCursor,
     setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor, handleEditorDrop, handleReadingModeClick,
     handleActiveBodyChange, navigateToWiki, rightPanel, pageReferences, noteReferenceSummary, linksStructureCount,
@@ -1455,19 +1475,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <NoteContextPanelBody {...contextPanelProps} />
           </div>
-
-          {isTrash && activeNote && (
-            <div style={{ padding: 8, borderTop: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
-              <button onClick={() => showConfirm(
-                  t('nvDeleteNotePermanentMsg'),
-                  () => permanentDeleteNote(activeNote.id),
-                  { confirmLabel: t('delete'), variant: 'destructive' }
-                )}
-                style={{ width: '100%', background: `${c.danger}15`, border: `1px solid ${c.danger}40`, color: c.danger, borderRadius: 6, padding: '6px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-                {t('nvDeletePermanently')}
-              </button>
-            </div>
-          )}
         </KnowledgeContextPanel>
       )}
       {eventDialog && (

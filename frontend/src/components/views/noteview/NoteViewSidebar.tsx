@@ -5,6 +5,7 @@ import {
   Clock, Calendar, CalendarDays, LayoutDashboard, Folder,
 } from 'lucide-react';
 import { displayNoteTitle } from '../noteDisplayTitle';
+import { estimateDeletedNoteBytes, formatRecoverableStorage } from '../../../lib/trashNoteStorage';
 import {
   formatTraceDayHeading,
   formatAreaRangeHeading,
@@ -252,6 +253,7 @@ export interface NoteViewSidebarHandlers {
   handleNavigateToProjectEditor: NonNullable<WorkspaceDashboardViewProps['subjectWorkspaces']>['onEditProject'];
   setEditingLearningPathId: React.Dispatch<React.SetStateAction<string | null | undefined>>;
   resumeWorkspace: WorkspaceDashboardViewProps['resumeWorkspace'];
+  handleEmptyTrash: () => void;
 }
 
 export interface NoteViewSidebarProps {
@@ -311,7 +313,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleOpenStudyCollection, handleOpenResearchCollection, handleOpenDiscover, handleOpenTimeline,
     handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote,
     handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId,
-    resumeWorkspace,
+    resumeWorkspace, handleEmptyTrash,
   } = handlers;
 
   return (
@@ -885,6 +887,37 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             )}
           </div>
         </div>
+        {isTrash && !isWorkspacePanelMode && (
+          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: c.textMuted, fontWeight: 600 }}>
+                {t('nvTrashNoteCount').replace('{count}', String(trashCount))}
+              </div>
+              <div style={{ fontSize: 10, color: c.textFaint, marginTop: 2 }}>
+                {t('nvTrashRecoverableStorage').replace('{size}', formatRecoverableStorage(estimateDeletedNoteBytes(notes)))}
+              </div>
+            </div>
+            {trashCount > 0 ? (
+              <button
+                type="button"
+                className="btbtn"
+                onClick={handleEmptyTrash}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: c.danger,
+                  background: `${c.danger}12`,
+                  border: `1px solid ${c.danger}40`,
+                  borderRadius: 6,
+                }}
+              >
+                {t('nvEmptyTrash')}
+              </button>
+            ) : null}
+          </div>
+        )}
         {!isTrash && !isWorkspacePanelMode && (
           <div style={{ padding: '4px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 4 }} role="tablist" aria-label={t('k81NoteListFilters')}>

@@ -54,8 +54,11 @@ import {
   recordNoteDeleted,
   recordNoteUpdateDiff,
 } from '../components/views/features/knowledge/history';
+import { pruneNoteNavigationStack } from '../lib/noteNavigationStack';
+import { estimateDeletedNoteBytes } from '../lib/trashNoteStorage';
 
 export type { Note, NoteFolder };
+export { estimateDeletedNoteBytes };
 
 export interface CreateNoteOpts {
   title?: string;
@@ -88,6 +91,8 @@ interface NotesState {
   moveNoteToTrash: (id: string) => void;
   restoreNote: (id: string) => void;
   permanentDeleteNote: (id: string) => void;
+  deleteNotePermanently: (id: string) => void;
+  emptyTrash: () => void;
   createFolder: (name: string) => string;
   renameFolder: (id: string, name: string) => void;
   deleteFolder: (id: string) => void;
@@ -210,6 +215,19 @@ function syncKnowledgeIndexForNote(note: Note, patch?: Partial<Note>) {
   } else if ('body' in patch && !isBodyOnlyPatch(patch)) {
     knowledgeIndexService.updateNote(note);
   }
+}
+
+function resolveActiveNoteAfterRemoval(
+  prevActive: string | null,
+  removedIds: ReadonlySet<string>,
+  notes: Note[],
+  activeFolderId: string | null | 'trash',
+): string | null {
+  if (!prevActive || !removedIds.has(prevActive)) return prevActive;
+  if (activeFolderId === 'trash') {
+    return notes.find(n => n.deletedAt)?.id ?? null;
+  }
+  return notes.find(n => !n.deletedAt)?.id ?? null;
 }
 
 export const useNotesStore = create<NotesState>((set, get) => {
@@ -511,19 +529,69 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     permanentDeleteNote: (id) => {
-      clearBodySyncTimer(id);
-      pendingBodySync.delete(id);
-      recordNoteDeleted(id);
+      get().deleteNotePermanently(id);
+    },
+
+    deleteNotePermanently: (id) => {
+      const removedIds = new Set([id]);
+      for (const removedId of removedIds) {
+        clearBodySyncTimer(removedId);
+        pendingBodySync.delete(removedId);
+        recordNoteDeleted(removedId);
+      }
       knowledgeIndexService.removeNote(id);
+      pruneNoteNavigationStack(removedIds);
       const notes = get().notes.filter(n => n.id !== id);
-      const nextActive = get().activeNoteId === id
-        ? (notes.find(n => !n.deletedAt)?.id ?? null)
-        : get().activeNoteId;
-      set({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      const nextActive = resolveActiveNoteAfterRemoval(
+        get().activeNoteId,
+        removedIds,
+        notes,
+        get().activeFolderId,
+      );
+      set({
+        notes,
+        activeNoteId: nextActive,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
+        indexContentVersion: get().indexContentVersion + 1,
+      });
       persistNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
       void removeNoteFromDB(id);
+    },
+
+    emptyTrash: () => {
+      const trashed = get().notes.filter(n => n.deletedAt);
+      if (trashed.length === 0) return;
+
+      const removedIds = new Set(trashed.map(n => n.id));
+      for (const id of removedIds) {
+        clearBodySyncTimer(id);
+        pendingBodySync.delete(id);
+        recordNoteDeleted(id);
+      }
+      pruneNoteNavigationStack(removedIds);
+
+      const notes = get().notes.filter(n => !n.deletedAt);
+      rebuildKnowledgeIndex(notes);
+      const nextActive = resolveActiveNoteAfterRemoval(
+        get().activeNoteId,
+        removedIds,
+        notes,
+        get().activeFolderId,
+      );
+      set({
+        notes,
+        activeNoteId: nextActive,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
+        indexContentVersion: get().indexContentVersion + 1,
+      });
+      persistNotes(notes);
+      saveActiveNoteId(nextActive);
+
+      for (const note of trashed) {
+        void removeNoteFromDB(note.id);
+      }
     },
 
     createFolder: (name) => {

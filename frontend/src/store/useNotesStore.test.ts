@@ -489,3 +489,45 @@ describe('useNotesStore — Planner + NoteView shared state', () => {
     expect(useNotesStore.getState().activeNoteId).toBe(id);
   });
 });
+
+describe('useNotesStore — K-96A trash cleanup', () => {
+  beforeEach(() => {
+    resetStore();
+    authFetchMock.mockResolvedValue(okJson({}));
+  });
+
+  it('deleteNotePermanently removes trashed note and picks next trashed active id', () => {
+    useNotesStore.setState({
+      notes: [
+        { id: 'a', title: 'A', body: 'one', updatedAt: 1, folderId: null, deletedAt: 100 },
+        { id: 'b', title: 'B', body: 'two', updatedAt: 2, folderId: null, deletedAt: 200 },
+      ],
+      activeNoteId: 'a',
+      activeFolderId: 'trash',
+    });
+
+    useNotesStore.getState().deleteNotePermanently('a');
+
+    expect(useNotesStore.getState().notes.map(n => n.id)).toEqual(['b']);
+    expect(useNotesStore.getState().activeNoteId).toBe('b');
+  });
+
+  it('emptyTrash removes all deleted notes and keeps folders', () => {
+    useNotesStore.setState({
+      notes: [
+        { id: 'keep', title: 'Keep', body: '', updatedAt: 1, folderId: 'f1', deletedAt: null },
+        { id: 't1', title: 'T1', body: 'trash', updatedAt: 2, folderId: null, deletedAt: 100 },
+        { id: 't2', title: 'T2', body: 'trash', updatedAt: 3, folderId: null, deletedAt: 200 },
+      ],
+      folders: [{ id: 'f1', name: 'Study', createdAt: 1 }],
+      activeNoteId: 't1',
+      activeFolderId: 'trash',
+    });
+
+    useNotesStore.getState().emptyTrash();
+
+    expect(useNotesStore.getState().notes.map(n => n.id)).toEqual(['keep']);
+    expect(useNotesStore.getState().folders).toHaveLength(1);
+    expect(useNotesStore.getState().activeNoteId).toBeNull();
+  });
+});

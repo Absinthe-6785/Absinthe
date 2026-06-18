@@ -31,6 +31,7 @@ export interface NoteEditorHeaderActionsProps {
   onCopyDocument: () => void;
   onExport: () => void;
   onRestore: () => void;
+  onPermanentDelete?: () => void;
   onTrash: () => void;
 }
 
@@ -62,6 +63,7 @@ export function NoteEditorHeaderActions({
   onCopyDocument,
   onExport,
   onRestore,
+  onPermanentDelete,
   onTrash,
 }: NoteEditorHeaderActionsProps) {
   const { t } = useTranslation();
@@ -119,11 +121,7 @@ export function NoteEditorHeaderActions({
         {t('nvExportMd')}
       </button>
     </>
-  ) : (
-    <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onRestore(); setMenuOpen(false); }}>
-      {t('restoreLabel')}
-    </button>
-  );
+  ) : null;
 
   const iconBtnStyle = {
     width: isMobile ? 44 : ACTION_BTN_SIZE,
@@ -227,9 +225,46 @@ export function NoteEditorHeaderActions({
       </button>
 
       {isTrash ? (
-        <button onClick={onRestore} className="btbtn shrink-0" style={{ ...iconBtnStyle, color: c.green }}>
-          <RotateCcw size={14}/>
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onRestore}
+            className="btbtn shrink-0"
+            title={t('restoreLabel')}
+            style={{
+              height: ACTION_BTN_SIZE,
+              padding: '0 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: c.green,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <RotateCcw size={13}/>
+            {t('restoreLabel')}
+          </button>
+          {onPermanentDelete ? (
+            <button
+              type="button"
+              onClick={onPermanentDelete}
+              className="btbtn shrink-0"
+              title={t('nvDeletePermanently')}
+              style={{
+                height: ACTION_BTN_SIZE,
+                padding: '0 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                color: c.danger,
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              {t('nvDeletePermanently')}
+            </button>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
