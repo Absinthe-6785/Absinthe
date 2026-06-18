@@ -10,6 +10,7 @@ import type { KnowledgeContextTab } from '../features/knowledge/components/Knowl
 import { KnowledgePanelEmpty } from '../features/knowledge/components/KnowledgePanelSection';
 import { NoteContextTocOutline } from './NoteContextTocOutline';
 import { useRenderDiagnostic } from './renderDiagnostics';
+import { formatLongTimestamp } from '../k102DateFormat';
 import { LinksContextPanel, CosmosContextFooter } from '../features/knowledge/components/LinksContextPanel';
 import { DiscoveryPanel } from '../features/knowledge/components/DiscoveryPanel';
 import { TimelinePanel } from '../features/knowledge/components/TimelinePanel';
@@ -176,7 +177,7 @@ export function NoteContextPanelBody({
   dashboardContext,
 }: NoteContextPanelBodyProps) {
   useRenderDiagnostic('NoteContextPanelBody');
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const {
     pageReferences,
@@ -614,7 +615,7 @@ export function NoteContextPanelBody({
                 ))}
                 {created > 0 && (
                   <div style={{ marginTop: 10, fontSize: 10, color: c.textFaint }}>
-                    {t('nvCreated')} {new Date(created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {t('nvCreated')} {formatLongTimestamp(created, lang)}
                   </div>
                 )}
                 <div style={{ marginTop: 12, fontSize: 9, color: c.textFaint, lineHeight: 1.45 }}>

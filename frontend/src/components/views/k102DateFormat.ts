@@ -146,3 +146,33 @@ export function formatActivityTimestamp(
     includeTime: true,
   });
 }
+
+/** Long weekday + date for planner detail, health headings, properties panel. */
+export function formatLongDate(
+  date: Date,
+  locale?: Language | null,
+): string {
+  const intl = resolveIntlLocale(locale);
+  return date.toLocaleDateString(intl, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+export function formatLongDateKey(
+  dateKey: string,
+  locale?: Language | null,
+): string {
+  const parts = parseDateKey(dateKey);
+  if (!parts) return dateKey;
+  return formatLongDate(new Date(parts.year, parts.month - 1, parts.day), locale);
+}
+
+export function formatLongTimestamp(
+  ms: number,
+  locale?: Language | null,
+): string {
+  return formatLongDate(new Date(ms), locale);
+}

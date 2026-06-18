@@ -1836,6 +1836,19 @@ const translations = {
   k103PlannerAgendaEmptyDesc:  { en: 'Add an event from the calendar or timetable.', ko: '캘린더나 시간표에서 일정을 추가하세요.', ja: 'カレンダーまたは時間割から予定を追加します。' },
   k103ScheduleDeleteConfirm:   { en: 'Delete this event?', ko: '이 일정을 삭제할까요?', ja: 'この予定を削除しますか？' },
 
+  k104ContextOverview:         { en: 'Overview', ko: '개요', ja: '概要' },
+  k104ContextOutline:          { en: 'Outline', ko: '목차', ja: 'アウトライン' },
+  k104ContextLinks:            { en: 'Links', ko: '링크', ja: 'リンク' },
+  k104ContextInsights:         { en: 'Insights', ko: '인사이트', ja: 'インサイト' },
+  k104ContextTimeline:         { en: 'Timeline', ko: '타임라인', ja: 'タイムライン' },
+  k104ContextActions:          { en: 'Actions', ko: '작업', ja: 'アクション' },
+  k104ContextCosmos:           { en: 'Cosmos', ko: '코스모스', ja: 'コスモス' },
+  k104ContextProperties:       { en: 'Properties', ko: '속성', ja: 'プロパティ' },
+  k104TimetableSummary:        { en: 'Weekly timetable', ko: '주간 시간표', ja: '週間時間割' },
+  k104TimetableCount:          { en: '{count} classes', ko: '{count}개 수업', ja: '{count}コマ' },
+  k104TimetableEmpty:          { en: 'No timetable entries', ko: '시간표 항목 없음', ja: '時間割項目なし' },
+  k104TimetableOpen:           { en: 'Open timetable', ko: '시간표 열기', ja: '時間割を開く' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

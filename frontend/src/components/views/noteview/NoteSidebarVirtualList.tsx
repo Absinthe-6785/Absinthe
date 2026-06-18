@@ -9,7 +9,8 @@ import { listTags } from '../features/knowledge/tags/noteTags';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { listDensityStyles, type ListDensityMode } from '../listDensityPreference';
 import type { TranslationKey, Language } from '@/lib/i18n';
-import { formatNoteRowDate } from '../k102DateFormat';
+import { formatNoteRowDate, formatAbsoluteDateKey } from '../k102DateFormat';
+import { toDateKey } from '../features/knowledge/databaseViews/parseDatabaseDate';
 import { buildRelativeDateLabels } from '../k102RelativeDateLabels';
 
 const VIRTUALIZE_THRESHOLD = 40;
@@ -104,7 +105,7 @@ export function NoteSidebarVirtualList({
           <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }} data-k102-note-row-date>
             {todayKey
               ? formatNoteRowDate(n.updatedAt, todayKey, lang, relativeLabels)
-              : new Date(n.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+              : formatAbsoluteDateKey(toDateKey(new Date(n.updatedAt)), lang)}
           </span>
         </div>
       </div>

@@ -17,7 +17,7 @@ import {
   seedNoteNavigationStack,
   type NoteNavigationSource,
 } from '../../lib/noteNavigationStack';
-import { setNoteBreadcrumb, type NoteBreadcrumbSegment, registerWorkspaceSearchOpener } from '../../lib/noteNavigation';
+import { setNoteBreadcrumb, type NoteBreadcrumbSegment, registerWorkspaceSearchOpener, switchToTab } from '../../lib/noteNavigation';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -1357,9 +1357,10 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       restoreNote, moveNoteToTrash, onPermanentDelete: handlePermanentDeleteActive, setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded,
       openContextPanel, setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
       handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
-      insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor,
+      insertEmptyImageBlockAtCursor, setShowAppearance, setShowShortcuts, updateSetting, setIsDragOver, insertImageAtCursor,
       handleEditorDrop, handleReadingModeClick, handleActiveBodyChange, navigateToWiki,
       canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById, setDocumentSearchOpen,
+      onOpenSettings: () => switchToTab('settings'),
       onOpenTodaysNote: () => {
         openOrCreateDailyNote({
           notes,

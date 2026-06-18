@@ -34,6 +34,9 @@ export interface NoteEditorHeaderActionsProps {
   onRestore: () => void;
   onPermanentDelete?: () => void;
   onTrash: () => void;
+  onOpenSettings?: () => void;
+  onOpenAppearance?: () => void;
+  onOpenHelp?: () => void;
 }
 
 const ACTION_BTN_SIZE = 24;
@@ -67,10 +70,14 @@ export function NoteEditorHeaderActions({
   onRestore,
   onPermanentDelete,
   onTrash,
+  onOpenSettings,
+  onOpenAppearance,
+  onOpenHelp,
 }: NoteEditorHeaderActionsProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const mobileCompact = isMobile && !isTrash;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -125,6 +132,51 @@ export function NoteEditorHeaderActions({
     </>
   ) : null;
 
+  const mobileMenuExtras = mobileCompact ? (
+    <>
+      {viewModeButtons.map(({ key, icon }) => (
+        <button
+          key={key}
+          type="button"
+          className="btbtn"
+          style={menuItemStyle}
+          onClick={() => { onViewModeToggle(key); setMenuOpen(false); }}
+        >
+          {key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
+        </button>
+      ))}
+      {onOpenDocumentSearch ? (
+        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenDocumentSearch(); setMenuOpen(false); }}>
+          {t('nvDocumentSearch')}
+        </button>
+      ) : null}
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onToggleStar(); setMenuOpen(false); }}>
+        {starred ? t('nvUnstar') : t('nvStar')}
+      </button>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { void onCopyDocument(); setMenuOpen(false); }}>
+        {docCopied ? t('nvCopied') : t('nvCopyDocument')}
+      </button>
+      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onTogglePanel(); setMenuOpen(false); }}>
+        {t('nvTogglePanel')}
+      </button>
+      {onOpenSettings ? (
+        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenSettings(); setMenuOpen(false); }}>
+          {t('settings')}
+        </button>
+      ) : null}
+      {onOpenAppearance ? (
+        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenAppearance(); setMenuOpen(false); }}>
+          {t('nvAppearance')}
+        </button>
+      ) : null}
+      {onOpenHelp ? (
+        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenHelp(); setMenuOpen(false); }}>
+          {t('nvShortcuts')}
+        </button>
+      ) : null}
+    </>
+  ) : null;
+
   const iconBtnStyle = {
     width: isMobile ? 44 : ACTION_BTN_SIZE,
     height: isMobile ? 44 : ACTION_BTN_SIZE,
@@ -139,6 +191,7 @@ export function NoteEditorHeaderActions({
   return (
     <div
       data-note-editor-header-actions
+      data-k104-mobile-toolbar={mobileCompact ? 'compact' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -149,28 +202,30 @@ export function NoteEditorHeaderActions({
         justifyContent: 'flex-end',
       }}
     >
-      <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
-        {viewModeButtons.map(({ key, icon }) => (
-          <button
-            key={key}
-            title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
-            onClick={() => onViewModeToggle(key)}
-            className="btbtn"
-            style={{
-              ...iconBtnStyle,
-              width: ACTION_BTN_SIZE,
-              height: ACTION_BTN_SIZE,
-              minWidth: ACTION_BTN_SIZE,
-              borderRadius: 5,
-              background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
-              color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
-            }}>
-            {icon}
-          </button>
-        ))}
-      </div>
+      {!mobileCompact ? (
+        <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
+          {viewModeButtons.map(({ key, icon }) => (
+            <button
+              key={key}
+              title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
+              onClick={() => onViewModeToggle(key)}
+              className="btbtn"
+              style={{
+                ...iconBtnStyle,
+                width: ACTION_BTN_SIZE,
+                height: ACTION_BTN_SIZE,
+                minWidth: ACTION_BTN_SIZE,
+                borderRadius: 5,
+                background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
+                color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
+              }}>
+              {icon}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      {onOpenDocumentSearch ? (
+      {!mobileCompact && onOpenDocumentSearch ? (
         <button
           type="button"
           onClick={onOpenDocumentSearch}
@@ -183,7 +238,7 @@ export function NoteEditorHeaderActions({
         </button>
       ) : null}
 
-      {!isTrash ? (
+      {!mobileCompact && !isTrash ? (
         <button
           onClick={onToggleStar}
           className="btbtn shrink-0"
@@ -194,7 +249,7 @@ export function NoteEditorHeaderActions({
         </button>
       ) : null}
 
-      {!isTrash ? (
+      {!mobileCompact && !isTrash ? (
         <button
           onClick={() => void onCopyDocument()}
           className="btbtn shrink-0"
@@ -226,19 +281,22 @@ export function NoteEditorHeaderActions({
               boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 168, padding: '4px 0',
             }}
           >
+            {mobileMenuExtras}
             {overflowItems}
           </div>
         ) : null}
       </div>
 
-      <button
-        onClick={onTogglePanel}
-        className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
-        title={t('nvTogglePanel')}
-        style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
-      >
-        <AlignLeft size={14}/>
-      </button>
+      {!mobileCompact ? (
+        <button
+          onClick={onTogglePanel}
+          className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
+          title={t('nvTogglePanel')}
+          style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
+        >
+          <AlignLeft size={14}/>
+        </button>
+      ) : null}
 
       {isTrash ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: ACTION_GAP, flexShrink: 0 }} data-k102-trash-actions>
