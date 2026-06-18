@@ -160,6 +160,8 @@ function saveSnapshotIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAd
   storage.setItem(SNAPSHOT_INDEX_KEY, JSON.stringify(index));
 }
 
+export { saveSnapshotIndex };
+
 export function loadSnapshotPayload(
   snapshotId: string,
   storage: SnapshotStorageAdapter = defaultStorage(),
@@ -216,11 +218,13 @@ function pruneIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAdapter):
   const keepLast = bySlot('last').slice(0, 1);
   const keepDaily = bySlot('daily').slice(0, SNAPSHOT_RETENTION.maxDaily);
   const keepWeekly = bySlot('weekly').slice(0, SNAPSHOT_RETENTION.maxWeekly);
+  const keepMonthly = bySlot('monthly').slice(0, SNAPSHOT_RETENTION.maxMonthly);
 
   const keepIds = new Set([
     ...keepLast.map(e => e.snapshotId),
     ...keepDaily.map(e => e.snapshotId),
     ...keepWeekly.map(e => e.snapshotId),
+    ...keepMonthly.map(e => e.snapshotId),
   ]);
 
   for (const entry of entries) {

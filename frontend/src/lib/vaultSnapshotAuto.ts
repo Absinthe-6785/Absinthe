@@ -69,6 +69,20 @@ export function createWeeklySnapshot(
   return saveVaultSnapshot(snapshot);
 }
 
+function isoMonthKey(d = new Date()): string {
+  return d.toISOString().slice(0, 7);
+}
+
+export function createMonthlySnapshot(
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+  date = new Date(),
+) {
+  const slotKey = `monthly-${isoMonthKey(date)}`;
+  const snapshot = buildVaultSnapshot(notes, folders, 'monthly', slotKey);
+  return saveVaultSnapshot(snapshot);
+}
+
 function flushDebouncedSnapshot(): void {
   if (!pendingNotes || !pendingFolders) return;
   const result = createLastSnapshot(pendingNotes, pendingFolders);
@@ -108,6 +122,7 @@ export function runPeriodicSnapshotSlots(
   if (active.length === 0) return;
   createDailySnapshot(active, folders);
   createWeeklySnapshot(active, folders);
+  createMonthlySnapshot(active, folders);
 }
 
 /** Test helper — flush pending debounced snapshot immediately. */
