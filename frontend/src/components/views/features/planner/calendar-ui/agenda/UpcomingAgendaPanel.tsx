@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, CalendarDays } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
@@ -7,6 +7,7 @@ import { useCountdownReviewed } from '../../hooks/useCountdownReviewed';
 import { buildUpcomingAgendaGroups } from './buildUpcomingAgendaGroups';
 import { UpcomingAgendaGroupList } from './UpcomingAgendaGroupList';
 import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
+import { ProductEmptyState } from '@/components/common/ProductEmptyState';
 
 export interface UpcomingAgendaPanelProps {
   projection: PlannerCalendarProjection;
@@ -60,9 +61,15 @@ export function UpcomingAgendaPanel({
 
       <div className="flex-1 min-h-0 overflow-y-auto max-h-[420px] lg:max-h-none lg:min-h-[280px]" data-k102-upcoming-scroll>
         {groups.length === 0 ? (
-          <p className="text-[11px] text-muted py-1" data-planner-agenda-empty>
-            {t('k77ScheduleEmptyCompact')}
-          </p>
+          <ProductEmptyState
+            variant="tailwind"
+            theme={theme}
+            icon={CalendarDays}
+            title={t('k103PlannerAgendaEmptyTitle')}
+            description={t('k103PlannerAgendaEmptyDesc')}
+            dataHook="k103-planner-agenda-empty"
+            primaryAction={canAdd ? { label: t('k80AddEvent'), onClick: scheduleActions!.onAdd! } : undefined}
+          />
         ) : (
           <UpcomingAgendaGroupList
             groups={groups}

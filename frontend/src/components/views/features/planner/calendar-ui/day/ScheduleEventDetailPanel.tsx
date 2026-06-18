@@ -32,10 +32,12 @@ export function ScheduleEventDetailPanel({
   const { t } = useTranslation();
   const [quickEdit, setQuickEdit] = useState(false);
   const [titleDraft, setTitleDraft] = useState(block.title);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   useEffect(() => {
     setTitleDraft(block.title);
     setQuickEdit(false);
+    setDeleteConfirm(false);
   }, [block.id, block.title]);
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function ScheduleEventDetailPanel({
         onDuplicate();
       } else if (e.key === 'Delete') {
         e.preventDefault();
-        onDelete();
+        setDeleteConfirm(true);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -125,37 +127,61 @@ export function ScheduleEventDetailPanel({
 
       <p className={`text-[10px] ${theme.textMuted}`}>{t('k100ScheduleKeyboardHint')}</p>
 
-      <div className="flex flex-wrap gap-2 pt-1 items-stretch" data-k102-schedule-detail-actions>
+      <div className="flex flex-wrap gap-2 pt-1 items-stretch" data-k102-schedule-detail-actions data-k103-schedule-detail-actions>
         <button
           type="button"
           onClick={onEdit}
-          className="flex-1 min-w-[100px] max-w-full bg-primary text-primary-foreground font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 k101-interactive"
+          className="flex-1 min-w-[88px] max-w-full bg-primary text-primary-foreground font-bold rounded-xl py-2 px-3 text-sm flex items-center justify-center gap-1.5 k101-interactive min-h-[40px]"
           data-schedule-event-edit
         >
-          <Edit2 size={16} />
+          <Edit2 size={15} />
           {t('edit')}
         </button>
         {onDuplicate ? (
           <button
             type="button"
             onClick={onDuplicate}
-            className={`flex-1 min-w-[100px] max-w-full font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 border k101-interactive ${theme.border}`}
+            className={`flex-1 min-w-[88px] max-w-full font-bold rounded-xl py-2 px-3 text-sm flex items-center justify-center gap-1.5 border k101-interactive min-h-[40px] ${theme.border}`}
             data-schedule-event-duplicate
           >
-            <Copy size={16} />
+            <Copy size={15} />
             {t('k79AgendaDuplicate')}
           </button>
         ) : null}
         <button
           type="button"
-          onClick={onDelete}
-          className="flex-1 min-w-[100px] max-w-full bg-red-500/10 text-red-500 font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 border border-red-500/20 k101-interactive"
+          onClick={() => setDeleteConfirm(true)}
+          className="flex-1 min-w-[88px] max-w-full bg-red-500/10 text-red-500 font-bold rounded-xl py-2 px-3 text-sm flex items-center justify-center gap-1.5 border border-red-500/20 k101-interactive min-h-[40px]"
           data-schedule-event-delete
         >
-          <Trash2 size={16} />
+          <Trash2 size={15} />
           {t('delete')}
         </button>
       </div>
+      {deleteConfirm ? (
+        <div
+          className={`rounded-xl border p-3 flex flex-col gap-2 ${theme.border} ${theme.input}`}
+          data-k103-schedule-delete-confirm
+        >
+          <p className="text-sm font-semibold">{t('k103ScheduleDeleteConfirm')}</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setDeleteConfirm(false); onDelete(); }}
+              className="flex-1 bg-red-500 text-white font-bold rounded-lg py-2 text-sm"
+            >
+              {t('delete')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteConfirm(false)}
+              className={`flex-1 font-bold rounded-lg py-2 text-sm border ${theme.border}`}
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 

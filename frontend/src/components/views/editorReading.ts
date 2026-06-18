@@ -2,8 +2,10 @@
  * editorReading.ts — Reading / Focus Mode layout (document-first, zero chrome)
  */
 
+import { K103_READING_MAX_WIDTH_PX } from './k103LayoutConstants';
+
 export const READING_LINE_HEIGHT = 1.8;
-export const READING_MAX_WIDTH_PX = 680;
+export const READING_MAX_WIDTH_PX = K103_READING_MAX_WIDTH_PX;
 
 /** Root class when rendering in reading mode. */
 export function readingRootClass(readingMode: boolean): string {
@@ -69,9 +71,45 @@ export const EDITOR_READING_STYLES = `
   .be-editor-root.be-reading .be-editable[contenteditable]:empty::before {
     content: none !important;
   }
+  .be-editor-root.be-reading h1,
+  .be-editor-root.be-reading h2,
+  .be-editor-root.be-reading h3,
+  .be-editor-root.be-reading .be-heading-1,
+  .be-editor-root.be-reading .be-heading-2,
+  .be-editor-root.be-reading .be-heading-3 {
+    margin-top: 1.35em;
+    margin-bottom: 0.45em;
+  }
+  .be-editor-root.be-reading h1:first-child,
+  .be-editor-root.be-reading h2:first-child,
+  .be-editor-root.be-reading h3:first-child {
+    margin-top: 0.25em;
+  }
   .be-editor-root.be-reading p,
-  .be-editor-root.be-reading .be-editable {
+  .be-editor-root.be-reading .be-editable,
+  .be-editor-root.be-reading .be-block-text {
     line-height: ${READING_LINE_HEIGHT};
+    margin-bottom: 0.65em;
+  }
+  .be-editor-root.be-reading .be-callout,
+  .be-editor-root.be-reading [data-block-type="callout"] {
+    padding: 12px 14px;
+    margin: 0.75em 0;
+    border-radius: 10px;
+  }
+  .be-editor-root.be-reading pre,
+  .be-editor-root.be-reading .be-code-block,
+  .be-editor-root.be-reading [data-block-type="code"] {
+    margin: 0.85em 0;
+    border-radius: 8px;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .be-editor-root.be-reading table {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0.85em 0;
   }
   .be-editor-root.be-reading .be-toggle-header-block button[aria-label] {
     pointer-events: auto;

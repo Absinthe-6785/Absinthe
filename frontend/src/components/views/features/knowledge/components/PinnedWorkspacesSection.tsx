@@ -1,8 +1,9 @@
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pin } from 'lucide-react';
 import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { WorkspaceRef } from '../workspace/workspaceModels';
 import { WorkspacePinToggle } from './WorkspacePinToggle';
+import { ProductEmptyState } from '../../../../common/ProductEmptyState';
 
 export interface PinnedWorkspacesSectionProps {
   colors: NoteChromeColors;
@@ -28,10 +29,9 @@ export function PinnedWorkspacesSection({
   onToggleCollapse,
 }: PinnedWorkspacesSectionProps) {
   const { t } = useTranslation();
-  if (pinned.length === 0) return null;
 
   return (
-    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
+    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }} data-k103-pinned-workspaces>
       <div
         className="bseclbl"
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: onToggleCollapse ? 'pointer' : 'default' }}
@@ -43,6 +43,16 @@ export function PinnedWorkspacesSection({
         <span>{t('knPinnedShort')}</span>
         {onToggleCollapse ? <ChevronDown size={10} style={{ transform: collapsed ? 'rotate(-90deg)' : undefined }} /> : null}
       </div>
+      {!collapsed && pinned.length === 0 ? (
+        <ProductEmptyState
+          variant="note-chrome"
+          colors={c}
+          icon={Pin}
+          title={t('k103PinnedEmptyTitle')}
+          description={t('k103PinnedEmptyDesc')}
+          dataHook="k103-pinned-empty"
+        />
+      ) : null}
       {!collapsed && pinned.map((ref, index) => {
         const isActive = activeKind === ref.kind && activeId === ref.id;
         return (
@@ -50,7 +60,7 @@ export function PinnedWorkspacesSection({
             key={`${ref.kind}:${ref.id}`}
             className={`bfi ${isActive ? 'active' : ''}`}
             onClick={() => onActivate(ref)}
-            style={{ gap: 4, fontSize: 11 }}
+            style={{ gap: 3, fontSize: 10, minHeight: 30, padding: '4px 8px' }}
             title={ref.subtitle ?? ref.name}
           >
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

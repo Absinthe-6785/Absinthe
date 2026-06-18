@@ -66,7 +66,7 @@ export function useNoteViewState() {
   const [showRightPanel, setShowRightPanel] = useState(false);
   const [headerTagsExpanded, setHeaderTagsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(() => !initialSections.workspaceCollapsed);
   const [editingLearningPathId, setEditingLearningPathId] = useState<string | null | undefined>(undefined);
   const [showAppearance, setShowAppearance] = useState(false);
   const [traceDate, setTraceDate] = useState<string | null>(null);

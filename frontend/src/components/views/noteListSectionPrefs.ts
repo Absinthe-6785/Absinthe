@@ -8,6 +8,7 @@ export interface NoteListSectionPrefs {
   weekCollapsed: boolean;
   activityCollapsed: boolean;
   traceQuickNavCollapsed: boolean;
+  workspaceCollapsed: boolean;
 }
 
 export const DEFAULT_NOTE_LIST_SECTION_PREFS: NoteListSectionPrefs = {
@@ -18,6 +19,7 @@ export const DEFAULT_NOTE_LIST_SECTION_PREFS: NoteListSectionPrefs = {
   weekCollapsed: false,
   activityCollapsed: true,
   traceQuickNavCollapsed: true,
+  workspaceCollapsed: true,
 };
 
 export function readNoteListSectionPrefs(): NoteListSectionPrefs {
@@ -31,8 +33,15 @@ export function readNoteListSectionPrefs(): NoteListSectionPrefs {
       starredCollapsed: Boolean(parsed.starredCollapsed),
       todayCollapsed: Boolean(parsed.todayCollapsed),
       weekCollapsed: Boolean(parsed.weekCollapsed),
-      activityCollapsed: Boolean(parsed.activityCollapsed),
-      traceQuickNavCollapsed: Boolean(parsed.traceQuickNavCollapsed),
+      activityCollapsed: parsed.activityCollapsed !== undefined
+        ? Boolean(parsed.activityCollapsed)
+        : DEFAULT_NOTE_LIST_SECTION_PREFS.activityCollapsed,
+      traceQuickNavCollapsed: parsed.traceQuickNavCollapsed !== undefined
+        ? Boolean(parsed.traceQuickNavCollapsed)
+        : DEFAULT_NOTE_LIST_SECTION_PREFS.traceQuickNavCollapsed,
+      workspaceCollapsed: parsed.workspaceCollapsed !== undefined
+        ? Boolean(parsed.workspaceCollapsed)
+        : DEFAULT_NOTE_LIST_SECTION_PREFS.workspaceCollapsed,
     };
   } catch {
     return DEFAULT_NOTE_LIST_SECTION_PREFS;

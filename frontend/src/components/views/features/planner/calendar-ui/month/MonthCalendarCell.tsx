@@ -35,8 +35,9 @@ export function MonthCalendarCell({
       className={`min-h-[72px] lg:min-h-[80px] border p-1 lg:p-1.5 flex flex-col gap-0.5
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
-        ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}
-        ${model.isAnchorSelected ? 'bg-primary/5' : ''}
+        ${model.isToday ? 'ring-2 ring-primary ring-inset bg-primary/8' : ''}
+        ${model.isAnchorSelected ? 'bg-primary/12 ring-1 ring-primary/40 ring-inset' : ''}
+        ${model.isEmpty && model.inMonth && onDateSelect ? 'hover:bg-surface-alt/60' : ''}
         ${onDateSelect && model.inMonth ? 'cursor-pointer hover:bg-surface-alt/40 transition-colors' : ''}`}
       data-planner-month-cell={model.dateKey}
       data-planner-month-cell-in-month={model.inMonth ? 'true' : 'false'}
@@ -58,11 +59,11 @@ export function MonthCalendarCell({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-0.5 flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-hidden">
         {model.blockRows.map(({ block }) => (
           <div
             key={block.id}
-            className="k101-planner-chip px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50 border-l-[3px] border-l-amber-500 hover:bg-surface transition-colors"
+            className="k101-planner-chip px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50 border-l-[3px] border-l-amber-500 hover:bg-surface hover:shadow-sm transition-colors"
             data-planner-month-block={block.id}
             data-planner-month-block-category={block.category || undefined}
             data-planner-month-block-color={block.color}
@@ -81,7 +82,7 @@ export function MonthCalendarCell({
           return (
           <div
             key={occurrence.occurrenceId}
-            className={`k101-planner-chip px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary border-l-2 border-l-primary hover:bg-primary/20 transition-colors ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer' : ''}`}
+            className={`k101-planner-chip px-1.5 py-1 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary border-l-2 border-l-primary hover:bg-primary/25 transition-colors ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer' : ''}`}
             data-planner-month-event={occurrence.noteId}
             data-planner-month-event-span={occurrence.spanPosition}
             data-selected={model.isAnchorSelected ? 'true' : undefined}

@@ -102,7 +102,7 @@ export function K101RecentActivitySection({
   return (
     <div data-k101-recent-activity style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
       <div
-        className="bseclbl k101-interactive"
+        className="bseclbl k101-interactive k103-sidebar-sticky"
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={onToggleCollapse}
         role="button"

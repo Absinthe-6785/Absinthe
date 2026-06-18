@@ -1828,6 +1828,13 @@ const translations = {
 
   // ── K-102 real usage refinement ─────────────────────────────────────
   k102DaysAgo:                 { en: '{count} days ago', ko: '{count}일 전', ja: '{count}日前' },
+  k103PinnedEmptyTitle:        { en: 'No pinned workspaces', ko: '고정된 워크스페이스 없음', ja: 'ピン留めワークスペースなし' },
+  k103PinnedEmptyDesc:         { en: 'Pin a workspace from recent or collections.', ko: '최근 항목이나 컬렉션에서 워크스페이스를 고정하세요.', ja: '最近の項目やコレクションからワークスペースをピン留めします。' },
+  k103RecentEmptyTitle:        { en: 'No recent workspaces', ko: '최근 워크스페이스 없음', ja: '最近のワークスペースなし' },
+  k103RecentEmptyDesc:         { en: 'Open a collection or dashboard to see it here.', ko: '컬렉션이나 대시보드를 열면 여기에 표시됩니다.', ja: 'コレクションやダッシュボードを開くとここに表示されます。' },
+  k103PlannerAgendaEmptyTitle: { en: 'Nothing upcoming', ko: '예정된 일정 없음', ja: '予定なし' },
+  k103PlannerAgendaEmptyDesc:  { en: 'Add an event from the calendar or timetable.', ko: '캘린더나 시간표에서 일정을 추가하세요.', ja: 'カレンダーまたは時間割から予定を追加します。' },
+  k103ScheduleDeleteConfirm:   { en: 'Delete this event?', ko: '이 일정을 삭제할까요?', ja: 'この予定を削除しますか？' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

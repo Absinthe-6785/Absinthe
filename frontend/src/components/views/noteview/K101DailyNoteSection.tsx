@@ -18,6 +18,8 @@ export interface K101DailyNoteSectionProps {
   activeNoteId: string | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** K-103 — hide collapse control; section always shows full content. */
+  alwaysExpanded?: boolean;
   listDensity: ListDensityMode;
   createNote: (opts: { title: string; body: string }) => string | void;
   setActiveNoteId: (id: string) => void;
@@ -30,6 +32,7 @@ export function K101DailyNoteSection({
   activeNoteId,
   collapsed,
   onToggleCollapse,
+  alwaysExpanded = false,
   listDensity,
   createNote,
   setActiveNoteId,
@@ -48,10 +51,13 @@ export function K101DailyNoteSection({
   const todayAnchor = notes.find(n => !n.deletedAt && n.title.trim() === todayKey);
   const isTodayActive = todayAnchor?.id === activeNoteId;
 
+  const isCollapsed = alwaysExpanded ? false : collapsed;
+
   return (
-    <div data-k101-daily-note-section>
+    <div data-k101-daily-note-section data-k103-sidebar-daily-note>
+      {!alwaysExpanded ? (
       <div
-        className="bseclbl k101-interactive"
+        className="bseclbl k101-interactive k103-sidebar-sticky"
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={onToggleCollapse}
         role="button"
@@ -68,12 +74,17 @@ export function K101DailyNoteSection({
         <ChevronDown
           size={10}
           style={{
-            transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
             transition: 'transform .15s',
           }}
         />
       </div>
-      {!collapsed ? (
+      ) : (
+        <div className="bseclbl k103-sidebar-sticky" data-k101-daily-note-toggle>
+          <span>{t('k101DailyNote')}</span>
+        </div>
+      )}
+      {!isCollapsed ? (
         <>
           <div
             className={`bfi k101-interactive ${isTodayActive ? 'active k101-selected' : ''}`}

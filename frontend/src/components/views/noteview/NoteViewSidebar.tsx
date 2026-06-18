@@ -51,6 +51,7 @@ import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '.
 import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { toggleSortDirection } from '../noteListSort';
 import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
+import { K103_NOTE_LIST_WIDTH_PX, K103_NOTE_LIST_MIN_WIDTH_PX } from '../k103LayoutConstants';
 import { K101DailyNoteSection } from './K101DailyNoteSection';
 import { K101RecentActivitySection } from './K101RecentActivitySection';
 
@@ -511,10 +512,24 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                       activeNoteId={activeNoteId}
                       collapsed={listSectionPrefs.todayCollapsed}
                       onToggleCollapse={() => toggleSectionPref('todayCollapsed')}
+                      alwaysExpanded
                       listDensity={listDensity}
                       createNote={createNote}
                       setActiveNoteId={setActiveNoteId}
                     />
+                    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 2 }} data-k103-favorites-section data-k101-favorites-section>
+                      <div className="bseclbl k103-sidebar-sticky">
+                        <span>{t('k81Favorites')}</span>
+                      </div>
+                      <div
+                        className={`bfi k101-interactive ${activeFolderId === 'starred' ? 'active k101-selected' : ''}`}
+                        onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}
+                      >
+                        <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
+                        <span style={{ flex: 1 }}>{t('starred')}</span>
+                        <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
+                      </div>
+                    </div>
                     <K101RecentActivitySection
                       colors={c}
                       notes={notes}
@@ -531,10 +546,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   </>
                 )}
                 <div
-                  className="bseclbl k101-interactive"
+                  className="bseclbl k101-interactive k103-sidebar-sticky"
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                   onClick={() => toggleSectionPref('traceQuickNavCollapsed')}
                   data-trace-quick-nav-toggle
+                  data-k103-timeline-lens
                   role="button"
                   tabIndex={0}
                   onKeyDown={e => {
@@ -658,70 +674,8 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 </div>
                 </>
                 ) : null}
-                <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvAreas')}</div>
-                {areaNotes.map(area => (
-                  <div
-                    key={area.id}
-                    className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
-                    onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey || e.altKey) {
-                        openTraceArea(area.id);
-                      } else {
-                        openCreatedNote(area.id);
-                      }
-                    }}
-                  >
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {displayNoteTitle(area.title)}
-                    </span>
-                  </div>
-                ))}
-                <div
-                  className={`bfi ${isTraceDiscoveryMode ? 'active' : ''}`}
-                  onClick={openTraceDiscovery}
-                >
-                  <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
-                </div>
-                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }} data-k101-favorites-section>
-                  <div
-                    className="bseclbl k101-interactive"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-                    onClick={() => toggleSectionPref('starredCollapsed')}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleSectionPref('starredCollapsed');
-                      }
-                    }}
-                    data-k101-favorites-toggle
-                  >
-                    <span>{t('k81Favorites')}</span>
-                    <ChevronDown
-                      size={10}
-                      style={{
-                        transform: listSectionPrefs.starredCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                        transition: 'transform .15s',
-                      }}
-                    />
-                  </div>
-                  {!listSectionPrefs.starredCollapsed ? (
-                    <div
-                      className={`bfi k101-interactive ${activeFolderId === 'starred' ? 'active k101-selected' : ''}`}
-                      onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}
-                    >
-                      <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-                      <span style={{ flex: 1 }}>{t('starred')}</span>
-                      <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
-                    </div>
-                  ) : (
-                    <div className="bfi" style={{ color: c.textMuted, fontSize: 10 }}>
-                      <span style={{ flex: 1 }}>{t('starred')} ({starredCount})</span>
-                    </div>
-                  )}
-                </div>
-                <div className="bseclbl">{t('nvFolders')}</div>
+                <div data-k103-folders-section>
+                <div className="bseclbl k103-sidebar-sticky">{t('nvFolders')}</div>
                 {folders.map(f => (
                   <div key={f.id} className={`bfi ${activeFolderId === f.id ? 'active' : ''}`}
                     onClick={() => {
@@ -790,6 +744,31 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     <FolderPlus size={10} color={c.textMuted}/><span>{t('nvNewFolder')}</span>
                   </div>
                 )}
+                </div>
+                <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvAreas')}</div>
+                {areaNotes.map(area => (
+                  <div
+                    key={area.id}
+                    className={`bfi ${isTraceAreaMode && traceAreaId === area.id ? 'active' : ''}`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.altKey) {
+                        openTraceArea(area.id);
+                      } else {
+                        openCreatedNote(area.id);
+                      }
+                    }}
+                  >
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {displayNoteTitle(area.title)}
+                    </span>
+                  </div>
+                ))}
+                <div
+                  className={`bfi ${isTraceDiscoveryMode ? 'active' : ''}`}
+                  onClick={openTraceDiscovery}
+                >
+                  <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
+                </div>
                 {allTags.length > 0 && (
                   <>
                     <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvPanelTags')}</div>
@@ -806,7 +785,17 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
                   <div
                     className="bseclbl"
-                    onClick={() => setWorkspaceExpanded(v => !v)}
+                    onClick={() => {
+                      setWorkspaceExpanded(v => {
+                        const next = !v;
+                        setListSectionPrefs(p => {
+                          const updated = { ...p, workspaceCollapsed: !next };
+                          writeNoteListSectionPrefs(updated);
+                          return updated;
+                        });
+                        return next;
+                      });
+                    }}
                     style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                   >
                     {workspaceExpanded
@@ -952,8 +941,8 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         aria-label={t('nvNoteList')}
         data-list-density={listDensity}
         style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 168 : 228)))),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 260)) : (isMobile ? 0 : (isTablet ? 176 : 216)))),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 168 : K103_NOTE_LIST_WIDTH_PX)))),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 260)) : (isMobile ? 0 : (isTablet ? 176 : K103_NOTE_LIST_MIN_WIDTH_PX)))),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,

@@ -46,10 +46,12 @@ export function DocumentSearchToolbar({
     : trimmed
       ? '0'
       : '';
+  const noResults = Boolean(trimmed) && matchCount === 0;
 
   return (
     <div
       data-document-search-toolbar
+      data-read-mode-search-toolbar
       data-document-search-compact={compact ? 'true' : 'false'}
       style={{
         display: 'flex',
@@ -86,11 +88,15 @@ export function DocumentSearchToolbar({
         <div style={{ display: 'flex', alignItems: 'center', gap: EDITOR_TOOLBAR_GAP, flexWrap: 'wrap' }}>
           {matchLabel ? (
             <span
+              key={matchLabel}
               data-document-search-match-count
               style={{ fontSize: 10, color: c.textMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {matchLabel}
             </span>
+          ) : null}
+          {noResults ? (
+            <span data-k103-search-no-results>{t('nvSearchNoResults')}</span>
           ) : null}
           {showScopeControls ? (
             <>
