@@ -20,8 +20,8 @@ export function hasDailyNote(notes: readonly NoteBase[], dateKey: string): boole
   return findAllDailyAnchorNotes(notes, dateKey).length > 0;
 }
 
-export function formatDailyNoteLabel(dateKey: string): string {
-  return formatTraceDayHeading(dateKey);
+export function formatDailyNoteLabel(dateKey: string, locale?: import('../../lib/i18n').Language | null): string {
+  return formatTraceDayHeading(dateKey, locale);
 }
 
 export interface OpenDailyNoteOptions {

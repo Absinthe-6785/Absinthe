@@ -45,7 +45,7 @@ export function MonthCalendarView({
         />
       </div>
 
-      <div className="w-full lg:w-[35%] lg:min-w-[200px] lg:max-w-[300px] shrink-0 flex flex-col min-h-[200px] lg:min-h-0">
+      <div className="w-full lg:w-[35%] lg:min-w-[220px] lg:max-w-[340px] shrink-0 flex flex-col min-h-[240px] lg:min-h-0">
         <UpcomingAgendaPanel
           projection={projection}
           presentation={presentation}

@@ -6,6 +6,7 @@ import type {
 } from './calendarModels';
 import { isoWeekBounds } from './plannerCalendarDateUtils';
 import { parseDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
+import { formatAgendaDateHeader } from '../../../k102DateFormat';
 
 function resolveIntlLocale(locale: PlannerLocale): string {
   return locale === 'ko' ? 'ko-KR' : locale === 'ja' ? 'ja-JP' : 'en-US';
@@ -79,9 +80,26 @@ export function formatPlannerAgendaDateHeader(dateKey: string, locale: PlannerLo
 export function formatPlannerCalendarPresentation(
   projection: PlannerCalendarProjection,
   locale: PlannerLocale,
+  options?: {
+    todayKey?: string;
+    relativeLabels?: import('../../../k102DateFormat').RelativeDateLabels;
+  },
 ): PlannerCalendarPresentation {
   const month = projection.views.month;
   const week = projection.views.week;
+  const agendaDateHeaders = new Map<string, string>();
+  if (options?.todayKey && options?.relativeLabels) {
+    const appLocale = locale;
+    const collectKeys = new Set<string>(projection.byDate.keys());
+    for (const cd of projection.core.countdowns) collectKeys.add(cd.targetDate);
+    for (const dateKey of collectKeys) {
+      agendaDateHeaders.set(
+        dateKey,
+        formatAgendaDateHeader(dateKey, options.todayKey, appLocale, options.relativeLabels),
+      );
+    }
+  }
+
   const labels: PlannerCalendarPresentationLabels = {
     monthTitle: month.year && month.month
       ? formatPlannerMonthTitle(month.year, month.month, locale)
@@ -98,7 +116,7 @@ export function formatPlannerCalendarPresentation(
         formatPlannerCountdownLabel(countdown.daysUntil, locale),
       ]),
     ),
-    agendaDateHeaders: new Map(),
+    agendaDateHeaders,
   };
 
   return { locale, labels };

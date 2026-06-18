@@ -16,8 +16,8 @@ export const DEFAULT_NOTE_LIST_SECTION_PREFS: NoteListSectionPrefs = {
   starredCollapsed: false,
   todayCollapsed: false,
   weekCollapsed: false,
-  activityCollapsed: false,
-  traceQuickNavCollapsed: false,
+  activityCollapsed: true,
+  traceQuickNavCollapsed: true,
 };
 
 export function readNoteListSectionPrefs(): NoteListSectionPrefs {

@@ -169,28 +169,24 @@ export const SettingsView = ({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
-      <div className="flex justify-between items-end mb-6 pl-2 pr-6 shrink-0">
+      <div className="flex justify-between items-end mb-4 pl-2 pr-4 lg:pr-6 shrink-0">
         <div>
           <h1 className="font-heading text-2xl lg:text-3xl font-bold">{t('settingsTitle')}</h1>
-          <p className={`text-sm lg:text-base font-medium mt-1 ${theme.textMuted}`}>
-            {t('k100SettingsSubtitle')}
-          </p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain bscroll-pane pr-2 pb-20 lg:pb-2" data-settings-scroll>
-        <div className="max-w-4xl mx-auto space-y-5 lg:space-y-6">
+      <div className="flex-1 overflow-y-auto overscroll-contain bscroll-pane pr-2 pb-20 lg:pb-4" data-settings-scroll>
+        <div className="max-w-3xl mx-auto space-y-4 lg:space-y-5">
 
           {/* General */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="general">
-            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
+          <div className={`rounded-[20px] lg:rounded-[28px] shadow-sm p-4 lg:p-6 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="general">
+            <h2 className="font-heading text-lg font-bold mb-4 flex items-center gap-2">
               <Settings size={20} className="text-primary" />{t('k100SettingsGeneral')}
             </h2>
-            <div className="space-y-6">
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+            <div className="space-y-4">
+              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
                 <div>
                   <p className="text-base font-bold">{t('language')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('languageDesc')}</p>
                 </div>
                 <div className={`flex p-1.5 rounded-2xl border ${theme.border} ${theme.input}`}>
                   {([
@@ -213,10 +209,9 @@ export const SettingsView = ({
                 </div>
               </div>
 
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
                 <div>
                   <p className="text-base font-bold">{t('k100Theme')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('k100ThemeDesc')}</p>
                 </div>
                 <div className={`flex p-1.5 rounded-2xl border ${theme.border} ${theme.input}`}>
                   {([
@@ -238,10 +233,9 @@ export const SettingsView = ({
                 </div>
               </div>
 
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
                 <div>
                   <p className="text-base font-bold">{t('defaultCategory')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('defaultCategoryDesc')}</p>
                 </div>
                 <div className={`flex flex-wrap gap-2 p-2 rounded-2xl border ${theme.border} ${theme.input}`}>
                   {(['Study', 'Work', 'Exercise', 'Personal'] as const).map((cat) => (
@@ -263,8 +257,8 @@ export const SettingsView = ({
           </div>
 
           {/* Storage */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="storage">
-            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
+          <div className={`rounded-[20px] lg:rounded-[28px] shadow-sm p-4 lg:p-6 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="storage">
+            <h2 className="font-heading text-lg font-bold mb-4 flex items-center gap-2">
               <HardDrive size={20} className="text-primary" />{t('k98SettingsStorage')}
             </h2>
             <div className="space-y-4">
@@ -334,8 +328,8 @@ export const SettingsView = ({
           </div>
 
           {/* Export */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export">
-            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
+          <div className={`rounded-[20px] lg:rounded-[28px] shadow-sm p-4 lg:p-6 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export">
+            <h2 className="font-heading text-lg font-bold mb-4 flex items-center gap-2">
               <Download size={20} className="text-primary" />{t('k98SettingsExport')}
             </h2>
             <div className="space-y-6">
@@ -409,7 +403,7 @@ export const SettingsView = ({
           </div>
 
           {/* Danger zone */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger">
+          <div className={`rounded-[20px] lg:rounded-[28px] shadow-sm p-4 lg:p-6 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger">
             <h2 className="font-heading text-lg font-bold text-red-500 mb-6 flex items-center gap-2">
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>

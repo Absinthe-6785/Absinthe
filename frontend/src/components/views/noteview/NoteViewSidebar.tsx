@@ -283,7 +283,7 @@ export interface NoteViewSidebarProps {
 }
 
 export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const toggleSectionPref = (key: keyof NoteListSectionPrefs) => {
     setListSectionPrefs(p => {
       const next = { ...p, [key]: !p[key] };
@@ -633,25 +633,32 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     <span style={{ flex: 1 }}>{t('nvThisWeek')} ({sidebarWeekCount})</span>
                   </div>
                 )}
+                {!listSectionPrefs.traceQuickNavCollapsed ? (
+                <>
                 <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
+                  className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey } as TraceRangeLens)}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
                   <span style={{ flex: 1 }}>{t('nvThisQuarter')}</span>
                 </div>
                 <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active' : ''}`}
+                  className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
                   <span style={{ flex: 1 }}>{t('nvThisYear')}</span>
                 </div>
                 <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active' : ''}`}
+                  className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
                   <span style={{ flex: 1 }}>{t('nvCustomRange')}</span>
                 </div>
-                <div className="bseclbl">{t('nvAreas')}</div>
+                </>
+                ) : null}
+                <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvAreas')}</div>
                 {areaNotes.map(area => (
                   <div
                     key={area.id}
@@ -945,7 +952,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         aria-label={t('nvNoteList')}
         data-list-density={listDensity}
         style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 176 : 216)))),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 168 : 228)))),
         minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 260)) : (isMobile ? 0 : (isTablet ? 176 : 216)))),
         overflow: 'hidden',
         background: c.notelist,
@@ -1407,6 +1414,8 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
           hasActiveSearch={!!sidebarSearchQuery.trim()}
           onClearSearch={() => setSidebarSearchQuery('')}
           listDensity={listDensity}
+          todayKey={todayTraceKey}
+          lang={lang}
         />
         )}
       </div>

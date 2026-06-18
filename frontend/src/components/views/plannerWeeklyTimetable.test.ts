@@ -23,9 +23,13 @@ vi.mock('../../hooks/useEscapeKey', () => ({
   useEscapeKey: () => {},
 }));
 
-vi.mock('../../lib/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock('../../lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/i18n')>();
+  return {
+    ...actual,
+    useTranslation: () => ({ t: (key: string) => key, lang: 'en' as const }),
+  };
+});
 
 vi.mock('swr', () => ({
   default: () => ({ data: undefined, isLoading: false, error: undefined }),

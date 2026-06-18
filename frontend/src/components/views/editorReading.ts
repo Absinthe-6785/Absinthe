@@ -3,7 +3,7 @@
  */
 
 export const READING_LINE_HEIGHT = 1.8;
-export const READING_MAX_WIDTH_PX = 720;
+export const READING_MAX_WIDTH_PX = 680;
 
 /** Root class when rendering in reading mode. */
 export function readingRootClass(readingMode: boolean): string {

@@ -1826,6 +1826,9 @@ const translations = {
   k101NavRecipe:               { en: 'Recipe (Alt+5)', ko: '레시피 (Alt+5)', ja: 'レシピ (Alt+5)' },
   k101GlobalSearchShortcut:    { en: 'Ctrl+Shift+F', ko: 'Ctrl+Shift+F', ja: 'Ctrl+Shift+F' },
 
+  // ── K-102 real usage refinement ─────────────────────────────────────
+  k102DaysAgo:                 { en: '{count} days ago', ko: '{count}일 전', ja: '{count}日前' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

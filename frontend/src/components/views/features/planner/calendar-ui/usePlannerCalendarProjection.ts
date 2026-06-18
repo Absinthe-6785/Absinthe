@@ -3,6 +3,9 @@ import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
 import type { AppSettings, Schedule, WeeklySchedule } from '../../../../../types';
 import { useNotesStore } from '../../../../../store/useNotesStore';
+import { useTranslation } from '../../../../../lib/i18n';
+import { buildRelativeDateLabels } from '../../../k102RelativeDateLabels';
+import type { RelativeDateLabels } from '../../../k102DateFormat';
 import {
   buildPlannerCalendarProjection,
   buildPlannerEventCatalog,
@@ -50,6 +53,7 @@ export function buildPlannerCalendarShellProjection(
   input: UsePlannerCalendarProjectionInput & {
     notes: readonly NoteBase[];
     eventCatalog?: PlannerEventCatalog;
+    relativeLabels?: RelativeDateLabels;
   },
 ): UsePlannerCalendarProjectionResult {
   const eventCatalog = input.eventCatalog ?? buildPlannerEventCatalog(input.notes);
@@ -75,6 +79,10 @@ export function buildPlannerCalendarShellProjection(
   const presentation = formatPlannerCalendarPresentation(
     projection,
     resolvePlannerLocale(input.appSettings.language),
+    {
+      todayKey: input.now.toFormat('yyyy-MM-dd'),
+      relativeLabels: input.relativeLabels,
+    },
   );
 
   return { projection, presentation, eventCatalog };
@@ -85,6 +93,9 @@ export function usePlannerCalendarProjection(
   input: UsePlannerCalendarProjectionInput,
 ): UsePlannerCalendarProjectionResult {
   const notes = useNotesStore(state => state.notes);
+  const { t } = useTranslation();
+  const relativeLabels = useMemo(() => buildRelativeDateLabels(t), [t]);
+  const todayKey = input.now.toFormat('yyyy-MM-dd');
 
   const eventCatalog = useMemo(
     () => buildPlannerEventCatalog(notes),
@@ -127,8 +138,9 @@ export function usePlannerCalendarProjection(
     () => formatPlannerCalendarPresentation(
       projection,
       resolvePlannerLocale(input.appSettings.language),
+      { todayKey, relativeLabels },
     ),
-    [projection, input.appSettings.language],
+    [projection, input.appSettings.language, todayKey, relativeLabels],
   );
 
   return { projection, presentation, eventCatalog };
