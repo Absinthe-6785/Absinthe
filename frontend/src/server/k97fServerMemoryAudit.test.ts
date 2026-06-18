@@ -15,8 +15,8 @@ describe('k97fServerMemoryAudit policy', () => {
   it('reads backend full-vault patterns from main.py', () => {
     const policy = readK97fBackendPolicySnapshot();
     expect(policy.notesRouteFullVault).toBe(true);
-    expect(policy.notesIncrementalFilter).toBe(false);
-    expect(policy.backupParallelFetch).toBe(true);
+    expect(policy.notesIncrementalFilter).toBe(true);
+    expect(policy.backupParallelFetch).toBe(false);
     expect(policy.notesSelectStar).toBe(true);
   });
 });
@@ -73,7 +73,7 @@ describe('k97fServerMemoryAudit caches & OOM', () => {
 
   it('documents incremental sync savings without implementing filter', () => {
     const analysis = analyzeK97fIncrementalSync();
-    expect(analysis.implementationStatus).toBe('documented-only');
+    expect(analysis.implementationStatus).toBe('implemented');
     expect(analysis.estimatedMemorySavingsPct).toBeGreaterThan(50);
     expect(analysis.currentPattern).toContain('/api/notes');
   });
