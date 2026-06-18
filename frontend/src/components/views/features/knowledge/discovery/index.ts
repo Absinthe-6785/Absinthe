@@ -1,8 +1,19 @@
 export {
   buildDiscoveryFeed,
+  buildDiscoveryRefreshBundle,
   countDiscoveriesForNote,
   isDiscoveryOpportunityNote,
+  type DiscoveryRefreshBundle,
 } from './discoveryEngine';
+
+export {
+  createDiscoveryFeedContext,
+  getCandidatePool,
+  getDiscoveryAreaHealth,
+  getDiscoveryImportance,
+  type ConnectionCandidateIndex,
+  type DiscoveryFeedContext,
+} from './discoveryFeedContext';
 
 export {
   collectEmergingTopicSignals,

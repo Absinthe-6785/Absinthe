@@ -1,6 +1,11 @@
 import type { NoteBase } from '../../../../noteUtils';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
 import { getNoteGalaxyMap } from '../../graph/knowledgeUniverse/galaxyClustering';
+import {
+  getDiscoveryAreaHealth,
+  getDiscoveryImportance,
+  type DiscoveryFeedContext,
+} from '../../discovery/discoveryFeedContext';
 import { buildAreaHealthSummaries, type AreaHealthSummary } from './areaHealth';
 import { buildKnowledgeGaps, type KnowledgeGap } from './knowledgeGaps';
 import {
@@ -81,18 +86,22 @@ export function buildNoteIntelligenceSnapshot(
 export function buildCosmosVaultAnalysis(
   notes: readonly NoteBase[],
   service: KnowledgeIndexService,
+  ctx?: DiscoveryFeedContext,
 ): CosmosVaultAnalysis {
   const active = notes.filter(n => !n.deletedAt);
-  const galaxyMap = getNoteGalaxyMap(active, service);
-  const areaHealthRows = buildAreaHealthSummaries(active, service, galaxyMap);
+  const galaxyMap = ctx?.galaxyMap ?? getNoteGalaxyMap(active, service);
+  const areaHealthRows = ctx
+    ? getDiscoveryAreaHealth(ctx)
+    : buildAreaHealthSummaries(active, service, galaxyMap);
 
   let coreHubCount = 0;
   let majorHubCount = 0;
   let isolatedCount = 0;
 
   for (const note of active) {
-    const input = buildImportanceInputForNote(note, service, galaxyMap.get(note.id));
-    const { classification } = evaluateKnowledgeImportance(input);
+    const { classification } = ctx
+      ? getDiscoveryImportance(ctx, note.id)
+      : evaluateKnowledgeImportance(buildImportanceInputForNote(note, service, galaxyMap.get(note.id)));
     if (classification === 'core-hub') coreHubCount += 1;
     else if (classification === 'major-hub') majorHubCount += 1;
     else if (classification === 'isolated') isolatedCount += 1;

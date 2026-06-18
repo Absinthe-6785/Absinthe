@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import type { GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
+import type { DiscoveryItem, DiscoveryRelationshipSignals } from './discoveryTypes';
 import {
   evaluateKnowledgeImportance,
   type KnowledgeImportanceResult,
@@ -25,8 +26,14 @@ export interface DiscoveryFeedContext {
   readonly noteById: ReadonlyMap<string, NoteBase>;
   areaHealth?: AreaHealthSummary[];
   connectionIndex?: ConnectionCandidateIndex;
+  /** Alias: shared candidate pool for connection suggestions (K-95A). */
+  candidatePool?: ConnectionCandidateIndex;
   galaxyMemberIds?: Map<string, string[]>;
   importanceByNoteId: Map<string, KnowledgeImportanceResult>;
+  /** Cached missing-connection discovery items for this refresh. */
+  connectionSignals?: DiscoveryItem[];
+  /** Cached hub activity signals (forgotten + drift) for this refresh. */
+  relationshipSignals?: DiscoveryRelationshipSignals;
 }
 
 export function createDiscoveryFeedContext(
@@ -96,6 +103,10 @@ export function getGalaxyMemberIds(
 
 export function ensureConnectionCandidateIndex(ctx: DiscoveryFeedContext): ConnectionCandidateIndex {
   if (ctx.connectionIndex) return ctx.connectionIndex;
+  if (ctx.candidatePool) {
+    ctx.connectionIndex = ctx.candidatePool;
+    return ctx.candidatePool;
+  }
 
   const galaxyMembers = new Map<string, string[]>();
   const titleTokens = new Map<string, string[]>();
@@ -115,6 +126,13 @@ export function ensureConnectionCandidateIndex(ctx: DiscoveryFeedContext): Conne
     }
   }
 
-  ctx.connectionIndex = { galaxyMembers, titleTokens };
-  return ctx.connectionIndex;
+  const index = { galaxyMembers, titleTokens };
+  ctx.connectionIndex = index;
+  ctx.candidatePool = index;
+  return index;
+}
+
+/** Shared candidate pool accessor — same index as connection suggestions (K-95A). */
+export function getCandidatePool(ctx: DiscoveryFeedContext): ConnectionCandidateIndex {
+  return ensureConnectionCandidateIndex(ctx);
 }

@@ -14,7 +14,7 @@ import { toolbarControlHeight as resolveToolbarHeight } from '../../theme/action
 import { useTranslation } from '../../lib/i18n';
 import { logMemAudit } from '../../lib/memAudit';
 import { noteMatchesSearch } from '../../lib/math/noteSearch';
-import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryFeed } from './features/knowledge';
+import { buildGlobalGraphData, knowledgeIndexService, buildCosmosVaultAnalysis, buildDiscoveryRefreshBundle } from './features/knowledge';
 import type { DiscoveryFeed } from './features/knowledge/discovery';
 import { evaluateKnowledgeImportance, buildImportanceInputForNote } from './features/knowledge/cosmos/intelligence';
 import { getNoteGalaxyMap } from './features/knowledge/graph/knowledgeUniverse/galaxyClustering';
@@ -678,18 +678,19 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [visibleNodes, visibleEdges.length],
   );
 
-  const [hudVaultAnalysis, setHudVaultAnalysis] = useState<ReturnType<typeof buildCosmosVaultAnalysis> | null>(null);
+  const [hudVaultAnalysis, setHudVaultAnalysis] = useState<ReturnType<typeof buildDiscoveryRefreshBundle>['vaultAnalysis'] | null>(null);
   const [hudDiscoveryFeedLocal, setHudDiscoveryFeedLocal] = useState<DiscoveryFeed | null>(null);
 
   useEffect(() => {
     const run = () => {
-      setHudVaultAnalysis(
-        buildCosmosVaultAnalysis(useNotesStore.getState().notes, knowledgeIndexService),
-      );
+      const notes = useNotesStore.getState().notes;
       if (sharedDiscoveryFeed === undefined) {
-        setHudDiscoveryFeedLocal(
-          buildDiscoveryFeed(useNotesStore.getState().notes, knowledgeIndexService, { galaxyCacheKey }),
-        );
+        const bundle = buildDiscoveryRefreshBundle(notes, knowledgeIndexService, { galaxyCacheKey });
+        setHudVaultAnalysis(bundle.vaultAnalysis);
+        setHudDiscoveryFeedLocal(bundle.feed);
+      } else {
+        setHudVaultAnalysis(buildCosmosVaultAnalysis(notes, knowledgeIndexService));
+        setHudDiscoveryFeedLocal(null);
       }
     };
     if (typeof requestIdleCallback === 'function') {
