@@ -28,6 +28,7 @@ export interface DiscoveryFeedContext {
   connectionIndex?: ConnectionCandidateIndex;
   /** Alias: shared candidate pool for connection suggestions (K-95A). */
   candidatePool?: ConnectionCandidateIndex;
+  /** Alias to candidatePool.galaxyMembers after first pool build (K-95D). */
   galaxyMemberIds?: Map<string, string[]>;
   importanceByNoteId: Map<string, KnowledgeImportanceResult>;
   /** Cached missing-connection discovery items for this refresh. */
@@ -88,17 +89,11 @@ export function getGalaxyMemberIds(
   ctx: DiscoveryFeedContext,
   galaxyId: string,
 ): readonly string[] {
+  const pool = ensureConnectionCandidateIndex(ctx);
   if (!ctx.galaxyMemberIds) {
-    const members = new Map<string, string[]>();
-    for (const note of ctx.activeNotes) {
-      const id = ctx.galaxyMap.get(note.id)?.galaxyId ?? 'uncategorized';
-      const bucket = members.get(id) ?? [];
-      bucket.push(note.id);
-      members.set(id, bucket);
-    }
-    ctx.galaxyMemberIds = members;
+    ctx.galaxyMemberIds = pool.galaxyMembers;
   }
-  return ctx.galaxyMemberIds.get(galaxyId) ?? [];
+  return pool.galaxyMembers.get(galaxyId) ?? [];
 }
 
 export function ensureConnectionCandidateIndex(ctx: DiscoveryFeedContext): ConnectionCandidateIndex {
