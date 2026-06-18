@@ -242,7 +242,7 @@ describe('MonthCalendarView', () => {
     );
 
     expect(html).toContain('data-planner-upcoming-agenda');
-    expect(html).toContain('data-planner-agenda-empty');
+    expect(html).toContain('data-k103-planner-agenda-empty');
     expect(html.match(/data-planner-month-cell=/g)?.length).toBe(42);
   });
 

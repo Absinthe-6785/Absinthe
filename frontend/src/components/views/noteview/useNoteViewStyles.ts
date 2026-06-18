@@ -100,6 +100,11 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
     .bshl{background:${dark ? '#5a4f9a' : '#c4b8ff'};color:${c.text};border-radius:3px;padding:1px 4px;box-shadow:0 0 0 1px ${c.accent}66,inset 0 -1px 0 ${c.accent}44}
+    .k103-sidebar-sticky{position:sticky;top:0;z-index:2;background:${c.sidebar};padding-top:2px;padding-bottom:2px}
+    .k101-interactive:focus-visible{outline:none;box-shadow:inset 0 0 0 2px ${c.accent}55;border-radius:4px}
+    [data-document-search-match-count]{animation:k103-match-pulse .35s ease}
+    @keyframes k103-match-pulse{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+    [data-k103-search-no-results]{font-size:10px;color:${c.textMuted};font-style:italic}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}

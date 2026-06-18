@@ -309,7 +309,6 @@ export const SettingsView = ({
                   ))}
                 </div>
               ) : null}
-              <p className={`text-xs font-medium ${theme.textMuted}`}>{t('dataStorageHint')}</p>
             </div>
           </div>
 
@@ -336,7 +335,6 @@ export const SettingsView = ({
               <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
                 <div>
                   <p className="text-base font-bold">{t('vaultBackupExport')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                   <button
@@ -361,7 +359,6 @@ export const SettingsView = ({
                 <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
                   <div>
                     <p className="text-base font-bold">{t('exportCsv')}</p>
-                    <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('exportDesc')}</p>
                   </div>
                   <button
                     onClick={doExport}

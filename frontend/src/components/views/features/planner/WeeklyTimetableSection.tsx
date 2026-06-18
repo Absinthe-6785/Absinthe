@@ -228,7 +228,7 @@ export function WeeklyTimetableSection({
                         <button
                           type="button"
                           onClick={() => openWeeklyModal(block)}
-                          className={`w-full text-left rounded-xl px-3 py-3 min-h-[44px] flex items-center justify-between gap-2 ${theme.input}`}
+                          className={`w-full text-left rounded-xl px-3 py-2.5 min-h-[44px] flex items-center justify-between gap-2 ${theme.input}`}
                           data-planner-weekly-mobile-block={block.id}
                         >
                           <span className="text-sm font-bold truncate">{block.title}</span>
@@ -311,7 +311,7 @@ export function WeeklyTimetableSection({
                     data-planner-weekly-block-duplicated={duplicated ? 'true' : undefined}
                     aria-label={block.title}
                   >
-                    <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all k101-planner-chip ${block.color}${duplicated ? ' ring-2 ring-dashed ring-white/70' : ''}`}>
+                    <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all k101-planner-chip ${block.color}${duplicated ? ' ring-2 ring-dashed ring-white/80 opacity-95' : ''}`}>
                       <span className="text-[9px] lg:text-[10px] font-bold leading-tight line-clamp-2">{block.title}</span>
                       {dur >= 0.75 && (
                         <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">
@@ -356,7 +356,7 @@ export function WeeklyTimetableSection({
                   </select>
                 ) : (
                   <>
-                  <div className="flex flex-wrap gap-2 mb-2" data-timetable-weekday-presets>
+                  <div className="flex flex-wrap gap-2 mb-2" data-k103-timetable-presets data-timetable-weekday-presets>
                     <button type="button" onClick={() => setSelectedWeekdays([0, 1, 2, 3, 4])}
                       className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableWeekdays')}</button>
                     <button type="button" onClick={() => setSelectedWeekdays([5, 6])}

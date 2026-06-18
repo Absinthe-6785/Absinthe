@@ -330,6 +330,12 @@ export const EDITOR_CHROME_STYLES = `
     background: var(--be-search-hl-bg, #e8e4ff);
     color: var(--be-search-hl-color, inherit);
     border-radius: 2px;
+    box-shadow: inset 0 -1px 0 rgba(139, 92, 246, 0.35);
+  }
+  .be-search-hl-current {
+    background: var(--be-search-hl-current-bg, #c4b8ff);
+    outline: 2px solid var(--be-accent, #8B5CF6);
+    outline-offset: 1px;
   }
   .be-math-display {
     display: block;
