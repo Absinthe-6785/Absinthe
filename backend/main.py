@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import os
@@ -8,6 +9,9 @@ from jwt.exceptions import InvalidTokenError
 from supabase import create_client, Client
 
 from auth import AuthConfigurationError, SupabaseJWTVerifier
+from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
+from memory_watchdog import MemoryWatchdog
+from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, chunk_note_payloads
 
 load_dotenv()
 
@@ -23,6 +27,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+memory_watchdog = MemoryWatchdog()
+
+
+@app.middleware("http")
+async def memory_watchdog_middleware(request, call_next):
+    memory_watchdog.sample_if_due(context=f"{request.method} {request.url.path}")
+    response = await call_next(request)
+    memory_watchdog.sample_if_due(context=f"after {request.method} {request.url.path}")
+    return response
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -657,6 +671,9 @@ class RoutineExceptionCreate(BaseModel):
 
 class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None; starred: bool = False; properties: dict[str, str] | None = None
 
+class NoteBatchCreate(BaseModel):
+    notes: list[NoteCreate]
+
 # ==========================================
 # Recipes (레시피)
 # ==========================================
@@ -722,9 +739,22 @@ async def delete_routine_exception(exc_id: str, user_id: str = Depends(get_curre
     verify_owner(row["user_id"], user_id)
     return supabase.table("routine_exceptions").delete().eq("id", exc_id).execute().data
 
+def _fetch_user_table(user_id: str, table: str, order: str | None = None):
+    q = supabase.table(table).select("*").eq("user_id", user_id)
+    if order:
+        q = q.order(order)
+    return q.execute().data or []
+
 @app.get("/api/notes")
-async def get_notes(user_id: str = Depends(get_current_user)):
-    return supabase.table("notes").select("*").eq("user_id", user_id).order("updated_at", desc=True).execute().data or []
+async def get_notes(
+    user_id: str = Depends(get_current_user),
+    updated_after: int | None = Query(default=None, ge=0),
+):
+    """Full vault when updated_after is absent; delta sync when timestamp provided (K-97G)."""
+    q = supabase.table("notes").select("*").eq("user_id", user_id)
+    if updated_after is not None:
+        q = q.gt("updated_at", updated_after)
+    return q.order("updated_at", desc=True).execute().data or []
 
 @app.post("/api/notes")
 async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)):
@@ -736,6 +766,31 @@ async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)
         data.pop("starred", None)
         data.pop("properties", None)
         return supabase.table("notes").upsert(data, on_conflict="id").execute().data
+
+@app.post("/api/notes/batch")
+async def upsert_notes_batch(
+    batch: NoteBatchCreate,
+    user_id: str = Depends(get_current_user),
+    chunk_size: int = Query(default=DEFAULT_BATCH_CHUNK_SIZE, ge=1, le=100),
+):
+    """Batch upsert with configurable chunk size — preserves single-note POST compatibility (K-97G)."""
+    if not batch.notes:
+        return []
+    results: list = []
+    payloads = [{"user_id": user_id, **note.model_dump()} for note in batch.notes]
+    for chunk in chunk_note_payloads(payloads, chunk_size):
+        try:
+            data = supabase.table("notes").upsert(chunk, on_conflict="id").execute().data or []
+        except Exception:
+            slim = []
+            for row in chunk:
+                slim_row = dict(row)
+                slim_row.pop("starred", None)
+                slim_row.pop("properties", None)
+                slim.append(slim_row)
+            data = supabase.table("notes").upsert(slim, on_conflict="id").execute().data or []
+        results.extend(data)
+    return results
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
@@ -749,52 +804,18 @@ async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
 # ==========================================
 @app.get("/api/backup")
 async def export_backup(user_id: str = Depends(get_current_user)):
-    """전체 데이터 백업 — 10개 테이블을 asyncio.gather로 병렬 조회"""
-    import asyncio
-    from datetime import datetime, timezone
+    """Full backup JSON — sequential table fetch to reduce peak memory (K-97G)."""
+    return fetch_backup_tables_sequential(lambda table, order: _fetch_user_table(user_id, table, order))
 
-    def _fetch(table: str, order: str | None = None):
-        q = supabase.table(table).select("*").eq("user_id", user_id)
-        if order:
-            q = q.order(order)
-        return q.execute().data or []
-
-    loop = asyncio.get_running_loop()  # get_event_loop()는 Python 3.10+에서 deprecated
-    (
-        notes, folders, schedules, todos, routines,
-        routine_logs, blocks, workout_logs, inbody_logs, ddays,
-        recipes, routine_exceptions,
-    ) = await asyncio.gather(
-        loop.run_in_executor(None, lambda: _fetch("notes", "updated_at")),
-        loop.run_in_executor(None, lambda: _fetch("note_folders", "created_at")),
-        loop.run_in_executor(None, lambda: _fetch("schedules", "date")),
-        loop.run_in_executor(None, lambda: _fetch("todos", "date")),
-        loop.run_in_executor(None, lambda: _fetch("routines")),
-        loop.run_in_executor(None, lambda: _fetch("routine_logs")),
-        loop.run_in_executor(None, lambda: _fetch("exercise_blocks")),
-        loop.run_in_executor(None, lambda: _fetch("workout_logs", "date")),
-        loop.run_in_executor(None, lambda: _fetch("inbody_logs", "date")),
-        loop.run_in_executor(None, lambda: _fetch("ddays")),
-        loop.run_in_executor(None, lambda: _fetch("recipes", "created_at")),
-        loop.run_in_executor(None, lambda: _fetch("routine_exceptions", "start_date")),
+@app.get("/api/backup/stream")
+async def export_backup_stream(user_id: str = Depends(get_current_user)):
+    """Streaming ZIP backup — one table per archive entry, no full-vault JSON buffer (K-97G)."""
+    fetch = lambda table, order: _fetch_user_table(user_id, table, order)
+    return StreamingResponse(
+        iter_backup_zip_chunks(fetch),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="absinthe-backup.zip"'},
     )
-
-    return {
-        "version": 2,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "notes": notes,
-        "note_folders": folders,
-        "schedules": schedules,
-        "todos": todos,
-        "routines": routines,
-        "routine_logs": routine_logs,
-        "exercise_blocks": blocks,
-        "workout_logs": workout_logs,
-        "inbody_logs": inbody_logs,
-        "ddays": ddays,
-        "recipes": recipes,
-        "routine_exceptions": routine_exceptions,
-    }
 
 class RestorePayload(BaseModel):
     notes: list = []

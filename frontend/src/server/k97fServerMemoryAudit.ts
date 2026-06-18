@@ -66,7 +66,7 @@ export interface K97fIncrementalSyncAnalysis {
   fullVaultGetBytesAt1000: number;
   estimatedIncrementalBytesAt1000: number;
   estimatedMemorySavingsPct: number;
-  implementationStatus: 'documented-only';
+  implementationStatus: 'implemented' | 'documented-only';
 }
 
 function repoRoot(): string {
@@ -281,16 +281,20 @@ export function listK97fCacheAuditRows(): K97fCacheAuditRow[] {
 }
 
 export function analyzeK97fIncrementalSync(): K97fIncrementalSyncAnalysis {
+  const policy = readK97fBackendPolicySnapshot();
   const row = measureK97fPayloadSizeRow(1000);
   const avgNoteBytes = Math.round(row.notesGetBytes / 1000);
   const estimatedIncrementalBytes = avgNoteBytes * 12;
+  const implemented = policy.notesIncrementalFilter;
   return {
-    currentPattern: 'GET /api/notes → entire vault (no updated_after filter)',
+    currentPattern: implemented
+      ? 'GET /api/notes?updated_after=<ts> → delta since last sync (K-97G)'
+      : 'GET /api/notes → entire vault (no updated_after filter)',
     candidatePattern: 'GET /api/notes?updated_after=<ts> → delta since last sync',
     fullVaultGetBytesAt1000: row.notesGetBytes,
     estimatedIncrementalBytesAt1000: estimatedIncrementalBytes,
     estimatedMemorySavingsPct: pctReduction(row.notesGetBytes, estimatedIncrementalBytes),
-    implementationStatus: 'documented-only',
+    implementationStatus: implemented ? 'implemented' : 'documented-only',
   };
 }
 
