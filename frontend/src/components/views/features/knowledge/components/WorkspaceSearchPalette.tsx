@@ -22,6 +22,7 @@ import { importanceClassificationLabel } from '../knowledgeLabels';
 import { knowledgeIndexService } from '../KnowledgeIndexService';
 import type { DiscoveryFeed } from '../discovery';
 import { buildDiscoveryFeed } from '../discovery';
+import { readWorkspaceSearchState, writeWorkspaceSearchState } from '../../../k101WorkspaceSearchState';
 
 const GROUP_LABEL_KEYS: Record<WorkspaceSearchGroup['kind'], TranslationKey> = {
   note: 'searchGroupNotes',
@@ -77,9 +78,11 @@ export function WorkspaceSearchPalette({
   discoveryFeed: discoveryFeedProp,
 }: WorkspaceSearchPaletteProps) {
   const { t, lang } = useTranslation();
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<WorkspaceSearchFilter>('all');
+  const persisted = useMemo(() => readWorkspaceSearchState(), []);
+  const [query, setQuery] = useState(persisted.query);
+  const [filter, setFilter] = useState<WorkspaceSearchFilter>(persisted.filter);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
   const [recent, setRecent] = useState(loadWorkspaceSearchRecent);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -94,13 +97,29 @@ export function WorkspaceSearchPalette({
 
   useEffect(() => {
     if (open) {
-      setQuery('');
-      setFilter('all');
+      const saved = readWorkspaceSearchState();
+      setQuery(saved.query);
+      setFilter(saved.filter);
       setActiveIndex(0);
       setRecent(loadWorkspaceSearchRecent());
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    writeWorkspaceSearchState({ query, filter });
+  }, [open, query, filter]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    const timer = window.setTimeout(() => setIsSearching(false), 120);
+    return () => window.clearTimeout(timer);
+  }, [query, filter]);
 
   const discoveryFeed = useMemo(
     () => discoveryFeedProp ?? buildDiscoveryFeed(notes, knowledgeIndexService),
@@ -302,9 +321,18 @@ export function WorkspaceSearchPalette({
           aria-label={t('searchResultsList')}
           style={{ maxHeight: 360, overflowY: 'auto', padding: '6px 0' }}
         >
-          {flatResults.length === 0 ? (
-            <div role="status" style={{ padding: '16px 14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }}>
-              {query.trim() ? t('workspaceSearchNoResults') : t('searchStartTyping')}
+          {isSearching ? (
+            <div role="status" className="k101-skeleton-pulse" style={{ padding: '16px 14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }} data-ws-search-loading>
+              {t('k101SearchLoading')}
+            </div>
+          ) : flatResults.length === 0 ? (
+            <div role="status" style={{ padding: '20px 14px', textAlign: 'center' }} data-ws-search-empty>
+              <p style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, margin: '0 0 4px' }}>
+                {query.trim() ? t('workspaceSearchNoResults') : t('searchStartTyping')}
+              </p>
+              {query.trim() ? (
+                <p style={{ fontSize: 10, color: c.textFaint, margin: 0 }}>{t('k101SearchEmptyHint')}</p>
+              ) : null}
             </div>
           ) : (
             displaySections.map(section => (

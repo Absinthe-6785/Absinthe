@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
   ChevronDown, ChevronRight, Upload, Keyboard, Archive, RotateCcw,
@@ -51,6 +51,8 @@ import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '.
 import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { toggleSortDirection } from '../noteListSort';
 import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
+import { K101DailyNoteSection } from './K101DailyNoteSection';
+import { K101RecentActivitySection } from './K101RecentActivitySection';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -282,7 +284,13 @@ export interface NoteViewSidebarProps {
 
 export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps) {
   const { t } = useTranslation();
-  const [traceQuickNavCollapsed, setTraceQuickNavCollapsed] = useState(false);
+  const toggleSectionPref = (key: keyof NoteListSectionPrefs) => {
+    setListSectionPrefs(p => {
+      const next = { ...p, [key]: !p[key] };
+      writeNoteListSectionPrefs(next);
+      return next;
+    });
+  };
   const {
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet,
     isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen,
@@ -494,22 +502,58 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     {notes.filter(n => !n.deletedAt).length}
                   </span>
                 </div>
+                {!isTrash && (
+                  <>
+                    <K101DailyNoteSection
+                      colors={c}
+                      notes={notes}
+                      todayKey={todayTraceKey}
+                      activeNoteId={activeNoteId}
+                      collapsed={listSectionPrefs.todayCollapsed}
+                      onToggleCollapse={() => toggleSectionPref('todayCollapsed')}
+                      listDensity={listDensity}
+                      createNote={createNote}
+                      setActiveNoteId={setActiveNoteId}
+                    />
+                    <K101RecentActivitySection
+                      colors={c}
+                      notes={notes}
+                      todayKey={todayTraceKey}
+                      activeNoteId={activeNoteId}
+                      collapsed={listSectionPrefs.activityCollapsed}
+                      onToggleCollapse={() => toggleSectionPref('activityCollapsed')}
+                      listDensity={listDensity}
+                      onSelectNote={id => {
+                        setActiveNoteId(id);
+                        if (isMobile) setMobileShowEditor(true);
+                      }}
+                    />
+                  </>
+                )}
                 <div
-                  className="bseclbl"
+                  className="bseclbl k101-interactive"
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-                  onClick={() => setTraceQuickNavCollapsed(v => !v)}
+                  onClick={() => toggleSectionPref('traceQuickNavCollapsed')}
                   data-trace-quick-nav-toggle
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleSectionPref('traceQuickNavCollapsed');
+                    }
+                  }}
                 >
-                  <span>{t('nvToday')}</span>
+                  <span>{t('k101TimeLens')}</span>
                   <ChevronDown
                     size={10}
                     style={{
-                      transform: traceQuickNavCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                      transform: listSectionPrefs.traceQuickNavCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
                       transition: 'transform .15s',
                     }}
                   />
                 </div>
-                {!traceQuickNavCollapsed ? (
+                {!listSectionPrefs.traceQuickNavCollapsed ? (
                   <>
                 <div
                   className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
@@ -522,7 +566,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   )}
                 </div>
                 <div
-                  className={`bfi ${isTraceDayMode && traceDate === yesterdayTraceKey ? 'active' : ''}`}
+                  className={`bfi k101-interactive ${isTraceDayMode && traceDate === yesterdayTraceKey ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceDay(yesterdayTraceKey)}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
@@ -532,17 +576,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   )}
                 </div>
                 <div
-                  className={`bfi ${isTraceWeekMode ? 'active' : ''}`}
-                  onClick={openTraceWeek}
-                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
-                >
-                  <span style={{ flex: 1 }}>{t('nvThisWeek')}</span>
-                  {sidebarWeekCount > 0 && (
-                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarWeekCount})</span>
-                  )}
-                </div>
-                <div
-                  className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
+                  className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
@@ -557,6 +591,46 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     <span style={{ flex: 1 }}>
                       {t('nvToday')} ({sidebarTodayCount}) · {t('nvThisMonth')} ({sidebarMonthCount})
                     </span>
+                  </div>
+                )}
+                <div
+                  className="bseclbl k101-interactive"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginTop: 2 }}
+                  onClick={() => toggleSectionPref('weekCollapsed')}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleSectionPref('weekCollapsed');
+                    }
+                  }}
+                  data-k101-week-section-toggle
+                >
+                  <span>{t('nvThisWeek')}</span>
+                  <ChevronDown
+                    size={10}
+                    style={{
+                      transform: listSectionPrefs.weekCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                      transition: 'transform .15s',
+                    }}
+                  />
+                </div>
+                {!listSectionPrefs.weekCollapsed ? (
+                  <div
+                    className={`bfi k101-interactive ${isTraceWeekMode ? 'active k101-selected' : ''}`}
+                    onClick={openTraceWeek}
+                    style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                    data-k101-week-trace
+                  >
+                    <span style={{ flex: 1 }}>{t('nvThisWeek')}</span>
+                    {sidebarWeekCount > 0 && (
+                      <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarWeekCount})</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bfi" style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted, fontSize: 10 }}>
+                    <span style={{ flex: 1 }}>{t('nvThisWeek')} ({sidebarWeekCount})</span>
                   </div>
                 )}
                 <div
@@ -601,11 +675,44 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 >
                   <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
                 </div>
-                <div className={`bfi ${activeFolderId === 'starred' ? 'active' : ''}`}
-                  onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
-                  <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
-                  <span style={{ flex: 1 }}>{t('starred')}</span>
-                  <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
+                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }} data-k101-favorites-section>
+                  <div
+                    className="bseclbl k101-interactive"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                    onClick={() => toggleSectionPref('starredCollapsed')}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSectionPref('starredCollapsed');
+                      }
+                    }}
+                    data-k101-favorites-toggle
+                  >
+                    <span>{t('k81Favorites')}</span>
+                    <ChevronDown
+                      size={10}
+                      style={{
+                        transform: listSectionPrefs.starredCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                        transition: 'transform .15s',
+                      }}
+                    />
+                  </div>
+                  {!listSectionPrefs.starredCollapsed ? (
+                    <div
+                      className={`bfi k101-interactive ${activeFolderId === 'starred' ? 'active k101-selected' : ''}`}
+                      onClick={() => { setActiveFolderId('starred' as any); setActiveTag(null); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}
+                    >
+                      <Star size={10} color={activeFolderId === 'starred' ? c.accent : c.textMuted} fill={activeFolderId === 'starred' ? c.accent : 'none'}/>
+                      <span style={{ flex: 1 }}>{t('starred')}</span>
+                      <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
+                    </div>
+                  ) : (
+                    <div className="bfi" style={{ color: c.textMuted, fontSize: 10 }}>
+                      <span style={{ flex: 1 }}>{t('starred')} ({starredCount})</span>
+                    </div>
+                  )}
                 </div>
                 <div className="bseclbl">{t('nvFolders')}</div>
                 {folders.map(f => (

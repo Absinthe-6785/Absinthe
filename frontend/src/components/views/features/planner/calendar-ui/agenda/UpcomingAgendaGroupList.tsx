@@ -18,6 +18,7 @@ export interface UpcomingAgendaGroupListProps {
 
 interface MenuState {
   item: UnifiedAgendaItem;
+  dateKey: string;
   anchor: { x: number; y: number };
 }
 
@@ -29,19 +30,35 @@ export function UpcomingAgendaGroupList({
 }: UpcomingAgendaGroupListProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
 
-  const openMenu = useCallback((item: UnifiedAgendaItem, e: React.MouseEvent) => {
+  const openMenu = useCallback((item: UnifiedAgendaItem, dateKey: string, e: React.MouseEvent) => {
     if (!agendaItemHasActions(item, scheduleActions, eventActions)) return;
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ item, anchor: { x: e.clientX, y: e.clientY } });
+    setMenu({ item, dateKey, anchor: { x: e.clientX, y: e.clientY } });
   }, [scheduleActions, eventActions]);
 
-  const resolveMenuActions = useCallback((item: UnifiedAgendaItem) => {
+  const handleItemClick = useCallback((item: UnifiedAgendaItem, dateKey: string, e: React.MouseEvent) => {
+    if (item.kind === 'block' && item.blockId && scheduleActions?.onView && !e.shiftKey) {
+      scheduleActions.onView(item.blockId);
+      return;
+    }
+    if (!agendaItemHasActions(item, scheduleActions, eventActions)) {
+      if (item.noteId && eventActions?.onOpen) {
+        eventActions.onOpen(item.noteId);
+      }
+      return;
+    }
+    openMenu(item, dateKey, e);
+  }, [scheduleActions, eventActions, openMenu]);
+
+  const resolveMenuActions = useCallback((item: UnifiedAgendaItem, dateKey: string) => {
+    const jump = onDateSelect ? () => onDateSelect(dateKey) : undefined;
     if ((item.kind === 'block' || item.kind === 'countdown') && item.blockId) {
       return {
         onEdit: scheduleActions?.onEdit ? () => scheduleActions.onEdit!(item.blockId!) : undefined,
         onDelete: scheduleActions?.onDelete ? () => scheduleActions.onDelete!(item.blockId!) : undefined,
         onDuplicate: scheduleActions?.onDuplicate ? () => scheduleActions.onDuplicate!(item.blockId!) : undefined,
+        onJumpToDay: jump,
       };
     }
     if (item.noteId) {
@@ -49,10 +66,11 @@ export function UpcomingAgendaGroupList({
         onEdit: eventActions?.onEdit ? () => eventActions.onEdit!(item.noteId!) : undefined,
         onDelete: eventActions?.onDelete ? () => eventActions.onDelete!(item.noteId!) : undefined,
         onDuplicate: eventActions?.onDuplicate ? () => eventActions.onDuplicate!(item.noteId!) : undefined,
+        onJumpToDay: jump,
       };
     }
-    return {};
-  }, [scheduleActions, eventActions]);
+    return { onJumpToDay: jump };
+  }, [scheduleActions, eventActions, onDateSelect]);
 
   return (
     <>
@@ -62,28 +80,36 @@ export function UpcomingAgendaGroupList({
             <button
               type="button"
               onClick={onDateSelect ? () => onDateSelect(group.dateKey) : undefined}
-              className={`text-[10px] font-semibold text-muted tabular-nums text-left${onDateSelect ? ' hover:text-primary cursor-pointer' : ''}`}
+              className={`text-[10px] font-semibold text-muted tabular-nums text-left k101-interactive rounded px-1${onDateSelect ? ' hover:text-primary cursor-pointer' : ''}`}
               data-planner-upcoming-date={group.dateKey}
             >
               {group.dateLabel}
             </button>
             <ul className="flex flex-col gap-0.5">
-              {group.items.map(item => (
+              {group.items.map(item => {
+                const actionable = agendaItemHasActions(item, scheduleActions, eventActions)
+                  || Boolean(item.noteId && eventActions?.onOpen)
+                  || Boolean(item.kind === 'block' && item.blockId && scheduleActions?.onView);
+                const categoryClass = item.kind === 'event' ? 'border-l-2 border-l-primary'
+                  : item.kind === 'block' ? 'border-l-2 border-l-amber-500'
+                  : '';
+                return (
                 <li
                   key={`${group.dateKey}-${item.key}`}
-                  className={`px-1.5 py-1 min-h-[24px] rounded-md text-[11px] font-semibold truncate
+                  className={`px-1.5 py-1 min-h-[24px] rounded-md text-[11px] font-semibold truncate k101-planner-chip k101-interactive
                     ${item.kind === 'countdown' ? 'bg-primary/10 text-primary' : item.kind === 'event' ? 'bg-primary/8 text-primary' : 'bg-surface-alt border border-border/60'}
-                    ${agendaItemHasActions(item, scheduleActions, eventActions) ? 'cursor-pointer hover:opacity-90' : ''}`}
+                    ${categoryClass}
+                    ${actionable ? 'cursor-pointer hover:bg-surface' : ''}`}
                   data-planner-upcoming-item={item.key}
-                  onClick={e => openMenu(item, e)}
+                  onClick={actionable ? e => handleItemClick(item, group.dateKey, e) : undefined}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      openMenu(item, e as unknown as React.MouseEvent);
+                      handleItemClick(item, group.dateKey, e as unknown as React.MouseEvent);
                     }
                   }}
-                  role={agendaItemHasActions(item, scheduleActions, eventActions) ? 'button' : undefined}
-                  tabIndex={agendaItemHasActions(item, scheduleActions, eventActions) ? 0 : undefined}
+                  role={actionable ? 'button' : undefined}
+                  tabIndex={actionable ? 0 : undefined}
                 >
                   {item.kind === 'countdown' ? (
                     <span className="flex flex-col leading-tight">
@@ -97,7 +123,7 @@ export function UpcomingAgendaGroupList({
                     </span>
                   )}
                 </li>
-              ))}
+              );})}
             </ul>
           </section>
         ))}
@@ -108,7 +134,7 @@ export function UpcomingAgendaGroupList({
         anchor={menu?.anchor ?? null}
         title={menu?.item.title ?? ''}
         onClose={() => setMenu(null)}
-        {...(menu ? resolveMenuActions(menu.item) : {})}
+        {...(menu ? resolveMenuActions(menu.item, menu.dateKey) : {})}
       />
     </>
   );

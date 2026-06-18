@@ -3,8 +3,8 @@ import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
-import { findDailyAnchorNote } from '../../features/knowledge/trace/dailyTraceDayHelpers';
 import { toDateKey } from '../../features/knowledge/databaseViews/parseDatabaseDate';
+import { openOrCreateDailyNote } from '../../k101DailyNote';
 import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
 import { useNoteNavigationStack } from '../../../../hooks/useNoteNavigationStack';
 import type { CreateNoteFn, UseNoteViewActionsParams } from './types';
@@ -107,9 +107,12 @@ export function useNoteKeyboardActions(
       if (mod && e.altKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
         const todayKey = toDateKey(new Date());
-        const anchor = findDailyAnchorNote(notes, todayKey);
-        if (anchor) setActiveNoteId(anchor.id);
-        else cn({ title: todayKey, body: `## ${todayKey}\n\n` });
+        openOrCreateDailyNote({
+          notes,
+          dateKey: todayKey,
+          createNote: opts => cn({ title: opts.title, body: opts.body }),
+          setActiveNoteId,
+        });
         return;
       }
 

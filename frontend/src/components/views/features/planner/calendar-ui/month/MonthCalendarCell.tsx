@@ -62,9 +62,11 @@ export function MonthCalendarCell({
         {model.blockRows.map(({ block }) => (
           <div
             key={block.id}
-            className="px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50"
+            className="k101-planner-chip px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50 border-l-[3px] border-l-amber-500 hover:bg-surface transition-colors"
             data-planner-month-block={block.id}
-            title={`${block.startTime} ${block.title}`}
+            data-planner-month-block-category={block.category || undefined}
+            data-planner-month-block-color={block.color}
+            title={`${block.startTime} ${block.title}${block.category ? ` · ${block.category}` : ''}`}
           >
             <span className="opacity-70 tabular-nums">{block.startTime}</span>
             {' '}
@@ -79,9 +81,10 @@ export function MonthCalendarCell({
           return (
           <div
             key={occurrence.occurrenceId}
-            className={`px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer hover:opacity-80' : ''}`}
+            className={`k101-planner-chip px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate bg-primary/15 text-primary border-l-2 border-l-primary hover:bg-primary/20 transition-colors ${spanPositionClass(occurrence.spanPosition)}${onEventNoteClick ? ' cursor-pointer' : ''}`}
             data-planner-month-event={occurrence.noteId}
             data-planner-month-event-span={occurrence.spanPosition}
+            data-selected={model.isAnchorSelected ? 'true' : undefined}
             title={timeLabel ? `${timeLabel} ${occurrence.title}` : occurrence.title}
             onClick={onEventNoteClick ? (e) => { e.stopPropagation(); onEventNoteClick(occurrence.noteId); } : undefined}
             onKeyDown={onEventNoteClick ? (e) => {

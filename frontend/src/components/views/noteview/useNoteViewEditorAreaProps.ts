@@ -22,6 +22,7 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     headerTagsExpanded,
     docCopied,
     dark,
+    isEmptyVault,
     c,
     activeNote,
     activeNoteId,
@@ -108,6 +109,8 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     goBackNote,
     goForwardNote,
     openNoteById,
+    onOpenTodaysNote,
+    onImportVault,
   } = input;
 
   return useMemo(() => ({
@@ -124,6 +127,7 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
       headerTagsExpanded,
       docCopied,
       dark,
+      isEmptyVault,
     },
     data: {
       c,
@@ -214,10 +218,12 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
       goBackNote,
       goForwardNote,
       openNoteById,
+      onOpenTodaysNote,
+      onImportVault,
     },
   }), [
     hideEditorArea, isMobile, isCompactChrome, isFocusPresetActive, isTrash, showRightPanel,
-    viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, c, activeNote,
+    viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, isEmptyVault, c, activeNote,
     activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncError, isSyncing,
     savedAt, viewModes, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
     noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag,
@@ -233,5 +239,6 @@ export function useNoteViewEditorAreaProps(input: UseNoteViewEditorAreaPropsInpu
     setSearchScope, setSearchMatchIdx, insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting,
     setIsDragOver, insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
+    onOpenTodaysNote, onImportVault, documentSearchOpen, discoveryFeed,
   ]);
 }

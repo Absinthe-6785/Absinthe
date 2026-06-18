@@ -1804,6 +1804,28 @@ const translations = {
   k100KeyboardTodayNote:       { en: "Open today's daily note", ko: '오늘 일지 노트 열기', ja: '今日の日記ノートを開く' },
   k100EmptyNotesLoading:       { en: 'Loading notes…', ko: '노트 불러오는 중…', ja: 'ノートを読み込み中…' },
 
+  // ── K-101 workflow completion ─────────────────────────────────────
+  k101DailyNote:               { en: 'Daily note', ko: '일지', ja: '日記' },
+  k101DailyNoteExists:         { en: 'Open', ko: '열기', ja: '開く' },
+  k101DailyNoteNew:            { en: 'New', ko: '새로', ja: '新規' },
+  k101Tomorrow:                { en: 'Tomorrow', ko: '내일', ja: '明日' },
+  k101TimeLens:                { en: 'Time lens', ko: '시간 렌즈', ja: 'タイムレンズ' },
+  k101RecentActivity:          { en: 'Recent activity', ko: '최근 활동', ja: '最近のアクティビティ' },
+  k101LastOpened:              { en: 'Last opened', ko: '최근 열람', ja: '最近開いた' },
+  k101RecentEdited:            { en: 'Recent edited', ko: '최근 편집', ja: '最近編集' },
+  k101OpenTodaysNote:          { en: "Open today's note", ko: '오늘 노트 열기', ja: '今日のノートを開く' },
+  k101EmptyVaultTitle:         { en: 'Your vault is empty', ko: '보관함이 비어 있습니다', ja: 'ボルトが空です' },
+  k101EmptyVaultDesc:          { en: 'Create your first note, open today\'s daily note, or import a backup.', ko: '첫 노트를 만들거나 오늘 일지를 열거나 백업을 가져오세요.', ja: '最初のノートを作成するか、今日の日記を開くか、バックアップをインポートしてください。' },
+  k101SearchLoading:           { en: 'Searching…', ko: '검색 중…', ja: '検索中…' },
+  k101SearchEmptyHint:         { en: 'Try another keyword or change the filter.', ko: '다른 키워드나 필터를 시도해 보세요.', ja: '別のキーワードやフィルターをお試しください。' },
+  k101JumpToDay:               { en: 'Jump to day', ko: '해당 날짜로 이동', ja: '日付へ移動' },
+  k101NavNotes:                { en: 'Notes (Alt+1)', ko: '노트 (Alt+1)', ja: 'ノート (Alt+1)' },
+  k101NavHealth:               { en: 'Health (Alt+2)', ko: '건강 (Alt+2)', ja: 'ヘルス (Alt+2)' },
+  k101NavSchedule:             { en: 'Schedule (Alt+3)', ko: '일정 (Alt+3)', ja: 'スケジュール (Alt+3)' },
+  k101NavArchive:              { en: 'Archive (Alt+4)', ko: '아카이브 (Alt+4)', ja: 'アーカイブ (Alt+4)' },
+  k101NavRecipe:               { en: 'Recipe (Alt+5)', ko: '레시피 (Alt+5)', ja: 'レシピ (Alt+5)' },
+  k101GlobalSearchShortcut:    { en: 'Ctrl+Shift+F', ko: 'Ctrl+Shift+F', ja: 'Ctrl+Shift+F' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

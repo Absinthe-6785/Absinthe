@@ -11,12 +11,13 @@ import type { EditorSearchScope } from './editorSearch';
 import { sortNotes } from './noteListSort';
 import { writeNoteSortPrefs } from './noteListSortPreference';
 import { countTraceDay, countTraceMonth, countTraceWeek, countTraceYesterday } from './traceSidebarCounts';
+import { openOrCreateDailyNote } from './k101DailyNote';
 import {
   navigateToNoteWithHistory,
   seedNoteNavigationStack,
   type NoteNavigationSource,
 } from '../../lib/noteNavigationStack';
-import { setNoteBreadcrumb, type NoteBreadcrumbSegment } from '../../lib/noteNavigation';
+import { setNoteBreadcrumb, type NoteBreadcrumbSegment, registerWorkspaceSearchOpener } from '../../lib/noteNavigation';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -326,6 +327,10 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   useEffect(() => {
     if (isTablet && !isMobile) setSidebarCollapsed(true);
   }, [isTablet, isMobile, setSidebarCollapsed]);
+
+  useEffect(() => {
+    return registerWorkspaceSearchOpener(() => setWorkspaceSearchOpen(true));
+  }, [setWorkspaceSearchOpen]);
 
   const createQuickCaptureRef = useRef<(input: QuickCaptureInput) => string | void>(() => {});
   const createTaskRef = useRef<(input: CreateTaskInput) => string | void>(() => {});
@@ -1238,6 +1243,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const trashCount      = useMemo(() => notes.filter(n => n.deletedAt).length,              [notes]);
   const starredCount    = useMemo(() => notes.filter(n => n.starred && !n.deletedAt).length, [notes]);
   const activeNoteCount = useMemo(() => notes.filter(n => !n.deletedAt).length,              [notes]);
+  const isEmptyVault = activeNoteCount === 0 && activeFolderId !== 'trash';
 
   const handlePermanentDeleteActive = useCallback(() => {
     if (!activeNote?.deletedAt) return;
@@ -1334,7 +1340,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     },
     editorLayout: {
       hideEditorArea, isMobile, isCompactChrome, isFocusPresetActive, isTrash, showRightPanel, viewMode,
-      showAppearance, isDragOver, headerTagsExpanded, docCopied, dark,
+      showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, isEmptyVault,
     },
     editorData: {
       c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncError, isSyncing,
@@ -1354,6 +1360,16 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor,
       handleEditorDrop, handleReadingModeClick, handleActiveBodyChange, navigateToWiki,
       canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById, setDocumentSearchOpen,
+      onOpenTodaysNote: () => {
+        openOrCreateDailyNote({
+          notes,
+          dateKey: todayTraceKey,
+          createNote: opts => createNote({ title: opts.title, body: opts.body }),
+          setActiveNoteId,
+        });
+        if (isMobile) setMobileShowEditor(true);
+      },
+      onImportVault: vaultRestore.openFilePicker,
     },
     contextColors: c,
     contextRightPanel: rightPanel,
@@ -1384,7 +1400,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     },
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode,
-    sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount,
+    sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, isEmptyVault,
       trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
     todayTraceKey, isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId, isTraceDiscoveryMode,
@@ -1479,7 +1495,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       <NoteViewEditorArea {...editorAreaProps} />
 
       {/* ── Knowledge Context Panel ── */}
-      {(activeNote || rightPanel === 'discover' || rightPanel === 'timeline') && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && (
+      {(activeNote || rightPanel === 'discover' || rightPanel === 'timeline') && viewMode !== 'graph' && showRightPanel && !hideSecondaryByFocus && !isEmptyVault && (
         <KnowledgeContextPanel
           colors={c}
           compact={isCompactChrome}

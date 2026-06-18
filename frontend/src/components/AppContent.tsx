@@ -3,7 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
-import { registerNotesTabSwitcher, registerAppTabSwitcher } from '../lib/noteNavigation';
+import { registerNotesTabSwitcher, registerAppTabSwitcher, openWorkspaceSearch } from '../lib/noteNavigation';
 import { useAppStore } from '../store/useAppStore';
 import { useNotesStore } from '../store/useNotesStore';
 import { useNow } from '../hooks/useNow';
@@ -73,6 +73,37 @@ export function AppContent({ authUser }: { authUser: User }) {
       unregisterNotes();
       unregisterApp();
     };
+  }, []);
+
+  useEffect(() => {
+    const TAB_BY_ALT: Record<string, TabId> = {
+      '1': 'note',
+      '2': 'health',
+      '3': 'planner',
+      '4': 'analytics',
+      '5': 'recipe',
+    };
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target;
+      if (
+        target instanceof HTMLElement
+        && target.closest('[contenteditable="true"], .be-editable, input, textarea, select')
+      ) {
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && TAB_BY_ALT[e.key]) {
+        e.preventDefault();
+        setActiveTab(TAB_BY_ALT[e.key]!);
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        openWorkspaceSearch();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   // ── 4. SWR ────────────────────────────────────────────────────────
