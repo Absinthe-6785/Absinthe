@@ -48,6 +48,12 @@ export interface DiscoveryFeed {
   summary: DiscoverySummary;
 }
 
+/** Hub activity signals cached on a shared refresh context (K-95A). */
+export interface DiscoveryRelationshipSignals {
+  forgotten: DiscoveryItem[];
+  drift: DiscoveryItem[];
+}
+
 export interface BuildDiscoveryFeedOptions {
   limit?: number;
   perSectionLimit?: number;
@@ -55,4 +61,6 @@ export interface BuildDiscoveryFeedOptions {
   historyEvents?: readonly import('../history/eventTypes').KnowledgeHistoryEvent[];
   /** Vault structure generation — shared galaxy map cache key (K-83A). */
   galaxyCacheKey?: string;
+  /** Pre-built refresh context — skips duplicate galaxy/context setup (K-95A). */
+  context?: import('./discoveryFeedContext').DiscoveryFeedContext;
 }

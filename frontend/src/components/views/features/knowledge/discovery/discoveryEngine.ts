@@ -1,18 +1,19 @@
 import type { NoteBase } from '../../../noteUtils';
 import { logMemAudit } from '../../../../../lib/memAudit';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
-import { getNoteGalaxyMap } from '../graph/knowledgeUniverse/galaxyClustering';
+import { getNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
 import type { BuildDiscoveryFeedOptions, DiscoveryFeed, DiscoveryItem, DiscoveryKind, DiscoverySummary } from './discoveryTypes';
 import {
-  collectHubActivitySignals,
-  collectMissingConnectionSignals,
   collectWeakHubSignals,
   collectIsolatedNotesSignals,
   collectAreaInsightSignals,
+  ensureSharedConnectionSignals,
+  ensureSharedRelationshipSignals,
 } from './discoverySignals';
-import { createDiscoveryFeedContext } from './discoveryFeedContext';
+import { createDiscoveryFeedContext, type DiscoveryFeedContext } from './discoveryFeedContext';
 import { applyHistoryToDiscoveryItems } from './historyDiscoveryBoost';
 import { DISCOVERY_WEIGHTS, discoveryConfidenceTier } from './discoveryScoring';
+import { buildCosmosVaultAnalysis, type CosmosVaultAnalysis } from '../cosmos/intelligence/cosmosAnalysis';
 
 const DISCOVERY_KINDS: DiscoveryKind[] = [
   'isolated-notes',
@@ -144,18 +145,20 @@ export function buildDiscoveryFeed(
   const perSection = options.perSectionLimit ?? 3;
   const totalLimit = options.limit ?? 18;
 
-  const galaxyMap = getNoteGalaxyMap(notes, service, options.galaxyCacheKey);
-  const ctx = createDiscoveryFeedContext(notes, service, galaxyMap, now);
-  const hubActivity = collectHubActivitySignals(ctx);
+  const galaxyMap = options.context
+    ? options.context.galaxyMap
+    : getNoteGalaxyMap(notes, service, options.galaxyCacheKey);
+  const ctx = options.context ?? createDiscoveryFeedContext(notes, service, galaxyMap, now);
+  const hubActivity = ensureSharedRelationshipSignals(ctx);
 
   const raw = refineDiscoveryItems(
     applyHistoryToDiscoveryItems(
       [
         ...collectIsolatedNotesSignals(notes, service),
         ...hubActivity.forgotten,
-        ...collectMissingConnectionSignals(notes, service, galaxyMap, ctx),
-        ...collectAreaInsightSignals(notes, service, now, galaxyMap, ctx).filter(item => item.kind === 'stale-area'),
-        ...collectWeakHubSignals(notes, service, galaxyMap, ctx),
+        ...ensureSharedConnectionSignals(notes, service, ctx),
+        ...collectAreaInsightSignals(notes, service, now, ctx.galaxyMap as Map<string, GalaxyAssignment>, ctx).filter(item => item.kind === 'stale-area'),
+        ...collectWeakHubSignals(notes, service, ctx.galaxyMap as Map<string, GalaxyAssignment>, ctx),
         ...hubActivity.drift,
       ],
       options.historyEvents ?? [],
@@ -203,4 +206,24 @@ export function isDiscoveryOpportunityNote(
   feed: DiscoveryFeed,
 ): boolean {
   return countDiscoveriesForNote(noteId, feed) > 0;
+}
+
+export interface DiscoveryRefreshBundle {
+  context: DiscoveryFeedContext;
+  feed: DiscoveryFeed;
+  vaultAnalysis: CosmosVaultAnalysis;
+}
+
+/** One shared context per refresh for discovery feed + vault analysis (K-95A). */
+export function buildDiscoveryRefreshBundle(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  options: BuildDiscoveryFeedOptions = {},
+): DiscoveryRefreshBundle {
+  const now = options.now ?? Date.now();
+  const galaxyMap = getNoteGalaxyMap(notes, service, options.galaxyCacheKey);
+  const context = options.context ?? createDiscoveryFeedContext(notes, service, galaxyMap, now);
+  const feed = buildDiscoveryFeed(notes, service, { ...options, now, context });
+  const vaultAnalysis = buildCosmosVaultAnalysis(notes, service, context);
+  return { context, feed, vaultAnalysis };
 }

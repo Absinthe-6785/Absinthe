@@ -92,6 +92,28 @@ export interface HubActivitySignals {
   drift: DiscoveryItem[];
 }
 
+/** Cache hub activity on the shared refresh context (K-95A). */
+export function ensureSharedRelationshipSignals(ctx: DiscoveryFeedContext): HubActivitySignals {
+  if (ctx.relationshipSignals) return ctx.relationshipSignals;
+  const signals = collectHubActivitySignals(ctx);
+  ctx.relationshipSignals = signals;
+  return signals;
+}
+
+/** Cache missing-connection items on the shared refresh context (K-95A). */
+export function ensureSharedConnectionSignals(
+  notes: readonly NoteBase[],
+  service: KnowledgeIndexService,
+  ctx: DiscoveryFeedContext,
+): DiscoveryItem[] {
+  if (ctx.connectionSignals) return ctx.connectionSignals;
+  const items = collectMissingConnectionSignals(notes, service, ctx.galaxyMap as Map<string, GalaxyAssignment>, ctx, {
+    skipCacheWrite: true,
+  });
+  ctx.connectionSignals = items;
+  return items;
+}
+
 /** Single-pass hub activity scan — shared importance cache for forgotten + drift. */
 export function collectHubActivitySignals(
   ctx: DiscoveryFeedContext,
@@ -178,8 +200,12 @@ export function collectMissingConnectionSignals(
   service: KnowledgeIndexService,
   galaxyMap?: Map<string, GalaxyAssignment>,
   ctx?: DiscoveryFeedContext,
+  options: { skipCacheWrite?: boolean } = {},
 ): DiscoveryItem[] {
-  const context = resolveContext(notes, service, Date.now(), galaxyMap, ctx);
+  const context = resolveContext(notes, service, ctx?.now ?? Date.now(), galaxyMap, ctx);
+  if (context.connectionSignals && !options.skipCacheWrite) {
+    return context.connectionSignals;
+  }
   const sources = context.activeNotes
     .map(note => ({
       note,
@@ -225,7 +251,11 @@ export function collectMissingConnectionSignals(
     if (items.length >= 24) break;
   }
 
-  return items.sort((a, b) => b.score - a.score);
+  const sorted = items.sort((a, b) => b.score - a.score);
+  if (!options.skipCacheWrite) {
+    context.connectionSignals = sorted;
+  }
+  return sorted;
 }
 
 export function collectEmergingTopicSignals(
