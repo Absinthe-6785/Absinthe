@@ -17,6 +17,8 @@ import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
+import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
+import type { PlannerScheduleRow } from './features/planner/calendar';
 
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -44,6 +46,7 @@ export const PlannerView = ({
   const [workspaceSection, setWorkspaceSection] = useState<ScheduleWorkspaceSection>('schedule');
 
   const [showForm, setShowForm] = useState(false);
+  const [scheduleDetailId, setScheduleDetailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newSch, setNewSch] = useState<Partial<Schedule>>({
     text: '', start_time: '10:00', end_time: '11:00',
@@ -68,6 +71,7 @@ export const PlannerView = ({
 
   useEscapeKey(() => {
     setShowForm(false);
+    setScheduleDetailId(null);
     setEventDialog(null);
     clearConfirm();
   });
@@ -142,6 +146,28 @@ export const PlannerView = ({
     setShowForm(true);
   }, [schedules]);
 
+  const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
+    if (!scheduleDetailId) return null;
+    const sch = schedules.find(s => s.id === scheduleDetailId)
+      ?? prevSchedules.find(s => s.id === scheduleDetailId);
+    if (!sch) return null;
+    return {
+      id: sch.id,
+      dateKey: formatDate(selectedDate),
+      title: sch.text,
+      startTime: sch.start_time,
+      endTime: sch.end_time,
+      endNextDay: sch.end_next_day ?? false,
+      category: sch.category,
+      color: sch.color,
+      source: 'schedule',
+    };
+  }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate]);
+
+  const openScheduleDetail = useCallback((id: string) => {
+    setScheduleDetailId(id);
+  }, []);
+
   const handleCalendarAnchorChange = useCallback((dateKey: string) => {
     const [y, m, d] = dateKey.split('-').map(Number);
     if (!y || !m || !d) return;
@@ -172,11 +198,16 @@ export const PlannerView = ({
         onAnchorDateChange={handleCalendarAnchorChange}
         dayScheduleActions={{
           onAdd: () => openModal(),
+          onView: openScheduleDetail,
           onEdit: (id: string) => {
+            setScheduleDetailId(null);
             const sch = schedules.find(s => s.id === id);
             if (sch) openModal(sch);
           },
-          onDelete: handleDeleteSchedule,
+          onDelete: (id: string) => {
+            setScheduleDetailId(null);
+            handleDeleteSchedule(id);
+          },
           onDuplicate: handleDuplicateSchedule,
         }}
         eventActions={agendaEventActions}
@@ -259,6 +290,25 @@ export const PlannerView = ({
       )}
 
       {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+
+      {scheduleDetailBlock ? (
+        <ScheduleEventDetailPanel
+          block={scheduleDetailBlock}
+          theme={theme}
+          dateLabel={selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+          onEdit={() => {
+            const sch = schedules.find(s => s.id === scheduleDetailBlock.id)
+              ?? prevSchedules.find(s => s.id === scheduleDetailBlock.id);
+            setScheduleDetailId(null);
+            if (sch) openModal(sch);
+          }}
+          onDelete={() => {
+            handleDeleteSchedule(scheduleDetailBlock.id);
+            setScheduleDetailId(null);
+          }}
+          onClose={() => setScheduleDetailId(null)}
+        />
+      ) : null}
 
       {eventDialog ? (
         <EventNoteDialog

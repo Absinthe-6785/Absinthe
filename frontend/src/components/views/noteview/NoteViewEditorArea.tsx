@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useEffect, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { forwardRef, useImperativeHandle, useEffect, useMemo, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
 import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
@@ -11,7 +11,8 @@ import {
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
-import { shouldSuppressEditorKeyboardShortcuts, EDITOR_DOCUMENT_SEARCH_ATTR } from '../searchFocusIsolation';
+import { collectEditorSearchMatches } from '../editorSearch';
+import { shouldSuppressEditorKeyboardShortcuts } from '../searchFocusIsolation';
 import {
   BlockEditor,
   useBlockEditor,
@@ -45,6 +46,7 @@ import {
 } from '../features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
+import { DocumentSearchToolbar } from './DocumentSearchToolbar';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
@@ -264,6 +266,19 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
   } = handlers;
+
+  const showReadingSearchBar = viewMode === 'reading' && !isTrash;
+
+  const documentSearchMatchCount = useMemo(() => {
+    const blocks = blockEditorRef.current?.getBlocks?.();
+    if (!blocks || !editorSearchQuery.trim()) return 0;
+    return collectEditorSearchMatches(blocks, editorSearchQuery).length;
+  }, [blockEditorRef, editorSearchQuery, searchMatchIdx, activeNote?.body, activeNoteId]);
+
+  const focusDocumentSearch = () => {
+    setSearchScope('document');
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
 
   const { returnTab, goReturn } = useNoteReturnTab();
   const breadcrumb = useNoteBreadcrumb();
@@ -499,6 +514,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 if (key === 'reading') setViewMode(v => toggleEditReading(v));
                 else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
               }}
+              onOpenDocumentSearch={viewMode === 'reading' ? focusDocumentSearch : undefined}
               onMarkEvent={() => openEditEventDialog(activeNote)}
               onMarkMilestone={() => openMilestoneDialog(activeNote)}
               onToggleArea={handleToggleAreaNote}
@@ -609,6 +625,40 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             </div>
           ) : (
             <>
+              {!isTrash && showReadingSearchBar && activeNote && (
+                <div
+                  data-read-mode-search-toolbar
+                  style={{
+                    padding: '5px 12px',
+                    borderBottom: `1px solid ${c.toolBdr}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: EDITOR_TOOLBAR_GAP,
+                    flexShrink: 0,
+                    background: c.toolbar,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <DocumentSearchToolbar
+                    colors={c}
+                    searchInputRef={searchInputRef}
+                    searchQuery={searchQuery}
+                    searchScope={searchScope}
+                    matchCount={documentSearchMatchCount}
+                    activeMatchIndex={searchMatchIdx}
+                    compact
+                    onQueryChange={query => {
+                      setSearchQuery(query);
+                      setSearchScope('document');
+                    }}
+                    onScopeChange={setSearchScope}
+                    onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
+                    onNextMatch={() => setSearchMatchIdx(i => i + 1)}
+                    onKeyDown={handleDocumentSearchKeyDown}
+                  />
+                </div>
+              )}
+
               {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
               {!isTrash && viewMode === 'edit' && (
                 <div
@@ -631,56 +681,24 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
-                  {activeNote && (
-                    <input
-                      ref={searchInputRef}
-                      type="search"
-                      value={searchQuery}
-                      onChange={e => {
-                        setSearchQuery(e.target.value);
+                  {activeNote ? (
+                    <DocumentSearchToolbar
+                      colors={c}
+                      searchInputRef={searchInputRef}
+                      searchQuery={searchQuery}
+                      searchScope={searchScope}
+                      matchCount={documentSearchMatchCount}
+                      activeMatchIndex={searchMatchIdx}
+                      onQueryChange={query => {
+                        setSearchQuery(query);
                         setSearchScope('document');
                       }}
+                      onScopeChange={setSearchScope}
+                      onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
+                      onNextMatch={() => setSearchMatchIdx(i => i + 1)}
                       onKeyDown={handleDocumentSearchKeyDown}
-                      placeholder={t('k81SearchInDocument')}
-                      title={t('k81SearchInDocument')}
-                      className="bwsi"
-                      style={{
-                        fontSize: 10,
-                        padding: '0 8px',
-                        height: METADATA_CHIP_HEIGHT,
-                        width: 120,
-                        maxWidth: '28vw',
-                        boxSizing: 'border-box',
-                      }}
-                      {...{ [EDITOR_DOCUMENT_SEARCH_ATTR]: '' }}
                     />
-                  )}
-                  {searchQuery.trim() && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: EDITOR_TOOLBAR_GAP, flexWrap: 'wrap' }}>
-                      {(['block', 'document', 'all'] as const).map(scope => (
-                        <button
-                          key={scope}
-                          type="button"
-                          className={`be-editor-toolbar-scope${searchScope === scope ? ' active' : ''}`}
-                          onClick={() => setSearchScope(scope)}
-                        >
-                          {scope === 'block' ? t('nvSearchScopeBlock') : scope === 'document' ? t('nvSearchScopeDocument') : t('nvSearchScopeAll')}
-                        </button>
-                      ))}
-                      {searchScope !== 'all' && (
-                        <>
-                          <button type="button" className="be-editor-toolbar-btn" title={t('nvSearchPrev')}
-                            onClick={() => setSearchMatchIdx(i => Math.max(0, i - 1))}>
-                            <ChevronUp size={12}/>
-                          </button>
-                          <button type="button" className="be-editor-toolbar-btn" title={t('nvSearchNext')}
-                            onClick={() => setSearchMatchIdx(i => i + 1)}>
-                            <ChevronDown size={12}/>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  ) : null}
                   <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={12}/>
                   </button>

@@ -1,6 +1,7 @@
 /** Schedule CRUD callbacks wired from PlannerView (same flows as Timeline). */
 export interface DayScheduleActions {
   onAdd?: () => void;
+  onView?: (scheduleId: string) => void;
   onEdit?: (scheduleId: string) => void;
   onDelete?: (scheduleId: string) => void;
   onDuplicate?: (scheduleId: string) => void;
@@ -15,5 +16,5 @@ export interface AgendaEventActions {
 }
 
 export function dayScheduleActionsEnabled(actions?: DayScheduleActions): boolean {
-  return Boolean(actions?.onAdd ?? actions?.onEdit ?? actions?.onDelete ?? actions?.onDuplicate);
+  return Boolean(actions?.onAdd ?? actions?.onView ?? actions?.onEdit ?? actions?.onDelete ?? actions?.onDuplicate);
 }

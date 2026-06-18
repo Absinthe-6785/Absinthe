@@ -8,6 +8,8 @@ import {
   Clock, Calendar, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
+import { sortNotes } from './noteListSort';
+import { countTraceDay, countTraceMonth, countTraceWeek, countTraceYesterday } from './traceSidebarCounts';
 import {
   navigateToNoteWithHistory,
   seedNoteNavigationStack,
@@ -281,6 +283,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     focusMode, setFocusMode,
     showShortcuts, setShowShortcuts,
     sortOrder, setSortOrder,
+    sortDirection, setSortDirection,
+    listDensity, setListDensity,
     showSortMenu, setShowSortMenu,
     dragNoteId, setDragNoteId,
     showRightPanel, setShowRightPanel,
@@ -660,12 +664,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
           })
         : list;
     const applyListSort = (list: Note[]) => {
-      if (shouldSkipUserSort || sidebarSearchQuery.trim()) return list;
-      return [...list].sort((a, b) => {
-        if (sortOrder === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
-        if (sortOrder === 'created') return Number((a.id ?? '').split('-')[1] || 0) - Number((b.id ?? '').split('-')[1] || 0);
-        return b.updatedAt - a.updatedAt;
-      });
+      if (shouldSkipUserSort) return list;
+      return sortNotes(list, sortOrder, sortDirection);
     };
 
     if (noteListFilter === 'favorites') {
@@ -695,7 +695,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     list = applyWorkspaceToNotes(list);
     list = applySidebarSearch(list);
     return applyListSort(list);
-  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter, sidebarSearchQuery, formulaQueryCatalog]);
+  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, sortDirection, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter, sidebarSearchQuery, formulaQueryCatalog]);
 
   const contextPanelOpen = showRightPanel && viewMode !== 'graph';
   const dashboardLoadScope = useMemo(
@@ -1249,19 +1249,25 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     );
   }, [emptyTrash, notes, showConfirm, t]);
 
-  const sidebarTodayCount = useMemo(() => {
-    const projection = buildDailyTraceProjection(todayTraceKey, activeNotes);
-    const ids = new Set(projection.activities.map(a => a.noteId));
-    return ids.size;
-  }, [todayTraceKey, activeNotes]);
+  const sidebarTodayCount = useMemo(
+    () => countTraceDay(activeNotes, todayTraceKey),
+    [todayTraceKey, activeNotes],
+  );
 
-  const sidebarMonthCount = useMemo(() => {
-    try {
-      return buildRangeLensProjection({ kind: 'month', ...currentTraceMonthKey }, activeNotes).notesTouched;
-    } catch {
-      return 0;
-    }
-  }, [currentTraceMonthKey, activeNotes]);
+  const sidebarYesterdayCount = useMemo(
+    () => countTraceYesterday(activeNotes, todayTraceKey),
+    [todayTraceKey, activeNotes],
+  );
+
+  const sidebarWeekCount = useMemo(
+    () => countTraceWeek(activeNotes, todayTraceKey),
+    [todayTraceKey, activeNotes],
+  );
+
+  const sidebarMonthCount = useMemo(
+    () => countTraceMonth(activeNotes, currentTraceMonthKey.year, currentTraceMonthKey.month),
+    [currentTraceMonthKey, activeNotes],
+  );
 
   const folderLabel = useMemo(() =>
     activeFolderId === null    ? t('nvAllNotes') :
@@ -1279,7 +1285,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const childPropInput = useNoteViewChildPropInput(useMemo(() => ({
     sidebarLayout: { hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen },
     sidebarData: {
-      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter,
+      c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
+      sidebarTodayCount, sidebarYesterdayCount, sidebarWeekCount, sidebarMonthCount, isTrash, noteListFilter,
       searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
       isTraceRangeMode, traceRange, currentTraceMonthKey, currentTraceQuarterKey, currentTraceYearKey, areaNotes,
       isTraceAreaMode, traceAreaId, isTraceDiscoveryMode, renamingFolderId, renameVal, showFolderForm, newFolderName,
@@ -1288,7 +1295,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       databaseViewCounts, canCreateDatabaseView, databaseCreateSignal, savedViews, canSaveCurrentView,
       traceAreaProjection, traceAreaRange, activeDatabaseView, activeSmartCollection, activeRuleCollection,
       activeSavedView, folderLabel, traceLensMarkCount, isDatabaseViewMode, activeDatabaseViewNoteCount, recentNotes,
-      visibleNotes, activeNotes, activeNoteId, safeNotesForDatabase, dashboard, sortOrder, showSortMenu, dragNoteId,
+      visibleNotes, activeNotes, activeNoteId, safeNotesForDatabase, dashboard, sortOrder, sortDirection, listDensity, showSortMenu, dragNoteId,
       editingLearningPathId, focusPresets, focusPresetTargets, focusSession, focusWorkspaceOptions, taskTemplates,
       journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard, subjectWorkspaces, learningPathOverview,
       knowledgeTimeline, activitySummary, dashboardRecentActivity, dashboardLatestMilestone, evolutionInsights,
@@ -1305,7 +1312,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
       handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
       handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
+      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
       openCreateEventDialog, createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId,
       duplicateNote, patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
       handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset,
@@ -1378,7 +1385,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     databaseCreateSignal, savedViews, canSaveCurrentView, traceAreaProjection, traceAreaRange, activeDatabaseView,
     activeSmartCollection, activeRuleCollection, activeSavedView, folderLabel, traceLensMarkCount, isDatabaseViewMode,
     activeDatabaseViewNoteCount, recentNotes, visibleNotes, activeNotes, activeNoteId, safeNotesForDatabase, dashboard,
-    sortOrder, showSortMenu, dragNoteId, editingLearningPathId, focusPresets, focusPresetTargets, focusSession,
+    sortOrder, sortDirection, listDensity, showSortMenu, dragNoteId, editingLearningPathId, focusPresets, focusPresetTargets, focusSession,
     focusWorkspaceOptions, taskTemplates, journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard,
     subjectWorkspaces, learningPathOverview, knowledgeTimeline, activitySummary, dashboardRecentActivity,
     dashboardLatestMilestone, evolutionInsights, searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId,
@@ -1392,7 +1399,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
     handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, vaultRestore.openFilePicker,
+    setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setListDensity, exportAllNotes, exportVaultBackup, vaultRestore.openFilePicker,
     openCreateEventDialog, createNote, setActiveNoteId, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote, handleResumeLastWorkspace,
     handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset, handleExitFocusPreset, handleQuickCapture,
