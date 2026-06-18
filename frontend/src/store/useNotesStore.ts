@@ -20,6 +20,15 @@ import {
 import { API_URL } from '../lib/config';
 import { authFetch } from '../lib/supabase';
 import { scheduleAutoSnapshot } from '../lib/vaultSnapshotAuto';
+import '@/lib/notePersistence';
+import {
+  initNotesPersistence,
+  loadNotesAsync,
+  saveNotesAsync,
+  getNotesPersistenceMode,
+  isNotesIndexedDbRevisionEvent,
+  clearNotesPersistence,
+} from '../lib/notePersistence';
 import {
   type NoteBase as Note,
   type NoteFolderBase as NoteFolder,
@@ -108,6 +117,8 @@ interface NotesState {
   retrySync: () => void;
   /** Settings Reset — localStorage + in-memory notes 초기화 */
   resetAllNotes: () => void;
+  /** K-96B — hydrate notes from IndexedDB (or localStorage fallback) once at startup */
+  initNotesStorage: () => Promise<void>;
 }
 
 // ── 노트별 body debounce (리렌더 불필요) ───────────────────────────
@@ -272,8 +283,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const persistNotes = (notes: Note[]) => {
-    if (!saveNotes(notes)) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
-    else scheduleAutoSnapshot(notes, get().folders);
+    if (getNotesPersistenceMode() === 'localStorage') {
+      if (!saveNotes(notes)) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      else scheduleAutoSnapshot(notes, get().folders);
+      return;
+    }
+    void saveNotesAsync(notes).then(ok => {
+      if (!ok) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      else scheduleAutoSnapshot(notes, get().folders);
+    });
   };
 
   const persistFolders = (folders: NoteFolder[]) => {
@@ -698,23 +716,53 @@ export const useNotesStore = create<NotesState>((set, get) => {
     syncNoteToDB,
     flushPendingSync,
     retrySync: () => {
-      if (!saveNotes(get().notes)) {
-        set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      const afterNotesSaved = () => {
+        if (!saveFolders(get().folders)) {
+          set({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
+          return;
+        }
+        if (lastFailedDeleteId) {
+          void removeNoteFromDB(lastFailedDeleteId);
+          return;
+        }
+        const target = lastFailedNote
+          ?? get().notes.find(n => n.id === get().activeNoteId)
+          ?? null;
+        if (target) void syncNoteToDB(target);
+        else if (!lastFailedDeleteId) set({ syncError: null });
+      };
+
+      if (getNotesPersistenceMode() === 'localStorage') {
+        if (!saveNotes(get().notes)) {
+          set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+          return;
+        }
+        afterNotesSaved();
         return;
       }
-      if (!saveFolders(get().folders)) {
-        set({ syncError: LOCAL_FOLDERS_SAVE_ERROR });
-        return;
-      }
-      if (lastFailedDeleteId) {
-        void removeNoteFromDB(lastFailedDeleteId);
-        return;
-      }
-      const target = lastFailedNote
-        ?? get().notes.find(n => n.id === get().activeNoteId)
-        ?? null;
-      if (target) void syncNoteToDB(target);
-      else if (!lastFailedDeleteId) set({ syncError: null });
+
+      void saveNotesAsync(get().notes).then(notesOk => {
+        if (!notesOk) {
+          set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+          return;
+        }
+        afterNotesSaved();
+      });
+    },
+
+    initNotesStorage: async () => {
+      const result = await initNotesPersistence();
+      const prevActive = get().activeNoteId;
+      const stillValid = result.notes.some(n => n.id === prevActive);
+      const nextActive = stillValid ? prevActive : loadActiveNoteId(result.notes);
+      set({
+        notes: result.notes,
+        activeNoteId: nextActive,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
+        syncError: result.fallbackError ?? get().syncError,
+      });
+      rebuildKnowledgeIndex(result.notes);
+      if (nextActive !== prevActive) saveActiveNoteId(nextActive);
     },
 
     resetAllNotes: () => {
@@ -722,8 +770,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       pendingBodySync.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
-      clearNotesStorage();
       clearKnowledgeHistory();
+      clearNotesStorage();
+      void clearNotesPersistence();
       const notes = createDefaultWelcomeNotes();
       set({
         notes,
@@ -747,6 +796,26 @@ let applyingStorageMerge = false;
 function applyStorageMerge(key: string | null, newValue: string | null) {
   if (!key || applyingStorageMerge) return;
   const state = useNotesStore.getState();
+
+  if (isNotesIndexedDbRevisionEvent(key)) {
+    applyingStorageMerge = true;
+    void loadNotesAsync().then(merged => {
+      const prevActive = state.activeNoteId;
+      const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
+      const nextActive = stillValid ? prevActive : loadActiveNoteId(merged);
+      useNotesStore.setState({
+        notes: merged,
+        activeNoteId: nextActive,
+        vaultStructureVersion: state.vaultStructureVersion + 1,
+      });
+      rebuildKnowledgeIndex(merged);
+      if (nextActive !== prevActive) saveActiveNoteId(nextActive);
+      applyingStorageMerge = false;
+    }).catch(() => {
+      applyingStorageMerge = false;
+    });
+    return;
+  }
 
   if (key === NOTES_KEY) {
     const merged = mergeNotesFromStorageJson(state.notes, newValue);
