@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import type { KnowledgeIndexService } from '../KnowledgeIndexService';
 import { buildGlobalGraphData } from '../graph/buildGlobalGraphData';
+import type { GraphEdge } from '../graph/graphModels';
 import { getNoteGalaxyMap, type GalaxyAssignment } from '../graph/knowledgeUniverse/galaxyClustering';
 import {
   evaluateKnowledgeImportance,
@@ -74,10 +75,11 @@ export function countAreas(notes: readonly NoteBase[]): number {
 export function countLinksForNotes(
   active: readonly NoteBase[],
   service: KnowledgeIndexService,
+  graphEdges?: readonly GraphEdge[],
 ): number {
   if (active.length === 0) return 0;
   const activeIds = new Set(active.map(n => n.id));
-  const edges = buildGlobalGraphData({ service }).edges;
+  const edges = graphEdges ?? buildGlobalGraphData({ service }).edges;
   return edges.filter(
     e => activeIds.has(e.sourceId) && activeIds.has(e.targetId),
   ).length;
@@ -95,8 +97,9 @@ export function buildSnapshotMetrics(
   periodId: string,
   label: string,
   galaxyMap?: Map<string, GalaxyAssignment>,
+  graphEdges?: readonly GraphEdge[],
 ): TimelineSnapshot {
-  const linkCount = countLinksForNotes(active, service);
+  const linkCount = countLinksForNotes(active, service, graphEdges);
   const noteCount = active.length;
   return {
     periodId,

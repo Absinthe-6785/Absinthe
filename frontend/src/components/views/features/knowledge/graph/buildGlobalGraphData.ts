@@ -31,9 +31,11 @@ function includeRelations(filter: GlobalGraphRelationshipFilter): boolean {
   return filter === 'all' || filter === 'relations';
 }
 
-/** Build full-vault graph from precomputed knowledge index data — O(N + E) */
-export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
-  const { service, options = {} } = input;
+/** Collect deduplicated global graph edges from the knowledge index — O(N + E). */
+export function collectGlobalGraphEdges(
+  service: KnowledgeIndexService,
+  options: BuildGlobalGraphOptions = {},
+): GraphEdge[] {
   const relationshipFilter = options.relationshipFilter ?? 'all';
   const hideIsolated = options.hideIsolated ?? false;
 
@@ -67,6 +69,28 @@ export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
     }
   }
 
+  const edges = [...edgeMap.values()];
+  if (!hideIsolated) return edges;
+
+  const visibleIds = new Set(
+    service.getAllNoteIds().filter(noteId => (degrees.get(noteId) ?? 0) > 0),
+  );
+  return edges.filter(
+    edge => visibleIds.has(edge.sourceId) && visibleIds.has(edge.targetId),
+  );
+}
+
+/** Build full-vault graph from precomputed knowledge index data — O(N + E) */
+export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
+  const { service, options = {} } = input;
+  const hideIsolated = options.hideIsolated ?? false;
+  const edges = collectGlobalGraphEdges(service, options);
+
+  const degrees = new Map<string, number>();
+  for (const edge of edges) {
+    incrementDegree(degrees, edge.sourceId, edge.targetId);
+  }
+
   let nodes: GraphNode[] = service.getAllNoteIds().map(noteId => ({
     noteId,
     title: service.getNoteTitle(noteId),
@@ -76,10 +100,6 @@ export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
 
   if (hideIsolated) {
     nodes = nodes.filter(node => (node.degree ?? 0) > 0);
-    const visibleIds = new Set(nodes.map(node => node.noteId));
-    const edges = [...edgeMap.values()].filter(
-      edge => visibleIds.has(edge.sourceId) && visibleIds.has(edge.targetId),
-    );
     nodes.sort((a, b) => a.title.localeCompare(b.title));
     const result = { scope: 'global' as const, nodes, edges };
     logMemAudit({
@@ -96,7 +116,7 @@ export function buildGlobalGraphData(input: BuildGlobalGraphInput): GraphData {
   const result = {
     scope: 'global' as const,
     nodes,
-    edges: [...edgeMap.values()],
+    edges,
   };
   logMemAudit({
     source: 'buildGlobalGraphData',

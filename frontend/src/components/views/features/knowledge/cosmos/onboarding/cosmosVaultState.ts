@@ -1,6 +1,5 @@
 import type { NoteBase } from '../../../../noteUtils';
 import type { KnowledgeIndexService } from '../../KnowledgeIndexService';
-import { buildGlobalGraphData } from '../../graph/buildGlobalGraphData';
 
 export type CosmosVaultPhase =
   | 'no-notes'
@@ -19,7 +18,7 @@ export function countVaultLinks(
   service: KnowledgeIndexService,
 ): number {
   if (countActiveNotes(notes) === 0) return 0;
-  return buildGlobalGraphData({ service }).edges.length;
+  return service.getGlobalEdgeCount();
 }
 
 export function resolveCosmosVaultPhase(

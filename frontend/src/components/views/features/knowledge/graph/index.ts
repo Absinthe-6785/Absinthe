@@ -6,7 +6,12 @@ export {
   type BuildExpandedGraphInput,
   type ExpandedGraphMeta,
 } from './buildExpandedGraphData';
-export { buildGlobalGraphData, type BuildGlobalGraphInput, type BuildGlobalGraphOptions } from './buildGlobalGraphData';
+export {
+  buildGlobalGraphData,
+  collectGlobalGraphEdges,
+  type BuildGlobalGraphInput,
+  type BuildGlobalGraphOptions,
+} from './buildGlobalGraphData';
 export { buildLocalGraphData, type BuildLocalGraphInput } from './buildLocalGraphData';
 export { buildNoteNeighborhood, mergeNeighborhoods, type NoteNeighborhood } from './buildNoteNeighborhood';
 export {

@@ -9,6 +9,10 @@ import { normalizeQueryValue } from './query/parseQuery';
 import type { RelationEdge, ResolvedRelationTarget } from './relations/relationModels';
 import { normalizeRelationPropertyKey, relationEdgeKey, toRelationEdges } from './relations/relationNormalize';
 import type { IncomingLinksOptions, OutgoingReference, PageReference } from './backlinks';
+import {
+  collectGlobalGraphEdges,
+  type BuildGlobalGraphOptions,
+} from './graph/buildGlobalGraphData';
 import { createMemAuditThrottle } from '../../../../lib/memAudit';
 
 const logIndexMemAudit = createMemAuditThrottle(2000);
@@ -281,6 +285,11 @@ export class KnowledgeIndexService {
   /** All indexed note ids — O(N) */
   getAllNoteIds(): string[] {
     return [...this.activeNotes.keys()];
+  }
+
+  /** Global vault edge count without building graph nodes — O(N + E). */
+  getGlobalEdgeCount(options?: BuildGlobalGraphOptions): number {
+    return collectGlobalGraphEdges(this, options).length;
   }
 
   /** Outgoing relation edges from a note — O(1) */
