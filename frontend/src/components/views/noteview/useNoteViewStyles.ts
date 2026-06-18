@@ -1,10 +1,19 @@
 import { useMemo } from 'react';
 import type { NoteChromeColors } from '../noteEditorTheme';
+import { interactionStateCss } from '../../../theme/k99InteractionTokens';
+import { K99_SCROLL_PANE_CLASS, K99_STICKY_HEADER_CLASS } from '../../common/k99ScrollChrome';
 
 export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string {
   return `
+    ${interactionStateCss(c)}
+    /* ── K-99 scroll chrome ── */
+    .${K99_SCROLL_PANE_CLASS}{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:${c.textFaint}55 transparent}
+    .${K99_SCROLL_PANE_CLASS}::-webkit-scrollbar{width:6px;height:6px}
+    .${K99_SCROLL_PANE_CLASS}::-webkit-scrollbar-thumb{background:${c.textFaint}55;border-radius:999px}
+    .${K99_SCROLL_PANE_CLASS}::-webkit-scrollbar-thumb:hover{background:${c.textMuted}77}
+    .${K99_STICKY_HEADER_CLASS}{position:sticky;top:0;z-index:2;flex-shrink:0;background:inherit}
     /* ── 프리뷰 렌더 ── */
-    .broot{font-size:15px;line-height:1.85;padding:28px 44px;max-width:920px;margin:0 auto;color:${c.text}}
+    .broot{font-size:15px;line-height:1.85;padding:24px 32px;max-width:720px;margin:0 auto;color:${c.text}}
     .bh1{font-size:26px;font-weight:800;margin:32px 0 10px;color:${c.text};letter-spacing:-.5px}
     .bh2{font-size:20px;font-weight:700;margin:24px 0 8px;color:${c.text}}
     .bh3{font-size:16px;font-weight:600;margin:16px 0 6px;color:${c.textMuted}}
@@ -44,12 +53,19 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btsummary:hover{background:${c.cardHov}}
     .btbody{padding:4px 0 4px 22px;border-left:2px solid ${c.textFaint};margin-left:10px}
     /* ── 에디터/UI ── */
-    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center}
+    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;min-width:40px;min-height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+    .btbtn-sm{width:32px;height:32px;min-width:32px;min-height:32px;border-radius:6px}
+    .btbtn-lg{width:48px;height:48px;min-width:48px;min-height:48px;border-radius:10px}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
+    .btbtn:active{background:${c.accentBg}}
+    .btbtn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
+    .btbtn:disabled{opacity:.45;cursor:not-allowed}
     .be-context-chip-btn{background:none;cursor:pointer;font:inherit;transition:background .12s,color .12s,filter .12s}
     .be-context-chip-btn:hover{filter:brightness(1.06)}
     .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
     .be-editor-toolbar-btn:hover{background:${c.cardHov};color:${c.accent}}
+    .be-editor-toolbar-btn:active{background:${c.accentBg}}
+    .be-editor-toolbar-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
     .be-editor-toolbar-scope{font-size:10px;padding:0 8px;height:24px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;box-sizing:border-box;border:1px solid ${c.toolBdr};background:${c.card};color:${c.textMuted};transition:all .12s}
     .be-editor-toolbar-scope:hover{background:${c.cardHov}}
     .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}
@@ -62,11 +78,16 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
     .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s;min-height:44px}
     .bni:hover{background:${c.cardHov}}
+    .bni:active{background:${c.accentBg}}
+    .bni:focus-visible{outline:none;box-shadow:inset 0 0 0 2px ${c.accent}55}
     .bni.active{background:${c.cardAct};border-left:3px solid ${c.cardActBdr}}
     .bwi{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:7px;padding:6px 10px;font-size:12px;outline:none}
     .bwi:focus{border-color:${c.accent}}
-    .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:12px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px}
+    .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:12px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px;transition:opacity .12s,transform .08s}
     .bwbg:hover{opacity:.9}
+    .bwbg:active{transform:scale(.98);opacity:.85}
+    .bwbg:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
+    .bwbg:disabled{opacity:.45;cursor:not-allowed;transform:none}
     .bwsi{background:${c.input};border:1px solid ${c.inputBdr};border-radius:16px;padding:6px 10px 6px 28px;font-size:12px;color:${c.text};outline:none;width:100%}
     .bwsi:focus{border-color:${c.accent}80}
     .bseclbl{padding:6px 10px 2px;font-size:9px;color:${c.textFaint};font-weight:700;letter-spacing:1px;text-transform:uppercase}
@@ -105,6 +126,8 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bicon-bar{display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px}
     .bicon-btn{background:none;border:none;cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:${c.textMuted};transition:all .12s;position:relative}
     .bicon-btn:hover{background:${c.cardHov};color:${c.accent}}
+    .bicon-btn:active{background:${c.accentBg}}
+    .bicon-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
     .bicon-btn:hover .bicon-tooltip{opacity:1}

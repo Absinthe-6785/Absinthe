@@ -8,7 +8,7 @@ import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
 import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate } from '../../k98aTimetableMultiDay';
-import { EmptyState } from '../../../common/EmptyState';
+import { ProductEmptyState } from '../../../common/ProductEmptyState';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
@@ -193,14 +193,30 @@ export function WeeklyTimetableSection({
 
         {!standalone && !expanded && !hasActivities && (
           <div className="py-6" data-planner-weekly-timetable-collapsed-empty="true">
-            <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
+            <ProductEmptyState
+              variant="tailwind"
+              theme={theme}
+              icon={CalendarDays}
+              title={t('k99EmptyPlannerTitle')}
+              description={t('k99EmptyPlannerDesc')}
+              dataHook="planner-timetable-empty"
+              primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+            />
           </div>
         )}
 
         {showMobileList && (
           <div className="flex flex-col gap-4" data-planner-weekly-timetable-mobile>
             {!hasActivities ? (
-              <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
+              <ProductEmptyState
+                variant="tailwind"
+                theme={theme}
+                icon={CalendarDays}
+                title={t('k99EmptyPlannerTitle')}
+                description={t('k99EmptyPlannerDesc')}
+                dataHook="planner-timetable-empty"
+                primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+              />
             ) : (
               mobileByDay.map(({ day, label, blocks }) => (
                 <div key={day}>
@@ -232,14 +248,15 @@ export function WeeklyTimetableSection({
         <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           {!hasActivities ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3" data-planner-weekly-timetable-empty="true">
-              <EmptyState theme={theme} icon={CalendarDays} text={t('plannerWeeklyTimetableEmpty')} />
-              <button
-                type="button"
-                onClick={() => openWeeklyModal()}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-bold"
-              >
-                {t('plannerWeeklyTimetableAddFirst')}
-              </button>
+              <ProductEmptyState
+                variant="tailwind"
+                theme={theme}
+                icon={CalendarDays}
+                title={t('k99EmptyPlannerTitle')}
+                description={t('k99EmptyPlannerDesc')}
+                dataHook="planner-timetable-empty"
+                primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+              />
             </div>
           ) : (
           <>

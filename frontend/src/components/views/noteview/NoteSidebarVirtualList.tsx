@@ -1,11 +1,12 @@
 import { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Star } from 'lucide-react';
+import { Star, FileText, Search, Trash2 } from 'lucide-react';
 import type { NoteBase as Note, NoteFolderBase } from '../noteUtils';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { TagChip } from '../features/knowledge/components/TagChip';
 import { listTags } from '../features/knowledge/tags/noteTags';
+import { ProductEmptyState } from '../../common/ProductEmptyState';
 
 const NOTE_ROW_HEIGHT = 72;
 const VIRTUALIZE_THRESHOLD = 40;
@@ -96,37 +97,47 @@ export function NoteSidebarVirtualList({
   };
 
   if (notes.length === 0) {
+    const emptyIcon = isTrash ? Trash2 : hasActiveSearch ? Search : FileText;
+    const title = isTrash ? t('nvTrashEmpty') : hasActiveSearch ? t('nvSearchNoResults') : t('nvNoNotes');
+    const description = isTrash
+      ? t('k99EmptyTrashDesc')
+      : hasActiveSearch
+        ? t('k99EmptySearchDesc')
+        : t('k99EmptyNotesDesc');
+    const dataHook = isTrash ? 'trash-empty' : hasActiveSearch ? 'search-empty' : 'notes-empty';
+
     return (
-      <div style={{ padding: 20, textAlign: 'center', color: c.textFaint, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-        <span role="status">
-          {isTrash ? t('nvTrashEmpty') : hasActiveSearch ? t('nvSearchNoResults') : t('nvNoNotes')}
-        </span>
-        {!isTrash && hasActiveSearch && onClearSearch && (
-          <button type="button" className="bwbg" onClick={onClearSearch}
-            style={{ minHeight: 44, padding: '8px 16px' }}>
-            {t('nvClearQuery')}
-          </button>
-        )}
-        {!isTrash && !hasActiveSearch && (
-          <button type="button" className="bwbg" onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
-            style={{ minHeight: 44, padding: '8px 16px' }}>
-            {t('nvCreateFirstNote')}
-          </button>
-        )}
-      </div>
+      <ProductEmptyState
+        variant="note-chrome"
+        colors={c}
+        icon={emptyIcon}
+        title={title}
+        description={description}
+        dataHook={dataHook}
+        primaryAction={
+          !isTrash && hasActiveSearch && onClearSearch
+            ? { label: t('nvClearQuery'), onClick: onClearSearch }
+            : !isTrash && !hasActiveSearch
+              ? {
+                  label: t('nvCreateFirstNote'),
+                  onClick: () => { createNote(); if (isMobile) setMobileShowEditor(true); },
+                }
+              : undefined
+        }
+      />
     );
   }
 
   if (!useVirtual) {
     return (
-      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+      <div ref={parentRef} className="bscroll-pane" style={{ flex: 1 }}>
         {notes.map(renderRow)}
       </div>
     );
   }
 
   return (
-    <div ref={parentRef} style={{ flex: 1, overflowY: 'auto' }}>
+    <div ref={parentRef} className="bscroll-pane" style={{ flex: 1 }}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
         {virtualizer.getVirtualItems().map(vRow => {
           const note = notes[vRow.index];

@@ -144,6 +144,7 @@ export function KnowledgeContextPanel({
       ) : null}
 
       <div
+        className="bsticky-header"
         style={{
           padding: '8px 10px 6px',
           borderBottom: `1px solid ${c.sideBdr}`,
@@ -170,12 +171,14 @@ export function KnowledgeContextPanel({
       <div
         role="tablist"
         aria-label={t('k35ContextPanelTabs')}
+        className="bsticky-header"
         style={{
           display: 'flex',
           borderBottom: `1px solid ${c.sideBdr}`,
           flexShrink: 0,
           overflowX: 'auto',
           position: 'relative',
+          flexWrap: 'nowrap',
         }}
       >
         {primaryTabs.map(({ key, label, icon, hint }) => {
@@ -295,7 +298,7 @@ export function KnowledgeContextPanel({
         ) : null}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', overscrollBehavior: 'contain' }}>
+      <div className="bscroll-pane" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', overscrollBehavior: 'contain' }}>
         {children}
       </div>
     </aside>

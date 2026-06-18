@@ -91,3 +91,36 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* K-99 — shared scroll chrome for workspace surfaces */
+.bscroll-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-muted) 45%, transparent) transparent;
+}
+
+.bscroll-pane::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.bscroll-pane::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-muted) 45%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.bscroll-pane::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-muted) 65%, transparent);
+}
+
+.bsticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  background: inherit;
+}

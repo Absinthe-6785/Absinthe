@@ -1773,6 +1773,19 @@ const translations = {
   k98ScheduleNotes:         { en: 'Notes', ko: '메모', ja: 'メモ' },
   k98TimetableDays:         { en: 'Repeat on', ko: '반복 요일', ja: '繰り返し曜日' },
 
+  // ── K-99 product polish ───────────────────────────────────────────
+  k99EmptyNotesDesc:           { en: 'Create a note or pick one from the sidebar to start writing.', ko: '노트를 만들거나 사이드바에서 선택해 작성을 시작하세요.', ja: 'ノートを作成するか、サイドバーから選んで書き始めましょう。' },
+  k99EmptySearchDesc:          { en: 'Try different keywords or clear the filter.', ko: '다른 키워드를 시도하거나 필터를 지워보세요.', ja: '別のキーワードを試すか、フィルターをクリアしてください。' },
+  k99EmptyTrashDesc:           { en: 'Deleted notes will appear here until permanently removed.', ko: '삭제된 노트가 영구 삭제되기 전까지 여기에 표시됩니다.', ja: '削除したノートは完全に消去されるまでここに表示されます。' },
+  k99EmptyPlannerTitle:        { en: 'No weekly activities yet', ko: '주간 활동이 없습니다', ja: '週間アクティビティがありません' },
+  k99EmptyPlannerDesc:         { en: 'Add recurring blocks to build your weekly rhythm.', ko: '반복 블록을 추가해 주간 리듬을 만드세요.', ja: '繰り返しブロックを追加して週間リズムを作りましょう。' },
+  k99EmptyHealthBlocksDesc:    { en: 'Exercise blocks are reusable templates for your workouts.', ko: '운동 블록은 워크아웃에 재사용할 수 있는 템플릿입니다.', ja: 'エクササイズブロックはワークアウト用の再利用テンプレートです。' },
+  k99EmptyHealthBlocksAction:  { en: 'Create block', ko: '블록 만들기', ja: 'ブロックを作成' },
+  k99EmptyHealthWorkoutsDesc:  { en: 'Log a session from your exercise blocks.', ko: '운동 블록에서 세션을 기록하세요.', ja: 'エクササイズブロックからセッションを記録しましょう。' },
+  k99EmptyHealthWorkoutsAction:{ en: 'Go to blocks', ko: '블록으로 이동', ja: 'ブロックへ' },
+  k99EmptyDiscoveryTitle:      { en: 'Nothing to discover yet', ko: '아직 발견할 항목이 없습니다', ja: 'まだ発見する項目がありません' },
+  k99EmptyDiscoveryDesc:       { en: 'Link notes and write more to surface connections.', ko: '노트를 연결하고 더 작성하면 연결을 찾을 수 있습니다.', ja: 'ノートをリンクして書き込むとつながりが見つかります。' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

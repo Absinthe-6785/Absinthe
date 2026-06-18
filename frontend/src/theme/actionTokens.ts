@@ -1,6 +1,6 @@
 import { TOUCH_TARGET_MIN_PX } from '../lib/responsiveLayout';
 
-/** Shared icon-action sizing — K-75. */
+/** Shared icon-action sizing — K-75; presets extended in k99ButtonPresets.ts (K-99). */
 export const ACTION_SIZE_SM = 32;
 export const ACTION_SIZE_MD = 40;
 export const ACTION_SIZE_LG = 48;

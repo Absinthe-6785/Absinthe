@@ -481,7 +481,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   {knowledgeQueryInfo.error}
                 </div>
               )}
-              <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div className="bscroll-pane" style={{ flex: 1 }}>
                 <div className={`bfi ${activeFolderId === null && !activeTag && workspaceActivation.kind === 'none' && !isTraceLensMode ? 'active' : ''}`}
                   onClick={() => { setActiveFolderId(null); setActiveTag(null); setSearchQuery(''); setWorkspaceActivation(INACTIVE_WORKSPACE); setTraceDate(null); setTraceRange(null); setTraceAreaId(null); setTraceAreaRange(null); setTraceDiscoveryMode(false); }}>
                   <span style={{ flex: 1 }}>{t('nvAllNotes')}</span>
@@ -995,7 +995,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
           </div>
         </div>
         {isTrash && !isWorkspacePanelMode && (
-          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="bsticky-header" style={{ padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
               <div style={{ fontSize: 11, color: c.textMuted, fontWeight: 600 }}>
                 {t('nvTrashNoteCount').replace('{count}', String(trashCount))}

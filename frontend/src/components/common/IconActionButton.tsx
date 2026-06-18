@@ -1,13 +1,15 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react';
 import {
+  ACTION_SIZE_LG,
   ACTION_SIZE_MD,
   ACTION_SIZE_SM,
+  ICON_SIZE_LG,
   ICON_SIZE_MD,
   ICON_SIZE_SM,
 } from '../../theme/actionTokens';
 import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
 
-export type IconActionSize = 'sm' | 'md';
+export type IconActionSize = 'sm' | 'md' | 'lg';
 
 export interface IconActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: IconActionSize;
@@ -18,6 +20,7 @@ export interface IconActionButtonProps extends ButtonHTMLAttributes<HTMLButtonEl
 const SIZE_MAP: Record<IconActionSize, { box: number; icon: number }> = {
   sm: { box: ACTION_SIZE_SM, icon: ICON_SIZE_SM },
   md: { box: ACTION_SIZE_MD, icon: ICON_SIZE_MD },
+  lg: { box: ACTION_SIZE_LG, icon: ICON_SIZE_LG },
 };
 
 /** Standardized square icon action — K-75. */
