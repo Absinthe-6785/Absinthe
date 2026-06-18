@@ -15,6 +15,10 @@ import {
 } from './features/knowledge/tags/tagConstants';
 import { protectMathInMarkdown } from '../../lib/math/mathParse';
 import { renderProtectedMathBlock } from '../../lib/math/katexRender';
+import {
+  markNotesOnboardingComplete,
+  shouldSeedOnboardingNotes,
+} from '../../lib/notesOnboarding';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
@@ -215,7 +219,11 @@ export function migrateLegacyStorageIfNeeded(): void {
   if (pl?.length) noteGroups.push(pl);
   if (plv1?.length) noteGroups.push(plv1.map(n => ({ ...n, folderId: null, deletedAt: null })));
 
-  const mergedNotes = noteGroups.length > 0 ? mergeNoteArrays(...noteGroups) : defaultSeedNotes();
+  const mergedNotes = noteGroups.length > 0
+    ? mergeNoteArrays(...noteGroups)
+    : (shouldSeedOnboardingNotes() ? defaultSeedNotes() : []);
+  if (mergedNotes.length > 0) markNotesOnboardingComplete();
+  else if (noteGroups.length > 0) markNotesOnboardingComplete();
   saveNotes(mergedNotes);
 
   const folderGroups: NoteFolderBase[][] = [];
@@ -253,7 +261,13 @@ export function registerNotesStorageBridge(load: NotesSyncLoad, save: NotesSyncS
 export function loadNotes(): NoteBase[] {
   migrateLegacyStorageIfNeeded();
   if (externalSyncLoad) return externalSyncLoad();
-  return loadRawNotes(NOTES_KEY) ?? defaultSeedNotes();
+  const raw = loadRawNotes(NOTES_KEY);
+  if (raw && raw.length > 0) {
+    markNotesOnboardingComplete();
+    return raw;
+  }
+  if (raw) return [];
+  return [];
 }
 
 export function loadFolders(): NoteFolderBase[] {
@@ -315,9 +329,10 @@ export async function clearNotesStorageAsync(): Promise<void> {
   } catch { /**/ }
 }
 
-/** DB·로컬 초기화 후 기본 환영 노트 1개 생성 */
+/** Settings reset — explicit welcome note creation (marks onboarding complete). */
 export function createDefaultWelcomeNotes(): NoteBase[] {
   const notes = defaultSeedNotes();
+  markNotesOnboardingComplete();
   saveNotes(notes);
   saveActiveNoteId(notes[0]?.id ?? null);
   saveFolders([]);
