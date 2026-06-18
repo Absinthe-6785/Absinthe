@@ -113,6 +113,11 @@ export function normalizeNote(n: Partial<NoteBase>): NoteBase {
 }
 
 function loadRawNotes(key: string): NoteBase[] | null {
+  return loadRawNotesFromKey(key);
+}
+
+/** Read notes JSON from localStorage — exported for migration layer (K-96B). */
+export function loadRawNotesFromKey(key: string): NoteBase[] | null {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
@@ -192,6 +197,8 @@ function defaultSeedNotes(): NoteBase[] {
   }];
 }
 
+export { defaultSeedNotes };
+
 /** noteview + planner legacy → notes-v2 일회 마이그레이션 */
 export function migrateLegacyStorageIfNeeded(): void {
   if (localStorage.getItem(MIGRATION_FLAG)) return;
@@ -231,8 +238,21 @@ export function migrateLegacyStorageIfNeeded(): void {
 }
 
 // ── localStorage helpers ─────────────────────────────────────────────
+type NotesSyncSave = (notes: NoteBase[]) => boolean;
+type NotesSyncLoad = () => NoteBase[];
+
+let externalSyncSave: NotesSyncSave | null = null;
+let externalSyncLoad: NotesSyncLoad | null = null;
+
+/** K-96B — wire IndexedDB bridge without circular imports. */
+export function registerNotesStorageBridge(load: NotesSyncLoad, save: NotesSyncSave): void {
+  externalSyncLoad = load;
+  externalSyncSave = save;
+}
+
 export function loadNotes(): NoteBase[] {
   migrateLegacyStorageIfNeeded();
+  if (externalSyncLoad) return externalSyncLoad();
   return loadRawNotes(NOTES_KEY) ?? defaultSeedNotes();
 }
 
@@ -256,6 +276,7 @@ export const LOCAL_FOLDERS_SAVE_ERROR =
   'Local folder save failed — storage may be full. Free browser storage.';
 
 export function saveNotes(notes: NoteBase[]): boolean {
+  if (externalSyncSave) return externalSyncSave(notes);
   try {
     localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
     return true;
@@ -286,6 +307,14 @@ export function clearNotesStorage(): void {
   } catch { /**/ }
 }
 
+export async function clearNotesStorageAsync(): Promise<void> {
+  clearNotesStorage();
+  try {
+    const { clearNotesPersistence } = await import('@/lib/notePersistence');
+    await clearNotesPersistence();
+  } catch { /**/ }
+}
+
 /** DB·로컬 초기화 후 기본 환영 노트 1개 생성 */
 export function createDefaultWelcomeNotes(): NoteBase[] {
   const notes = defaultSeedNotes();
@@ -293,6 +322,16 @@ export function createDefaultWelcomeNotes(): NoteBase[] {
   saveActiveNoteId(notes[0]?.id ?? null);
   saveFolders([]);
   return notes;
+}
+
+export async function loadNotesAsync(): Promise<NoteBase[]> {
+  const { loadNotesAsync: loadAsync } = await import('@/lib/notePersistence');
+  return loadAsync();
+}
+
+export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolean> {
+  const { saveNotesAsync: saveAsync } = await import('@/lib/notePersistence');
+  return saveAsync(notes);
 }
 
 /** @deprecated use loadNotes */

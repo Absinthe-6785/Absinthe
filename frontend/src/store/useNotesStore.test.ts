@@ -30,6 +30,7 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
+import { resetNotesPersistenceForTests } from '../lib/notePersistence';
 const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
@@ -53,6 +54,7 @@ const sampleNote = (): NoteBase => ({
 function resetStore() {
   storage.clear();
   authFetchMock.mockReset();
+  resetNotesPersistenceForTests();
   useNotesStore.setState({
     notes: [],
     folders: [],

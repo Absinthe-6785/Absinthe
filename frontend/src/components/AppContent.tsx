@@ -40,6 +40,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting } = useAppStore();
   const { t } = useTranslation();
   const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
+  const initNotesStorage = useNotesStore(s => s.initNotesStorage);
   const [activeTab, setActiveTab] = useState<TabId>('note');
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
@@ -52,16 +53,18 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
-  // 앱 시작 시 DB에서 최신 노트 로드 — 세션이 준비된 후 실행
+  // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화
   useEffect(() => {
-    hydrateFromDB().then(() => {
-      const { notes, folders } = useNotesStore.getState();
-      runPeriodicSnapshotSlots(notes, folders);
-      void migrateLegacyDdays(count => {
-        if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
+    initNotesStorage()
+      .then(() => hydrateFromDB())
+      .then(() => {
+        const { notes, folders } = useNotesStore.getState();
+        runPeriodicSnapshotSlots(notes, folders);
+        void migrateLegacyDdays(count => {
+          if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
+        });
       });
-    });
-  }, [hydrateFromDB, showToast, t]);
+  }, [hydrateFromDB, initNotesStorage, showToast, t]);
 
   useEffect(() => {
     const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));
