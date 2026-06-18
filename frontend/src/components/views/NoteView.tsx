@@ -827,7 +827,9 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   // Linked reference excerpts — contextual paragraphs from referring pages
   const backlinkContexts = useMemo(
     () => (linksTabActive && activeNote
-      ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes)
+      ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes, {
+        contentVersion: indexContentVersion,
+      })
       : EMPTY_BACKLINK_CONTEXTS),
     [linksTabActive, activeNote?.id, activeNote?.title, indexContentVersion],
   );
