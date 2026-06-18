@@ -9,6 +9,7 @@ export interface NoteListSectionPrefs {
   activityCollapsed: boolean;
   traceQuickNavCollapsed: boolean;
   workspaceCollapsed: boolean;
+  areasCollapsed: boolean;
 }
 
 export const DEFAULT_NOTE_LIST_SECTION_PREFS: NoteListSectionPrefs = {
@@ -20,6 +21,7 @@ export const DEFAULT_NOTE_LIST_SECTION_PREFS: NoteListSectionPrefs = {
   activityCollapsed: true,
   traceQuickNavCollapsed: true,
   workspaceCollapsed: true,
+  areasCollapsed: true,
 };
 
 export function readNoteListSectionPrefs(): NoteListSectionPrefs {
@@ -42,6 +44,9 @@ export function readNoteListSectionPrefs(): NoteListSectionPrefs {
       workspaceCollapsed: parsed.workspaceCollapsed !== undefined
         ? Boolean(parsed.workspaceCollapsed)
         : DEFAULT_NOTE_LIST_SECTION_PREFS.workspaceCollapsed,
+      areasCollapsed: parsed.areasCollapsed !== undefined
+        ? Boolean(parsed.areasCollapsed)
+        : DEFAULT_NOTE_LIST_SECTION_PREFS.areasCollapsed,
     };
   } catch {
     return DEFAULT_NOTE_LIST_SECTION_PREFS;

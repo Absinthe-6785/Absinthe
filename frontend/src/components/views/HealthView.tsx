@@ -21,6 +21,7 @@ import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
+import { formatLongDate } from './k102DateFormat';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
@@ -876,7 +877,7 @@ export const HealthView = ({
             <div>
               <h2 className="font-heading text-xl font-bold">{t('todayWorkout')}</h2>
               <p className={`text-xs font-medium mt-0.5 ${theme.textMuted}`}>
-                {selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                {formatLongDate(selectedDate, lang)}
               </p>
             </div>
             {!isWorkoutLocked && (
@@ -1199,12 +1200,13 @@ export const HealthView = ({
               /* ── 편집 상태: Complete Workout 버튼 ── */
               <button onClick={handleSaveWorkouts}
                 disabled={isSaving}
-            className={`w-full bg-primary text-primary-foreground font-bold text-base py-3 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all sticky bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
+                data-k104-health-no-sticky-mobile
+            className={`w-full bg-primary text-primary-foreground font-bold text-base py-3 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all lg:sticky lg:bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
                 {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
               </button>
             )}
             {/* ── 날짜별 메모 ── */}
-            <div className="mt-2 rounded-xl p-2.5 bg-surface-alt">
+            <div className="mt-2 rounded-xl p-2.5 bg-surface-alt" data-k104-health-workout-footer>
               <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
               <textarea
                 value={workoutMemo}
@@ -1230,7 +1232,7 @@ export const HealthView = ({
         )}
         </div>
 
-        <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 lg:gap-4 shrink-0 ${mobileHealthTab === 'workout' ? 'grid' : 'hidden lg:grid'}`}
+        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 lg:gap-4 shrink-0"
           data-workspace-zone="supporting"
         >
           <WorkoutMonthCalendar

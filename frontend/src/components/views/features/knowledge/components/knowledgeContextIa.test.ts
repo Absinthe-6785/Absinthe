@@ -19,26 +19,29 @@ function splitContextTabs(keys: readonly KnowledgeContextTab[]) {
   return { primary, more };
 }
 
-describe('K-89B1 knowledge context IA', () => {
-  it('promotes Discover to primary navigation', () => {
+describe('K-104 knowledge context IA', () => {
+  it('promotes Discover and Insights to primary navigation', () => {
     expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toEqual([
-      'toc', 'links', 'graph', 'discover', 'properties',
+      'discover', 'toc', 'links', 'insights',
     ]);
     expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toContain('discover');
-    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('insights');
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toContain('insights');
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('graph');
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('properties');
   });
 
-  it('keeps five primary tabs without increasing tab count', () => {
-    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toHaveLength(5);
+  it('keeps four primary tabs without increasing tab count', () => {
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toHaveLength(4);
     expect(CONTEXT_TAB_KEYS).toHaveLength(11);
   });
 
-  it('places Insights in More and Discover on the primary strip', () => {
+  it('places Cosmos and Properties in More (K-104)', () => {
     const { primary, more } = splitContextTabs(CONTEXT_TAB_KEYS);
-    expect(primary).toEqual(['toc', 'links', 'graph', 'discover', 'properties']);
-    expect(more[0]).toBe('insights');
+    expect(primary).toEqual(['toc', 'links', 'discover', 'insights']);
+    expect(more).toContain('graph');
+    expect(more).toContain('properties');
     expect(more).toContain('actions');
-    expect(more).toContain('relations');
+    expect(more).toContain('timeline');
     expect(more).not.toContain('discover');
   });
 

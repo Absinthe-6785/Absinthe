@@ -23,6 +23,8 @@ export interface CalendarShellProps {
   onAnchorDateChange?: (dateKey: string) => void;
   dayScheduleActions?: DayScheduleActions;
   eventActions?: AgendaEventActions;
+  weeklyActivityCount?: number;
+  onOpenTimetable?: () => void;
 }
 
 /** K-80 calendar-first shell — month grid + upcoming agenda only. */
@@ -39,6 +41,8 @@ export function CalendarShell({
   onAnchorDateChange,
   dayScheduleActions,
   eventActions,
+  weeklyActivityCount,
+  onOpenTimetable,
 }: CalendarShellProps) {
   const { t } = useTranslation();
   const todayKey = toDateKey(now.toJSDate()) ?? anchorDate;
@@ -85,6 +89,8 @@ export function CalendarShell({
             onDateSelect={onAnchorDateChange}
             scheduleActions={dayScheduleActions}
             eventActions={eventActions}
+            weeklyActivityCount={weeklyActivityCount}
+            onOpenTimetable={onOpenTimetable}
           />
         </div>
       )}

@@ -18,6 +18,7 @@ import { buildNoteChrome } from './noteEditorTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
+import { formatLongDate } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
 
 export const PlannerView = ({
@@ -106,7 +107,7 @@ export const PlannerView = ({
     const payload = {
       ...newSch,
       color: 'purple',
-      category: 'Personal',
+      category: newSch.category ?? 'Personal',
       is_dday: isDday,
       start_time: isDday ? '00:00' : newSch.start_time,
       end_time: isDday ? '23:59' : newSch.end_time,
@@ -139,7 +140,7 @@ export const PlannerView = ({
       end_time: sch.end_time,
       is_dday: sch.is_dday,
       color: 'purple',
-      category: 'Personal',
+      category: sch.category ?? 'Personal',
     });
     setEditingId(null);
     setEndNextDay(sch.end_next_day ?? false);
@@ -211,6 +212,8 @@ export const PlannerView = ({
           onDuplicate: handleDuplicateSchedule,
         }}
         eventActions={agendaEventActions}
+        weeklyActivityCount={weeklySchedules.length}
+        onOpenTimetable={() => setWorkspaceSection('timetable')}
       />
       ) : (
         <WeeklyTimetableSection
@@ -242,7 +245,7 @@ export const PlannerView = ({
               <div>
                 <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('k76ScheduleDate')}</label>
                 <p className={`rounded-xl p-3 text-sm font-semibold ${theme.input}`}>
-                  {selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+                  {formatLongDate(selectedDate, lang)}
                 </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -254,6 +257,19 @@ export const PlannerView = ({
                 <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('k80ShowAsDday')}</span>
               </label>
               {!newSch.is_dday ? (
+              <>
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('defaultCategory')}</label>
+                <select
+                  value={newSch.category ?? 'Personal'}
+                  onChange={e => setNewSch({ ...newSch, category: e.target.value })}
+                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold ${theme.input}`}
+                >
+                  {(['Study', 'Work', 'Exercise', 'Personal'] as const).map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelStart')}</label>
@@ -278,6 +294,7 @@ export const PlannerView = ({
                   {endNextDay && <p className="text-[10px] text-primary font-bold mt-1">{t('nextDay')}</p>}
                 </div>
               </div>
+              </>
               ) : (
                 <p className={`text-[11px] ${theme.textMuted}`}>{t('k80DdayTimeHint')}</p>
               )}
@@ -295,7 +312,7 @@ export const PlannerView = ({
         <ScheduleEventDetailPanel
           block={scheduleDetailBlock}
           theme={theme}
-          dateLabel={selectedDate.toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+          dateLabel={formatLongDate(selectedDate, lang)}
           onEdit={() => {
             const sch = schedules.find(s => s.id === scheduleDetailBlock.id)
               ?? prevSchedules.find(s => s.id === scheduleDetailBlock.id);

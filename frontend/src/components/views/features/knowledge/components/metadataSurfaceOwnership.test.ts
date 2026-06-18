@@ -12,8 +12,8 @@ function readKnowledge(relativePath: string) {
 }
 
 describe('K-90A metadata surface ownership', () => {
-  it('places Properties on the primary tab strip', () => {
-    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toContain('properties');
+  it('places Properties in More menu (K-104)', () => {
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('properties');
     expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('tags');
   });
 

@@ -1,9 +1,10 @@
+import { createPortal } from 'react-dom';
 import type { RefObject } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
   ChevronDown, ChevronRight, Upload, Keyboard, Archive, RotateCcw,
-  Clock, Calendar, CalendarDays, LayoutDashboard, Folder,
+  Clock, Calendar, CalendarDays, LayoutDashboard, Folder, MoreHorizontal,
 } from 'lucide-react';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import { estimateDeletedNoteBytes, formatRecoverableStorage } from '../../../lib/trashNoteStorage';
@@ -49,11 +50,12 @@ import { isoWeekBounds } from '../features/planner/calendar/plannerCalendarDateU
 import type { ListDensityMode } from '../listDensityPreference';
 import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '../listDensityPreference';
 import type { NoteSortDirection, NoteSortField } from '../noteListSort';
-import { toggleSortDirection } from '../noteListSort';
 import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
 import { K103_NOTE_LIST_WIDTH_PX, K103_NOTE_LIST_MIN_WIDTH_PX } from '../k103LayoutConstants';
 import { K101DailyNoteSection } from './K101DailyNoteSection';
 import { K101RecentActivitySection } from './K101RecentActivitySection';
+import { NoteListSortMenu } from './NoteListSortMenu';
+import { switchToTab } from '../../../lib/noteNavigation';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -285,6 +287,8 @@ export interface NoteViewSidebarProps {
 
 export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps) {
   const { t, lang } = useTranslation();
+  const sortBtnRef = useRef<HTMLButtonElement>(null);
+  const [mobileListMoreOpen, setMobileListMoreOpen] = useState(false);
   const toggleSectionPref = (key: keyof NoteListSectionPrefs) => {
     setListSectionPrefs(p => {
       const next = { ...p, [key]: !p[key] };
@@ -745,7 +749,39 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   </div>
                 )}
                 </div>
-                <div className="bseclbl" style={{ marginTop: 4 }}>{t('nvAreas')}</div>
+                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }} data-k104-trash-section>
+                  <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
+                    <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
+                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>{t('trash')}</span>
+                    {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
+                  </div>
+                </div>
+                <div data-k104-areas-section>
+                  <div
+                    className="bseclbl k101-interactive k103-sidebar-sticky"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginTop: 4 }}
+                    onClick={() => toggleSectionPref('areasCollapsed')}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSectionPref('areasCollapsed');
+                      }
+                    }}
+                    data-k104-areas-toggle
+                  >
+                    <span>{t('nvAreas')}</span>
+                    <ChevronDown
+                      size={10}
+                      style={{
+                        transform: listSectionPrefs.areasCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                        transition: 'transform .15s',
+                      }}
+                    />
+                  </div>
+                  {!listSectionPrefs.areasCollapsed ? (
+                    <>
                 {areaNotes.map(area => (
                   <div
                     key={area.id}
@@ -768,6 +804,9 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onClick={openTraceDiscovery}
                 >
                   <span style={{ flex: 1 }}>{t('nvPatternDiscovery')}</span>
+                </div>
+                    </>
+                  ) : null}
                 </div>
                 {allTags.length > 0 && (
                   <>
@@ -922,13 +961,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     subtitle: view.query,
                   })}
                 />
-                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                  <div className={`bfi ${isTrash ? 'active' : ''}`} onClick={() => setActiveFolderId('trash')}>
-                    <Trash2 size={10} color={isTrash ? c.danger : c.textMuted}/>
-                    <span style={{ flex: 1, color: isTrash ? c.danger : undefined }}>{t('trash')}</span>
-                    {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
-                  </div>
-                </div>
               </div>
             </>
           )}
@@ -1053,30 +1085,32 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             )}
             {!isWorkspacePanelMode && (
               <>
-            {/* 정렬 */}
-            <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
-              title={t('nvSort')}>
+            <button
+              ref={sortBtnRef}
+              className="btbtn"
+              style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }}
+              onClick={() => setShowSortMenu(v => !v)}
+              title={t('nvSort')}
+              data-k104-sort-trigger
+            >
               {sortOrder === 'updated' ? <Clock size={10} /> : sortOrder === 'title' ? 'Az' : <Calendar size={10} />}
               <span style={{ marginLeft: 2, fontSize: 8 }}>{sortDirection === 'desc' ? '↓' : '↑'}</span>
             </button>
-            {showSortMenu && (
-              <div className="bsort-menu" onClick={e => e.stopPropagation()}>
-                {(['updated', 'title', 'created', 'folder'] as const).map(s => (
-                  <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
-                    onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : s === 'folder' ? t('k100SortFolder') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
-                  </div>
-                ))}
-                <div className="bsort-item" style={{ borderTop: `1px solid ${c.sideBdr}` }}
-                  onClick={() => { setStarredFirst(v => !v); setShowSortMenu(false); }}>
-                  {starredFirst ? '★ ' : '☆ '}{t('k100SortStarredFirst')}
-                </div>
-                <div className="bsort-item" style={{ borderTop: `1px solid ${c.sideBdr}` }}
-                  onClick={() => { setSortDirection(toggleSortDirection(sortDirection)); setShowSortMenu(false); }}>
-                  {sortDirection === 'desc' ? t('nvSortDesc') : t('nvSortAsc')}
-                </div>
-              </div>
-            )}
+            <NoteListSortMenu
+              colors={c}
+              anchorRef={sortBtnRef}
+              isMobile={isMobile}
+              open={showSortMenu}
+              sortOrder={sortOrder}
+              sortDirection={sortDirection}
+              starredFirst={starredFirst}
+              onSortOrder={setSortOrder}
+              onSortDirection={setSortDirection}
+              onStarredFirst={setStarredFirst}
+              onClose={() => setShowSortMenu(false)}
+            />
+            {!isMobile ? (
+              <>
             <button
               className="btbtn"
               style={{ padding: '2px 6px', fontSize: 8, color: c.textMuted, maxWidth: 72 }}
@@ -1115,9 +1149,55 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               </button>
             )}
               </>
+            ) : (
+              <button
+                type="button"
+                className="btbtn btbtn-mobile"
+                onClick={() => setMobileListMoreOpen(true)}
+                title={t('nvMoreActions')}
+                data-k104-mobile-list-more
+              >
+                <MoreHorizontal size={16} />
+              </button>
+            )}
+              </>
             )}
           </div>
         </div>
+        {mobileListMoreOpen && isMobile ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex flex-col justify-end bg-black/40"
+            onClick={() => setMobileListMoreOpen(false)}
+            data-k104-mobile-list-more-sheet
+          >
+            <div
+              className="rounded-t-2xl p-4 pb-8 shadow-2xl flex flex-col gap-1"
+              style={{ background: c.card, borderTop: `1px solid ${c.sideBdr}` }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { switchToTab('settings'); setMobileListMoreOpen(false); }}>
+                {t('settingsTitle')}
+              </button>
+              <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { const next = cycleListDensityMode(listDensity); writeListDensityMode(next); setListDensity(next); setMobileListMoreOpen(false); }}>
+                {t('nvListDensity')}: {densityLabel}
+              </button>
+              <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { setShowShortcuts(true); setMobileListMoreOpen(false); }}>
+                {t('nvShortcuts')}
+              </button>
+              {!isTrash ? (
+                <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { exportAllNotes(); setMobileListMoreOpen(false); }}>
+                  {t('nvExportAllNotes').replace('{count}', String(activeNoteCount))}
+                </button>
+              ) : null}
+              {!isTrash ? (
+                <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { openCreateEventDialog(); setMobileListMoreOpen(false); }}>
+                  {t('nvCreateEvent')}
+                </button>
+              ) : null}
+            </div>
+          </div>,
+          document.body,
+        ) : null}
         {isTrash && !isWorkspacePanelMode && (
           <div className="bsticky-header" style={{ padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>

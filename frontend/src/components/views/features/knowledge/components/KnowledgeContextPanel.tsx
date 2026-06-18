@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { useTranslation } from '../../../../../lib/i18n';
+import { useTranslation, type TranslationKey } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useResizablePanelWidth } from '../../../../../hooks/useResizablePanelWidth';
 
@@ -25,12 +25,29 @@ export interface KnowledgeContextTabDef {
   hint?: string;
 }
 
-/** Primary tabs — high-frequency navigation (K-81, K-89B1: Discover promoted). */
+/** Primary tabs — K-104: Overview, Outline, Links, Insights + More popover. */
 export const KNOWLEDGE_CONTEXT_PRIMARY_TABS: readonly KnowledgeContextTab[] = [
-  'toc', 'links', 'graph', 'discover', 'properties',
+  'discover', 'toc', 'links', 'insights',
 ];
 
-const PRIMARY_TAB_KEYS = KNOWLEDGE_CONTEXT_PRIMARY_TABS;
+const K104_TAB_LABELS: Partial<Record<KnowledgeContextTab, TranslationKey>> = {
+  discover: 'k104ContextOverview',
+  toc: 'k104ContextOutline',
+  links: 'k104ContextLinks',
+  insights: 'k104ContextInsights',
+  timeline: 'k104ContextTimeline',
+  actions: 'k104ContextActions',
+  graph: 'k104ContextCosmos',
+  properties: 'k104ContextProperties',
+};
+
+function resolveTabLabel(
+  tab: KnowledgeContextTabDef,
+  t: (key: TranslationKey) => string,
+): string {
+  const key = K104_TAB_LABELS[tab.key];
+  return key ? t(key) : tab.label;
+}
 
 export interface KnowledgeContextPanelProps {
   colors: NoteChromeColors;
@@ -58,8 +75,8 @@ export function KnowledgeContextPanel({
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
-  const primaryTabs = tabs.filter(tab => PRIMARY_TAB_KEYS.includes(tab.key));
-  const moreTabs = tabs.filter(tab => !PRIMARY_TAB_KEYS.includes(tab.key));
+  const primaryTabs = tabs.filter(tab => KNOWLEDGE_CONTEXT_PRIMARY_TABS.includes(tab.key));
+  const moreTabs = tabs.filter(tab => !KNOWLEDGE_CONTEXT_PRIMARY_TABS.includes(tab.key));
   const activeInMore = moreTabs.some(tab => tab.key === activeTab);
 
   useEffect(() => {
@@ -176,21 +193,22 @@ export function KnowledgeContextPanel({
           display: 'flex',
           borderBottom: `1px solid ${c.sideBdr}`,
           flexShrink: 0,
-          overflowX: 'auto',
+          flexWrap: 'wrap',
           position: 'relative',
-          flexWrap: 'nowrap',
         }}
       >
-        {primaryTabs.map(({ key, label, icon, hint }) => {
-          const selected = activeTab === key;
+        {primaryTabs.map(tab => {
+          const selected = activeTab === tab.key;
+          const displayLabel = resolveTabLabel(tab, t);
           return (
             <button
-              key={key}
+              key={tab.key}
               type="button"
               role="tab"
               aria-selected={selected}
-              title={hint ?? label}
-              onClick={() => onTabChange(key)}
+              title={tab.hint ?? displayLabel}
+              onClick={() => onTabChange(tab.key)}
+              data-k104-context-tab={tab.key}
               style={{
                 flex: '1 0 auto',
                 minWidth: 0,
@@ -210,10 +228,10 @@ export function KnowledgeContextPanel({
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }}>
-                {icon}
+                {tab.icon}
               </span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
-                {label}
+                {displayLabel}
               </span>
             </button>
           );
@@ -266,13 +284,16 @@ export function KnowledgeContextPanel({
                   padding: 4,
                 }}
               >
-                {moreTabs.map(({ key, label, icon, hint }) => (
+                {moreTabs.map(tab => {
+                  const displayLabel = resolveTabLabel(tab, t);
+                  return (
                   <button
-                    key={key}
+                    key={tab.key}
                     type="button"
                     role="menuitem"
-                    title={hint ?? label}
-                    onClick={() => { onTabChange(key); setMoreOpen(false); }}
+                    title={tab.hint ?? displayLabel}
+                    onClick={() => { onTabChange(tab.key); setMoreOpen(false); }}
+                    data-k104-context-more-tab={tab.key}
                     style={{
                       width: '100%',
                       display: 'flex',
@@ -281,17 +302,18 @@ export function KnowledgeContextPanel({
                       padding: '6px 8px',
                       border: 'none',
                       borderRadius: 6,
-                      background: activeTab === key ? c.accentBg : 'transparent',
-                      color: activeTab === key ? c.accent : c.text,
+                      background: activeTab === tab.key ? c.accentBg : 'transparent',
+                      color: activeTab === tab.key ? c.accent : c.text,
                       fontSize: 10,
                       cursor: 'pointer',
                       textAlign: 'left',
                     }}
                   >
-                    {icon}
-                    <span>{label}</span>
+                    {tab.icon}
+                    <span>{displayLabel}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>

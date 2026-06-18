@@ -224,6 +224,8 @@ export interface NoteViewEditorHandlers {
   setDocumentSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
   insertEmptyImageBlockAtCursor: () => void;
   setShowAppearance: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowShortcuts?: React.Dispatch<React.SetStateAction<boolean>>;
+  onOpenSettings?: () => void;
   updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   setIsDragOver: React.Dispatch<React.SetStateAction<boolean>>;
   insertImageAtCursor: (alt: string, src: string) => void;
@@ -269,7 +271,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded, openContextPanel,
     setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
     handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx, setDocumentSearchOpen,
-    insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver,
+    insertEmptyImageBlockAtCursor, setShowAppearance, setShowShortcuts, onOpenSettings, updateSetting, setIsDragOver,
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
     onOpenTodaysNote, onImportVault,
@@ -547,6 +549,9 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onExport={() => exportNote(activeNote)}
               onRestore={() => restoreNote(activeNote.id)}
               onPermanentDelete={onPermanentDelete}
+              onOpenSettings={onOpenSettings}
+              onOpenAppearance={() => setShowAppearance(true)}
+              onOpenHelp={setShowShortcuts ? () => setShowShortcuts(true) : undefined}
               onTrash={() => moveNoteToTrash(activeNote.id)}
             />
           </div>

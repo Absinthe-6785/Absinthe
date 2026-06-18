@@ -12,9 +12,10 @@ function readKnowledge(relativePath: string) {
 }
 
 describe('K-91 knowledge workflow validation', () => {
-  it('places Discover on primary tab strip (K-89B1)', () => {
+  it('places Discover and Insights on primary tab strip (K-104)', () => {
     expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toContain('discover');
-    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('insights');
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).toContain('insights');
+    expect(KNOWLEDGE_CONTEXT_PRIMARY_TABS).not.toContain('properties');
   });
 
   it('keeps Relations in More menu — workflow friction documented (K-91)', () => {
