@@ -157,6 +157,22 @@ export function goForwardNote(): string | null {
   return id;
 }
 
+/** Drop removed note ids from back/forward history (K-96A permanent delete). */
+export function pruneNoteNavigationStack(removedIds: ReadonlySet<string>): void {
+  if (removedIds.size === 0 || stack.length === 0) return;
+  const currentId = stack[index]?.id;
+  stack = stack.filter(entry => !removedIds.has(entry.id));
+  if (stack.length === 0) {
+    index = -1;
+  } else if (currentId && !removedIds.has(currentId)) {
+    const nextIndex = stack.findIndex(entry => entry.id === currentId);
+    index = nextIndex >= 0 ? nextIndex : Math.min(index, stack.length - 1);
+  } else {
+    index = Math.min(index, stack.length - 1);
+  }
+  notify();
+}
+
 /** Test-only reset. */
 export function resetNoteNavigationStack(): void {
   stack = [];

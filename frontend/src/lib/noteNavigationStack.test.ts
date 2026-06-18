@@ -22,6 +22,7 @@ import {
   goBackNote,
   goForwardNote,
   navigateToNoteWithHistory,
+  pruneNoteNavigationStack,
   pushNoteNavigation,
   resetNoteNavigationStack,
   seedNoteNavigationStack,
@@ -86,5 +87,15 @@ describe('noteNavigationStack', () => {
     pushNoteNavigation('b', 'wiki');
     seedNoteNavigationStack(null);
     expect(getNoteNavigationStack()).toHaveLength(2);
+  });
+
+  it('removes deleted note ids from history', () => {
+    pushNoteNavigation('a');
+    pushNoteNavigation('b');
+    pushNoteNavigation('c');
+
+    pruneNoteNavigationStack(new Set(['b']));
+
+    expect(getNoteNavigationStack().map(entry => entry.id)).toEqual(['a', 'c']);
   });
 });

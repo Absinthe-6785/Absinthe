@@ -208,6 +208,7 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
     handleNavigateToProjectEditor,
     setEditingLearningPathId,
     resumeWorkspace,
+    handleEmptyTrash,
   } = input;
 
   return useMemo(() => ({
@@ -414,6 +415,7 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
       handleNavigateToProjectEditor,
       setEditingLearningPathId,
       resumeWorkspace,
+      handleEmptyTrash,
     },
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome,
@@ -459,6 +461,6 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
     handleOpenStudyCollection, handleOpenResearchCollection, handleOpenDiscover, handleOpenTimeline,
     handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote,
     handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId,
-    resumeWorkspace,
+    resumeWorkspace, handleEmptyTrash,
   ]);
 }

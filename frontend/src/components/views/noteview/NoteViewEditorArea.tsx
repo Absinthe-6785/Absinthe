@@ -201,6 +201,7 @@ export interface NoteViewEditorHandlers {
   exportNote: (note: Note) => void;
   restoreNote: (id: string) => void;
   moveNoteToTrash: (id: string) => void;
+  onPermanentDelete?: () => void;
   setActiveFolderId: React.Dispatch<React.SetStateAction<string | null | 'trash' | 'starred'>>;
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   setActiveTag: React.Dispatch<React.SetStateAction<string | null>>;
@@ -255,7 +256,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     searchInputRef, importInputRef, setMobileShowEditor, setActiveNoteId, handleExitFocusPreset,
     handleTitleChange, handleTitleCompositionEnd, noteUpdate, retrySync, setViewMode,
     openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, duplicateNote,
-    setShowRightPanel, handleCopyDocument, exportNote, restoreNote, moveNoteToTrash,
+    setShowRightPanel, handleCopyDocument, exportNote, restoreNote, moveNoteToTrash, onPermanentDelete,
     setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded, openContextPanel,
     setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
     handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
@@ -518,6 +519,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onCopyDocument={() => void handleCopyDocument()}
               onExport={() => exportNote(activeNote)}
               onRestore={() => restoreNote(activeNote.id)}
+              onPermanentDelete={onPermanentDelete}
               onTrash={() => moveNoteToTrash(activeNote.id)}
             />
           </div>
@@ -793,7 +795,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   isTrash ? (
                     <div style={{ padding: '40px 60px', maxWidth: 860, margin: '0 auto' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, color: c.danger, fontSize: 13 }}>
-                        <AlertTriangle size={14}/> {t('nvInTrashRestore')}
+                        <AlertTriangle size={14}/> {t('nvInTrashWarning')}
                       </div>
                       <div style={{ color: c.textMuted, fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{activeNote.body}</div>
                     </div>
