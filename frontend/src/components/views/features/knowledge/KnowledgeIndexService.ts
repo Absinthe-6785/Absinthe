@@ -2,6 +2,11 @@ import type { NoteBase } from '../../noteUtils';
 import { extractLinks, findNoteByTitle, normalizeWikiTitle } from '../../noteUtils';
 import { containsWholeWordMention, bodyTextWithoutWikiLinks } from './mentions/mentionDetection';
 import { computeRelatedScore, RELATED_SCORE, type RelatedReason } from './related/relatedNotesScoring';
+import {
+  decodeRelatedReasonFlags,
+  toCompactRelatedRef,
+  type CompactRelatedRef,
+} from './related/relatedCompactRef';
 import { listTags } from './tags/noteTags';
 import { isTagsPropertyKey, normalizeTagName } from './tags/tagConstants';
 import { normalizePropertyKey } from './properties/noteProperties';
@@ -36,8 +41,8 @@ export interface MentionLookupOptions {
  * Future: tags, properties, mentions, graph edges.
  */
 export class KnowledgeIndexService {
-  /** normalized target title → source note id → reference */
-  private incomingByTitle = new Map<string, Map<string, PageReference>>();
+  /** normalized target title → source note ids linking to title */
+  private incomingByTitle = new Map<string, Set<string>>();
   /** source note id → outgoing link titles */
   private outgoingByNoteId = new Map<string, string[]>();
   /** note id → page properties (extension point for tags/queries/graph) */
@@ -49,18 +54,16 @@ export class KnowledgeIndexService {
   /** active note id → title/updatedAt metadata (body read via bodyProvider — K-83A) */
   private activeNotes = new Map<string, { title: string; updatedAt: number }>();
   private bodyProvider: ((noteId: string) => string) | null = null;
-  /** target note id → source note id → reference (unlinked mentions) */
-  private mentionsByTargetId = new Map<string, Map<string, PageReference>>();
+  /** target note id → source note ids with unlinked mentions */
+  private mentionsByTargetId = new Map<string, Set<string>>();
   /** source note id → target note ids mentioned as plain text */
   private mentionsFromSourceId = new Map<string, string[]>();
   /** normalized title → note id for O(1) link resolution */
   private noteIdByTitleKey = new Map<string, string>();
   /** note id → precomputed structural related notes (links, mentions, relations — not tag-only) */
-  private relatedByNoteId = new Map<string, RelatedNote[]>();
+  private relatedByNoteId = new Map<string, CompactRelatedRef[]>();
   /** tag key → note ids sorted by title ascending for O(k) shared-tag related merge */
   private tagMembersByTitle = new Map<string, string[]>();
-  /** unique related neighbor count (structural ∪ tag-only) for connection scoring */
-  private uniqueRelatedCount = new Map<string, number>();
   /** normalized property key → normalized value → note ids */
   private notesByProperty = new Map<string, Map<string, Set<string>>>();
   /** normalized property key → normalized value → display value */
@@ -73,8 +76,8 @@ export class KnowledgeIndexService {
   private notesWithOutgoingRelationKey = new Map<string, Set<string>>();
   /** Suppresses per-tag sort/count refresh during bulk cold builds */
   private deferTagRelatedRefresh = false;
-  /** Cached title list for O(1) mention candidate scans during bulk indexing */
-  private titleSearchIndex: { id: string; title: string; titleLower: string }[] = [];
+  /** Cached note ids with titles for O(1) mention candidate scans during bulk indexing */
+  private titleSearchIndex: string[] = [];
 
   /** Resolve note body from Zustand store — avoids duplicating bodies in the index. */
   setBodyProvider(provider: (noteId: string) => string): void {
@@ -98,7 +101,6 @@ export class KnowledgeIndexService {
     this.noteIdByTitleKey.clear();
     this.relatedByNoteId.clear();
     this.tagMembersByTitle.clear();
-    this.uniqueRelatedCount.clear();
     this.notesByProperty.clear();
     this.propertyValueLabels.clear();
     this.outgoingRelationsByNoteId.clear();
@@ -144,15 +146,12 @@ export class KnowledgeIndexService {
     }
 
     this.rebuildAllTagMemberSorts();
-    this.rebuildUniqueRelatedCounts();
 
-    let relatedTotal = 0;
-    for (const count of this.uniqueRelatedCount.values()) relatedTotal += count;
     logIndexMemAudit({
       source: 'KnowledgeIndexService.buildFromNotes',
       notes: this.activeNotes.size,
       links: this.incomingByTitle.size + this.outgoingByNoteId.size,
-      relatedCandidates: relatedTotal,
+      relatedCandidates: this.estimateTotalUniqueRelatedCount(),
     });
   }
 
@@ -193,16 +192,13 @@ export class KnowledgeIndexService {
     }
     for (const id of affected) {
       this.rebuildStructuralRelatedForNote(id);
-      this.rebuildUniqueRelatedCountForNote(id);
     }
 
-    let relatedTotal = 0;
-    for (const count of this.uniqueRelatedCount.values()) relatedTotal += count;
     logIndexMemAudit({
       source: 'KnowledgeIndexService.updateNote',
       notes: this.activeNotes.size,
       links: this.incomingByTitle.size + this.outgoingByNoteId.size,
-      relatedCandidates: relatedTotal,
+      relatedCandidates: this.estimateTotalUniqueRelatedCount(),
       affectedNeighbors: affected.size,
     });
   }
@@ -221,12 +217,10 @@ export class KnowledgeIndexService {
     this.mentionsByTargetId.delete(noteId);
     this.activeNotes.delete(noteId);
     this.relatedByNoteId.delete(noteId);
-    this.uniqueRelatedCount.delete(noteId);
     if (titleKey) this.noteIdByTitleKey.delete(titleKey);
 
     for (const id of neighbors) {
       this.rebuildStructuralRelatedForNote(id);
-      this.rebuildUniqueRelatedCountForNote(id);
     }
   }
 
@@ -391,9 +385,50 @@ export class KnowledgeIndexService {
     const outgoingLinks = this.getOutgoing(noteId).length;
     const incomingMentions = this.getMentioningNotes(noteId).length;
     const outgoingMentions = (this.mentionsFromSourceId.get(noteId) ?? []).length;
-    const relatedCount = this.uniqueRelatedCount.get(noteId)
-      ?? (this.relatedByNoteId.get(noteId) ?? []).length;
+    const relatedCount = this.deriveUniqueRelatedCount(noteId);
     return incomingLinks + outgoingLinks + incomingMentions + outgoingMentions + relatedCount;
+  }
+
+  /**
+   * Unique related neighbor count (structural ∪ tag-only) — derived on demand (K-95C).
+   */
+  deriveUniqueRelatedCount(noteId: string): number {
+    if (!this.activeNotes.has(noteId)) return 0;
+    const structural = this.relatedByNoteId.get(noteId) ?? [];
+    let tagOnly = this.countTagTouchForNote(noteId);
+    for (const rel of structural) {
+      if (this.hasSharedTag(noteId, rel.noteId)) {
+        tagOnly = Math.max(0, tagOnly - 1);
+      }
+    }
+    return structural.length + tagOnly;
+  }
+
+  private estimateTotalUniqueRelatedCount(): number {
+    let total = 0;
+    for (const noteId of this.activeNotes.keys()) {
+      total += this.deriveUniqueRelatedCount(noteId);
+    }
+    return total;
+  }
+
+  private hydratePageReference(noteId: string): PageReference {
+    return { noteId, noteTitle: this.getNoteTitle(noteId) };
+  }
+
+  private hydrateRelatedNote(ref: CompactRelatedRef): RelatedNote {
+    return {
+      noteId: ref.noteId,
+      noteTitle: this.getNoteTitle(ref.noteId),
+      score: ref.score,
+      reasons: decodeRelatedReasonFlags(ref.reasonFlags),
+    };
+  }
+
+  private compareCompactRelated(a: CompactRelatedRef, b: CompactRelatedRef): number {
+    const scoreCmp = b.score - a.score;
+    if (scoreCmp !== 0) return scoreCmp;
+    return this.getNoteTitle(a.noteId).localeCompare(this.getNoteTitle(b.noteId));
   }
 
   /** Notes with no wiki backlinks and no unlinked mentions — O(N) over indexes */
@@ -458,7 +493,7 @@ export class KnowledgeIndexService {
     const bucket = this.incomingByTitle.get(key);
     if (!bucket) return [];
 
-    const refs = [...bucket.values()];
+    const refs = [...bucket].map(sourceId => this.hydratePageReference(sourceId));
     if (!opts.excludeNoteId) return refs;
     return refs.filter(r => r.noteId !== opts.excludeNoteId);
   }
@@ -477,7 +512,7 @@ export class KnowledgeIndexService {
     const bucket = this.mentionsByTargetId.get(targetNoteId);
     if (!bucket) return [];
 
-    const refs = [...bucket.values()];
+    const refs = [...bucket].map(sourceId => this.hydratePageReference(sourceId));
     if (!opts.excludeNoteId) return refs;
     return refs.filter(r => r.noteId !== opts.excludeNoteId);
   }
@@ -494,10 +529,7 @@ export class KnowledgeIndexService {
   /** Notes mentioned as plain text from a source note — O(1) */
   getMentionedNotes(sourceNoteId: string): PageReference[] {
     const targetIds = this.mentionsFromSourceId.get(sourceNoteId) ?? [];
-    return targetIds.map(targetId => ({
-      noteId: targetId,
-      noteTitle: this.activeNotes.get(targetId)?.title ?? '',
-    }));
+    return targetIds.map(targetId => this.hydratePageReference(targetId));
   }
 
   resolveMentionNavigation(ref: PageReference): string {
@@ -529,14 +561,16 @@ export class KnowledgeIndexService {
     if (limit <= 0) {
       const exclude = new Set(structural.map(r => r.noteId));
       const tagFill = this.getTopSharedTagRelated(noteId, Number.MAX_SAFE_INTEGER, exclude);
-      return this.mergeRelatedLists(structural, tagFill, Number.MAX_SAFE_INTEGER);
+      return this.mergeRelatedLists(structural, tagFill, Number.MAX_SAFE_INTEGER)
+        .map(ref => this.hydrateRelatedNote(ref));
     }
     if (structural.length >= limit) {
-      return structural.slice(0, limit);
+      return structural.slice(0, limit).map(ref => this.hydrateRelatedNote(ref));
     }
     const exclude = new Set(structural.map(r => r.noteId));
     const tagFill = this.getTopSharedTagRelated(noteId, limit - structural.length, exclude);
-    return this.mergeRelatedLists(structural, tagFill, limit);
+    return this.mergeRelatedLists(structural, tagFill, limit)
+      .map(ref => this.hydrateRelatedNote(ref));
   }
 
   /** Score between two notes — O(1) from cache or on-demand pair evaluation */
@@ -557,6 +591,7 @@ export class KnowledgeIndexService {
 
     for (const title of outgoing) {
       const key = normalizeWikiTitle(title);
+      if (!key) continue;
       const bucket = this.incomingByTitle.get(key);
       if (!bucket) continue;
       bucket.delete(noteId);
@@ -570,17 +605,16 @@ export class KnowledgeIndexService {
     const outgoing = extractLinks(note.body ?? '');
     this.outgoingByNoteId.set(note.id, outgoing);
 
-    const ref: PageReference = { noteId: note.id, noteTitle: note.title ?? '' };
     for (const title of outgoing) {
       const key = normalizeWikiTitle(title);
       if (!key) continue;
 
       let bucket = this.incomingByTitle.get(key);
       if (!bucket) {
-        bucket = new Map();
+        bucket = new Set();
         this.incomingByTitle.set(key, bucket);
       }
-      bucket.set(note.id, ref);
+      bucket.add(note.id);
     }
   }
 
@@ -665,15 +699,11 @@ export class KnowledgeIndexService {
       } else if (!this.deferTagRelatedRefresh) {
         this.rebuildTagMemberSortForKey(key);
       }
-      if (!this.deferTagRelatedRefresh) {
-        this.refreshUniqueRelatedCountsForTag(key);
-      }
     }
     this.tagsByNoteId.delete(noteId);
   }
 
   private upsertNoteTags(note: NoteBase): void {
-    const oldTags = this.tagsByNoteId.get(note.id) ?? [];
     this.removeNoteTags(note.id);
     const tags = listTags(note);
     if (tags.length === 0) return;
@@ -693,14 +723,6 @@ export class KnowledgeIndexService {
     }
 
     if (this.deferTagRelatedRefresh) return;
-
-    const touchedTags = new Set([
-      ...oldTags.map(normalizeTagName),
-      ...tags.map(normalizeTagName),
-    ]);
-    for (const key of touchedTags) {
-      this.refreshUniqueRelatedCountsForTag(key);
-    }
   }
 
   private removeNoteRelations(sourceId: string): void {
@@ -771,14 +793,11 @@ export class KnowledgeIndexService {
   private rebuildTitleSearchIndex(): void {
     this.titleSearchIndex = [];
     for (const [id, meta] of this.activeNotes) {
-      const title = meta.title.trim();
-      if (!title) continue;
-      this.titleSearchIndex.push({ id, title, titleLower: title.toLowerCase() });
+      if (meta.title.trim()) this.titleSearchIndex.push(id);
     }
   }
 
   private indexMentionsFromSource(note: NoteBase): void {
-    const ref: PageReference = { noteId: note.id, noteTitle: note.title ?? '' };
     const body = note.body ?? '';
     if (!body) return;
 
@@ -786,18 +805,20 @@ export class KnowledgeIndexService {
     const plainLower = plainBody.toLowerCase();
     const targetIds: string[] = [];
 
-    for (const entry of this.titleSearchIndex) {
-      if (entry.id === note.id) continue;
-      if (!plainLower.includes(entry.titleLower)) continue;
-      if (!containsWholeWordMention(plainBody, entry.title)) continue;
+    for (const targetId of this.titleSearchIndex) {
+      if (targetId === note.id) continue;
+      const title = this.activeNotes.get(targetId)?.title ?? '';
+      const titleLower = title.toLowerCase();
+      if (!titleLower || !plainLower.includes(titleLower)) continue;
+      if (!containsWholeWordMention(plainBody, title)) continue;
 
-      let bucket = this.mentionsByTargetId.get(entry.id);
+      let bucket = this.mentionsByTargetId.get(targetId);
       if (!bucket) {
-        bucket = new Map();
-        this.mentionsByTargetId.set(entry.id, bucket);
+        bucket = new Set();
+        this.mentionsByTargetId.set(targetId, bucket);
       }
-      bucket.set(note.id, ref);
-      targetIds.push(entry.id);
+      bucket.add(note.id);
+      targetIds.push(targetId);
     }
 
     if (targetIds.length > 0) {
@@ -819,7 +840,7 @@ export class KnowledgeIndexService {
       else this.mentionsFromSourceId.delete(sourceId);
     }
 
-    const nextBucket = new Map<string, PageReference>();
+    const nextBucket = new Set<string>();
     const plainTarget = target.title.trim();
     const plainTargetLower = plainTarget.toLowerCase();
     for (const [sourceId, source] of this.activeNotes) {
@@ -829,7 +850,7 @@ export class KnowledgeIndexService {
       const plainBody = bodyTextWithoutWikiLinks(body);
       if (!plainBody.toLowerCase().includes(plainTargetLower)) continue;
       if (!containsWholeWordMention(plainBody, plainTarget)) continue;
-      nextBucket.set(sourceId, { noteId: sourceId, noteTitle: source.title });
+      nextBucket.add(sourceId);
       const existing = this.mentionsFromSourceId.get(sourceId) ?? [];
       if (!existing.includes(targetId)) {
         this.mentionsFromSourceId.set(sourceId, [...existing, targetId]);
@@ -936,41 +957,11 @@ export class KnowledgeIndexService {
     return touch;
   }
 
-  private rebuildUniqueRelatedCountForNote(noteId: string): void {
-    if (!this.activeNotes.has(noteId)) {
-      this.uniqueRelatedCount.delete(noteId);
-      return;
-    }
-    const structural = this.relatedByNoteId.get(noteId) ?? [];
-    let tagOnly = this.countTagTouchForNote(noteId);
-    for (const rel of structural) {
-      if (this.hasSharedTag(noteId, rel.noteId)) {
-        tagOnly = Math.max(0, tagOnly - 1);
-      }
-    }
-    this.uniqueRelatedCount.set(noteId, structural.length + tagOnly);
-  }
-
-  private rebuildUniqueRelatedCounts(): void {
-    this.uniqueRelatedCount.clear();
-    for (const noteId of this.activeNotes.keys()) {
-      this.rebuildUniqueRelatedCountForNote(noteId);
-    }
-  }
-
-  private refreshUniqueRelatedCountsForTag(tagKey: string): void {
-    const bucket = this.notesByTag.get(tagKey);
-    if (!bucket) return;
-    for (const noteId of bucket.keys()) {
-      this.rebuildUniqueRelatedCountForNote(noteId);
-    }
-  }
-
   private getTopSharedTagRelated(
     noteId: string,
     limit: number,
     exclude: Set<string>,
-  ): RelatedNote[] {
+  ): CompactRelatedRef[] {
     if (limit <= 0) return [];
 
     const iterators: { ids: string[]; idx: number }[] = [];
@@ -982,7 +973,7 @@ export class KnowledgeIndexService {
     }
     if (iterators.length === 0) return [];
 
-    const result: RelatedNote[] = [];
+    const result: CompactRelatedRef[] = [];
     const seen = new Set<string>(exclude);
     seen.add(noteId);
 
@@ -991,7 +982,7 @@ export class KnowledgeIndexService {
       let bestTitle = '';
       let bestIter = -1;
 
-      for (let i = 0; i < iterators.length; i++) {
+      for (let i = 0; i < iterators.length; i += 1) {
         const it = iterators[i]!;
         while (it.idx < it.ids.length) {
           const candidateId = it.ids[it.idx]!;
@@ -1015,24 +1006,19 @@ export class KnowledgeIndexService {
       if (bestId == null || bestIter < 0) break;
       iterators[bestIter]!.idx += 1;
       seen.add(bestId);
-      result.push({
-        noteId: bestId,
-        noteTitle: bestTitle,
-        score: RELATED_SCORE.SHARED_TAG,
-        reasons: ['shared tag'],
-      });
+      result.push(toCompactRelatedRef(bestId, RELATED_SCORE.SHARED_TAG, ['shared tag']));
     }
 
     return result;
   }
 
   private mergeRelatedLists(
-    structural: readonly RelatedNote[],
-    tagFill: readonly RelatedNote[],
+    structural: readonly CompactRelatedRef[],
+    tagFill: readonly CompactRelatedRef[],
     limit: number,
-  ): RelatedNote[] {
+  ): CompactRelatedRef[] {
     const merged = [...structural, ...tagFill];
-    merged.sort((a, b) => b.score - a.score || a.noteTitle.localeCompare(b.noteTitle));
+    merged.sort((a, b) => this.compareCompactRelated(a, b));
     return merged.slice(0, limit);
   }
 
@@ -1069,12 +1055,11 @@ export class KnowledgeIndexService {
     }
 
     const candidates = this.collectStructuralNeighbors(noteId);
-    const related: RelatedNote[] = [];
+    const related: CompactRelatedRef[] = [];
 
     for (const otherId of candidates) {
       if (otherId === noteId) continue;
-      const other = this.activeNotes.get(otherId);
-      if (!other) continue;
+      if (!this.activeNotes.has(otherId)) continue;
 
       const aLinksB = this.hasWikiLinkTo(noteId, otherId);
       const bLinksA = this.hasWikiLinkTo(otherId, noteId);
@@ -1099,15 +1084,10 @@ export class KnowledgeIndexService {
 
       if (score <= 0) continue;
 
-      related.push({
-        noteId: otherId,
-        noteTitle: other.title,
-        score,
-        reasons,
-      });
+      related.push(toCompactRelatedRef(otherId, score, reasons));
     }
 
-    related.sort((a, b) => b.score - a.score || a.noteTitle.localeCompare(b.noteTitle));
+    related.sort((a, b) => this.compareCompactRelated(a, b));
     this.relatedByNoteId.set(noteId, related);
   }
 }

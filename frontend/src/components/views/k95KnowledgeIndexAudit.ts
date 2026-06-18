@@ -12,9 +12,8 @@ import type { NoteBase } from '@/components/views/noteUtils';
 import { extractLinkContexts, noteReferencesTitle } from '@/components/views/noteUtils';
 import {
   KnowledgeIndexService,
-  type RelatedNote,
 } from '@/components/views/features/knowledge/KnowledgeIndexService';
-import type { PageReference } from '@/components/views/features/knowledge/backlinks';
+import { decodeRelatedReasonFlags, type CompactRelatedRef } from '@/components/views/features/knowledge/related/relatedCompactRef';
 import type { RelationEdge } from '@/components/views/features/knowledge/relations/relationModels';
 import { buildDiscoveryFeed } from '@/components/views/features/knowledge/discovery/discoveryEngine';
 import { buildCosmosVaultAnalysis } from '@/components/views/features/knowledge/cosmos/intelligence/cosmosAnalysis';
@@ -31,17 +30,16 @@ const ARRAY_OVERHEAD = 24;
 
 /** Soft-private KnowledgeIndexService fields — readable at runtime in Vitest. */
 interface IndexInternals {
-  incomingByTitle: Map<string, Map<string, PageReference>>;
+  incomingByTitle: Map<string, Set<string>>;
   outgoingByNoteId: Map<string, string[]>;
-  mentionsByTargetId: Map<string, Map<string, PageReference>>;
+  mentionsByTargetId: Map<string, Set<string>>;
   mentionsFromSourceId: Map<string, string[]>;
-  relatedByNoteId: Map<string, RelatedNote[]>;
-  uniqueRelatedCount: Map<string, number>;
+  relatedByNoteId: Map<string, CompactRelatedRef[]>;
   notesByTag: Map<string, Map<string, string>>;
   tagsByNoteId: Map<string, readonly string[]>;
   notesByProperty: Map<string, Map<string, Set<string>>>;
   propertyValueLabels: Map<string, Map<string, string>>;
-  titleSearchIndex: { id: string; title: string; titleLower: string }[];
+  titleSearchIndex: string[];
   activeNotes: Map<string, { title: string; updatedAt: number }>;
   propertiesByNoteId: Map<string, Readonly<Record<string, string>>>;
   noteIdByTitleKey: Map<string, string>;
@@ -169,6 +167,12 @@ function readInternals(service: KnowledgeIndexService): IndexInternals {
   return service as unknown as IndexInternals;
 }
 
+function countNestedSetEntries<K>(map: Map<K, Set<string>>): number {
+  let total = 0;
+  for (const bucket of map.values()) total += bucket.size;
+  return total;
+}
+
 function countNestedMapEntries<K, V>(map: Map<K, Map<string, V>>): number {
   let total = 0;
   for (const bucket of map.values()) total += bucket.size;
@@ -203,15 +207,15 @@ export function countKnowledgeIndexMaps(service: KnowledgeIndexService): K95Inde
 
   return {
     incomingTitleBuckets: idx.incomingByTitle.size,
-    incomingRefEntries: countNestedMapEntries(idx.incomingByTitle),
+    incomingRefEntries: countNestedSetEntries(idx.incomingByTitle),
     outgoingNotes: idx.outgoingByNoteId.size,
     outgoingLinkStrings: countStringListEntries(idx.outgoingByNoteId),
     mentionTargetBuckets: idx.mentionsByTargetId.size,
-    mentionRefEntries: countNestedMapEntries(idx.mentionsByTargetId),
+    mentionRefEntries: countNestedSetEntries(idx.mentionsByTargetId),
     mentionSourceLists: idx.mentionsFromSourceId.size,
     relatedNoteLists: idx.relatedByNoteId.size,
     relatedNoteEntries: relatedEntries,
-    uniqueRelatedEntries: idx.uniqueRelatedCount.size,
+    uniqueRelatedEntries: idx.activeNotes.size,
     tagKeys: idx.notesByTag.size,
     tagMembershipEntries: countNestedMapEntries(idx.notesByTag),
     propertyKeys: idx.notesByProperty.size,
@@ -223,20 +227,24 @@ export function countKnowledgeIndexMaps(service: KnowledgeIndexService): K95Inde
   };
 }
 
-function estimatePageReferenceBytes(ref: PageReference): number {
-  return OBJECT_OVERHEAD + stringBytes(ref.noteId) + stringBytes(ref.noteTitle);
+
+function estimateCompactRelatedNoteBytes(): number {
+  return 24;
 }
 
-function estimateRelatedNoteBytes(related: RelatedNote): number {
-  let bytes = OBJECT_OVERHEAD + stringBytes(related.noteId) + stringBytes(related.noteTitle) + 8;
-  bytes += ARRAY_OVERHEAD + related.reasons.length * 24;
-  for (const reason of related.reasons) bytes += stringBytes(reason);
+function estimateLegacyRelatedNoteBytes(
+  related: CompactRelatedRef,
+  title: string,
+): number {
+  let bytes = OBJECT_OVERHEAD + stringBytes(related.noteId) + stringBytes(title) + 8;
+  const reasons = decodeRelatedReasonFlags(related.reasonFlags);
+  bytes += ARRAY_OVERHEAD + reasons.length * 24;
+  for (const reason of reasons) bytes += stringBytes(reason);
   return bytes;
 }
 
-function estimateCompactRelatedNoteBytes(): number {
-  // noteId (~12 B) + score (8 B) + reasons bitmask (4 B) in typed array slot
-  return 24;
+function estimateStoredCompactRelatedBytes(related: CompactRelatedRef): number {
+  return estimateCompactRelatedNoteBytes() + stringBytes(related.noteId);
 }
 
 export function estimateNotesStoreBytes(notes: readonly NoteBase[]): {
@@ -270,8 +278,8 @@ export function estimateIndexMemoryBreakdown(
 
   let backlinksBytes = idx.incomingByTitle.size * MAP_ENTRY_OVERHEAD;
   for (const bucket of idx.incomingByTitle.values()) {
-    backlinksBytes += bucket.size * MAP_ENTRY_OVERHEAD;
-    for (const ref of bucket.values()) backlinksBytes += estimatePageReferenceBytes(ref);
+    backlinksBytes += bucket.size * (MAP_ENTRY_OVERHEAD + 12);
+    for (const sourceId of bucket) backlinksBytes += stringBytes(sourceId);
   }
 
   let outgoingBytes = idx.outgoingByNoteId.size * MAP_ENTRY_OVERHEAD;
@@ -283,8 +291,8 @@ export function estimateIndexMemoryBreakdown(
 
   let mentionsBytes = idx.mentionsByTargetId.size * MAP_ENTRY_OVERHEAD;
   for (const bucket of idx.mentionsByTargetId.values()) {
-    mentionsBytes += bucket.size * MAP_ENTRY_OVERHEAD;
-    for (const ref of bucket.values()) mentionsBytes += estimatePageReferenceBytes(ref);
+    mentionsBytes += bucket.size * (MAP_ENTRY_OVERHEAD + 12);
+    for (const sourceId of bucket) mentionsBytes += stringBytes(sourceId);
   }
   for (const targets of idx.mentionsFromSourceId.values()) {
     mentionsBytes += ARRAY_OVERHEAD + targets.length * 12;
@@ -293,10 +301,10 @@ export function estimateIndexMemoryBreakdown(
   let relatedBytes = idx.relatedByNoteId.size * MAP_ENTRY_OVERHEAD;
   for (const list of idx.relatedByNoteId.values()) {
     relatedBytes += ARRAY_OVERHEAD;
-    for (const rel of list) relatedBytes += estimateRelatedNoteBytes(rel);
+    for (const rel of list) relatedBytes += estimateStoredCompactRelatedBytes(rel);
   }
 
-  const uniqueRelatedBytes = idx.uniqueRelatedCount.size * (MAP_ENTRY_OVERHEAD + 8);
+  const uniqueRelatedBytes = 0;
 
   let tagsBytes = idx.notesByTag.size * MAP_ENTRY_OVERHEAD;
   for (const bucket of idx.notesByTag.values()) {
@@ -322,10 +330,8 @@ export function estimateIndexMemoryBreakdown(
     propertiesBytes += jsonBytes(props);
   }
 
-  let titleIndexBytes = ARRAY_OVERHEAD + idx.titleSearchIndex.length * OBJECT_OVERHEAD;
-  for (const entry of idx.titleSearchIndex) {
-    titleIndexBytes += stringBytes(entry.id) + stringBytes(entry.title) + stringBytes(entry.titleLower);
-  }
+  let titleIndexBytes = ARRAY_OVERHEAD + idx.titleSearchIndex.length * 12;
+  for (const noteId of idx.titleSearchIndex) titleIndexBytes += stringBytes(noteId);
 
   let relationsBytes = 0;
   for (const edges of idx.outgoingRelationsByNoteId.values()) {
@@ -370,25 +376,36 @@ export function analyzeRelatedByNoteIdFootprint(service: KnowledgeIndexService):
   let relatedEntries = 0;
   let maxNeighbors = 0;
   let titleDuplicationBytes = 0;
-  let estimatedRelatedBytes = 0;
+  let estimatedLegacyRelatedBytes = idx.relatedByNoteId.size * MAP_ENTRY_OVERHEAD;
+  let estimatedCompactRelatedBytes = idx.relatedByNoteId.size * MAP_ENTRY_OVERHEAD;
 
   for (const list of idx.relatedByNoteId.values()) {
     relatedEntries += list.length;
     maxNeighbors = Math.max(maxNeighbors, list.length);
+    estimatedLegacyRelatedBytes += ARRAY_OVERHEAD;
+    estimatedCompactRelatedBytes += ARRAY_OVERHEAD;
     for (const rel of list) {
-      estimatedRelatedBytes += estimateRelatedNoteBytes(rel);
-      const canonicalTitle = idx.activeNotes.get(rel.noteId)?.title ?? '';
-      if (canonicalTitle && rel.noteTitle === canonicalTitle) {
-        titleDuplicationBytes += stringBytes(rel.noteTitle);
-      }
+      const title = idx.activeNotes.get(rel.noteId)?.title ?? '';
+      estimatedLegacyRelatedBytes += estimateLegacyRelatedNoteBytes(rel, title);
+      estimatedCompactRelatedBytes += estimateStoredCompactRelatedBytes(rel);
+    }
+  }
+
+  for (const bucket of idx.incomingByTitle.values()) {
+    for (const sourceId of bucket) {
+      titleDuplicationBytes += stringBytes(idx.activeNotes.get(sourceId)?.title ?? '');
+    }
+  }
+  for (const bucket of idx.mentionsByTargetId.values()) {
+    for (const sourceId of bucket) {
+      titleDuplicationBytes += stringBytes(idx.activeNotes.get(sourceId)?.title ?? '');
     }
   }
 
   let uniqueSum = 0;
-  for (const count of idx.uniqueRelatedCount.values()) uniqueSum += count;
-
-  const estimatedCompactRelatedBytes = relatedEntries * estimateCompactRelatedNoteBytes()
-    + idx.relatedByNoteId.size * MAP_ENTRY_OVERHEAD;
+  for (const noteId of idx.activeNotes.keys()) {
+    uniqueSum += service.deriveUniqueRelatedCount(noteId);
+  }
 
   return {
     noteCount,
@@ -396,11 +413,11 @@ export function analyzeRelatedByNoteIdFootprint(service: KnowledgeIndexService):
     relatedEntries,
     avgNeighborsPerNote: noteCount > 0 ? Math.round((relatedEntries / noteCount) * 100) / 100 : 0,
     maxNeighbors,
-    uniqueRelatedEntries: idx.uniqueRelatedCount.size,
+    uniqueRelatedEntries: idx.activeNotes.size,
     avgUniqueRelated: noteCount > 0 ? Math.round((uniqueSum / noteCount) * 100) / 100 : 0,
-    estimatedRelatedBytes,
+    estimatedRelatedBytes: estimatedLegacyRelatedBytes,
     estimatedCompactRelatedBytes,
-    compactReductionPct: pctReduction(estimatedRelatedBytes, estimatedCompactRelatedBytes),
+    compactReductionPct: pctReduction(estimatedLegacyRelatedBytes, estimatedCompactRelatedBytes),
     titleDuplicationBytes,
   };
 }
