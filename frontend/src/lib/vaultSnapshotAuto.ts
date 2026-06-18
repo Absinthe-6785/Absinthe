@@ -2,12 +2,18 @@ import type { NoteBase } from '@/components/views/noteUtils';
 import type { NoteFolder } from '@/store/useNotesStore';
 import { buildVaultSnapshot } from './vaultSnapshotBuild';
 import { saveVaultSnapshot } from './vaultSnapshotStore';
+import { fingerprintPortableVaultContent } from './vaultSnapshotFingerprint';
+import { collectVaultSnapshotExtensions } from './vaultSnapshotScope';
+import { buildVaultBackupManifest } from './exportVaultBackup';
+import { compactNotesForSnapshot } from './snapshotCompaction';
 
 const DEBOUNCE_MS = 30_000;
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingNotes: NoteBase[] | null = null;
 let pendingFolders: NoteFolder[] | null = null;
+let pendingFingerprint: string | null = null;
+let lastFlushedFingerprint: string | null = null;
 
 function isoDateKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
@@ -20,6 +26,19 @@ function isoWeekKey(d = new Date()): string {
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
   const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+export function computeSnapshotContentFingerprint(
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolder[],
+): string {
+  const vault = buildVaultBackupManifest(compactNotesForSnapshot(notes), folders);
+  const extensions = collectVaultSnapshotExtensions();
+  return fingerprintPortableVaultContent({
+    notes: vault.notes,
+    folders: vault.folders,
+    extensions,
+  });
 }
 
 export function createLastSnapshot(
@@ -52,9 +71,13 @@ export function createWeeklySnapshot(
 
 function flushDebouncedSnapshot(): void {
   if (!pendingNotes || !pendingFolders) return;
-  createLastSnapshot(pendingNotes, pendingFolders);
+  const result = createLastSnapshot(pendingNotes, pendingFolders);
+  if (result.saved || result.skipped) {
+    lastFlushedFingerprint = pendingFingerprint ?? lastFlushedFingerprint;
+  }
   pendingNotes = null;
   pendingFolders = null;
+  pendingFingerprint = null;
 }
 
 /** Debounced auto-snapshot after vault mutations. */
@@ -62,8 +85,13 @@ export function scheduleAutoSnapshot(
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
 ): void {
+  const fingerprint = computeSnapshotContentFingerprint(notes, folders);
+  if (fingerprint === lastFlushedFingerprint) return;
+
   pendingNotes = [...notes];
   pendingFolders = [...folders];
+  pendingFingerprint = fingerprint;
+
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
@@ -97,4 +125,6 @@ export function resetAutoSnapshotStateForTests(): void {
   debounceTimer = null;
   pendingNotes = null;
   pendingFolders = null;
+  pendingFingerprint = null;
+  lastFlushedFingerprint = null;
 }

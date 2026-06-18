@@ -13,6 +13,7 @@ import {
   type VaultSnapshotExtensions,
 } from './vaultSnapshotScope';
 import { fingerprintPortableVaultContent } from './vaultSnapshotFingerprint';
+import { compactNotesForSnapshot } from './snapshotCompaction';
 
 export interface VaultSnapshotScopeSummary {
   included: string[];
@@ -76,8 +77,12 @@ export function buildVaultSnapshot(
   folders: readonly NoteFolder[],
   slot: VaultSnapshotSlot,
   slotKey: string,
+  options?: { compact?: boolean },
 ): VaultSnapshot {
-  const vault = buildVaultBackupManifest(notes, folders);
+  const sourceNotes = options?.compact === false
+    ? notes.filter(n => !n.deletedAt)
+    : compactNotesForSnapshot(notes);
+  const vault = buildVaultBackupManifest(sourceNotes, folders);
   const extensions = collectVaultSnapshotExtensions();
   const contentFingerprint = fingerprintPortableVaultContent({
     notes: vault.notes,

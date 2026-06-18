@@ -1,6 +1,9 @@
 import {
   SNAPSHOT_INDEX_KEY,
   SNAPSHOT_PAYLOAD_PREFIX,
+  SNAPSHOT_META_PREFIX,
+  SNAPSHOT_CHUNK_PREFIX,
+  SNAPSHOT_CHUNK_STORAGE_FORMAT,
   SNAPSHOT_RETENTION,
   type VaultSnapshotSlot,
 } from './vaultSnapshotConstants';
@@ -9,6 +12,11 @@ import {
   serializeVaultSnapshot,
   type VaultSnapshot,
 } from './vaultSnapshotBuild';
+import {
+  SNAPSHOT_CHUNK_TARGET_BYTES,
+  planSnapshotChunks,
+  splitSnapshotIntoChunks,
+} from './snapshotCompaction';
 
 export interface SnapshotStorageAdapter {
   getItem(key: string): string | null;
@@ -25,6 +33,8 @@ export interface VaultSnapshotIndexEntry {
   createdAt: string;
   contentFingerprint: string;
   payloadBytes: number;
+  chunkCount?: number;
+  writeCount?: number;
 }
 
 export interface VaultSnapshotIndex {
@@ -44,6 +54,85 @@ export interface VaultSnapshotSummary {
 
 function payloadKey(snapshotId: string): string {
   return `${SNAPSHOT_PAYLOAD_PREFIX}${snapshotId}:v1`;
+}
+
+function metaKey(snapshotId: string): string {
+  return `${SNAPSHOT_META_PREFIX}${snapshotId}:v1`;
+}
+
+function chunkKey(snapshotId: string, index: number): string {
+  return `${SNAPSHOT_CHUNK_PREFIX}${snapshotId}:${index}:v1`;
+}
+
+interface ChunkedSnapshotMeta {
+  storageFormat: typeof SNAPSHOT_CHUNK_STORAGE_FORMAT;
+  chunkCount: number;
+  totalBytes: number;
+}
+
+function removeChunkedPayload(snapshotId: string, storage: SnapshotStorageAdapter): void {
+  const metaRaw = storage.getItem(metaKey(snapshotId));
+  storage.removeItem(metaKey(snapshotId));
+  if (!metaRaw) return;
+  try {
+    const meta = JSON.parse(metaRaw) as ChunkedSnapshotMeta;
+    for (let i = 0; i < meta.chunkCount; i += 1) {
+      storage.removeItem(chunkKey(snapshotId, i));
+    }
+  } catch {
+    /** ignore malformed meta */
+  }
+}
+
+function readChunkedPayload(snapshotId: string, storage: SnapshotStorageAdapter): string | null {
+  const metaRaw = storage.getItem(metaKey(snapshotId));
+  if (!metaRaw) return null;
+  try {
+    const meta = JSON.parse(metaRaw) as ChunkedSnapshotMeta;
+    if (meta.storageFormat !== SNAPSHOT_CHUNK_STORAGE_FORMAT) return null;
+    let assembled = '';
+    for (let i = 0; i < meta.chunkCount; i += 1) {
+      const chunk = storage.getItem(chunkKey(snapshotId, i));
+      if (chunk === null) return null;
+      assembled += chunk;
+    }
+    return assembled;
+  } catch {
+    return null;
+  }
+}
+
+function writeChunkedPayload(
+  snapshotId: string,
+  serialized: string,
+  storage: SnapshotStorageAdapter,
+): { payloadBytes: number; chunkCount: number; writeCount: number } {
+  storage.removeItem(payloadKey(snapshotId));
+  removeChunkedPayload(snapshotId, storage);
+
+  const chunks = splitSnapshotIntoChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
+  const plan = planSnapshotChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
+  const meta: ChunkedSnapshotMeta = {
+    storageFormat: SNAPSHOT_CHUNK_STORAGE_FORMAT,
+    chunkCount: chunks.length,
+    totalBytes: plan.totalBytes,
+  };
+
+  storage.setItem(metaKey(snapshotId), JSON.stringify(meta));
+  chunks.forEach((chunk, index) => {
+    storage.setItem(chunkKey(snapshotId, index), chunk);
+  });
+
+  return {
+    payloadBytes: plan.totalBytes,
+    chunkCount: plan.chunkCount,
+    writeCount: plan.writeCount,
+  };
+}
+
+/** Test/audit helper — inspect chunk plan without writing storage. */
+export function inspectSnapshotChunkPlan(serialized: string) {
+  return planSnapshotChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
 }
 
 function defaultStorage(): SnapshotStorageAdapter {
@@ -75,9 +164,12 @@ export function loadSnapshotPayload(
   snapshotId: string,
   storage: SnapshotStorageAdapter = defaultStorage(),
 ): VaultSnapshot | null {
-  const raw = storage.getItem(payloadKey(snapshotId));
-  if (!raw) return null;
-  return parseVaultSnapshotJson(raw);
+  const legacyRaw = storage.getItem(payloadKey(snapshotId));
+  if (legacyRaw) return parseVaultSnapshotJson(legacyRaw);
+
+  const chunkedRaw = readChunkedPayload(snapshotId, storage);
+  if (chunkedRaw) return parseVaultSnapshotJson(chunkedRaw);
+  return null;
 }
 
 export function enumerateVaultSnapshots(
@@ -112,6 +204,7 @@ function removeSnapshotEntry(
   storage: SnapshotStorageAdapter,
 ): void {
   storage.removeItem(payloadKey(entry.snapshotId));
+  removeChunkedPayload(entry.snapshotId, storage);
 }
 
 function pruneIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAdapter): VaultSnapshotIndex {
@@ -159,6 +252,8 @@ export interface SaveSnapshotResult {
   skipped: boolean;
   reason?: 'unchanged' | 'quota';
   snapshotId?: string;
+  chunkCount?: number;
+  writeCount?: number;
 }
 
 export function saveVaultSnapshot(
@@ -166,7 +261,6 @@ export function saveVaultSnapshot(
   storage: SnapshotStorageAdapter = defaultStorage(),
 ): SaveSnapshotResult {
   const serialized = serializeVaultSnapshot(snapshot);
-  const payloadBytes = new TextEncoder().encode(serialized).length;
   const index = loadSnapshotIndex(storage);
 
   const sameSlot = index.entries.find(e => e.slotKey === snapshot.slotKey);
@@ -179,21 +273,28 @@ export function saveVaultSnapshot(
     index.entries = index.entries.filter(e => e.snapshotId !== sameSlot.snapshotId);
   }
 
-  const entry: VaultSnapshotIndexEntry = {
-    snapshotId: snapshot.snapshotId,
-    slot: snapshot.slot,
-    slotKey: snapshot.slotKey,
-    createdAt: snapshot.createdAt,
-    contentFingerprint: snapshot.contentFingerprint,
-    payloadBytes,
-  };
-
   try {
-    storage.setItem(payloadKey(snapshot.snapshotId), serialized);
+    const written = writeChunkedPayload(snapshot.snapshotId, serialized, storage);
+    const entry: VaultSnapshotIndexEntry = {
+      snapshotId: snapshot.snapshotId,
+      slot: snapshot.slot,
+      slotKey: snapshot.slotKey,
+      createdAt: snapshot.createdAt,
+      contentFingerprint: snapshot.contentFingerprint,
+      payloadBytes: written.payloadBytes,
+      chunkCount: written.chunkCount,
+      writeCount: written.writeCount,
+    };
     index.entries.push(entry);
     const pruned = pruneIndex(index, storage);
     saveSnapshotIndex(pruned, storage);
-    return { saved: true, skipped: false, snapshotId: snapshot.snapshotId };
+    return {
+      saved: true,
+      skipped: false,
+      snapshotId: snapshot.snapshotId,
+      chunkCount: written.chunkCount,
+      writeCount: written.writeCount,
+    };
   } catch {
     return { saved: false, skipped: false, reason: 'quota' };
   }
@@ -209,7 +310,7 @@ export function getSnapshotTotalBytes(
 export function clearAllVaultSnapshots(storage: SnapshotStorageAdapter = defaultStorage()): void {
   const index = loadSnapshotIndex(storage);
   for (const entry of index.entries) {
-    storage.removeItem(payloadKey(entry.snapshotId));
+    removeSnapshotEntry(entry, storage);
   }
   storage.removeItem(SNAPSHOT_INDEX_KEY);
 }
