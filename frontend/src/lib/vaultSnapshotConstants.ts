@@ -10,11 +10,12 @@ export const SNAPSHOT_META_PREFIX = 'absinthe:vault-snapshot:meta:';
 export const SNAPSHOT_CHUNK_PREFIX = 'absinthe:vault-snapshot:chunk:';
 export const SNAPSHOT_CHUNK_STORAGE_FORMAT = 'chunked-v1' as const;
 
-export type VaultSnapshotSlot = 'last' | 'daily' | 'weekly';
+export type VaultSnapshotSlot = 'last' | 'daily' | 'weekly' | 'monthly';
 
 export const SNAPSHOT_RETENTION = {
-  maxDaily: 7,
-  maxWeekly: 4,
+  maxDaily: 30,
+  maxWeekly: 12,
+  maxMonthly: 12,
   /** Soft cap for all snapshot payloads combined (bytes). */
   maxTotalBytes: 4_000_000,
 } as const;

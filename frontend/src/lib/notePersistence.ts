@@ -8,6 +8,7 @@ import {
   registerNotesStorageBridge,
   type NoteBase,
 } from '@/components/views/noteUtils';
+import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
 import {
   INDEXEDDB_FALLBACK_ERROR,
   NOTES_IDB_MIGRATION_FLAG,
@@ -104,6 +105,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     persistenceMode = 'localStorage';
     const notes = loadNotesFromLocalStorage();
     notesCache = notes;
+    runPersistenceCleanup();
     return {
       notes,
       mode: 'localStorage',
@@ -126,6 +128,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     notesCache = resolved;
     lastIndexedDbRevision = readNotesIndexedDbRevision();
     try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+    runPersistenceCleanup();
 
     return {
       notes: resolved,
@@ -138,6 +141,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     persistenceMode = 'localStorage';
     const notes = loadNotesFromLocalStorage();
     notesCache = notes;
+    runPersistenceCleanup();
     return {
       notes,
       mode: 'localStorage',

@@ -20,6 +20,7 @@ import { validateVaultSnapshot, validateVaultSnapshotJson } from './vaultSnapsho
 import {
   createDailySnapshot,
   createLastSnapshot,
+  createMonthlySnapshot,
   createWeeklySnapshot,
   flushAutoSnapshotForTests,
   resetAutoSnapshotStateForTests,
@@ -102,12 +103,21 @@ describe('vaultSnapshot', () => {
   });
 
   it('rotates daily snapshots and prunes beyond retention', () => {
-    for (let day = 1; day <= 10; day++) {
-      const date = new Date(`2026-06-${String(day).padStart(2, '0')}T12:00:00Z`);
+    for (let day = 0; day < 35; day += 1) {
+      const date = new Date(Date.UTC(2026, 0, 1 + day));
       createDailySnapshot([note(`n${day}`, `Day ${day}`)], [], date);
     }
     const daily = enumerateVaultSnapshots(storage).filter(s => s.slot === 'daily');
-    expect(daily.length).toBeLessThanOrEqual(7);
+    expect(daily.length).toBeLessThanOrEqual(30);
+  });
+
+  it('rotates monthly snapshots and prunes beyond retention', () => {
+    for (let month = 0; month < 15; month += 1) {
+      const date = new Date(Date.UTC(2024, month, 15));
+      createMonthlySnapshot([note(`m${month}`, `Month ${month}`)], [], date);
+    }
+    const monthly = enumerateVaultSnapshots(storage).filter(s => s.slot === 'monthly');
+    expect(monthly.length).toBeLessThanOrEqual(12);
   });
 
   it('keeps weekly snapshot slot per ISO week', () => {
