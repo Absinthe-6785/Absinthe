@@ -728,7 +728,16 @@ const translations = {
   nvDragHint:               { en: 'Drag to folder · Ctrl+D to duplicate', ko: '폴더로 드래그 · Ctrl+D 복제', ja: 'フォルダへドラッグ · Ctrl+D で複製' },
   nvAllNotes:               { en: 'All notes', ko: '전체 노트', ja: 'すべてのノート' },
   nvToday:                  { en: 'Today', ko: '오늘', ja: '今日' },
+  nvYesterday:              { en: 'Yesterday', ko: '어제', ja: '昨日' },
+  nvThisWeek:               { en: 'This week', ko: '이번 주', ja: '今週' },
   nvThisMonth:              { en: 'This month', ko: '이번 달', ja: '今月' },
+  nvSortAsc:                { en: 'Ascending', ko: '오름차순', ja: '昇順' },
+  nvSortDesc:               { en: 'Descending', ko: '내림차순', ja: '降順' },
+  nvListDensity:            { en: 'List density', ko: '목록 밀도', ja: 'リスト密度' },
+  nvListDensityComfortable: { en: 'Comfortable', ko: '여유', ja: '快適' },
+  nvListDensityCompact:     { en: 'Compact', ko: '콤팩트', ja: 'コンパクト' },
+  nvListDensityUltra:       { en: 'Ultra compact', ko: '초밀집', ja: '超コンパクト' },
+  nvDocumentSearch:         { en: 'Find in note', ko: '노트에서 찾기', ja: 'ノート内検索' },
   nvThisQuarter:            { en: 'This quarter', ko: '이번 분기', ja: '今四半期' },
   nvThisYear:               { en: 'This year', ko: '올해', ja: '今年' },
   nvCustomRange:            { en: 'Custom range', ko: '사용자 지정', ja: 'カスタム範囲' },
@@ -1754,6 +1763,15 @@ const translations = {
   k47ExportActivity:           { en: 'Activity', ko: '활동', ja: 'アクティビティ' },
   k47ExportJourney:            { en: 'Journey', ko: '여정', ja: 'ジャーニー' },
   k47ExportDownload:           { en: 'Download file', ko: '파일 다운로드', ja: 'ファイルダウンロード' },
+
+  // ── K-98A UX density ─────────────────────────────────────────────
+  k98SettingsStorage:       { en: 'Storage', ko: '저장소', ja: 'ストレージ' },
+  k98SettingsRecovery:      { en: 'Recovery', ko: '복구', ja: '復旧' },
+  k98SettingsExport:        { en: 'Export', ko: '보내기', ja: 'エクスポート' },
+  k98SettingsDangerZone:    { en: 'Danger zone', ko: '위험 구역', ja: '危険ゾーン' },
+  k98ScheduleTime:          { en: 'Time', ko: '시간', ja: '時間' },
+  k98ScheduleNotes:         { en: 'Notes', ko: '메모', ja: 'メモ' },
+  k98TimetableDays:         { en: 'Repeat on', ko: '반복 요일', ja: '繰り返し曜日' },
 
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },

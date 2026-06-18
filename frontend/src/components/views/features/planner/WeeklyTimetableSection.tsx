@@ -7,6 +7,7 @@ import { useTranslation } from '../../../../lib/i18n';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
+import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate } from '../../k98aTimetableMultiDay';
 import { EmptyState } from '../../../common/EmptyState';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
@@ -50,6 +51,7 @@ export function WeeklyTimetableSection({
     end_time: '10:00',
     color: THEME_COLORS.find(c => c.id === 'blue')?.bg ?? THEME_COLORS[0].bg,
   });
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([0]);
 
   useEscapeKey(() => {
     setShowWeeklyModal(false);
@@ -70,8 +72,20 @@ export function WeeklyTimetableSection({
       end_time: '10:00',
       color: THEME_COLORS.find(c => c.id === 'blue')?.bg ?? THEME_COLORS[0].bg,
     });
+    setSelectedWeekdays(sch ? [sch.day] : [0]);
     setEditingWeeklyId(sch?.id ?? null);
     setShowWeeklyModal(true);
+  };
+
+  const toggleWeekday = (day: number) => {
+    if (editingWeeklyId) {
+      setSelectedWeekdays([day]);
+      setNewWeeklySch(prev => ({ ...prev, day }));
+      return;
+    }
+    setSelectedWeekdays(prev => (
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort((a, b) => a - b)
+    ));
   };
 
   const saveWeeklySchedule = async () => {
@@ -79,13 +93,35 @@ export function WeeklyTimetableSection({
     if (newWeeklySch.start_time && newWeeklySch.end_time && newWeeklySch.start_time >= newWeeklySch.end_time) {
       return showToast(t('plannerWeeklyEndAfterStart'), 'error');
     }
-    const ok = await api(
-      editingWeeklyId ? 'PUT' : 'POST',
-      editingWeeklyId ? `/api/weekly_schedules/${editingWeeklyId}` : '/api/weekly_schedules',
-      { ...newWeeklySch },
-      { revalidate: 'static', successMsg: t('scheduleSaved') },
-    );
-    if (ok) {
+    if (!editingWeeklyId && selectedWeekdays.length === 0) {
+      return showToast(t('plannerWeeklyEndAfterStart'), 'error');
+    }
+
+    if (editingWeeklyId) {
+      const ok = await api(
+        'PUT',
+        `/api/weekly_schedules/${editingWeeklyId}`,
+        { ...newWeeklySch, day: selectedWeekdays[0] ?? newWeeklySch.day },
+        { revalidate: 'static', successMsg: t('scheduleSaved') },
+      );
+      if (ok) {
+        setShowWeeklyModal(false);
+        setExpanded(true);
+      }
+      return;
+    }
+
+    const payloads = shouldFanOutWeeklyCreate(editingWeeklyId, selectedWeekdays)
+      ? expandWeeklyScheduleDays(newWeeklySch, selectedWeekdays)
+      : [{ ...newWeeklySch, day: selectedWeekdays[0] ?? 0 }];
+
+    let allOk = true;
+    for (const payload of payloads) {
+      const ok = await api('POST', '/api/weekly_schedules', payload, { revalidate: 'static' });
+      if (!ok) allOk = false;
+    }
+    if (allOk) {
+      showToast(t('scheduleSaved'));
       setShowWeeklyModal(false);
       setExpanded(true);
     }
@@ -288,11 +324,30 @@ export function WeeklyTimetableSection({
                   className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`} placeholder={t('activityPh')}/>
               </div>
               <div>
-                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('dayOfWeek')}</label>
-                <select value={newWeeklySch.day} onChange={e => setNewWeeklySch({ ...newWeeklySch, day: parseInt(e.target.value) })}
-                  className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`}>
-                  {weekdays.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                </select>
+                <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('k98TimetableDays')}</label>
+                {editingWeeklyId ? (
+                  <select value={newWeeklySch.day} onChange={e => {
+                    const day = parseInt(e.target.value);
+                    setNewWeeklySch({ ...newWeeklySch, day });
+                    setSelectedWeekdays([day]);
+                  }}
+                    className={`w-full rounded-2xl p-4 outline-none focus:ring-2 focus:ring-primary text-base font-semibold ${theme.input}`}>
+                    {weekdays.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                ) : (
+                  <div className="flex flex-wrap gap-2" data-planner-weekly-day-checkboxes>
+                    {weekdays.map((label, day) => (
+                      <label key={day} className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer text-sm font-semibold ${theme.input}`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedWeekdays.includes(day)}
+                          onChange={() => toggleWeekday(day)}
+                        />
+                        {label.slice(0, 3)}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex gap-4">
                 {(

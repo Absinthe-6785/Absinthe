@@ -60,9 +60,18 @@ export function DayScheduleTimeline({
           {blocks.map(block => (
             <div
               key={block.id}
-              className="group flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-surface-alt border border-border"
+              className={`group flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-surface-alt border border-border ${scheduleActions?.onView ? 'cursor-pointer hover:border-primary/40' : ''}`}
               data-planner-day-block={block.id}
               title={block.title}
+              role={scheduleActions?.onView ? 'button' : undefined}
+              tabIndex={scheduleActions?.onView ? 0 : undefined}
+              onClick={scheduleActions?.onView ? () => scheduleActions.onView!(block.id) : undefined}
+              onKeyDown={scheduleActions?.onView ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  scheduleActions.onView!(block.id);
+                }
+              } : undefined}
             >
               <span className="text-xs lg:text-sm font-semibold truncate min-w-0">
                 {formatDayTimeRange(block.startTime, block.endTime)} {block.title}
@@ -71,6 +80,7 @@ export function DayScheduleTimeline({
                 <div
                   className="flex gap-1 shrink-0 opacity-80 group-hover:opacity-100 group-focus-within:opacity-100"
                   data-planner-day-block-actions={block.id}
+                  onClick={e => e.stopPropagation()}
                 >
                   {scheduleActions.onEdit ? (
                     <button

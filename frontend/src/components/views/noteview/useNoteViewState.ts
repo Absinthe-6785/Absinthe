@@ -1,6 +1,10 @@
 import { useState, useRef, useCallback } from 'react';
 import type { EditorSearchScope } from '../editorSearch';
 import type { EditorMode } from '../editorMode';
+import type { ListDensityMode } from '../listDensityPreference';
+import { readListDensityMode } from '../listDensityPreference';
+import type { NoteSortDirection } from '../noteListSort';
+import { DEFAULT_NOTE_SORT_DIRECTION } from '../noteListSort';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import type { TimelinePeriodMode } from '../features/knowledge/timeline';
 import type {
@@ -48,6 +52,8 @@ export function useNoteViewState() {
   const [focusMode, setFocusMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sortOrder, setSortOrder] = useState<'updated' | 'title' | 'created'>('updated');
+  const [sortDirection, setSortDirection] = useState<NoteSortDirection>(DEFAULT_NOTE_SORT_DIRECTION);
+  const [listDensity, setListDensity] = useState<ListDensityMode>(() => readListDensityMode());
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(false);
@@ -130,6 +136,10 @@ export function useNoteViewState() {
     setShowShortcuts,
     sortOrder,
     setSortOrder,
+    sortDirection,
+    setSortDirection,
+    listDensity,
+    setListDensity,
     showSortMenu,
     setShowSortMenu,
     dragNoteId,

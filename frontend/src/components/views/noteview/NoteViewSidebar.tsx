@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
   ChevronDown, ChevronRight, Upload, Keyboard, Archive, RotateCcw,
@@ -11,6 +12,7 @@ import {
   formatAreaRangeHeading,
   formatRangeLensHeading,
   listTags,
+  toDateKey,
   SmartCollectionsSection,
   RuleCollectionsSection,
   DatabaseViewsSection,
@@ -43,6 +45,11 @@ import type { EditorMode } from '../editorMode';
 import type { WorkspaceDashboardViewProps } from '../features/knowledge/components/WorkspaceDashboardView';
 import type { FocusSessionState } from '../features/knowledge/workspace/focusModeModels';
 import type { KnowledgeTimeline } from '../features/knowledge/timeline';
+import { isoWeekBounds } from '../features/planner/calendar/plannerCalendarDateUtils';
+import type { ListDensityMode } from '../listDensityPreference';
+import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '../listDensityPreference';
+import type { NoteSortDirection } from '../noteListSort';
+import { toggleSortDirection } from '../noteListSort';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -67,6 +74,8 @@ export interface NoteViewSidebarData {
   trashCount: number;
   starredCount: number;
   sidebarTodayCount: number;
+  sidebarYesterdayCount: number;
+  sidebarWeekCount: number;
   sidebarMonthCount: number;
   isTrash: boolean;
   noteListFilter: 'all' | 'recent' | 'favorites';
@@ -125,6 +134,8 @@ export interface NoteViewSidebarData {
   safeNotesForDatabase: readonly Note[];
   dashboard: WorkspaceDashboardViewProps['dashboard'];
   sortOrder: 'updated' | 'title' | 'created';
+  sortDirection: NoteSortDirection;
+  listDensity: ListDensityMode;
   showSortMenu: boolean;
   dragNoteId: string | null;
   editingLearningPathId: string | null | undefined;
@@ -210,6 +221,8 @@ export interface NoteViewSidebarHandlers {
   handleClearDashboard: () => void;
   setShowSortMenu: React.Dispatch<React.SetStateAction<boolean>>;
   setSortOrder: React.Dispatch<React.SetStateAction<'updated' | 'title' | 'created'>>;
+  setSortDirection: React.Dispatch<React.SetStateAction<NoteSortDirection>>;
+  setListDensity: React.Dispatch<React.SetStateAction<ListDensityMode>>;
   exportAllNotes: () => void;
   exportVaultBackup: () => void | Promise<void>;
   openVaultRestore: () => void;
@@ -264,13 +277,14 @@ export interface NoteViewSidebarProps {
 
 export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps) {
   const { t } = useTranslation();
+  const [traceQuickNavCollapsed, setTraceQuickNavCollapsed] = useState(false);
   const {
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet,
     isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen,
   } = layout;
   const {
     c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
-    sidebarTodayCount, sidebarMonthCount,
+    sidebarTodayCount, sidebarYesterdayCount, sidebarWeekCount, sidebarMonthCount,
     isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey,
     isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId,
@@ -281,12 +295,40 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     canSaveCurrentView, traceAreaProjection, traceAreaRange, activeDatabaseView, activeSmartCollection,
     activeRuleCollection, activeSavedView, folderLabel, traceLensMarkCount, isDatabaseViewMode,
     activeDatabaseViewNoteCount, recentNotes, visibleNotes, activeNotes, activeNoteId,
-    safeNotesForDatabase, dashboard, sortOrder, showSortMenu, dragNoteId, editingLearningPathId,
+    safeNotesForDatabase, dashboard, sortOrder, sortDirection, listDensity, showSortMenu, dragNoteId, editingLearningPathId,
     focusPresets, focusPresetTargets, focusSession, focusWorkspaceOptions, taskTemplates,
     journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard, subjectWorkspaces,
     learningPathOverview, knowledgeTimeline, activitySummary, dashboardRecentActivity,
     dashboardLatestMilestone, evolutionInsights,
   } = data;
+
+  const densityStyle = listDensityStyles(listDensity);
+  const yesterdayTraceKey = useMemo(() => {
+    const d = new Date(`${todayTraceKey}T12:00:00`);
+    d.setDate(d.getDate() - 1);
+    return toDateKey(d);
+  }, [todayTraceKey]);
+  const weekTraceBounds = useMemo(() => isoWeekBounds(todayTraceKey), [todayTraceKey]);
+  const isTraceWeekMode = isTraceRangeMode
+    && traceRange?.kind === 'custom'
+    && weekTraceBounds
+    && traceRange.startDate === weekTraceBounds.startDate
+    && traceRange.endDate === weekTraceBounds.endDate;
+  const openTraceWeek = () => {
+    if (!weekTraceBounds) return;
+    openTraceRange({
+      kind: 'custom',
+      startDate: weekTraceBounds.startDate,
+      endDate: weekTraceBounds.endDate,
+      label: t('nvThisWeek'),
+    });
+  };
+  const densityLabel = listDensity === 'ultra'
+    ? t('nvListDensityUltra')
+    : listDensity === 'compact'
+      ? t('nvListDensityCompact')
+      : t('nvListDensityComfortable');
+
   const {
     searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag,
     setNoteListFilter, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
@@ -302,7 +344,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView,
     handleActivateSavedView, handleClearSavedView, handleCreateSavedView, handleRenameSavedView,
     handleDeleteSavedView, isWorkspaceKindActive, setMobileSidebarOpen, closeTraceLens,
-    handleClearDashboard, setShowSortMenu, setSortOrder, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
+    handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
     createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
     handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset,
@@ -448,8 +490,26 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   </span>
                 </div>
                 <div
+                  className="bseclbl"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                  onClick={() => setTraceQuickNavCollapsed(v => !v)}
+                  data-trace-quick-nav-toggle
+                >
+                  <span>{t('nvToday')}</span>
+                  <ChevronDown
+                    size={10}
+                    style={{
+                      transform: traceQuickNavCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                      transition: 'transform .15s',
+                    }}
+                  />
+                </div>
+                {!traceQuickNavCollapsed ? (
+                  <>
+                <div
                   className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
                   onClick={() => openTraceDay(todayTraceKey)}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
                   <span style={{ flex: 1 }}>{t('nvToday')}</span>
                   {sidebarTodayCount > 0 && (
@@ -457,14 +517,43 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   )}
                 </div>
                 <div
+                  className={`bfi ${isTraceDayMode && traceDate === yesterdayTraceKey ? 'active' : ''}`}
+                  onClick={() => openTraceDay(yesterdayTraceKey)}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                >
+                  <span style={{ flex: 1 }}>{t('nvYesterday')}</span>
+                  {sidebarYesterdayCount > 0 && (
+                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarYesterdayCount})</span>
+                  )}
+                </div>
+                <div
+                  className={`bfi ${isTraceWeekMode ? 'active' : ''}`}
+                  onClick={openTraceWeek}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                >
+                  <span style={{ flex: 1 }}>{t('nvThisWeek')}</span>
+                  {sidebarWeekCount > 0 && (
+                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarWeekCount})</span>
+                  )}
+                </div>
+                <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
                 >
                   <span style={{ flex: 1 }}>{t('nvThisMonth')}</span>
                   {sidebarMonthCount > 0 && (
                     <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarMonthCount})</span>
                   )}
                 </div>
+                  </>
+                ) : (
+                  <div className="bfi" style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted }}>
+                    <span style={{ flex: 1 }}>
+                      {t('nvToday')} ({sidebarTodayCount}) · {t('nvThisMonth')} ({sidebarMonthCount})
+                    </span>
+                  </div>
+                )}
                 <div
                   className={`bfi ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active' : ''}`}
                   onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey } as TraceRangeLens)}
@@ -730,9 +819,10 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         id="noteview-note-list"
         role="region"
         aria-label={t('nvNoteList')}
+        data-list-density={listDensity}
         style={{
-        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '38%' : '45%')) : (isMobile ? '100%' : (isTablet ? 168 : 200)))),
-        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 280)) : (isMobile ? 0 : (isTablet ? 168 : 200)))),
+        width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 176 : 216)))),
+        minWidth: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? 0 : (isTablet ? 220 : 260)) : (isMobile ? 0 : (isTablet ? 176 : 216)))),
         overflow: 'hidden',
         background: c.notelist,
         borderRight: `1px solid ${c.sideBdr}`,
@@ -847,6 +937,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             <button className="btbtn" style={{ padding: '2px 5px', fontSize: 9, color: c.textMuted }} onClick={() => setShowSortMenu(v => !v)}
               title={t('nvSort')}>
               {sortOrder === 'updated' ? <Clock size={10} /> : sortOrder === 'title' ? 'Az' : <Calendar size={10} />}
+              <span style={{ marginLeft: 2, fontSize: 8 }}>{sortDirection === 'desc' ? '↓' : '↑'}</span>
             </button>
             {showSortMenu && (
               <div className="bsort-menu" onClick={e => e.stopPropagation()}>
@@ -856,8 +947,24 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
                   </div>
                 ))}
+                <div className="bsort-item" style={{ borderTop: `1px solid ${c.sideBdr}` }}
+                  onClick={() => { setSortDirection(toggleSortDirection(sortDirection)); setShowSortMenu(false); }}>
+                  {sortDirection === 'desc' ? t('nvSortDesc') : t('nvSortAsc')}
+                </div>
               </div>
             )}
+            <button
+              className="btbtn"
+              style={{ padding: '2px 6px', fontSize: 8, color: c.textMuted, maxWidth: 72 }}
+              title={t('nvListDensity')}
+              onClick={() => {
+                const next = cycleListDensityMode(listDensity);
+                writeListDensityMode(next);
+                setListDensity(next);
+              }}
+            >
+              {densityLabel.slice(0, 1)}
+            </button>
             {!isTrash && (
               <button onClick={() => importInputRef.current?.click()} className="btbtn" title={t('nvImportMd')}>
                 <Upload size={11}/>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'absinthe-knowledge-panel-width';
-const DEFAULT_WIDTH = 230;
+const DEFAULT_WIDTH = 220;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 400;
 

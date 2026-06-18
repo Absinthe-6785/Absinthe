@@ -10,7 +10,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardDrive, Info } from 'lucide-react';
+import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardDrive, Info, RotateCcw } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -209,31 +209,6 @@ export const SettingsView = ({
                 </div>
               </div>
 
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 lg:gap-0">
-                <div>
-                  <p className="text-base font-bold">{t('defaultColor')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('defaultColorDesc')}</p>
-                </div>
-                <div className={`flex gap-4 p-3 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  {['gold', 'blue', 'green', 'purple', 'pink', 'gray'].map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => updateSetting('defaultColor', color)}
-                      className={`w-8 h-8 lg:w-10 lg:h-10 rounded-full transition-all shadow-sm ${
-                        color === 'blue'   ? 'bg-blue-500'   :
-                        color === 'green'  ? 'bg-green-500'  :
-                        color === 'purple' ? 'bg-purple-500' :
-                        color === 'pink'   ? 'bg-pink-500'   :
-                        color === 'gray'   ? 'bg-gray-500'   : 'bg-primary'
-                      } ${
-                        appSettings.defaultColor === color
-                          ? `ring-4 ring-offset-2 ${appSettings.darkMode ? 'ring-gray-300 ring-offset-[#2C2C2E]' : 'ring-gray-500'} scale-110`
-                          : 'border-4 border-transparent hover:scale-110'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
               {/* Language */}
               <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 lg:gap-0">
                 <div>
@@ -263,10 +238,10 @@ export const SettingsView = ({
             </div>
           </div>
 
-          {/* Data Storage */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
+          {/* Storage */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="storage">
             <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
-              <HardDrive size={20} className="text-primary" />{t('dataStorageTitle')}
+              <HardDrive size={20} className="text-primary" />{t('k98SettingsStorage')}
             </h2>
             <div className="space-y-4">
               <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
@@ -320,22 +295,27 @@ export const SettingsView = ({
             </div>
           </div>
 
-          {/* Recovery Center */}
-          <RecoveryCenterPanel
-            recovery={recovery}
-            vaultRestore={vaultRestore}
-            cloudSyncEnabled={cloudSyncEnabled}
-            theme={theme}
-            showToast={showToast}
-          />
+          {/* Recovery */}
+          <div data-settings-section="recovery">
+            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2 px-1">
+              <RotateCcw size={20} className="text-primary" />{t('k98SettingsRecovery')}
+            </h2>
+            <RecoveryCenterPanel
+              recovery={recovery}
+              vaultRestore={vaultRestore}
+              cloudSyncEnabled={cloudSyncEnabled}
+              theme={theme}
+              showToast={showToast}
+            />
+          </div>
 
-          {/* Data Management */}
-          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`}>
-            <h2 className="font-heading text-lg font-bold text-red-500 mb-6 flex items-center gap-2">
-              <Save size={20} />{t('dataManagement')}
+          {/* Export */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export">
+            <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
+              <Download size={20} className="text-primary" />{t('k98SettingsExport')}
             </h2>
             <div className="space-y-6">
-              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0 pb-6 border-b ${theme.border}`}>
+              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
                 <div>
                   <p className="text-base font-bold">{t('vaultBackupExport')}</p>
                   <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
@@ -357,29 +337,7 @@ export const SettingsView = ({
                   >
                     <Download size={16}/>{t('vaultBackupJsonExport')}
                   </button>
-                  <button
-                    onClick={vaultRestore.openFilePicker}
-                    className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
-                  >
-                    <Upload size={16}/>{t('vaultRestoreImport')}
-                  </button>
                 </div>
-                {vaultRestoreCanUndo ? (
-                  <button
-                    type="button"
-                    onClick={doUndoRestore}
-                    className={`self-start text-xs font-bold px-3 py-2 rounded-lg border ${theme.border} ${theme.input}`}
-                  >
-                    {t('vaultRestoreUndo')}
-                  </button>
-                ) : null}
-                <input
-                  ref={vaultRestore.fileInputRef}
-                  type="file"
-                  accept=".json,.zip,application/json,application/zip"
-                  className="hidden"
-                  onChange={vaultRestore.handleFileChange}
-                />
               </div>
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
@@ -398,7 +356,6 @@ export const SettingsView = ({
                     }
                   </button>
                 </div>
-                {/* 날짜 범위 선택 */}
                 <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                   <div className="flex-1">
                     <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('startDate')}</p>
@@ -424,8 +381,16 @@ export const SettingsView = ({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
 
-              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0 pt-6 border-t ${theme.border}`}>
+          {/* Danger zone */}
+          <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger">
+            <h2 className="font-heading text-lg font-bold text-red-500 mb-6 flex items-center gap-2">
+              <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
+            </h2>
+            <div className="space-y-6">
+              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
                 <div>
                   <p className="text-base font-bold text-red-500 flex items-center gap-1.5">
                     <AlertTriangle size={18} />{t('resetData')}
@@ -454,6 +419,8 @@ export const SettingsView = ({
               </div>
             </div>
           </div>
+
+          {/* legacy data management removed — K-98A IA */}
 
         </div>
       </div>

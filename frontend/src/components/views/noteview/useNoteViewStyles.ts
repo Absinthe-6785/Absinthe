@@ -4,7 +4,7 @@ import type { NoteChromeColors } from '../noteEditorTheme';
 export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string {
   return `
     /* ── 프리뷰 렌더 ── */
-    .broot{font-size:15px;line-height:1.9;padding:40px 60px;max-width:860px;margin:0 auto;color:${c.text}}
+    .broot{font-size:15px;line-height:1.85;padding:28px 44px;max-width:920px;margin:0 auto;color:${c.text}}
     .bh1{font-size:26px;font-weight:800;margin:32px 0 10px;color:${c.text};letter-spacing:-.5px}
     .bh2{font-size:20px;font-weight:700;margin:24px 0 8px;color:${c.text}}
     .bh3{font-size:16px;font-weight:600;margin:16px 0 6px;color:${c.textMuted}}
@@ -54,6 +54,10 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .be-editor-toolbar-scope:hover{background:${c.cardHov}}
     .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}
     .bfi{display:flex;align-items:center;gap:6px;padding:4px 10px;min-height:28px;cursor:pointer;transition:background .12s;font-size:11px;color:${c.text}}
+    [data-list-density="compact"] .bfi{min-height:26px;padding:3px 9px;font-size:10px}
+    [data-list-density="ultra"] .bfi{min-height:24px;padding:2px 8px;font-size:10px}
+    [data-list-density="compact"] .bni{padding:6px 9px;min-height:36px}
+    [data-list-density="ultra"] .bni{padding:4px 8px;min-height:32px}
     .bfi:hover{background:${c.cardHov}}
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
     .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s;min-height:44px}

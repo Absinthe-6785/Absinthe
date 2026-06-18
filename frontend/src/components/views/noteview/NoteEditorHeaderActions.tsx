@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal,
+  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -22,6 +22,7 @@ export interface NoteEditorHeaderActionsProps {
   isWeakTopic?: boolean;
   onToggleWeakTopic?: () => void;
   onViewModeToggle: (key: 'reading' | 'graph') => void;
+  onOpenDocumentSearch?: () => void;
   onMarkEvent: () => void;
   onMarkMilestone: () => void;
   onToggleArea: () => void;
@@ -54,6 +55,7 @@ export function NoteEditorHeaderActions({
   isWeakTopic = false,
   onToggleWeakTopic,
   onViewModeToggle,
+  onOpenDocumentSearch,
   onMarkEvent,
   onMarkMilestone,
   onToggleArea,
@@ -166,6 +168,19 @@ export function NoteEditorHeaderActions({
           </button>
         ))}
       </div>
+
+      {onOpenDocumentSearch ? (
+        <button
+          type="button"
+          onClick={onOpenDocumentSearch}
+          className="btbtn shrink-0"
+          title={t('nvDocumentSearch')}
+          style={iconBtnStyle}
+          data-read-mode-search-btn
+        >
+          <Search size={14} />
+        </button>
+      ) : null}
 
       {!isTrash ? (
         <button
