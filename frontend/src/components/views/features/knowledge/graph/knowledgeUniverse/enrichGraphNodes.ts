@@ -27,9 +27,10 @@ export interface EnrichGraphNodesInput {
 
 export function enrichGraphNodeMeta(input: EnrichGraphNodesInput): Map<string, EnrichedGraphNodeMeta> {
   const { noteIds, notesById, service, edges, galaxyCacheKey } = input;
+  const vaultNotes = [...notesById.values()];
   const galaxyMap = galaxyCacheKey
-    ? getNoteGalaxyMap([...notesById.values()], service, galaxyCacheKey)
-    : buildNoteGalaxyMap([...notesById.values()], service);
+    ? getNoteGalaxyMap(vaultNotes, service, galaxyCacheKey)
+    : buildNoteGalaxyMap(vaultNotes, service);
   const metaById = new Map<string, EnrichedGraphNodeMeta>();
 
   const orbitNodes = noteIds.map(id => {

@@ -182,7 +182,7 @@ export function buildDiscoveryFeed(
 
   logMemAudit({
     source: 'buildDiscoveryFeed',
-    notes: notes.filter(n => !n.deletedAt).length,
+    notes: ctx.activeNotes.length,
     discoveryItems: items.length,
     relatedCandidates: raw.length,
   });

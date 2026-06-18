@@ -28,8 +28,39 @@ export interface ExtractLinkContextsOptions {
 const DEFAULT_MAX_EXCERPTS = 2;
 const DEFAULT_EXCERPT_MAX = 140;
 
+/** K-95E — cap retained paragraph offsets across long link-context sessions. */
+export const MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES = 512;
+
 const paragraphOffsetCache: ParagraphOffsetIndex = new Map();
 let lastContentVersion = -1;
+
+function touchParagraphOffsetEntry(
+  noteId: string,
+  entry: { fingerprint: number; offsets: ParagraphOffsetEntry[] },
+): void {
+  paragraphOffsetCache.delete(noteId);
+  paragraphOffsetCache.set(noteId, entry);
+}
+
+function enforceParagraphOffsetCacheBounds(): void {
+  while (paragraphOffsetCache.size > MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES) {
+    const oldest = paragraphOffsetCache.keys().next().value;
+    if (oldest == null) break;
+    paragraphOffsetCache.delete(oldest);
+  }
+}
+
+export function getParagraphOffsetCacheStats(): {
+  size: number;
+  maxEntries: number;
+  bounded: boolean;
+} {
+  return {
+    size: paragraphOffsetCache.size,
+    maxEntries: MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES,
+    bounded: paragraphOffsetCache.size <= MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES,
+  };
+}
 
 /** FNV-1a 32-bit fingerprint for per-note invalidation without storing body text. */
 export function bodyFingerprint(body: string): number {
@@ -93,10 +124,12 @@ export function getCachedParagraphOffsets(noteId: string, body: string): Paragra
   const fingerprint = bodyFingerprint(body);
   const cached = paragraphOffsetCache.get(noteId);
   if (cached && cached.fingerprint === fingerprint) {
+    touchParagraphOffsetEntry(noteId, cached);
     return cached.offsets;
   }
   const offsets = buildParagraphOffsets(body);
-  paragraphOffsetCache.set(noteId, { fingerprint, offsets });
+  touchParagraphOffsetEntry(noteId, { fingerprint, offsets });
+  enforceParagraphOffsetCacheBounds();
   return offsets;
 }
 

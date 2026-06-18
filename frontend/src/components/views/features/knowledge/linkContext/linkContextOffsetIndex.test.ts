@@ -8,7 +8,9 @@ import {
   extractLinkContexts,
   extractLinkContextsLegacy,
   getCachedParagraphOffsets,
+  getParagraphOffsetCacheStats,
   invalidateLinkContextOffsetNote,
+  MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES,
   syncLinkContextOffsetCache,
 } from './linkContextOffsetIndex';
 
@@ -91,6 +93,15 @@ describe('extractLinkContexts offset index', () => {
     getCachedParagraphOffsets('n1', notes[0]!.body ?? '');
     syncLinkContextOffsetCache(2);
     expect(bodyFingerprint(notes[0]!.body ?? '')).toBeGreaterThan(0);
+  });
+
+  it('evicts oldest entries when cache exceeds max size', () => {
+    for (let i = 0; i < MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES + 8; i += 1) {
+      getCachedParagraphOffsets(`stress-${i}`, `body ${i}\n\npara ${i}`);
+    }
+    const stats = getParagraphOffsetCacheStats();
+    expect(stats.size).toBeLessThanOrEqual(MAX_PARAGRAPH_OFFSET_CACHE_ENTRIES);
+    expect(stats.bounded).toBe(true);
   });
 
   it('buildLineOffsets covers each non-empty line', () => {
