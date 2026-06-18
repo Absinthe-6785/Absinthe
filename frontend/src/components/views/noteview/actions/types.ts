@@ -46,6 +46,7 @@ export interface UseNoteViewActionsParams {
   setFocusMode: Dispatch<SetStateAction<boolean>>;
   setDocCopied: Dispatch<SetStateAction<boolean>>;
   setSearchScope: Dispatch<SetStateAction<EditorSearchScope>>;
+  setDocumentSearchOpen: Dispatch<SetStateAction<boolean>>;
   setActiveTag: Dispatch<SetStateAction<string | null>>;
   setMobileSidebarOpen: Dispatch<SetStateAction<boolean>>;
   setExpandedGraphNodes: Dispatch<SetStateAction<string[]>>;

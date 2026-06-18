@@ -56,6 +56,10 @@ export function UnifiedAgendaList({
   });
 
   const openMenu = useCallback((item: UnifiedAgendaItem, e: React.MouseEvent) => {
+    if (item.kind === 'block' && item.blockId && scheduleActions?.onView && !e.shiftKey) {
+      scheduleActions.onView(item.blockId);
+      return;
+    }
     if (!agendaItemHasActions(item, scheduleActions, eventActions)) {
       if (item.noteId && eventActions?.onOpen) {
         eventActions.onOpen(item.noteId);

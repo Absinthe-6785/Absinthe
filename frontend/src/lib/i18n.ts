@@ -1786,6 +1786,24 @@ const translations = {
   k99EmptyDiscoveryTitle:      { en: 'Nothing to discover yet', ko: '아직 발견할 항목이 없습니다', ja: 'まだ発見する項目がありません' },
   k99EmptyDiscoveryDesc:       { en: 'Link notes and write more to surface connections.', ko: '노트를 연결하고 더 작성하면 연결을 찾을 수 있습니다.', ja: 'ノートをリンクして書き込むとつながりが見つかります。' },
 
+  // ── K-100 product cohesion ────────────────────────────────────────
+  k100SettingsGeneral:         { en: 'General', ko: '일반', ja: '一般' },
+  k100SettingsSubtitle:        { en: 'Language, theme, and planner defaults.', ko: '언어, 테마, 플래너 기본값.', ja: '言語、テーマ、プランナー既定値。' },
+  k100Theme:                   { en: 'Theme', ko: '테마', ja: 'テーマ' },
+  k100ThemeDesc:               { en: 'Light or dark appearance.', ko: '밝은/어두운 화면 모드.', ja: 'ライト/ダーク表示。' },
+  k100ThemeLight:              { en: 'Light', ko: '라이트', ja: 'ライト' },
+  k100ThemeDark:               { en: 'Dark', ko: '다크', ja: 'ダーク' },
+  k100SignOutDesc:             { en: 'Sign out on this device.', ko: '이 기기에서 로그아웃합니다.', ja: 'この端末からサインアウトします。' },
+  k100SortFolder:              { en: 'Folder name', ko: '폴더 이름', ja: 'フォルダ名' },
+  k100SortStarredFirst:        { en: 'Starred first', ko: '즐겨찾기 우선', ja: 'お気に入り優先' },
+  k100TimetableWeekdays:       { en: 'Weekdays', ko: '평일', ja: '平日' },
+  k100TimetableWeekends:       { en: 'Weekends', ko: '주말', ja: '週末' },
+  k100TimetableEveryDay:       { en: 'Every day', ko: '매일', ja: '毎日' },
+  k100ScheduleQuickEditHint:   { en: 'Double-click title to quick edit', ko: '제목 더블클릭으로 빠른 편집', ja: 'タイトルをダブルクリックでクイック編集' },
+  k100ScheduleKeyboardHint:    { en: 'E edit · D duplicate · Esc close · Del delete', ko: 'E 편집 · D 복제 · Esc 닫기 · Del 삭제', ja: 'E 編集 · D 複製 · Esc 閉じる · Del 削除' },
+  k100KeyboardTodayNote:       { en: "Open today's daily note", ko: '오늘 일지 노트 열기', ja: '今日の日記ノートを開く' },
+  k100EmptyNotesLoading:       { en: 'Loading notes…', ko: '노트 불러오는 중…', ja: 'ノートを読み込み中…' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

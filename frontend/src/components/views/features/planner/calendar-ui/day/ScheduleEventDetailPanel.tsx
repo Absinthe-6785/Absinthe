@@ -1,4 +1,5 @@
-import { Edit2, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Copy, Edit2, Trash2, X } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerScheduleRow } from '../../calendar';
@@ -11,11 +12,12 @@ export interface ScheduleEventDetailPanelProps {
   notes?: string | null;
   onEdit: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onClose: () => void;
   variant?: 'sheet' | 'inline';
 }
 
-/** Schedule event detail — title, date, time, category, notes, edit/delete (K-98A). */
+/** Schedule event detail — K-98A base, K-100 duplicate + keyboard shortcuts. */
 export function ScheduleEventDetailPanel({
   block,
   theme,
@@ -23,10 +25,40 @@ export function ScheduleEventDetailPanel({
   notes,
   onEdit,
   onDelete,
+  onDuplicate,
   onClose,
   variant = 'sheet',
 }: ScheduleEventDetailPanelProps) {
   const { t } = useTranslation();
+  const [quickEdit, setQuickEdit] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(block.title);
+
+  useEffect(() => {
+    setTitleDraft(block.title);
+    setQuickEdit(false);
+  }, [block.id, block.title]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'e' || e.key === 'E') {
+        if (e.target instanceof HTMLInputElement) return;
+        e.preventDefault();
+        onEdit();
+      } else if ((e.key === 'd' || e.key === 'D') && onDuplicate) {
+        e.preventDefault();
+        onDuplicate();
+      } else if (e.key === 'Delete') {
+        e.preventDefault();
+        onDelete();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose, onEdit, onDelete, onDuplicate]);
+
   const shellClass = variant === 'inline'
     ? `rounded-2xl border p-4 flex flex-col gap-3 ${theme.border} ${theme.card}`
     : `rounded-[24px] lg:rounded-[28px] shadow-2xl p-5 lg:p-6 w-full max-w-[420px] ${theme.card}`;
@@ -38,7 +70,31 @@ export function ScheduleEventDetailPanel({
           <p className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${theme.textMuted}`}>
             {t('scheduleSectionSchedule')}
           </p>
-          <h3 className="font-heading text-lg font-bold truncate">{block.title}</h3>
+          {quickEdit ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setQuickEdit(false);
+                  onEdit();
+                }
+                if (e.key === 'Escape') setQuickEdit(false);
+              }}
+              className={`w-full font-heading text-lg font-bold rounded-lg px-2 py-1 ${theme.input}`}
+              data-schedule-event-quick-edit
+            />
+          ) : (
+            <h3
+              className="font-heading text-lg font-bold truncate cursor-text"
+              onDoubleClick={() => setQuickEdit(true)}
+              title={t('k100ScheduleQuickEditHint')}
+            >
+              {block.title}
+            </h3>
+          )}
         </div>
         {variant === 'sheet' ? (
           <button
@@ -67,20 +123,33 @@ export function ScheduleEventDetailPanel({
         <dd className={`font-medium ${theme.textMuted}`}>{notes?.trim() || '—'}</dd>
       </dl>
 
-      <div className="flex gap-2 pt-1">
+      <p className={`text-[10px] ${theme.textMuted}`}>{t('k100ScheduleKeyboardHint')}</p>
+
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
           type="button"
           onClick={onEdit}
-          className="flex-1 bg-primary text-primary-foreground font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2"
+          className="flex-1 min-w-[120px] bg-primary text-primary-foreground font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2"
           data-schedule-event-edit
         >
           <Edit2 size={16} />
           {t('edit')}
         </button>
+        {onDuplicate ? (
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className={`flex-1 min-w-[120px] font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2 border ${theme.border}`}
+            data-schedule-event-duplicate
+          >
+            <Copy size={16} />
+            {t('k79AgendaDuplicate')}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onDelete}
-          className="flex-1 bg-red-500/10 text-red-500 font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2 border border-red-500/20"
+          className="flex-1 min-w-[120px] bg-red-500/10 text-red-500 font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2 border border-red-500/20"
           data-schedule-event-delete
         >
           <Trash2 size={16} />

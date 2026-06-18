@@ -3,8 +3,10 @@ import type { EditorSearchScope } from '../editorSearch';
 import type { EditorMode } from '../editorMode';
 import type { ListDensityMode } from '../listDensityPreference';
 import { readListDensityMode } from '../listDensityPreference';
-import type { NoteSortDirection } from '../noteListSort';
+import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { DEFAULT_NOTE_SORT_DIRECTION } from '../noteListSort';
+import { readNoteSortPrefs } from '../noteListSortPreference';
+import { readNoteListSectionPrefs } from '../noteListSectionPrefs';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import type { TimelinePeriodMode } from '../features/knowledge/timeline';
 import type {
@@ -51,8 +53,13 @@ export function useNoteViewState() {
   const [tocCollapsed, setTocCollapsed] = useState<Record<number, boolean>>({});
   const [focusMode, setFocusMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [sortOrder, setSortOrder] = useState<'updated' | 'title' | 'created'>('updated');
-  const [sortDirection, setSortDirection] = useState<NoteSortDirection>(DEFAULT_NOTE_SORT_DIRECTION);
+  const initialSort = readNoteSortPrefs();
+  const initialSections = readNoteListSectionPrefs();
+  const [sortOrder, setSortOrder] = useState<NoteSortField>(initialSort.field);
+  const [sortDirection, setSortDirection] = useState<NoteSortDirection>(initialSort.direction);
+  const [starredFirst, setStarredFirst] = useState(initialSort.starredFirst);
+  const [listSectionPrefs, setListSectionPrefs] = useState(initialSections);
+  const [documentSearchOpen, setDocumentSearchOpen] = useState(false);
   const [listDensity, setListDensity] = useState<ListDensityMode>(() => readListDensityMode());
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
@@ -138,6 +145,12 @@ export function useNoteViewState() {
     setSortOrder,
     sortDirection,
     setSortDirection,
+    starredFirst,
+    setStarredFirst,
+    listSectionPrefs,
+    setListSectionPrefs,
+    documentSearchOpen,
+    setDocumentSearchOpen,
     listDensity,
     setListDensity,
     showSortMenu,

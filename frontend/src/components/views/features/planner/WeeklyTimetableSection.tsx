@@ -352,6 +352,15 @@ export function WeeklyTimetableSection({
                     {weekdays.map((d, i) => <option key={i} value={i}>{d}</option>)}
                   </select>
                 ) : (
+                  <>
+                  <div className="flex flex-wrap gap-2 mb-2" data-timetable-weekday-presets>
+                    <button type="button" onClick={() => setSelectedWeekdays([0, 1, 2, 3, 4])}
+                      className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableWeekdays')}</button>
+                    <button type="button" onClick={() => setSelectedWeekdays([5, 6])}
+                      className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableWeekends')}</button>
+                    <button type="button" onClick={() => setSelectedWeekdays([0, 1, 2, 3, 4, 5, 6])}
+                      className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableEveryDay')}</button>
+                  </div>
                   <div className="flex flex-wrap gap-2" data-planner-weekly-day-checkboxes>
                     {weekdays.map((label, day) => (
                       <label key={day} className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer text-sm font-semibold ${theme.input}`}>
@@ -364,6 +373,7 @@ export function WeeklyTimetableSection({
                       </label>
                     ))}
                   </div>
+                  </>
                 )}
               </div>
               <div className="flex gap-4">

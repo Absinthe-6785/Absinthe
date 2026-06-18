@@ -33,7 +33,7 @@ export function MonthCalendarView({
       className="flex flex-col lg:flex-row gap-2 lg:gap-3 items-stretch min-h-0"
       data-planner-calendar-month
     >
-      <div className={`w-full lg:w-[70%] lg:min-w-0 rounded-[16px] lg:rounded-[20px] p-2 lg:p-3 ${theme.card}`}>
+      <div className={`w-full lg:w-[65%] lg:min-w-0 rounded-[16px] lg:rounded-[20px] p-2 lg:p-3 ${theme.card}`}>
         <MonthCalendarGrid
           month={month}
           weekdayLabels={presentation.labels.weekdayShortLabels}
@@ -45,7 +45,7 @@ export function MonthCalendarView({
         />
       </div>
 
-      <div className="w-full lg:w-[30%] lg:min-w-[180px] lg:max-w-[280px] shrink-0 flex flex-col min-h-[200px] lg:min-h-0">
+      <div className="w-full lg:w-[35%] lg:min-w-[200px] lg:max-w-[300px] shrink-0 flex flex-col min-h-[200px] lg:min-h-0">
         <UpcomingAgendaPanel
           projection={projection}
           presentation={presentation}

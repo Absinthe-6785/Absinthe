@@ -13,7 +13,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .${K99_SCROLL_PANE_CLASS}::-webkit-scrollbar-thumb:hover{background:${c.textMuted}77}
     .${K99_STICKY_HEADER_CLASS}{position:sticky;top:0;z-index:2;flex-shrink:0;background:inherit}
     /* ── 프리뷰 렌더 ── */
-    .broot{font-size:15px;line-height:1.85;padding:24px 32px;max-width:720px;margin:0 auto;color:${c.text}}
+    .broot{font-size:15px;line-height:1.75;padding:20px 28px;max-width:680px;margin:0 auto;color:${c.text}}
     .bh1{font-size:26px;font-weight:800;margin:32px 0 10px;color:${c.text};letter-spacing:-.5px}
     .bh2{font-size:20px;font-weight:700;margin:24px 0 8px;color:${c.text}}
     .bh3{font-size:16px;font-weight:600;margin:16px 0 6px;color:${c.textMuted}}
@@ -80,7 +80,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bni:hover{background:${c.cardHov}}
     .bni:active{background:${c.accentBg}}
     .bni:focus-visible{outline:none;box-shadow:inset 0 0 0 2px ${c.accent}55}
-    .bni.active{background:${c.cardAct};border-left:3px solid ${c.cardActBdr}}
+    .bni.active{background:${c.cardAct};border-left:3px solid ${c.cardActBdr};box-shadow:inset 0 0 0 1px ${c.accent}22}
     .bwi{background:${c.input};border:1px solid ${c.inputBdr};color:${c.text};border-radius:7px;padding:6px 10px;font-size:12px;outline:none}
     .bwi:focus{border-color:${c.accent}}
     .bwbg{background:${c.accent};color:${dark ? '#0F0F11' : '#FFFFFF'};border:none;border-radius:12px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px;transition:opacity .12s,transform .08s}
@@ -99,7 +99,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .bshl{background:${dark ? '#3d3860' : '#e8e4ff'};color:${c.text};border-radius:2px;padding:0 2px}
+    .bshl{background:${dark ? '#4a4580' : '#d8d0ff'};color:${c.text};border-radius:3px;padding:1px 3px;box-shadow:0 0 0 1px ${c.accent}44}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}
