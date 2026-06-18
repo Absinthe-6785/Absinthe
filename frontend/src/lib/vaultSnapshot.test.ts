@@ -15,6 +15,7 @@ import {
   saveVaultSnapshot,
   type SnapshotStorageAdapter,
 } from './vaultSnapshotStore';
+import { SNAPSHOT_PAYLOAD_PREFIX } from './vaultSnapshotConstants';
 import { validateVaultSnapshot, validateVaultSnapshotJson } from './vaultSnapshotValidate';
 import {
   createDailySnapshot,
@@ -23,14 +24,15 @@ import {
   flushAutoSnapshotForTests,
   resetAutoSnapshotStateForTests,
   scheduleAutoSnapshot,
+  computeSnapshotContentFingerprint,
 } from './vaultSnapshotAuto';
 import { VAULT_SNAPSHOT_SCHEMA_VERSION } from './vaultSnapshotConstants';
 
-function note(id: string, title = 'Note'): NoteBase {
+function note(id: string, title = 'Note', body = 'Hello'): NoteBase {
   return {
     id,
     title,
-    body: 'Hello',
+    body,
     folderId: null,
     starred: false,
     deletedAt: null,
@@ -164,6 +166,58 @@ describe('vaultSnapshot', () => {
     flushAutoSnapshotForTests();
     expect(enumerateVaultSnapshots(storage).some(s => s.slot === 'last')).toBe(true);
     vi.useRealTimers();
+  });
+
+  it('skips scheduling when content fingerprint unchanged', () => {
+    vi.useFakeTimers();
+    const notes = [note('n1')];
+    scheduleAutoSnapshot(notes, []);
+    vi.advanceTimersByTime(30_000);
+    flushAutoSnapshotForTests();
+    const countAfterFirst = enumerateVaultSnapshots(storage).length;
+    scheduleAutoSnapshot(notes, []);
+    vi.advanceTimersByTime(30_000);
+    flushAutoSnapshotForTests();
+    expect(enumerateVaultSnapshots(storage).length).toBe(countAfterFirst);
+    vi.useRealTimers();
+  });
+
+  it('persists snapshots as chunked payloads', () => {
+    const largeBody = 'x'.repeat(500_000);
+    const snapshot = buildVaultSnapshot([note('big', 'Big', largeBody)], [], 'last', 'last');
+    const result = saveVaultSnapshot(snapshot, storage);
+    expect(result.saved).toBe(true);
+    expect(result.chunkCount).toBeGreaterThan(1);
+    expect(result.writeCount).toBe((result.chunkCount ?? 0) + 1);
+    const loaded = loadSnapshotPayload(snapshot.snapshotId, storage);
+    expect(loaded?.vault.notes[0]?.markdown).toContain('xxx');
+  });
+
+  it('loads legacy single-blob snapshots', () => {
+    const snapshot = buildVaultSnapshot([note('legacy')], [], 'last', 'last');
+    const serialized = serializeVaultSnapshot(snapshot);
+    storage.setItem(`${SNAPSHOT_PAYLOAD_PREFIX}${snapshot.snapshotId}:v1`, serialized);
+    const parsed = loadSnapshotPayload(snapshot.snapshotId, storage);
+    expect(parsed?.snapshotId).toBe(snapshot.snapshotId);
+    expect(validateVaultSnapshot(parsed!).valid).toBe(true);
+  });
+
+  it('excludes deleted notes from compacted snapshots', () => {
+    const snapshot = buildVaultSnapshot(
+      [note('active'), { ...note('trash', 'Trash'), deletedAt: 100 }],
+      [],
+      'last',
+      'last',
+    );
+    expect(snapshot.vault.notes).toHaveLength(1);
+    expect(snapshot.vault.notes[0]?.id).toBe('active');
+  });
+
+  it('computeSnapshotContentFingerprint is stable for identical vaults', () => {
+    const notes = [note('n1')];
+    const a = computeSnapshotContentFingerprint(notes, []);
+    const b = computeSnapshotContentFingerprint(notes, []);
+    expect(a).toBe(b);
   });
 
   it('vault manifest schema remains compatible with export', () => {

@@ -6,6 +6,9 @@ export const VAULT_SNAPSHOT_KIND = 'absinthe-vault-snapshot' as const;
 
 export const SNAPSHOT_INDEX_KEY = 'absinthe:vault-snapshot:index:v1';
 export const SNAPSHOT_PAYLOAD_PREFIX = 'absinthe:vault-snapshot:payload:';
+export const SNAPSHOT_META_PREFIX = 'absinthe:vault-snapshot:meta:';
+export const SNAPSHOT_CHUNK_PREFIX = 'absinthe:vault-snapshot:chunk:';
+export const SNAPSHOT_CHUNK_STORAGE_FORMAT = 'chunked-v1' as const;
 
 export type VaultSnapshotSlot = 'last' | 'daily' | 'weekly';
 
