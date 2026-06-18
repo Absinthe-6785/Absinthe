@@ -7,6 +7,12 @@ import {
   ensureConnectionCandidateIndex,
   type DiscoveryFeedContext,
 } from './discoveryFeedContext';
+import {
+  addSuggestionSignal,
+  createCompactSuggestedRef,
+  decodeSuggestionSignals,
+  type CompactSuggestedRef,
+} from './discoveryCompactCandidate';
 
 function tokenize(title: string): Set<string> {
   return new Set(
@@ -17,9 +23,7 @@ function tokenize(title: string): Set<string> {
   );
 }
 
-function titleSimilarity(a: string, b: string): number {
-  const tokensA = tokenize(a);
-  const tokensB = tokenize(b);
+function titleSimilarity(tokensA: Set<string>, tokensB: Set<string>): number {
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
   let overlap = 0;
   for (const token of tokensA) {
@@ -79,6 +83,19 @@ function collectCandidateIds(sourceId: string, ctx: DiscoveryFeedContext): Set<s
   return candidates;
 }
 
+function upsertScoredCandidate(
+  scored: Map<string, CompactSuggestedRef>,
+  targetId: string,
+  delta: number,
+  signal: SuggestionSignal,
+): void {
+  const existing = scored.get(targetId);
+  scored.set(
+    targetId,
+    existing ? addSuggestionSignal(existing, delta, signal) : createCompactSuggestedRef(targetId, delta, signal),
+  );
+}
+
 /** Indexed connection suggestions for discovery — avoids O(n) vault scans per source. */
 export function buildDiscoveryConnectionSuggestions(
   sourceId: string,
@@ -90,30 +107,27 @@ export function buildDiscoveryConnectionSuggestions(
 
   const { service, galaxyMap } = ctx;
   const sourceTitle = displayNoteTitle(source.title);
+  const sourceTitleTokens = tokenize(sourceTitle);
   const sourceGalaxy = galaxyMap.get(sourceId);
-  const sourceTags = new Set(service.getTags(sourceId));
-  const scored = new Map<string, { score: number; signals: SuggestionSignal[] }>();
-
-  const addCandidate = (targetId: string, delta: number, signal: SuggestionSignal) => {
-    if (targetId === sourceId) return;
-    const entry = scored.get(targetId) ?? { score: 0, signals: [] };
-    entry.score += delta;
-    if (!entry.signals.includes(signal)) entry.signals.push(signal);
-    scored.set(targetId, entry);
-  };
+  const sourceTags = service.getTags(sourceId);
+  const scored = new Map<string, CompactSuggestedRef>();
 
   const mentionersOfSource = new Set(
     service.getMentioningNotes(sourceId).map(m => m.noteId),
   );
 
   for (const targetId of collectCandidateIds(sourceId, ctx)) {
-    const target = ctx.noteById.get(targetId);
-    if (!target) continue;
+    if (targetId === sourceId || !ctx.noteById.has(targetId)) continue;
 
-    const targetTitle = displayNoteTitle(target.title);
-    const sim = titleSimilarity(sourceTitle, targetTitle);
+    const targetTitle = displayNoteTitle(ctx.noteById.get(targetId)?.title ?? '');
+    const sim = titleSimilarity(sourceTitleTokens, tokenize(targetTitle));
     if (sim >= 0.35) {
-      addCandidate(targetId, Math.round(sim * SUGGESTION_WEIGHTS.TITLE_SIMILARITY), 'title-similarity');
+      upsertScoredCandidate(
+        scored,
+        targetId,
+        Math.round(sim * SUGGESTION_WEIGHTS.TITLE_SIMILARITY),
+        'title-similarity',
+      );
     }
 
     const targetGalaxy = galaxyMap.get(targetId);
@@ -123,37 +137,41 @@ export function buildDiscoveryConnectionSuggestions(
       && sourceGalaxy.galaxyId === targetGalaxy.galaxyId
       && sourceGalaxy.galaxyId !== 'uncategorized'
     ) {
-      addCandidate(targetId, SUGGESTION_WEIGHTS.SHARED_AREA, 'shared-area');
+      upsertScoredCandidate(scored, targetId, SUGGESTION_WEIGHTS.SHARED_AREA, 'shared-area');
     }
 
-    const targetTags = service.getTags(targetId);
-    if (targetTags.some(tag => sourceTags.has(tag))) {
-      addCandidate(targetId, SUGGESTION_WEIGHTS.SHARED_TAG, 'shared-tag');
+    if (service.getTags(targetId).some(tag => sourceTags.includes(tag))) {
+      upsertScoredCandidate(scored, targetId, SUGGESTION_WEIGHTS.SHARED_TAG, 'shared-tag');
     }
 
     const mentionsSource = mentionersOfSource.has(targetId);
     const mentionsTarget = service.getMentioningNotes(targetId).some(m => m.noteId === sourceId);
     if (mentionsSource && mentionsTarget) {
-      addCandidate(targetId, SUGGESTION_WEIGHTS.MUTUAL_MENTION, 'mutual-mention');
+      upsertScoredCandidate(scored, targetId, SUGGESTION_WEIGHTS.MUTUAL_MENTION, 'mutual-mention');
     }
 
     const sharedBacklinks = commonBacklinkCount(sourceId, targetId, service);
     if (sharedBacklinks > 0) {
-      addCandidate(targetId, SUGGESTION_WEIGHTS.COMMON_BACKLINK * sharedBacklinks, 'common-backlink');
+      upsertScoredCandidate(
+        scored,
+        targetId,
+        SUGGESTION_WEIGHTS.COMMON_BACKLINK * sharedBacklinks,
+        'common-backlink',
+      );
     }
   }
 
-  return [...scored.entries()]
-    .map(([id, { score, signals }]) => {
-      const note = ctx.noteById.get(id);
-      return {
-        noteId: id,
-        noteTitle: note ? displayNoteTitle(note.title) : id,
-        score: Math.round(score),
-        signals,
-      };
-    })
-    .filter(entry => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.noteTitle.localeCompare(b.noteTitle))
-    .slice(0, limit);
+  const ranked: SuggestedConnection[] = [];
+  for (const entry of scored.values()) {
+    if (entry.score <= 0) continue;
+    ranked.push({
+      noteId: entry.noteId,
+      noteTitle: displayNoteTitle(ctx.noteById.get(entry.noteId)?.title ?? entry.noteId),
+      score: Math.round(entry.score),
+      signals: decodeSuggestionSignals(entry.signalFlags),
+    });
+  }
+
+  ranked.sort((a, b) => b.score - a.score || a.noteTitle.localeCompare(b.noteTitle));
+  return ranked.slice(0, limit);
 }

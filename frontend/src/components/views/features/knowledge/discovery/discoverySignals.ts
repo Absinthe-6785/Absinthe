@@ -118,7 +118,11 @@ export function ensureSharedConnectionSignals(
 export function collectHubActivitySignals(
   ctx: DiscoveryFeedContext,
 ): HubActivitySignals {
-  const hubRankPool: { note: NoteBase; result: ReturnType<typeof getDiscoveryImportance> }[] = [];
+  const hubRankPool: {
+    noteId: string;
+    importanceScore: number;
+    classification: ReturnType<typeof getDiscoveryImportance>['classification'];
+  }[] = [];
   const driftItems: DiscoveryItem[] = [];
 
   for (const note of ctx.activeNotes) {
@@ -134,7 +138,11 @@ export function collectHubActivitySignals(
     const isMajorHub = result.classification === 'core-hub' || result.classification === 'major-hub';
 
     if (isMajorHub) {
-      hubRankPool.push({ note, result });
+      hubRankPool.push({
+        noteId: note.id,
+        importanceScore: result.importanceScore,
+        classification: result.classification,
+      });
     }
 
     if (updateDays < DISCOVERY_WEIGHTS.MIN_DRIFT_DAYS) continue;
@@ -158,13 +166,15 @@ export function collectHubActivitySignals(
 
   const forgottenItems: DiscoveryItem[] = [];
   const ranked = hubRankPool
-    .sort((a, b) => b.result.importanceScore - a.result.importanceScore)
+    .sort((a, b) => b.importanceScore - a.importanceScore)
     .slice(0, DISCOVERY_WEIGHTS.FORGOTTEN_SCAN_LIMIT);
 
-  for (const { note, result } of ranked) {
+  for (const { noteId, importanceScore, classification } of ranked) {
+    const note = ctx.noteById.get(noteId);
+    if (!note) continue;
     const inactivityDays = daysSince(noteLastOpenedAt(note), ctx.now);
     if (inactivityDays < DISCOVERY_WEIGHTS.MIN_FORGOTTEN_DAYS) continue;
-    const score = scoreForgottenKnowledge(result.importanceScore, inactivityDays);
+    const score = scoreForgottenKnowledge(importanceScore, inactivityDays);
     if (score <= 0) continue;
     forgottenItems.push({
       id: `forgotten-${note.id}`,
@@ -174,7 +184,7 @@ export function collectHubActivitySignals(
       subtitle: `last-opened:${inactivityDays}`,
       noteId: note.id,
       daysSinceActivity: inactivityDays,
-      importanceClass: result.classification,
+      importanceClass: classification,
     });
   }
 
@@ -206,30 +216,31 @@ export function collectMissingConnectionSignals(
   if (context.connectionSignals && !options.skipCacheWrite) {
     return context.connectionSignals;
   }
-  const sources = context.activeNotes
+  const rankedSources = context.activeNotes
     .map(note => ({
-      note,
+      id: note.id,
       importance: getDiscoveryImportance(context, note.id).importanceScore,
     }))
     .sort((a, b) => b.importance - a.importance)
-    .slice(0, DISCOVERY_WEIGHTS.CONNECTION_SOURCE_LIMIT)
-    .map(row => row.note);
+    .slice(0, DISCOVERY_WEIGHTS.CONNECTION_SOURCE_LIMIT);
 
   const seen = new Set<string>();
   const items: DiscoveryItem[] = [];
 
-  for (const source of sources) {
-    const sourceImportance = getDiscoveryImportance(context, source.id);
+  for (const { id: sourceId } of rankedSources) {
+    const source = context.noteById.get(sourceId);
+    if (!source) continue;
+    const sourceImportance = getDiscoveryImportance(context, sourceId);
     const suggestions = buildDiscoveryConnectionSuggestions(
-      source.id,
+      sourceId,
       context,
       DISCOVERY_WEIGHTS.CONNECTIONS_PER_SOURCE + 2,
     );
     for (const suggestion of suggestions) {
       if (suggestion.score < DISCOVERY_WEIGHTS.MIN_CONNECTION_SCORE) continue;
-      if (hasExistingLink(source.id, suggestion.noteId, context)) continue;
+      if (hasExistingLink(sourceId, suggestion.noteId, context)) continue;
 
-      const pairKey = [source.id, suggestion.noteId].sort().join(':');
+      const pairKey = [sourceId, suggestion.noteId].sort().join(':');
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
 
@@ -241,7 +252,7 @@ export function collectMissingConnectionSignals(
         score,
         title: displayNoteTitle(source.title),
         subtitle: suggestion.noteTitle,
-        noteId: source.id,
+        noteId: sourceId,
         targetNoteId: suggestion.noteId,
         targetNoteTitle: suggestion.noteTitle,
         signals: suggestion.signals,

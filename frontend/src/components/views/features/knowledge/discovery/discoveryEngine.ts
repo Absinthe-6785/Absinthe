@@ -111,7 +111,9 @@ function refineDiscoveryItems(items: DiscoveryItem[]): DiscoveryItem[] {
   const seenPairs = new Set<string>();
   const result: DiscoveryItem[] = [];
 
-  for (const item of filtered.sort((a, b) => b.score - a.score)) {
+  const sortedFiltered = [...filtered].sort((a, b) => b.score - a.score);
+
+  for (const item of sortedFiltered) {
     if (item.kind === 'emerging-topic' && item.areaLabel && weakHubAreas.has(item.areaLabel)) {
       continue;
     }
