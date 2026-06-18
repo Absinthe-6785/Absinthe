@@ -7,7 +7,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { EmptyState } from '../common/EmptyState';
+import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -759,7 +759,15 @@ export const HealthView = ({
 
                 {/* 블록 없을 때 */}
                 {blocks.length === 0 && (
-                  <EmptyState theme={theme} icon={Dumbbell} text={t('noBlocksEmpty')} onClick={() => openBlockModal()}/>
+                  <ProductEmptyState
+                    variant="tailwind"
+                    theme={theme}
+                    icon={Dumbbell}
+                    title={t('noBlocksEmpty')}
+                    description={t('k99EmptyHealthBlocksDesc')}
+                    dataHook="health-blocks-empty"
+                    primaryAction={{ label: t('k99EmptyHealthBlocksAction'), onClick: () => openBlockModal() }}
+                  />
                 )}
 
                 {/* 태그별 그룹 섹션 */}
@@ -897,11 +905,14 @@ export const HealthView = ({
 
           <div className="space-y-3 pb-1 lg:space-y-3 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && (
-              <EmptyState
+              <ProductEmptyState
+                variant="tailwind"
                 theme={theme}
                 icon={Dumbbell}
-                text={t('noWorkoutsEmpty')}
-                onClick={() => setMobileHealthTab('blocks')}
+                title={t('noWorkoutsEmpty')}
+                description={t('k99EmptyHealthWorkoutsDesc')}
+                dataHook="health-workouts-empty"
+                primaryAction={{ label: t('k99EmptyHealthWorkoutsAction'), onClick: () => setMobileHealthTab('blocks') }}
               />
             )}
             {localWorkouts.map((w: Workout, wIdx: number) => {

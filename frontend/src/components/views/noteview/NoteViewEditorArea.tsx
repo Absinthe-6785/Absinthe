@@ -47,6 +47,7 @@ import {
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
 import { DocumentSearchToolbar } from './DocumentSearchToolbar';
+import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
@@ -855,15 +856,16 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution} sharedDiscoveryFeed={discoveryFeed}/>
           </div>
         ) : (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: c.textMuted }}>
-            <FileText size={32} strokeWidth={1.5} style={{ opacity: 0.4 }} />
-            <p style={{ fontSize: 13 }}>{t('nvSelectNoteEmpty')}</p>
-            <button className="bwbg" onClick={() => createNote()}>{t('nvNewNoteBtn')}</button>
-            <button onClick={() => setViewMode('graph')}
-              style={{ background: 'none', border: `1px solid ${c.inputBdr}`, borderRadius: 7, padding: '6px 14px', fontSize: 12, color: c.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <GitFork size={12}/> {t('nvScGraph')}
-            </button>
-          </div>
+          <ProductEmptyState
+            variant="note-chrome"
+            colors={c}
+            icon={FileText}
+            title={t('nvSelectNoteEmpty')}
+            description={t('k99EmptyNotesDesc')}
+            dataHook="notes-editor-empty"
+            primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
+            secondaryAction={{ label: t('nvScGraph'), onClick: () => setViewMode('graph') }}
+          />
         )
       )}
     </main>

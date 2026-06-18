@@ -178,7 +178,7 @@ export const SettingsView = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-2 pb-20 lg:pb-2">
+      <div className="flex-1 overflow-y-auto overscroll-contain bscroll-pane pr-2 pb-20 lg:pb-2" data-settings-scroll>
         <div className="max-w-4xl mx-auto space-y-5 lg:space-y-6">
 
           {/* Planner Defaults */}
