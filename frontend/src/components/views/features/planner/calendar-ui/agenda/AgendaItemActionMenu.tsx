@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Copy, Pencil, Trash2 } from 'lucide-react';
+import { Copy, Pencil, Trash2, Calendar } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 
 export interface AgendaItemActionMenuProps {
@@ -9,6 +9,7 @@ export interface AgendaItemActionMenuProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
+  onJumpToDay?: () => void;
   onClose: () => void;
 }
 
@@ -20,6 +21,7 @@ export function AgendaItemActionMenu({
   onEdit,
   onDelete,
   onDuplicate,
+  onJumpToDay,
   onClose,
 }: AgendaItemActionMenuProps) {
   const { t } = useTranslation();
@@ -58,6 +60,12 @@ export function AgendaItemActionMenu({
       style={{ left, top }}
       data-planner-agenda-action-menu
     >
+      {onJumpToDay ? (
+        <button type="button" role="menuitem" className={itemClass} onClick={() => { onJumpToDay(); onClose(); }} data-planner-agenda-jump-day>
+          <Calendar size={13} />
+          {t('k101JumpToDay')}
+        </button>
+      ) : null}
       {onEdit ? (
         <button type="button" role="menuitem" className={itemClass} onClick={() => { onEdit(); onClose(); }}>
           <Pencil size={13} />

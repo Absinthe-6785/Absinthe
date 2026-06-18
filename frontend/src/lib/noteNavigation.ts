@@ -19,6 +19,7 @@ const RETURN_TAB_KEY = 'absinthe.noteNav.returnTab';
 
 let notesTabSwitcher: NotesTabSwitcher | null = null;
 let appTabSwitcher: AppTabSwitcher | null = null;
+let workspaceSearchOpener: (() => void) | null = null;
 const returnTabListeners = new Set<() => void>();
 
 function notifyReturnTab(): void {
@@ -46,6 +47,19 @@ export function registerAppTabSwitcher(switcher: AppTabSwitcher): () => void {
   return () => {
     if (appTabSwitcher === switcher) appTabSwitcher = null;
   };
+}
+
+/** Open workspace search from any tab (K-101 Ctrl+Shift+F). */
+export function registerWorkspaceSearchOpener(opener: () => void): () => void {
+  workspaceSearchOpener = opener;
+  return () => {
+    if (workspaceSearchOpener === opener) workspaceSearchOpener = null;
+  };
+}
+
+export function openWorkspaceSearch(): void {
+  switchToNotesTab();
+  workspaceSearchOpener?.();
 }
 
 export function subscribeNoteReturnTab(listener: () => void): () => void {
@@ -141,6 +155,10 @@ export function openHealthDayNote(
 /** Test-only visibility into registration state. */
 export function peekNotesTabSwitcher(): NotesTabSwitcher | null {
   return notesTabSwitcher;
+}
+
+export function peekWorkspaceSearchOpener(): (() => void) | null {
+  return workspaceSearchOpener;
 }
 
 export type { NoteBreadcrumbSegment } from './noteBreadcrumb';

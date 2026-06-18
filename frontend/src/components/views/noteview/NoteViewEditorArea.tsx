@@ -143,6 +143,7 @@ export interface NoteViewEditorLayout {
   headerTagsExpanded: boolean;
   docCopied: boolean;
   dark: boolean;
+  isEmptyVault: boolean;
 }
 
 export interface NoteViewEditorData {
@@ -235,6 +236,8 @@ export interface NoteViewEditorHandlers {
   goBackNote: () => void;
   goForwardNote: () => void;
   openNoteById: (id: string, source?: import('../../../lib/noteNavigationStack').NoteNavigationSource, breadcrumb?: import('../../../lib/noteBreadcrumb').NoteBreadcrumbSegment[]) => void;
+  onOpenTodaysNote?: () => void;
+  onImportVault?: () => void;
 }
 
 export interface NoteViewEditorAreaProps {
@@ -247,7 +250,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   const { t } = useTranslation();
   const {
     hideEditorArea, isMobile, isCompactChrome, isFocusPresetActive, isTrash, showRightPanel,
-    viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied, dark,
+    viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, isEmptyVault,
   } = layout;
   const {
     c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags,
@@ -269,6 +272,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver,
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
+    onOpenTodaysNote, onImportVault,
   } = handlers;
 
   const showReadingSearchBar = viewMode === 'reading' && !isTrash
@@ -865,6 +869,39 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           <div style={{ flex: 1, minHeight: 0 }}>
             <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution} sharedDiscoveryFeed={discoveryFeed}/>
           </div>
+        ) : isEmptyVault ? (
+          <ProductEmptyState
+            variant="note-chrome"
+            colors={c}
+            icon={FileText}
+            title={t('k101EmptyVaultTitle')}
+            description={t('k101EmptyVaultDesc')}
+            dataHook="vault-empty"
+            primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
+            secondaryAction={onOpenTodaysNote ? { label: t('k101OpenTodaysNote'), onClick: onOpenTodaysNote } : undefined}
+          >
+            {onImportVault ? (
+              <button
+                type="button"
+                className="k101-interactive"
+                onClick={onImportVault}
+                data-vault-empty-import
+                style={{
+                  background: 'transparent',
+                  color: c.textMuted,
+                  border: `1px solid ${c.inputBdr}`,
+                  borderRadius: 10,
+                  padding: '8px 16px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  minHeight: 44,
+                }}
+              >
+                {t('nvImportVaultBackup')}
+              </button>
+            ) : null}
+          </ProductEmptyState>
         ) : (
           <ProductEmptyState
             variant="note-chrome"

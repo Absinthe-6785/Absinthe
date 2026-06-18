@@ -9,6 +9,7 @@ import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../..
 import { ConfirmModal } from '../../../common/ConfirmModal';
 import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate } from '../../k98aTimetableMultiDay';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
+import { isDuplicatedWeeklyTitle } from '../../k101TimetableDuplicateDays';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
@@ -206,7 +207,7 @@ export function WeeklyTimetableSection({
         )}
 
         {showMobileList && (
-          <div className="flex flex-col gap-4" data-planner-weekly-timetable-mobile>
+          <div className="flex flex-col gap-5" data-planner-weekly-timetable-mobile>
             {!hasActivities ? (
               <ProductEmptyState
                 variant="tailwind"
@@ -219,8 +220,8 @@ export function WeeklyTimetableSection({
               />
             ) : (
               mobileByDay.map(({ day, label, blocks }) => (
-                <div key={day}>
-                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`}>{label}</h3>
+                <div key={day} className="pb-3 border-b border-border/40 last:border-b-0" data-planner-weekly-day-group={day}>
+                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2.5 ${theme.textMuted}`} data-planner-weekly-day-label>{label}</h3>
                   <ul className="flex flex-col gap-2">
                     {blocks.map(block => (
                       <li key={block.id}>
@@ -260,10 +261,10 @@ export function WeeklyTimetableSection({
             </div>
           ) : (
           <>
-          <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
+          <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`} data-planner-weekly-weekday-header>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
-            {weekdays.map(day => (
-              <div key={day} className={`flex-1 flex items-center justify-center border-r last:border-r-0 ${theme.border}`}>
+            {weekdays.map((day, i) => (
+              <div key={day} className={`flex-1 flex flex-col items-center justify-center border-r last:border-r-0 ${theme.border} ${i >= 5 ? 'bg-surface-alt/30' : ''}`} data-planner-weekly-weekday={i}>
                 <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>{day}</span>
               </div>
             ))}
@@ -293,6 +294,7 @@ export function WeeklyTimetableSection({
                 const start = parseTime(block.start_time);
                 let dur = parseTime(block.end_time) - start;
                 if (dur < 0) dur += 24;
+                const duplicated = isDuplicatedWeeklyTitle(block, weeklySchedules);
                 return (
                   <button
                     key={block.id}
@@ -306,9 +308,10 @@ export function WeeklyTimetableSection({
                       width: `${100 / 7}%`,
                     }}
                     data-planner-weekly-block={block.id}
+                    data-planner-weekly-block-duplicated={duplicated ? 'true' : undefined}
                     aria-label={block.title}
                   >
-                    <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all ${block.color}`}>
+                    <div className={`w-full h-full rounded-lg p-1 shadow-sm flex flex-col justify-center items-center text-center overflow-hidden text-white opacity-90 hover:opacity-100 hover:scale-[1.02] transition-all k101-planner-chip ${block.color}${duplicated ? ' ring-2 ring-dashed ring-white/70' : ''}`}>
                       <span className="text-[9px] lg:text-[10px] font-bold leading-tight line-clamp-2">{block.title}</span>
                       {dur >= 0.75 && (
                         <span className="text-[8px] lg:text-[9px] opacity-80 mt-0.5 tabular-nums hidden sm:block">
