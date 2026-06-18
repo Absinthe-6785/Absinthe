@@ -1,14 +1,14 @@
 import { ChevronDown } from 'lucide-react';
+import { useMemo } from 'react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase } from '../noteUtils';
 import { useTranslation } from '../../../lib/i18n';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import type { ListDensityMode } from '../listDensityPreference';
 import { listDensityStyles } from '../listDensityPreference';
+import { formatActivityTimestamp } from '../k102DateFormat';
+import { buildRelativeDateLabels } from '../k102RelativeDateLabels';
 import {
-  buildActivityToday,
-  buildActivityYesterday,
-  buildActivityThisWeek,
   buildLastOpenedActivity,
   buildRecentEditedActivity,
   type ActivityNoteEntry,
@@ -25,16 +25,6 @@ export interface K101RecentActivitySectionProps {
   onSelectNote: (id: string) => void;
 }
 
-function formatActivityTime(ts: number): string {
-  if (!ts) return '';
-  return new Date(ts).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function ActivityGroup({
   label,
   entries,
@@ -43,6 +33,9 @@ function ActivityGroup({
   densityStyle,
   onSelectNote,
   dataHook,
+  todayKey,
+  relativeLabels,
+  lang,
 }: {
   label: string;
   entries: readonly ActivityNoteEntry[];
@@ -51,24 +44,33 @@ function ActivityGroup({
   densityStyle: ReturnType<typeof listDensityStyles>;
   onSelectNote: (id: string) => void;
   dataHook: string;
+  todayKey: string;
+  relativeLabels: ReturnType<typeof buildRelativeDateLabels>;
+  lang: import('../../../lib/i18n').Language;
 }) {
   if (entries.length === 0) return null;
+  const rowPad = densityStyle.traceRowPadding;
+  const rowMin = Math.max(densityStyle.traceRowMinHeight - 4, 22);
   return (
-    <div data-k101-activity-group={dataHook}>
-      <div className="bseclbl" style={{ fontSize: 9, paddingTop: 2 }}>{label}</div>
+    <div data-k102-activity-group={dataHook} data-k101-activity-group={dataHook}>
+      <div className="bseclbl" style={{ fontSize: 9, paddingTop: 1, paddingBottom: 1 }}>{label}</div>
       {entries.map(entry => (
         <div
           key={entry.id}
           className={`bfi k101-interactive ${activeNoteId === entry.id ? 'active k101-selected' : ''}`}
           onClick={() => onSelectNote(entry.id)}
-          style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, fontSize: 11 }}
+          style={{ minHeight: rowMin, padding: rowPad, fontSize: 10 }}
+          data-k102-activity-item={entry.id}
           data-k101-activity-item={entry.id}
         >
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {displayNoteTitle(entry.title)}
           </span>
-          <span style={{ fontSize: 9, color: c.textFaint, flexShrink: 0, marginLeft: 4 }}>
-            {formatActivityTime(entry.timestamp)}
+          <span
+            style={{ fontSize: 9, color: c.textFaint, flexShrink: 0, marginLeft: 4 }}
+            data-k102-activity-date
+          >
+            {formatActivityTimestamp(entry.timestamp, todayKey, lang, relativeLabels)}
           </span>
         </div>
       ))}
@@ -86,16 +88,14 @@ export function K101RecentActivitySection({
   listDensity,
   onSelectNote,
 }: K101RecentActivitySectionProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const densityStyle = listDensityStyles(listDensity);
+  const relativeLabels = useMemo(() => buildRelativeDateLabels(t), [t]);
 
-  const today = buildActivityToday(notes, todayKey);
-  const yesterday = buildActivityYesterday(notes, todayKey);
-  const week = buildActivityThisWeek(notes, todayKey);
-  const lastOpened = buildLastOpenedActivity(notes);
-  const recentEdited = buildRecentEditedActivity(notes);
+  const lastOpened = buildLastOpenedActivity(notes, 3);
+  const recentEdited = buildRecentEditedActivity(notes, 3);
 
-  const hasAny = today.length + yesterday.length + week.length + lastOpened.length + recentEdited.length > 0;
+  const hasAny = lastOpened.length + recentEdited.length > 0;
 
   if (!hasAny) return null;
 
@@ -127,33 +127,6 @@ export function K101RecentActivitySection({
       {!collapsed ? (
         <>
           <ActivityGroup
-            label={t('nvToday')}
-            entries={today}
-            colors={c}
-            activeNoteId={activeNoteId}
-            densityStyle={densityStyle}
-            onSelectNote={onSelectNote}
-            dataHook="today"
-          />
-          <ActivityGroup
-            label={t('nvYesterday')}
-            entries={yesterday}
-            colors={c}
-            activeNoteId={activeNoteId}
-            densityStyle={densityStyle}
-            onSelectNote={onSelectNote}
-            dataHook="yesterday"
-          />
-          <ActivityGroup
-            label={t('nvThisWeek')}
-            entries={week}
-            colors={c}
-            activeNoteId={activeNoteId}
-            densityStyle={densityStyle}
-            onSelectNote={onSelectNote}
-            dataHook="week"
-          />
-          <ActivityGroup
             label={t('k101LastOpened')}
             entries={lastOpened}
             colors={c}
@@ -161,6 +134,9 @@ export function K101RecentActivitySection({
             densityStyle={densityStyle}
             onSelectNote={onSelectNote}
             dataHook="last-opened"
+            todayKey={todayKey}
+            relativeLabels={relativeLabels}
+            lang={lang}
           />
           <ActivityGroup
             label={t('k101RecentEdited')}
@@ -170,16 +146,20 @@ export function K101RecentActivitySection({
             densityStyle={densityStyle}
             onSelectNote={onSelectNote}
             dataHook="recent-edited"
+            todayKey={todayKey}
+            relativeLabels={relativeLabels}
+            lang={lang}
           />
         </>
       ) : (
         <div
           className="bfi"
-          style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted, fontSize: 10 }}
+          style={{ minHeight: Math.max(densityStyle.traceRowMinHeight - 4, 22), padding: densityStyle.traceRowPadding, color: c.textMuted, fontSize: 10 }}
           data-k101-activity-collapsed-summary
+          data-k102-activity-collapsed-summary
         >
           {lastOpened.length > 0
-            ? displayNoteTitle(lastOpened[0]!.title)
+            ? `${displayNoteTitle(lastOpened[0]!.title)} · ${formatActivityTimestamp(lastOpened[0]!.timestamp, todayKey, lang, relativeLabels)}`
             : t('k101RecentActivity')}
         </div>
       )}

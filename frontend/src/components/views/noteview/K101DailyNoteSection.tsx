@@ -34,12 +34,12 @@ export function K101DailyNoteSection({
   createNote,
   setActiveNoteId,
 }: K101DailyNoteSectionProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const densityStyle = listDensityStyles(listDensity);
   const todayExists = hasDailyNote(notes, todayKey);
   const yesterdayKey = shiftDateKey(todayKey, -1);
   const tomorrowKey = shiftDateKey(todayKey, 1);
-  const todayLabel = formatDailyNoteLabel(todayKey);
+  const todayLabel = formatDailyNoteLabel(todayKey, lang);
 
   const openDay = (dateKey: string) => {
     openOrCreateDailyNote({ notes, dateKey, createNote, setActiveNoteId });
@@ -80,6 +80,7 @@ export function K101DailyNoteSection({
             onClick={() => openDay(todayKey)}
             style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
             data-k101-daily-note-today
+            data-k102-daily-note-today
           >
             <span style={{ flex: 1, fontWeight: 600 }}>{todayLabel}</span>
             <span
@@ -119,7 +120,7 @@ export function K101DailyNoteSection({
                 padding: '4px 6px',
                 minHeight: densityStyle.traceRowMinHeight,
               }}
-              title={formatDailyNoteLabel(yesterdayKey)}
+              title={formatDailyNoteLabel(yesterdayKey, lang)}
             >
               <ChevronLeft size={10} />
               {t('nvYesterday')}
@@ -138,7 +139,7 @@ export function K101DailyNoteSection({
                 padding: '4px 6px',
                 minHeight: densityStyle.traceRowMinHeight,
               }}
-              title={formatDailyNoteLabel(tomorrowKey)}
+              title={formatDailyNoteLabel(tomorrowKey, lang)}
             >
               {t('k101Tomorrow')}
               <ChevronRight size={10} />

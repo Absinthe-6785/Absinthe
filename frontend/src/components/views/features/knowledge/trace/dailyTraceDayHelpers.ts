@@ -1,5 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
+import type { Language } from '../../../../../lib/i18n';
 import { parseDateKey, toDateKey } from '../databaseViews/parseDatabaseDate';
+import { formatTraceDayHeadingLocalized } from '../../../k102DateFormat';
 import type { DailyTraceProjection } from './dailyTraceModels';
 
 /** Shift a YYYY-MM-DD key by calendar days (local timezone). */
@@ -18,15 +20,8 @@ export function findDailyAnchorNote(
   return notes.find(n => n.deletedAt == null && n.title.trim() === dateKey);
 }
 
-export function formatTraceDayHeading(dateKey: string): string {
-  const parts = parseDateKey(dateKey);
-  if (!parts) return dateKey;
-  const date = new Date(parts.year, parts.month - 1, parts.day);
-  return date.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+export function formatTraceDayHeading(dateKey: string, locale?: Language | null): string {
+  return formatTraceDayHeadingLocalized(dateKey, locale);
 }
 
 export function hasDailyTraceMarks(

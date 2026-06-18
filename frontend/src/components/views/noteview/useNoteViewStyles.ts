@@ -99,7 +99,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btpill.active{border-color:${c.tagTxt};font-weight:600}
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
-    .bshl{background:${dark ? '#4a4580' : '#d8d0ff'};color:${c.text};border-radius:3px;padding:1px 3px;box-shadow:0 0 0 1px ${c.accent}44}
+    .bshl{background:${dark ? '#5a4f9a' : '#c4b8ff'};color:${c.text};border-radius:3px;padding:1px 4px;box-shadow:0 0 0 1px ${c.accent}66,inset 0 -1px 0 ${c.accent}44}
     .bsc-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${c.sideBdr};font-size:13px}
     .bsc-key{background:${c.toolbar};border:1px solid ${c.toolBdr};border-radius:4px;padding:2px 7px;font-size:11px;font-family:monospace;color:${c.text}}
     .focus-overlay{position:fixed;inset:0;background:${dark ? '#000' : '#FAF8F3'};opacity:.94;z-index:98;pointer-events:none}

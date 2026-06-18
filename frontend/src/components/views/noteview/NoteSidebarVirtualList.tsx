@@ -8,7 +8,9 @@ import { TagChip } from '../features/knowledge/components/TagChip';
 import { listTags } from '../features/knowledge/tags/noteTags';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { listDensityStyles, type ListDensityMode } from '../listDensityPreference';
-import type { TranslationKey } from '@/lib/i18n';
+import type { TranslationKey, Language } from '@/lib/i18n';
+import { formatNoteRowDate } from '../k102DateFormat';
+import { buildRelativeDateLabels } from '../k102RelativeDateLabels';
 
 const VIRTUALIZE_THRESHOLD = 40;
 
@@ -33,6 +35,8 @@ export interface NoteSidebarVirtualListProps {
   hasActiveSearch?: boolean;
   onClearSearch?: () => void;
   listDensity?: ListDensityMode;
+  todayKey?: string;
+  lang?: Language;
 }
 
 export function NoteSidebarVirtualList({
@@ -52,8 +56,11 @@ export function NoteSidebarVirtualList({
   hasActiveSearch = false,
   onClearSearch,
   listDensity = 'comfortable',
+  todayKey,
+  lang,
 }: NoteSidebarVirtualListProps) {
   const rowHeight = noteRowHeight(listDensity);
+  const relativeLabels = buildRelativeDateLabels(t);
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = notes.length >= VIRTUALIZE_THRESHOLD;
 
@@ -94,8 +101,10 @@ export function NoteSidebarVirtualList({
           {tags.map(tag => (
             <TagChip key={tag} colors={c} tag={tag} size="sm" />
           ))}
-          <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-            {new Date(n.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }} data-k102-note-row-date>
+            {todayKey
+              ? formatNoteRowDate(n.updatedAt, todayKey, lang, relativeLabels)
+              : new Date(n.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
           </span>
         </div>
       </div>

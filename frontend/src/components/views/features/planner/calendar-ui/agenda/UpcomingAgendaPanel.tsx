@@ -58,7 +58,7 @@ export function UpcomingAgendaPanel({
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto max-h-[420px] lg:max-h-none">
+      <div className="flex-1 min-h-0 overflow-y-auto max-h-[420px] lg:max-h-none lg:min-h-[280px]" data-k102-upcoming-scroll>
         {groups.length === 0 ? (
           <p className="text-[11px] text-muted py-1" data-planner-agenda-empty>
             {t('k77ScheduleEmptyCompact')}

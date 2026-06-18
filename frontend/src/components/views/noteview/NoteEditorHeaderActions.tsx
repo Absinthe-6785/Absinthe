@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search,
+  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search, Trash2,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -144,8 +144,9 @@ export function NoteEditorHeaderActions({
         alignItems: 'center',
         gap: ACTION_GAP,
         flexShrink: 0,
-        flexWrap: 'nowrap',
+        flexWrap: isTrash ? 'wrap' : 'nowrap',
         minWidth: 0,
+        justifyContent: 'flex-end',
       }}
     >
       <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
@@ -240,46 +241,32 @@ export function NoteEditorHeaderActions({
       </button>
 
       {isTrash ? (
-        <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: ACTION_GAP, flexShrink: 0 }} data-k102-trash-actions>
           <button
             type="button"
             onClick={onRestore}
-            className="btbtn shrink-0"
+            className="btbtn k101-interactive shrink-0"
             title={t('restoreLabel')}
-            style={{
-              height: ACTION_BTN_SIZE,
-              padding: '0 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              color: c.green,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
+            aria-label={t('restoreLabel')}
+            style={{ ...iconBtnStyle, color: c.green }}
+            data-k102-trash-restore
           >
-            <RotateCcw size={13}/>
-            {t('restoreLabel')}
+            <RotateCcw size={14}/>
           </button>
           {onPermanentDelete ? (
             <button
               type="button"
               onClick={onPermanentDelete}
-              className="btbtn shrink-0"
+              className="btbtn k101-interactive shrink-0"
               title={t('nvDeletePermanently')}
-              style={{
-                height: ACTION_BTN_SIZE,
-                padding: '0 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                color: c.danger,
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
+              aria-label={t('nvDeletePermanently')}
+              style={{ ...iconBtnStyle, color: c.danger }}
+              data-k102-trash-delete
             >
-              {t('nvDeletePermanently')}
+              <Trash2 size={14}/>
             </button>
           ) : null}
-        </>
+        </div>
       ) : null}
     </div>
   );

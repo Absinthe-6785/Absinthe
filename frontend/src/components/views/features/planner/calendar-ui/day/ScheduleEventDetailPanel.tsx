@@ -125,11 +125,11 @@ export function ScheduleEventDetailPanel({
 
       <p className={`text-[10px] ${theme.textMuted}`}>{t('k100ScheduleKeyboardHint')}</p>
 
-      <div className="flex flex-wrap gap-2 pt-1">
+      <div className="flex flex-wrap gap-2 pt-1 items-stretch" data-k102-schedule-detail-actions>
         <button
           type="button"
           onClick={onEdit}
-          className="flex-1 min-w-[120px] bg-primary text-primary-foreground font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2"
+          className="flex-1 min-w-[100px] max-w-full bg-primary text-primary-foreground font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 k101-interactive"
           data-schedule-event-edit
         >
           <Edit2 size={16} />
@@ -139,7 +139,7 @@ export function ScheduleEventDetailPanel({
           <button
             type="button"
             onClick={onDuplicate}
-            className={`flex-1 min-w-[120px] font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2 border ${theme.border}`}
+            className={`flex-1 min-w-[100px] max-w-full font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 border k101-interactive ${theme.border}`}
             data-schedule-event-duplicate
           >
             <Copy size={16} />
@@ -149,7 +149,7 @@ export function ScheduleEventDetailPanel({
         <button
           type="button"
           onClick={onDelete}
-          className="flex-1 min-w-[120px] bg-red-500/10 text-red-500 font-bold rounded-xl py-3 text-sm flex items-center justify-center gap-2 border border-red-500/20"
+          className="flex-1 min-w-[100px] max-w-full bg-red-500/10 text-red-500 font-bold rounded-xl py-2.5 px-3 text-sm flex items-center justify-center gap-2 border border-red-500/20 k101-interactive"
           data-schedule-event-delete
         >
           <Trash2 size={16} />

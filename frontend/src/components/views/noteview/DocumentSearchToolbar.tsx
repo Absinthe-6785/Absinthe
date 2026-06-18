@@ -54,10 +54,11 @@ export function DocumentSearchToolbar({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: EDITOR_TOOLBAR_GAP,
+        gap: compact ? 8 : EDITOR_TOOLBAR_GAP,
         flexWrap: 'wrap',
         flex: compact ? 1 : undefined,
         minWidth: 0,
+        padding: compact ? '4px 8px' : undefined,
       }}
     >
       <input
