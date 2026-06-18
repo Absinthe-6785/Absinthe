@@ -48,8 +48,9 @@ import type { KnowledgeTimeline } from '../features/knowledge/timeline';
 import { isoWeekBounds } from '../features/planner/calendar/plannerCalendarDateUtils';
 import type { ListDensityMode } from '../listDensityPreference';
 import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '../listDensityPreference';
-import type { NoteSortDirection } from '../noteListSort';
+import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { toggleSortDirection } from '../noteListSort';
+import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -133,8 +134,10 @@ export interface NoteViewSidebarData {
   activeNoteId: string | null;
   safeNotesForDatabase: readonly Note[];
   dashboard: WorkspaceDashboardViewProps['dashboard'];
-  sortOrder: 'updated' | 'title' | 'created';
+  sortOrder: NoteSortField;
   sortDirection: NoteSortDirection;
+  starredFirst: boolean;
+  listSectionPrefs: NoteListSectionPrefs;
   listDensity: ListDensityMode;
   showSortMenu: boolean;
   dragNoteId: string | null;
@@ -220,8 +223,10 @@ export interface NoteViewSidebarHandlers {
   closeTraceLens: () => void;
   handleClearDashboard: () => void;
   setShowSortMenu: React.Dispatch<React.SetStateAction<boolean>>;
-  setSortOrder: React.Dispatch<React.SetStateAction<'updated' | 'title' | 'created'>>;
+  setSortOrder: React.Dispatch<React.SetStateAction<NoteSortField>>;
   setSortDirection: React.Dispatch<React.SetStateAction<NoteSortDirection>>;
+  setStarredFirst: React.Dispatch<React.SetStateAction<boolean>>;
+  setListSectionPrefs: React.Dispatch<React.SetStateAction<NoteListSectionPrefs>>;
   setListDensity: React.Dispatch<React.SetStateAction<ListDensityMode>>;
   exportAllNotes: () => void;
   exportVaultBackup: () => void | Promise<void>;
@@ -295,7 +300,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     canSaveCurrentView, traceAreaProjection, traceAreaRange, activeDatabaseView, activeSmartCollection,
     activeRuleCollection, activeSavedView, folderLabel, traceLensMarkCount, isDatabaseViewMode,
     activeDatabaseViewNoteCount, recentNotes, visibleNotes, activeNotes, activeNoteId,
-    safeNotesForDatabase, dashboard, sortOrder, sortDirection, listDensity, showSortMenu, dragNoteId, editingLearningPathId,
+    safeNotesForDatabase, dashboard, sortOrder, sortDirection, starredFirst, listSectionPrefs, listDensity, showSortMenu, dragNoteId, editingLearningPathId,
     focusPresets, focusPresetTargets, focusSession, focusWorkspaceOptions, taskTemplates,
     journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard, subjectWorkspaces,
     learningPathOverview, knowledgeTimeline, activitySummary, dashboardRecentActivity,
@@ -344,7 +349,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView,
     handleActivateSavedView, handleClearSavedView, handleCreateSavedView, handleRenameSavedView,
     handleDeleteSavedView, isWorkspaceKindActive, setMobileSidebarOpen, closeTraceLens,
-    handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
+    handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setStarredFirst, setListSectionPrefs, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore, openCreateEventDialog,
     createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId, duplicateNote,
     patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
     handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset,
@@ -731,6 +736,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onActivate={handleActivateWorkspaceRef}
                   onUnpin={handleUnpinWorkspace}
                   onMovePinned={handleMovePinnedWorkspace}
+                  collapsed={listSectionPrefs.pinnedCollapsed}
+                  onToggleCollapse={() => setListSectionPrefs(p => {
+                    const next = { ...p, pinnedCollapsed: !p.pinnedCollapsed };
+                    writeNoteListSectionPrefs(next);
+                    return next;
+                  })}
                 />
                 <RecentWorkSection
                   colors={c}
@@ -741,6 +752,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onActivate={entry => handleActivateWorkspaceRef(entry.workspace)}
                   onTogglePin={entry => handleTogglePinWorkspace(entry.workspace)}
                   onClearRecent={handleClearRecentWork}
+                  collapsed={listSectionPrefs.recentCollapsed}
+                  onToggleCollapse={() => setListSectionPrefs(p => {
+                    const next = { ...p, recentCollapsed: !p.recentCollapsed };
+                    writeNoteListSectionPrefs(next);
+                    return next;
+                  })}
                 />
                 <RuleCollectionsSection
                   colors={c}
@@ -941,12 +958,16 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             </button>
             {showSortMenu && (
               <div className="bsort-menu" onClick={e => e.stopPropagation()}>
-                {(['updated', 'title', 'created'] as const).map(s => (
+                {(['updated', 'title', 'created', 'folder'] as const).map(s => (
                   <div key={s} className={`bsort-item ${sortOrder === s ? 'active' : ''}`}
                     onClick={() => { setSortOrder(s); setShowSortMenu(false); }}>
-                    {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
+                    {s === 'updated' ? <><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortUpdated')}</> : s === 'title' ? t('nvSortTitle') : s === 'folder' ? t('k100SortFolder') : <><Calendar size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />{t('nvSortCreated')}</>}
                   </div>
                 ))}
+                <div className="bsort-item" style={{ borderTop: `1px solid ${c.sideBdr}` }}
+                  onClick={() => { setStarredFirst(v => !v); setShowSortMenu(false); }}>
+                  {starredFirst ? '★ ' : '☆ '}{t('k100SortStarredFirst')}
+                </div>
                 <div className="bsort-item" style={{ borderTop: `1px solid ${c.sideBdr}` }}
                   onClick={() => { setSortDirection(toggleSortDirection(sortDirection)); setShowSortMenu(false); }}>
                   {sortDirection === 'desc' ? t('nvSortDesc') : t('nvSortAsc')}
@@ -1278,6 +1299,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
           createNote={createNote}
           hasActiveSearch={!!sidebarSearchQuery.trim()}
           onClearSearch={() => setSidebarSearchQuery('')}
+          listDensity={listDensity}
         />
         )}
       </div>

@@ -3,6 +3,8 @@ import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
+import { findDailyAnchorNote } from '../../features/knowledge/trace/dailyTraceDayHelpers';
+import { toDateKey } from '../../features/knowledge/databaseViews/parseDatabaseDate';
 import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
 import { useNoteNavigationStack } from '../../../../hooks/useNoteNavigationStack';
 import type { CreateNoteFn, UseNoteViewActionsParams } from './types';
@@ -25,6 +27,7 @@ export function useNoteKeyboardActions(
     setShowSortMenu,
     setFocusMode,
     setSearchScope,
+    setDocumentSearchOpen,
     setActiveNoteId,
     flushPendingSync,
     syncNoteToDB,
@@ -58,6 +61,7 @@ export function useNoteKeyboardActions(
     shortcutRef.current = {
       showSortMenu, viewMode, activeNote, createNote, duplicateNote,
       focusSearch: () => {
+        setDocumentSearchOpen(true);
         searchInputRef.current?.focus();
         setSearchScope('document');
       },
@@ -72,6 +76,7 @@ export function useNoteKeyboardActions(
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const { showSortMenu: sm, activeNote: an, createNote: cn, duplicateNote: dn } = shortcutRef.current;
+    const notes = useNotesStore.getState().notes;
       const mod = e.ctrlKey || e.metaKey;
       if (sm && e.key === 'Escape') { setShowSortMenu(false); return; }
 
@@ -96,6 +101,15 @@ export function useNoteKeyboardActions(
       if (e.altKey && e.key === 'ArrowRight') {
         e.preventDefault();
         goForward();
+        return;
+      }
+
+      if (mod && e.altKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        const todayKey = toDateKey(new Date());
+        const anchor = findDailyAnchorNote(notes, todayKey);
+        if (anchor) setActiveNoteId(anchor.id);
+        else cn({ title: todayKey, body: `## ${todayKey}\n\n` });
         return;
       }
 
@@ -130,6 +144,7 @@ export function useNoteKeyboardActions(
           e.preventDefault();
           if (e.shiftKey) setFocusMode(v => !v);
           else {
+            setDocumentSearchOpen(true);
             searchInputRef.current?.focus();
             setSearchScope('document');
           }

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { EditorSearchScope } from './editorSearch';
 import { sortNotes } from './noteListSort';
+import { writeNoteSortPrefs } from './noteListSortPreference';
 import { countTraceDay, countTraceMonth, countTraceWeek, countTraceYesterday } from './traceSidebarCounts';
 import {
   navigateToNoteWithHistory,
@@ -284,6 +285,9 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     showShortcuts, setShowShortcuts,
     sortOrder, setSortOrder,
     sortDirection, setSortDirection,
+    starredFirst, setStarredFirst,
+    listSectionPrefs, setListSectionPrefs,
+    documentSearchOpen, setDocumentSearchOpen,
     listDensity, setListDensity,
     showSortMenu, setShowSortMenu,
     dragNoteId, setDragNoteId,
@@ -538,6 +542,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     setFocusMode,
     setDocCopied,
     setSearchScope,
+    setDocumentSearchOpen,
     setActiveTag,
     setMobileSidebarOpen,
     setExpandedGraphNodes,
@@ -665,7 +670,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
         : list;
     const applyListSort = (list: Note[]) => {
       if (shouldSkipUserSort) return list;
-      return sortNotes(list, sortOrder, sortDirection);
+      return sortNotes(list, sortOrder, sortDirection, { folders, starredFirst });
     };
 
     if (noteListFilter === 'favorites') {
@@ -695,7 +700,11 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     list = applyWorkspaceToNotes(list);
     list = applySidebarSearch(list);
     return applyListSort(list);
-  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, sortDirection, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter, sidebarSearchQuery, formulaQueryCatalog]);
+  }, [vaultStructureVersion, indexContentVersion, activeFolderId, activeTag, sortOrder, sortDirection, starredFirst, folders, applyWorkspaceToNotes, shouldSkipUserSort, noteListFilter, sidebarSearchQuery, formulaQueryCatalog]);
+
+  useEffect(() => {
+    writeNoteSortPrefs({ field: sortOrder, direction: sortDirection, starredFirst });
+  }, [sortOrder, sortDirection, starredFirst]);
 
   const contextPanelOpen = showRightPanel && viewMode !== 'graph';
   const dashboardLoadScope = useMemo(
@@ -1295,7 +1304,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       databaseViewCounts, canCreateDatabaseView, databaseCreateSignal, savedViews, canSaveCurrentView,
       traceAreaProjection, traceAreaRange, activeDatabaseView, activeSmartCollection, activeRuleCollection,
       activeSavedView, folderLabel, traceLensMarkCount, isDatabaseViewMode, activeDatabaseViewNoteCount, recentNotes,
-      visibleNotes, activeNotes, activeNoteId, safeNotesForDatabase, dashboard, sortOrder, sortDirection, listDensity, showSortMenu, dragNoteId,
+      visibleNotes, activeNotes, activeNoteId, safeNotesForDatabase, dashboard, sortOrder, sortDirection, starredFirst, listDensity, listSectionPrefs, showSortMenu, dragNoteId,
       editingLearningPathId, focusPresets, focusPresetTargets, focusSession, focusWorkspaceOptions, taskTemplates,
       journalTemplates, knowledgeMaintenance, unifiedWorkspaceDashboard, subjectWorkspaces, learningPathOverview,
       knowledgeTimeline, activitySummary, dashboardRecentActivity, dashboardLatestMilestone, evolutionInsights,
@@ -1312,7 +1321,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleDeleteRuleCollection, handleActivateDatabaseView, handleClearDatabaseView, handleCreateDatabaseView,
       handleCreateDatabaseViewFromTemplate, handleRenameDatabaseView, handleDeleteDatabaseView, handleActivateSavedView,
       handleClearSavedView, handleCreateSavedView, handleRenameSavedView, handleDeleteSavedView, isWorkspaceKindActive,
-      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
+      setMobileSidebarOpen, closeTraceLens, handleClearDashboard, setShowSortMenu, setSortOrder, setSortDirection, setStarredFirst, setListSectionPrefs, setListDensity, exportAllNotes, exportVaultBackup, openVaultRestore: vaultRestore.openFilePicker,
       openCreateEventDialog, createNote, setActiveNoteId, openNoteById, setMobileShowEditor, noteUpdate, setDragNoteId,
       duplicateNote, patchActiveDatabaseView, setDatabaseCreateSignal, setViewMode, handleLeaveDashboardForNote,
       handleResumeLastWorkspace, handleCreateFocusPreset, handleDeleteFocusPreset, handleActivateFocusPreset,
@@ -1332,7 +1341,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
       noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag, searchQuery,
       searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings, knowledgeTimeline,
-      activeFocusPreset, discoveryFeed,
+      activeFocusPreset, discoveryFeed, documentSearchOpen,
     },
     editorHandlers: {
       titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef, searchInputRef,
@@ -1344,7 +1353,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
       handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
       insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor,
       handleEditorDrop, handleReadingModeClick, handleActiveBodyChange, navigateToWiki,
-      canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
+      canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById, setDocumentSearchOpen,
     },
     contextColors: c,
     contextRightPanel: rightPanel,

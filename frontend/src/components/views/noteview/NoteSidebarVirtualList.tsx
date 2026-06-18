@@ -7,11 +7,14 @@ import type { NoteChromeColors } from '../noteEditorTheme';
 import { TagChip } from '../features/knowledge/components/TagChip';
 import { listTags } from '../features/knowledge/tags/noteTags';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
+import { listDensityStyles, type ListDensityMode } from '../listDensityPreference';
+import type { TranslationKey } from '@/lib/i18n';
 
-const NOTE_ROW_HEIGHT = 72;
 const VIRTUALIZE_THRESHOLD = 40;
 
-import type { TranslationKey } from '@/lib/i18n';
+function noteRowHeight(density: ListDensityMode): number {
+  return listDensityStyles(density).noteItemMinHeight + 28;
+}
 
 export interface NoteSidebarVirtualListProps {
   colors: NoteChromeColors;
@@ -29,6 +32,7 @@ export interface NoteSidebarVirtualListProps {
   createNote: () => void;
   hasActiveSearch?: boolean;
   onClearSearch?: () => void;
+  listDensity?: ListDensityMode;
 }
 
 export function NoteSidebarVirtualList({
@@ -47,14 +51,16 @@ export function NoteSidebarVirtualList({
   createNote,
   hasActiveSearch = false,
   onClearSearch,
+  listDensity = 'comfortable',
 }: NoteSidebarVirtualListProps) {
+  const rowHeight = noteRowHeight(listDensity);
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = notes.length >= VIRTUALIZE_THRESHOLD;
 
   const virtualizer = useVirtualizer({
     count: notes.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => NOTE_ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 8,
     enabled: useVirtual,
   });
@@ -88,8 +94,8 @@ export function NoteSidebarVirtualList({
           {tags.map(tag => (
             <TagChip key={tag} colors={c} tag={tag} size="sm" />
           ))}
-          <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto' }}>
-            {new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          <span style={{ fontSize: 9, color: c.textFaint, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+            {new Date(n.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
           </span>
         </div>
       </div>

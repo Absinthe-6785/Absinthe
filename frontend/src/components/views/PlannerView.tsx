@@ -306,6 +306,10 @@ export const PlannerView = ({
             handleDeleteSchedule(scheduleDetailBlock.id);
             setScheduleDetailId(null);
           }}
+          onDuplicate={() => {
+            handleDuplicateSchedule(scheduleDetailBlock.id);
+            setScheduleDetailId(null);
+          }}
           onClose={() => setScheduleDetailId(null)}
         />
       ) : null}

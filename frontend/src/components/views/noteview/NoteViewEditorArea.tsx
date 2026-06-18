@@ -176,6 +176,7 @@ export interface NoteViewEditorData {
   knowledgeTimeline: KnowledgeTimeline;
   activeFocusPreset: FocusPreset | undefined;
   discoveryFeed: DiscoveryFeed;
+  documentSearchOpen: boolean;
 }
 
 export interface NoteViewEditorHandlers {
@@ -219,6 +220,7 @@ export interface NoteViewEditorHandlers {
   createNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>>) => string;
   setSearchScope: React.Dispatch<React.SetStateAction<EditorSearchScope>>;
   setSearchMatchIdx: React.Dispatch<React.SetStateAction<number>>;
+  setDocumentSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
   insertEmptyImageBlockAtCursor: () => void;
   setShowAppearance: React.Dispatch<React.SetStateAction<boolean>>;
   updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
@@ -253,6 +255,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
     noteCosmosTier, activeTag, searchQuery, searchScope, searchMatchIdx, editorSearchQuery,
     blockColors, wikiTargets, appSettings, knowledgeTimeline, activeFocusPreset, discoveryFeed,
+    documentSearchOpen,
   } = data;
   const {
     titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,
@@ -262,13 +265,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     setShowRightPanel, handleCopyDocument, exportNote, restoreNote, moveNoteToTrash, onPermanentDelete,
     setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded, openContextPanel,
     setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
-    handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
+    handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx, setDocumentSearchOpen,
     insertEmptyImageBlockAtCursor, setShowAppearance, updateSetting, setIsDragOver,
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
   } = handlers;
 
-  const showReadingSearchBar = viewMode === 'reading' && !isTrash;
+  const showReadingSearchBar = viewMode === 'reading' && !isTrash
+    && (documentSearchOpen || Boolean(searchQuery.trim()));
 
   const documentSearchMatchCount = useMemo(() => {
     const blocks = blockEditorRef.current?.getBlocks?.();
@@ -277,6 +281,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   }, [blockEditorRef, editorSearchQuery, searchMatchIdx, activeNote?.body, activeNoteId]);
 
   const focusDocumentSearch = () => {
+    setDocumentSearchOpen(true);
     setSearchScope('document');
     requestAnimationFrame(() => searchInputRef.current?.focus());
   };
@@ -305,6 +310,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         setSearchQuery('');
         setSearchMatchIdx(0);
       } else {
+        setDocumentSearchOpen(false);
         e.currentTarget.blur();
       }
       return;
@@ -629,6 +635,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               {!isTrash && showReadingSearchBar && activeNote && (
                 <div
                   data-read-mode-search-toolbar
+                  className="bsticky-header"
                   style={{
                     padding: '5px 12px',
                     borderBottom: `1px solid ${c.toolBdr}`,
@@ -638,6 +645,9 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     flexShrink: 0,
                     background: c.toolbar,
                     flexWrap: 'wrap',
+                    top: 0,
+                    zIndex: 4,
+                    boxShadow: `0 1px 0 ${c.sideBdr}`,
                   }}
                 >
                   <DocumentSearchToolbar

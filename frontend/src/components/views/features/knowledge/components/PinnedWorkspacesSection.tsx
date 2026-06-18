@@ -12,6 +12,8 @@ export interface PinnedWorkspacesSectionProps {
   onActivate: (ref: WorkspaceRef) => void;
   onUnpin: (ref: WorkspaceRef) => void;
   onMovePinned: (fromIndex: number, toIndex: number) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export function PinnedWorkspacesSection({
@@ -22,16 +24,26 @@ export function PinnedWorkspacesSection({
   onActivate,
   onUnpin,
   onMovePinned,
+  collapsed = false,
+  onToggleCollapse,
 }: PinnedWorkspacesSectionProps) {
   const { t } = useTranslation();
   if (pinned.length === 0) return null;
 
   return (
     <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-      <div className="bseclbl">
+      <div
+        className="bseclbl"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: onToggleCollapse ? 'pointer' : 'default' }}
+        onClick={onToggleCollapse}
+        role={onToggleCollapse ? 'button' : undefined}
+        tabIndex={onToggleCollapse ? 0 : undefined}
+        onKeyDown={onToggleCollapse ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleCollapse(); } } : undefined}
+      >
         <span>{t('knPinnedShort')}</span>
+        {onToggleCollapse ? <ChevronDown size={10} style={{ transform: collapsed ? 'rotate(-90deg)' : undefined }} /> : null}
       </div>
-      {pinned.map((ref, index) => {
+      {!collapsed && pinned.map((ref, index) => {
         const isActive = activeKind === ref.kind && activeId === ref.id;
         return (
           <div

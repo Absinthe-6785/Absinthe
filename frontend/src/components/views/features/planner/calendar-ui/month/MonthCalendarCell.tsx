@@ -32,7 +32,7 @@ export function MonthCalendarCell({
           onDateSelect(model.dateKey);
         }
       } : undefined}
-      className={`min-h-[64px] lg:min-h-[72px] border p-1 lg:p-1.5 flex flex-col gap-0.5
+      className={`min-h-[72px] lg:min-h-[80px] border p-1 lg:p-1.5 flex flex-col gap-0.5
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset' : ''}
@@ -62,7 +62,7 @@ export function MonthCalendarCell({
         {model.blockRows.map(({ block }) => (
           <div
             key={block.id}
-            className="px-1 py-0.5 text-[9px] lg:text-[10px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50"
+            className="px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50"
             data-planner-month-block={block.id}
             title={`${block.startTime} ${block.title}`}
           >

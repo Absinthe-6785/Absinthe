@@ -124,3 +124,14 @@
   flex-shrink: 0;
   background: inherit;
 }
+
+.k100-skeleton-pulse {
+  animation: k100-pulse 1.2s ease-in-out infinite;
+  background: color-mix(in srgb, var(--color-muted) 18%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+@keyframes k100-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
