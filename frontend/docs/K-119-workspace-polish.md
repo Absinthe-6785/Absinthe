@@ -109,15 +109,12 @@ Files: `k119PopoverAudit.ts` … `k119TokenAudit.ts`, `k119Audits.test.ts`.
 ## Known limitations
 
 - Block editor context menu still uses its own positioning (`computeFixedMenuPosition`); popover migration deferred to avoid editor regression risk.
-- Health / Recipe / Search toolbars not fully migrated to `WorkspaceToolbar` — tokens applied where sticky patterns already exist.
+- Health / Recipe / Search toolbars partially on `WorkspaceToolbar` as of K-119; K-120 completes Health/Recipe/Search migration.
 - Performance audit is observational (synthetic matrix), not CI timing gates.
 
-## Maintenance notes
+## Maintenance notes (K-120+)
 
-1. New dropdowns: compose `PopoverRoot` → `PopoverPortal` → `PopoverDismiss` + `PopoverPanel`.
-2. New sticky actions: use `WorkspaceToolbar` + `WorkspaceToolbarPrimary`.
-3. Visual tweaks: prefer token edits in `ui*Tokens.ts` over scattered magic numbers.
-4. K-116 popover audit updated to read `Popover.tsx` instead of inlined sort-menu logic.
+See `frontend/docs/K-120-long-term-maintenance.md` for architecture map, flaky test registry, and CI classification.
 
 ## Verification
 

@@ -14,6 +14,8 @@ export const UI_DENSITY = {
   sidebarRowPaddingPx: 8,
   tableCellPaddingPx: 8,
   calloutPaddingPx: 12,
+  editorMenuItemFontPx: 13,
+  editorMenuSectionFontPx: 9,
 } as const;
 
 export type UiDensityToken = keyof typeof UI_DENSITY;

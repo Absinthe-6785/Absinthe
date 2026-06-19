@@ -3,6 +3,9 @@ import { Search, X, Plus, BookMarked, Star } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
+import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../../../../common/WorkspaceToolbar';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
+import { UI_SPACING } from '../../../../../lib/uiSpacingTokens';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import type { Recipe, RecipeCategory } from '../recipeTypes';
 import { RECIPE_CATEGORIES } from '../recipeTypes';
@@ -88,27 +91,27 @@ export function RecipeStudioView({
         workspace="recipe"
         split
         header={(
-          <header className="flex items-center justify-between gap-3 shrink-0" data-k110-recipe-header>
-            <div>
-              <h1 className={`font-heading text-xl lg:text-2xl font-black tracking-tight flex items-center gap-2 ${headingClass}`}>
-                <BookMarked size={20} className="text-primary" />
-                {t('k110StudioTitle')}
-              </h1>
-              <p className={`text-xs font-medium ${theme.textMuted}`}>{t('k110StudioSubtitle')}</p>
+          <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
+            <div className="flex items-center justify-between gap-3 w-full">
+              <div>
+                <h1 className={`font-heading text-xl lg:text-2xl font-black tracking-tight flex items-center gap-2 ${headingClass}`}>
+                  <BookMarked size={UI_INTERACTION.toolbarIconSizePx} className="text-primary" />
+                  {t('k110StudioTitle')}
+                </h1>
+                <p className={`text-xs font-medium ${theme.textMuted}`}>{t('k110StudioSubtitle')}</p>
+              </div>
+              <WorkspaceToolbarPrimary
+                label={t('newRecipe')}
+                icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
+                onClick={onNewRecipe}
+                className="w-auto shrink-0 px-4 rounded-2xl"
+                dataHook="data-k110-new-recipe"
+              />
             </div>
-            <button
-              type="button"
-              onClick={onNewRecipe}
-              className="flex items-center gap-1.5 bg-primary text-primary-foreground px-3 py-2 rounded-2xl text-sm font-bold shadow-sm hover:scale-105 transition-transform active:scale-95 min-h-[44px]"
-              data-k110-new-recipe
-            >
-              <Plus size={15} />
-              {t('newRecipe')}
-            </button>
-          </header>
+          </WorkspaceToolbar>
         )}
         secondary={(
-          <div className="flex flex-col gap-2 lg:gap-3 min-h-0 overflow-y-auto" data-k110-recipe-sidebar>
+          <div className={`flex flex-col gap-2 lg:gap-3 min-h-0 overflow-y-auto ${UI_SPACING.scrollOverscroll}`} data-k110-recipe-sidebar data-k120-scroll-recipe>
             <RecipeHomeSection
               projection={projection}
               theme={theme}
