@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Target, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -20,8 +20,15 @@ import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSect
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
-import { WorkoutMonthCalendar } from './features/health/WorkoutMonthCalendar';
 import { formatLongDate } from './k102DateFormat';
+import { buildHealthProjection } from './features/health/buildHealthProjection';
+import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
+import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
+import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
+import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
+import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
+import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
+import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
@@ -177,6 +184,11 @@ export const HealthView = ({
   // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
   const [isInbodyDirty, setIsInbodyDirty] = useState(false);
   const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
+  const [healthSectionPrefs, setHealthSectionPrefs] = useState<HealthSectionPrefs>(() => readHealthSectionPrefs());
+  const updateHealthSectionPrefs = useCallback((next: HealthSectionPrefs) => {
+    setHealthSectionPrefs(next);
+    writeHealthSectionPrefs(next);
+  }, []);
 
   // weightUnits: zustand store persist
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
@@ -624,18 +636,38 @@ export const HealthView = ({
   const month = currentDate.getMonth();
   const monthStart = formatDate(new Date(year, month, 1));
   const monthEnd = formatDate(new Date(year, month + 1, 0));
-  const { data: monthWorkoutRows = [] } = useSWR<{ date?: string }[]>(
+  const { data: monthWorkoutRows = [] } = useSWR<RangeWorkoutRow[]>(
     `${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`,
     fetcher,
     { revalidateOnFocus: false },
   );
-  const workoutDates = useMemo(() => {
-    const set = new Set<string>();
-    for (const row of monthWorkoutRows) {
-      if (row.date) set.add(row.date);
-    }
-    return set;
-  }, [monthWorkoutRows]);
+
+  const analyticsExpanded = !healthSectionPrefs.analyticsCollapsed;
+  const projectionRangeStart = useMemo(() => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 90);
+    return formatDate(d);
+  }, [selectedDate, formatDate]);
+  const selectedDateKey = formatDate(selectedDate);
+  const { data: analyticsRangeRows } = useSWR<RangeWorkoutRow[]>(
+    analyticsExpanded
+      ? `${API_URL}/api/workouts/range?start_date=${projectionRangeStart}&end_date=${selectedDateKey}`
+      : null,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
+
+  const healthProjection = useMemo(() => buildHealthProjection({
+    rangeWorkouts: analyticsExpanded && analyticsRangeRows ? analyticsRangeRows : monthWorkoutRows,
+    selectedDateKey,
+  }), [analyticsExpanded, analyticsRangeRows, monthWorkoutRows, selectedDateKey]);
+
+  const workoutDates = healthProjection.workoutDates;
+
+  const prBadgeMap = useMemo(() => {
+    const toDisplay = (kg: number, blockId: string) => parseFloat(displayKg(kg, blockId) || '0');
+    return computeWorkoutPrBadgeMap(localWorkouts, prevData, toDisplay, getUnit);
+  }, [localWorkouts, prevData, weightUnits]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
   const openHealthDayLog = useCallback((section: 'workout' | 'nutrition') => {
@@ -686,7 +718,7 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
@@ -702,108 +734,18 @@ export const HealthView = ({
             </button>
           ))}
         </div>
-        <div className={`${WORKSPACE_CARD.md} lg:max-h-[340px] min-h-0 rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab !== 'blocks' ? 'hidden lg:flex' : ''}`}>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
-            <button onClick={() => openBlockModal()} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md"><Plus size={16}/></button>
-          </div>
-          {/* 태그별 그룹 + 필터 */}
-          {(() => {
-            const blocks = healthBlocks ?? [];
-            const allTags = Array.from(new Set(blocks.flatMap((b: ExerciseBlock) => b.tags ?? [])));
-
-            // 태그별 그룹 생성: 필터 선택 시 해당 태그만, 전체일 때는 태그별 섹션
-            const tagged = allTags.map(tag => ({
-              tag,
-              items: blocks.filter((b: ExerciseBlock) => (b.tags ?? []).includes(tag)),
-            })).filter(g => !activeTagFilter || g.tag === activeTagFilter);
-            const untagged = blocks.filter((b: ExerciseBlock) => (b.tags ?? []).length === 0);
-            const showUntagged = !activeTagFilter;
-
-            const BlockCard = ({ b }: { b: ExerciseBlock }) => (
-              <div onClick={() => void handleAddWorkoutToToday(b)}
-                className={`group relative text-xs font-semibold px-2.5 py-2 rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`}/>
-                  <span className="truncate">{b.name}</span>
-                </div>
-                <button onClick={e => { e.stopPropagation(); openBlockModal(b); }}
-                  className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
-                <button onClick={e => handleDeleteBlock(b.id, e)}
-                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all">
-                  <X size={10}/>
-                </button>
-              </div>
-            );
-
-            return (
-              <>
-                {/* 태그 필터 바 */}
-                {allTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-3 shrink-0">
-                    <button onClick={() => setActiveTagFilter(null)}
-                      className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
-                        ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
-                      {t('filterAll')}
-                    </button>
-                    {allTags.map(tag => (
-                      <button key={tag} onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
-                        className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors
-                          ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}>
-                        #{tag}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* 블록 없을 때 */}
-                {blocks.length === 0 && (
-                  <ProductEmptyState
-                    variant="tailwind"
-                    theme={theme}
-                    icon={Dumbbell}
-                    title={t('noBlocksEmpty')}
-                    description={t('k99EmptyHealthBlocksDesc')}
-                    dataHook="health-blocks-empty"
-                    primaryAction={{ label: t('k99EmptyHealthBlocksAction'), onClick: () => openBlockModal() }}
-                  />
-                )}
-
-                {/* 태그별 그룹 섹션 */}
-                <div className="overflow-y-auto min-h-0 pr-1 pb-1 space-y-2">
-                  {tagged.map(({ tag, items }) => (
-                    <div key={tag}>
-                      <div className={`flex items-center gap-1.5 mb-1`}>
-                        <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>#{tag.toUpperCase()}</span>
-                        <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {items.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* 태그 없는 블록 */}
-                  {showUntagged && untagged.length > 0 && (
-                    <div>
-                      {allTags.length > 0 && (
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>{t('other')}</span>
-                          <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-1.5">
-                        {untagged.map((b: ExerciseBlock) => <BlockCard key={b.id} b={b}/>)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            );
-          })()}
-        </div>
+        <HealthBlockLibrary
+          blocks={healthBlocks ?? []}
+          activeTagFilter={activeTagFilter}
+          setActiveTagFilter={setActiveTagFilter}
+          theme={theme}
+          darkMode={appSettings.darkMode}
+          onAddToToday={handleAddWorkoutToToday}
+          onEditBlock={openBlockModal}
+          onDeleteBlock={handleDeleteBlock}
+          onNewBlock={() => openBlockModal()}
+          mobileVisible={mobileHealthTab === 'blocks'}
+        />
 
         <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
           <div className="flex justify-between items-center mb-3">
@@ -983,39 +925,7 @@ export const HealthView = ({
                   )}
                   <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
                   <h3 className="font-heading text-lg font-bold flex-1">{w.exercise_blocks?.name || 'Unknown'}</h3>
-                  {/* PR / 이전 세션 배지 */}
-                  {(() => {
-                    const pd = prevData[w.block_id];
-                    if (!pd || w.exercise_blocks?.type === 'cardio') return null;
-                    // raw kg → 표시 단위로 변환 후 비교 (float 오차 및 구버전 저장값 차이 방지)
-                    const toDisplay = (kg: number) => parseFloat(displayKg(kg, w.block_id) || '0');
-                    const curMax = Math.max(0, ...w.sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').map(s => toDisplay(parseFloat(String((s as StrengthSet).kg)))));
-                    const prevMax = pd.prev_sets.filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '').reduce((m, s) => Math.max(m, toDisplay(parseFloat(String((s as StrengthSet).kg)))), 0);
-                    const prKgDisplay = pd.pr_kg !== null ? toDisplay(pd.pr_kg) : null;
-                    const isPR = prKgDisplay !== null && curMax > 0 && curMax > prKgDisplay;
-                    const diff = curMax > 0 && prevMax > 0 ? parseFloat((curMax - prevMax).toFixed(1)) : 0;
-                    const unit = getUnit(w.block_id);
-                    return (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {isPR && (
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400 text-amber-900 tracking-wider">
-                            PR 🏆
-                          </span>
-                        )}
-                        {prevMax > 0 && !isPR && (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
-                            diff > 0
-                              ? 'bg-green-500/15 text-green-500'
-                              : diff < 0
-                                ? 'bg-red-500/15 text-red-400'
-                                : appSettings.darkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : `=${prevMax}`}{unit}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
                 </div>
                 {/* 컬럼 헤더 — cardio */}
                 {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (() => {
@@ -1232,54 +1142,34 @@ export const HealthView = ({
         )}
         </div>
 
-        <div className="hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 lg:gap-4 shrink-0"
-          data-workspace-zone="supporting"
-        >
-          <WorkoutMonthCalendar
-            selectedDate={selectedDate}
-            currentDate={currentDate}
-            setCurrentDate={setCurrentDate}
-            setSelectedDate={setSelectedDate}
-            formatDate={formatDate}
-            isToday={isToday}
-            theme={theme}
-            lang={lang}
-            workoutDates={workoutDates}
-          />
-          <div className={`${WORKSPACE_CARD.sm} rounded-[24px] lg:rounded-[32px] shadow-sm px-4 py-3 transition-colors ${theme.card}`} data-inbody-panel>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary"/> {t('inbody')}</h2>
-              <button onClick={handleSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {[
-                { label: t('inbodyWeight'), field: 'weight' as const, unit: 'kg', color: 'text-blue-400'  },
-                { label: t('inbodySMM'),    field: 'smm'    as const, unit: 'kg', color: 'text-green-400' },
-                { label: t('inbodyPBF'),    field: 'pbf'    as const, unit: '%',  color: 'text-red-400'   },
-              ].map(({ label, field, unit, color }) => (
-                <div key={field} className={`rounded-xl px-2.5 py-2 border border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
-                  <p className={`text-[9px] font-bold uppercase tracking-wide mb-0.5 ${color}`}>{label}</p>
-                  <div className="flex items-baseline gap-1">
-                    <input type="number" inputMode="decimal" min="0" step="0.1"
-                      value={localInbody[field] !== 0 ? localInbody[field] : ''} placeholder="0"
-                      onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
-                      className="w-full bg-transparent text-base font-black outline-none tabular-nums"/>
-                    <span className={`text-[10px] font-semibold ${theme.textMuted}`}>{unit}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <ProteinTracker
-            mode="compact"
-            theme={theme}
-            darkMode={appSettings.darkMode}
-            selectedDate={selectedDate}
-            formatDate={formatDate}
-            showToast={showToast}
-            onOpenFull={() => setHealthSection('nutrition')}
-          />
-        </div>
+        <HealthAnalyticsPanel
+          projection={healthProjection}
+          loading={analyticsExpanded && !analyticsRangeRows}
+          theme={theme}
+          darkMode={appSettings.darkMode}
+          prefs={healthSectionPrefs}
+          onPrefsChange={updateHealthSectionPrefs}
+        />
+
+        <HealthSupportingPanels
+          selectedDate={selectedDate}
+          currentDate={currentDate}
+          setCurrentDate={setCurrentDate}
+          setSelectedDate={setSelectedDate}
+          formatDate={formatDate}
+          isToday={isToday}
+          theme={theme}
+          lang={lang}
+          workoutDates={workoutDates}
+          localInbody={localInbody}
+          setLocalInbody={setLocalInbody}
+          setIsInbodyDirty={setIsInbodyDirty}
+          onSaveInbody={handleSaveInbody}
+          appSettings={appSettings}
+          showToast={showToast}
+          onOpenNutrition={() => setHealthSection('nutrition')}
+          inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
+        />
       </div>
     </div>
     </>

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { memo, useMemo } from 'react';
 import { buildCalendarDays } from '@/lib/calendarUtils';
 import { useTranslation } from '@/lib/i18n';
 import type { Theme } from '@/types';
 import { WORKSPACE_CARD } from '@/components/common/workspaceCardSizes';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 export interface WorkoutMonthCalendarProps {
   selectedDate: Date;
@@ -20,13 +21,42 @@ export interface WorkoutMonthCalendarProps {
 const DESKTOP_DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'] as const;
 const MOBILE_DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
 
-/** Full month grid (desktop) + horizontal day banner (mobile) with workout dots. */
-export function WorkoutMonthCalendar({
+export interface MonthCellDecoration {
+  dateStr: string;
+  hasWorkout: boolean;
+}
+
+/** Precompute calendar cell markers keyed by monthKey — K-107. */
+export function buildMonthCellDecorations(
+  year: number,
+  month: number,
+  calendarDays: readonly (number | null)[],
+  mobileDays: readonly number[],
+  workoutDates?: ReadonlySet<string>,
+): { monthKey: string; desktop: Map<number, MonthCellDecoration>; mobile: Map<number, MonthCellDecoration> } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const monthKey = `${year}-${pad(month + 1)}`;
+  const desktop = new Map<number, MonthCellDecoration>();
+  const mobile = new Map<number, MonthCellDecoration>();
+
+  for (const day of calendarDays) {
+    if (!day) continue;
+    const dateStr = `${monthKey}-${pad(day)}`;
+    desktop.set(day, { dateStr, hasWorkout: workoutDates?.has(dateStr) ?? false });
+  }
+  for (const day of mobileDays) {
+    const dateStr = `${monthKey}-${pad(day)}`;
+    mobile.set(day, { dateStr, hasWorkout: workoutDates?.has(dateStr) ?? false });
+  }
+
+  return { monthKey, desktop, mobile };
+}
+
+function WorkoutMonthCalendarInner({
   selectedDate,
   currentDate,
   setCurrentDate,
   setSelectedDate,
-  formatDate,
   isToday,
   theme,
   lang,
@@ -47,6 +77,11 @@ export function WorkoutMonthCalendar({
     [year, month],
   );
 
+  const { monthKey, desktop, mobile } = useMemo(
+    () => buildMonthCellDecorations(year, month, calendarDays, mobileDays, workoutDates),
+    [year, month, calendarDays, mobileDays, workoutDates],
+  );
+
   useEffect(() => {
     const el = bannerScrollRef.current;
     if (!el) return;
@@ -59,8 +94,6 @@ export function WorkoutMonthCalendar({
     el.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
   }, [selectedDate, month, year]);
 
-  const pad = (n: number) => String(n).padStart(2, '0');
-
   const selectDay = (day: number) => {
     const next = new Date(year, month, day);
     setSelectedDate(next);
@@ -69,10 +102,11 @@ export function WorkoutMonthCalendar({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-3 lg:p-5 flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[28px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card}`}
       data-health-workout-calendar
+      data-k107-calendar-month-key={monthKey}
     >
-      <div className="flex justify-between items-center mb-3">
+      <div className="flex justify-between items-center mb-2">
         <h2 className="font-heading text-base font-bold tabular-nums flex items-center gap-2">
           {t('calendar')}
         </h2>
@@ -102,12 +136,13 @@ export function WorkoutMonthCalendar({
       <div ref={bannerScrollRef} className="lg:hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
         <div className="flex gap-2 w-max">
           {mobileDays.map(day => {
-            const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+            const deco = mobile.get(day);
+            const dateStr = deco?.dateStr ?? `${monthKey}-${String(day).padStart(2, '0')}`;
             const isSelected = selectedDate.getDate() === day
               && selectedDate.getMonth() === month
               && selectedDate.getFullYear() === year;
             const isTodayCell = isToday(dateStr);
-            const hasWorkout = workoutDates?.has(dateStr);
+            const hasWorkout = deco?.hasWorkout ?? false;
             const dow = new Date(year, month, day).getDay();
             return (
               <button
@@ -143,12 +178,13 @@ export function WorkoutMonthCalendar({
         <div className="grid grid-cols-7 gap-y-2 text-center text-sm font-bold">
           {calendarDays.map((day, idx) => {
             if (!day) return <div key={`e-${idx}`} />;
-            const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+            const deco = desktop.get(day);
+            const dateStr = deco?.dateStr ?? `${monthKey}-${String(day).padStart(2, '0')}`;
             const isSelected = selectedDate.getDate() === day
               && selectedDate.getMonth() === month
               && selectedDate.getFullYear() === year;
             const isTodayCell = isToday(dateStr);
-            const hasWorkout = workoutDates?.has(dateStr);
+            const hasWorkout = deco?.hasWorkout ?? false;
             return (
               <button
                 key={day}
@@ -172,3 +208,5 @@ export function WorkoutMonthCalendar({
     </div>
   );
 }
+
+export const WorkoutMonthCalendar = memo(WorkoutMonthCalendarInner);
