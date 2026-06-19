@@ -108,6 +108,11 @@ export function GlobalSearchHost({
 
   const bumpRecent = useCallback(() => setRecentRevision(r => r + 1), []);
 
+  const handleClose = useCallback(() => {
+    setOpen(false);
+    setQuery('');
+  }, []);
+
   return (
     <SearchWorkspacePalette
       colors={colors}
@@ -115,7 +120,7 @@ export function GlobalSearchHost({
       open={open}
       query={query}
       onQueryChange={setQuery}
-      onClose={() => setOpen(false)}
+      onClose={handleClose}
       onRecentRevision={bumpRecent}
       isSearching={isSearching}
     />

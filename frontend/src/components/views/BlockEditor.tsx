@@ -435,6 +435,17 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     }
   }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, handleActiveBlockChange, selectBlock, requestFocus, navigationApi]);
 
+  useEffect(() => {
+    const root = editorRootRef.current;
+    if (!root || !searchQuery.trim() || searchScope === 'all') return;
+    root.querySelectorAll('mark.be-search-hl').forEach(m => m.classList.remove('be-search-hl-current'));
+    const marks = Array.from(root.querySelectorAll('mark.be-search-hl'));
+    const matches = collectEditorSearchMatches(getRootBlocks(), searchQuery);
+    if (!matches.length || !marks.length) return;
+    const activeIdx = searchMatchIndex % matches.length;
+    marks[activeIdx]?.classList.add('be-search-hl-current');
+  }, [searchMatchIndex, searchQuery, searchScope, getRootBlocks, editorRootRef]);
+
   const renderBlockMenu = (state: TurnIntoMenuState, onDone: () => void) => {
     const id = state.blockId;
     const root = getRootBlocks();
