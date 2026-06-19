@@ -25,6 +25,8 @@ export interface BlockEditorHandle {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  /** Focus first or specified block — K-108A */
+  focusEditor: (blockId?: string) => void;
 }
 
 function isStructuralBlockChange(prev: Block[], next: Block[]): boolean {
@@ -163,6 +165,11 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     setExternalFocusOffset('start');
   }, []);
 
+  const focusEditor = useCallback((blockId?: string) => {
+    const id = blockId ?? blocksRef.current[0]?.id;
+    if (id) queueFocus(id, 'end');
+  }, [queueFocus]);
+
   const getBlocks = useCallback(() => blocks, [blocks]);
 
   const copyDocument = useCallback(async () => {
@@ -176,6 +183,6 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
     setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
-    getBlocks, copyDocument,
+    getBlocks, copyDocument, focusEditor,
   };
 }

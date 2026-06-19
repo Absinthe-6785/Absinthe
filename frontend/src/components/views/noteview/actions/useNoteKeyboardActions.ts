@@ -3,6 +3,7 @@ import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
+import { scheduleEditorFocus } from '../editorFocus';
 import { toDateKey } from '../../features/knowledge/databaseViews/parseDatabaseDate';
 import { openOrCreateDailyNote } from '../../k101DailyNote';
 import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
@@ -21,6 +22,7 @@ export function useNoteKeyboardActions(
     viewMode,
     showSortMenu,
     searchInputRef,
+    blockEditorRef,
     setViewMode,
     setWorkspaceSearchOpen,
     setShowShortcuts,
@@ -141,8 +143,22 @@ export function useNoteKeyboardActions(
           break;
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
-        case 'e': e.preventDefault(); setViewMode(v => toggleEditReading(v)); break;
-        case 'g': e.preventDefault(); setViewMode(v => v === 'graph' ? 'edit' : 'graph'); break;
+        case 'e':
+          e.preventDefault();
+          setViewMode(v => {
+            const next = toggleEditReading(v);
+            if (next === 'edit') scheduleEditorFocus(blockEditorRef);
+            return next;
+          });
+          break;
+        case 'g':
+          e.preventDefault();
+          setViewMode(v => {
+            const next = v === 'graph' ? 'edit' : 'graph';
+            if (next === 'edit') scheduleEditorFocus(blockEditorRef);
+            return next;
+          });
+          break;
         case 'f':
           e.preventDefault();
           if (e.shiftKey) setFocusMode(v => !v);

@@ -177,6 +177,7 @@ import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
 import { type BlockEditorHandle } from './BlockEditor';
+import { scheduleEditorFocus } from './noteview/editorFocus';
 import {
   buildNoteChrome,
   buildBlockEditorColors,
@@ -1225,8 +1226,11 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     }
     // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
     if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-block-handle-menu, .be-slash-menu')) return;
-    if (e.detail === 2) setViewMode('edit');
-  }, [navigateToWiki]);
+    if (e.detail === 2) {
+      setViewMode('edit');
+      scheduleEditorFocus(blockEditorRef);
+    }
+  }, [navigateToWiki, blockEditorRef]);
 
   // ── Obsidian-style 색상 + 사용자 글자/강조색 ─────────────────────
   const c = useMemo(

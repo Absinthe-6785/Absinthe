@@ -8,6 +8,10 @@ import {
   SMART_COLLECTION_GROUPS,
   getSmartCollectionIcon,
 } from '../collections/smartCollectionGroups';
+import {
+  resolveSmartCollectionGroupLabel,
+  resolveSmartCollectionName,
+} from '../collections/smartCollectionLabels';
 import { WorkspacePinToggle } from './WorkspacePinToggle';
 
 export interface SmartCollectionsSectionProps {
@@ -24,6 +28,7 @@ export interface SmartCollectionsSectionProps {
 function CollectionRow({
   c,
   collection,
+  displayName,
   active,
   count,
   onActivate,
@@ -34,6 +39,7 @@ function CollectionRow({
 }: {
   c: NoteChromeColors;
   collection: SmartCollection;
+  displayName: string;
   active: boolean;
   count: number;
   onActivate: () => void;
@@ -47,6 +53,8 @@ function CollectionRow({
     <div
       className={`bfi ${active ? 'active' : ''}`}
       onClick={onActivate}
+      data-k108-smart-collection-row
+      data-k108-sc-id={collection.id}
       style={{
         gap: 4,
         fontSize: subdued ? 10 : 11,
@@ -59,7 +67,7 @@ function CollectionRow({
     >
       <Icon size={10} color={active ? c.accent : c.textMuted} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {collection.name}
+        {displayName}
       </span>
       <span style={{ fontSize: 9, color: c.textMuted }}>{count}</span>
       {onTogglePin && (
@@ -126,6 +134,7 @@ function GroupSection({
           key={collection.id}
           c={c}
           collection={collection}
+          displayName={resolveSmartCollectionName(collection, t)}
           active={activeCollectionId === collection.id}
           count={counts[collection.id] ?? 0}
           onActivate={() => onActivate(collection)}
@@ -162,6 +171,7 @@ function GroupSection({
               key={collection.id}
               c={c}
               collection={collection}
+              displayName={resolveSmartCollectionName(collection, t)}
               active={activeCollectionId === collection.id}
               count={counts[collection.id] ?? 0}
               onActivate={() => onActivate(collection)}
@@ -194,7 +204,7 @@ export function SmartCollectionsSection({
   const byId = new Map(collections.map(col => [col.id, col]));
 
   return (
-    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
+    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }} data-k108-smart-collections>
       <div className="bseclbl" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span>{t('knSmartCollections')}</span>
         {activeCollectionId && (
@@ -222,7 +232,7 @@ export function SmartCollectionsSection({
             key={group.id}
             c={c}
             groupId={group.id}
-            groupLabel={group.label}
+            groupLabel={resolveSmartCollectionGroupLabel(group.id, group.label, t)}
             GroupIcon={group.icon}
             primaryCollections={primaryCollections}
             secondaryCollections={secondaryCollections}

@@ -32,3 +32,9 @@ export {
   PRIMARY_COLLECTION_GROUP_IDS,
   type SmartCollectionGroup,
 } from './smartCollectionGroups';
+export {
+  resolveSmartCollectionName,
+  resolveSmartCollectionGroupLabel,
+  isUserNamedSmartCollection,
+  SMART_COLLECTION_GROUP_LABEL_KEYS,
+} from './smartCollectionLabels';

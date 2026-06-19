@@ -39,8 +39,10 @@ export interface NoteEditorHeaderActionsProps {
   onOpenHelp?: () => void;
 }
 
-const ACTION_BTN_SIZE = 24;
-const ACTION_GAP = 8;
+export const K108A_HEADER_ACTION_BTN_SIZE = 24;
+export const K108A_HEADER_ACTION_GAP = 8;
+const ACTION_BTN_SIZE = K108A_HEADER_ACTION_BTN_SIZE;
+const ACTION_GAP = K108A_HEADER_ACTION_GAP;
 
 export function NoteEditorHeaderActions({
   colors: c,
@@ -191,6 +193,8 @@ export function NoteEditorHeaderActions({
   return (
     <div
       data-note-editor-header-actions
+      data-k108-header-actions
+      data-k108-header-layout="normalized"
       data-k104-mobile-toolbar={mobileCompact ? 'compact' : undefined}
       style={{
         display: 'flex',
