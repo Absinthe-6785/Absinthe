@@ -344,15 +344,19 @@ export const EDITOR_CHROME_STYLES = `
     padding: 0 2px;
   }
   .be-search-hl {
-    background: var(--be-search-hl-bg, #e8e4ff);
+    background: var(--be-search-hl-bg, rgba(139, 92, 246, 0.22));
     color: var(--be-search-hl-color, inherit);
     border-radius: 2px;
-    box-shadow: inset 0 -1px 0 rgba(139, 92, 246, 0.35);
+    padding: 0 1px;
+    box-shadow: inset 0 -1px 0 rgba(139, 92, 246, 0.28);
   }
   .be-search-hl-current {
-    background: var(--be-search-hl-current-bg, #c4b8ff);
+    background: var(--be-search-hl-current-bg, rgba(139, 92, 246, 0.55));
+    color: var(--be-search-hl-current-color, inherit);
     outline: 2px solid var(--be-accent, #8B5CF6);
     outline-offset: 1px;
+    border-radius: 2px;
+    font-weight: 600;
   }
   .be-math-display {
     display: block;

@@ -11,9 +11,9 @@ export function auditNotesHeaderRecovery(): Record<string, boolean> {
   const editor = readFileSync(join(ROOT, 'components/views/noteview/NoteViewEditorArea.tsx'), 'utf8');
   return {
     actionRowHook: editor.includes('data-k121-notes-header-action-row'),
-    searchHook: editor.includes('data-k121-notes-search'),
+    k122HeaderHook: editor.includes('data-k122-notes-header'),
     newNoteHook: editor.includes('data-k121-notes-new'),
-    searchFlexGrow: editor.includes('flex: 1') && editor.includes('data-k121-notes-search'),
+    noHeaderGlobalSearch: !editor.includes('data-k121-notes-search') && !editor.includes('openWorkspaceSearch()'),
     mobileTouch44: editor.includes('UI_INTERACTION.touchTargetMinPx'),
     inlineRow: editor.includes('display: \'flex\'') && editor.includes('data-k121-notes-header-action-row'),
   };
