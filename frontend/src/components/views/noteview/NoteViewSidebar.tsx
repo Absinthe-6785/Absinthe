@@ -526,6 +526,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   onClick={() => toggleSectionPref('traceQuickNavCollapsed')}
                   data-trace-quick-nav-toggle
                   data-k103-timeline-lens
+                  data-k108-timeline-section
                   role="button"
                   tabIndex={0}
                   onKeyDown={e => {
@@ -550,6 +551,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   className={`bfi ${isTraceDayMode && traceDate === todayTraceKey ? 'active' : ''}`}
                   onClick={() => openTraceDay(todayTraceKey)}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-today
                 >
                   <span style={{ flex: 1 }}>{t('nvToday')}</span>
                   {sidebarTodayCount > 0 && (
@@ -560,6 +562,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   className={`bfi k101-interactive ${isTraceDayMode && traceDate === yesterdayTraceKey ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceDay(yesterdayTraceKey)}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-yesterday
                 >
                   <span style={{ flex: 1 }}>{t('nvYesterday')}</span>
                   {sidebarYesterdayCount > 0 && (
@@ -570,66 +573,30 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'month' && traceRange.year === currentTraceMonthKey.year && traceRange.month === currentTraceMonthKey.month ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'month', ...currentTraceMonthKey })}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-month
                 >
                   <span style={{ flex: 1 }}>{t('nvThisMonth')}</span>
                   {sidebarMonthCount > 0 && (
                     <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarMonthCount})</span>
                   )}
                 </div>
-                  </>
-                ) : (
-                  <div className="bfi" style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted }}>
-                    <span style={{ flex: 1 }}>
-                      {t('nvToday')} ({sidebarTodayCount}) · {t('nvThisMonth')} ({sidebarMonthCount})
-                    </span>
-                  </div>
-                )}
                 <div
-                  className="bseclbl k101-interactive"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginTop: 2 }}
-                  onClick={() => toggleSectionPref('weekCollapsed')}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      toggleSectionPref('weekCollapsed');
-                    }
-                  }}
-                  data-k101-week-section-toggle
+                  className={`bfi k101-interactive ${isTraceWeekMode ? 'active k101-selected' : ''}`}
+                  onClick={openTraceWeek}
+                  style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k101-week-trace
+                  data-k108-timeline-week
                 >
-                  <span>{t('nvThisWeek')}</span>
-                  <ChevronDown
-                    size={10}
-                    style={{
-                      transform: listSectionPrefs.weekCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                      transition: 'transform .15s',
-                    }}
-                  />
+                  <span style={{ flex: 1 }}>{t('nvThisWeek')}</span>
+                  {sidebarWeekCount > 0 && (
+                    <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarWeekCount})</span>
+                  )}
                 </div>
-                {!listSectionPrefs.weekCollapsed ? (
-                  <div
-                    className={`bfi k101-interactive ${isTraceWeekMode ? 'active k101-selected' : ''}`}
-                    onClick={openTraceWeek}
-                    style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
-                    data-k101-week-trace
-                  >
-                    <span style={{ flex: 1 }}>{t('nvThisWeek')}</span>
-                    {sidebarWeekCount > 0 && (
-                      <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({sidebarWeekCount})</span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bfi" style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted, fontSize: 10 }}>
-                    <span style={{ flex: 1 }}>{t('nvThisWeek')} ({sidebarWeekCount})</span>
-                  </div>
-                )}
-                {!listSectionPrefs.traceQuickNavCollapsed ? (
-                <>
                 <div
                   className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'quarter' && traceRange.year === currentTraceQuarterKey.year && traceRange.quarter === currentTraceQuarterKey.quarter ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'quarter', ...currentTraceQuarterKey } as TraceRangeLens)}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-quarter
                 >
                   <span style={{ flex: 1 }}>{t('nvThisQuarter')}</span>
                 </div>
@@ -637,6 +604,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'year' && traceRange.year === currentTraceYearKey ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'year', year: currentTraceYearKey })}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-year
                 >
                   <span style={{ flex: 1 }}>{t('nvThisYear')}</span>
                 </div>
@@ -644,11 +612,18 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   className={`bfi k101-interactive ${isTraceRangeMode && traceRange?.kind === 'custom' ? 'active k101-selected' : ''}`}
                   onClick={() => openTraceRange({ kind: 'custom', startDate: '', endDate: '', label: '' })}
                   style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding }}
+                  data-k108-timeline-custom
                 >
                   <span style={{ flex: 1 }}>{t('nvCustomRange')}</span>
                 </div>
-                </>
-                ) : null}
+                  </>
+                ) : (
+                  <div className="bfi" style={{ minHeight: densityStyle.traceRowMinHeight, padding: densityStyle.traceRowPadding, color: c.textMuted }}>
+                    <span style={{ flex: 1 }}>
+                      {t('nvToday')} ({sidebarTodayCount}) · {t('nvThisWeek')} ({sidebarWeekCount})
+                    </span>
+                  </div>
+                )}
                 <div data-k103-folders-section>
                 <div className="bseclbl k103-sidebar-sticky">{t('nvFolders')}</div>
                 {folders.map(f => (

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
+import { useViewportLayout } from '../../hooks/useViewportLayout';
 import type { Block } from './blockUtils';
 import { isValidImageUrl, imageAltFromUrl } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
@@ -16,9 +17,11 @@ export interface ImageBlockProps {
 
 export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   const { t } = useTranslation();
+  const { isMobile } = useViewportLayout();
   const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
@@ -26,8 +29,19 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
   const [isDragOver, setIsDragOver] = useState(false);
   const [resizingW, setResizingW] = useState<number | null>(null);
   const [captionDraft, setCaptionDraft] = useState(block.caption ?? '');
+  const [hoverControls, setHoverControls] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => { setCaptionDraft(block.caption ?? ''); }, [block.caption]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMobileMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [mobileMenuOpen]);
 
   const imgStyle = (width?: number) => imageDisplayStyle(c, width);
 
@@ -39,6 +53,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
       setUrlError('');
       setShowUrl(false);
       setUrlDraft('');
+      setMobileMenuOpen(false);
     };
     reader.readAsDataURL(f);
   }, [block.alt, onChange]);
@@ -46,14 +61,15 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
   const applyUrl = useCallback((raw: string) => {
     const url = raw.trim();
     if (!isValidImageUrl(url)) {
-      setUrlError('http(s) 또는 data:image URL을 입력하세요');
+      setUrlError(t('blockImageUrlInvalid'));
       return;
     }
     setUrlError('');
     onChange({ src: url, alt: block.alt || imageAltFromUrl(url) });
     setShowUrl(false);
     setUrlDraft('');
-  }, [block.alt, onChange]);
+    setMobileMenuOpen(false);
+  }, [block.alt, onChange, t]);
 
   const handleFilesDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -135,13 +151,32 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
       onChange={e => { const f = e.target.files?.[0]; if (f) applyFile(f); e.target.value = ''; }}/>
   );
 
+  const controlBtnStyle = { ...imgBtnStyle(c), fontSize: 10, padding: '3px 8px' };
+  const deleteBtnStyle = { ...imgBtnStyle(c, true), fontSize: 10, padding: '3px 8px' };
+
+  const showDesktopControls = !isMobile && (hoverControls || showUrl);
+
+  const imageActionButtons = (
+    <>
+      <button type="button" onClick={() => fileRef.current?.click()} style={controlBtnStyle} data-k108-image-replace-file>
+        {t('blockImageReplaceFile')}
+      </button>
+      <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={controlBtnStyle} data-k108-image-replace-url>
+        {t('blockImageReplaceUrl')}
+      </button>
+      <button type="button" onClick={() => onChange({ src: '', width: undefined })} style={deleteBtnStyle} data-k108-image-delete>
+        {t('blockImageDelete')}
+      </button>
+    </>
+  );
+
   if (readOnly) {
     return (
-      <figure className="be-image-block" style={{ margin:'8px 0', textAlign:'center' }}>
+      <figure className="be-image-block" style={{ margin:'8px 0', textAlign:'center' }} data-k108-image-block>
         {block.src
           ? <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
           : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
-              <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>이미지 없음</div>
+              <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>{t('blockImageNoImage')}</div>
             </div>}
         {block.caption && <figcaption style={{ fontSize:12, color:c.textMuted, marginTop:6, fontStyle:'italic' }}>{block.caption}</figcaption>}
       </figure>
@@ -156,6 +191,8 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         tabIndex={0}
         onClick={e => e.stopPropagation()}
         style={{ margin:'8px 0', outline:'none' }}
+        data-k108-image-block
+        data-k108-image-empty
       >
         <div
           onDragOver={handleDragOver}
@@ -165,8 +202,8 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         >
           <div style={{ marginBottom:10, color:c.textFaint }}><ImageIcon size={22}/></div>
           <div style={{ display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap' }}>
-            <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 업로드</button>
-            <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>URL 입력</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>{t('blockImageUpload')}</button>
+            <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>{t('blockImageEnterUrl')}</button>
           </div>
           {showUrl && (
             <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10, alignItems:'center' }}>
@@ -176,13 +213,13 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyUrl(urlDraft); } }}
                   placeholder="https://example.com/image.png"
                   style={{ flex:1, background:c.input, border:`1px solid ${urlError ? c.danger : c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
-                <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>추가</button>
+                <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>{t('blockImageAdd')}</button>
               </div>
               {urlError && <span style={{ fontSize:11, color:c.danger }}>{urlError}</span>}
             </div>
           )}
           <div style={{ fontSize:10, color:c.textFaint, marginTop:8 }}>
-            드래그&드롭 · 붙여넣기(Ctrl+V) 지원
+            {t('blockImageDropPasteHint')}
           </div>
         </div>
         <input value={captionDraft}
@@ -205,7 +242,11 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleFilesDrop}
+      onMouseEnter={() => setHoverControls(true)}
+      onMouseLeave={() => { setHoverControls(false); if (!showUrl) setMobileMenuOpen(false); }}
       style={{ margin:'8px 0', textAlign:'center', outline:'none' }}
+      data-k108-image-block
+      data-k108-image-compact={isMobile ? 'mobile-menu' : 'hover-reveal'}
     >
       <div
         ref={wrapRef}
@@ -218,6 +259,32 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         }}
       >
         <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
+        {!isMobile && (
+          <div
+            data-k108-image-controls
+            style={{
+              position: 'absolute',
+              left: '50%',
+              bottom: 6,
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              gap: 4,
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              maxWidth: 'calc(100% - 12px)',
+              padding: '4px 6px',
+              borderRadius: 8,
+              background: c.card,
+              border: `1px solid ${c.border}`,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+              opacity: showDesktopControls ? 1 : 0,
+              pointerEvents: showDesktopControls ? 'auto' : 'none',
+              transition: 'opacity .15s ease',
+            }}
+          >
+            {imageActionButtons}
+          </div>
+        )}
         <div
           role="separator"
           aria-label={t('blockImageResize')}
@@ -239,20 +306,63 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
           }}>{resizingW}px</span>
         )}
       </div>
-      <div style={{ display:'flex', gap:6, justifyContent:'center', marginTop:8, flexWrap:'wrap' }}>
-        <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>파일 교체</button>
-        <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>URL 교체</button>
-        <button type="button" onClick={() => onChange({ src: '', width: undefined })} style={imgBtnStyle(c, true)}>삭제</button>
-      </div>
+      {isMobile && (
+        <div ref={menuRef} style={{ position: 'relative', display: 'inline-flex', marginTop: 4 }}>
+          <button
+            type="button"
+            className="btbtn"
+            aria-expanded={mobileMenuOpen}
+            title={t('blockImageMoreActions')}
+            onClick={() => setMobileMenuOpen(v => !v)}
+            data-k108-image-more
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 44,
+              minHeight: 44,
+              padding: '0 10px',
+              color: mobileMenuOpen ? c.accent : c.textMuted,
+            }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {mobileMenuOpen ? (
+            <div
+              role="menu"
+              data-k108-image-mobile-menu
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                marginTop: 4,
+                zIndex: 120,
+                background: c.card,
+                border: `1px solid ${c.border}`,
+                borderRadius: 10,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                padding: '4px 0',
+                minWidth: 160,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0,
+              }}
+            >
+              {imageActionButtons}
+            </div>
+          ) : null}
+        </div>
+      )}
       {showUrl && (
-        <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:8, alignItems:'center' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:8, alignItems:'center' }} data-k108-image-url-panel>
           <div style={{ display:'flex', gap:6, justifyContent:'center', width:'100%', maxWidth:360 }}>
             <input value={urlDraft} autoFocus
               onChange={e => { setUrlDraft(e.target.value); setUrlError(''); }}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyUrl(urlDraft); } }}
               placeholder="https://example.com/image.png"
               style={{ flex:1, background:c.input, border:`1px solid ${urlError ? c.danger : c.inputBdr}`, color:c.text, borderRadius:6, padding:'5px 9px', fontSize:12, outline:'none' }}/>
-            <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>적용</button>
+            <button type="button" onClick={() => applyUrl(urlDraft)} style={imgBtnStyle(c)}>{t('blockImageApply')}</button>
           </div>
           {urlError && <span style={{ fontSize:11, color:c.danger }}>{urlError}</span>}
         </div>
@@ -262,7 +372,8 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         onBlur={saveCaption}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveCaption(); (e.target as HTMLInputElement).blur(); } }}
         placeholder={t('blockCaptionSaveHint')}
-        style={{ display:'block', margin:'10px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
+        data-k108-image-caption
+        style={{ display:'block', margin:'6px auto 0', width:'70%', maxWidth:420, textAlign:'center', background:'transparent', border:'none', borderBottom:`1px solid ${c.border}`, color:c.textMuted, fontSize:12, fontStyle:'italic', outline:'none', padding:'2px 4px' }}/>
       {hiddenFile}
     </figure>
   );

@@ -30,6 +30,7 @@ import {
   type NoteChromeColors,
 } from '../noteEditorTheme';
 import { type EditorMode, toggleEditReading } from '../editorMode';
+import { scheduleEditorFocus } from './editorFocus';
 import type { VirtualScrollApiRef } from '../features/block-editor/performance';
 import {
   setNoteKind,
@@ -85,7 +86,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
     blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
     setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
-    getBlocks, copyDocument,
+    getBlocks, copyDocument, focusEditor,
   } = useBlockEditor(body, onBodyChange);
 
   useImperativeHandle(ref, () => ({
@@ -98,7 +99,8 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
     redo,
     canUndo,
     canRedo,
-  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument, undo, redo, canUndo, canRedo]);
+    focusEditor,
+  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument, undo, redo, canUndo, canRedo, focusEditor]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -343,6 +345,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     ]);
     openNoteById(id, 'cosmos');
     setViewMode('edit');
+    scheduleEditorFocus(blockEditorRef);
   };
 
   return (
@@ -417,35 +420,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             )}
-            {!isTrash && (
-              <button
-                type="button"
-                className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`}
-                onClick={handleNewNote}
-                title={t('nvNewNoteBtn')}
-                aria-label={t('nvNewNoteBtn')}
-                data-k106-new-note-btn
-                data-noteview-new-note-btn
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '6px 10px' : '4px 10px',
-                  background: c.accent,
-                  border: 'none',
-                  borderRadius: 8,
-                  color: dark ? '#0F0F11' : '#fff',
-                  fontSize: isMobile ? 12 : 11,
-                  fontWeight: 700,
-                  flexShrink: 0,
-                  minHeight: isMobile ? 44 : undefined,
-                }}
-              >
-                <Plus size={isMobile ? 16 : 14} strokeWidth={2.5} />
-                {!isMobile ? <span>{t('nvNewNoteBtn')}</span> : null}
-              </button>
-            )}
-            {/* Cloud sync status */}
+            {/* Cloud sync status — decorative saved-at clock removed K-108A */}
             {!isTrash && (
               syncError ? (
                 <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
@@ -456,10 +431,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
                   {t('nvSyncing')}
-                </span>
-              ) : savedAt ? (
-                <span style={{ fontSize: 9, color: c.green, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Save size={12}/> {savedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               ) : null
             )}
@@ -561,8 +532,19 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               isArea={isAreaNote(activeNote)}
               canMarkArea={canMarkAsArea(activeNote)}
               onViewModeToggle={key => {
-                if (key === 'reading') setViewMode(v => toggleEditReading(v));
-                else setViewMode(v => v === 'graph' ? 'edit' : 'graph');
+                if (key === 'reading') {
+                  setViewMode(v => {
+                    const next = toggleEditReading(v);
+                    if (next === 'edit' && v === 'reading') scheduleEditorFocus(blockEditorRef);
+                    return next;
+                  });
+                } else {
+                  setViewMode(v => {
+                    const next = v === 'graph' ? 'edit' : 'graph';
+                    if (next === 'edit') scheduleEditorFocus(blockEditorRef);
+                    return next;
+                  });
+                }
               }}
               onOpenDocumentSearch={viewMode === 'reading' ? focusDocumentSearch : undefined}
               onMarkEvent={() => openEditEventDialog(activeNote)}
@@ -877,6 +859,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   ) : (
                     <div
                       onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
+                      data-k108-editor-focus={viewMode === 'edit' ? 'active' : undefined}
                       style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
                       {viewMode === 'reading' && (
                         <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
