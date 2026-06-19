@@ -212,7 +212,7 @@ describe('AnalyticsView archive cohesion audit', () => {
     expect(sections.timeline).toBeGreaterThan(sections.snapshots);
     expect(sections.restoreTools).toBeGreaterThan(sections.timeline);
 
-    expect(html).toContain('Recent history');
+    expect(html).toContain('Recent activity');
     expect(html).toContain('Deleted notes');
     expect(html).toContain('Snapshots');
     expect(html).toContain('Timeline');
@@ -249,7 +249,7 @@ describe('AnalyticsView projection-driven archive content', () => {
 
     const html = renderAnalyticsView();
     expect(html).toContain(projection.browse.thisMonth.label);
-    expect(html).toContain('Recent history');
+    expect(html).toContain('Recent activity');
     expect(html).toContain('Browse');
     expect(html).not.toContain('Recent transitions');
   });
