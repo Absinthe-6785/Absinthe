@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -21,7 +21,7 @@ export interface PopoverContextValue {
   open: boolean;
   onClose: () => void;
   isMobile: boolean;
-  anchorRef: RefObject<HTMLElement | null> | null;
+  anchorRef?: RefObject<HTMLElement | null>;
   menuRef: RefObject<HTMLDivElement | null>;
   position: { top: number; left: number };
   setPosition: (pos: { top: number; left: number }) => void;
@@ -48,7 +48,7 @@ export function PopoverRoot({
   open,
   onOpenChange,
   isMobile = false,
-  anchorRef = null,
+  anchorRef,
   children,
 }: PopoverRootProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -72,14 +72,15 @@ export function PopoverRoot({
 
   useEffect(() => {
     if (!open || isMobile) return;
-    const onPointerDown = (e: MouseEvent) => {
-      const target = e.target as Node;
+    const handlePointerDown = (e: globalThis.MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
       if (menuRef.current?.contains(target)) return;
       if (anchorRef?.current?.contains(target)) return;
       onClose();
     };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [open, isMobile, onClose, anchorRef]);
 
   useEffect(() => {
@@ -209,7 +210,7 @@ export interface PopoverPanelProps {
   role?: string;
   'aria-label'?: string;
   'aria-modal'?: boolean;
-  onClick?: (e: MouseEvent) => void;
+  onClick?: (e: ReactMouseEvent<HTMLDivElement>) => void;
   /** Extra data attributes for legacy audits */
   dataHooks?: Record<string, string>;
 }
