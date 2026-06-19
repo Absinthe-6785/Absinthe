@@ -5,6 +5,7 @@ import {
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
 import { useTranslation } from '@/lib/i18n';
+import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
 
 export interface NoteEditorHeaderActionsProps {
   colors: NoteChromeColors;
@@ -39,10 +40,10 @@ export interface NoteEditorHeaderActionsProps {
   onOpenHelp?: () => void;
 }
 
-export const K108A_HEADER_ACTION_BTN_SIZE = 24;
-export const K108A_HEADER_ACTION_GAP = 8;
-const ACTION_BTN_SIZE = K108A_HEADER_ACTION_BTN_SIZE;
-const ACTION_GAP = K108A_HEADER_ACTION_GAP;
+export const K108A_HEADER_ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
+export const K108A_HEADER_ACTION_GAP = UI_INTERACTION.toolbarActionGapPx;
+const ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
+const ACTION_GAP = UI_INTERACTION.toolbarActionGapPx;
 
 export function NoteEditorHeaderActions({
   colors: c,

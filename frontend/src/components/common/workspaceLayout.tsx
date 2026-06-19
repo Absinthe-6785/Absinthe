@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { WORKSPACE_GAP_CLASS, UI_SPACING } from '../../lib/uiSpacingTokens';
 
 /** K-72 shared workspace zones — Header → Primary → Secondary → Supporting */
 export const WORKSPACE_ZONE = {
@@ -33,8 +34,9 @@ export function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   return (
     <div
-      className={`flex flex-col min-h-0 flex-1 gap-3 lg:gap-4 ${className}`}
+      className={`flex flex-col min-h-0 flex-1 ${WORKSPACE_GAP_CLASS} ${className}`}
       data-workspace={workspace}
+      data-k119-workspace-layout
     >
       {header ? (
         <div className="shrink-0" data-workspace-zone={WORKSPACE_ZONE.header}>
@@ -43,9 +45,10 @@ export function WorkspaceLayout({
       ) : null}
 
       <div
-        className={`flex-1 min-h-0 flex flex-col gap-3 lg:gap-4 ${
-          split ? 'lg:flex-row lg:overflow-hidden' : 'overflow-y-auto lg:overflow-hidden'
+        className={`flex-1 min-h-0 flex flex-col ${WORKSPACE_GAP_CLASS} ${
+          split ? 'lg:flex-row lg:overflow-hidden' : `overflow-y-auto lg:overflow-hidden ${UI_SPACING.scrollOverscroll}`
         }`}
+        data-k119-scroll-primary
       >
         {secondary ? (
           <div
