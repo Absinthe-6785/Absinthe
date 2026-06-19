@@ -16,6 +16,7 @@ export interface HealthAnalyticsPanelProps {
   darkMode: boolean;
   prefs: HealthSectionPrefs;
   onPrefsChange: (next: HealthSectionPrefs) => void;
+  onOpenWorkoutNote?: (dateLabel: string) => void;
 }
 
 const HealthWeeklyChart = memo(function HealthWeeklyChart({
@@ -48,6 +49,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   darkMode,
   prefs,
   onPrefsChange,
+  onOpenWorkoutNote,
 }: HealthAnalyticsPanelProps) {
   const { t } = useTranslation();
   const { ref, visible } = useElementVisible('80px');
@@ -146,10 +148,23 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                   dataHook="recent-sessions"
                   getKey={s => s.date}
                   renderRow={s => (
-                    <span className="text-xs font-semibold truncate w-full flex justify-between gap-2">
-                      <span className="tabular-nums shrink-0">{s.date}</span>
-                      <span className="truncate opacity-70">{s.exercises.join(', ')}</span>
-                    </span>
+                    <div className="flex items-center gap-2 w-full min-h-[44px]">
+                      <span className="text-xs font-semibold truncate flex-1 flex justify-between gap-2">
+                        <span className="tabular-nums shrink-0">{s.date}</span>
+                        <span className="truncate opacity-70">{s.exercises.join(', ')}</span>
+                      </span>
+                      {onOpenWorkoutNote ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenWorkoutNote(s.date)}
+                          className="shrink-0 text-[10px] font-bold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px]"
+                          data-k113-cross-ref="health"
+                          data-k113-open-workout-note={s.date}
+                        >
+                          {t('k113OpenWorkoutNote')}
+                        </button>
+                      ) : null}
+                    </div>
                   )}
                 />
               </div>

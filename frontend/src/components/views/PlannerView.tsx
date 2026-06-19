@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
@@ -17,6 +17,9 @@ import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
+import { openRelatedNote, findNoteByTitle } from '../../lib/crossDomainReferences';
+import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
+import { recordPlannerActivity } from './features/planner/plannerActivityStorage';
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
 import { formatLongDate } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
@@ -166,8 +169,35 @@ export const PlannerView = ({
   }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate]);
 
   const openScheduleDetail = useCallback((id: string) => {
+    const sch = schedules.find(s => s.id === id) ?? prevSchedules.find(s => s.id === id);
+    if (sch) recordPlannerActivity('schedule', id, sch.text);
     setScheduleDetailId(id);
-  }, []);
+  }, [schedules, prevSchedules]);
+
+  const handleOpenScheduleRelatedNote = useCallback(() => {
+    if (!scheduleDetailBlock) return;
+    openRelatedNote({
+      title: scheduleDetailBlock.title,
+      returnTab: 'planner',
+      breadcrumb: [
+        { type: 'key', key: 'planner' },
+        { type: 'key', key: 'k113OpenRelatedNote' },
+      ],
+    });
+  }, [scheduleDetailBlock]);
+
+  const scheduleRelatedNoteAvailable = useMemo(() => {
+    if (!scheduleDetailBlock) return false;
+    return Boolean(findNoteByTitle(scheduleDetailBlock.title));
+  }, [scheduleDetailBlock]);
+
+  useEffect(() => {
+    return registerSearchDomainHandlers({
+      onOpenPlannerItem: (itemId) => {
+        openScheduleDetail(itemId);
+      },
+    });
+  }, [openScheduleDetail]);
 
   const handleCalendarAnchorChange = useCallback((dateKey: string) => {
     const [y, m, d] = dateKey.split('-').map(Number);
@@ -328,6 +358,8 @@ export const PlannerView = ({
             setScheduleDetailId(null);
           }}
           onClose={() => setScheduleDetailId(null)}
+          relatedNoteAvailable={scheduleRelatedNoteAvailable}
+          onOpenRelatedNote={handleOpenScheduleRelatedNote}
         />
       ) : null}
 

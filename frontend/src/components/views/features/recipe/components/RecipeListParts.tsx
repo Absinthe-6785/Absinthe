@@ -171,6 +171,7 @@ export interface RecipeVirtualListProps {
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
   onMarkCooked?: (id: string) => void;
+  onOpenCookingNote?: (recipe: Recipe) => void;
 }
 
 export function RecipeVirtualList({
@@ -184,6 +185,7 @@ export function RecipeVirtualList({
   onEdit,
   onDelete,
   onMarkCooked,
+  onOpenCookingNote,
 }: RecipeVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = recipes.length >= VIRTUALIZE_THRESHOLD;
@@ -210,6 +212,7 @@ export function RecipeVirtualList({
       onEdit={() => onEdit(recipe)}
       onDelete={() => onDelete(recipe.id, recipe.title)}
       onMarkCooked={onMarkCooked ? () => onMarkCooked(recipe.id) : undefined}
+      onOpenCookingNote={onOpenCookingNote ? () => onOpenCookingNote(recipe) : undefined}
     />
   );
 

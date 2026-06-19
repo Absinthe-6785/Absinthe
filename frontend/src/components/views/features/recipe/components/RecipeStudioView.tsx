@@ -26,6 +26,7 @@ export interface RecipeStudioViewProps {
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
   onMarkCooked: (id: string) => void;
+  onOpenCookingNote?: (recipe: Recipe) => void;
   onNewRecipe: () => void;
   onScrollToRecipe: (id: string) => void;
 }
@@ -42,6 +43,7 @@ export function RecipeStudioView({
   onEdit,
   onDelete,
   onMarkCooked,
+  onOpenCookingNote,
   onNewRecipe,
   onScrollToRecipe,
 }: RecipeStudioViewProps) {
@@ -207,6 +209,7 @@ export function RecipeStudioView({
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onMarkCooked={onMarkCooked}
+                    onOpenCookingNote={onOpenCookingNote}
                   />
                 )}
               </div>

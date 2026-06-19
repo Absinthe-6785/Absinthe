@@ -49,6 +49,8 @@ import { LearningPathEditorPanel } from './LearningPathEditorPanel';
 import type { SubjectWorkspaceData } from '../maps/buildSubjectWorkspace';
 import { SubjectWorkspacesPanel } from './SubjectWorkspacesPanel';
 import type { KnowledgeTimeline } from '../timeline';
+import type { RecentActivityProjection, RecentActivityItem } from '../../../buildRecentActivityProjection';
+import { CrossDomainRecentActivityPanel } from '../../cohesion/CrossDomainRecentActivityPanel';
 
 export interface WorkspaceDashboardReviewProps {
   lists: KnowledgeReviewLists;
@@ -210,6 +212,8 @@ export interface WorkspaceDashboardViewProps {
   learningPath?: WorkspaceDashboardLearningPathProps;
   subjectWorkspaces?: WorkspaceDashboardSubjectWorkspacesProps;
   recentNotesLimit?: number;
+  crossDomainActivity?: RecentActivityProjection;
+  onCrossDomainActivityNavigate?: (item: RecentActivityItem) => void;
 }
 
 function Card({
@@ -301,6 +305,8 @@ export function WorkspaceDashboardView({
   learningPath,
   subjectWorkspaces,
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
+  crossDomainActivity,
+  onCrossDomainActivityNavigate,
 }: WorkspaceDashboardViewProps) {
   const { isMobile, isTablet, isNarrow } = useViewportLayout();
   const outerPadding = dashboardOuterPadding(isMobile, isTablet);
@@ -413,6 +419,18 @@ export function WorkspaceDashboardView({
           </button>
         ))}
       </Card>
+
+      {crossDomainActivity && onCrossDomainActivityNavigate ? (
+        <Card colors={c} title={t('k113CrossDomainActivity')}>
+          <CrossDomainRecentActivityPanel
+            colors={c}
+            groups={crossDomainActivity.groups}
+            isEmpty={crossDomainActivity.isEmpty}
+            t={t}
+            onNavigate={onCrossDomainActivityNavigate}
+          />
+        </Card>
+      ) : null}
 
       {maintenance && (
         <Card colors={c} title={t('wsKnowledgeMaintenance')}>

@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitleForLocale } from '../../../noteDisplayTitle';
+import type { RelativeDateLabels } from '../../../k102DateFormat';
 import { formatActivityTimestamp } from '../../../k102DateFormat';
 import type {
   ArchiveHistoryGroup,
@@ -38,12 +39,17 @@ function pushItem(
 export function buildArchiveHistoryItems(
   notes: readonly NoteBase[],
   restoreRecents: readonly ArchiveRestoreRecentEntry[],
-  options?: { now?: Date; locale?: string; limitPerKind?: number },
+  options?: { now?: Date; locale?: string; limitPerKind?: number; dateLabels?: RelativeDateLabels },
 ): ArchiveHistoryProjection {
   const now = options?.now ?? new Date();
   const todayKey = todayDateKey(now);
   const locale = options?.locale;
   const limit = options?.limitPerKind ?? 8;
+  const dateLabels = options?.dateLabels ?? {
+    today: 'Today',
+    yesterday: 'Yesterday',
+    daysAgo: (n: number) => `${n} days ago`,
+  };
   const groups = emptyGroups();
   const byId = new Map(notes.map(n => [n.id, n]));
 
@@ -62,7 +68,7 @@ export function buildArchiveHistoryItems(
           note.lastOpenedAt,
           todayKey,
           null,
-          { today: 'Today', yesterday: 'Yesterday', daysAgo: n => `${n} days ago` },
+          dateLabels,
         ),
       });
     }
@@ -78,7 +84,7 @@ export function buildArchiveHistoryItems(
           note.updatedAt,
           todayKey,
           null,
-          { today: 'Today', yesterday: 'Yesterday', daysAgo: n => `${n} days ago` },
+          dateLabels,
         ),
       });
     }
@@ -98,7 +104,7 @@ export function buildArchiveHistoryItems(
         recent.restoredAt,
         todayKey,
         null,
-        { today: 'Today', yesterday: 'Yesterday', daysAgo: n => `${n} days ago` },
+        dateLabels,
       ),
     });
   }

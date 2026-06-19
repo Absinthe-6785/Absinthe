@@ -603,6 +603,25 @@ const translations = {
   k111EmptyNoRecent:         { en: 'No recent searches', ko: '최근 검색 없음', ja: '最近の検索なし' },
   k111EmptyNoRecentHint:     { en: 'Your recent selections will appear here.', ko: '최근 선택한 항목이 여기에 표시됩니다.', ja: '最近選んだ項目がここに表示されます。' },
 
+  // ── K-113 Cross-domain cohesion ───────────────────────────────────
+  k113ThisWeek:              { en: 'This week', ko: '이번 주', ja: '今週' },
+  k113Earlier:               { en: 'Earlier', ko: '이전', ja: 'それ以前' },
+  k113CrossDomainActivity:   { en: 'Recent activity', ko: '최근 활동', ja: '最近のアクティビティ' },
+  k113NoRecentActivity:      { en: 'No recent activity yet.', ko: '최근 활동이 없습니다.', ja: '最近のアクティビティはまだありません。' },
+  k113OpenRelatedNote:       { en: 'Open related note', ko: '관련 노트 열기', ja: '関連ノートを開く' },
+  k113OpenCookingNote:       { en: 'Open cooking note', ko: '요리 노트 열기', ja: '料理ノートを開く' },
+  k113OpenWorkoutNote:       { en: 'Open workout note', ko: '운동 노트 열기', ja: 'ワークアウトノートを開く' },
+  k113OpenInNotes:           { en: 'Open in Notes', ko: '노트에서 열기', ja: 'ノートで開く' },
+  k113OpenPlannerEvent:      { en: 'Open planner event', ko: '플래너 일정 열기', ja: 'プランナー予定を開く' },
+  k113OpenRecipe:            { en: 'Open recipe', ko: '레시피 열기', ja: 'レシピを開く' },
+  k113OpenArchiveItem:       { en: 'Open archive item', ko: '아카이브 항목 열기', ja: 'アーカイブ項目を開く' },
+  k113NoRecipesYet:          { en: 'No recipes yet.', ko: '레시피가 아직 없습니다.', ja: 'レシピはまだありません。' },
+  k113NoHistoryYet:          { en: 'No history yet.', ko: '기록이 아직 없습니다.', ja: '履歴はまだありません。' },
+  k113DomainNotes:           { en: 'Notes', ko: '노트', ja: 'ノート' },
+  k113DomainPlanner:         { en: 'Planner', ko: '플래너', ja: 'プランナー' },
+  k113DomainRecipe:          { en: 'Recipe', ko: '레시피', ja: 'レシピ' },
+  k113DomainArchive:         { en: 'Archive', ko: '아카이브', ja: 'アーカイブ' },
+
   other:          { en: 'Other',          ko: '기타',         ja: 'その他'       },
   workoutSavedShort: { en: 'Workout Saved', ko: '운동 저장됨', ja: '保存しました' },
 
