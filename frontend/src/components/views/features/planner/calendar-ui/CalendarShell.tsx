@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from 'react';
 import type { DateTime } from 'luxon';
-import type { AppSettings, Schedule, Theme, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Schedule, Theme, ThemeColor, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { MonthCalendarView } from './month';
@@ -26,8 +26,9 @@ export interface CalendarShellProps {
   onAnchorDateChange?: (dateKey: string) => void;
   dayScheduleActions?: DayScheduleActions;
   eventActions?: AgendaEventActions;
-  weeklyActivityCount?: number;
-  onOpenTimetable?: () => void;
+  THEME_COLORS?: ThemeColor[];
+  mutateStatic?: () => void;
+  showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 /** K-80 calendar-first shell — month grid + upcoming agenda only. */
@@ -44,8 +45,9 @@ export function CalendarShell({
   onAnchorDateChange,
   dayScheduleActions,
   eventActions,
-  weeklyActivityCount,
-  onOpenTimetable,
+  THEME_COLORS,
+  mutateStatic,
+  showToast,
 }: CalendarShellProps) {
   const { t } = useTranslation();
   const todayKey = toDateKey(now.toJSDate()) ?? anchorDate;
@@ -110,8 +112,11 @@ export function CalendarShell({
             onDateSelect={onAnchorDateChange}
             scheduleActions={dayScheduleActions}
             eventActions={eventActions}
-            weeklyActivityCount={weeklyActivityCount}
-            onOpenTimetable={onOpenTimetable}
+            weeklySchedules={weeklySchedules}
+            appSettings={appSettings}
+            THEME_COLORS={THEME_COLORS}
+            mutateStatic={mutateStatic}
+            showToast={showToast}
           />
         </div>
       )}

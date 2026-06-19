@@ -27,6 +27,8 @@ export interface WeeklyTimetableSectionProps {
   showToast: (message: string, type?: 'success' | 'error') => void;
   /** Dedicated Timetable tab — always expanded, no collapse toggle (K-74). */
   standalone?: boolean;
+  /** K-117 — embedded section inside unified Schedule workspace. */
+  sectionEmbedded?: boolean;
 }
 
 export function WeeklyTimetableSection({
@@ -37,6 +39,7 @@ export function WeeklyTimetableSection({
   mutateStatic,
   showToast,
   standalone = false,
+  sectionEmbedded = false,
 }: WeeklyTimetableSectionProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -61,9 +64,10 @@ export function WeeklyTimetableSection({
 
   const weekdays = WEEKDAY_KEYS.map(key => t(key));
   const hasActivities = weeklySchedules.length > 0;
-  const [expanded, setExpanded] = useState(hasActivities);
-  const showGrid = standalone ? !isMobile : expanded;
-  const showMobileList = standalone && isMobile;
+  const inlineExpanded = standalone || sectionEmbedded;
+  const [expanded, setExpanded] = useState(hasActivities || sectionEmbedded);
+  const showGrid = inlineExpanded ? !isMobile : expanded;
+  const showMobileList = (standalone || sectionEmbedded) && isMobile;
 
   const openWeeklyModal = (sch?: WeeklySchedule) => {
     setNewWeeklySch(sch ?? {
@@ -152,25 +156,28 @@ export function WeeklyTimetableSection({
   return (
     <>
       <section
-        className={`w-full rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col overflow-hidden transition-colors ${theme.card} ${showGrid || showMobileList ? 'min-h-[360px] lg:min-h-[480px]' : ''}`}
+        className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
+          ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-3 lg:p-4' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
+          ${showGrid || showMobileList ? (sectionEmbedded ? 'min-h-[200px] lg:min-h-[280px]' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
+        data-k117-timetable-embedded={sectionEmbedded ? 'true' : 'false'}
       >
-        <div className="flex justify-between items-center mb-4">
+        <div className={`flex justify-between items-center ${sectionEmbedded ? 'mb-2' : 'mb-4'}`}>
           <div>
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
               <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
             </h2>
-            {!standalone && !expanded && !hasActivities && (
+            {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
               <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
             )}
-            {standalone ? (
-              <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('k74TimetableHint')}</p>
+            {standalone || sectionEmbedded ? (
+              <p className={`text-xs mt-0.5 ${theme.textMuted}`}>{t('k74TimetableHint')}</p>
             ) : null}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {!standalone ? (
+            {!standalone && !sectionEmbedded ? (
               <button
                 type="button"
                 onClick={() => setExpanded(v => !v)}
@@ -192,7 +199,7 @@ export function WeeklyTimetableSection({
           </div>
         </div>
 
-        {!standalone && !expanded && !hasActivities && (
+        {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
           <div className="py-6" data-planner-weekly-timetable-collapsed-empty="true">
             <ProductEmptyState
               variant="tailwind"

@@ -8,9 +8,7 @@ import { useNotesStore } from '@/store/useNotesStore';
 import { hasDailyNote, formatDailyNoteLabel } from '../../../../k101DailyNote';
 import { openTodaysDailyNoteFromApp } from '../../../../k105DailyWorkflow';
 import { DayScheduleTimeline } from '../day/DayScheduleTimeline';
-import { UpcomingAgendaPanel } from './UpcomingAgendaPanel';
-import { PlannerRoutineTodayCard } from './PlannerRoutineTodayCard';
-import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
+import type { DayScheduleActions } from '../day/dayScheduleActions';
 import { buildDayViewPayload } from '../../calendar/buildPlannerViewPayloads';
 
 export interface PlannerTodayPanelProps {
@@ -19,9 +17,6 @@ export interface PlannerTodayPanelProps {
   theme: Theme;
   todayKey: string;
   scheduleActions?: DayScheduleActions;
-  eventActions?: AgendaEventActions;
-  onDateSelect?: (dateKey: string) => void;
-  onOpenTimetable?: () => void;
 }
 
 function resolveTodayTimeline(
@@ -51,16 +46,12 @@ function resolveTodayTimeline(
   }).timeline;
 }
 
-/** K-108 Today-centric workspace — note, schedule, routine, upcoming. */
+/** K-117 Today section — daily note + today's schedule timeline. */
 export function PlannerTodayPanel({
   plannerProjection,
-  presentation,
   theme,
   todayKey,
   scheduleActions,
-  eventActions,
-  onDateSelect,
-  onOpenTimetable,
 }: PlannerTodayPanelProps) {
   const { t, lang } = useTranslation();
   const notes = useNotesStore(s => s.notes);
@@ -82,14 +73,14 @@ export function PlannerTodayPanel({
         <h2 className="font-heading text-sm font-bold mb-2">{t('plannerToday')}</h2>
         <div className={`border-t ${theme.border} mb-2`} aria-hidden />
 
-        <section className="mb-3" data-k105-planner-todays-note>
+        <section className="mb-2" data-k105-planner-todays-note>
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
             {t('k105TodaysNote')}
           </p>
           <button
             type="button"
             onClick={openTodaysDailyNoteFromApp}
-            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[44px]`}
+            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[40px]`}
           >
             <span className="flex items-center gap-2 min-w-0">
               <FileText size={14} className="shrink-0 text-muted" />
@@ -101,28 +92,14 @@ export function PlannerTodayPanel({
           </button>
         </section>
 
-        <section className="mb-3" data-k105-planner-today-schedule>
+        <section data-k105-planner-today-schedule>
           <DayScheduleTimeline
             blocks={timeline.blocks}
             carryOverBlocks={timeline.carryOverBlocks}
             scheduleActions={scheduleActions}
+            suppressEmpty
           />
         </section>
-
-        <PlannerRoutineTodayCard
-          theme={theme}
-          slots={plannerProjection.timetableToday}
-          onOpenTimetable={onOpenTimetable}
-        />
-
-        <UpcomingAgendaPanel
-          tierSections={plannerProjection.groupedUpcoming}
-          theme={theme}
-          scheduleActions={scheduleActions}
-          eventActions={eventActions}
-          onDateSelect={onDateSelect}
-          embedded
-        />
       </div>
     </div>
   );

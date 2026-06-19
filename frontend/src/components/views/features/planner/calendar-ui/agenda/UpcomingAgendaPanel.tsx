@@ -15,6 +15,8 @@ export interface UpcomingAgendaPanelProps {
   eventActions?: AgendaEventActions;
   onDateSelect?: (dateKey: string) => void;
   embedded?: boolean;
+  /** K-117 — hide entire panel when there are no upcoming items. */
+  collapseWhenEmpty?: boolean;
 }
 
 /** K-108 — tiered upcoming (Today / Tomorrow / Later) inside Today workspace. */
@@ -25,6 +27,7 @@ export function UpcomingAgendaPanel({
   eventActions,
   onDateSelect,
   embedded = false,
+  collapseWhenEmpty = false,
 }: UpcomingAgendaPanelProps) {
   const { t } = useTranslation();
   const { ref, visible } = useElementVisible('80px');
@@ -35,8 +38,12 @@ export function UpcomingAgendaPanel({
     [tierSections],
   );
 
+  if (collapseWhenEmpty && itemCount === 0) {
+    return null;
+  }
+
   const shellClass = embedded
-    ? 'flex flex-col gap-1.5 min-h-0'
+    ? 'flex flex-col gap-1 min-h-0'
     : `rounded-[16px] lg:rounded-[20px] p-2 lg:p-2.5 flex flex-col gap-1.5 min-h-0 h-full ${theme.card}`;
 
   return (
@@ -61,7 +68,7 @@ export function UpcomingAgendaPanel({
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto max-h-[320px]" data-k102-upcoming-scroll>
+      <div className="flex-1 min-h-0 overflow-y-auto max-h-[240px]" data-k102-upcoming-scroll>
         {!visible ? (
           <div className="h-16 rounded-lg bg-muted/20 animate-pulse" aria-hidden />
         ) : itemCount === 0 ? (

@@ -130,7 +130,8 @@ describe('CalendarShell', () => {
     expect(html).toContain('data-planner-calendar-mode="month"');
     expect(html).toContain('data-planner-calendar-period-nav');
     expect(html).toContain('data-planner-calendar-month');
-    expect(html).toContain('data-planner-upcoming-agenda');
+    expect(html).toContain('data-k117-schedule-workspace');
+    expect(html).toContain('data-k117-schedule-section="upcoming"');
     expect(html).not.toContain('data-planner-calendar-mode-switcher');
     expect(html).not.toContain('data-planner-calendar-day');
     expect(html).not.toContain('data-planner-calendar-week');

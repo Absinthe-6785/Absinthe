@@ -248,7 +248,7 @@ describe('AnalyticsView projection-driven archive content', () => {
     });
 
     const html = renderAnalyticsView();
-    expect(html).toContain(projection.browse.thisMonth.label);
+    expect(html).toContain('data-k109-archive-section="browse"');
     expect(html).toContain('Recent activity');
     expect(html).toContain('Browse');
     expect(html).not.toContain('Recent transitions');

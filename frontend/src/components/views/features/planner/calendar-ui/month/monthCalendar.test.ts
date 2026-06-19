@@ -269,8 +269,8 @@ describe('MonthCalendarView', () => {
       createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
-    expect(html).toContain('data-planner-upcoming-agenda');
-    expect(html).toContain('data-k108-planner-upcoming');
+    expect(html).toContain('data-k117-schedule-section="upcoming"');
+    expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html.match(/data-planner-month-cell=/g)?.length).toBe(42);
   });
 

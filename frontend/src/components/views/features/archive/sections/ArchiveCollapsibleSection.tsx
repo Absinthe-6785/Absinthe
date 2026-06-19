@@ -30,6 +30,7 @@ export function ArchiveCollapsibleSection({
       className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card}`}
       data-k109-archive-section={sectionId}
       data-k109-collapsed={collapsed ? 'true' : 'false'}
+      {...(sectionId === 'browse' ? { 'data-archive-browse': true } : {})}
     >
       <button
         type="button"
