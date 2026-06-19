@@ -6,6 +6,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { copyPlainTextToClipboard } from './features/block-editor/features/clipboard/copy/copyToClipboard';
 import type { GalleryImage } from './imageGallery';
+import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 
 export interface ImageGalleryViewerProps {
   images: readonly GalleryImage[];
@@ -163,6 +164,7 @@ export function ImageGalleryViewer({
   if (!current) return null;
 
   return (
+    <WorkspaceErrorBoundary workspace="image-gallery">
     <div
       className="fixed inset-0 z-[250] flex flex-col bg-black/90 backdrop-blur-sm"
       data-k118-image-viewer
@@ -282,5 +284,6 @@ export function ImageGalleryViewer({
         <p className="text-center text-sm text-white/90 px-4 py-3 shrink-0">{current.caption}</p>
       ) : null}
     </div>
+    </WorkspaceErrorBoundary>
   );
 }

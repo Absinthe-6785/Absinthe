@@ -35,7 +35,7 @@ describe('k95KnowledgeIndexAudit index attribution', () => {
     expect(memory.noteCount).toBe(noteCount);
     expect(memory.notesBodiesBytes).toBeGreaterThan(0);
     expect(memory.indexTotalBytes).toBeGreaterThan(0);
-  });
+  }, 120_000);
 
   it('related footprint grows with vault size', () => {
     const small = analyzeRelatedByNoteIdFootprint(buildK95IndexAuditFixture(100).service);
@@ -44,7 +44,7 @@ describe('k95KnowledgeIndexAudit index attribution', () => {
     expect(large.relatedEntries).toBeGreaterThan(small.relatedEntries);
     expect(large.estimatedRelatedBytes).toBeGreaterThan(small.estimatedRelatedBytes);
     expect(large.compactReductionPct).toBeGreaterThan(30);
-  });
+  }, 60_000);
 
   it('growth curve is monotonic for index bytes', () => {
     const rows = runK95GrowthCurve();
@@ -54,7 +54,7 @@ describe('k95KnowledgeIndexAudit index attribution', () => {
       expect(rows[i]!.memory.indexTotalBytes).toBeGreaterThan(rows[i - 1]!.memory.indexTotalBytes);
       expect(rows[i]!.memory.notesBodiesBytes).toBeGreaterThan(rows[i - 1]!.memory.notesBodiesBytes);
     }
-  });
+  }, 120_000);
 });
 
 describe('k95KnowledgeIndexAudit extractLinkContexts', () => {

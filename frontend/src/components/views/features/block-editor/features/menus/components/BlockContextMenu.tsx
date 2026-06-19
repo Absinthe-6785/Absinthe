@@ -17,6 +17,8 @@ import { BLOCK_TINT_OPTIONS, type BlockTint } from '../../../../../blockColors';
 import { blockIcon } from '../../../../../blockIcons';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { CONTEXT_MENU, TINT_LABELS } from '../utils/editorMenuModel';
+import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
+import { UI_DENSITY } from '@/lib/uiDensityTokens';
 import { BLOCK_MENU_FOOTER_HINT } from '../../../utils/editorDiscoverability';
 
 export interface BlockContextMenuProps {
@@ -88,9 +90,9 @@ export function BlockContextMenu({
 
   const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
     <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
-      display:'flex', alignItems:'center', gap:8, width:'100%',
-      padding:'7px 12px', background:'none', border:'none',
-      cursor: disabled ? 'default' : 'pointer', fontSize:13,
+      display:'flex', alignItems:'center', gap: UI_INTERACTION.editorMenuItemGapPx, width:'100%',
+      padding:`7px ${UI_INTERACTION.editorMenuItemPaddingPx}px`, background:'none', border:'none',
+      cursor: disabled ? 'default' : 'pointer', fontSize: UI_DENSITY.editorMenuItemFontPx,
       color: disabled ? c.textFaint : danger ? c.danger : c.text,
       textAlign:'left', opacity: disabled ? 0.45 : 1,
     }}
@@ -100,7 +102,7 @@ export function BlockContextMenu({
     </button>
   );
   const sec = (label: string) => (
-    <div style={{ padding:'5px 12px 2px', fontSize:9, fontWeight:700, color:c.textFaint, letterSpacing:1, textTransform:'uppercase' }}>
+    <div style={{ padding:`5px ${UI_INTERACTION.editorMenuItemPaddingPx}px 2px`, fontSize: UI_DENSITY.editorMenuSectionFontPx, fontWeight:700, color:c.textFaint, letterSpacing:1, textTransform:'uppercase' }}>
       {label}
     </div>
   );
@@ -111,11 +113,12 @@ export function BlockContextMenu({
       className="be-block-handle-menu"
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
+      data-k120-editor-context-menu
       style={{
-        position:'fixed', top: menuPos.top, left: menuPos.left, zIndex:400,
+        position:'fixed', top: menuPos.top, left: menuPos.left, zIndex: UI_INTERACTION.editorMenuZIndex,
         background:c.card, border:`1px solid ${c.border}`,
         borderRadius: c.radiusModal ?? 16, boxShadow: c.menuShadow ?? '0 8px 24px rgba(0,0,0,0.1)',
-        minWidth:210, maxWidth:240, overflow:'hidden', padding:'6px 0',
+        minWidth: UI_INTERACTION.editorMenuMinWidthPx, maxWidth: UI_INTERACTION.editorMenuMaxWidthPx, overflow:'hidden', padding:'6px 0',
       }}
     >
       {submenu === 'turn' ? (

@@ -16,6 +16,11 @@ export const UI_INTERACTION = {
   toolbarActionGapPx: 8,
   toolbarBtnSizePx: 24,
   escapeKey: 'Escape',
+  editorMenuMinWidthPx: 210,
+  editorMenuMaxWidthPx: 240,
+  editorMenuItemPaddingPx: 12,
+  editorMenuItemGapPx: 8,
+  editorMenuZIndex: 400,
 } as const;
 
 export type UiInteractionToken = keyof typeof UI_INTERACTION;

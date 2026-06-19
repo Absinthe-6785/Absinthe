@@ -16,6 +16,7 @@ import {
   recordRecipeEdit,
 } from './features/recipe';
 import { RecipeStudioView } from './features/recipe/components/RecipeStudioView';
+import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { RecipeFormModal, type RecipeFormState } from './features/recipe/components/RecipeListParts';
 import { openRecipeCookingNote } from '../../lib/crossDomainReferences';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
@@ -178,6 +179,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
 
   return (
     <>
+      <WorkspaceErrorBoundary workspace="recipe">
       <RecipeStudioView
         projection={projection}
         recipes={recipes}
@@ -194,6 +196,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
         onNewRecipe={openNew}
         onScrollToRecipe={handleScrollToRecipe}
       />
+      </WorkspaceErrorBoundary>
 
       <RecipeFormModal
         show={showForm}
