@@ -13,7 +13,7 @@ export function auditFindInNotePanel(): Record<string, boolean> {
   return {
     panelModule: panel.includes('FindInNotePanel'),
     panelHook: panel.includes('data-k122-find-in-note'),
-    desktopBar: panel.includes('data-k122-find-desktop'),
+    desktopBar: panel.includes('data-k123-find-anchored'),
     mobileSheet: panel.includes('data-k122-find-sheet'),
     findLabel: panel.includes('nvDocumentSearch'),
     matchCount: panel.includes('data-k122-find-count'),

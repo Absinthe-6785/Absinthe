@@ -9,7 +9,7 @@ export function buildEditorCssVariables(colors: BlockEditorColors): CSSPropertie
     '--be-code-bg': colors.codeBg,
     '--be-placeholder-color': colors.textFaint,
     '--be-text': colors.text,
-    '--be-doc-width': colors.documentMaxWidth ? `${colors.documentMaxWidth}px` : '720px',
+    '--be-doc-width': colors.documentMaxWidth ? `${colors.documentMaxWidth}px` : '980px',
     '--be-font-family': colors.fontFamily ?? 'system-ui, sans-serif',
     '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
     '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,

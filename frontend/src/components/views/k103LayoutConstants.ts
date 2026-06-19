@@ -3,7 +3,9 @@
  */
 export const K103_NOTE_LIST_WIDTH_PX = 236;
 export const K103_NOTE_LIST_MIN_WIDTH_PX = 220;
-export const K103_READING_MAX_WIDTH_PX = 700;
+import { K123_EDITOR_COLUMN_MAX_PX } from '../../lib/k123EditorLayout';
+
+export const K103_READING_MAX_WIDTH_PX = K123_EDITOR_COLUMN_MAX_PX;
 export const K103_PLANNER_RIGHT_PANEL_MAX_PX = 340;
 export const K103_SETTINGS_MAX_WIDTH = 'max-w-3xl';
 

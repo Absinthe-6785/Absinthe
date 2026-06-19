@@ -9,7 +9,9 @@ export const NOTE_FONT_OPTIONS = [
   { id: 'mono',   label: 'Mono',   value: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace" },
 ] as const;
 
-export const NOTE_DOCUMENT_MAX_WIDTH = 720;
+import { K123_EDITOR_COLUMN_MAX_PX } from '../../lib/k123EditorLayout';
+
+export const NOTE_DOCUMENT_MAX_WIDTH = K123_EDITOR_COLUMN_MAX_PX;
 
 /** Radius — aligned with global design tokens */
 export const NOTE_RADIUS_BTN = 8;
