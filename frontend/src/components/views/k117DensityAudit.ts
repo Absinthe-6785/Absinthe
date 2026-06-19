@@ -12,11 +12,11 @@ export function auditPlannerDensity(): Record<string, boolean> {
   const upcoming = readFileSync(join(ROOT, 'features/planner/calendar-ui/agenda/UpcomingAgendaPanel.tsx'), 'utf8');
   const timetable = readFileSync(join(ROOT, 'features/planner/WeeklyTimetableSection.tsx'), 'utf8');
   return {
-    compactSectionGap: month.includes('gap-2 lg:gap-2.5'),
+    compactSectionGap: month.includes('gap-1.5 lg:gap-2'),
     upcomingCollapseEmpty: upcoming.includes('collapseWhenEmpty'),
-    upcomingMaxHeight: upcoming.includes('max-h-[240px]'),
+    upcomingMaxHeight: upcoming.includes('max-h-[200px]'),
     adaptiveCalendar: month.includes('data-k117-planner-calendar-adaptive'),
-    compactTimetable: timetable.includes('sectionEmbedded') && timetable.includes('min-h-[200px]'),
+    compactTimetable: timetable.includes('sectionEmbedded') && timetable.includes('min-h-[140px]'),
   };
 }
 

@@ -166,7 +166,7 @@ export function UpcomingTierGroupList({
 
   return (
     <>
-      <div className="flex flex-col gap-3" data-k108-planner-upcoming-tier data-planner-upcoming-groups>
+      <div className="flex flex-col gap-1.5" data-k108-planner-upcoming-tier data-planner-upcoming-groups>
         {sections.map(section => (
           <section key={section.tier} data-k108-upcoming-tier={section.tier}>
             {section.tier === 'later' ? (
@@ -174,7 +174,7 @@ export function UpcomingTierGroupList({
                 {section.tierLabel}
               </h4>
             ) : null}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {section.days.map(group => (
                 <DayGroup
                   key={group.dateKey}
