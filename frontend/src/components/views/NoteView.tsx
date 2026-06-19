@@ -814,6 +814,12 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   useEffect(() => { setSearchMatchIdx(0); }, [searchQuery, activeNoteId, searchScope]);
 
+  useEffect(() => {
+    setDocumentSearchOpen(false);
+    setSearchQuery('');
+    setSearchMatchIdx(0);
+  }, [activeNoteId, setDocumentSearchOpen, setSearchQuery, setSearchMatchIdx]);
+
   const editorSearchQuery = searchScope === 'all' ? '' : searchQuery;
 
   const toc = useMemo(

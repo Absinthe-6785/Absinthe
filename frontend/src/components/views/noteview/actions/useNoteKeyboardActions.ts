@@ -161,7 +161,7 @@ export function useNoteKeyboardActions(
           break;
         case 'f':
           e.preventDefault();
-          if (e.shiftKey) setFocusMode(v => !v);
+          if (e.shiftKey) openWorkspaceSearch();
           else {
             setDocumentSearchOpen(true);
             searchInputRef.current?.focus();

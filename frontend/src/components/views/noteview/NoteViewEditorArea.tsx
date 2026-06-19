@@ -1,12 +1,12 @@
-import { forwardRef, useImperativeHandle, useEffect, useMemo, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { forwardRef, useImperativeHandle, useEffect, useMemo, useRef, useCallback, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
-import { setNoteBreadcrumb, openWorkspaceSearch } from '../../../lib/noteNavigation';
+import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
 import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Search, Type, Eye, Orbit, Plus,
+  Type, Eye, Orbit, Plus,
   AlertTriangle, Save, GitFork, Upload,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
@@ -47,7 +47,7 @@ import {
 } from '../features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
-import { DocumentSearchToolbar } from './DocumentSearchToolbar';
+import { FindInNotePanel } from './FindInNotePanel';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
@@ -284,20 +284,32 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     onOpenTodaysNote, onImportVault,
   } = handlers;
 
-  const showReadingSearchBar = viewMode === 'reading' && !isTrash
-    && (documentSearchOpen || Boolean(searchQuery.trim()));
+  const showFindInNotePanel = documentSearchOpen && Boolean(activeNote) && !isTrash;
+
+  const editorFocusBeforeSearchRef = useRef<HTMLElement | null>(null);
+
+  const closeDocumentSearch = useCallback(() => {
+    setDocumentSearchOpen(false);
+    setSearchQuery('');
+    setSearchMatchIdx(0);
+    const prev = editorFocusBeforeSearchRef.current;
+    if (prev?.isConnected) prev.focus();
+    else scheduleEditorFocus(blockEditorRef);
+    editorFocusBeforeSearchRef.current = null;
+  }, [blockEditorRef, setDocumentSearchOpen, setSearchMatchIdx, setSearchQuery]);
+
+  const openDocumentSearch = useCallback(() => {
+    editorFocusBeforeSearchRef.current = document.activeElement as HTMLElement;
+    setDocumentSearchOpen(true);
+    setSearchScope('document');
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchInputRef, setDocumentSearchOpen, setSearchScope]);
 
   const documentSearchMatchCount = useMemo(() => {
     const blocks = blockEditorRef.current?.getBlocks?.();
     if (!blocks || !editorSearchQuery.trim()) return 0;
     return collectEditorSearchMatches(blocks, editorSearchQuery).length;
   }, [blockEditorRef, editorSearchQuery, searchMatchIdx, activeNote?.body, activeNoteId]);
-
-  const focusDocumentSearch = () => {
-    setDocumentSearchOpen(true);
-    setSearchScope('document');
-    requestAnimationFrame(() => searchInputRef.current?.focus());
-  };
 
   const { returnTab, goReturn } = useNoteReturnTab();
   const breadcrumb = useNoteBreadcrumb();
@@ -328,8 +340,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         setSearchQuery('');
         setSearchMatchIdx(0);
       } else {
-        setDocumentSearchOpen(false);
-        e.currentTarget.blur();
+        closeDocumentSearch();
       }
       return;
     }
@@ -355,12 +366,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
         <div
           data-k117-note-top-actions
           data-k121-notes-header-action-row
+          data-k122-notes-header
           className="bsticky-header"
           style={{
             padding: isMobile ? '6px 10px' : '6px 12px',
             borderBottom: `1px solid ${c.sideBdr}`,
             display: 'flex',
             alignItems: 'stretch',
+            justifyContent: 'flex-end',
             gap: 8,
             flexShrink: 0,
             background: c.toolbar,
@@ -369,31 +382,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 40,
           }}
         >
-          <button
-            type="button"
-            onClick={() => openWorkspaceSearch()}
-            data-noteview-workspace-search-trigger
-            data-k121-notes-search
-            className="btbtn"
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
-              padding: '0 12px',
-              fontSize: 12,
-              color: c.textMuted,
-              border: `1px solid ${c.sideBdr}`,
-              borderRadius: 8,
-              background: c.input,
-            }}
-          >
-            <Search size={14} />
-            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {t('k81WorkspaceSearchHint')}
-            </span>
-          </button>
           <button
             type="button"
             onClick={handleNewNote}
@@ -620,7 +608,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   });
                 }
               }}
-              onOpenDocumentSearch={viewMode === 'reading' ? focusDocumentSearch : undefined}
+              onOpenDocumentSearch={openDocumentSearch}
               onMarkEvent={() => openEditEventDialog(activeNote)}
               onMarkMilestone={() => openMilestoneDialog(activeNote)}
               onToggleArea={handleToggleAreaNote}
@@ -734,43 +722,25 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             </div>
           ) : (
             <>
-              {!isTrash && showReadingSearchBar && activeNote && (
-                <div
-                  data-read-mode-search-toolbar
-                  className="bsticky-header"
-                  style={{
-                    padding: '5px 12px',
-                    borderBottom: `1px solid ${c.toolBdr}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: EDITOR_TOOLBAR_GAP,
-                    flexShrink: 0,
-                    background: c.toolbar,
-                    flexWrap: 'wrap',
-                    top: 0,
-                    zIndex: 4,
-                    boxShadow: `0 1px 0 ${c.sideBdr}`,
+              {showFindInNotePanel ? (
+                <FindInNotePanel
+                  open={documentSearchOpen}
+                  isMobile={isMobile}
+                  colors={c}
+                  searchInputRef={searchInputRef}
+                  searchQuery={searchQuery}
+                  matchCount={documentSearchMatchCount}
+                  activeMatchIndex={searchMatchIdx}
+                  onQueryChange={query => {
+                    setSearchQuery(query);
+                    setSearchScope('document');
                   }}
-                >
-                  <DocumentSearchToolbar
-                    colors={c}
-                    searchInputRef={searchInputRef}
-                    searchQuery={searchQuery}
-                    searchScope={searchScope}
-                    matchCount={documentSearchMatchCount}
-                    activeMatchIndex={searchMatchIdx}
-                    compact
-                    onQueryChange={query => {
-                      setSearchQuery(query);
-                      setSearchScope('document');
-                    }}
-                    onScopeChange={setSearchScope}
-                    onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
-                    onNextMatch={() => setSearchMatchIdx(i => i + 1)}
-                    onKeyDown={handleDocumentSearchKeyDown}
-                  />
-                </div>
-              )}
+                  onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
+                  onNextMatch={() => setSearchMatchIdx(i => i + 1)}
+                  onClose={closeDocumentSearch}
+                  onKeyDown={handleDocumentSearchKeyDown}
+                />
+              ) : null}
 
               {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
               {!isTrash && viewMode === 'edit' && (
@@ -794,24 +764,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
-                  {activeNote ? (
-                    <DocumentSearchToolbar
-                      colors={c}
-                      searchInputRef={searchInputRef}
-                      searchQuery={searchQuery}
-                      searchScope={searchScope}
-                      matchCount={documentSearchMatchCount}
-                      activeMatchIndex={searchMatchIdx}
-                      onQueryChange={query => {
-                        setSearchQuery(query);
-                        setSearchScope('document');
-                      }}
-                      onScopeChange={setSearchScope}
-                      onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
-                      onNextMatch={() => setSearchMatchIdx(i => i + 1)}
-                      onKeyDown={handleDocumentSearchKeyDown}
-                    />
-                  ) : null}
                   <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={12}/>
                   </button>

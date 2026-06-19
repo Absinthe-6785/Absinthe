@@ -214,6 +214,7 @@ export function SearchWorkspacePalette({
       }}
       onClick={onClose}
       data-k111-search-modal
+      data-k122-search-overlay
     >
       <div
         ref={panelRef}
