@@ -59,6 +59,16 @@ import { recordArchiveRestore } from '../components/views/features/knowledge/arc
 import { knowledgeIndexService } from '../components/views/features/knowledge';
 import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
+  fetchFoldersFromCloud,
+  fetchNotesFromCloud,
+  mapDbFolder,
+  mergeDeltaNoteRows,
+  computeLastSyncTimestamp,
+  writeLastNotesSyncAt,
+  type NotesSyncMode,
+} from '../lib/notesSyncClient';
+import { runCoalescedHydrate } from '../lib/syncRequestGate';
+import {
   clearKnowledgeHistory,
   recordNoteCreated,
   recordNoteDeleted,
@@ -112,7 +122,8 @@ interface NotesState {
   canUndoVaultRestore: () => boolean;
   vaultRestoreCanUndo: boolean;
 
-  hydrateFromDB: () => Promise<void>;
+  hydrateFromDB: (options?: { mode?: NotesSyncMode }) => Promise<void>;
+  hydrateFromDBFull: () => Promise<void>;
   syncNoteToDB: (note: Note) => Promise<boolean>;
   flushPendingSync: () => void;
   retrySync: () => void;
@@ -651,52 +662,70 @@ export const useNotesStore = create<NotesState>((set, get) => {
       void removeFolderFromDB(id);
     },
 
-    hydrateFromDB: async () => {
-      set({ isSyncing: true });
-      try {
-        const fRes = await authFetch(`${API_URL}/api/note_folders`);
-        if (!fRes.ok) set({ syncError: `Failed to load folders (${fRes.status})` });
-        if (fRes.ok) {
-          const raw = await fRes.json();
-          const dbFolders: NoteFolder[] = raw.map((f: { id: string; name: string; created_at: number }) => ({
-            id: f.id, name: f.name, createdAt: f.created_at,
-          }));
-          const localFolders = get().folders;
-          const dbIds = new Set(dbFolders.map(f => f.id));
-          const localOnly = localFolders.filter(f => !dbIds.has(f.id));
-          const mergedFolders = mergeFolderArrays(localOnly, dbFolders);
-          if (mergedFolders.length > 0) {
-            set({ folders: mergedFolders });
-            persistFolders(mergedFolders);
-            if (localOnly.length > 0) {
-              await Promise.allSettled(localOnly.map(f => syncFolderToDB(f)));
+    hydrateFromDB: async (options) => {
+      await runCoalescedHydrate(async () => {
+        const mode = options?.mode;
+        set({ isSyncing: true });
+        try {
+          try {
+            const folderResult = await fetchFoldersFromCloud(mode);
+            if (!folderResult.skipped) {
+              const dbFolders: NoteFolder[] = folderResult.rows.map(mapDbFolder);
+              const localFolders = get().folders;
+              const dbIds = new Set(dbFolders.map(f => f.id));
+              const localOnly = localFolders.filter(f => !dbIds.has(f.id));
+              const mergedFolders = mergeFolderArrays(localOnly, dbFolders);
+              if (mergedFolders.length > 0) {
+                set({ folders: mergedFolders });
+                persistFolders(mergedFolders);
+                if (localOnly.length > 0) {
+                  await Promise.allSettled(localOnly.map(f => syncFolderToDB(f)));
+                }
+              }
             }
+          } catch (folderErr) {
+            set({ syncError: folderErr instanceof Error ? folderErr.message : 'Failed to load folders' });
           }
-        }
 
-        const nRes = await authFetch(`${API_URL}/api/notes`);
-        if (!nRes.ok) set({ syncError: `Failed to load notes (${nRes.status})` });
-        if (nRes.ok) {
-          const raw = await nRes.json();
+          const notesResult = await fetchNotesFromCloud(mode);
+          const raw = notesResult.rows;
           const localNotes = get().notes;
           const dbNotes: Note[] = raw.map((n: Parameters<typeof mapDbNote>[0]) => {
             const local = localNotes.find(l => l.id === n.id);
             return mapDbNote(n, local);
           });
 
-          const dbIds = raw.map((n: { id: string }) => n.id);
-          const localOnly = getLocalOnlyNotes(dbIds, localNotes);
-          if (localOnly.length > 0) {
-            await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
-          }
+          if (!notesResult.usedIncremental) {
+            const dbIds = raw.map((n: { id: string }) => n.id);
+            const localOnly = getLocalOnlyNotes(dbIds, localNotes);
+            if (localOnly.length > 0) {
+              await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
+            }
 
-          const expired = dbNotes.filter(
-            n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
-          );
-          expired.forEach(n => { void removeNoteFromDB(n.id); });
+            const expired = dbNotes.filter(
+              n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
+            );
+            expired.forEach(n => { void removeNoteFromDB(n.id); });
 
-          const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
-          if (dbNotes.length > 0 || localOnly.length > 0) {
+            const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
+            if (dbNotes.length > 0 || localOnly.length > 0) {
+              const prevActive = get().activeNoteId;
+              const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
+              const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
+              set({ notes: merged, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
+              persistNotes(merged);
+              saveActiveNoteId(nextActive);
+              rebuildKnowledgeIndex(merged);
+            } else if (dbNotes.length === 0) {
+              await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
+            }
+          } else if (dbNotes.length > 0) {
+            const expired = dbNotes.filter(
+              n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
+            );
+            expired.forEach(n => { void removeNoteFromDB(n.id); });
+
+            const merged = mergeDeltaNoteRows(localNotes, dbNotes);
             const prevActive = get().activeNoteId;
             const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
             const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
@@ -704,15 +733,33 @@ export const useNotesStore = create<NotesState>((set, get) => {
             persistNotes(merged);
             saveActiveNoteId(nextActive);
             rebuildKnowledgeIndex(merged);
-          } else if (dbNotes.length === 0) {
-            await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
           }
+
+          if (raw.length > 0) {
+            writeLastNotesSyncAt(computeLastSyncTimestamp(raw));
+          } else if (!notesResult.usedIncremental && localNotes.length > 0) {
+            writeLastNotesSyncAt(computeLastSyncTimestamp(
+              localNotes.map(n => ({
+                id: n.id,
+                title: n.title,
+                body: n.body,
+                updated_at: n.updatedAt,
+                folder_id: n.folderId,
+                deleted_at: n.deletedAt,
+              })),
+            ));
+          }
+          set({ syncError: null });
+        } catch (err) {
+          set({ syncError: err instanceof Error ? err.message : 'Failed to load from cloud' });
+        } finally {
+          set({ isSyncing: false });
         }
-      } catch (err) {
-        set({ syncError: err instanceof Error ? err.message : 'Failed to load from cloud' });
-      } finally {
-        set({ isSyncing: false });
-      }
+      });
+    },
+
+    hydrateFromDBFull: async () => {
+      await get().hydrateFromDB({ mode: 'recovery' });
     },
 
     syncNoteToDB,
