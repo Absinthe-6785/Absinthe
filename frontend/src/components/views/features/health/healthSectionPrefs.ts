@@ -4,13 +4,17 @@ export interface HealthSectionPrefs {
   analyticsCollapsed: boolean;
   chartsCollapsed: boolean;
   prSectionCollapsed: boolean;
+  recentSessionsCollapsed: boolean;
+  exerciseHistoryCollapsed: boolean;
   inbodyHistoryCollapsed: boolean;
 }
 
 export const DEFAULT_HEALTH_SECTION_PREFS: HealthSectionPrefs = {
-  analyticsCollapsed: true,
+  analyticsCollapsed: false,
   chartsCollapsed: true,
-  prSectionCollapsed: false,
+  prSectionCollapsed: true,
+  recentSessionsCollapsed: true,
+  exerciseHistoryCollapsed: true,
   inbodyHistoryCollapsed: true,
 };
 
@@ -23,6 +27,8 @@ export function readHealthSectionPrefs(): HealthSectionPrefs {
       analyticsCollapsed: parsed.analyticsCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.analyticsCollapsed,
       chartsCollapsed: parsed.chartsCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.chartsCollapsed,
       prSectionCollapsed: parsed.prSectionCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.prSectionCollapsed,
+      recentSessionsCollapsed: parsed.recentSessionsCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.recentSessionsCollapsed,
+      exerciseHistoryCollapsed: parsed.exerciseHistoryCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.exerciseHistoryCollapsed,
       inbodyHistoryCollapsed: parsed.inbodyHistoryCollapsed ?? DEFAULT_HEALTH_SECTION_PREFS.inbodyHistoryCollapsed,
     };
   } catch {

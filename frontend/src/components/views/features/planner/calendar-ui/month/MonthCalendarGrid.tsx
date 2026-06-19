@@ -14,6 +14,7 @@ export interface MonthCalendarGridProps {
   presentation?: PlannerCalendarPresentation;
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
+  onScheduleBlockClick?: (blockId: string) => void;
 }
 
 export function MonthCalendarGrid({
@@ -24,6 +25,7 @@ export function MonthCalendarGrid({
   presentation,
   onEventNoteClick,
   onDateSelect,
+  onScheduleBlockClick,
 }: MonthCalendarGridProps) {
   const formatCountdown = (daysUntil: number) =>
     formatPlannerCountdownLabel(daysUntil, presentation?.locale ?? 'en');
@@ -54,6 +56,7 @@ export function MonthCalendarGrid({
                 theme={theme}
                 onEventNoteClick={onEventNoteClick}
                 onDateSelect={onDateSelect}
+                onScheduleBlockClick={onScheduleBlockClick}
               />
             );
           }),

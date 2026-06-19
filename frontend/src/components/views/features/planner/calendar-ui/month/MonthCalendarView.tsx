@@ -29,7 +29,7 @@ export interface MonthCalendarViewProps {
   deferMonthGrid?: boolean;
 }
 
-/** K-117 unified Schedule workspace — Today → Upcoming → Calendar → Routine → Timetable. */
+/** K-117 / K-121 unified Schedule workspace — agenda 30% / calendar 70% on desktop. */
 export function MonthCalendarView({
   plannerProjection,
   presentation,
@@ -61,39 +61,44 @@ export function MonthCalendarView({
     appSettings && THEME_COLORS && mutateStatic && showToast,
   );
 
+  const onScheduleBlockClick = scheduleActions?.onView;
+
   return (
     <div
-      className="flex flex-col gap-2 lg:gap-2.5 items-stretch min-h-0"
+      className="flex flex-col gap-2 lg:gap-2.5 items-stretch min-h-0 lg:grid lg:grid-rows-[minmax(0,30%)_minmax(0,70%)_auto] lg:flex-1 lg:max-h-[min(72vh,820px)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
+      data-k121-schedule-layout
     >
-      <section data-k117-schedule-section="today">
-        <PlannerTodayPanel
-          plannerProjection={plannerProjection}
-          presentation={presentation}
-          theme={theme}
-          todayKey={todayKey}
-          scheduleActions={scheduleActions}
-        />
-      </section>
+      <div className="flex flex-col gap-2 min-h-0 overflow-y-auto overscroll-contain" data-k121-schedule-agenda>
+        <section data-k117-schedule-section="today">
+          <PlannerTodayPanel
+            plannerProjection={plannerProjection}
+            presentation={presentation}
+            theme={theme}
+            todayKey={todayKey}
+            scheduleActions={scheduleActions}
+          />
+        </section>
 
-      <section data-k117-schedule-section="upcoming">
-        <UpcomingAgendaPanel
-          tierSections={plannerProjection.groupedUpcoming}
-          theme={theme}
-          scheduleActions={scheduleActions}
-          eventActions={eventActions}
-          onDateSelect={onDateSelect}
-          embedded
-          collapseWhenEmpty
-        />
-      </section>
+        <section data-k117-schedule-section="upcoming">
+          <UpcomingAgendaPanel
+            tierSections={plannerProjection.groupedUpcoming}
+            theme={theme}
+            scheduleActions={scheduleActions}
+            eventActions={eventActions}
+            onDateSelect={onDateSelect}
+            embedded
+            collapseWhenEmpty
+          />
+        </section>
+      </div>
 
       <section
         data-k117-schedule-section="calendar"
         ref={monthRef as React.RefObject<HTMLElement>}
-        className={`w-full rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 ${theme.card}`}
+        className={`w-full rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 min-h-0 overflow-hidden flex flex-col ${theme.card}`}
         data-k117-planner-calendar-adaptive
         data-k108-planner-month-lazy
       >
@@ -106,33 +111,36 @@ export function MonthCalendarView({
             presentation={presentation}
             onEventNoteClick={onEventNoteClick}
             onDateSelect={onDateSelect}
+            onScheduleBlockClick={onScheduleBlockClick}
           />
         )}
       </section>
 
-      <section data-k117-schedule-section="routine">
-        <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
-          <PlannerRoutineTodayCard
-            theme={theme}
-            slots={plannerProjection.timetableToday}
-            onOpenTimetable={scrollTimetable}
-          />
-        </div>
-      </section>
-
-      {showTimetableSection ? (
-        <section data-k117-schedule-section="timetable" data-k117-timetable-section>
-          <WeeklyTimetableSection
-            weeklySchedules={[...weeklySchedules]}
-            theme={theme}
-            appSettings={appSettings!}
-            THEME_COLORS={THEME_COLORS!}
-            mutateStatic={mutateStatic!}
-            showToast={showToast!}
-            sectionEmbedded
-          />
+      <div className="flex flex-col gap-2 shrink-0" data-k121-schedule-supporting>
+        <section data-k117-schedule-section="routine">
+          <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
+            <PlannerRoutineTodayCard
+              theme={theme}
+              slots={plannerProjection.timetableToday}
+              onOpenTimetable={scrollTimetable}
+            />
+          </div>
         </section>
-      ) : null}
+
+        {showTimetableSection ? (
+          <section data-k117-schedule-section="timetable" data-k117-timetable-section>
+            <WeeklyTimetableSection
+              weeklySchedules={[...weeklySchedules]}
+              theme={theme}
+              appSettings={appSettings!}
+              THEME_COLORS={THEME_COLORS!}
+              mutateStatic={mutateStatic!}
+              showToast={showToast!}
+              sectionEmbedded
+            />
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }

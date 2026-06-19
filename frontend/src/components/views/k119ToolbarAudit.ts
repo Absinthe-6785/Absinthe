@@ -26,7 +26,7 @@ export function auditToolbarConsistency(): Record<string, boolean> {
     workspaceToolbar: toolbar.includes('data-k119-workspace-toolbar'),
     touchTarget44: toolbar.includes('min-h-[44px]') && toolbar.includes('touchTargetMinPx'),
     iconSizeToken: toolbar.includes('toolbarIconSizePx') || planner.includes('toolbarIconSizePx'),
-    plannerUsesToolbar: planner.includes('WorkspaceToolbar'),
+    plannerCompactChrome: planner.includes('data-k121-schedule-toolbar') && planner.includes('data-k121-schedule-new-event'),
     notesSticky: noteTop.includes('data-k117-note-top-actions'),
     headerActionTokens: header.includes('UI_INTERACTION'),
     focusRing: toolbar.includes('focus-visible:outline'),
@@ -35,5 +35,5 @@ export function auditToolbarConsistency(): Record<string, boolean> {
 
 export function auditToolbarRc(): boolean {
   const r = auditToolbarConsistency();
-  return r.workspaceToolbar && r.touchTarget44 && r.plannerUsesToolbar && r.notesSticky;
+  return r.workspaceToolbar && r.touchTarget44 && r.plannerCompactChrome && r.notesSticky;
 }

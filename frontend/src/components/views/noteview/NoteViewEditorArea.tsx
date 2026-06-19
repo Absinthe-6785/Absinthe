@@ -53,6 +53,7 @@ import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import type { AppSettings } from '../../../types';
+import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 import { useTranslation } from '../../../lib/i18n';
 import { NoteGraphViewLazy } from './NoteGraphViewLazy';
 import type { KnowledgeTimeline } from '../features/knowledge/timeline';
@@ -353,72 +354,69 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
       {!isTrash && (
         <div
           data-k117-note-top-actions
+          data-k121-notes-header-action-row
           className="bsticky-header"
           style={{
-            padding: isMobile ? '5px 10px' : '5px 13px',
+            padding: isMobile ? '6px 10px' : '6px 12px',
             borderBottom: `1px solid ${c.sideBdr}`,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'stretch',
             gap: 8,
             flexShrink: 0,
             background: c.toolbar,
             top: 0,
             zIndex: 5,
-            minHeight: isMobile ? 44 : 36,
+            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 40,
           }}
         >
-          {!isMobile ? (
-            <button
-              type="button"
-              onClick={() => openWorkspaceSearch()}
-              data-noteview-workspace-search-trigger
-              className="btbtn"
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 28,
-                minHeight: 28,
-                padding: '0 10px',
-                fontSize: 11,
-                color: c.textMuted,
-                border: `1px solid ${c.sideBdr}`,
-                borderRadius: 6,
-                background: c.input,
-                maxWidth: 280,
-              }}
-            >
-              <Search size={12} />
-              <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {t('k81WorkspaceSearchHint')}
-              </span>
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => openWorkspaceSearch()}
+            data-noteview-workspace-search-trigger
+            data-k121-notes-search
+            className="btbtn"
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
+              padding: '0 12px',
+              fontSize: 12,
+              color: c.textMuted,
+              border: `1px solid ${c.sideBdr}`,
+              borderRadius: 8,
+              background: c.input,
+            }}
+          >
+            <Search size={14} />
+            <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t('k81WorkspaceSearchHint')}
+            </span>
+          </button>
           <button
             type="button"
             onClick={handleNewNote}
             title={t('nvNewNoteBtn')}
             data-k117-new-note-btn
             data-noteview-new-note-btn
+            data-k121-notes-new
             className="btbtn"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 4,
-              height: isMobile ? 36 : 28,
-              minHeight: isMobile ? 44 : 28,
-              minWidth: isMobile ? 44 : undefined,
-              padding: isMobile ? '0 12px' : '0 12px',
-              fontSize: 11,
+              gap: 6,
+              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
+              minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : undefined,
+              padding: '0 14px',
+              fontSize: 12,
               fontWeight: 700,
-              borderRadius: 6,
+              borderRadius: 8,
               border: 'none',
               background: c.accent,
               color: '#fff',
               flexShrink: 0,
-              marginLeft: isMobile ? 'auto' : undefined,
             }}
           >
             <Plus size={14} />

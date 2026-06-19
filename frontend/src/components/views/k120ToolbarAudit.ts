@@ -19,7 +19,7 @@ export function auditToolbarMigration(): Record<string, boolean> {
     recipeToolbar: recipe.includes('WorkspaceToolbar') && recipe.includes('WorkspaceToolbarPrimary'),
     searchToolbar: search.includes('data-k120-search-toolbar') && search.includes('WorkspaceToolbarIconButton'),
     bottomSticky: toolbar.includes('stickyPosition'),
-    scheduleRetained: readFileSync(join(ROOT, 'components/views/features/planner/PlannerStickyActions.tsx'), 'utf8').includes('WorkspaceToolbar'),
+    scheduleCompactToolbar: readFileSync(join(ROOT, 'components/views/features/planner/PlannerStickyActions.tsx'), 'utf8').includes('data-k121-schedule-toolbar'),
   };
 }
 
