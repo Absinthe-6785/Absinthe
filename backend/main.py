@@ -11,7 +11,9 @@ from supabase import create_client, Client
 from auth import AuthConfigurationError, SupabaseJWTVerifier
 from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
 from memory_watchdog import MemoryWatchdog
+from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
 from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, chunk_note_payloads
+from memory_profile import MemoryProfiler
 
 load_dotenv()
 
@@ -29,13 +31,23 @@ app.add_middleware(
 )
 
 memory_watchdog = MemoryWatchdog()
+request_memory_watchdog = RequestMemoryWatchdog()
 
 
 @app.middleware("http")
 async def memory_watchdog_middleware(request, call_next):
-    memory_watchdog.sample_if_due(context=f"{request.method} {request.url.path}")
+    path = request.url.path
+    request_id = request_memory_watchdog.new_request_id()
+    profiler = MemoryProfiler() if should_profile_path(path) else None
+    if profiler:
+        profiler.mark_before()
+    memory_watchdog.sample_if_due(context=f"{request.method} {path} id={request_id}")
     response = await call_next(request)
-    memory_watchdog.sample_if_due(context=f"after {request.method} {request.url.path}")
+    memory_watchdog.sample_if_due(context=f"after {request.method} {path} id={request_id}")
+    if profiler:
+        request_memory_watchdog.finalize(request_id, request.method, path, profiler)
+    if profiler and should_profile_path(path):
+        response.headers["X-Request-Id"] = request_id
     return response
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")

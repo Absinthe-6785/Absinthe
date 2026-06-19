@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
@@ -42,7 +42,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const { t } = useTranslation();
   const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
   const initNotesStorage = useNotesStore(s => s.initNotesStorage);
-  const [activeTab, setActiveTab] = useState<TabId>('note');
+  const notesBootstrapStarted = useRef(false);
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
@@ -54,8 +54,12 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
-  // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화
+  const [activeTab, setActiveTab] = useState<TabId>('note');
+
+  // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화 (K-114: once per session)
   useEffect(() => {
+    if (notesBootstrapStarted.current) return;
+    notesBootstrapStarted.current = true;
     initNotesStorage()
       .then(() => hydrateFromDB())
       .then(() => {
