@@ -1,11 +1,16 @@
+import { useMemo } from 'react';
 import type { Theme } from '@/types';
-import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
+import type { PlannerCalendarPresentation } from '../../calendar';
+import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { PlannerTodayPanel } from '../agenda/PlannerTodayPanel';
+import { PlannerTimetableSummary } from '../agenda/PlannerTimetableSummary';
 import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
+import { useElementVisible } from '@/hooks/useElementVisible';
+import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
 
 export interface MonthCalendarViewProps {
-  projection: PlannerCalendarProjection;
+  plannerProjection: PlannerProjection;
   presentation: PlannerCalendarPresentation;
   theme: Theme;
   todayKey: string;
@@ -15,11 +20,12 @@ export interface MonthCalendarViewProps {
   eventActions?: AgendaEventActions;
   weeklyActivityCount?: number;
   onOpenTimetable?: () => void;
+  deferMonthGrid?: boolean;
 }
 
-/** K-80 calendar + K-105 Today column (note, activity, schedule, upcoming). */
+/** K-108 Today-centric planner — Today first, then month calendar, then timetable summary. */
 export function MonthCalendarView({
-  projection,
+  plannerProjection,
   presentation,
   theme,
   todayKey,
@@ -27,38 +33,59 @@ export function MonthCalendarView({
   onDateSelect,
   scheduleActions,
   eventActions,
+  weeklyActivityCount = 0,
+  onOpenTimetable,
+  deferMonthGrid = true,
 }: MonthCalendarViewProps) {
-  const month = projection.views.month;
+  const month = plannerProjection.calendar.views.month;
+  const { ref: monthRef, visible: monthVisible } = useElementVisible('120px');
+  const showMonthGrid = !deferMonthGrid || monthVisible;
+
+  const monthSkeleton = useMemo(
+    () => <WorkspaceCardSkeleton bars={4} theme={theme} minHeight="min-h-[280px]" />,
+    [theme],
+  );
 
   return (
     <div
-      className="flex flex-col lg:flex-row gap-2 lg:gap-3 items-stretch min-h-0"
+      className="flex flex-col gap-3 items-stretch min-h-0"
       data-planner-calendar-month
-      data-k105-planner-layout
+      data-k108-planner-layout
     >
-      <div className={`w-full lg:w-[58%] lg:min-w-0 rounded-[16px] lg:rounded-[20px] p-2 lg:p-3 ${theme.card}`}>
-        <MonthCalendarGrid
-          month={month}
-          weekdayLabels={presentation.labels.weekdayShortLabels}
-          theme={theme}
-          countdowns={projection.core.countdowns}
-          presentation={presentation}
-          onEventNoteClick={onEventNoteClick}
-          onDateSelect={onDateSelect}
-        />
+      <PlannerTodayPanel
+        plannerProjection={plannerProjection}
+        presentation={presentation}
+        theme={theme}
+        todayKey={todayKey}
+        scheduleActions={scheduleActions}
+        eventActions={eventActions}
+        onDateSelect={onDateSelect}
+        onOpenTimetable={onOpenTimetable}
+      />
+
+      <div
+        ref={monthRef as React.RefObject<HTMLDivElement>}
+        className={`w-full rounded-[16px] lg:rounded-[20px] p-2 lg:p-3 ${theme.card}`}
+        data-k108-planner-month-lazy
+      >
+        {!showMonthGrid ? monthSkeleton : (
+          <MonthCalendarGrid
+            month={month}
+            weekdayLabels={presentation.labels.weekdayShortLabels}
+            theme={theme}
+            countdowns={plannerProjection.calendar.core.countdowns}
+            presentation={presentation}
+            onEventNoteClick={onEventNoteClick}
+            onDateSelect={onDateSelect}
+          />
+        )}
       </div>
 
-      <div className="w-full lg:w-[42%] lg:min-w-[220px] lg:max-w-[360px] shrink-0 flex flex-col gap-2 min-h-[240px] lg:min-h-0 lg:overflow-y-auto">
-        <PlannerTodayPanel
-          projection={projection}
-          presentation={presentation}
-          theme={theme}
-          todayKey={todayKey}
-          scheduleActions={scheduleActions}
-          eventActions={eventActions}
-          onDateSelect={onDateSelect}
-        />
-      </div>
+      <PlannerTimetableSummary
+        theme={theme}
+        activityCount={weeklyActivityCount}
+        onOpenTimetable={onOpenTimetable}
+      />
     </div>
   );
 }
