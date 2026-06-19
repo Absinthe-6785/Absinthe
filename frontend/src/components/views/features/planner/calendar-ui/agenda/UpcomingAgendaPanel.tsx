@@ -2,47 +2,49 @@ import { useMemo } from 'react';
 import { Plus, CalendarDays } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
-import type { PlannerCalendarPresentation, PlannerCalendarProjection } from '../../calendar';
-import { useCountdownReviewed } from '../../hooks/useCountdownReviewed';
-import { buildUpcomingAgendaGroups } from './buildUpcomingAgendaGroups';
-import { UpcomingAgendaGroupList } from './UpcomingAgendaGroupList';
+import { useElementVisible } from '@/hooks/useElementVisible';
+import type { UpcomingTierSection } from './buildUpcomingTierGroups';
+import { UpcomingTierGroupList } from './UpcomingTierGroupList';
 import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
 import { ProductEmptyState } from '@/components/common/ProductEmptyState';
 
 export interface UpcomingAgendaPanelProps {
-  projection: PlannerCalendarProjection;
-  presentation: PlannerCalendarPresentation;
+  tierSections: readonly UpcomingTierSection[];
   theme: Theme;
-  todayKey: string;
   scheduleActions?: DayScheduleActions;
   eventActions?: AgendaEventActions;
   onDateSelect?: (dateKey: string) => void;
+  embedded?: boolean;
 }
 
-/** K-80 right panel — chronological upcoming timeline (not selected-day only). */
+/** K-108 — tiered upcoming (Today / Tomorrow / Later) inside Today workspace. */
 export function UpcomingAgendaPanel({
-  projection,
-  presentation,
+  tierSections,
   theme,
-  todayKey,
   scheduleActions,
   eventActions,
   onDateSelect,
+  embedded = false,
 }: UpcomingAgendaPanelProps) {
   const { t } = useTranslation();
-  const { isReviewed } = useCountdownReviewed();
+  const { ref, visible } = useElementVisible('80px');
+  const canAdd = Boolean(scheduleActions?.onAdd);
 
-  const groups = useMemo(
-    () => buildUpcomingAgendaGroups(projection, presentation, todayKey, isReviewed),
-    [projection, presentation, todayKey, isReviewed],
+  const itemCount = useMemo(
+    () => tierSections.reduce((n, s) => n + s.days.reduce((m, d) => m + d.items.length, 0), 0),
+    [tierSections],
   );
 
-  const canAdd = Boolean(scheduleActions?.onAdd);
+  const shellClass = embedded
+    ? 'flex flex-col gap-1.5 min-h-0'
+    : `rounded-[16px] lg:rounded-[20px] p-2 lg:p-2.5 flex flex-col gap-1.5 min-h-0 h-full ${theme.card}`;
 
   return (
     <div
-      className={`rounded-[16px] lg:rounded-[20px] p-2 lg:p-2.5 flex flex-col gap-1.5 min-h-0 h-full ${theme.card}`}
+      ref={ref as React.RefObject<HTMLDivElement>}
+      className={shellClass}
       data-planner-upcoming-agenda
+      data-k108-planner-upcoming
     >
       <div className="flex items-center justify-between gap-2 shrink-0">
         <h3 className="font-heading text-xs lg:text-sm font-bold">{t('k80UpcomingAgenda')}</h3>
@@ -59,8 +61,10 @@ export function UpcomingAgendaPanel({
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto max-h-[420px] lg:max-h-none lg:min-h-[280px]" data-k102-upcoming-scroll>
-        {groups.length === 0 ? (
+      <div className="flex-1 min-h-0 overflow-y-auto max-h-[320px]" data-k102-upcoming-scroll>
+        {!visible ? (
+          <div className="h-16 rounded-lg bg-muted/20 animate-pulse" aria-hidden />
+        ) : itemCount === 0 ? (
           <ProductEmptyState
             variant="tailwind"
             theme={theme}
@@ -71,9 +75,8 @@ export function UpcomingAgendaPanel({
             primaryAction={canAdd ? { label: t('k80AddEvent'), onClick: scheduleActions!.onAdd! } : undefined}
           />
         ) : (
-          <UpcomingAgendaGroupList
-            groups={groups}
-            presentation={presentation}
+          <UpcomingTierGroupList
+            sections={tierSections}
             scheduleActions={scheduleActions}
             eventActions={eventActions}
             onDateSelect={onDateSelect}

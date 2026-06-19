@@ -37,11 +37,17 @@ export function MonthCalendarCell({
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset bg-primary/8' : ''}
         ${model.isAnchorSelected ? 'bg-primary/12 ring-1 ring-primary/40 ring-inset' : ''}
-        ${model.isEmpty && model.inMonth && onDateSelect ? 'hover:bg-surface-alt/60' : ''}
+        ${model.isEmpty && model.inMonth && onDateSelect ? 'hover:bg-surface-alt/80 hover:ring-1 hover:ring-primary/25' : ''}
         ${onDateSelect && model.inMonth ? 'cursor-pointer hover:bg-surface-alt/40 transition-colors' : ''}`}
       data-planner-month-cell={model.dateKey}
       data-planner-month-cell-in-month={model.inMonth ? 'true' : 'false'}
       data-planner-month-cell-empty={model.isEmpty ? 'true' : 'false'}
+      data-k108-month-cell-empty={model.isEmpty && model.inMonth ? 'true' : undefined}
+      aria-label={onDateSelect && model.inMonth
+        ? model.isEmpty
+          ? `Add schedule on ${model.dateKey}`
+          : `View ${model.dateKey}`
+        : undefined}
     >
       <div className="flex items-start justify-between gap-1">
         <span

@@ -11,6 +11,8 @@ import {
   buildPlannerCalendarProjection,
   formatPlannerCalendarPresentation,
 } from '../../calendar';
+import { buildPlannerProjection } from '../../calendar/buildPlannerProjection';
+import { resolveUpcomingRelativeLabel } from '../agenda/buildUpcomingTierGroups';
 import { MonthCalendarView } from './MonthCalendarView';
 import {
   buildMonthCellDisplayModel,
@@ -67,6 +69,30 @@ function buildMonthFixture(
 const MONTH_VIEW_PROPS = {
   todayKey: '2027-02-03',
 } as const;
+
+function mockT(key: string): string {
+  const labels: Record<string, string> = {
+    nvToday: 'Today',
+    k101Tomorrow: 'Tomorrow',
+    k108InDays: 'In {count} days',
+    k108Later: 'Later',
+  };
+  return labels[key] ?? key;
+}
+
+function buildPlannerProjectionFixture(
+  overrides: Partial<Parameters<typeof buildPlannerCalendarProjection>[0]> = {},
+) {
+  const { projection, presentation } = buildMonthFixture(overrides);
+  const plannerProjection = buildPlannerProjection({
+    calendarProjection: projection,
+    presentation,
+    todayKey: MONTH_VIEW_PROPS.todayKey,
+    isReviewed: () => false,
+    relativeLabel: dateKey => resolveUpcomingRelativeLabel(dateKey, MONTH_VIEW_PROPS.todayKey, mockT),
+  });
+  return { projection, presentation, plannerProjection };
+}
 
 describe('monthCalendarPresentation', () => {
   it('chunks month cells into six weeks of seven columns', () => {
@@ -155,9 +181,9 @@ describe('MonthCalendarView', () => {
       eventEndDate: '2027-02-05',
     });
 
-    const { projection, presentation } = buildMonthFixture({ notes: [travel] });
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture({ notes: [travel] });
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('data-planner-calendar-month');
@@ -173,9 +199,9 @@ describe('MonthCalendarView', () => {
       eventEndDate: '2027-02-05',
     });
 
-    const { projection, presentation } = buildMonthFixture({ notes: [travel] });
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture({ notes: [travel] });
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('data-planner-month-event="travel"');
@@ -206,13 +232,14 @@ describe('MonthCalendarView', () => {
     ];
 
     const { projection, presentation, month } = buildMonthFixture({ notes });
+    const { plannerProjection } = buildPlannerProjectionFixture({ notes });
     const busyCell = month.cells.find(cell => cell.dateKey === '2027-02-10');
     expect(busyCell?.bundle.hints.overflowEventCount).toBeGreaterThan(0);
     const cellModel = buildMonthCellDisplayModel(busyCell!, projection.core.countdowns);
     expect(cellModel.overflowCount).toBe(busyCell!.bundle.hints.overflowEventCount);
 
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('data-planner-month-overflow');
@@ -220,14 +247,15 @@ describe('MonthCalendarView', () => {
   });
 
   it('exposes date pick controls when onDateSelect is provided', () => {
-    const { projection, presentation } = buildMonthFixture();
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture();
     const html = renderToStaticMarkup(
       createElement(MonthCalendarView, {
-        projection,
+        plannerProjection,
         presentation,
         theme,
         todayKey: MONTH_VIEW_PROPS.todayKey,
         onDateSelect: () => {},
+        deferMonthGrid: false,
       }),
     );
 
@@ -236,13 +264,13 @@ describe('MonthCalendarView', () => {
   });
 
   it('keeps the month grid visible when no events exist', () => {
-    const { projection, presentation } = buildMonthFixture();
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture();
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('data-planner-upcoming-agenda');
-    expect(html).toContain('data-k103-planner-agenda-empty');
+    expect(html).toContain('data-k108-planner-upcoming');
     expect(html.match(/data-planner-month-cell=/g)?.length).toBe(42);
   });
 
@@ -252,12 +280,12 @@ describe('MonthCalendarView', () => {
       milestoneLabel: 'Passed',
     });
 
-    const { projection, presentation } = buildMonthFixture({
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture({
       notes: [milestone],
     });
 
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('data-planner-month-milestone-dot');
@@ -267,12 +295,26 @@ describe('MonthCalendarView', () => {
     const { projection } = buildMonthFixture();
     const en = formatPlannerCalendarPresentation(projection, 'en');
     const ko = formatPlannerCalendarPresentation(projection, 'ko');
+    const enPlanner = buildPlannerProjection({
+      calendarProjection: projection,
+      presentation: en,
+      todayKey: MONTH_VIEW_PROPS.todayKey,
+      isReviewed: () => false,
+      relativeLabel: dateKey => resolveUpcomingRelativeLabel(dateKey, MONTH_VIEW_PROPS.todayKey, mockT),
+    });
+    const koPlanner = buildPlannerProjection({
+      calendarProjection: projection,
+      presentation: ko,
+      todayKey: MONTH_VIEW_PROPS.todayKey,
+      isReviewed: () => false,
+      relativeLabel: dateKey => resolveUpcomingRelativeLabel(dateKey, MONTH_VIEW_PROPS.todayKey, mockT),
+    });
 
     const enHtml = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation: en, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection: enPlanner, presentation: en, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
     const koHtml = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation: ko, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection: koPlanner, presentation: ko, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(enHtml).toContain(en.labels.weekdayShortLabels[0]!);
@@ -282,7 +324,7 @@ describe('MonthCalendarView', () => {
   });
 
   it('renders schedule blocks in month cells; upcoming agenda omits routines and tasks', () => {
-    const { projection, presentation } = buildMonthFixture({
+    const { plannerProjection, presentation } = buildPlannerProjectionFixture({
       scheduleBlocks: [{
         id: 'b1',
         date: '2027-02-03',
@@ -298,7 +340,7 @@ describe('MonthCalendarView', () => {
     });
 
     const html = renderToStaticMarkup(
-      createElement(MonthCalendarView, { projection, presentation, theme, ...MONTH_VIEW_PROPS }),
+      createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
     expect(html).toContain('Deep Work');

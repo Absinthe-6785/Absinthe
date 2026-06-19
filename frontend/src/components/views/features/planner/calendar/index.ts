@@ -61,6 +61,12 @@ export {
 } from './buildPlannerCalendarProjection';
 
 export {
+  buildPlannerProjection,
+  synthesizePlannerScheduleRows,
+  type PlannerProjection,
+} from './buildPlannerProjection';
+
+export {
   buildDayViewPayload,
   buildMonthViewPayload,
   buildWeekViewPayload,

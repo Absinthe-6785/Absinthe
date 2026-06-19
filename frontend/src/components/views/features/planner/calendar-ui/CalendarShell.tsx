@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Schedule, Theme, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
@@ -9,6 +9,9 @@ import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
 import { WORKSPACE_CARD } from '../../../../common/workspaceCardSizes';
 import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
+import { buildPlannerProjection } from '../calendar/buildPlannerProjection';
+import { resolveUpcomingRelativeLabel } from './agenda/buildUpcomingTierGroups';
+import { useCountdownReviewed } from '../hooks/useCountdownReviewed';
 
 export interface CalendarShellProps {
   now: DateTime;
@@ -57,6 +60,24 @@ export function CalendarShell({
     appSettings,
   });
 
+  const { isReviewed } = useCountdownReviewed();
+  const relativeLabel = useCallback(
+    (dateKey: string) => resolveUpcomingRelativeLabel(dateKey, todayKey, t),
+    [todayKey, t],
+  );
+
+  const plannerProjection = useMemo(
+    () => buildPlannerProjection({
+      calendarProjection: projection,
+      presentation,
+      todayKey,
+      isReviewed,
+      relativeLabel,
+      laterTierLabel: t('k108Later'),
+    }),
+    [projection, presentation, todayKey, isReviewed, relativeLabel, t],
+  );
+
   const periodLabel = presentation.labels.monthTitle;
 
   return (
@@ -81,7 +102,7 @@ export function CalendarShell({
           data-planner-calendar-mode="month"
         >
           <MonthCalendarView
-            projection={projection}
+            plannerProjection={plannerProjection}
             presentation={presentation}
             theme={theme}
             todayKey={todayKey}

@@ -1857,6 +1857,9 @@ const translations = {
   k104TimetableCount:          { en: '{count} classes', ko: '{count}개 수업', ja: '{count}コマ' },
   k104TimetableEmpty:          { en: 'No timetable entries', ko: '시간표 항목 없음', ja: '時間割項目なし' },
   k104TimetableOpen:           { en: 'Open timetable', ko: '시간표 열기', ja: '時間割を開く' },
+  k108Later:                   { en: 'Later', ko: '이후', ja: '以降' },
+  k108InDays:                  { en: 'In {count} days', ko: '{count}일 후', ja: '{count}日後' },
+  k108RoutineToday:            { en: 'Routine today', ko: '오늘 루틴', ja: '今日のルーティン' },
 
   k105TodaysNote:              { en: "Today's note", ko: '오늘 노트', ja: '今日のノート' },
 
