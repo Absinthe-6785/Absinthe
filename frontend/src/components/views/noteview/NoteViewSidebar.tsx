@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import { estimateDeletedNoteBytes, formatRecoverableStorage } from '../../../lib/trashNoteStorage';
+import { openWorkspaceSearch } from '../../../lib/noteNavigation';
 import {
   formatTraceDayHeading,
   formatAreaRangeHeading,
@@ -442,7 +443,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   type="button"
                   className="btbtn"
                   title={t('nvWorkspaceSearchBtn')}
-                  onClick={() => setWorkspaceSearchOpen(true)}
+                  onClick={() => openWorkspaceSearch()}
                   style={{
                     flex: 1,
                     display: 'flex',
@@ -937,7 +938,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 <button
                   type="button"
                   className="btbtn btbtn-mobile"
-                  onClick={() => setWorkspaceSearchOpen(true)}
+                  onClick={() => openWorkspaceSearch()}
                   title={t('nvWorkspaceSearchBtn')}
                   aria-label={t('nvScWorkspaceSearch')}
                   style={{ padding: '4px 6px', color: c.accent, flexShrink: 0 }}
@@ -1287,7 +1288,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               },
               onOpenSearch: () => {
                 setSidebarCollapsed(false);
-                setWorkspaceSearchOpen(true);
+                openWorkspaceSearch();
               },
               onOpenCosmos: () => setViewMode('graph'),
             }}

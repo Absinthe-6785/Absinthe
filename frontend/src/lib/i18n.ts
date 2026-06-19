@@ -585,6 +585,24 @@ const translations = {
   k110EmptyNoCollections:    { en: 'No collections yet', ko: '컬렉션이 없습니다', ja: 'コレクションがありません' },
   k110EmptyNoCollectionsHint:{ en: 'Collections appear from categories and recipe content.', ko: '카테고리와 레시피 내용에서 컬렉션이 만들어집니다.', ja: 'カテゴリとレシピ内容からコレクションが作られます。' },
 
+  // ── K-111 Search workspace ────────────────────────────────────────
+  k111SearchTitle:           { en: 'Search workspace', ko: '검색 작업공간', ja: '検索ワークスペース' },
+  k111SearchPlaceholder:     { en: 'Search notes, planner, health, recipes, archive…', ko: '노트, 플래너, 헬스, 레시피, 아카이브 검색…', ja: 'ノート・プランナー・ヘルス・レシピ・アーカイブを検索…' },
+  k111DomainNotes:           { en: 'Notes', ko: '노트', ja: 'ノート' },
+  k111DomainPlanner:         { en: 'Planner', ko: '플래너', ja: 'プランナー' },
+  k111DomainHealth:          { en: 'Health', ko: '헬스', ja: 'ヘルス' },
+  k111DomainRecipe:          { en: 'Recipe', ko: '레시피', ja: 'レシピ' },
+  k111DomainArchive:         { en: 'Archive', ko: '아카이브', ja: 'アーカイブ' },
+  k111RecentSearches:        { en: 'Recent searches', ko: '최근 검색', ja: '最近の検索' },
+  k111RecentToday:           { en: 'Today', ko: '오늘', ja: '今日' },
+  k111RecentEarlier:         { en: 'Earlier', ko: '이전', ja: '以前' },
+  k111ClearRecent:           { en: 'Clear history', ko: '기록 지우기', ja: '履歴をクリア' },
+  k111ResultsCount:          { en: 'results', ko: '개 결과', ja: '件' },
+  k111EmptyNoQuery:          { en: 'Search across your workspace', ko: '작업공간 전체를 검색하세요', ja: 'ワークスペース全体を検索' },
+  k111EmptyNoQueryHint:      { en: 'Type to search Notes, Planner, Health, Recipe, and Archive.', ko: '노트, 플래너, 헬스, 레시피, 아카이브를 검색할 수 있습니다.', ja: 'ノート・プランナー・ヘルス・レシピ・アーカイブを検索できます。' },
+  k111EmptyNoRecent:         { en: 'No recent searches', ko: '최근 검색 없음', ja: '最近の検索なし' },
+  k111EmptyNoRecentHint:     { en: 'Your recent selections will appear here.', ko: '최근 선택한 항목이 여기에 표시됩니다.', ja: '最近選んだ項目がここに表示されます。' },
+
   other:          { en: 'Other',          ko: '기타',         ja: 'その他'       },
   workoutSavedShort: { en: 'Workout Saved', ko: '운동 저장됨', ja: '保存しました' },
 

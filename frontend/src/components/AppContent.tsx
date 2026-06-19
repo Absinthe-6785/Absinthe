@@ -24,6 +24,7 @@ const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ defa
 const RecipeView = lazy(() => import('./views/RecipeView').then(m => ({ default: m.RecipeView })));
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 import { runPeriodicSnapshotSlots } from '../lib/vaultSnapshotAuto';
+import { GlobalSearchHost } from './views/features/search/GlobalSearchHost';
 import { useTranslation } from '../lib/i18n';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
@@ -218,6 +219,16 @@ export function AppContent({ authUser }: { authUser: User }) {
           <Loader2 size={20} className="animate-spin" />
         </div>
       )}
+
+      <GlobalSearchHost
+        appSettings={appSettings}
+        schedules={schedules}
+        todos={todos}
+        routines={routines}
+        workouts={workouts}
+        healthBlocks={healthBlocks}
+        weeklySchedules={weeklySchedules}
+      />
     </div>
   );
 }
