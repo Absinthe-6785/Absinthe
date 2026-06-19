@@ -7,6 +7,7 @@ import { scheduleEditorFocus } from '../editorFocus';
 import { toDateKey } from '../../features/knowledge/databaseViews/parseDatabaseDate';
 import { openOrCreateDailyNote } from '../../k101DailyNote';
 import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
+import { openWorkspaceSearch } from '../../../../lib/noteNavigation';
 import { useNoteNavigationStack } from '../../../../hooks/useNoteNavigationStack';
 import type { CreateNoteFn, UseNoteViewActionsParams } from './types';
 
@@ -139,7 +140,7 @@ export function useNoteKeyboardActions(
       switch (e.key) {
         case 'k':
           e.preventDefault();
-          setWorkspaceSearchOpen(true);
+          openWorkspaceSearch();
           break;
         case 'n': e.preventDefault(); cn(); break;
         case 'd': e.preventDefault(); { if (an) dn(an); } break;

@@ -36,6 +36,12 @@ export function pushWorkspaceSearchRecent(entry: Omit<WorkspaceSearchRecentEntry
   }
 }
 
+export function clearWorkspaceSearchRecent(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch { /* ignore */ }
+}
+
 export function recentEntryKey(kind: WorkspaceSearchResultKind, id: string): string {
   return `${kind}:${id}`;
 }

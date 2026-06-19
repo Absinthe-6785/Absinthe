@@ -58,7 +58,6 @@ export function registerWorkspaceSearchOpener(opener: () => void): () => void {
 }
 
 export function openWorkspaceSearch(): void {
-  switchToNotesTab();
   workspaceSearchOpener?.();
 }
 

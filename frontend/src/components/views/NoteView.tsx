@@ -17,7 +17,8 @@ import {
   seedNoteNavigationStack,
   type NoteNavigationSource,
 } from '../../lib/noteNavigationStack';
-import { setNoteBreadcrumb, type NoteBreadcrumbSegment, registerWorkspaceSearchOpener, registerNotesTrashOpener, switchToTab } from '../../lib/noteNavigation';
+import { setNoteBreadcrumb, type NoteBreadcrumbSegment, registerNotesTrashOpener, switchToTab, openWorkspaceSearch } from '../../lib/noteNavigation';
+import { registerSearchNoteHandlers } from './features/search/searchNavigation';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
@@ -168,7 +169,6 @@ import {
   type GroupedRelatedNotes,
 } from './features/knowledge';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder, TocItem } from './noteUtils';
-import { WorkspaceSearchPalette } from './features/knowledge/components/WorkspaceSearchPalette';
 import { CreateProjectDialog, type CreateProjectFormValues } from './features/knowledge/components/CreateProjectDialog';
 import { CreateMilestoneDialog, type CreateMilestoneFormValues } from './features/knowledge/components/CreateMilestoneDialog';
 import { KnowledgeContextPanel, type KnowledgeContextTab } from './features/knowledge/components/KnowledgeContextPanel';
@@ -328,10 +328,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   useEffect(() => {
     if (isTablet && !isMobile) setSidebarCollapsed(true);
   }, [isTablet, isMobile, setSidebarCollapsed]);
-
-  useEffect(() => {
-    return registerWorkspaceSearchOpener(() => setWorkspaceSearchOpen(true));
-  }, [setWorkspaceSearchOpen]);
 
   useEffect(() => {
     return registerNotesTrashOpener(() => setActiveFolderId('trash'));
@@ -576,6 +572,22 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
     resetBrowseScope,
     isMobile,
   });
+
+  useEffect(() => {
+    return registerSearchNoteHandlers({
+      onSelectNote: handleWorkspaceSearchNote,
+      onSelectFolder: handleWorkspaceSearchFolder,
+      onSelectTag: handleWorkspaceSearchTag,
+      onSelectCollection: handleWorkspaceSearchCollection,
+      onSelectLearningPath: handleWorkspaceSearchLearningPath,
+    });
+  }, [
+    handleWorkspaceSearchNote,
+    handleWorkspaceSearchFolder,
+    handleWorkspaceSearchTag,
+    handleWorkspaceSearchCollection,
+    handleWorkspaceSearchLearningPath,
+  ]);
 
   createQuickCaptureRef.current = createQuickCapture;
   createTaskRef.current = createTask;
@@ -1539,19 +1551,6 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
           onClose={() => setMilestoneDialog(null)}
         />
       )}
-      <WorkspaceSearchPalette
-        colors={c}
-        notes={notes}
-        folders={folders}
-        open={workspaceSearchOpen}
-        discoveryFeed={discoveryFeed}
-        onClose={() => setWorkspaceSearchOpen(false)}
-        onSelectNote={onWorkspaceSearchNote}
-        onSelectFolder={handleWorkspaceSearchFolder}
-        onSelectTag={handleWorkspaceSearchTag}
-        onSelectCollection={handleWorkspaceSearchCollection}
-        onSelectLearningPath={handleWorkspaceSearchLearningPath}
-      />
       {createProjectDialogOpen && (
         <CreateProjectDialog
           colors={c}
