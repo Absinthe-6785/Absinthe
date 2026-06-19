@@ -15,7 +15,7 @@ export function auditMobileEditor(): Record<string, boolean> {
     coarseHandles: chrome.includes('pointer: coarse') && chrome.includes('be-handle-btn'),
     toolbarMobile: styles.includes('be-editor-toolbar-btn') && styles.includes('min-height:44px'),
     imageMobileMenu: image.includes('min-h-[44px]') || image.includes('minWidth: 44'),
-    overflowHidden: chrome.includes('overflow-x: hidden'),
+    overflowHidden: chrome.includes('overflow-x: clip') || chrome.includes('overflow-x: hidden'),
   };
 }
 

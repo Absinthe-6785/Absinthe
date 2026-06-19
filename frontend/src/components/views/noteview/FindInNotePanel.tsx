@@ -9,6 +9,8 @@ import { useFindInNoteDismiss } from './useFindInNoteDismiss';
 export interface FindInNotePanelProps {
   open: boolean;
   isMobile: boolean;
+  /** K-123 — float top-right inside centered editor column (desktop). */
+  anchored?: boolean;
   colors: NoteChromeColors;
   searchInputRef: RefObject<HTMLInputElement | null>;
   searchQuery: string;
@@ -25,6 +27,7 @@ export interface FindInNotePanelProps {
 export function FindInNotePanel({
   open,
   isMobile,
+  anchored = false,
   colors: c,
   searchInputRef,
   searchQuery,
@@ -56,121 +59,6 @@ export function FindInNotePanel({
   }, [open, searchInputRef]);
 
   if (!open) return null;
-
-  const controls = (
-    <>
-      <label
-        htmlFor="k122-find-in-note-input"
-        style={{ fontSize: 11, fontWeight: 700, color: c.textMuted, flexShrink: 0 }}
-        data-k122-find-label
-      >
-        {t('nvDocumentSearch')}
-      </label>
-      <input
-        id="k122-find-in-note-input"
-        ref={searchInputRef}
-        type="search"
-        value={searchQuery}
-        onChange={e => onQueryChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={t('k81SearchInDocument')}
-        autoComplete="off"
-        data-document-search-toolbar
-        data-k122-find-input
-        className="bwsi"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: isMobile ? 14 : 12,
-          padding: isMobile ? '10px 12px' : '6px 10px',
-          minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
-          borderRadius: 8,
-          border: `1px solid ${c.inputBdr}`,
-          background: c.input,
-          color: c.text,
-          boxSizing: 'border-box',
-        }}
-        {...{ [EDITOR_DOCUMENT_SEARCH_ATTR]: '' }}
-      />
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
-        data-k122-find-controls
-      >
-        <button
-          type="button"
-          onClick={onPrevMatch}
-          disabled={!trimmed || matchCount === 0}
-          title={t('nvSearchPrev')}
-          aria-label={t('nvSearchPrev')}
-          data-k122-find-prev
-          className="btbtn"
-          style={{
-            minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: c.textMuted,
-            opacity: !trimmed || matchCount === 0 ? 0.4 : 1,
-          }}
-        >
-          <ChevronUp size={isMobile ? 18 : 14} />
-        </button>
-        <button
-          type="button"
-          onClick={onNextMatch}
-          disabled={!trimmed || matchCount === 0}
-          title={t('nvSearchNext')}
-          aria-label={t('nvSearchNext')}
-          data-k122-find-next
-          className="btbtn"
-          style={{
-            minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: c.textMuted,
-            opacity: !trimmed || matchCount === 0 ? 0.4 : 1,
-          }}
-        >
-          <ChevronDown size={isMobile ? 18 : 14} />
-        </button>
-        <span
-          data-document-search-match-count
-          data-k122-find-count
-          style={{
-            fontSize: isMobile ? 12 : 11,
-            fontWeight: 600,
-            color: c.textMuted,
-            fontVariantNumeric: 'tabular-nums',
-            minWidth: 44,
-            textAlign: 'center',
-          }}
-        >
-          {matchLabel}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          title={t('close')}
-          aria-label={t('close')}
-          data-k122-find-close
-          className="btbtn"
-          style={{
-            minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 28,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: c.textMuted,
-          }}
-        >
-          <X size={isMobile ? 18 : 14} />
-        </button>
-      </div>
-    </>
-  );
 
   if (isMobile) {
     return (
@@ -263,21 +151,68 @@ export function FindInNotePanel({
       aria-label={t('nvDocumentSearch')}
       data-document-search-toolbar
       data-k122-find-in-note
-      data-k122-find-desktop
+      data-k123-find-anchored
       style={{
-        padding: '8px 12px',
-        borderBottom: `1px solid ${c.sideBdr}`,
+        position: 'absolute',
+        top: 8,
+        right: 0,
+        zIndex: 12,
+        width: 'min(420px, calc(100% - 8px))',
         display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        flexShrink: 0,
-        background: c.toolbar,
-        flexWrap: 'nowrap',
-        minWidth: 0,
-        zIndex: 6,
+        flexDirection: 'column',
+        gap: 8,
+        padding: '10px 12px',
+        background: c.card,
+        border: `1px solid ${c.sideBdr}`,
+        borderRadius: 12,
+        boxShadow: '0 8px 28px rgba(0,0,0,0.12)',
+        boxSizing: 'border-box',
       }}
     >
-      {controls}
+      <span style={{ fontSize: 11, fontWeight: 700, color: c.textMuted }} data-k122-find-label>
+        {t('nvDocumentSearch')}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <input
+          id="k122-find-in-note-input"
+          ref={searchInputRef}
+          type="search"
+          value={searchQuery}
+          onChange={e => onQueryChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={t('k81SearchInDocument')}
+          autoComplete="off"
+          data-k122-find-input
+          className="bwsi"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 12,
+            padding: '6px 10px',
+            minHeight: 32,
+            borderRadius: 8,
+            border: `1px solid ${c.inputBdr}`,
+            background: c.input,
+            color: c.text,
+            boxSizing: 'border-box',
+          }}
+          {...{ [EDITOR_DOCUMENT_SEARCH_ATTR]: '' }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} data-k122-find-controls>
+          <button type="button" onClick={onPrevMatch} disabled={!trimmed || matchCount === 0} title={t('nvSearchPrev')} aria-label={t('nvSearchPrev')} data-k122-find-prev className="btbtn" style={{ minWidth: 28, minHeight: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: c.textMuted, opacity: !trimmed || matchCount === 0 ? 0.4 : 1 }}>
+            <ChevronUp size={14} />
+          </button>
+          <button type="button" onClick={onNextMatch} disabled={!trimmed || matchCount === 0} title={t('nvSearchNext')} aria-label={t('nvSearchNext')} data-k122-find-next className="btbtn" style={{ minWidth: 28, minHeight: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: c.textMuted, opacity: !trimmed || matchCount === 0 ? 0.4 : 1 }}>
+            <ChevronDown size={14} />
+          </button>
+          <span data-document-search-match-count data-k122-find-count style={{ fontSize: 11, fontWeight: 600, color: c.textMuted, fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'center' }}>
+            {matchLabel}
+          </span>
+          <button type="button" onClick={onClose} title={t('close')} aria-label={t('close')} data-k122-find-close className="btbtn" style={{ minWidth: 28, minHeight: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: c.textMuted }}>
+            <X size={14} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

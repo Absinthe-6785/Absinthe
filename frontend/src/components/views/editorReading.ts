@@ -50,9 +50,9 @@ export const EDITOR_READING_STYLES = `
       padding-right: 8px !important;
     }
     .be-editor-root.be-document-edit .be-gutter {
-      flex-basis: 32px;
-      width: 32px;
-      margin-left: -32px;
+      flex-basis: 36px;
+      width: 36px;
+      margin-left: -36px;
     }
   }
   .be-editor-root.be-reading .be-handles,

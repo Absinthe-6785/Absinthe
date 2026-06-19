@@ -7,6 +7,7 @@ import {
   shouldShowBlockChrome,
   EDITOR_READING_STYLES,
 } from './editorReading';
+import { K123_EDITOR_COLUMN_MAX_PX } from '../../lib/k123EditorLayout';
 
 describe('editorMode', () => {
   it('isReadingMode', () => {
@@ -34,7 +35,7 @@ describe('editorReading', () => {
 
   it('focus mode constants', () => {
     expect(READING_LINE_HEIGHT).toBe(1.8);
-    expect(READING_MAX_WIDTH_PX).toBe(700);
+    expect(READING_MAX_WIDTH_PX).toBe(K123_EDITOR_COLUMN_MAX_PX);
   });
 
   it('hides editor affordances in reading styles', () => {
