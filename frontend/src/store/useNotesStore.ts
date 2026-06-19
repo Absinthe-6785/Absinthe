@@ -55,6 +55,7 @@ import {
   LOCAL_NOTES_SAVE_ERROR,
   LOCAL_FOLDERS_SAVE_ERROR,
 } from '../components/views/noteUtils';
+import { recordArchiveRestore } from '../components/views/features/knowledge/archive/archiveRestoreRecents';
 import { knowledgeIndexService } from '../components/views/features/knowledge';
 import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
@@ -543,6 +544,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       if (restored) {
         knowledgeIndexService.updateNote(restored);
         void syncNoteToDB(restored);
+        recordArchiveRestore(id);
       }
     },
 

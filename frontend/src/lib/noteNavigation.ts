@@ -91,6 +91,20 @@ export function clearNoteReturnTab(): void {
   setNoteReturnTab(null);
 }
 
+let notesTrashOpener: (() => void) | null = null;
+
+export function registerNotesTrashOpener(opener: () => void): () => void {
+  notesTrashOpener = opener;
+  return () => {
+    if (notesTrashOpener === opener) notesTrashOpener = null;
+  };
+}
+
+export function openNotesTrash(): void {
+  switchToNotesTab();
+  notesTrashOpener?.();
+}
+
 /** Switch to the Notes tab when a switcher is registered. */
 export function switchToNotesTab(): void {
   notesTabSwitcher?.();

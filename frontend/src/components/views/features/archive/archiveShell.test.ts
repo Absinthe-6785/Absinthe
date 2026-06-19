@@ -13,7 +13,13 @@ import { ARCHIVE_SHELL_ENABLED } from './archiveShellConfig';
 import { buildArchiveHomeProjectionForHook } from './hooks/useArchiveHomeProjection';
 
 vi.mock('../../../../../store/useNotesStore', () => ({
-  useNotesStore: (selector: (state: { notes: [] }) => unknown) => selector({ notes: [] }),
+  useNotesStore: Object.assign(
+    (selector: (state: { notes: []; vaultStructureVersion: number; vaultRestoreCanUndo: boolean }) => unknown) =>
+      selector({ notes: [], vaultStructureVersion: 0, vaultRestoreCanUndo: false }),
+    {
+      getState: () => ({ notes: [], vaultStructureVersion: 0, vaultRestoreCanUndo: false }),
+    },
+  ),
 }));
 
 vi.mock('./hooks/useArchiveDomainMarks', () => ({
@@ -24,10 +30,24 @@ vi.mock('./hooks/useArchiveDomainMarks', () => ({
   }),
 }));
 
+vi.mock('../../../../hooks/useVaultRestoreFlow', () => ({
+  useVaultRestoreFlow: () => ({
+    fileInputRef: { current: null },
+    preview: null,
+    selection: null,
+    openSnapshotRestore: vi.fn(),
+    openFilePicker: vi.fn(),
+    handleFileChange: vi.fn(),
+  }),
+}));
+
+const showToast = vi.fn();
+
 const theme: Theme = {
   card: 'bg-surface',
   input: 'bg-surface-alt',
   border: 'border-border',
+  text: 'text-foreground',
   textMuted: 'text-muted',
   hoverBg: 'hover:bg-surface-alt',
 };
@@ -93,19 +113,19 @@ describe('ArchiveHomeView', () => {
 });
 
 describe('ArchiveShell', () => {
-  it('renders unified archive workspace without tabs (K-71)', () => {
+  it('renders K-109 cohesion workspace', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
         appSettings,
         theme,
+        showToast,
       }),
     );
 
-    expect(html).toContain('data-archive-mode="unified"');
-    expect(html).toContain('data-archive-unified');
-    expect(html).toContain('data-archive-home="true"');
-    expect(html).toContain('data-archive-mark-calendar');
+    expect(html).toContain('data-archive-mode="cohesion"');
+    expect(html).toContain('data-k109-archive-unified');
+    expect(html).toContain('data-k109-archive-section="history"');
     expect(html).not.toContain('data-archive-mode-switcher');
     expect(html).not.toContain('role="tablist"');
   });
@@ -151,15 +171,16 @@ describe('useArchiveHomeProjection wiring', () => {
 });
 
 describe('ArchiveShell with hook', () => {
-  it('renders home view wired through useArchiveHomeProjection', () => {
+  it('renders K-109 sections wired through useArchiveProjection', () => {
     const html = renderToStaticMarkup(
       createElement(ArchiveShell, {
         now: DateTime.fromJSDate(NOW),
         appSettings,
         theme,
+        showToast,
       }),
     );
     expect(html).toContain('Archive');
-    expect(html).toContain('data-archive-home="true"');
+    expect(html).toContain('data-k109-section-body="history"');
   });
 });

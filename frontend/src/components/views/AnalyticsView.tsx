@@ -13,6 +13,7 @@ export const AnalyticsView = (props: AnalyticsProps) => {
         now={props.now}
         appSettings={props.appSettings}
         theme={props.theme}
+        showToast={props.showToast}
       />
     );
   }

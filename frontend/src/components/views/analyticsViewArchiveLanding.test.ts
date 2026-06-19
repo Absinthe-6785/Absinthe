@@ -38,6 +38,17 @@ vi.mock('../../hooks/useEscapeKey', () => ({
   useEscapeKey: () => {},
 }));
 
+vi.mock('../../hooks/useVaultRestoreFlow', () => ({
+  useVaultRestoreFlow: () => ({
+    fileInputRef: { current: null },
+    preview: null,
+    selection: null,
+    openSnapshotRestore: vi.fn(),
+    openFilePicker: vi.fn(),
+    handleFileChange: vi.fn(),
+  }),
+}));
+
 vi.mock('../../lib/i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/i18n')>();
   return {
@@ -47,7 +58,11 @@ vi.mock('../../lib/i18n', async (importOriginal) => {
 });
 
 vi.mock('../../store/useNotesStore', () => {
-  const state = { notes: [] as NoteBase[], vaultStructureVersion: 0 };
+  const state = {
+    notes: [] as NoteBase[],
+    vaultStructureVersion: 0,
+    vaultRestoreCanUndo: false,
+  };
   const useNotesStore = (selector: (s: typeof state) => unknown) => selector(state);
   useNotesStore.getState = () => state;
   return { useNotesStore };
@@ -65,6 +80,7 @@ const theme = {
   card: 'bg-surface',
   input: 'bg-surface-alt',
   border: 'border-border',
+  text: 'text-foreground',
   textMuted: 'text-muted',
   hoverBg: 'hover:bg-surface-alt',
 };
@@ -116,6 +132,17 @@ function renderAnalyticsView(overrides: Partial<AnalyticsProps> = {}) {
   );
 }
 
+/** K-109 primary section order — index of each section hook in rendered HTML. */
+function k109SectionIndices(html: string) {
+  return {
+    history: html.indexOf('data-k109-archive-section="history"'),
+    deleted: html.indexOf('data-k109-archive-section="deleted"'),
+    snapshots: html.indexOf('data-k109-archive-section="snapshots"'),
+    timeline: html.indexOf('data-k109-archive-section="timeline"'),
+    restoreTools: html.indexOf('data-k109-archive-section="restore-tools"'),
+  };
+}
+
 describe('ARCHIVE_SHELL_ENABLED', () => {
   it('is true so Archive Home is the default Analytics landing', () => {
     expect(ARCHIVE_SHELL_ENABLED).toBe(true);
@@ -140,14 +167,15 @@ describe('AnalyticsView archive landing', () => {
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(false);
   });
 
-  it('renders ArchiveShell with unified archive as the default surface', () => {
+  it('renders ArchiveShell with K-109 cohesion archive as the default surface', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-shell');
-    expect(html).toContain('data-archive-mode="unified"');
-    expect(html).toContain('data-archive-home="true"');
+    expect(html).toContain('data-k109-archive-shell');
+    expect(html).toContain('data-archive-mode="cohesion"');
+    expect(html).toContain('data-k109-archive-unified');
     expect(html).toContain('Archive');
-    expect(html).toContain('What remains when you look back.');
+    expect(html).toContain('History, recovery, and timeline in one workspace.');
   });
 
   it('does not render legacy Analytics widgets by default', () => {
@@ -161,45 +189,52 @@ describe('AnalyticsView archive landing', () => {
     expect(html).not.toContain('weeklyTimetable');
   });
 
-  it('renders an empty Archive Home when the vault has no marks', () => {
+  it('renders K-109 empty states when the vault has no marks', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('Marks will accumulate here over time.');
-    expect(html).toContain('No marks recorded yet.');
-    expect(html).toContain('No milestones recorded.');
-    expect(html).toContain('No areas recorded.');
+    expect(html).toContain('Your archive will fill as you work.');
+    expect(html).toContain('No recent note activity yet.');
+    expect(html).toContain('No deleted notes — trash is empty.');
+    expect(html).toContain('No snapshots yet. Auto snapshots appear after note changes.');
+    expect(html).toContain('No timeline marks yet.');
   });
 });
 
-describe('AnalyticsView archive home audit', () => {
-  it('renders all Home sections in order with no productivity language', () => {
+describe('AnalyticsView archive cohesion audit', () => {
+  it('renders K-109 sections in order with no productivity language', () => {
     const html = renderAnalyticsView();
+    const sections = k109SectionIndices(html);
 
-    const calendarIndex = html.indexOf('data-archive-mark-calendar');
-    const milestonesIndex = html.indexOf('data-archive-recent-milestones');
-    const areasIndex = html.indexOf('data-archive-area-pills');
-    const browseIndex = html.indexOf('data-archive-browse');
+    expect(sections.history).toBeGreaterThan(-1);
+    expect(sections.deleted).toBeGreaterThan(sections.history);
+    expect(sections.snapshots).toBeGreaterThan(sections.deleted);
+    expect(sections.timeline).toBeGreaterThan(sections.snapshots);
+    expect(sections.restoreTools).toBeGreaterThan(sections.timeline);
 
-    expect(calendarIndex).toBeGreaterThan(-1);
-    expect(milestonesIndex).toBeGreaterThan(calendarIndex);
-    expect(areasIndex).toBeGreaterThan(milestonesIndex);
-    expect(browseIndex).toBeGreaterThan(areasIndex);
-    expect(html).toContain('data-archive-home-complete="true"');
+    expect(html).toContain('Recent history');
+    expect(html).toContain('Deleted notes');
+    expect(html).toContain('Snapshots');
+    expect(html).toContain('Timeline');
+    expect(html).toContain('Restore tools');
+
+    expect(html).not.toContain('Recent transitions');
+    expect(html).not.toContain('data-archive-home-complete');
     expect(html).not.toMatch(/score|streak|rank|percent|Activity This Week|productivity/i);
   });
 
-  it('preserves mobile-friendly layout classes on Archive Home', () => {
+  it('preserves mobile-friendly layout classes on Archive landing', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('px-2 lg:px-4');
     expect(html).toContain('text-xl lg:text-2xl');
-    expect(html).toContain('lg:rounded-[32px]');
+    expect(html).toContain('min-h-[44px]');
+    expect(html).toContain('data-archive-browse');
   });
 });
 
-describe('AnalyticsView projection-driven home content', () => {
-  it('matches buildArchiveHomeProjection section labels for populated vaults', () => {
+describe('AnalyticsView projection-driven archive content', () => {
+  it('matches buildArchiveHomeProjection browse labels and K-109 section copy', () => {
     const notes = [
       applyMilestoneToNote(
         { id: 'm1', title: 'Shipped', body: '', updatedAt: NOW.toMillis(), folderId: null, deletedAt: null },
@@ -214,8 +249,8 @@ describe('AnalyticsView projection-driven home content', () => {
 
     const html = renderAnalyticsView();
     expect(html).toContain(projection.browse.thisMonth.label);
-    expect(html).toContain('Recent transitions');
-    expect(html).toContain('Areas');
+    expect(html).toContain('Recent history');
     expect(html).toContain('Browse');
+    expect(html).not.toContain('Recent transitions');
   });
 });
