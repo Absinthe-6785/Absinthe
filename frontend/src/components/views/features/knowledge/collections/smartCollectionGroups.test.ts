@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SMART_COLLECTIONS } from './smartCollections';
+import { isSubjectSmartCollectionId } from './sidebarSmartCollections';
 import {
   SMART_COLLECTION_GROUPS,
   isPrimarySmartCollection,
@@ -8,9 +9,9 @@ import {
 } from './smartCollectionGroups';
 
 describe('smartCollectionGroups K-30.50', () => {
-  it('covers every smart collection exactly once', () => {
+  it('covers every non-subject smart collection exactly once in groups', () => {
     const grouped = SMART_COLLECTION_GROUPS.flatMap(g => g.collectionIds);
-    const all = SMART_COLLECTIONS.map(c => c.id);
+    const all = SMART_COLLECTIONS.filter(c => !isSubjectSmartCollectionId(c.id)).map(c => c.id);
     expect(grouped.sort()).toEqual([...all].sort());
     expect(new Set(grouped).size).toBe(all.length);
   });
@@ -31,12 +32,11 @@ describe('smartCollectionGroups K-30.50', () => {
     }
   });
 
-  it('exposes five primary collection categories', () => {
+  it('exposes four primary collection categories (K-116: subjects removed)', () => {
     expect(PRIMARY_COLLECTION_GROUP_IDS).toEqual([
       'knowledge',
       'study',
       'projects',
-      'subjects',
       'insights',
     ]);
   });

@@ -5,7 +5,7 @@
  */
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
 import { resolveCopySelection } from './copySelection';
-import { blocksToMarkdown, findBlockById, type Block } from '../../../../../blockUtils';
+import { blocksToMarkdown, findBlockById, type Block, formatImageDisplayLabel } from '../../../../../blockUtils';
 import { normalizedOpIds } from '../../../../../dragSelection';
 import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 import { readBlockText } from '../../../../../editableDom';
@@ -17,6 +17,7 @@ import {
   imageBlockToHtml,
   mathBlockToHtml,
 } from '../special/specialBlockClipboard';
+import { copyBlocksToClipboard } from './copyToClipboard';
 
 function escapeHtml(text: string): string {
   return text
@@ -232,8 +233,18 @@ export function collectBlocksForCopy(blocks: Block[], ids: Iterable<string>): Bl
 
 export function applySemanticCopy(blocks: Block[], clipboard: Pick<DataTransfer, 'setData'>): void {
   if (!blocks.length) return;
+  const plain = blocks.length === 1 && blocks[0].type === 'image'
+    ? formatImageDisplayLabel(blocks[0])
+    : blocksToMarkdown(blocks);
   clipboard.setData('text/html', blocksToCopyHtml(blocks));
-  clipboard.setData('text/plain', blocksToMarkdown(blocks));
+  clipboard.setData('text/plain', plain);
+}
+
+function tryImageRichCopy(blocks: Block[]): boolean {
+  const single = blocks.length === 1 && blocks[0].type === 'image' && blocks[0].src;
+  if (!single) return false;
+  void copyBlocksToClipboard(blocks);
+  return true;
 }
 
 /**
@@ -252,6 +263,7 @@ export function trySemanticCopyFromBlock(
 
   if (isToggleBlockType(block.type)) {
     applySemanticCopy([block], clipboard);
+    tryImageRichCopy([block]);
     return true;
   }
 
@@ -259,6 +271,7 @@ export function trySemanticCopyFromBlock(
   if (start !== 0 || end !== len) return false;
 
   applySemanticCopy([block], clipboard);
+  tryImageRichCopy([block]);
   return true;
 }
 
@@ -319,6 +332,7 @@ export function handleEditorCopyEvent(
     const expected = expectedSemanticPayload(blocks);
     e.preventDefault();
     applySemanticCopy(blocks, clipboard);
+    tryImageRichCopy(blocks);
     return traceAfter({
       path: 'multi-select',
       preventedDefault: true,
@@ -362,6 +376,7 @@ export function handleEditorCopyEvent(
     const expected = expectedSemanticPayload([block]);
     e.preventDefault();
     applySemanticCopy([block], clipboard);
+    tryImageRichCopy([block]);
     return traceAfter({
       path: 'single-gutter-full-block',
       preventedDefault: true,
@@ -385,6 +400,7 @@ export function handleEditorCopyEvent(
     const expected = expectedSemanticPayload([block]);
     e.preventDefault();
     applySemanticCopy([block], clipboard);
+    tryImageRichCopy([block]);
     return traceAfter({
       path: 'editable-toggle-header',
       preventedDefault: true,
@@ -406,6 +422,7 @@ export function handleEditorCopyEvent(
     const expected = expectedSemanticPayload(blocks);
     e.preventDefault();
     applySemanticCopy(blocks, clipboard);
+    tryImageRichCopy(blocks);
     return traceAfter({
       path: 'multi-select',
       preventedDefault: true,

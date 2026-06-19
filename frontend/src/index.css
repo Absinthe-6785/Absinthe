@@ -23,6 +23,11 @@
   --color-input: #F5F2EC;
   --color-input-border: #E7E0D5;
 
+  /* K-116 semantic aliases */
+  --bg-panel: var(--color-surface);
+  --text-primary: var(--color-text);
+  --border-color: var(--color-border);
+
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;

@@ -267,7 +267,7 @@ export function ProteinTracker({
             / {dailyTarget}g
           </span>
         </div>
-        <div className={`rounded-full overflow-hidden ${large ? 'h-3' : 'h-2'} ${darkMode ? 'bg-surface' : 'bg-gray-200'}`}>
+        <div className={`rounded-full overflow-hidden ${large ? 'h-3' : 'h-2'} bg-surface-alt`}>
           <div
             className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-primary'}`}
             style={{ width: `${Math.min(100, pct)}%` }}
@@ -287,7 +287,7 @@ export function ProteinTracker({
         type="button"
         onClick={() => (mode === 'compact' ? onOpenFull?.() : setShowGoalPanel(true))}
         className={`text-xs text-center py-3 rounded-2xl font-bold border-2 border-dashed transition-colors shrink-0
-          ${darkMode ? 'border-gray-700 text-gray-400 hover:border-primary hover:text-primary' : 'border-gray-300 text-gray-400 hover:border-primary hover:text-primary'}`}
+          border-border text-muted hover:border-primary hover:text-primary`}
       >
         {t('saveGoal')} →
       </button>
@@ -431,14 +431,14 @@ export function ProteinTracker({
         {selectedSrc === '__custom__' && (
           <div className="flex flex-col gap-2">
             <input type="text" value={customNote} placeholder={t('memoOptional')} onChange={e => setCustomNote(e.target.value)}
-              className="w-full bg-transparent text-sm font-semibold outline-none border-b border-gray-600/30 pb-1" />
+              className="w-full bg-transparent text-sm font-semibold outline-none border-b border-border/50 pb-1" />
             <div className="flex items-center gap-2">
               <input type="number" inputMode="decimal" min="0" step="0.1" value={customProtein} placeholder="0"
                 onChange={e => setCustomProtein(e.target.value)}
                 className="w-16 bg-transparent text-lg font-bold outline-none" />
               <span className={`text-xs font-semibold flex-1 ${theme.textMuted}`}>{t('gProtein')}</span>
               <button type="button" onClick={handleLogCustom} disabled={!customProtein || parseFloat(customProtein) <= 0}
-                className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all min-h-[44px]">
+                className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:opacity-90 disabled:opacity-40 transition-all min-h-[44px]">
                 {t('add')}
               </button>
             </div>
@@ -468,7 +468,7 @@ export function ProteinTracker({
             )}
             <button type="button" onClick={handleLogIntake}
               disabled={!intakeAmt || parseFloat(intakeAmt) <= 0}
-              className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 disabled:opacity-40 transition-all min-h-[44px]">
+              className="bg-primary text-primary-foreground text-xs font-bold px-3.5 py-2 rounded-xl hover:opacity-90 disabled:opacity-40 transition-all min-h-[44px]">
               {t('add')}
             </button>
           </div>
@@ -535,7 +535,7 @@ export function ProteinTracker({
                   </div>
                 ) : null}
                 <button type="button" onClick={handleSaveProfile}
-                  className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-2xl hover:bg-gray-800 transition-colors">
+                  className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-2xl hover:opacity-90 transition-colors">
                   {t('saveGoal')}
                 </button>
               </div>
@@ -569,7 +569,7 @@ export function ProteinTracker({
                               setEditSrcCat((src.category || 'Other') as ProteinCategory);
                               setEditSrcType(src.source_type);
                               setEditSrcVal(String(src.source_type === 'fixed' ? src.protein_per_serving : src.protein_per_100g));
-                            }} className={`p-1.5 rounded-full ${editSrcId === src.id ? 'bg-primary/20 text-primary' : 'hover:bg-gray-500/20 text-gray-400'}`}>
+                            }} className={`p-1.5 rounded-full ${editSrcId === src.id ? 'bg-primary/20 text-primary' : 'hover:bg-surface-alt text-muted'}`}>
                               <Pencil size={13} />
                             </button>
                             <button type="button" onClick={() => handleDeleteSource(src.id)} className="p-1.5 rounded-full hover:bg-red-500/20 text-red-400">
@@ -582,14 +582,14 @@ export function ProteinTracker({
                             <input type="text" value={editSrcName} onChange={e => setEditSrcName(e.target.value)}
                               className="w-full bg-transparent text-sm font-semibold outline-none pt-2" />
                             <select value={editSrcCat} onChange={e => setEditSrcCat(e.target.value as ProteinCategory)}
-                              className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'}`}>
+                              className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${theme.input}`}>
                               {PROTEIN_CATEGORY_KEYS.map(c => <option key={c} value={c}>{t(CATEGORY_I18N[c])}</option>)}
                             </select>
                             <div className="flex gap-2">
                               {(['fixed', 'per100g'] as const).map(v => (
                                 <button key={v} type="button" onClick={() => setEditSrcType(v)}
                                   className={`flex-1 py-1.5 rounded-xl text-xs font-bold
-                                    ${editSrcType === v ? 'bg-primary text-primary-foreground' : `${darkMode ? 'bg-surface' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                                    ${editSrcType === v ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>
                                   {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
                                 </button>
                               ))}
@@ -618,19 +618,19 @@ export function ProteinTracker({
                   onChange={e => setNewSrcName(e.target.value)}
                   className="w-full bg-transparent text-sm font-semibold outline-none" />
                 <select value={newSrcCat} onChange={e => setNewSrcCat(e.target.value as ProteinCategory)}
-                  className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${darkMode ? 'text-gray-300 bg-surface' : 'text-gray-700 bg-gray-100'}`}>
+                  className={`w-full text-sm font-semibold outline-none rounded-xl px-2 py-1.5 ${theme.input}`}>
                   {PROTEIN_CATEGORY_KEYS.map(c => <option key={c} value={c}>{t(CATEGORY_I18N[c])}</option>)}
                 </select>
                 <div className="flex gap-2">
                   {(['fixed', 'per100g'] as const).map(v => (
                     <button key={v} type="button" onClick={() => setNewSrcType(v)}
                       className={`flex-1 py-2 rounded-xl text-xs font-bold
-                        ${newSrcType === v ? 'bg-primary text-primary-foreground' : `${darkMode ? 'bg-surface' : 'bg-gray-200'} ${theme.textMuted}`}`}>
+                        ${newSrcType === v ? 'bg-primary text-primary-foreground' : `${theme.input} ${theme.textMuted}`}`}>
                       {v === 'fixed' ? t('proteinFixed') : t('proteinPer100g')}
                     </button>
                   ))}
                 </div>
-                <div className={`flex items-center gap-2 rounded-xl p-2.5 ${darkMode ? 'bg-surface' : 'bg-gray-100'}`}>
+                <div className={`flex items-center gap-2 rounded-xl p-2.5 bg-surface-alt`}>
                   <input type="number" inputMode="decimal" min="0" step="0.1" value={newSrcVal} placeholder="0"
                     onChange={e => setNewSrcVal(e.target.value)}
                     className="w-16 bg-transparent text-lg font-bold outline-none" />
@@ -646,7 +646,7 @@ export function ProteinTracker({
             ) : (
               <button type="button" onClick={() => setShowAddSource(true)}
                 className={`w-full py-2.5 rounded-2xl text-sm font-bold border-2 border-dashed flex items-center justify-center gap-1
-                  ${darkMode ? 'border-gray-700 text-gray-400 hover:border-primary hover:text-primary' : 'border-gray-300 text-gray-400 hover:border-primary hover:text-primary'}`}>
+                  border-border text-muted hover:border-primary hover:text-primary`}>
                 <Plus size={14} /> {t('add')}
               </button>
             )}
