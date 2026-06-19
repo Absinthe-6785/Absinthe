@@ -69,6 +69,11 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .be-editor-toolbar-scope{font-size:10px;padding:0 8px;height:24px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;box-sizing:border-box;border:1px solid ${c.toolBdr};background:${c.card};color:${c.textMuted};transition:all .12s}
     .be-editor-toolbar-scope:hover{background:${c.cardHov}}
     .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}
+    @media (max-width: 768px) {
+      .be-editor-toolbar-btn{min-width:44px;min-height:44px;width:36px;height:36px}
+      .be-editor-toolbar-scope{min-height:44px;padding:0 10px}
+    }
+    #noteview-main{overflow-x:hidden;min-width:0}
     .bfi{display:flex;align-items:center;gap:6px;padding:4px 10px;min-height:28px;cursor:pointer;transition:background .12s;font-size:11px;color:${c.text}}
     [data-list-density="compact"] .bfi{min-height:26px;padding:3px 9px;font-size:10px}
     [data-list-density="ultra"] .bfi{min-height:24px;padding:2px 8px;font-size:10px}
