@@ -6,6 +6,7 @@
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
 import { resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block, formatImageDisplayLabel } from '../../../../../blockUtils';
+import { extractLoneUrl, classifyMediaUrl, formatMediaDisplayLabel } from '../../../../../mediaUrlUtils';
 import { normalizedOpIds } from '../../../../../dragSelection';
 import { isToggleBlockType } from '../../../../../toggleBlockTypes';
 import { readBlockText } from '../../../../../editableDom';
@@ -231,11 +232,21 @@ export function collectBlocksForCopy(blocks: Block[], ids: Iterable<string>): Bl
   return result;
 }
 
+function plainCopyLabel(blocks: Block[]): string {
+  if (blocks.length !== 1) return blocksToMarkdown(blocks);
+  const block = blocks[0]!;
+  if (block.type === 'image') return formatImageDisplayLabel(block);
+  if (block.type === 'audio' && block.src) return formatMediaDisplayLabel('audio', block.src);
+  if (block.type === 'paragraph') {
+    const url = extractLoneUrl(block.content);
+    if (url) return formatMediaDisplayLabel(classifyMediaUrl(url), url);
+  }
+  return blocksToMarkdown(blocks);
+}
+
 export function applySemanticCopy(blocks: Block[], clipboard: Pick<DataTransfer, 'setData'>): void {
   if (!blocks.length) return;
-  const plain = blocks.length === 1 && blocks[0].type === 'image'
-    ? formatImageDisplayLabel(blocks[0])
-    : blocksToMarkdown(blocks);
+  const plain = plainCopyLabel(blocks);
   clipboard.setData('text/html', blocksToCopyHtml(blocks));
   clipboard.setData('text/plain', plain);
 }

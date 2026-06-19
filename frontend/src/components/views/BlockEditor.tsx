@@ -59,6 +59,7 @@ import {
 } from './features/block-editor/components/EditorDiscoverabilityHints';
 import { isEmptyDocument } from './features/block-editor/utils/editorDiscoverability';
 import { BlocksCtx, type BlocksCtxValue } from './features/block-editor/contexts/BlocksContext';
+import { ImageGalleryProvider } from './ImageGalleryContext';
 import {
   dispatchFocusCommand,
   registerFocusHandler,
@@ -795,7 +796,9 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 
   return (
     <BlocksCtx.Provider value={blocksCtx}>
-      {bodyWithProviders}
+      <ImageGalleryProvider getRootBlocks={getRootBlocks}>
+        {bodyWithProviders}
+      </ImageGalleryProvider>
     </BlocksCtx.Provider>
   );
 }
