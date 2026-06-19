@@ -40,7 +40,6 @@ export interface UseNoteViewActionsParams {
   setTraceAreaRange: Dispatch<SetStateAction<TraceRangeLens | null>>;
   setTraceDiscoveryMode: Dispatch<SetStateAction<boolean>>;
   setWorkspaceActivation: (activation: import('../../features/knowledge').WorkspaceActivation) => void;
-  setWorkspaceSearchOpen: Dispatch<SetStateAction<boolean>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   setShowSortMenu: Dispatch<SetStateAction<boolean>>;
   setFocusMode: Dispatch<SetStateAction<boolean>>;

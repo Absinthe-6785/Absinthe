@@ -161,11 +161,6 @@ export function NoteEditorHeaderActions({
       <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onTogglePanel(); setMenuOpen(false); }}>
         {t('nvTogglePanel')}
       </button>
-      {onOpenSettings ? (
-        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenSettings(); setMenuOpen(false); }}>
-          {t('settings')}
-        </button>
-      ) : null}
       {onOpenAppearance ? (
         <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenAppearance(); setMenuOpen(false); }}>
           {t('nvAppearance')}
