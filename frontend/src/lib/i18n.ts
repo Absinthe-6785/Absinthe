@@ -1849,6 +1849,8 @@ const translations = {
   k104TimetableEmpty:          { en: 'No timetable entries', ko: '시간표 항목 없음', ja: '時間割項目なし' },
   k104TimetableOpen:           { en: 'Open timetable', ko: '시간표 열기', ja: '時間割を開く' },
 
+  k105TodaysNote:              { en: "Today's note", ko: '오늘 노트', ja: '今日のノート' },
+
   // ── 카테고리 ──────────────────────────────────────────────────────
   catStudy:       { en: 'Study',         ko: '공부',         ja: '勉強'         },
   catWork:        { en: 'Work',          ko: '업무',         ja: '仕事'         },

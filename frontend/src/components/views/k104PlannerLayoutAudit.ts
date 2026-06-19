@@ -1,8 +1,10 @@
-/** K-104 — Planner desktop layout audit. */
+/** K-104 / K-105 — Planner desktop layout audit. */
 export const K104_PLANNER_RIGHT_SECTIONS = [
-  'day-schedule',
+  'planner-today',
+  'todays-note',
+  'recent-activity',
+  'today-schedule',
   'upcoming-agenda',
-  'timetable-summary',
 ] as const;
 
 export function auditPlannerLayout(): string[] {

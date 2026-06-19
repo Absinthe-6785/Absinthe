@@ -4,8 +4,8 @@ import { auditSidebarHierarchy, formatK103SidebarReport } from './k103SidebarAud
 describe('k103SidebarAudit', () => {
   it('covers sidebar sections in order', () => {
     const rows = auditSidebarHierarchy();
-    expect(rows[0]?.id).toBe('daily-note');
-    expect(rows[1]?.id).toBe('favorites');
+    expect(rows[0]?.id).toBe('favorites');
+    expect(rows.find(r => r.id === 'trash')).toBeTruthy();
     expect(rows.find(r => r.id === 'timeline-lens')).toBeTruthy();
   });
 

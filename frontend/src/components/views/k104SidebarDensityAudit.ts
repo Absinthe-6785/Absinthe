@@ -1,5 +1,5 @@
 /** K-104 — Sidebar density audit. */
-export const K104_SIDEBAR_ALWAYS_VISIBLE = ['daily-note', 'favorites', 'folders', 'trash'] as const;
+export const K104_SIDEBAR_ALWAYS_VISIBLE = ['favorites', 'folders', 'trash'] as const;
 export const K104_SIDEBAR_DEFAULT_COLLAPSED = [
   'recent-activity',
   'timeline-lens',

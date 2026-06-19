@@ -2,11 +2,11 @@
  * K-103 — Sidebar hierarchy audit.
  */
 export const K103_SIDEBAR_SECTIONS = [
-  { id: 'daily-note', dataHook: 'data-k101-daily-note-section', alwaysVisible: true },
   { id: 'favorites', dataHook: 'data-k103-favorites-section', alwaysVisible: true },
-  { id: 'recent-activity', dataHook: 'data-k101-recent-activity', defaultCollapsed: true },
+  { id: 'recent-activity', dataHook: 'data-k105-planner-recent-activity', defaultCollapsed: true, movedTo: 'planner' },
   { id: 'timeline-lens', dataHook: 'data-trace-quick-nav-toggle', defaultCollapsed: true },
   { id: 'folders', dataHook: 'data-k103-folders-section', alwaysVisible: true },
+  { id: 'trash', dataHook: 'data-k104-trash-section', alwaysVisible: true },
 ] as const;
 
 export interface K103SidebarRow {

@@ -52,8 +52,6 @@ import { cycleListDensityMode, listDensityStyles, writeListDensityMode } from '.
 import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
 import { K103_NOTE_LIST_WIDTH_PX, K103_NOTE_LIST_MIN_WIDTH_PX } from '../k103LayoutConstants';
-import { K101DailyNoteSection } from './K101DailyNoteSection';
-import { K101RecentActivitySection } from './K101RecentActivitySection';
 import { NoteListSortMenu } from './NoteListSortMenu';
 import { switchToTab } from '../../../lib/noteNavigation';
 
@@ -508,20 +506,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                   </span>
                 </div>
                 {!isTrash && (
-                  <>
-                    <K101DailyNoteSection
-                      colors={c}
-                      notes={notes}
-                      todayKey={todayTraceKey}
-                      activeNoteId={activeNoteId}
-                      collapsed={listSectionPrefs.todayCollapsed}
-                      onToggleCollapse={() => toggleSectionPref('todayCollapsed')}
-                      alwaysExpanded
-                      listDensity={listDensity}
-                      createNote={createNote}
-                      setActiveNoteId={setActiveNoteId}
-                    />
-                    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 2 }} data-k103-favorites-section data-k101-favorites-section>
+                    <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 2 }} data-k103-favorites-section data-k101-favorites-section data-k105-sidebar-favorites>
                       <div className="bseclbl k103-sidebar-sticky">
                         <span>{t('k81Favorites')}</span>
                       </div>
@@ -534,20 +519,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                         <span style={{ fontSize: 10, color: c.textFaint, fontWeight: 600, flexShrink: 0 }}>({starredCount})</span>
                       </div>
                     </div>
-                    <K101RecentActivitySection
-                      colors={c}
-                      notes={notes}
-                      todayKey={todayTraceKey}
-                      activeNoteId={activeNoteId}
-                      collapsed={listSectionPrefs.activityCollapsed}
-                      onToggleCollapse={() => toggleSectionPref('activityCollapsed')}
-                      listDensity={listDensity}
-                      onSelectNote={id => {
-                        setActiveNoteId(id);
-                        if (isMobile) setMobileShowEditor(true);
-                      }}
-                    />
-                  </>
                 )}
                 <div
                   className="bseclbl k101-interactive k103-sidebar-sticky"

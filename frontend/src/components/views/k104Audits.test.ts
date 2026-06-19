@@ -37,7 +37,7 @@ describe('k104 audits', () => {
   });
 
   it('planner layout sections', () => {
-    expect(auditPlannerLayout()).toContain('timetable-summary');
+    expect(auditPlannerLayout()).toContain('planner-today');
   });
 
   it('sidebar density', () => {

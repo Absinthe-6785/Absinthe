@@ -142,6 +142,12 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     expect(mergeNoteArrays([a], [b])[0].title).toBe('new');
   });
 
+  it('mergeNoteArrays ORs starred across copies (K-105)', () => {
+    const a: NoteBase = { id: '1', title: 'a', body: '', updatedAt: 100, folderId: null, deletedAt: null, starred: true };
+    const b: NoteBase = { id: '1', title: 'b', body: '', updatedAt: 100, folderId: null, deletedAt: null, starred: false };
+    expect(mergeNoteArrays([a], [b])[0].starred).toBe(true);
+  });
+
   it('mergeFolderArrays unions by id', () => {
     const merged = mergeFolderArrays(
       [{ id: 'f1', name: 'A', createdAt: 1 }],
