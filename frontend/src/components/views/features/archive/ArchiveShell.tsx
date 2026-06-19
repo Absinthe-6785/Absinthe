@@ -1,36 +1,77 @@
 import { useMemo } from 'react';
 import type { DateTime } from 'luxon';
 import type { AppSettings, Theme } from '../../../../types';
+import type { ToastType } from '../../../../hooks/useToast';
+import { resolveAppLanguage, getTranslator } from '../../../../lib/i18n';
+import { useVaultRestoreFlow } from '../../../../hooks/useVaultRestoreFlow';
+import { VaultRestoreModal } from '../knowledge/VaultRestoreModal';
 import { ArchiveUnifiedView } from './ArchiveUnifiedView';
-import { useArchiveHomeProjection } from './hooks/useArchiveHomeProjection';
+import { useArchiveProjection } from './hooks/useArchiveProjection';
 
 export interface ArchiveShellProps {
   now: DateTime;
   appSettings: AppSettings;
   theme: Theme;
+  showToast: (msg: string, type?: ToastType) => void;
+  cloudSyncEnabled?: boolean;
 }
 
-/** K-71 Archive — single scrollable workspace (no tabs). */
+/** K-109 Archive — history workspace with unified projection. */
 export function ArchiveShell({
   now,
   appSettings,
   theme,
+  showToast,
+  cloudSyncEnabled = false,
 }: ArchiveShellProps) {
   const nowDate = useMemo(() => now.toJSDate(), [now]);
-  const { projection, isLoading } = useArchiveHomeProjection(nowDate, appSettings.language);
+  const { projection, isLoading } = useArchiveProjection(nowDate, appSettings.language);
+  const t = getTranslator(resolveAppLanguage(appSettings.language));
+  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
 
   return (
-    <div
-      className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300"
-      data-archive-shell
-      data-archive-mode="unified"
-    >
-      <ArchiveUnifiedView
-        projection={projection}
-        theme={theme}
-        appSettings={appSettings}
-        isLoading={isLoading}
+    <>
+      <div
+        className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300"
+        data-archive-shell
+        data-archive-mode="cohesion"
+        data-k109-archive-shell
+      >
+        <ArchiveUnifiedView
+          projection={projection}
+          theme={theme}
+          appSettings={appSettings}
+          isLoading={isLoading}
+          onRestoreSnapshot={vaultRestore.openSnapshotRestore}
+          onImportBackup={vaultRestore.openFilePicker}
+        />
+      </div>
+      {vaultRestore.preview && vaultRestore.selection && (
+        <VaultRestoreModal
+          preview={vaultRestore.preview}
+          fullPreview={vaultRestore.fullPreview}
+          pipelineOptions={vaultRestore.pipelineOptions}
+          restoreSource={vaultRestore.restoreSource}
+          strategy={vaultRestore.strategy}
+          selection={vaultRestore.selection}
+          onStrategyChange={vaultRestore.setStrategy}
+          onPipelineOptionsChange={vaultRestore.updatePipelineOptions}
+          onToggleNote={vaultRestore.toggleNote}
+          onToggleFolder={vaultRestore.toggleFolder}
+          onSelectAll={vaultRestore.selectAll}
+          onSelectNone={vaultRestore.selectNone}
+          onConfirm={vaultRestore.confirmRestore}
+          onCancel={vaultRestore.cancelRestore}
+          importing={vaultRestore.importing}
+        />
+      )}
+      <input
+        ref={vaultRestore.fileInputRef}
+        type="file"
+        accept=".json,.zip,application/json,application/zip"
+        className="hidden"
+        onChange={vaultRestore.handleFileChange}
       />
-    </div>
+    </>
   );
 }

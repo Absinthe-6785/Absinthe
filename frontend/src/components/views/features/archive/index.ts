@@ -35,3 +35,9 @@ export {
   useArchiveHomeProjection,
   type UseArchiveHomeProjectionResult,
 } from './hooks/useArchiveHomeProjection';
+export {
+  buildArchiveProjectionForHook,
+  useArchiveProjection,
+  type UseArchiveProjectionResult,
+} from './hooks/useArchiveProjection';
+export { useArchiveSectionPrefs } from './hooks/useArchiveSectionPrefs';
