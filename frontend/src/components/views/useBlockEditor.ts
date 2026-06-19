@@ -21,46 +21,71 @@ export interface BlockEditorHandle {
   insertWikiLinkDraft: () => void;
   getBlocks: () => Block[];
   copyDocument: () => Promise<boolean>;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+}
+
+function isStructuralBlockChange(prev: Block[], next: Block[]): boolean {
+  if (prev.length !== next.length) return true;
+  for (let i = 0; i < prev.length; i++) {
+    if (prev[i].id !== next[i].id || prev[i].type !== next[i].type) return true;
+    if ((prev[i].indent ?? 0) !== (next[i].indent ?? 0)) return true;
+  }
+  return false;
 }
 
 export function useBlockEditor(body: string, onBodyChange: (md: string) => void) {
   const [blocks, setBlocks] = useState<Block[]>(() => loadValidatedBlocks(body, markdownToBlocks));
   const prevBodyRef = useRef(body);
+  const blocksRef = useRef(blocks);
 
   const historyRef = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
   const lastMdRef = useRef(body);
   const lastSnapTimeRef = useRef(0);
 
   useEffect(() => {
+    blocksRef.current = blocks;
+  }, [blocks]);
+
+  const pushHistorySnapshot = useCallback(() => {
+    const h = historyRef.current;
+    h.past.push(lastMdRef.current);
+    if (h.past.length > HISTORY_LIMIT) h.past.shift();
+    h.future = [];
+  }, []);
+
+  useEffect(() => {
     if (body !== prevBodyRef.current) {
       if (body !== lastMdRef.current) {
-        historyRef.current.past.push(lastMdRef.current);
-        if (historyRef.current.past.length > HISTORY_LIMIT) historyRef.current.past.shift();
-        historyRef.current.future = [];
+        pushHistorySnapshot();
         lastSnapTimeRef.current = Date.now();
       }
       prevBodyRef.current = body;
       lastMdRef.current = body;
       setBlocks(loadValidatedBlocks(body, markdownToBlocks));
     }
-  }, [body]);
+  }, [body, pushHistorySnapshot]);
 
   const handleBlockChange = useCallback((newBlocks: Block[]) => {
     const md = blocksToMarkdown(newBlocks);
-    if (md !== lastMdRef.current) {
-      const now = Date.now();
-      if (now - lastSnapTimeRef.current > COALESCE_MS) {
-        historyRef.current.past.push(lastMdRef.current);
-        if (historyRef.current.past.length > HISTORY_LIMIT) historyRef.current.past.shift();
-        historyRef.current.future = [];
-        lastSnapTimeRef.current = now;
-      }
+    if (md === lastMdRef.current) return;
+
+    const now = Date.now();
+    const structural = isStructuralBlockChange(blocksRef.current, newBlocks);
+    const outsideCoalesce = now - lastSnapTimeRef.current > COALESCE_MS;
+
+    if (structural || outsideCoalesce) {
+      pushHistorySnapshot();
+      lastSnapTimeRef.current = now;
     }
+
     setBlocks(newBlocks);
     lastMdRef.current = md;
     prevBodyRef.current = md;
     onBodyChange(md);
-  }, [onBodyChange]);
+  }, [onBodyChange, pushHistorySnapshot]);
 
   const applyMd = useCallback((md: string) => {
     lastMdRef.current = md;
@@ -85,6 +110,9 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     h.past.push(lastMdRef.current);
     applyMd(next);
   }, [applyMd]);
+
+  const canUndo = useCallback(() => historyRef.current.past.length > 0, []);
+  const canRedo = useCallback(() => historyRef.current.future.length > 0, []);
 
   const activeBlockIdRef = useRef<string | null>(null);
   const [externalFocusId, setExternalFocusId] = useState<string | null>(null);
@@ -145,7 +173,7 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   }, [blocks]);
 
   return {
-    blocks, handleBlockChange, undo, redo,
+    blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
     setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
     getBlocks, copyDocument,

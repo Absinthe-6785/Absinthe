@@ -6,7 +6,7 @@ import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Search, Type, Eye, Orbit,
+  Search, Type, Eye, Orbit, Plus,
   AlertTriangle, Save, GitFork, Upload,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
@@ -82,7 +82,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
   ref,
 ) {
   const {
-    blocks, handleBlockChange, undo, redo,
+    blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
     setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
     getBlocks, copyDocument,
@@ -94,7 +94,11 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
     insertWikiLinkDraft,
     getBlocks,
     copyDocument,
-  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument]);
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  }), [insertImage, insertEmptyImageBlock, insertWikiLinkDraft, getBlocks, copyDocument, undo, redo, canUndo, canRedo]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -308,6 +312,11 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     else setMobileShowEditor(false);
   };
 
+  const handleNewNote = () => {
+    createNote();
+    if (isMobile) setMobileShowEditor(true);
+  };
+
   const handleDocumentSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
@@ -407,6 +416,34 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 <option value="">{t('nvNoFolder')}</option>
                 {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
+            )}
+            {!isTrash && (
+              <button
+                type="button"
+                className={`btbtn${isMobile ? ' btbtn-mobile' : ''}`}
+                onClick={handleNewNote}
+                title={t('nvNewNoteBtn')}
+                aria-label={t('nvNewNoteBtn')}
+                data-k106-new-note-btn
+                data-noteview-new-note-btn
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: isMobile ? '6px 10px' : '4px 10px',
+                  background: c.accent,
+                  border: 'none',
+                  borderRadius: 8,
+                  color: dark ? '#0F0F11' : '#fff',
+                  fontSize: isMobile ? 12 : 11,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  minHeight: isMobile ? 44 : undefined,
+                }}
+              >
+                <Plus size={isMobile ? 16 : 14} strokeWidth={2.5} />
+                {!isMobile ? <span>{t('nvNewNoteBtn')}</span> : null}
+              </button>
             )}
             {/* Cloud sync status */}
             {!isTrash && (
