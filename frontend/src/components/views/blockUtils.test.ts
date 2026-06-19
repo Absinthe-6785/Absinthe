@@ -14,6 +14,8 @@ import {
   isTextBlockType,
   isValidImageUrl,
   imageAltFromUrl,
+  formatImageDisplayLabel,
+  formatImageMarkdownAlt,
   filterBlockMenu,
 } from './blockUtils';
 
@@ -27,6 +29,17 @@ describe('isValidImageUrl / imageAltFromUrl', () => {
 
   it('extracts alt from URL path', () => {
     expect(imageAltFromUrl('https://cdn.example.com/photos/sunset.jpg')).toBe('sunset');
+  });
+
+  it('K-116 formatImageDisplayLabel hides data URLs', () => {
+    const block = makeBlock('image', {
+      src: 'data:image/png;base64,abc',
+      alt: '',
+    });
+    expect(formatImageDisplayLabel(block)).toBe('Image');
+    expect(formatImageMarkdownAlt(block)).toBe('Image');
+    expect(formatImageDisplayLabel({ ...block, caption: 'My shot' })).toBe('My shot');
+    expect(formatImageDisplayLabel({ ...block, alt: 'screenshot-2024' })).toBe('Screenshot');
   });
 });
 

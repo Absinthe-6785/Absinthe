@@ -23,6 +23,8 @@ export interface SmartCollectionsSectionProps {
   onClearActive: () => void;
   isPinned?: (id: string) => boolean;
   onTogglePin?: (collection: SmartCollection) => void;
+  /** K-116 — hide rows with zero notes unless active or pinned */
+  hideZeroCount?: boolean;
 }
 
 function CollectionRow({
@@ -36,6 +38,7 @@ function CollectionRow({
   onTogglePin,
   subdued,
   isMobile,
+  showIcon = true,
 }: {
   c: NoteChromeColors;
   collection: SmartCollection;
@@ -47,6 +50,7 @@ function CollectionRow({
   onTogglePin?: (e: React.MouseEvent) => void;
   subdued?: boolean;
   isMobile?: boolean;
+  showIcon?: boolean;
 }) {
   const Icon = getSmartCollectionIcon(collection.id);
   return (
@@ -54,6 +58,7 @@ function CollectionRow({
       className={`bfi ${active ? 'active' : ''}`}
       onClick={onActivate}
       data-k108-smart-collection-row
+      data-k116-sc-row
       data-k108-sc-id={collection.id}
       style={{
         gap: 4,
@@ -65,7 +70,9 @@ function CollectionRow({
       }}
       title={collection.description}
     >
-      <Icon size={10} color={active ? c.accent : c.textMuted} style={{ flexShrink: 0 }} />
+      {showIcon ? (
+        <Icon size={10} color={active ? c.accent : c.textMuted} style={{ flexShrink: 0 }} />
+      ) : null}
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {displayName}
       </span>
@@ -94,6 +101,7 @@ function GroupSection({
   isPinned,
   onTogglePin,
   isMobile,
+  hideZeroCount = true,
 }: {
   c: NoteChromeColors;
   groupId: string;
@@ -107,10 +115,28 @@ function GroupSection({
   isPinned?: (id: string) => boolean;
   onTogglePin?: (collection: SmartCollection) => void;
   isMobile?: boolean;
+  hideZeroCount?: boolean;
 }) {
   const { t } = useTranslation();
   const hasSecondaryActive = secondaryCollections.some(col => col.id === activeCollectionId);
   const [showSecondary, setShowSecondary] = useState(hasSecondaryActive);
+
+  const visiblePrimary = hideZeroCount
+    ? primaryCollections.filter(col =>
+      (counts[col.id] ?? 0) > 0
+      || col.id === activeCollectionId
+      || isPinned?.(col.id),
+    )
+    : primaryCollections;
+  const visibleSecondary = hideZeroCount
+    ? secondaryCollections.filter(col =>
+      (counts[col.id] ?? 0) > 0
+      || col.id === activeCollectionId
+      || isPinned?.(col.id),
+    )
+    : secondaryCollections;
+
+  if (visiblePrimary.length === 0 && visibleSecondary.length === 0) return null;
 
   return (
     <div style={{ marginBottom: 6 }}>
@@ -129,7 +155,7 @@ function GroupSection({
         <GroupIcon size={9} color={c.textFaint} />
         {groupLabel}
       </div>
-      {primaryCollections.map(collection => (
+      {visiblePrimary.map(collection => (
         <CollectionRow
           key={collection.id}
           c={c}
@@ -143,9 +169,10 @@ function GroupSection({
                   ? e => { e.stopPropagation(); onTogglePin(collection); }
                   : undefined}
                 isMobile={isMobile}
+                showIcon={visiblePrimary.length <= 8}
               />
       ))}
-      {secondaryCollections.length > 0 && (
+      {visibleSecondary.length > 0 && (
         <>
           <button
             type="button"
@@ -164,9 +191,9 @@ function GroupSection({
             }}
           >
             {showSecondary ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
-            {t('knShowMoreCount').replace('{count}', String(secondaryCollections.length))}
+            {t('knShowMoreCount').replace('{count}', String(visibleSecondary.length))}
           </button>
-          {showSecondary && secondaryCollections.map(collection => (
+          {showSecondary && visibleSecondary.map(collection => (
             <CollectionRow
               key={collection.id}
               c={c}
@@ -198,6 +225,7 @@ export function SmartCollectionsSection({
   onClearActive,
   isPinned,
   onTogglePin,
+  hideZeroCount = true,
 }: SmartCollectionsSectionProps) {
   const { t } = useTranslation();
   const { isMobile } = useViewportLayout();
@@ -242,6 +270,7 @@ export function SmartCollectionsSection({
             isPinned={isPinned}
             onTogglePin={onTogglePin}
             isMobile={isMobile}
+            hideZeroCount={hideZeroCount}
           />
         );
       })}

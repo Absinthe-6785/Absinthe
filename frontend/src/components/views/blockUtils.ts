@@ -181,6 +181,53 @@ export function imageAltFromUrl(url: string): string {
   }
 }
 
+const DATA_IMAGE_RE = /^data:image\//i;
+
+function isDataImageUrl(value: string | undefined): boolean {
+  return Boolean(value && DATA_IMAGE_RE.test(value.trim()));
+}
+
+/** K-116 — Human-readable image label (no long data URLs in previews). */
+export function formatImageDisplayLabel(
+  block: Pick<Block, 'alt' | 'caption' | 'src'>,
+  duplicateIndex?: number,
+): string {
+  const caption = block.caption?.trim();
+  if (caption) return caption;
+
+  const alt = block.alt?.trim();
+  if (alt && !isDataImageUrl(alt) && alt.length <= 64) {
+    if (/screenshot/i.test(alt)) return 'Screenshot';
+    return alt;
+  }
+
+  const src = block.src?.trim() ?? '';
+  if (src && !isDataImageUrl(src)) {
+    try {
+      const base = decodeURIComponent(new URL(src).pathname.split('/').pop() ?? '');
+      const name = base.replace(/\.[^.]+$/, '');
+      if (name && name.length <= 48) {
+        if (/screenshot/i.test(name)) return 'Screenshot';
+        return name;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (duplicateIndex != null && duplicateIndex > 1) {
+    return `Image (${duplicateIndex})`;
+  }
+  return 'Image';
+}
+
+export function formatImageMarkdownAlt(
+  block: Pick<Block, 'alt' | 'caption' | 'src'>,
+  duplicateIndex?: number,
+): string {
+  return formatImageDisplayLabel(block, duplicateIndex);
+}
+
 // ── ID 생성 ──────────────────────────────────────────────────────────
 
 let _idCounter = 0;
@@ -645,10 +692,13 @@ export function blocksToMarkdown(blocks: Block[]): string {
         break;
 
       case 'image': {
-        // 캡션·너비는 title에 직렬화: ![alt](src "caption|w:400")
         const title = formatImageTitle(block.caption, block.width);
         const cap = title ? ` "${title.replace(/"/g, '')}"` : '';
-        lines.push(`![${block.alt ?? ''}](${block.src ?? ''}${cap})`);
+        const altRaw = block.alt?.trim();
+        const alt = altRaw && !isDataImageUrl(altRaw)
+          ? altRaw
+          : formatImageMarkdownAlt(block);
+        lines.push(`![${alt}](${block.src ?? ''}${cap})`);
         break;
       }
 

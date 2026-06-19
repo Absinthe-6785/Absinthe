@@ -42,6 +42,7 @@ import {
   type DatabaseView,
   type TraceRangeLens,
 } from '../features/knowledge';
+import { getSidebarSmartCollections } from '../features/knowledge/collections/sidebarSmartCollections';
 import type { SmartCollectionId } from '../features/knowledge/collections/smartCollectionModels';
 import type { WorkspaceActivation } from '../features/knowledge/workspace/workspaceModels';
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
@@ -324,6 +325,10 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
   } = data;
 
   const densityStyle = listDensityStyles(listDensity);
+  const sidebarSmartCollections = useMemo(
+    () => getSidebarSmartCollections(pinnedWorkspaces.map(p => ({ kind: p.kind, id: p.id }))),
+    [pinnedWorkspaces],
+  );
   const yesterdayTraceKey = useMemo(() => {
     const d = new Date(`${todayTraceKey}T12:00:00`);
     d.setDate(d.getDate() - 1);
@@ -830,7 +835,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                       </div>
                       <SmartCollectionsSection
                         colors={c}
-                        collections={SMART_COLLECTIONS}
+                        collections={sidebarSmartCollections}
                         activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
                         counts={smartCollectionCounts}
                         onActivate={handleActivateSmartCollection}

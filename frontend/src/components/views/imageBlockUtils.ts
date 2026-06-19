@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { BlockEditorColors } from './editorTypes';
+export { formatImageDisplayLabel, formatImageMarkdownAlt } from './blockUtils';
 
 export const IMAGE_MIN_WIDTH = 80;
 export const IMAGE_MAX_WIDTH = 900;

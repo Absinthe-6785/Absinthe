@@ -19,6 +19,7 @@ export {
   isValidRuleCollectionQuery,
   normalizeRuleCollections,
   renameRuleCollection,
+  reorderRuleCollections,
 } from './ruleCollections';
 export { evaluateRuleCollection } from './evaluateRuleCollection';
 export { filterByRuleCollection } from './filterByRuleCollection';

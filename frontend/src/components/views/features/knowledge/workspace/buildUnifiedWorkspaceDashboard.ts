@@ -44,7 +44,7 @@ export function buildUnifiedWorkspaceDashboard(
   const service = opts.service;
   const subjects = SUBJECT_DASHBOARDS
     .map(s => buildSubjectDashboard(notes, s.id, { limit }))
-    .filter((d): d is SubjectDashboardData => d !== null);
+    .filter((d): d is SubjectDashboardData => d !== null && d.noteCount > 0);
 
   return {
     review: buildKnowledgeReviewLists(notes, { limit }),

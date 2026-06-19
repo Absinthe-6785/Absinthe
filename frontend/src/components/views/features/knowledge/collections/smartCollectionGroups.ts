@@ -15,8 +15,6 @@ import {
   Orbit,
   Compass,
   Globe,
-  Languages,
-  BookMarked,
 } from 'lucide-react';
 import type { SmartCollectionId } from './smartCollectionModels';
 
@@ -86,26 +84,6 @@ export const SMART_COLLECTION_GROUPS: readonly SmartCollectionGroup[] = [
     secondaryCollectionIds: ['academic-study-projects', 'academic-completed-projects'],
   },
   {
-    id: 'subjects',
-    label: '주제',
-    icon: Compass,
-    collectionIds: [
-      'subject-japanese-history',
-      'subject-politics',
-      'subject-economics',
-      'subject-toefl',
-      'subject-vocabulary',
-    ],
-    primaryCollectionIds: [
-      'subject-japanese-history',
-      'subject-politics',
-      'subject-economics',
-      'subject-toefl',
-      'subject-vocabulary',
-    ],
-    secondaryCollectionIds: [],
-  },
-  {
     id: 'insights',
     label: '인사이트',
     icon: Star,
@@ -136,11 +114,6 @@ const COLLECTION_ICONS: Partial<Record<SmartCollectionId, LucideIcon>> = {
   'academic-milestones': Flag,
   'academic-study-projects': Orbit,
   'academic-completed-projects': Bookmark,
-  'subject-japanese-history': BookMarked,
-  'subject-politics': Globe,
-  'subject-economics': Compass,
-  'subject-toefl': Languages,
-  'subject-vocabulary': BookOpen,
   'highly-connected': Sparkles,
 };
 

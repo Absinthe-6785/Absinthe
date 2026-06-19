@@ -21,6 +21,7 @@ describe('buildUnifiedWorkspaceDashboard', () => {
     const notes = [
       note('1', { properties: { noteKind: 'source' }, updatedAt: 100 }),
       buildStudyNote(note('2'), { title: 'Study' }),
+      note('3', { properties: { tags: 'politics' }, updatedAt: 200 }),
     ];
     const data = buildUnifiedWorkspaceDashboard(notes, { limit: 3 });
     expect(data.research).toBeDefined();
@@ -28,6 +29,6 @@ describe('buildUnifiedWorkspaceDashboard', () => {
     expect(data.projects).toBeDefined();
     expect(data.insights).toBeDefined();
     expect(data.review).toBeDefined();
-    expect(data.subjects.length).toBeGreaterThan(0);
+    expect(data.subjects.some(s => s.subject.id === 'politics')).toBe(true);
   });
 });

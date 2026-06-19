@@ -67,6 +67,21 @@ export function deleteRuleCollection(
   return collections.filter(collection => collection.id !== id);
 }
 
+/** K-116 — Reorder user-owned rule collections (workspaces). */
+export function reorderRuleCollections(
+  collections: readonly RuleCollection[],
+  fromIndex: number,
+  toIndex: number,
+): RuleCollection[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return [...collections];
+  if (fromIndex >= collections.length || toIndex >= collections.length) return [...collections];
+  const next = [...collections];
+  const [item] = next.splice(fromIndex, 1);
+  if (!item) return [...collections];
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
 /** Activate a rule collection — returns its id for sidebar state */
 export function activateRuleCollection(collection: RuleCollection): string {
   return collection.id;

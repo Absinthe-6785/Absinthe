@@ -7,7 +7,6 @@ import {
   knowledgeIndexService,
   buildUnifiedWorkspaceDashboard,
   buildLearningPathOverview,
-  buildAllSubjectWorkspaces,
   buildDiscoveryFeed,
   buildKnowledgeTimeline,
   resolveCosmosVaultPhase,
@@ -106,10 +105,8 @@ export function useNoteViewDashboard(params: {
   );
 
   const subjectWorkspaces = useMemo(
-    () => workspaceEnabled
-      ? buildAllSubjectWorkspaces(useNotesStore.getState().notes, { limit: 6 })
-      : [],
-    [workspaceEnabled, vaultStructureVersion],
+    () => [],
+    [],
   );
 
   const cosmosVaultPhase = useMemo(
