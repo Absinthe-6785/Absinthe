@@ -176,3 +176,41 @@ export function formatLongTimestamp(
 ): string {
   return formatLongDate(new Date(ms), locale);
 }
+
+/** K-113 — shared bucket for cross-domain activity and relative labels. */
+export type CohesionDateBucket = 'today' | 'yesterday' | 'thisWeek' | 'earlier';
+
+export function classifyCohesionBucket(valueMs: number, todayKey: string): CohesionDateBucket {
+  const valueKey = toDateKeyFromMs(valueMs);
+  const diff = calendarDayDiff(valueKey, todayKey);
+  if (diff === 0) return 'today';
+  if (diff === 1) return 'yesterday';
+  if (diff > 1 && diff <= 7) return 'thisWeek';
+  return 'earlier';
+}
+
+export interface CohesionGroupLabels {
+  today: string;
+  yesterday: string;
+  thisWeek: string;
+  earlier: string;
+}
+
+export function cohesionGroupLabel(
+  bucket: CohesionDateBucket,
+  labels: CohesionGroupLabels,
+): string {
+  return labels[bucket];
+}
+
+/** K-113 — recent-activity buckets (today / yesterday / earlier). */
+export type RecentActivityBucket = 'today' | 'yesterday' | 'earlier';
+
+export function classifyRecentActivityBucket(
+  valueMs: number,
+  todayKey: string,
+): RecentActivityBucket {
+  const bucket = classifyCohesionBucket(valueMs, todayKey);
+  if (bucket === 'thisWeek') return 'earlier';
+  return bucket;
+}

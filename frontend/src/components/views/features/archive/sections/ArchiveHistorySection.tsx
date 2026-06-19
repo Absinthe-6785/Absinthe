@@ -75,8 +75,12 @@ export function ArchiveHistorySection({
                                 breadcrumb: [{ type: 'key', key: 'k109SectionHistory' }],
                               })}
                               data-k109-history-row
+                              data-k113-open-in-notes
                             >
-                              <span className="truncate font-medium">{item.title}</span>
+                              <span className="truncate font-medium flex flex-col min-w-0">
+                                <span className="truncate">{item.title}</span>
+                                <span className={`text-[9px] font-semibold ${theme.textMuted}`}>{t('k113OpenInNotes')}</span>
+                              </span>
                               <span className={`shrink-0 text-[10px] ${theme.textMuted}`}>{item.relativeLabel}</span>
                             </button>
                           </li>

@@ -18,6 +18,7 @@ import {
 import type { SearchSectionPrefKey } from '../searchSectionPrefs';
 import { switchToTab } from '../../../../../lib/noteNavigation';
 import { getSearchNoteHandlers } from '../searchNavigation';
+import { getSearchDomainHandlers } from '../searchDomainNavigation';
 import type { WorkspaceSearchResultKind } from '../../knowledge/workspace/buildWorkspaceSearch';
 
 const DOMAIN_PREF_KEYS: Record<SearchDomain, SearchSectionPrefKey> = {
@@ -80,14 +81,20 @@ function navigateResult(result: SearchResultItem): void {
 
   if (result.domain === 'planner') {
     switchToTab('planner');
+    if (result.plannerItemId) {
+      getSearchDomainHandlers()?.onOpenPlannerItem?.(result.plannerItemId, String(result.kind));
+    }
     return;
   }
   if (result.domain === 'health') {
     switchToTab('health');
+    const day = result.subtitle?.split('·')[0]?.trim() ?? result.title;
+    if (day) getSearchDomainHandlers()?.onOpenHealthDay?.(day);
     return;
   }
   if (result.domain === 'recipe') {
     switchToTab('recipe');
+    if (result.recipeId) getSearchDomainHandlers()?.onSelectRecipe?.(result.recipeId);
     return;
   }
   if (result.domain === 'archive') {

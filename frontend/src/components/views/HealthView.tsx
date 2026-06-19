@@ -14,6 +14,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
 import { useNotesStore } from '../../store/useNotesStore';
 import { openHealthDayNote } from '../../lib/noteNavigation';
+import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
@@ -678,6 +679,25 @@ export const HealthView = ({
     ]);
   }, [formatDate, selectedDate, createNote, updateNote]);
 
+  const openWorkoutSessionNote = useCallback((dateLabel: string) => {
+    openHealthDayNote(dateLabel, createNote, updateNote, [
+      { type: 'key', key: 'healthNavWorkout' },
+      { type: 'key', key: 'k113OpenWorkoutNote' },
+    ]);
+  }, [createNote, updateNote]);
+
+  useEffect(() => {
+    return registerSearchDomainHandlers({
+      onOpenHealthDay: (dateLabel) => {
+        const [y, m, d] = dateLabel.split('-').map(Number);
+        if (y && m && d) {
+          setSelectedDate(new Date(y, m - 1, d));
+        }
+        openWorkoutSessionNote(dateLabel);
+      },
+    });
+  }, [openWorkoutSessionNote, setSelectedDate]);
+
   const swipeHealthSection = useSwipeNavigation(
     () => {
       const next = HEALTH_WORKSPACE_SECTIONS[healthSectionIndex + 1];
@@ -1149,6 +1169,7 @@ export const HealthView = ({
           darkMode={appSettings.darkMode}
           prefs={healthSectionPrefs}
           onPrefsChange={updateHealthSectionPrefs}
+          onOpenWorkoutNote={openWorkoutSessionNote}
         />
 
         <HealthSupportingPanels

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import { authFetch } from '../../lib/supabase';
 import { fetcher } from '../../lib/fetcher';
@@ -17,6 +17,9 @@ import {
 } from './features/recipe';
 import { RecipeStudioView } from './features/recipe/components/RecipeStudioView';
 import { RecipeFormModal, type RecipeFormState } from './features/recipe/components/RecipeListParts';
+import { openRecipeCookingNote } from '../../lib/crossDomainReferences';
+import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
+import { useNotesStore } from '../../store/useNotesStore';
 
 export type { Recipe } from './features/recipe';
 
@@ -48,15 +51,17 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
     setExpandedId(prev => {
       const next = prev === id ? null : id;
       if (next) {
-        recordRecipeView(id);
+        const recipe = recipes.find(r => r.id === id);
+        recordRecipeView(id, recipe?.title);
         bumpActivity();
       }
       return next;
     });
-  }, [bumpActivity]);
+  }, [bumpActivity, recipes]);
 
   const handleScrollToRecipe = useCallback((id: string) => {
-    recordRecipeView(id);
+    const recipe = recipes.find(r => r.id === id);
+    recordRecipeView(id, recipe?.title);
     bumpActivity();
     setExpandedId(id);
     requestAnimationFrame(() => {
@@ -156,6 +161,21 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
     setEditingId(null);
   }, []);
 
+  const createNote = useNotesStore(s => s.createNote);
+  const updateNote = useNotesStore(s => s.updateNote);
+
+  const handleOpenCookingNote = useCallback((recipe: Recipe) => {
+    openRecipeCookingNote(recipe.title, createNote, updateNote);
+  }, [createNote, updateNote]);
+
+  useEffect(() => {
+    return registerSearchDomainHandlers({
+      onSelectRecipe: (recipeId) => {
+        handleScrollToRecipe(recipeId);
+      },
+    });
+  }, [handleScrollToRecipe]);
+
   return (
     <>
       <RecipeStudioView
@@ -170,6 +190,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
         onEdit={openEdit}
         onDelete={handleDelete}
         onMarkCooked={handleMarkCooked}
+        onOpenCookingNote={handleOpenCookingNote}
         onNewRecipe={openNew}
         onScrollToRecipe={handleScrollToRecipe}
       />

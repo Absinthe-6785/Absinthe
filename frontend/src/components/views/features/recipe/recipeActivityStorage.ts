@@ -9,6 +9,7 @@ const MAX_ENTRIES = 48;
 export interface RecipeActivityEntry {
   recipeId: string;
   at: number;
+  title?: string;
 }
 
 function readEntries(key: string): RecipeActivityEntry[] {
@@ -46,8 +47,9 @@ export function readRecipeEditRecents(): RecipeActivityEntry[] {
   return readEntries(RECIPE_EDIT_RECENTS_KEY);
 }
 
-export function recordRecipeView(recipeId: string): void {
-  pushEntry(RECIPE_VIEW_RECENTS_KEY, recipeId);
+export function recordRecipeView(recipeId: string, title?: string): void {
+  const next = [{ recipeId, at: Date.now(), title }, ...readEntries(RECIPE_VIEW_RECENTS_KEY).filter(e => e.recipeId !== recipeId)];
+  writeEntries(RECIPE_VIEW_RECENTS_KEY, next);
 }
 
 export function recordRecipeCook(recipeId: string): void {

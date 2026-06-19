@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Edit2, Trash2, X } from 'lucide-react';
+import { Copy, Edit2, Trash2, X, FileText } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import type { PlannerScheduleRow } from '../../calendar';
@@ -14,6 +14,8 @@ export interface ScheduleEventDetailPanelProps {
   onDelete: () => void;
   onDuplicate?: () => void;
   onClose: () => void;
+  onOpenRelatedNote?: () => void;
+  relatedNoteAvailable?: boolean;
   variant?: 'sheet' | 'inline';
 }
 
@@ -27,6 +29,8 @@ export function ScheduleEventDetailPanel({
   onDelete,
   onDuplicate,
   onClose,
+  onOpenRelatedNote,
+  relatedNoteAvailable = false,
   variant = 'sheet',
 }: ScheduleEventDetailPanelProps) {
   const { t } = useTranslation();
@@ -128,6 +132,18 @@ export function ScheduleEventDetailPanel({
       <p className={`text-[10px] ${theme.textMuted}`}>{t('k100ScheduleKeyboardHint')}</p>
 
       <div className="flex flex-wrap gap-2 pt-1 items-stretch" data-k102-schedule-detail-actions data-k103-schedule-detail-actions>
+        {relatedNoteAvailable && onOpenRelatedNote ? (
+          <button
+            type="button"
+            onClick={onOpenRelatedNote}
+            className={`flex-1 min-w-[88px] max-w-full font-bold rounded-xl py-2 px-3 text-sm flex items-center justify-center gap-1.5 border k101-interactive min-h-[44px] ${theme.border}`}
+            data-k113-cross-ref="planner"
+            data-k113-open-related-note
+          >
+            <FileText size={15} />
+            {t('k113OpenRelatedNote')}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onEdit}
