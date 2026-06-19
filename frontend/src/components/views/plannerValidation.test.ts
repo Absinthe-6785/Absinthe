@@ -74,10 +74,13 @@ describe('K-32.1 planner validation', () => {
     expect(html).not.toContain('data-planner-calendar-mode-option="week"');
   });
 
-  it('uses Schedule + Timetable workspace tabs (K-74)', () => {
+  it('uses unified Schedule section nav with embedded timetable (K-117)', () => {
     const source = readSource('PlannerView.tsx');
-    expect(source).toContain('ScheduleWorkspaceNav');
-    expect(source).toContain('WeeklyTimetableSection');
+    const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
+    expect(source).toContain('ScheduleSectionNav');
+    expect(source).toContain('PlannerStickyActions');
+    expect(month).toContain('WeeklyTimetableSection');
+    expect(source).not.toContain('ScheduleWorkspaceNav');
     expect(source).not.toContain('ScheduleCountdownPanel');
     expect(source).not.toContain('MOBILE_PLANNER_TABS');
     expect(source).not.toContain('data-planner-column="timeline"');

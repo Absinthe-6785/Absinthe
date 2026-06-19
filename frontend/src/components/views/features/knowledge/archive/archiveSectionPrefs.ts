@@ -6,6 +6,8 @@ export interface ArchiveSectionPrefs {
   snapshotsCollapsed: boolean;
   timelineCollapsed: boolean;
   restoreToolsCollapsed: boolean;
+  browseCollapsed: boolean;
+  areasCollapsed: boolean;
 }
 
 export const DEFAULT_ARCHIVE_SECTION_PREFS: ArchiveSectionPrefs = {
@@ -14,6 +16,8 @@ export const DEFAULT_ARCHIVE_SECTION_PREFS: ArchiveSectionPrefs = {
   snapshotsCollapsed: false,
   timelineCollapsed: false,
   restoreToolsCollapsed: false,
+  browseCollapsed: true,
+  areasCollapsed: true,
 };
 
 export type ArchiveSectionPrefKey = keyof ArchiveSectionPrefs;
@@ -29,6 +33,8 @@ export function readArchiveSectionPrefs(): ArchiveSectionPrefs {
       snapshotsCollapsed: Boolean(parsed.snapshotsCollapsed),
       timelineCollapsed: Boolean(parsed.timelineCollapsed),
       restoreToolsCollapsed: Boolean(parsed.restoreToolsCollapsed),
+      browseCollapsed: parsed.browseCollapsed !== undefined ? Boolean(parsed.browseCollapsed) : true,
+      areasCollapsed: parsed.areasCollapsed !== undefined ? Boolean(parsed.areasCollapsed) : true,
     };
   } catch {
     return DEFAULT_ARCHIVE_SECTION_PREFS;

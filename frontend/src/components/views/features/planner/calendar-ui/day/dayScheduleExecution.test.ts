@@ -182,7 +182,7 @@ describe('DayCalendarView schedule execution wiring', () => {
 });
 
 describe('CalendarShell month schedule execution wiring', () => {
-  it('passes dayScheduleActions through to upcoming agenda panel (K-80)', () => {
+  it('passes schedule actions through without duplicate add buttons (K-117)', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, {
         now: NOW,
@@ -196,12 +196,11 @@ describe('CalendarShell month schedule execution wiring', () => {
           language: 'en',
         },
         theme,
-        dayScheduleActions: { onAdd: () => {} },
+        dayScheduleActions: { onView: () => {}, onEdit: () => {} },
       }),
     );
 
     expect(html).toContain('data-planner-calendar-month');
-    expect(html).toContain('data-planner-upcoming-agenda');
-    expect(html).toContain('data-planner-day-schedule-add="true"');
+    expect(html).not.toContain('data-planner-day-schedule-add="true"');
   });
 });

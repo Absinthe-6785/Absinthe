@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useEffect, useMemo, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
-import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
+import { setNoteBreadcrumb, openWorkspaceSearch } from '../../../lib/noteNavigation';
 import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
@@ -350,6 +350,82 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
 
   return (
     <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
+      {!isTrash && (
+        <div
+          data-k117-note-top-actions
+          className="bsticky-header"
+          style={{
+            padding: isMobile ? '5px 10px' : '5px 13px',
+            borderBottom: `1px solid ${c.sideBdr}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexShrink: 0,
+            background: c.toolbar,
+            top: 0,
+            zIndex: 5,
+            minHeight: isMobile ? 44 : 36,
+          }}
+        >
+          {!isMobile ? (
+            <button
+              type="button"
+              onClick={() => openWorkspaceSearch()}
+              data-noteview-workspace-search-trigger
+              className="btbtn"
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 28,
+                minHeight: 28,
+                padding: '0 10px',
+                fontSize: 11,
+                color: c.textMuted,
+                border: `1px solid ${c.sideBdr}`,
+                borderRadius: 6,
+                background: c.input,
+                maxWidth: 280,
+              }}
+            >
+              <Search size={12} />
+              <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {t('k81WorkspaceSearchHint')}
+              </span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleNewNote}
+            title={t('nvNewNoteBtn')}
+            data-k117-new-note-btn
+            data-noteview-new-note-btn
+            className="btbtn"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              height: isMobile ? 36 : 28,
+              minHeight: isMobile ? 44 : 28,
+              minWidth: isMobile ? 44 : undefined,
+              padding: isMobile ? '0 12px' : '0 12px',
+              fontSize: 11,
+              fontWeight: 700,
+              borderRadius: 6,
+              border: 'none',
+              background: c.accent,
+              color: '#fff',
+              flexShrink: 0,
+              marginLeft: isMobile ? 'auto' : undefined,
+            }}
+          >
+            <Plus size={14} />
+            {!isMobile ? t('nvNewNoteBtn') : null}
+          </button>
+        </div>
+      )}
       {activeNote ? (
         <>
           {/* Note Header — title */}

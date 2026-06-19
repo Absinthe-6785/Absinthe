@@ -11,8 +11,6 @@ import { archivePeriodRefFromDateKey } from '../knowledge/archive/archivePeriodR
 import { archivePeriodRefToTraceRangeLens } from '../knowledge/archive/archivePeriodRefBridge';
 import { ArchiveAreaPills } from './home/ArchiveAreaPills';
 import { ArchiveBrowseLinks } from './home/ArchiveBrowseLinks';
-import { ArchiveMarkCalendar } from './home/ArchiveMarkCalendar';
-import { ArchiveRecentMilestones } from './home/ArchiveRecentMilestones';
 import {
   listArchivePeriodBrowseLinks,
   type ArchiveBrowseDestination,
@@ -24,6 +22,7 @@ import { ArchiveDeletedSection } from './sections/ArchiveDeletedSection';
 import { ArchiveSnapshotsSection } from './sections/ArchiveSnapshotsSection';
 import { ArchiveTimelineSection } from './sections/ArchiveTimelineSection';
 import { ArchiveRestoreToolsSection } from './sections/ArchiveRestoreToolsSection';
+import { ArchiveCollapsibleSection } from './sections/ArchiveCollapsibleSection';
 
 export interface ArchiveUnifiedViewProps {
   projection: ArchiveProjection;
@@ -34,7 +33,7 @@ export interface ArchiveUnifiedViewProps {
   onImportBackup: () => void;
 }
 
-/** K-109 Archive workspace — history → deleted → snapshots → timeline → restore. */
+/** K-117 Archive workspace — vertical flow: primary sections → restore → browse → supporting. */
 export function ArchiveUnifiedView({
   projection,
   theme,
@@ -87,9 +86,10 @@ export function ArchiveUnifiedView({
       )}
       primary={(
         <div
-          className="flex flex-col gap-3 lg:gap-4 max-w-3xl"
+          className="flex flex-col gap-2 lg:gap-3 max-w-3xl"
           data-archive-unified
           data-k109-archive-unified
+          data-k117-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
           <ArchiveHistorySection
@@ -143,64 +143,78 @@ export function ArchiveUnifiedView({
             onImportBackup={onImportBackup}
           />
 
+          <ArchiveCollapsibleSection
+            sectionId="browse"
+            title={t('archiveBrowseTitle')}
+            collapsed={prefs.browseCollapsed}
+            onToggle={() => toggle('browseCollapsed')}
+            theme={theme}
+            dark={appSettings.darkMode}
+          >
+            <div data-archive-section="browse">
+              {periodLinks.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5 mb-2">
+                  {periodLinks.map(link => (
+                    <li key={link.id}>
+                      <button
+                        type="button"
+                        className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[44px] lg:min-h-0 ${theme.hoverBg}`}
+                        onClick={() => onBrowseClick(link.destination)}
+                      >
+                        {link.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <ArchiveBrowseLinks
+                browse={home.browse}
+                theme={theme}
+                appSettings={appSettings}
+                onBrowseClick={onBrowseClick}
+              />
+              <button
+                type="button"
+                className="mt-2 text-xs font-semibold text-primary hover:underline min-h-[44px]"
+                onClick={openCurrentPeriod}
+              >
+                {t('archiveOpenCurrentPeriod')}
+              </button>
+            </div>
+          </ArchiveCollapsibleSection>
+
+          {!home.empty.noAreas && (
+            <ArchiveCollapsibleSection
+              sectionId="areas"
+              title={t('archiveAreaTitle')}
+              collapsed={prefs.areasCollapsed}
+              onToggle={() => toggle('areasCollapsed')}
+              theme={theme}
+              dark={appSettings.darkMode}
+            >
+              <div data-archive-section="areas">
+                <ArchiveAreaPills
+                  areaPills={home.areaPills}
+                  theme={theme}
+                  appSettings={appSettings}
+                  onAreaClick={pill => openNote(pill.areaNoteId, { returnTab: 'analytics' })}
+                />
+                <button
+                  type="button"
+                  className="mt-2 text-xs font-semibold text-primary hover:underline"
+                  onClick={() => openTraceDiscoveryNavigation()}
+                >
+                  {t('archiveOpenDiscovery')}
+                </button>
+              </div>
+            </ArchiveCollapsibleSection>
+          )}
+
           {projection.empty.isEmpty && !isLoading && (
             <p className={`text-xs ${theme.textMuted}`} data-k109-archive-empty>
               {t('k109ArchiveAllEmpty')}
             </p>
           )}
-        </div>
-      )}
-      supporting={(
-        <div className="flex flex-col gap-3 mt-2 max-w-3xl" data-k109-archive-supporting>
-          {!home.empty.noAreas && (
-            <div className={`rounded-[20px] p-4 ${theme.card}`} data-archive-section="areas">
-              <h2 className="font-heading text-sm font-bold mb-2">{t('archiveAreaTitle')}</h2>
-              <ArchiveAreaPills
-                areaPills={home.areaPills}
-                theme={theme}
-                appSettings={appSettings}
-                onAreaClick={pill => openNote(pill.areaNoteId, { returnTab: 'analytics' })}
-              />
-              <button
-                type="button"
-                className="mt-2 text-xs font-semibold text-primary hover:underline"
-                onClick={() => openTraceDiscoveryNavigation()}
-              >
-                {t('archiveOpenDiscovery')}
-              </button>
-            </div>
-          )}
-          <div className={`rounded-[20px] p-4 ${theme.card}`} data-archive-section="browse">
-            <h2 className="font-heading text-sm font-bold mb-2">{t('archiveBrowseTitle')}</h2>
-            {periodLinks.length > 0 && (
-              <ul className="flex flex-wrap gap-2 mb-2">
-                {periodLinks.map(link => (
-                  <li key={link.id}>
-                    <button
-                      type="button"
-                      className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[44px] lg:min-h-0 ${theme.hoverBg}`}
-                      onClick={() => onBrowseClick(link.destination)}
-                    >
-                      {link.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ArchiveBrowseLinks
-              browse={home.browse}
-              theme={theme}
-              appSettings={appSettings}
-              onBrowseClick={onBrowseClick}
-            />
-            <button
-              type="button"
-              className="mt-2 text-xs font-semibold text-primary hover:underline min-h-[44px]"
-              onClick={openCurrentPeriod}
-            >
-              {t('archiveOpenCurrentPeriod')}
-            </button>
-          </div>
         </div>
       )}
     />

@@ -1,4 +1,4 @@
-import { Edit2, Plus, Trash2 } from 'lucide-react';
+import { Copy, Edit2, Plus, Trash2 } from 'lucide-react';
 import type { PlannerScheduleRow } from '../../calendar';
 import { useTranslation } from '@/lib/i18n';
 import { formatDayTimeRange } from './dayCalendarPresentation';
@@ -76,7 +76,7 @@ export function DayScheduleTimeline({
               <span className="text-xs lg:text-sm font-semibold truncate min-w-0">
                 {formatDayTimeRange(block.startTime, block.endTime)} {block.title}
               </span>
-              {scheduleActions?.onEdit || scheduleActions?.onDelete ? (
+              {scheduleActions?.onEdit || scheduleActions?.onDelete || scheduleActions?.onDuplicate ? (
                 <div
                   className="flex gap-1 shrink-0 opacity-80 group-hover:opacity-100 group-focus-within:opacity-100"
                   data-planner-day-block-actions={block.id}
@@ -91,6 +91,17 @@ export function DayScheduleTimeline({
                       aria-label={`Edit ${block.title}`}
                     >
                       <Edit2 size={14} />
+                    </button>
+                  ) : null}
+                  {scheduleActions.onDuplicate ? (
+                    <button
+                      type="button"
+                      onClick={() => scheduleActions.onDuplicate!(block.id)}
+                      className="p-2 min-h-[44px] min-w-[44px] rounded-full hover:bg-surface text-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
+                      data-planner-day-schedule-duplicate={block.id}
+                      aria-label={`Duplicate ${block.title}`}
+                    >
+                      <Copy size={14} />
                     </button>
                   ) : null}
                   {scheduleActions.onDelete ? (

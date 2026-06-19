@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { Plus, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
@@ -10,8 +10,8 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
-import { ScheduleWorkspaceNav, type ScheduleWorkspaceSection } from './features/planner/ScheduleWorkspaceNav';
-import { WeeklyTimetableSection } from './features/planner/WeeklyTimetableSection';
+import { ScheduleSectionNav, scrollToScheduleSection } from './features/planner/ScheduleSectionNav';
+import { PlannerStickyActions } from './features/planner/PlannerStickyActions';
 import { usePlannerScheduleEventActions } from './features/planner/hooks/usePlannerScheduleEventActions';
 import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
@@ -46,8 +46,6 @@ export const PlannerView = ({
     () => buildNoteChrome(appSettings.darkMode, appSettings),
     [appSettings],
   );
-
-  const [workspaceSection, setWorkspaceSection] = useState<ScheduleWorkspaceSection>('schedule');
 
   const [showForm, setShowForm] = useState(false);
   const [scheduleDetailId, setScheduleDetailId] = useState<string | null>(null);
@@ -206,16 +204,30 @@ export const PlannerView = ({
     setCurrentDate(new Date(y, m - 1, 1));
   }, [setSelectedDate, setCurrentDate]);
 
+  const cardScheduleActions = useMemo(() => ({
+    onView: openScheduleDetail,
+    onEdit: (id: string) => {
+      setScheduleDetailId(null);
+      const sch = schedules.find(s => s.id === id);
+      if (sch) openModal(sch);
+    },
+    onDelete: (id: string) => {
+      setScheduleDetailId(null);
+      handleDeleteSchedule(id);
+    },
+    onDuplicate: handleDuplicateSchedule,
+  }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0" data-workspace="planner">
-      <ScheduleWorkspaceNav
-        active={workspaceSection}
-        onChange={setWorkspaceSection}
-        theme={theme}
-        compact={isMobile}
-      />
+      <PlannerStickyActions theme={theme} onNewEvent={() => openModal()}>
+        <ScheduleSectionNav
+          theme={theme}
+          compact={isMobile}
+          onNavigate={scrollToScheduleSection}
+        />
+      </PlannerStickyActions>
 
-      {workspaceSection === 'schedule' ? (
       <CalendarShell
         now={now}
         anchorDate={formatDate(selectedDate)}
@@ -227,35 +239,12 @@ export const PlannerView = ({
         theme={theme}
         onEventNoteClick={openPlannerNote}
         onAnchorDateChange={handleCalendarAnchorChange}
-        dayScheduleActions={{
-          onAdd: () => openModal(),
-          onView: openScheduleDetail,
-          onEdit: (id: string) => {
-            setScheduleDetailId(null);
-            const sch = schedules.find(s => s.id === id);
-            if (sch) openModal(sch);
-          },
-          onDelete: (id: string) => {
-            setScheduleDetailId(null);
-            handleDeleteSchedule(id);
-          },
-          onDuplicate: handleDuplicateSchedule,
-        }}
+        dayScheduleActions={cardScheduleActions}
         eventActions={agendaEventActions}
-        weeklyActivityCount={weeklySchedules.length}
-        onOpenTimetable={() => setWorkspaceSection('timetable')}
+        THEME_COLORS={THEME_COLORS}
+        mutateStatic={mutateStatic}
+        showToast={showToast}
       />
-      ) : (
-        <WeeklyTimetableSection
-          weeklySchedules={weeklySchedules}
-          theme={theme}
-          appSettings={appSettings}
-          THEME_COLORS={THEME_COLORS}
-          mutateStatic={mutateStatic}
-          showToast={showToast}
-          standalone
-        />
-      )}
 
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
