@@ -2,8 +2,8 @@ import { createPortal } from 'react-dom';
 import type { RefObject } from 'react';
 import { useMemo, useRef, useState } from 'react';
 import {
-  Search, Plus, Trash2, FolderPlus, Star, AlignLeft, Save,
-  ChevronDown, ChevronRight, Upload, Keyboard, Archive, RotateCcw,
+  Search, Plus, Trash2, FolderPlus, Star, AlignLeft,
+  ChevronDown, ChevronRight, Upload, Keyboard,
   Clock, Calendar, CalendarDays, LayoutDashboard, Folder, MoreHorizontal,
 } from 'lucide-react';
 import { displayNoteTitle } from '../noteDisplayTitle';
@@ -173,7 +173,6 @@ export interface NoteViewSidebarHandlers {
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   setSidebarSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   setShowShortcuts: React.Dispatch<React.SetStateAction<boolean>>;
-  setWorkspaceSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openTraceDay: (key: string) => void;
   openTraceRange: (lens: TraceRangeLens) => void;
   openCreatedNote: (id: string) => void;
@@ -348,7 +347,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
 
   const {
     searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag,
-    setNoteListFilter, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, setWorkspaceSearchOpen, openTraceDay, openTraceRange,
+    setNoteListFilter, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, openTraceDay, openTraceRange,
     openCreatedNote, openTraceArea, openTraceDiscovery, storeRenameFolder, setRenamingFolderId,
     setRenameVal, deleteFolder, setShowFolderForm, setNewFolderName, addFolder,
     setWorkspaceActivation, setTraceDate, setTraceRange, setTraceAreaId, setTraceAreaRange,
@@ -1076,21 +1075,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               </button>
             )}
             {!isTrash && (
-              <button onClick={exportAllNotes} className="btbtn" title={t('nvExportAllNotes').replace('{count}', String(activeNoteCount))}>
-                <Save size={11}/>
-              </button>
-            )}
-            {!isTrash && (
-              <button onClick={() => void exportVaultBackup()} className="btbtn min-h-[44px] min-w-[44px]" title={t('nvExportVaultBackup')}>
-                <Archive size={11}/>
-              </button>
-            )}
-            {!isTrash && (
-              <button onClick={openVaultRestore} className="btbtn min-h-[44px] min-w-[44px]" title={t('nvImportVaultBackup')}>
-                <RotateCcw size={11}/>
-              </button>
-            )}
-            {!isTrash && (
               <button onClick={() => openCreateEventDialog()} className="btbtn" title={t('nvCreateEvent')}>
                 <CalendarDays size={11}/>
               </button>
@@ -1122,20 +1106,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               style={{ background: c.card, borderTop: `1px solid ${c.sideBdr}` }}
               onClick={e => e.stopPropagation()}
             >
-              <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { switchToTab('settings'); setMobileListMoreOpen(false); }}>
-                {t('settingsTitle')}
-              </button>
               <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { const next = cycleListDensityMode(listDensity); writeListDensityMode(next); setListDensity(next); setMobileListMoreOpen(false); }}>
                 {t('nvListDensity')}: {densityLabel}
               </button>
               <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { setShowShortcuts(true); setMobileListMoreOpen(false); }}>
                 {t('nvShortcuts')}
               </button>
-              {!isTrash ? (
-                <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { exportAllNotes(); setMobileListMoreOpen(false); }}>
-                  {t('nvExportAllNotes').replace('{count}', String(activeNoteCount))}
-                </button>
-              ) : null}
               {!isTrash ? (
                 <button type="button" className="btbtn btbtn-mobile" style={{ textAlign: 'left', padding: '10px 12px' }} onClick={() => { openCreateEventDialog(); setMobileListMoreOpen(false); }}>
                   {t('nvCreateEvent')}

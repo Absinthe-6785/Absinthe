@@ -723,9 +723,6 @@ export function WorkspaceDashboardView({
 
       <Card colors={c} title={t('wsQuickActions')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onNewNote}>
-            {t('wsNewNote')}
-          </button>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onNewDatabaseView}>
             {t('wsNewDatabaseView')}
           </button>
@@ -769,9 +766,6 @@ export function WorkspaceDashboardView({
               )}
             </>
           )}
-          <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenSearch}>
-            {t('wsOpenSearch')}
-          </button>
           <button type="button" className="bwbg" style={{ padding: '8px', fontSize: 11 }} onClick={quickActions.onOpenCosmos}>
             {t('wsOpenCosmos')}
           </button>

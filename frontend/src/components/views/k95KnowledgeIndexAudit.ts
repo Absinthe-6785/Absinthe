@@ -592,12 +592,12 @@ export function readK95PolicySnapshot(): {
 } {
   const indexSrc = readFileSync(join(featuresRoot(), 'KnowledgeIndexService.ts'), 'utf8');
   const noteViewSrc = readFileSync(join(viewsRoot(), 'NoteView.tsx'), 'utf8');
-  const paletteSrc = readFileSync(join(featuresRoot(), 'components', 'WorkspaceSearchPalette.tsx'), 'utf8');
+  const hostSrc = readFileSync(join(viewsRoot(), 'features', 'search', 'GlobalSearchHost.tsx'), 'utf8');
 
   return {
     indexUsesBodyProvider: indexSrc.includes('setBodyProvider') && indexSrc.includes('bodyProvider'),
     linksTabGatePresent: noteViewSrc.includes('linksTabActive') && noteViewSrc.includes('extractLinkContexts'),
-    discoveryFeedDedupeComment: paletteSrc.includes('duplicate `buildDiscoveryFeed`'),
+    discoveryFeedDedupeComment: hostSrc.includes('buildDiscoveryFeed'),
   };
 }
 

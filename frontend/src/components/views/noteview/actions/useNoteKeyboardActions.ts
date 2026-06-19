@@ -25,7 +25,6 @@ export function useNoteKeyboardActions(
     searchInputRef,
     blockEditorRef,
     setViewMode,
-    setWorkspaceSearchOpen,
     setShowShortcuts,
     setShowSortMenu,
     setFocusMode,

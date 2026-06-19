@@ -229,7 +229,9 @@ describe('WorkspaceDashboardView', () => {
     expect(container.textContent).toContain('Study');
     expect(container.textContent).toContain('마지막 작업공간 이어하기');
     expect(container.textContent).toContain('Meeting Notes');
-    expect(container.textContent).toContain('새 노트');
+    expect(container.textContent).toContain('최근 노트');
+    expect(container.textContent).toContain('새 데이터베이스 보기');
+    expect(container.textContent).toContain('코스모스 열기');
 
     const buttons = [...container.querySelectorAll('button')];
     buttons.find(b => b.textContent?.includes('Tasks'))?.click();
@@ -240,6 +242,9 @@ describe('WorkspaceDashboardView', () => {
 
     buttons.find(b => b.textContent?.includes('Meeting Notes'))?.click();
     expect(onSelectNote).toHaveBeenCalledWith('n-1');
+
+    buttons.find(b => b.textContent === '새 데이터베이스 보기')?.click();
+    expect(quickActions.onNewDatabaseView).toHaveBeenCalled();
 
     buttons.find(b => b.textContent === '코스모스 열기')?.click();
     expect(quickActions.onOpenCosmos).toHaveBeenCalled();

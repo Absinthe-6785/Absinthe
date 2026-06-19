@@ -87,7 +87,6 @@ export function useNoteViewState() {
   const openCreateEventDialogRef = useRef<(defaults?: Partial<EventFormValues>) => void>(() => {});
 
   const [milestoneDialog, setMilestoneDialog] = useState<MilestoneDialogState | null>(null);
-  const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
   const [createMilestoneDialogOpen, setCreateMilestoneDialogOpen] = useState(false);
 
@@ -195,8 +194,6 @@ export function useNoteViewState() {
     openCreateEventDialogRef,
     milestoneDialog,
     setMilestoneDialog,
-    workspaceSearchOpen,
-    setWorkspaceSearchOpen,
     createProjectDialogOpen,
     setCreateProjectDialogOpen,
     createMilestoneDialogOpen,
