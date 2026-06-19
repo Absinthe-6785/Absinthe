@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import type { HealthProjection } from './buildHealthProjection';
 import type { Theme } from '../../../../types';
@@ -8,6 +8,7 @@ import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { HealthVirtualList } from './HealthVirtualList';
 import { WorkspaceCardSkeleton } from '../../../common/WorkspaceCardSkeleton';
 import type { HealthSectionPrefs } from './healthSectionPrefs';
+import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 
 export interface HealthAnalyticsPanelProps {
   projection: HealthProjection | null;
@@ -42,6 +43,36 @@ const HealthWeeklyChart = memo(function HealthWeeklyChart({
   );
 });
 
+function CollapsibleSection({
+  label,
+  collapsed,
+  onToggle,
+  theme,
+  children,
+  dataHook,
+}: {
+  label: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  theme: Theme;
+  children: ReactNode;
+  dataHook?: string;
+}) {
+  return (
+    <div data-k121-health-collapsible={dataHook}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`text-[11px] font-bold mb-1.5 flex items-center gap-1 min-h-[36px] ${theme.textMuted}`}
+      >
+        {label}
+        {!collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+      {!collapsed ? children : null}
+    </div>
+  );
+}
+
 export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   projection,
   loading,
@@ -65,6 +96,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       ref={ref as React.RefObject<HTMLDivElement>}
       className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0`}
       data-k107-health-analytics
+      data-k121-health-analytics
     >
       <button
         type="button"
@@ -79,9 +111,9 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       </button>
 
       {expanded && (
-        <div className="mt-2 space-y-3">
+        <div className="mt-2 space-y-3" data-k121-health-summary>
           {!visible || loading ? (
-            <WorkspaceCardSkeleton bars={2} theme={theme} minHeight="min-h-0" />
+            <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (
             <>
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -114,16 +146,14 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                 )}
               </div>
 
-              <div>
-                <button
-                  type="button"
-                  onClick={() => toggle('prSectionCollapsed')}
-                  className={`text-[11px] font-bold mb-1.5 flex items-center gap-1 ${theme.textMuted}`}
-                >
-                  {t('k107RecentPrs')}
-                  {!prefs.prSectionCollapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
-                {!prefs.prSectionCollapsed && (
+              <CollapsibleSection
+                label={t('k107RecentPrs')}
+                collapsed={prefs.prSectionCollapsed}
+                onToggle={() => toggle('prSectionCollapsed')}
+                theme={theme}
+                dataHook="pr"
+              >
+                <div className={K121_SKELETON_HEIGHT.analyticsPr}>
                   <HealthVirtualList
                     items={projection.prHighlights}
                     theme={theme}
@@ -132,57 +162,74 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                     renderRow={p => (
                       <span className="text-xs font-semibold truncate w-full flex justify-between gap-2">
                         <span className="truncate">{p.name}</span>
-                        <span className="tabular-nums shrink-0">{p.kg}kg</span>
+                        <span className="tabular-nums shrink-0" title={p.conversionHint ?? undefined}>
+                          {p.displayValue} {p.displayUnit}
+                        </span>
                       </span>
                     )}
                     empty={<p className={`text-xs ${theme.textMuted}`}>{t('k107NoPrs')}</p>}
                   />
-                )}
-              </div>
+                </div>
+              </CollapsibleSection>
 
-              <div>
-                <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>{t('k107RecentSessions')}</p>
-                <HealthVirtualList
-                  items={projection.recentSessions}
-                  theme={theme}
-                  dataHook="recent-sessions"
-                  getKey={s => s.date}
-                  renderRow={s => (
-                    <div className="flex items-center gap-2 w-full min-h-[44px]">
-                      <span className="text-xs font-semibold truncate flex-1 flex justify-between gap-2">
-                        <span className="tabular-nums shrink-0">{s.date}</span>
-                        <span className="truncate opacity-70">{s.exercises.join(', ')}</span>
+              <CollapsibleSection
+                label={t('k107RecentSessions')}
+                collapsed={prefs.recentSessionsCollapsed}
+                onToggle={() => toggle('recentSessionsCollapsed')}
+                theme={theme}
+                dataHook="recent-sessions"
+              >
+                <div className={K121_SKELETON_HEIGHT.analyticsRecent}>
+                  <HealthVirtualList
+                    items={projection.recentSessions}
+                    theme={theme}
+                    dataHook="recent-sessions"
+                    getKey={s => s.date}
+                    renderRow={s => (
+                      <div className="flex items-center gap-2 w-full min-h-[44px]">
+                        <span className="text-xs font-semibold truncate flex-1 flex justify-between gap-2">
+                          <span className="tabular-nums shrink-0">{s.date}</span>
+                          <span className="truncate opacity-70">{s.exercises.join(', ')}</span>
+                        </span>
+                        {onOpenWorkoutNote ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenWorkoutNote(s.date)}
+                            className="shrink-0 text-[10px] font-bold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px]"
+                            data-k113-cross-ref="health"
+                            data-k113-open-workout-note={s.date}
+                          >
+                            {t('k113OpenWorkoutNote')}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  />
+                </div>
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                label={t('k107ExerciseHistory')}
+                collapsed={prefs.exerciseHistoryCollapsed}
+                onToggle={() => toggle('exerciseHistoryCollapsed')}
+                theme={theme}
+                dataHook="exercise-history"
+              >
+                <div className={K121_SKELETON_HEIGHT.analyticsHistory}>
+                  <HealthVirtualList
+                    items={projection.exerciseHistory}
+                    theme={theme}
+                    dataHook="exercise-history"
+                    getKey={r => r.name}
+                    renderRow={r => (
+                      <span className="text-xs font-semibold truncate w-full flex justify-between gap-2">
+                        <span className="truncate">{r.name}</span>
+                        <span className="tabular-nums shrink-0 opacity-70">{r.sessionCount}×</span>
                       </span>
-                      {onOpenWorkoutNote ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenWorkoutNote(s.date)}
-                          className="shrink-0 text-[10px] font-bold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px]"
-                          data-k113-cross-ref="health"
-                          data-k113-open-workout-note={s.date}
-                        >
-                          {t('k113OpenWorkoutNote')}
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                />
-              </div>
-              <div>
-                <p className={`text-[11px] font-bold mb-1.5 ${theme.textMuted}`}>{t('k107ExerciseHistory')}</p>
-                <HealthVirtualList
-                  items={projection.exerciseHistory}
-                  theme={theme}
-                  dataHook="exercise-history"
-                  getKey={r => r.name}
-                  renderRow={r => (
-                    <span className="text-xs font-semibold truncate w-full flex justify-between gap-2">
-                      <span className="truncate">{r.name}</span>
-                      <span className="tabular-nums shrink-0 opacity-70">{r.sessionCount}×</span>
-                    </span>
-                  )}
-                />
-              </div>
+                    )}
+                  />
+                </div>
+              </CollapsibleSection>
             </>
           ) : null}
         </div>
