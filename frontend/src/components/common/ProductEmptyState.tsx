@@ -2,6 +2,7 @@ import type { ElementType, ReactNode } from 'react';
 import type { Theme } from '../../types';
 import type { NoteChromeColors } from '../views/noteEditorTheme';
 import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
+import { UI_DENSITY } from '../../lib/uiDensityTokens';
 
 export interface ProductEmptyAction {
   label: string;
@@ -62,19 +63,19 @@ export function ProductEmptyState({
         data-product-empty={dataHook ?? true}
         {...(dataHook ? { [`data-${dataHook}`]: 'true' } : {})}
         style={{
-          padding: 24,
+          padding: UI_DENSITY.emptyStatePaddingPx,
           textAlign: 'center',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 10,
+          gap: UI_DENSITY.emptyStateGapPx,
           color: c.textFaint,
         }}
       >
-        <Icon size={32} strokeWidth={1.5} style={{ opacity: 0.45, color: c.textMuted }} />
-        <p style={{ fontSize: 13, fontWeight: 600, color: c.textMuted, margin: 0 }}>{title}</p>
+        <Icon size={UI_DENSITY.emptyStateIconSizePx} strokeWidth={1.5} style={{ opacity: 0.45, color: c.textMuted }} />
+        <p style={{ fontSize: UI_DENSITY.emptyStateTitleFontPx, fontWeight: 600, color: c.textMuted, margin: 0 }}>{title}</p>
         {description ? (
-          <p style={{ fontSize: 11, lineHeight: 1.5, margin: 0, maxWidth: 240 }}>{description}</p>
+          <p style={{ fontSize: UI_DENSITY.emptyStateDescFontPx, lineHeight: 1.5, margin: 0, maxWidth: UI_DENSITY.emptyStateDescMaxWidthPx }}>{description}</p>
         ) : null}
         {children}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 4 }}>
@@ -99,13 +100,14 @@ export function ProductEmptyState({
       role="status"
       data-product-empty={dataHook ?? true}
       {...(dataHook ? { [`data-${dataHook}`]: 'true' } : {})}
-      className={`flex flex-col items-center justify-center h-full p-6 text-center ${muted}`}
+      className={`flex flex-col items-center justify-center h-full p-4 text-center ${muted}`}
+      data-k119-empty-state
     >
-      <Icon size={32} strokeWidth={1.5} className="mb-3 opacity-50" />
+      <Icon size={UI_DENSITY.emptyStateIconSizePx} strokeWidth={1.5} className="mb-2 opacity-50" />
       <p className="text-sm font-semibold">{title}</p>
       {description ? <p className="text-xs opacity-80 mt-1 max-w-xs leading-relaxed">{description}</p> : null}
       {children}
-      <div className="flex flex-wrap gap-2 justify-center mt-4">
+      <div className="flex flex-wrap gap-2 justify-center mt-3">
         {primaryAction ? (
           <button
             type="button"

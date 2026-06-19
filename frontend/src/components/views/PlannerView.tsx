@@ -220,7 +220,7 @@ export const PlannerView = ({
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0" data-workspace="planner">
-      <PlannerStickyActions theme={theme} onNewEvent={() => openModal()}>
+      <PlannerStickyActions onNewEvent={() => openModal()}>
         <ScheduleSectionNav
           theme={theme}
           compact={isMobile}
