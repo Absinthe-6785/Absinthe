@@ -2,8 +2,7 @@
  * K-101 — Daily note workflow audit.
  */
 export const K101_DAILY_NOTE_FEATURES = [
-  'sidebar-badge',
-  'yesterday-tomorrow-jump',
+  'planner-todays-note',
   'natural-date-label',
   'open-or-create',
   'duplicate-prevention',
@@ -16,10 +15,9 @@ export interface K101DailyNoteRow {
 
 export function auditDailyNoteFeatures(): K101DailyNoteRow[] {
   return [
-    { feature: 'sidebar-badge', dataHook: 'data-k101-daily-note-badge' },
-    { feature: 'yesterday-tomorrow-jump', dataHook: 'data-k101-daily-note-jump' },
-    { feature: 'natural-date-label', dataHook: 'data-k101-daily-note-today' },
-    { feature: 'open-or-create', dataHook: 'data-k101-daily-note-section' },
+    { feature: 'planner-todays-note', dataHook: 'data-k105-planner-todays-note' },
+    { feature: 'natural-date-label', dataHook: 'data-k105-planner-today' },
+    { feature: 'open-or-create', dataHook: 'data-k105-planner-todays-note' },
     { feature: 'duplicate-prevention' },
   ];
 }

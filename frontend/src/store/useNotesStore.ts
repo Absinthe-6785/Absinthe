@@ -197,7 +197,7 @@ function mapDbNote(
     deletedAt: localIsNewer
       ? (local.deletedAt ?? null)
       : (n.deleted_at !== undefined ? (n.deleted_at ?? null) : (local?.deletedAt ?? null)),
-    starred:   localIsNewer ? (local.starred ?? false) : (n.starred ?? local?.starred ?? false),
+    starred:   Boolean(local?.starred) || Boolean(n.starred),
     properties: localIsNewer
       ? normalizeNoteProperties(local.properties)
       : normalizeNoteProperties(n.properties ?? local?.properties),

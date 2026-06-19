@@ -144,13 +144,21 @@ function loadRawFolders(key: string): NoteFolderBase[] | null {
   }
 }
 
-/** updatedAt 기준으로 노트 배열 병합 (id 중복 시 최신 우선) */
+/** updatedAt 기준으로 노트 배열 병합 (id 중복 시 최신 우선); starred는 OR 병합 (K-105). */
+export function mergeNotePair(existing: NoteBase, incoming: NoteBase): NoteBase {
+  const winner = incoming.updatedAt > existing.updatedAt ? incoming : existing;
+  return {
+    ...winner,
+    starred: Boolean(existing.starred) || Boolean(incoming.starred),
+  };
+}
+
 export function mergeNoteArrays(...groups: NoteBase[][]): NoteBase[] {
   const map = new Map<string, NoteBase>();
   for (const group of groups) {
     for (const n of group) {
       const cur = map.get(n.id);
-      if (!cur || n.updatedAt > cur.updatedAt) map.set(n.id, n);
+      map.set(n.id, cur ? mergeNotePair(cur, n) : n);
     }
   }
   return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt);

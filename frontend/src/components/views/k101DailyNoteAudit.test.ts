@@ -41,6 +41,6 @@ describe('k101DailyNoteAudit', () => {
     const report = formatK101DailyNoteReport(auditDailyNoteFeatures());
     console.log('\n' + report);
     expect(report).toContain('K-101 daily note audit');
-    expect(auditDailyNoteFeatures().some(r => r.feature === 'sidebar-badge')).toBe(true);
+    expect(auditDailyNoteFeatures().some(r => r.feature === 'planner-todays-note')).toBe(true);
   });
 });
