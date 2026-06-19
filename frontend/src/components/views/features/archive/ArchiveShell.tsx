@@ -6,6 +6,8 @@ import { resolveAppLanguage, getTranslator } from '../../../../lib/i18n';
 import { useVaultRestoreFlow } from '../../../../hooks/useVaultRestoreFlow';
 import { VaultRestoreModal } from '../knowledge/VaultRestoreModal';
 import { ArchiveUnifiedView } from './ArchiveUnifiedView';
+import { WorkspaceErrorBoundary } from '../../../common/WorkspaceErrorBoundary';
+import { UI_SPACING } from '../../../../lib/uiSpacingTokens';
 import { useArchiveProjection } from './hooks/useArchiveProjection';
 
 export interface ArchiveShellProps {
@@ -31,11 +33,13 @@ export function ArchiveShell({
 
   return (
     <>
+      <WorkspaceErrorBoundary workspace="archive">
       <div
-        className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300"
+        className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300 ${UI_SPACING.scrollOverscroll}`}
         data-archive-shell
         data-archive-mode="cohesion"
         data-k109-archive-shell
+        data-k120-scroll-archive
       >
         <ArchiveUnifiedView
           projection={projection}
@@ -46,6 +50,7 @@ export function ArchiveShell({
           onImportBackup={vaultRestore.openFilePicker}
         />
       </div>
+      </WorkspaceErrorBoundary>
       {vaultRestore.preview && vaultRestore.selection && (
         <VaultRestoreModal
           preview={vaultRestore.preview}

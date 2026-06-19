@@ -9,6 +9,9 @@ import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
+import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
+import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../common/WorkspaceToolbar';
+import { UI_SPACING } from '../../lib/uiSpacingTokens';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
@@ -711,6 +714,7 @@ export const HealthView = ({
   );
 
   return (
+    <WorkspaceErrorBoundary workspace="health">
     <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300" data-workspace="health">
       <div className="shrink-0 mb-3 px-0.5">
         <div className="hidden lg:block">
@@ -725,7 +729,8 @@ export const HealthView = ({
       </div>
 
       <div
-        className="flex-1 flex flex-col min-h-0 overflow-hidden"
+        className={`flex-1 flex flex-col min-h-0 overflow-hidden ${UI_SPACING.scrollOverscroll}`}
+        data-k120-scroll-health
         onTouchStart={swipeHealthSection.onTouchStart}
         onTouchEnd={swipeHealthSection.onTouchEnd}
       >
@@ -1128,12 +1133,16 @@ export const HealthView = ({
               </div>
             ) : (
               /* ── 편집 상태: Complete Workout 버튼 ── */
-              <button onClick={handleSaveWorkouts}
-                disabled={isSaving}
-                data-k104-health-no-sticky-mobile
-            className={`w-full bg-primary text-primary-foreground font-bold text-base py-3 rounded-2xl shadow-xl flex justify-center items-center gap-2 hover:bg-gray-800 active:scale-[0.98] transition-all lg:sticky lg:bottom-2 z-10 ${isSaving ? 'opacity-70' : ''}`}>
-                {isSaving ? <Loader2 size={20} className="animate-spin"/> : <Save size={20}/>} {isSaving ? t('loading') : t('completeWorkout')}
-              </button>
+              <WorkspaceToolbar workspace="health" stickyPosition="bottom" legacyDataHook="data-k104-health-no-sticky-mobile">
+                <WorkspaceToolbarPrimary
+                  label={isSaving ? t('loading') : t('completeWorkout')}
+                  icon={isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+                  onClick={handleSaveWorkouts}
+                  disabled={isSaving}
+                  className={`rounded-2xl text-base shadow-xl ${isSaving ? 'opacity-70' : ''}`}
+                  dataHook="data-k120-health-save"
+                />
+              </WorkspaceToolbar>
             )}
             {/* ── 날짜별 메모 ── */}
             <div className="mt-2 rounded-xl p-2.5 bg-surface-alt" data-k104-health-workout-footer>
@@ -1432,5 +1441,6 @@ export const HealthView = ({
 
       {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
+    </WorkspaceErrorBoundary>
   );
 };

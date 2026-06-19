@@ -5,6 +5,10 @@ import type { TranslationKey } from '../../../../../lib/i18n';
 import { useTranslation } from '../../../../../lib/i18n';
 import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import { ProductEmptyState } from '../../../../common/ProductEmptyState';
+import { WorkspaceToolbarIconButton } from '../../../../common/WorkspaceToolbar';
+import { WorkspaceErrorBoundary } from '../../../../common/WorkspaceErrorBoundary';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
+import { UI_SPACING } from '../../../../../lib/uiSpacingTokens';
 import type { SearchProjection, SearchResultItem, SearchDomain } from '../searchProjectionModels';
 import { SEARCH_DOMAIN_LABEL_KEYS } from '../searchProjectionModels';
 import { useSearchSectionPrefs } from '../hooks/useSearchSectionPrefs';
@@ -232,12 +236,16 @@ export function SearchWorkspacePalette({
         }}
         onClick={e => e.stopPropagation()}
       >
+        <WorkspaceErrorBoundary workspace="search">
         <h2 id="k111-search-title" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
           {t('k111SearchTitle')}
         </h2>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}>
-          <Search size={16} color={c.textMuted} aria-hidden />
+        <div
+          data-k120-search-toolbar
+          style={{ display: 'flex', alignItems: 'center', gap: UI_INTERACTION.toolbarActionGapPx, padding: '8px 10px', borderBottom: `1px solid ${c.sideBdr}`, flexShrink: 0 }}
+        >
+          <Search size={UI_INTERACTION.toolbarIconSizePx} color={c.textMuted} aria-hidden />
           <input
             ref={inputRef}
             role="combobox"
@@ -256,8 +264,13 @@ export function SearchWorkspacePalette({
               background: 'transparent',
               fontSize: 13,
               color: c.text,
-              minHeight: 44,
+              minHeight: UI_INTERACTION.touchTargetMinPx,
             }}
+          />
+          <WorkspaceToolbarIconButton
+            label={t('close')}
+            icon={<X size={UI_INTERACTION.toolbarIconSizePx} />}
+            onClick={onClose}
           />
           <kbd style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, border: `1px solid ${c.sideBdr}`, color: c.textMuted }}>
             {t('k101GlobalSearchShortcut')}
@@ -268,8 +281,10 @@ export function SearchWorkspacePalette({
           id="k111-search-listbox"
           role="listbox"
           aria-label={t('searchResultsList')}
+          className={UI_SPACING.scrollOverscroll}
           style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}
           data-k111-search-results
+          data-k120-scroll-search
         >
           {isSearching ? (
             <div role="status" className="k101-skeleton-pulse" style={{ padding: '14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }} data-k111-search-loading>
@@ -391,6 +406,7 @@ export function SearchWorkspacePalette({
             {projection.counts.total} {t('k111ResultsCount')}
           </div>
         )}
+        </WorkspaceErrorBoundary>
       </div>
     </div>
   );
