@@ -7,6 +7,7 @@ import { isValidImageUrl, imageAltFromUrl } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
 import type { CSSProperties } from 'react';
 import { clampImageWidth, imageDisplayStyle, imgBtnStyle } from './imageBlockUtils';
+import { useImageGallery } from './ImageGalleryContext';
 
 export interface ImageBlockProps {
   block: Block;
@@ -18,6 +19,7 @@ export interface ImageBlockProps {
 export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockProps) {
   const { t } = useTranslation();
   const { isMobile } = useViewportLayout();
+  const gallery = useImageGallery();
   const fileRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
@@ -170,11 +172,25 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
     </>
   );
 
+  const openViewer = useCallback(() => {
+    if (block.src) gallery?.openGallery(block.id);
+  }, [block.src, block.id, gallery]);
+
   if (readOnly) {
     return (
       <figure className="be-image-block" style={{ margin:'8px 0', textAlign:'center' }} data-k108-image-block>
         {block.src
-          ? <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
+          ? (
+            <button
+              type="button"
+              onClick={openViewer}
+              className="border-0 bg-transparent p-0 cursor-zoom-in inline-block max-w-full"
+              data-k118-image-open
+              aria-label={t('k118OpenImageViewer')}
+            >
+              <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
+            </button>
+          )
           : <div style={{ background:c.card, border:`2px dashed ${c.border}`, borderRadius:8, padding:'40px 20px', color:c.textFaint, fontSize:13 }}>
               <ImageIcon size={24} style={{ marginBottom:8, opacity:.4 }}/><div>{t('blockImageNoImage')}</div>
             </div>}
@@ -258,7 +274,21 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
           background: isDragOver ? c.accentBg : 'transparent',
         }}
       >
-        <img src={block.src} alt={block.alt ?? ''} style={imgStyle(block.width)}/>
+        <img
+          src={block.src}
+          alt={block.alt ?? ''}
+          style={{ ...imgStyle(block.width), cursor: 'zoom-in' }}
+          onClick={openViewer}
+          data-k118-image-open
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openViewer();
+            }
+          }}
+        />
         {!isMobile && (
           <div
             data-k108-image-controls

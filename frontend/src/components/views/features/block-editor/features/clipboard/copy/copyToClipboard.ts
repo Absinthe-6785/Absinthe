@@ -2,7 +2,8 @@
  * copyToClipboard.ts — Programmatic clipboard write for copy actions
  */
 import type { Block } from '../../../../../blockUtils';
-import { blocksToMarkdown } from '../../../../../blockUtils';
+import { blocksToMarkdown, formatImageDisplayLabel } from '../../../../../blockUtils';
+import { extractLoneUrl, classifyMediaUrl, formatMediaDisplayLabel } from '../../../../../mediaUrlUtils';
 import { blocksToCopyHtml } from './blockCopy';
 
 async function resolveImageBlob(src: string): Promise<Blob | null> {
@@ -24,7 +25,16 @@ async function resolveImageBlob(src: string): Promise<Blob | null> {
 
 export async function copyBlocksToClipboard(blocks: Block[]): Promise<boolean> {
   if (!blocks.length) return false;
-  const plain = blocksToMarkdown(blocks);
+  let plain = blocksToMarkdown(blocks);
+  if (blocks.length === 1) {
+    const b = blocks[0]!;
+    if (b.type === 'image') plain = formatImageDisplayLabel(b);
+    else if (b.type === 'audio' && b.src) plain = formatMediaDisplayLabel('audio', b.src);
+    else if (b.type === 'paragraph') {
+      const url = extractLoneUrl(b.content);
+      if (url) plain = formatMediaDisplayLabel(classifyMediaUrl(url), url);
+    }
+  }
   const html = blocksToCopyHtml(blocks);
 
   const singleImage = blocks.length === 1 && blocks[0].type === 'image' && blocks[0].src;

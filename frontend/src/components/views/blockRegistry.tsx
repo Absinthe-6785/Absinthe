@@ -15,6 +15,8 @@ import { AnswerBlock } from './AnswerBlock';
 import { FootnoteBlock } from './FootnoteBlock';
 import { ImageBlock } from './ImageBlock';
 import { TableBlock } from './TableBlock';
+import { paragraphShowsEmbedPreview } from './mediaUrlUtils';
+import { MediaEmbedPreview, ParagraphWithEmbed } from './MediaEmbedPreview';
 
 export type BlockRenderer = (
   block: Block,
@@ -87,16 +89,30 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
   switch (block.type) {
     case 'paragraph':
       if (readOnly && !block.content?.trim()) return null;
-      return readOnly ? (
-        <p {...readingCopyProps(block)} style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text }}>
-          {inline(block.content)}
-        </p>
-      ) : (
-        <EditableBlock block={block} colors={c} tag="p"
-          style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text, minHeight:26 }}
-          persistentPlaceholder={ctx.showPersistentPlaceholder?.(block.id)}
-          {...editProps}/>
-      );
+      {
+        const embedUrl = paragraphShowsEmbedPreview(block);
+        if (readOnly && embedUrl) {
+          return <MediaEmbedPreview url={embedUrl} colors={c} readOnly />;
+        }
+        const paragraphEl = readOnly ? (
+          <p {...readingCopyProps(block)} style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text }}>
+            {inline(block.content)}
+          </p>
+        ) : (
+          <EditableBlock block={block} colors={c} tag="p"
+            style={{ margin:'2px 0', lineHeight:1.75, fontSize:15, color:c.text, minHeight:26 }}
+            persistentPlaceholder={ctx.showPersistentPlaceholder?.(block.id)}
+            {...editProps}/>
+        );
+        if (!readOnly && embedUrl) {
+          return (
+            <ParagraphWithEmbed block={block} colors={c} readOnly={false} embedUrl={embedUrl}>
+              {paragraphEl}
+            </ParagraphWithEmbed>
+          );
+        }
+        return paragraphEl;
+      }
     case 'heading1':
       if (readOnly && !block.content?.trim()) return null;
       return readOnly

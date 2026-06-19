@@ -384,5 +384,13 @@ export const EDITOR_CHROME_STYLES = `
     bottom: 0;
     width: 16px;
   }
+  /* K-118 — mobile editor + embed overflow */
+  .be-editor-root { overflow-x: hidden; max-width: 100%; }
+  [data-k118-embed-preview] { max-width: 100%; }
+  @media (pointer: coarse) {
+    .be-handle-btn { width: 40px; height: 40px; }
+    .be-image-block [data-k108-image-more] { min-height: 48px; min-width: 48px; }
+    .be-editor-toolbar { row-gap: 10px; }
+  }
   ${EDITOR_READING_STYLES}
 `;

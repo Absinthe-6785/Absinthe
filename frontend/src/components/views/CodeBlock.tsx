@@ -44,7 +44,7 @@ export function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockPro
 
   if (readOnly) {
     return (
-      <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }}>
+      <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }} data-k118-code-block>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 12px', borderBottom:`1px solid ${c.border}` }}>
           {block.language ? (
             <span style={{ fontSize:11, color:c.textMuted, fontFamily:'monospace', fontWeight:600 }}>{block.language}</span>
@@ -63,7 +63,7 @@ export function CodeBlock({ block, colors: c, readOnly, onChange }: CodeBlockPro
   }
 
   return (
-    <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }}
+    <div style={{ background:c.codeBg, borderRadius:8, overflow:'hidden', margin:'4px 0', border:`1px solid ${c.border}` }} data-k118-code-block
       onClick={e => e.stopPropagation()}>
       <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderBottom:`1px solid ${c.border}` }}>
         <Code2 size={12} color={c.textMuted}/>
