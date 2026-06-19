@@ -87,9 +87,10 @@ describe('k107 product-wide audits', () => {
     expect(auditMobileTouchTargets()).toBe(true);
   });
 
-  it('section prefs default collapsed analytics', () => {
+  it('section prefs default open analytics summary (K-121)', () => {
     const prefs = readHealthSectionPrefs();
-    expect(prefs.analyticsCollapsed).toBe(true);
+    expect(prefs.analyticsCollapsed).toBe(false);
     expect(prefs.chartsCollapsed).toBe(true);
+    expect(prefs.prSectionCollapsed).toBe(true);
   });
 });

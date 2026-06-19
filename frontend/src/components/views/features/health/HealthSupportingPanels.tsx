@@ -6,6 +6,7 @@ import { WorkspaceCardSkeleton } from '../../../common/WorkspaceCardSkeleton';
 import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './WorkoutMonthCalendar';
 import { ProteinTracker } from './nutrition';
+import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 import { useTranslation } from '../../../../lib/i18n';
 
 export interface HealthSupportingPanelsProps {
@@ -58,9 +59,9 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
     >
       {!visible ? (
         <>
-          <WorkspaceCardSkeleton bars={3} theme={theme} minHeight="min-h-[200px]" />
-          <WorkspaceCardSkeleton bars={2} theme={theme} minHeight="min-h-[160px]" />
-          <WorkspaceCardSkeleton bars={2} theme={theme} minHeight="min-h-[160px]" />
+          <WorkspaceCardSkeleton bars={3} theme={theme} minHeight={K121_SKELETON_HEIGHT.supportingCalendar} />
+          <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.supportingInbody} />
+          <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.supportingProtein} />
         </>
       ) : (
         <>

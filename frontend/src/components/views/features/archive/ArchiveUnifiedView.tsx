@@ -86,53 +86,56 @@ export function ArchiveUnifiedView({
       )}
       primary={(
         <div
-          className="flex flex-col gap-2 lg:gap-3 max-w-3xl"
+          className="w-full max-w-[1320px] mx-auto flex flex-col gap-2 lg:gap-3"
           data-archive-unified
           data-k109-archive-unified
           data-k117-archive-layout
+          data-k121-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <ArchiveHistorySection
-            history={projection.historyItems}
-            theme={theme}
-            appSettings={appSettings}
-            collapsed={prefs.historyCollapsed}
-            onToggle={() => toggle('historyCollapsed')}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-3">
+            <ArchiveHistorySection
+              history={projection.historyItems}
+              theme={theme}
+              appSettings={appSettings}
+              collapsed={prefs.historyCollapsed}
+              onToggle={() => toggle('historyCollapsed')}
+            />
 
-          <ArchiveDeletedSection
-            deleted={projection.deletedItems}
-            theme={theme}
-            appSettings={appSettings}
-            collapsed={prefs.deletedCollapsed}
-            onToggle={() => toggle('deletedCollapsed')}
-          />
+            <ArchiveDeletedSection
+              deleted={projection.deletedItems}
+              theme={theme}
+              appSettings={appSettings}
+              collapsed={prefs.deletedCollapsed}
+              onToggle={() => toggle('deletedCollapsed')}
+            />
 
-          <ArchiveSnapshotsSection
-            snapshots={projection.snapshotItems}
-            theme={theme}
-            appSettings={appSettings}
-            collapsed={prefs.snapshotsCollapsed}
-            onToggle={() => toggle('snapshotsCollapsed')}
-            onRestoreSnapshot={onRestoreSnapshot}
-          />
+            <ArchiveSnapshotsSection
+              snapshots={projection.snapshotItems}
+              theme={theme}
+              appSettings={appSettings}
+              collapsed={prefs.snapshotsCollapsed}
+              onToggle={() => toggle('snapshotsCollapsed')}
+              onRestoreSnapshot={onRestoreSnapshot}
+            />
 
-          <ArchiveTimelineSection
-            timeline={projection.timelineItems}
-            defaultPeriod={home.browse.timeline.defaultPeriod}
-            markCalendar={home.markCalendar}
-            recentMilestones={home.recentMilestones}
-            youAreHere={home.youAreHere}
-            theme={theme}
-            appSettings={appSettings}
-            collapsed={prefs.timelineCollapsed}
-            onToggle={() => toggle('timelineCollapsed')}
-            onMilestoneClick={onMilestoneClick}
-            onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
-              type: 'period',
-              ref: archivePeriodRefFromDateKey(dateKey),
-            })}
-          />
+            <ArchiveTimelineSection
+              timeline={projection.timelineItems}
+              defaultPeriod={home.browse.timeline.defaultPeriod}
+              markCalendar={home.markCalendar}
+              recentMilestones={home.recentMilestones}
+              youAreHere={home.youAreHere}
+              theme={theme}
+              appSettings={appSettings}
+              collapsed={prefs.timelineCollapsed}
+              onToggle={() => toggle('timelineCollapsed')}
+              onMilestoneClick={onMilestoneClick}
+              onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
+                type: 'period',
+                ref: archivePeriodRefFromDateKey(dateKey),
+              })}
+            />
+          </div>
 
           <ArchiveRestoreToolsSection
             restoreTools={projection.restoreTools}
@@ -211,7 +214,7 @@ export function ArchiveUnifiedView({
           )}
 
           {projection.empty.isEmpty && !isLoading && (
-            <p className={`text-xs ${theme.textMuted}`} data-k109-archive-empty>
+            <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-archive-empty data-k121-empty-state="archive-unified">
               {t('k109ArchiveAllEmpty')}
             </p>
           )}

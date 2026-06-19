@@ -11,6 +11,7 @@ export interface MonthCalendarCellProps {
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
+  onScheduleBlockClick?: (blockId: string) => void;
 }
 
 export function MonthCalendarCell({
@@ -18,6 +19,7 @@ export function MonthCalendarCell({
   theme,
   onEventNoteClick,
   onDateSelect,
+  onScheduleBlockClick,
 }: MonthCalendarCellProps) {
   const overflowLabel = formatMonthOverflowLabel(model.overflowCount);
 
@@ -69,11 +71,22 @@ export function MonthCalendarCell({
         {model.blockRows.map(({ block }) => (
           <div
             key={block.id}
-            className="k101-planner-chip px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50 border-l-[3px] border-l-amber-500 hover:bg-surface hover:shadow-sm transition-colors"
+            className={`k101-planner-chip px-1.5 py-1 text-[10px] lg:text-[11px] font-semibold truncate rounded-md bg-surface-alt text-foreground border border-border/50 border-l-[3px] border-l-amber-500 hover:bg-surface hover:shadow-sm transition-colors${onScheduleBlockClick ? ' cursor-pointer' : ''}`}
             data-planner-month-block={block.id}
             data-planner-month-block-category={block.category || undefined}
             data-planner-month-block-color={block.color}
+            data-k121-month-schedule-block={block.id}
             title={`${block.startTime} ${block.title}${block.category ? ` · ${block.category}` : ''}`}
+            onClick={onScheduleBlockClick ? (e) => { e.stopPropagation(); onScheduleBlockClick(block.id); } : undefined}
+            onKeyDown={onScheduleBlockClick ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                onScheduleBlockClick(block.id);
+              }
+            } : undefined}
+            role={onScheduleBlockClick ? 'button' : undefined}
+            tabIndex={onScheduleBlockClick ? 0 : undefined}
           >
             <span className="opacity-70 tabular-nums">{block.startTime}</span>
             {' '}

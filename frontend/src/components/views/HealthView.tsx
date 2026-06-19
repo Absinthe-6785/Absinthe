@@ -11,6 +11,7 @@ import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../common/WorkspaceToolbar';
+import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../lib/uiSpacingTokens';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -664,7 +665,8 @@ export const HealthView = ({
   const healthProjection = useMemo(() => buildHealthProjection({
     rangeWorkouts: analyticsExpanded && analyticsRangeRows ? analyticsRangeRows : monthWorkoutRows,
     selectedDateKey,
-  }), [analyticsExpanded, analyticsRangeRows, monthWorkoutRows, selectedDateKey]);
+    weightUnits,
+  }), [analyticsExpanded, analyticsRangeRows, monthWorkoutRows, selectedDateKey, weightUnits]);
 
   const workoutDates = healthProjection.workoutDates;
 
@@ -873,6 +875,7 @@ export const HealthView = ({
 
           <div className="space-y-3 pb-1 lg:space-y-3 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && (
+              <div data-k121-empty-state="health-workouts">
               <ProductEmptyState
                 variant="tailwind"
                 theme={theme}
@@ -882,6 +885,7 @@ export const HealthView = ({
                 dataHook="health-workouts-empty"
                 primaryAction={{ label: t('k99EmptyHealthWorkoutsAction'), onClick: () => setMobileHealthTab('blocks') }}
               />
+              </div>
             )}
             {localWorkouts.map((w: Workout, wIdx: number) => {
 

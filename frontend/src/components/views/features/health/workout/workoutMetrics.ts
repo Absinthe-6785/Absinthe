@@ -3,6 +3,7 @@ import { isStrengthSet } from '../../../../../types';
 
 export interface RangeWorkoutRow {
   date?: string;
+  block_id?: string;
   exercise_blocks: { name: string };
   sets: WorkoutSet[];
 }

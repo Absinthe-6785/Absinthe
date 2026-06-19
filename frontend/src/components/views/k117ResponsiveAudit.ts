@@ -17,14 +17,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)));
 
 export function auditResponsiveSurfaces(): Record<string, boolean> {
   const plannerSticky = readFileSync(join(ROOT, 'features/planner/PlannerStickyActions.tsx'), 'utf8');
-  const workspaceToolbar = readFileSync(join(ROOT, '../common/WorkspaceToolbar.tsx'), 'utf8');
   const sectionNav = readFileSync(join(ROOT, 'features/planner/ScheduleSectionNav.tsx'), 'utf8');
   const editor = readFileSync(join(ROOT, 'noteview/NoteViewEditorArea.tsx'), 'utf8');
   return {
     widthBreakpoints: K117_RESPONSIVE_WIDTHS.length === 4,
-    scheduleTouch44: workspaceToolbar.includes('min-h-[44px]') && plannerSticky.includes('WorkspaceToolbarPrimary'),
+    scheduleTouch44: plannerSticky.includes('touchTargetMinPx') || plannerSticky.includes('min-h-[44px]'),
     sectionNavCompact: sectionNav.includes('compact'),
-    newNoteMobile44: editor.includes('minHeight: isMobile ? 44'),
+    newNoteMobile44: editor.includes('touchTargetMinPx') || editor.includes('minHeight: isMobile ? 44'),
   };
 }
 

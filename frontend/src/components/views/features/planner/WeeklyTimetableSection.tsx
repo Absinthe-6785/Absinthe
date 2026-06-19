@@ -158,7 +158,7 @@ export function WeeklyTimetableSection({
       <section
         className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
           ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-3 lg:p-4' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
-          ${showGrid || showMobileList ? (sectionEmbedded ? 'min-h-[200px] lg:min-h-[280px]' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
+          ${showGrid || showMobileList ? (sectionEmbedded ? (hasActivities ? 'min-h-[160px]' : 'min-h-0') : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
@@ -188,6 +188,18 @@ export function WeeklyTimetableSection({
                 {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
               </button>
             ) : null}
+            {sectionEmbedded ? (
+              <button
+                type="button"
+                onClick={() => openWeeklyModal()}
+                className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[36px] ${theme.input} ${theme.textMuted} hover:text-primary`}
+                data-planner-weekly-timetable-add
+                data-k121-timetable-add-compact
+              >
+                <Plus size={14} className="inline mr-1" strokeWidth={2.25}/>
+                {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
+              </button>
+            ) : (
             <button
               type="button"
               onClick={() => openWeeklyModal()}
@@ -196,11 +208,12 @@ export function WeeklyTimetableSection({
             >
               <Plus size={16} strokeWidth={2.25}/> {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
             </button>
+            )}
           </div>
         </div>
 
         {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
-          <div className="py-6" data-planner-weekly-timetable-collapsed-empty="true">
+          <div className="py-3" data-k121-empty-state="planner-timetable-collapsed" data-planner-weekly-timetable-collapsed-empty="true">
             <ProductEmptyState
               variant="tailwind"
               theme={theme}
@@ -253,9 +266,9 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden min-h-[360px] ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+        <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[120px]' : sectionEmbedded ? 'min-h-[160px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           {!hasActivities ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3" data-planner-weekly-timetable-empty="true">
+            <div className="flex-1 flex flex-col items-center justify-center p-2 gap-1" data-planner-weekly-timetable-empty="true" data-k121-empty-state="planner-timetable">
               <ProductEmptyState
                 variant="tailwind"
                 theme={theme}

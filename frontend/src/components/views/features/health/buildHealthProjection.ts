@@ -5,6 +5,7 @@ import {
   listRecentWorkoutSessions,
   type RangeWorkoutRow,
 } from './workout/workoutMetrics';
+import { formatPrDisplay } from './formatPrDisplay';
 
 export interface InbodyHistoryRow {
   date: string;
@@ -22,6 +23,10 @@ export interface HealthPrHighlight {
   name: string;
   kg: number;
   date: string;
+  blockId?: string;
+  displayValue: number;
+  displayUnit: 'kg' | 'lbs';
+  conversionHint: string | null;
 }
 
 export interface ExerciseHistoryRow {
@@ -99,24 +104,29 @@ function parseKg(kg: number | string): number | null {
 
 function detectPrHighlights(
   workouts: readonly RangeWorkoutRow[],
+  weightUnits: Readonly<Record<string, 'kg' | 'lbs'>> = {},
   limit = 5,
 ): HealthPrHighlight[] {
-  const bestByName = new Map<string, { kg: number; date: string }>();
+  const bestByName = new Map<string, { kg: number; date: string; blockId?: string }>();
   for (const w of workouts) {
     const name = w.exercise_blocks?.name ?? '';
     if (!name) continue;
+    const blockId = w.block_id;
     for (const set of w.sets ?? []) {
       if (!isStrengthSet(set) || !set.done) continue;
       const kg = parseKg(set.kg);
       if (!kg) continue;
       const prev = bestByName.get(name);
       if (!prev || kg > prev.kg) {
-        bestByName.set(name, { kg, date: w.date ?? '' });
+        bestByName.set(name, { kg, date: w.date ?? '', blockId });
       }
     }
   }
   return [...bestByName.entries()]
-    .map(([name, { kg, date }]) => ({ name, kg, date }))
+    .map(([name, { kg, date, blockId }]) => {
+      const display = formatPrDisplay(kg, blockId, weightUnits);
+      return { name, kg, date, blockId, ...display };
+    })
     .sort((a, b) => b.kg - a.kg)
     .slice(0, limit);
 }
@@ -140,8 +150,9 @@ export function buildHealthProjection(input: {
   rangeWorkouts: readonly RangeWorkoutRow[];
   selectedDateKey: string;
   inbodyHistory?: readonly InbodyHistoryRow[];
+  weightUnits?: Readonly<Record<string, 'kg' | 'lbs'>>;
 }): HealthProjection {
-  const { rangeWorkouts, selectedDateKey, inbodyHistory = [] } = input;
+  const { rangeWorkouts, selectedDateKey, inbodyHistory = [], weightUnits = {} } = input;
 
   const workoutDates = new Set<string>();
   const monthPrefix = selectedDateKey.slice(0, 7);
@@ -176,7 +187,7 @@ export function buildHealthProjection(input: {
       weeklySessions: weeklyBuckets(rangeWorkouts, selectedDateKey),
       weightTrend: weightHistory.slice(-7).map(r => ({ label: r.date.slice(5), value: r.weight })),
     },
-    prHighlights: detectPrHighlights(rangeWorkouts),
+    prHighlights: detectPrHighlights(rangeWorkouts, weightUnits),
   };
 }
 
