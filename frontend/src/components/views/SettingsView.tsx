@@ -18,6 +18,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
 import { buildVaultBackupManifestV3, downloadVaultBackup } from '../../lib/exportVaultBackup';
+import { downloadRecoveryJson } from '../../lib/recoveryExport';
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { fetchVaultCloudBlock } from '../../lib/vaultCloudExport';
 import { assertExportReady } from '../../lib/vaultExportValidate';
@@ -352,6 +353,13 @@ export const SettingsView = ({
                     className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
                   >
                     <Download size={16}/>{t('vaultBackupJsonExport')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadRecoveryJson}
+                    className="px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                  >
+                    <Download size={16}/>Emergency Recovery JSON
                   </button>
                 </div>
               </div>
