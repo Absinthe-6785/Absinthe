@@ -60,21 +60,18 @@ export function MonthCalendarView({
   const showTimetableSection = Boolean(
     appSettings && THEME_COLORS && mutateStatic && showToast,
   );
-  const hasUpcoming = plannerProjection.groupedUpcoming.some(section =>
-    section.days.some(day => day.items.length > 0),
-  );
 
   const onScheduleBlockClick = scheduleActions?.onView;
 
   return (
     <div
-      className="flex flex-col gap-1.5 lg:gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[minmax(0,28%)_minmax(0,72%)_auto] lg:flex-1 lg:max-h-[min(74vh,840px)]"
+      className="flex flex-col gap-2 lg:gap-2.5 items-stretch min-h-0 lg:grid lg:grid-rows-[minmax(0,30%)_minmax(0,70%)_auto] lg:flex-1 lg:max-h-[min(72vh,820px)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
     >
-      <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto overscroll-contain" data-k121-schedule-agenda>
+      <div className="flex flex-col gap-2 min-h-0 overflow-y-auto overscroll-contain" data-k121-schedule-agenda>
         <section data-k117-schedule-section="today">
           <PlannerTodayPanel
             plannerProjection={plannerProjection}
@@ -85,22 +82,16 @@ export function MonthCalendarView({
           />
         </section>
 
-        <section
-          data-k117-schedule-section="upcoming"
-          className={hasUpcoming ? undefined : 'hidden'}
-          aria-hidden={hasUpcoming ? undefined : true}
-          data-k124c-upcoming-empty-hidden={hasUpcoming ? undefined : 'true'}
-        >
-          {hasUpcoming ? (
-            <UpcomingAgendaPanel
-              tierSections={plannerProjection.groupedUpcoming}
-              theme={theme}
-              scheduleActions={scheduleActions}
-              eventActions={eventActions}
-              onDateSelect={onDateSelect}
-              embedded
-            />
-          ) : null}
+        <section data-k117-schedule-section="upcoming">
+          <UpcomingAgendaPanel
+            tierSections={plannerProjection.groupedUpcoming}
+            theme={theme}
+            scheduleActions={scheduleActions}
+            eventActions={eventActions}
+            onDateSelect={onDateSelect}
+            embedded
+            collapseWhenEmpty
+          />
         </section>
       </div>
 
@@ -125,7 +116,7 @@ export function MonthCalendarView({
         )}
       </section>
 
-      <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
+      <div className="flex flex-col gap-2 shrink-0" data-k121-schedule-supporting>
         <section data-k117-schedule-section="routine">
           <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
             <PlannerRoutineTodayCard

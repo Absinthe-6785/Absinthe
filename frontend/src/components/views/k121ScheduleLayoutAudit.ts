@@ -12,12 +12,11 @@ export function auditScheduleLayoutProportions(): Record<string, boolean> {
   const timetable = readFileSync(join(ROOT, 'components/views/features/planner/WeeklyTimetableSection.tsx'), 'utf8');
   return {
     layoutHook: month.includes('data-k121-schedule-layout'),
-    agenda30Calendar70: (month.includes('30%') && month.includes('70%'))
-      || (month.includes('28%') && month.includes('72%')),
+    agenda30Calendar70: month.includes('30%') && month.includes('70%'),
     agendaSection: month.includes('data-k121-schedule-agenda'),
     supportingSection: month.includes('data-k121-schedule-supporting'),
     timetableEmbedded: month.includes('sectionEmbedded'),
-    collapsedEmptyHeight: timetable.includes('min-h-[64px]') || timetable.includes('min-h-0'),
+    collapsedEmptyHeight: timetable.includes('min-h-[120px]') || timetable.includes('min-h-0'),
     compactAddWhenEmbedded: timetable.includes('data-k121-timetable-add-compact'),
   };
 }

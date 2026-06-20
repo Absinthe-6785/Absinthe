@@ -21,7 +21,7 @@ export const PlannerRoutineTodayCard = memo(function PlannerRoutineTodayCard({
   if (slots.length === 0) return null;
 
   return (
-    <section data-k108-planner-routine-today>
+    <section className="mb-3" data-k108-planner-routine-today>
       <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
         {t('k108RoutineToday')}
       </p>

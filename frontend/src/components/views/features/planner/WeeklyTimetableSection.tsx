@@ -157,14 +157,14 @@ export function WeeklyTimetableSection({
     <>
       <section
         className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
-          ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
-          ${showGrid || showMobileList ? (sectionEmbedded ? (hasActivities ? 'min-h-[140px]' : 'min-h-0') : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
+          ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-3 lg:p-4' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
+          ${showGrid || showMobileList ? (sectionEmbedded ? (hasActivities ? 'min-h-[160px]' : 'min-h-0') : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
         data-k117-timetable-embedded={sectionEmbedded ? 'true' : 'false'}
       >
-        <div className={`flex justify-between items-center ${sectionEmbedded ? (hasActivities ? 'mb-1.5' : 'mb-0') : 'mb-4'}`}>
+        <div className={`flex justify-between items-center ${sectionEmbedded ? 'mb-2' : 'mb-4'}`}>
           <div>
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
               <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
@@ -172,7 +172,7 @@ export function WeeklyTimetableSection({
             {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
               <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
             )}
-            {(standalone || sectionEmbedded) && (hasActivities || !sectionEmbedded) ? (
+            {standalone || sectionEmbedded ? (
               <p className={`text-xs mt-0.5 ${theme.textMuted}`}>{t('k74TimetableHint')}</p>
             ) : null}
           </div>
@@ -266,16 +266,18 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[64px]' : sectionEmbedded ? 'min-h-[140px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+        <div className={`flex-1 flex flex-col relative border rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[120px]' : sectionEmbedded ? 'min-h-[160px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           {!hasActivities ? (
-            <div
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-center ${theme.textMuted}`}
-              data-planner-weekly-timetable-empty="true"
-              data-k121-empty-state="planner-timetable"
-              data-k124c-timetable-empty-compact
-            >
-              <CalendarDays size={18} strokeWidth={1.5} className="shrink-0 opacity-50" />
-              <p className="text-xs font-semibold">{t('plannerWeeklyTimetableEmptyHint')}</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-2 gap-1" data-planner-weekly-timetable-empty="true" data-k121-empty-state="planner-timetable">
+              <ProductEmptyState
+                variant="tailwind"
+                theme={theme}
+                icon={CalendarDays}
+                title={t('k99EmptyPlannerTitle')}
+                description={t('k99EmptyPlannerDesc')}
+                dataHook="planner-timetable-empty"
+                primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+              />
             </div>
           ) : (
           <>
