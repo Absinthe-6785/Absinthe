@@ -2,6 +2,38 @@
  * editorChromeStyles.ts — Block editor presentation CSS (chrome + reading mode)
  */
 import { EDITOR_READING_STYLES } from './editorReading';
+import { K123_EDITOR_GUTTER_PX, K123_EDITOR_SHELL_MAX_PX } from '../../lib/k123EditorLayout';
+
+export const K123_EDITOR_LAYOUT_STYLES = `
+  .k123-editor-column-shell {
+    max-width: ${K123_EDITOR_SHELL_MAX_PX}px;
+    margin: 0 auto;
+    width: 100%;
+    position: relative;
+    box-sizing: border-box;
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    overflow-x: clip;
+  }
+  .k123-editor-toolbar-shell {
+    max-width: ${K123_EDITOR_SHELL_MAX_PX}px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+  .k123-editor-body-pad {
+    padding-top: 12px;
+    padding-bottom: 48px;
+  }
+  @media (min-width: 769px) {
+    .k123-editor-body-pad {
+      padding-top: 24px;
+      padding-bottom: 80px;
+    }
+  }
+`;
 
 export const EDITOR_CHROME_STYLES = `
   .be-block {
@@ -13,9 +45,9 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-gutter {
     position: relative;
-    flex: 0 0 48px;
-    width: 48px;
-    margin-left: -48px;
+    flex: 0 0 ${K123_EDITOR_GUTTER_PX}px;
+    width: ${K123_EDITOR_GUTTER_PX}px;
+    margin-left: -${K123_EDITOR_GUTTER_PX}px;
     min-height: 28px;
     z-index: 2;
     pointer-events: auto;
@@ -24,9 +56,9 @@ export const EDITOR_CHROME_STYLES = `
     touch-action: none;
   }
   .be-editor-nested .be-gutter {
-    flex-basis: 40px;
-    width: 40px;
-    margin-left: -40px;
+    flex-basis: 44px;
+    width: 44px;
+    margin-left: -44px;
   }
   .be-gutter-strip {
     position: absolute;
@@ -186,7 +218,9 @@ export const EDITOR_CHROME_STYLES = `
     color: var(--be-text, inherit);
   }
   .be-document-edit {
-    padding-left: 44px;
+    padding-left: ${K123_EDITOR_GUTTER_PX}px;
+    padding-right: 16px;
+    overflow: visible;
   }
   @media (pointer: coarse) {
     .be-block-active > .be-gutter,
@@ -379,22 +413,36 @@ export const EDITOR_CHROME_STYLES = `
     white-space: nowrap;
   }
   .be-selection-toolbar button:active { transform: scale(0.94); }
-  .be-block-handle-menu { margin-left: -4px; }
+  .be-block-handle-menu { margin-left: 0; z-index: 5; }
   .be-block-handle-menu::before {
     content: '';
     position: absolute;
     right: 100%;
     top: 0;
     bottom: 0;
-    width: 16px;
+    width: 20px;
   }
   /* K-118 — mobile editor + embed overflow */
-  .be-editor-root { overflow-x: hidden; max-width: 100%; }
+  .be-editor-root { overflow-x: clip; max-width: 100%; }
   [data-k118-embed-preview] { max-width: 100%; }
+  .be-document .be-image-block,
+  .be-document [data-block-type="table"],
+  .be-document pre,
+  .be-document .be-code-block,
+  .be-document table {
+    max-width: 100%;
+  }
+  @media (min-width: 769px) {
+    .be-document .be-image-block,
+    .be-document [data-block-type="table"] {
+      max-width: min(100%, calc(var(--be-doc-width, 980px) + 80px));
+    }
+  }
   @media (pointer: coarse) {
     .be-handle-btn { width: 40px; height: 40px; }
     .be-image-block [data-k108-image-more] { min-height: 48px; min-width: 48px; }
     .be-editor-toolbar { row-gap: 10px; }
   }
+  ${K123_EDITOR_LAYOUT_STYLES}
   ${EDITOR_READING_STYLES}
 `;
