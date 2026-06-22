@@ -29,8 +29,10 @@ import { formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
-import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
+import { ExerciseLibraryPanel } from './features/health/ExerciseLibraryPanel';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
+import { HealthCalendarPanel } from './features/health/HealthCalendarPanel';
+import { HealthDeferredMount } from './features/health/HealthDeferredMount';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
@@ -745,7 +747,7 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k125c-health-layout>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
@@ -761,7 +763,7 @@ export const HealthView = ({
             </button>
           ))}
         </div>
-        <HealthBlockLibrary
+        <ExerciseLibraryPanel
           blocks={healthBlocks ?? []}
           activeTagFilter={activeTagFilter}
           setActiveTagFilter={setActiveTagFilter}
@@ -774,7 +776,7 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'blocks'}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k125c-health-immediate="routine">
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -836,8 +838,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+      <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k125c-health-order="workout">
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -875,7 +877,7 @@ export const HealthView = ({
 
           <div className="space-y-3 pb-1 lg:space-y-3 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
             {localWorkouts.length === 0 && (
-              <div data-k121-empty-state="health-workouts">
+              <div data-k121-empty-state="health-workouts" data-k125c-empty-compact className="py-2">
               <ProductEmptyState
                 variant="tailwind"
                 theme={theme}
@@ -1175,17 +1177,7 @@ export const HealthView = ({
         )}
         </div>
 
-        <HealthAnalyticsPanel
-          projection={healthProjection}
-          loading={analyticsExpanded && !analyticsRangeRows}
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          prefs={healthSectionPrefs}
-          onPrefsChange={updateHealthSectionPrefs}
-          onOpenWorkoutNote={openWorkoutSessionNote}
-        />
-
-        <HealthSupportingPanels
+        <HealthCalendarPanel
           selectedDate={selectedDate}
           currentDate={currentDate}
           setCurrentDate={setCurrentDate}
@@ -1195,15 +1187,35 @@ export const HealthView = ({
           theme={theme}
           lang={lang}
           workoutDates={workoutDates}
-          localInbody={localInbody}
-          setLocalInbody={setLocalInbody}
-          setIsInbodyDirty={setIsInbodyDirty}
-          onSaveInbody={handleSaveInbody}
-          appSettings={appSettings}
-          showToast={showToast}
-          onOpenNutrition={() => setHealthSection('nutrition')}
-          inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
         />
+
+        <HealthDeferredMount theme={theme} dataHook="analytics">
+          <HealthAnalyticsPanel
+            projection={healthProjection}
+            loading={analyticsExpanded && !analyticsRangeRows}
+            theme={theme}
+            darkMode={appSettings.darkMode}
+            prefs={healthSectionPrefs}
+            onPrefsChange={updateHealthSectionPrefs}
+            onOpenWorkoutNote={openWorkoutSessionNote}
+          />
+        </HealthDeferredMount>
+
+        <HealthDeferredMount theme={theme} dataHook="supporting">
+          <HealthSupportingPanels
+            selectedDate={selectedDate}
+            formatDate={formatDate}
+            theme={theme}
+            localInbody={localInbody}
+            setLocalInbody={setLocalInbody}
+            setIsInbodyDirty={setIsInbodyDirty}
+            onSaveInbody={handleSaveInbody}
+            appSettings={appSettings}
+            showToast={showToast}
+            onOpenNutrition={() => setHealthSection('nutrition')}
+            inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
+          />
+        </HealthDeferredMount>
       </div>
     </div>
     </>

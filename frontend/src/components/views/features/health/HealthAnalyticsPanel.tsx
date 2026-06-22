@@ -97,6 +97,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0`}
       data-k107-health-analytics
       data-k121-health-analytics
+      data-k125c-health-order="analytics"
     >
       <button
         type="button"

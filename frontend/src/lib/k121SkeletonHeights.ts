@@ -4,7 +4,8 @@ export const K121_SKELETON_HEIGHT = {
   analyticsPr: 'min-h-[96px]',
   analyticsRecent: 'min-h-[112px]',
   analyticsHistory: 'min-h-[112px]',
-  supportingCalendar: 'min-h-[200px]',
-  supportingInbody: 'min-h-[160px]',
-  supportingProtein: 'min-h-[160px]',
+  supportingCalendar: 'min-h-[160px]',
+  supportingInbody: 'min-h-[120px]',
+  supportingProtein: 'min-h-[120px]',
+  deferredPlaceholder: 'min-h-[64px]',
 } as const;

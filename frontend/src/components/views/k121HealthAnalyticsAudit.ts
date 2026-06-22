@@ -22,7 +22,7 @@ export function auditHealthAnalyticsSimplification(): Record<string, boolean> {
     prCollapsedDefault: prefs.includes('prSectionCollapsed: true'),
     recentCollapsedDefault: prefs.includes('recentSessionsCollapsed: true'),
     historyCollapsedDefault: prefs.includes('exerciseHistoryCollapsed: true'),
-    analyticsOpenDefault: prefs.includes('analyticsCollapsed: false'),
+    analyticsCollapsedDefault: prefs.includes('analyticsCollapsed: true'),
   };
 }
 
