@@ -12,10 +12,10 @@ export interface ArchiveSectionPrefs {
 
 export const DEFAULT_ARCHIVE_SECTION_PREFS: ArchiveSectionPrefs = {
   historyCollapsed: false,
-  deletedCollapsed: false,
-  snapshotsCollapsed: false,
-  timelineCollapsed: false,
-  restoreToolsCollapsed: false,
+  deletedCollapsed: true,
+  snapshotsCollapsed: true,
+  timelineCollapsed: true,
+  restoreToolsCollapsed: true,
   browseCollapsed: true,
   areasCollapsed: true,
 };

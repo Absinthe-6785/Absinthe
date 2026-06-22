@@ -60,8 +60,9 @@ export function ArchiveTimelineSection({
       dark={appSettings.darkMode}
       isEmpty={timeline.isEmpty && !hasCalendar}
       emptyHint={t('k109EmptyTimeline')}
+      major
     >
-      <div className="space-y-4" data-k109-timeline-groups>
+      <div className="space-y-3" data-k109-timeline-groups>
         {hasCalendar && (
           <div data-archive-mark-calendar className="mb-2">
             <ArchiveMarkCalendar

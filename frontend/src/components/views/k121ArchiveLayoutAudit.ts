@@ -11,8 +11,8 @@ export function auditArchiveLayoutRecovery(): Record<string, boolean> {
   const archive = readFileSync(join(ROOT, 'components/views/features/archive/ArchiveUnifiedView.tsx'), 'utf8');
   return {
     layoutHook: archive.includes('data-k121-archive-layout'),
-    centeredMaxWidth: archive.includes('max-w-[1320px]') && archive.includes('mx-auto'),
-    twoColumnDesktop: archive.includes('lg:grid-cols-2'),
+    centeredMaxWidth: archive.includes('max-w-[1200px]') && archive.includes('mx-auto'),
+    singleColumnAccordion: archive.includes('data-k125d-archive-accordion') && !archive.includes('lg:grid-cols-2'),
     historySection: archive.includes('ArchiveHistorySection'),
     deletedSection: archive.includes('ArchiveDeletedSection'),
     snapshotsSection: archive.includes('ArchiveSnapshotsSection'),

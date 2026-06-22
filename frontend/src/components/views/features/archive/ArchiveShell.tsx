@@ -35,7 +35,7 @@ export function ArchiveShell({
     <>
       <WorkspaceErrorBoundary workspace="archive">
       <div
-        className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300 ${UI_SPACING.scrollOverscroll}`}
+        className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden px-2 lg:px-3 py-1 pr-1 animate-in fade-in duration-300 ${UI_SPACING.scrollOverscroll}`}
         data-archive-shell
         data-archive-mode="cohesion"
         data-k109-archive-shell

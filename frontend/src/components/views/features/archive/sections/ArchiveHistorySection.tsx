@@ -43,8 +43,9 @@ export function ArchiveHistorySection({
       dark={appSettings.darkMode}
       isEmpty={history.isEmpty}
       emptyHint={t('k109EmptyHistory')}
+      major
     >
-      <div className="space-y-4" data-k109-history-list>
+      <div className="space-y-3" data-k109-history-list>
         {history.groups.map(group => {
           const hasAny = group.opened.length + group.edited.length + group.restored.length > 0;
           if (!hasAny) return null;
@@ -53,7 +54,7 @@ export function ArchiveHistorySection({
               <p className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>
                 {t(BUCKET_LABEL_KEYS[group.bucket])}
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {(['opened', 'edited', 'restored'] as const).map(kind => {
                   const items = kind === 'opened' ? group.opened
                     : kind === 'edited' ? group.edited

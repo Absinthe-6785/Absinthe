@@ -46,8 +46,9 @@ export function ArchiveDeletedSection({
       dark={appSettings.darkMode}
       isEmpty={deleted.isEmpty}
       emptyHint={t('k109EmptyDeleted')}
+      major
     >
-      <div className="space-y-3" data-k109-deleted-panel>
+      <div className="space-y-2" data-k109-deleted-panel>
         <div className="flex flex-col sm:flex-row gap-2">
           <label className={`flex items-center gap-2 flex-1 min-h-[44px] px-2 rounded-lg border ${theme.border} ${theme.input}`}>
             <Search size={14} className={theme.textMuted} />

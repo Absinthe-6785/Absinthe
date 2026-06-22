@@ -19,7 +19,7 @@ export function auditEmptyStateDensity(): Record<string, boolean> {
     healthHook: health.includes('data-k121-empty-state="health-workouts"'),
     healthUsesProductEmpty: health.includes('ProductEmptyState') && health.includes('data-k121-empty-state'),
     archiveHook: archive.includes('data-k121-empty-state="archive-unified"'),
-    archiveTightHint: archive.includes('py-2') && archive.includes('data-k121-empty-state'),
+    archiveTightHint: archive.includes('data-k125d-empty-compact') && archive.includes('data-k121-empty-state'),
   };
 }
 

@@ -1,7 +1,8 @@
-import { Eye, ChevronDown } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import type { ArchiveSnapshotProjection } from '../../knowledge/archive';
+import { ArchiveCollapsibleSection } from './ArchiveCollapsibleSection';
 
 export interface ArchiveSnapshotsSectionProps {
   snapshots: ArchiveSnapshotProjection;
@@ -28,7 +29,7 @@ function SnapshotCard({
   const t = getTranslator(resolveAppLanguage(appSettings.language));
   return (
     <div
-      className={`rounded-xl border p-3 flex flex-col gap-2 ${theme.border} ${theme.input}`}
+      className={`rounded-xl border p-2.5 flex flex-col gap-1.5 ${theme.border} ${theme.input}`}
       data-k109-snapshot-card
       data-k109-snapshot-slot={item.slot}
     >
@@ -44,7 +45,7 @@ function SnapshotCard({
       <button
         type="button"
         onClick={onRestore}
-        className="inline-flex items-center justify-center gap-1.5 min-h-[44px] text-xs font-bold text-primary"
+        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] text-xs font-bold text-primary"
         data-k109-snapshot-restore
       >
         <Eye size={14} />
@@ -72,46 +73,31 @@ export function ArchiveSnapshotsSection({
   ].filter((c): c is typeof c & { item: NonNullable<typeof c.item> } => c.item != null);
 
   return (
-    <section
-      className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card}`}
-      data-k109-archive-section="snapshots"
-      data-k109-collapsed={collapsed ? 'true' : 'false'}
+    <ArchiveCollapsibleSection
+      sectionId="snapshots"
+      title={t('k109SectionSnapshots')}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      theme={theme}
+      dark={appSettings.darkMode}
+      isEmpty={snapshots.isEmpty}
+      emptyHint={t('k109EmptySnapshots')}
+      major
     >
-      <button
-        type="button"
-        className="flex items-center justify-between gap-2 w-full text-left min-h-[44px] lg:min-h-0"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-        data-k109-section-toggle="snapshots"
-      >
-        <h2 className="font-heading text-sm font-bold">{t('k109SectionSnapshots')}</h2>
-        <ChevronDown
-          size={14}
-          className={`shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''} ${theme.textMuted}`}
-        />
-      </button>
-      {!collapsed && (
-        <div className="mt-2" data-k109-snapshots-grid>
-          {snapshots.isEmpty ? (
-            <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-empty-state="snapshots">
-              {t('k109EmptySnapshots')}
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {cards.map(({ key, label, item }) => (
-                <SnapshotCard
-                  key={key}
-                  label={label}
-                  item={item}
-                  theme={theme}
-                  appSettings={appSettings}
-                  onRestore={() => onRestoreSnapshot(item.snapshotId)}
-                />
-              ))}
-            </div>
-          )}
+      {!snapshots.isEmpty && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-k109-snapshots-grid>
+          {cards.map(({ key, label, item }) => (
+            <SnapshotCard
+              key={key}
+              label={label}
+              item={item}
+              theme={theme}
+              appSettings={appSettings}
+              onRestore={() => onRestoreSnapshot(item.snapshotId)}
+            />
+          ))}
         </div>
       )}
-    </section>
+    </ArchiveCollapsibleSection>
   );
 }

@@ -44,7 +44,7 @@ export function ArchiveUnifiedView({
 }: ArchiveUnifiedViewProps) {
   const t = getTranslator(resolveAppLanguage(appSettings.language));
   const headingClass = appSettings.darkMode ? 'text-white' : 'text-gray-900';
-  const { prefs, toggle } = useArchiveSectionPrefs();
+  const { prefs, toggle, toggleMajor } = useArchiveSectionPrefs();
   const home = projection.home;
 
   const onMilestoneClick = useCallback(
@@ -86,20 +86,22 @@ export function ArchiveUnifiedView({
       )}
       primary={(
         <div
-          className="w-full max-w-[1320px] mx-auto flex flex-col gap-2 lg:gap-3"
+          className="w-full max-w-[1200px] mx-auto flex flex-col gap-2"
           data-archive-unified
           data-k109-archive-unified
           data-k117-archive-layout
           data-k121-archive-layout
+          data-k125d-archive-layout
+          data-k125d-archive-accordion
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-3">
+          <div className="flex flex-col gap-2" data-k125d-archive-major-stack>
             <ArchiveHistorySection
               history={projection.historyItems}
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.historyCollapsed}
-              onToggle={() => toggle('historyCollapsed')}
+              onToggle={() => toggleMajor('historyCollapsed')}
             />
 
             <ArchiveDeletedSection
@@ -107,7 +109,7 @@ export function ArchiveUnifiedView({
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.deletedCollapsed}
-              onToggle={() => toggle('deletedCollapsed')}
+              onToggle={() => toggleMajor('deletedCollapsed')}
             />
 
             <ArchiveSnapshotsSection
@@ -115,7 +117,7 @@ export function ArchiveUnifiedView({
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.snapshotsCollapsed}
-              onToggle={() => toggle('snapshotsCollapsed')}
+              onToggle={() => toggleMajor('snapshotsCollapsed')}
               onRestoreSnapshot={onRestoreSnapshot}
             />
 
@@ -128,7 +130,7 @@ export function ArchiveUnifiedView({
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.timelineCollapsed}
-              onToggle={() => toggle('timelineCollapsed')}
+              onToggle={() => toggleMajor('timelineCollapsed')}
               onMilestoneClick={onMilestoneClick}
               onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
                 type: 'period',
@@ -214,7 +216,7 @@ export function ArchiveUnifiedView({
           )}
 
           {projection.empty.isEmpty && !isLoading && (
-            <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-archive-empty data-k121-empty-state="archive-unified">
+            <p className={`text-xs py-1 ${theme.textMuted}`} data-k109-archive-empty data-k121-empty-state="archive-unified" data-k125d-empty-compact>
               {t('k109ArchiveAllEmpty')}
             </p>
           )}
