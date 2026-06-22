@@ -87,9 +87,9 @@ describe('k107 product-wide audits', () => {
     expect(auditMobileTouchTargets()).toBe(true);
   });
 
-  it('section prefs default collapsed analytics (K-125C)', () => {
+  it('section prefs default expanded summary (K-125F)', () => {
     const prefs = readHealthSectionPrefs();
-    expect(prefs.analyticsCollapsed).toBe(true);
+    expect(prefs.analyticsCollapsed).toBe(false);
     expect(prefs.chartsCollapsed).toBe(true);
     expect(prefs.prSectionCollapsed).toBe(true);
   });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -33,7 +33,10 @@ import { ExerciseLibraryPanel } from './features/health/ExerciseLibraryPanel';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
 import { HealthCalendarPanel } from './features/health/HealthCalendarPanel';
 import { HealthDeferredMount } from './features/health/HealthDeferredMount';
+import { HealthInbodyQuickPanel } from './features/health/HealthInbodyQuickPanel';
+import { HealthNavigation } from './features/health/HealthNavigation';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
+import { WorkoutRoutinePanel } from './features/health/WorkoutRoutinePanel';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
@@ -87,6 +90,7 @@ export const HealthView = ({
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [mobileWorkoutMenuIdx, setMobileWorkoutMenuIdx] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
@@ -747,22 +751,15 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k125c-health-layout>
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k125c-health-layout data-k125f-health-layout>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
-        <div className="flex lg:hidden gap-2">
-          {(['blocks', 'routine', 'workout'] as const).map(tab => (
-            <button key={tab}
-              onClick={() => setMobileHealthTab(tab)}
-              className={`flex-1 min-h-[44px] py-2.5 rounded-2xl text-xs font-bold transition-colors
-                ${mobileHealthTab === tab
-                  ? 'bg-primary text-primary-foreground'
-                  : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : t('tabWorkout')}
-            </button>
-          ))}
-        </div>
+        <HealthNavigation
+          active={mobileHealthTab}
+          onChange={setMobileHealthTab}
+          theme={theme}
+        />
         <ExerciseLibraryPanel
           blocks={healthBlocks ?? []}
           activeTagFilter={activeTagFilter}
@@ -776,70 +773,27 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'blocks'}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k125c-health-immediate="routine">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
-              <input
-                type="number" inputMode="numeric" min="1" max="7"
-                value={splitCountInput}
-                onChange={e => setSplitCountInput(e.target.value)}
-                onBlur={() => {
-                  const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-                  setSplitCount(n);
-                  setSplitCountInput(String(n));
-                  localStorage.setItem('healthSplitCount', String(n));
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-                    setSplitCount(n);
-                    setSplitCountInput(String(n));
-                    localStorage.setItem('healthSplitCount', String(n));
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
-              <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
-            {Array.from({ length: splitCount }).map((_, i) => {
-              const dayName = `Day ${i + 1}`;
-              const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
-              const blocks = (routine?.blocks ?? [])
-                .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
-                .filter((b): b is ExerciseBlock => !!b);
-              return (
-                <div key={dayName} className={`rounded-xl p-2.5 border ${theme.border}`}>
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-heading text-sm font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
-                  </div>
-                  <div className="flex flex-col gap-1 min-h-[24px]">
-                    {blocks.length === 0 ? (
-                      <span className={`text-[10px] ${theme.textMuted}`}>—</span>
-                    ) : blocks.map(b => (
-                      <div key={b.id} className="flex items-center justify-between gap-2 text-[11px] font-semibold">
-                        <span className="truncate">{b.name}</span>
-                        {showsPlannedSetCount(b.type) ? (
-                          <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                            {t('k76SetCount').replace('{count}', String(getRoutinePlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
-                          </span>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <WorkoutRoutinePanel
+          theme={theme}
+          mobileVisible={mobileHealthTab === 'routine'}
+          splitCount={splitCount}
+          splitCountInput={splitCountInput}
+          setSplitCountInput={setSplitCountInput}
+          onSplitCountCommit={(n) => {
+            setSplitCount(n);
+            setSplitCountInput(String(n));
+            localStorage.setItem('healthSplitCount', String(n));
+          }}
+          healthRoutines={healthRoutines}
+          healthBlocks={healthBlocks}
+          prevData={prevData}
+          onOpenAssemble={openAssembleModal}
+        />
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k125c-health-order="workout">
+      <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k125f-mobile-workout-flow>
+        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 shrink-0 relative z-0 isolate overflow-hidden ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k125c-health-order="workout" data-k125f-workout-hero>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -941,14 +895,38 @@ export const HealthView = ({
                 onTouchEnd={handleDragEnd}
                 className={`border rounded-3xl p-5 relative group shadow-sm transition-all duration-150 ${theme.border} ${
                   dragOverIndex === wIdx && dragIndex !== wIdx
-                    ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
+                    ? appSettings.darkMode ? 'border-primary bg-primary/5' : 'border-primary bg-yellow-50/50'
                     : ''
                 } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}>
                 {!isWorkoutLocked && (
-                  <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
-                    className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
-                    <Trash2 size={18}/>
-                  </button>
+                  <>
+                    <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
+                      className="hidden lg:block absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
+                      <Trash2 size={18}/>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileWorkoutMenuIdx(mobileWorkoutMenuIdx === wIdx ? null : wIdx)}
+                      className="lg:hidden absolute top-3 right-3 p-2 rounded-full text-gray-400 hover:text-foreground"
+                      data-k125f-workout-overflow
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {mobileWorkoutMenuIdx === wIdx && (
+                      <>
+                        <button type="button" className="lg:hidden fixed inset-0 z-[48]" aria-label="Close" onClick={() => setMobileWorkoutMenuIdx(null)} />
+                        <div className="lg:hidden absolute right-3 top-12 z-[49] rounded-xl border shadow-lg bg-background p-1 min-w-[120px]" data-k125f-workout-menu>
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-500 rounded-lg hover:bg-red-500/10"
+                            onClick={() => { handleRemoveWorkout(wIdx, w.id); setMobileWorkoutMenuIdx(null); }}
+                          >
+                            <Trash2 size={14} /> {t('deleteLabel')}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </>
                 )}
                 <div className="flex items-center gap-3 mb-4">
                   {!isWorkoutLocked && (
@@ -1176,6 +1154,14 @@ export const HealthView = ({
         </>
         )}
         </div>
+
+        <HealthInbodyQuickPanel
+          theme={theme}
+          localInbody={localInbody}
+          setLocalInbody={setLocalInbody}
+          setIsInbodyDirty={setIsInbodyDirty}
+          onSaveInbody={handleSaveInbody}
+        />
 
         <HealthCalendarPanel
           selectedDate={selectedDate}

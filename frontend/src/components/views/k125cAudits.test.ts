@@ -19,9 +19,9 @@ describe('k125c health performance audits', () => {
     expect(K125C_HEALTH_ORDER).toEqual(['workout', 'calendar', 'analytics', 'supporting']);
   });
 
-  it('section prefs default collapsed analytics (K-125C)', () => {
+  it('section prefs default expanded summary (K-125F)', () => {
     const prefs = readHealthSectionPrefs();
-    expect(prefs.analyticsCollapsed).toBe(true);
+    expect(prefs.analyticsCollapsed).toBe(false);
     expect(prefs.prSectionCollapsed).toBe(true);
     expect(prefs.recentSessionsCollapsed).toBe(true);
     expect(prefs.exerciseHistoryCollapsed).toBe(true);

@@ -73,6 +73,7 @@ function CollapsibleSection({
   );
 }
 
+/** K-125F — simplified analytics: summary visible, no streak, charts hidden by default. */
 export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   projection,
   loading,
@@ -94,10 +95,11 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0`}
+      className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0 relative z-0`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k125c-health-order="analytics"
+      data-k125f-health-analytics
     >
       <button
         type="button"
@@ -112,12 +114,12 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       </button>
 
       {expanded && (
-        <div className="mt-2 space-y-3" data-k121-health-summary>
+        <div className="mt-2 space-y-2" data-k121-health-summary data-k125f-analytics-summary>
           {!visible || loading ? (
-            <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
+            <WorkspaceCardSkeleton bars={1} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (
             <>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-2 gap-2 text-center" data-k125f-summary-grid>
                 <div className={`rounded-xl py-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WeeklySessions')}</p>
                   <p className="text-lg font-black tabular-nums">{projection.weeklySessionCount}</p>
@@ -126,26 +128,19 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107MonthlySessions')}</p>
                   <p className="text-lg font-black tabular-nums">{projection.monthlySessionCount}</p>
                 </div>
-                <div className={`rounded-xl py-2 ${theme.input}`}>
-                  <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WorkoutStreak')}</p>
-                  <p className="text-lg font-black tabular-nums">{projection.workoutStreakDays}</p>
-                </div>
               </div>
 
-              <div>
-                <button
-                  type="button"
-                  onClick={() => toggle('chartsCollapsed')}
-                  className={`text-[11px] font-bold mb-1.5 flex items-center gap-1 ${theme.textMuted}`}
-                  data-k107-health-charts-toggle
-                >
-                  {t('k107Charts')}
-                  {chartsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
+              <CollapsibleSection
+                label={t('k107Charts')}
+                collapsed={prefs.chartsCollapsed}
+                onToggle={() => toggle('chartsCollapsed')}
+                theme={theme}
+                dataHook="charts"
+              >
                 {chartsExpanded && visible && (
                   <HealthWeeklyChart points={projection.chartSeries.weeklySessions} darkMode={darkMode} />
                 )}
-              </div>
+              </CollapsibleSection>
 
               <CollapsibleSection
                 label={t('k107RecentPrs')}
@@ -168,7 +163,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                         </span>
                       </span>
                     )}
-                    empty={<p className={`text-xs ${theme.textMuted}`}>{t('k107NoPrs')}</p>}
+                    empty={<p className={`text-xs py-1 ${theme.textMuted}`} data-k125f-empty-compact>{t('k107NoPrs')}</p>}
                   />
                 </div>
               </CollapsibleSection>

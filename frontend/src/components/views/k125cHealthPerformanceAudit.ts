@@ -19,6 +19,7 @@ export function auditK125cHealthPerformance(): Record<string, boolean> {
   const supporting = readFileSync(join(ROOT, 'components/views/features/health/HealthSupportingPanels.tsx'), 'utf8');
   const calendar = readFileSync(join(ROOT, 'components/views/features/health/HealthCalendarPanel.tsx'), 'utf8');
   const library = readFileSync(join(ROOT, 'components/views/features/health/ExerciseLibraryPanel.tsx'), 'utf8');
+  const routine = readFileSync(join(ROOT, 'components/views/features/health/WorkoutRoutinePanel.tsx'), 'utf8');
   const deferred = readFileSync(join(ROOT, 'components/views/features/health/HealthDeferredMount.tsx'), 'utf8');
 
   const workoutIdx = view.indexOf('data-k125c-health-order="workout"');
@@ -27,13 +28,13 @@ export function auditK125cHealthPerformance(): Record<string, boolean> {
   const supportingIdx = view.indexOf('dataHook="supporting"');
 
   return {
-    analyticsCollapsedDefault: DEFAULT_HEALTH_SECTION_PREFS.analyticsCollapsed === true
-      && prefs.includes('analyticsCollapsed: true'),
+    analyticsCollapsedDefault: DEFAULT_HEALTH_SECTION_PREFS.analyticsCollapsed === false
+      && prefs.includes('analyticsCollapsed: false'),
     prCollapsedDefault: prefs.includes('prSectionCollapsed: true'),
     recentCollapsedDefault: prefs.includes('recentSessionsCollapsed: true'),
     historyCollapsedDefault: prefs.includes('exerciseHistoryCollapsed: true'),
     immediateLibrary: library.includes('data-k125c-health-immediate="library"'),
-    immediateRoutine: view.includes('data-k125c-health-immediate="routine"'),
+    immediateRoutine: routine.includes('data-k125c-health-immediate="routine"') && view.includes('WorkoutRoutinePanel'),
     immediateCalendar: calendar.includes('data-k125c-health-immediate="calendar"'),
     calendarExtracted: calendar.includes('WorkoutMonthCalendar') && !supporting.includes('WorkoutMonthCalendar'),
     deferredMount: deferred.includes('useElementVisible') && view.includes('HealthDeferredMount'),

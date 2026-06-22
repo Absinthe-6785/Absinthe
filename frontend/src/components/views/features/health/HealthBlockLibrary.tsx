@@ -1,14 +1,22 @@
 import { memo, useMemo } from 'react';
-import { Plus, X, Dumbbell } from 'lucide-react';
+import { Plus, Dumbbell } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRef } from 'react';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
+import { WorkoutBlockCard } from './WorkoutBlockCard';
 
 const VIRTUALIZE_THRESHOLD = 48;
 const ROW_HEIGHT = 36;
+
+interface FlatBlockRow {
+  kind: 'header' | 'block';
+  tag?: string;
+  block?: ExerciseBlock;
+  key: string;
+}
 
 export interface HealthBlockLibraryProps {
   blocks: ExerciseBlock[];
@@ -22,53 +30,6 @@ export interface HealthBlockLibraryProps {
   onNewBlock: () => void;
   mobileVisible: boolean;
 }
-
-interface FlatBlockRow {
-  kind: 'header' | 'block';
-  tag?: string;
-  block?: ExerciseBlock;
-  key: string;
-}
-
-const BlockCard = memo(function BlockCard({
-  b,
-  theme,
-  onAdd,
-  onEdit,
-  onDelete,
-}: {
-  b: ExerciseBlock;
-  theme: Theme;
-  onAdd: () => void;
-  onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <div
-      onClick={onAdd}
-      className={`group relative text-xs font-semibold px-2.5 py-2 rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`} />
-        <span className="truncate">{b.name}</span>
-      </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all"
-      >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all"
-      >
-        <X size={10} />
-      </button>
-    </div>
-  );
-});
 
 function buildFlatRows(
   blocks: ExerciseBlock[],
@@ -144,28 +105,31 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       </div>
 
       {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTagFilter(null)}
-            className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
-          >
-            {t('filterAll')}
-          </button>
-          {allTags.map(tag => (
+        <div className="mb-2 shrink-0 overflow-x-auto -mx-1 px-1" data-k125f-library-tag-scroll>
+          <div className="flex flex-nowrap gap-1 min-w-min">
             <button
-              key={tag}
               type="button"
-              onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
-              className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
+              onClick={() => setActiveTagFilter(null)}
+              className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
             >
-              #{tag}
+              {t('filterAll')}
             </button>
-          ))}
+            {allTags.map(tag => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
+                className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {blocks.length === 0 && (
+        <div data-k125f-empty-compact>
         <ProductEmptyState
           variant="tailwind"
           theme={theme}
@@ -175,6 +139,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
           dataHook="health-blocks-empty"
           primaryAction={{ label: t('k99EmptyHealthBlocksAction'), onClick: onNewBlock }}
         />
+        </div>
       )}
 
       <div ref={scrollRef} className="overflow-y-auto min-h-0 pr-1 pb-1 flex-1">
@@ -196,8 +161,8 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
                       <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
                     </div>
                   ) : row.block ? (
-                    <BlockCard
-                      b={row.block}
+                    <WorkoutBlockCard
+                      block={row.block}
                       theme={theme}
                       onAdd={() => void onAddToToday(row.block!)}
                       onEdit={e => { e.stopPropagation(); onEditBlock(row.block!); }}
@@ -224,8 +189,8 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
               if (!row.block) return null;
               return (
                 <div key={row.key} className="flex flex-wrap gap-1.5">
-                  <BlockCard
-                    b={row.block}
+                  <WorkoutBlockCard
+                    block={row.block}
                     theme={theme}
                     onAdd={() => void onAddToToday(row.block!)}
                     onEdit={e => { e.stopPropagation(); onEditBlock(row.block!); }}

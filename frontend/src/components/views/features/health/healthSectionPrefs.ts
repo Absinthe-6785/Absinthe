@@ -10,7 +10,7 @@ export interface HealthSectionPrefs {
 }
 
 export const DEFAULT_HEALTH_SECTION_PREFS: HealthSectionPrefs = {
-  analyticsCollapsed: true,
+  analyticsCollapsed: false,
   chartsCollapsed: true,
   prSectionCollapsed: true,
   recentSessionsCollapsed: true,
