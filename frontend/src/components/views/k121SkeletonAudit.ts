@@ -15,8 +15,8 @@ export function auditSkeletonHeights(): Record<string, boolean> {
     tokenModule: tokens.includes('K121_SKELETON_HEIGHT'),
     analyticsSummary: tokens.includes('analyticsSummary') && analytics.includes('K121_SKELETON_HEIGHT.analyticsSummary'),
     analyticsPr: tokens.includes('analyticsPr') && analytics.includes('K121_SKELETON_HEIGHT.analyticsPr'),
-    analyticsRecent: tokens.includes('analyticsRecent') && analytics.includes('K121_SKELETON_HEIGHT.analyticsRecent'),
     analyticsHistory: tokens.includes('analyticsHistory') && analytics.includes('K121_SKELETON_HEIGHT.analyticsHistory'),
+    compactSummaryHeight: tokens.includes("analyticsSummary: 'min-h-[64px]'"),
     supportingPanels: supporting.includes('K121_SKELETON_HEIGHT.supportingCalendar'),
   };
 }

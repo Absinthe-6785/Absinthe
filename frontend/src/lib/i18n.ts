@@ -570,6 +570,10 @@ const translations = {
   k125ScheduleSubtitle:        { en: 'Calendar, agenda, and weekly routine.', ko: '캘린더, 일정, 주간 루틴.', ja: 'カレンダー・予定・週間ルーティン。' },
   k125NotesSubtitle:           { en: 'Knowledge, writing, and discovery.', ko: '지식, 글쓰기, 탐색.', ja: '知識・執筆・探索。' },
   k125ArchiveEmptyAction:      { en: 'Open discovery', ko: '탐색 열기', ja: 'ディスカバーを開く' },
+  // ── K-126A health analytics & mobile flow ────────────────────────
+  k126QuickInbody:             { en: 'Quick InBody', ko: '빠른 인바디', ja: 'クイックInBody' },
+  k126BlockActions:            { en: 'Block actions', ko: '블록 작업', ja: 'ブロック操作' },
+  k126WorkoutActions:          { en: 'Workout actions', ko: '운동 작업', ja: 'ワークアウト操作' },
   k110SectionRecipes:        { en: 'Recipes', ko: '레시피', ja: 'レシピ' },
   k110SectionIngredients:    { en: 'Ingredients', ko: '재료', ja: '材料' },
   k110SectionHistory:        { en: 'Cooking history', ko: '요리 기록', ja: '調理履歴' },
