@@ -233,26 +233,6 @@ export const SettingsView = ({
                 </div>
               </div>
 
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
-                <div>
-                  <p className="text-base font-bold">{t('defaultCategory')}</p>
-                </div>
-                <div className={`flex flex-wrap gap-2 p-2 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  {(['Study', 'Work', 'Exercise', 'Personal'] as const).map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => updateSetting('defaultCategory', cat)}
-                      className={`px-3 py-2 rounded-xl text-sm font-bold transition-all ${
-                        appSettings.defaultCategory === cat
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'text-gray-500 hover:text-current'
-                      }`}
-                    >
-                      {cat === 'Study' ? t('catStudy') : cat === 'Work' ? t('catWork') : cat === 'Exercise' ? t('catExercise') : t('catPersonal')}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
 
@@ -261,29 +241,29 @@ export const SettingsView = ({
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <HardDrive size={20} className="text-primary" />{t('k98SettingsStorage')}
             </h2>
-            <div className="space-y-3">
-              <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+            <div className="space-y-2">
+              <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl border ${theme.border} ${theme.input}`} data-k125e-storage-compact>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('storageTypeLabel')}</p>
-                  <p className="text-sm font-bold">{t('storageTypeLocal')}</p>
+                  <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('storageTypeLabel')}</p>
+                  <p className="text-xs font-bold">{t('storageTypeLocal')}</p>
                 </div>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('vaultSizeLabel')}</p>
-                  <p className="text-sm font-bold">{formatStorageMegabytes(storageMetrics.vaultBytes)}</p>
+                  <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('vaultSizeLabel')}</p>
+                  <p className="text-xs font-bold">{formatStorageMegabytes(storageMetrics.vaultBytes)}</p>
                 </div>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
-                  <p className="text-sm font-bold">{formatSnapshotTime(storageMetrics.lastSnapshotAt)}</p>
+                  <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
+                  <p className="text-xs font-bold">{formatSnapshotTime(storageMetrics.lastSnapshotAt)}</p>
                 </div>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
-                  <p className="text-sm font-bold">
+                  <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
+                  <p className="text-xs font-bold">
                     {cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}
                   </p>
                 </div>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('snapshotStorageLabel')}</p>
-                  <p className="text-sm font-bold">
+                  <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('snapshotStorageLabel')}</p>
+                  <p className="text-xs font-bold">
                     {t('snapshotCountSummary')
                       .replace('{count}', String(storageMetrics.snapshotCount))
                       .replace('{size}', formatStorageMegabytes(storageMetrics.snapshotBytes))}
@@ -312,87 +292,96 @@ export const SettingsView = ({
             </div>
           </div>
 
-          {/* Recovery */}
-          <div data-settings-section="recovery">
-            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2 px-1">
+          {/* Backup & Recovery */}
+          <div data-settings-section="backup-recovery" data-k125e-backup-recovery>
+            <h2 className="font-heading text-lg font-bold mb-2 flex items-center gap-2 px-1">
               <RotateCcw size={20} className="text-primary" />{t('k98SettingsRecovery')}
             </h2>
-            <RecoveryCenterPanel
-              recovery={recovery}
-              vaultRestore={vaultRestore}
-              cloudSyncEnabled={cloudSyncEnabled}
-              theme={theme}
-              showToast={showToast}
-            />
-          </div>
-
-          {/* Export */}
-          <div className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export" data-k119-settings-card>
-            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
-              <Download size={20} className="text-primary" />{t('k98SettingsExport')}
-            </h2>
-            <div className="space-y-6">
-              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
-                <div>
-                  <p className="text-base font-bold">{t('vaultBackupExport')}</p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            <div className="space-y-3">
+              {/* Backup — ZIP */}
+              <div
+                className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 flex flex-col gap-2 ${theme.card}`}
+                data-k125e-section="backup"
+              >
+                <p className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('k125eSectionBackup')}</p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <p className="text-xs font-medium">{t('k125eBackupZipHint')}</p>
                   <button
                     onClick={doVaultBackupZip}
                     disabled={backingUpZip}
-                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60"
+                    className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-bold text-xs flex justify-center items-center gap-1.5 disabled:opacity-60 shrink-0"
+                    data-k125e-backup-zip
                   >
                     {backingUpZip
-                      ? <><Loader2 size={16} className="animate-spin"/>{t('vaultBackupZipping')}</>
-                      : <><Download size={16}/>{t('vaultBackupZipExport')}</>
+                      ? <><Loader2 size={14} className="animate-spin"/>{t('vaultBackupZipping')}</>
+                      : <><Download size={14}/>{t('vaultBackupZipExport')}</>
                     }
-                  </button>
-                  <button
-                    onClick={doVaultBackupJson}
-                    className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
-                  >
-                    <Download size={16}/>{t('vaultBackupJsonExport')}
                   </button>
                 </div>
               </div>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
-                  <div>
-                    <p className="text-base font-bold">{t('exportCsv')}</p>
-                  </div>
+
+              <RecoveryCenterPanel
+                recovery={recovery}
+                vaultRestore={vaultRestore}
+                cloudSyncEnabled={cloudSyncEnabled}
+                theme={theme}
+                showToast={showToast}
+              />
+
+              {/* Export — JSON + CSV */}
+              <div
+                className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 flex flex-col gap-3 ${theme.card}`}
+                data-k125e-section="export"
+                data-k119-settings-card
+              >
+                <p className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('k125eSectionExport')}</p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <p className="text-xs font-medium">{t('vaultBackupJsonExport')}</p>
                   <button
-                    onClick={doExport}
-                    disabled={exporting}
-                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+                    onClick={doVaultBackupJson}
+                    className={`px-4 py-2 rounded-lg font-bold text-xs flex justify-center items-center gap-1.5 border shrink-0 ${theme.border} ${theme.input}`}
+                    data-k125e-export-json
                   >
-                    {exporting
-                      ? <><Loader2 size={16} className="animate-spin"/>{exportMsg || 'Exporting...'}</>
-                      : <><Download size={16}/>{t('exportCsv')}</>
-                    }
+                    <Download size={14}/>{t('vaultBackupJsonExport')}
                   </button>
                 </div>
-                <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  <div className="flex-1">
-                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('startDate')}</p>
-                    <input
-                      type="date"
-                      value={exportStart}
-                      max={exportEnd}
-                      onChange={e => setExportStart(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
-                    />
+                <div className="border-t border-border/60 pt-3 flex flex-col gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <p className="text-xs font-medium">{t('exportCsv')}</p>
+                    <button
+                      onClick={doExport}
+                      disabled={exporting}
+                      className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-bold text-xs flex justify-center items-center gap-1.5 disabled:opacity-60 shrink-0"
+                      data-k125e-export-csv
+                    >
+                      {exporting
+                        ? <><Loader2 size={14} className="animate-spin"/>{exportMsg || 'Exporting...'}</>
+                        : <><Download size={14}/>{t('exportCsv')}</>
+                      }
+                    </button>
                   </div>
-                  <div className="flex items-end pb-2 text-sm font-bold opacity-40 hidden sm:flex">→</div>
-                  <div className="flex-1">
-                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('endDate')}</p>
-                    <input
-                      type="date"
-                      value={exportEnd}
-                      min={exportStart}
-                      max={today}
-                      onChange={e => setExportEnd(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
-                    />
+                  <div className={`flex flex-col sm:flex-row gap-2 p-2.5 rounded-xl border ${theme.border} ${theme.input}`}>
+                    <div className="flex-1">
+                      <p className={`text-[9px] font-bold mb-1 ${theme.textMuted}`}>{t('startDate')}</p>
+                      <input
+                        type="date"
+                        value={exportStart}
+                        max={exportEnd}
+                        onChange={e => setExportStart(e.target.value)}
+                        className={`w-full rounded-lg px-2 py-1.5 text-xs font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-[9px] font-bold mb-1 ${theme.textMuted}`}>{t('endDate')}</p>
+                      <input
+                        type="date"
+                        value={exportEnd}
+                        min={exportStart}
+                        max={today}
+                        onChange={e => setExportEnd(e.target.value)}
+                        className={`w-full rounded-lg px-2 py-1.5 text-xs font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -440,6 +429,13 @@ export const SettingsView = ({
       </div>
 
       {/* ✅ ConfirmModal — useConfirm으로 단일 패턴으로 통일 */}
+      <input
+        ref={vaultRestore.fileInputRef}
+        type="file"
+        accept=".json,.zip,application/json,application/zip"
+        className="hidden"
+        onChange={vaultRestore.handleFileChange}
+      />
       {confirm && (
         <ConfirmModal
           message={confirm.message}

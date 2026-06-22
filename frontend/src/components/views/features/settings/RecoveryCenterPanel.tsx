@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Archive, CheckCircle2, Eye, HardDrive, Loader2, Shield, Upload, XCircle } from 'lucide-react';
+import { Shield, Upload } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
-import { formatStorageMegabytes } from '@/lib/vaultStorageMetrics';
+import type { VaultSnapshotSummary } from '@/lib/vaultSnapshotStore';
+import type { VaultSnapshotValidationReport } from '@/lib/vaultSnapshotValidate';
 import type { useRecoveryCenter } from '@/hooks/useRecoveryCenter';
 import type { useVaultRestoreFlow } from '@/hooks/useVaultRestoreFlow';
+import { formatValidationErrors } from './recoveryExport';
+import { SnapshotList } from './SnapshotList';
 
 type RecoveryCenter = ReturnType<typeof useRecoveryCenter>;
 type VaultRestoreFlow = ReturnType<typeof useVaultRestoreFlow>;
@@ -34,7 +37,10 @@ export function RecoveryCenterPanel({
 }: RecoveryCenterPanelProps) {
   const { t } = useTranslation();
   const [validatingId, setValidatingId] = useState<string | null>(null);
-  const [validationResults, setValidationResults] = useState<Record<string, boolean>>({});
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [validationReports, setValidationReports] = useState<
+    Record<string, VaultSnapshotValidationReport | null>
+  >({});
 
   const protectionLabel = {
     protected: t('recoveryProtectionProtected'),
@@ -48,143 +54,103 @@ export function RecoveryCenterPanel({
     none: 'text-red-500',
   }[recovery.protectionStatus];
 
-  const handleValidate = async (snapshotId: string) => {
-    setValidatingId(snapshotId);
+  const schemaVersions = Object.fromEntries(
+    recovery.snapshots.map(s => [s.snapshotId, recovery.getSnapshotSchemaVersion(s.snapshotId)]),
+  );
+
+  const handleVerify = async (snapshot: VaultSnapshotSummary) => {
+    setValidatingId(snapshot.snapshotId);
     try {
-      const report = recovery.validateSnapshot(snapshotId);
+      const report = recovery.validateSnapshot(snapshot.snapshotId);
       if (!report) {
-        showToast(t('recoverySnapshotMissing'), 'error');
+        showToast(t('k125eValidationStorageUnavailable'), 'error');
         return;
       }
-      setValidationResults(prev => ({ ...prev, [snapshotId]: report.valid }));
-      showToast(
-        report.valid ? t('recoverySnapshotValid') : t('recoverySnapshotInvalid'),
-        report.valid ? 'success' : 'error',
-      );
+      setValidationReports(prev => ({ ...prev, [snapshot.snapshotId]: report }));
+      if (report.valid && report.restoreReady) {
+        showToast(t('recoverySnapshotValid'), 'success');
+      } else {
+        const keys = formatValidationErrors(report.errors);
+        showToast(t(keys[0] ?? 'k125eValidationFailed'), 'error');
+      }
     } finally {
       setValidatingId(null);
     }
   };
 
-  const handlePreview = (snapshotId: string) => {
+  const openRestore = (snapshotId: string, restoring: boolean) => {
+    if (restoring) setRestoringId(snapshotId);
     vaultRestore.openSnapshotRestore(snapshotId);
+    if (restoring) setRestoringId(null);
   };
 
   return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
-      <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
-        <Archive size={20} className="text-primary" />
-        {t('recoveryCenterTitle')}
-      </h2>
-
-      <div className="space-y-6">
-        {/* Recovery status */}
-        <div>
-          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoveryStatusTitle')}</p>
-          <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
-              <p className="text-sm font-bold">{formatTime(recovery.lastSnapshotAt, t('storageNoSnapshot'))}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('recoverySnapshotCount')}</p>
-              <p className="text-sm font-bold">{recovery.snapshotCount}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('recoveryLastExport')}</p>
-              <p className="text-sm font-bold">{formatTime(recovery.lastExportAt, t('recoveryNoExport'))}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
-              <p className="text-sm font-bold">
-                {cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}
-              </p>
-            </div>
-            <div className="sm:col-span-2 flex items-center gap-2">
-              <Shield size={16} className={protectionClass} />
-              <span className={`text-sm font-bold ${protectionClass}`}>{protectionLabel}</span>
-            </div>
+    <div
+      className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col gap-3 ${theme.card}`}
+      data-k125e-recovery-panel
+    >
+      {/* Recovery status — compact */}
+      <div data-k125e-section="recovery">
+        <p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`}>
+          {t('k125eSectionRecovery')}
+        </p>
+        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-xl border text-[11px] ${theme.border} ${theme.input}`}>
+          <div>
+            <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
+            <p className="font-bold leading-tight">{formatTime(recovery.lastSnapshotAt, t('storageNoSnapshot'))}</p>
+          </div>
+          <div>
+            <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('recoverySnapshotCount')}</p>
+            <p className="font-bold">{recovery.snapshotCount}</p>
+          </div>
+          <div>
+            <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('recoveryLastExport')}</p>
+            <p className="font-bold leading-tight">{formatTime(recovery.lastExportAt, t('recoveryNoExport'))}</p>
+          </div>
+          <div>
+            <p className={`text-[9px] font-bold mb-0.5 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
+            <p className="font-bold">{cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}</p>
           </div>
         </div>
-
-        {/* Exports */}
-        <div>
-          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoveryExportsTitle')}</p>
-          <div className={`flex flex-col sm:flex-row gap-2 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
-            <button
-              type="button"
-              onClick={vaultRestore.openFilePicker}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground"
-            >
-              <Upload size={16} />
-              {t('vaultRestoreImport')}
-            </button>
-            <p className={`text-xs font-medium self-center ${theme.textMuted}`}>{t('recoveryExportsHint')}</p>
-          </div>
+        <div className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold ${protectionClass}`}>
+          <Shield size={14} className="shrink-0" />
+          <span>{protectionLabel}</span>
         </div>
+      </div>
 
-        {/* Snapshot browser */}
-        <div>
-          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoverySnapshotsTitle')}</p>
-          {recovery.snapshots.length === 0 ? (
-            <p className={`text-sm font-medium ${theme.textMuted}`}>{t('recoveryNoSnapshots')}</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {recovery.snapshots.map(snap => {
-                const schemaVersion = recovery.getSnapshotSchemaVersion(snap.snapshotId);
-                const validated = validationResults[snap.snapshotId];
-                return (
-                  <div
-                    key={snap.snapshotId}
-                    className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <HardDrive size={14} className="text-primary shrink-0" />
-                        <span className="text-sm font-bold">{formatTime(snap.createdAt, snap.createdAt)}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-alt ${theme.textMuted}`}>
-                          {t(`recoverySnapshotSlot_${snap.slot}` as 'recoverySnapshotSlot_daily')}
-                        </span>
-                        {validated === true ? (
-                          <CheckCircle2 size={14} className="text-green-500" />
-                        ) : validated === false ? (
-                          <XCircle size={14} className="text-red-500" />
-                        ) : null}
-                      </div>
-                      <p className={`text-xs font-medium mt-1 ${theme.textMuted}`}>
-                        {t('recoverySnapshotMeta')
-                          .replace('{notes}', String(snap.noteCount))
-                          .replace('{folders}', String(snap.folderCount))
-                          .replace('{size}', formatStorageMegabytes(snap.payloadBytes))
-                          .replace('{version}', schemaVersion != null ? String(schemaVersion) : '—')}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        type="button"
-                        disabled={validatingId === snap.snapshotId}
-                        onClick={() => handleValidate(snap.snapshotId)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border ${theme.border} ${theme.input} disabled:opacity-50`}
-                      >
-                        {validatingId === snap.snapshotId
-                          ? <Loader2 size={14} className="animate-spin" />
-                          : t('recoveryValidateSnapshot')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handlePreview(snap.snapshotId)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground"
-                      >
-                        <Eye size={14} />
-                        {t('recoveryPreviewSnapshot')}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {/* Import backup file */}
+      <div className={`flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 rounded-xl border ${theme.border} ${theme.input}`}>
+        <button
+          type="button"
+          onClick={vaultRestore.openFilePicker}
+          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs bg-primary text-primary-foreground shrink-0"
+          data-k125e-import-backup
+        >
+          <Upload size={14} />
+          {t('vaultRestoreImport')}
+        </button>
+        <p className={`text-[10px] font-medium ${theme.textMuted}`}>{t('k125eImportHint')}</p>
+      </div>
+
+      {/* Snapshot list */}
+      <div>
+        <p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`}>
+          {t('recoverySnapshotsTitle')}
+        </p>
+        {recovery.snapshots.length === 0 ? (
+          <p className={`text-xs font-medium ${theme.textMuted}`}>{t('recoveryNoSnapshots')}</p>
+        ) : (
+          <SnapshotList
+            snapshots={recovery.snapshots}
+            schemaVersions={schemaVersions}
+            validationReports={validationReports}
+            validatingId={validatingId}
+            restoringId={restoringId}
+            onVerify={handleVerify}
+            onPreview={snap => openRestore(snap.snapshotId, false)}
+            onRestore={snap => openRestore(snap.snapshotId, true)}
+          />
+        )}
       </div>
     </div>
   );
