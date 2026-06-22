@@ -6,7 +6,7 @@ import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Type, Eye, Orbit, Plus,
+  Type, Eye, Orbit, Plus, Search,
   AlertTriangle, Save, GitFork, Upload,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
@@ -53,6 +53,7 @@ import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
 import type { KnowledgeContextTab } from '../features/knowledge/components/KnowledgeContextPanel';
 import type { AppSettings } from '../../../types';
+import { K123_EDITOR_SHELL_MAX_PX } from '../../../lib/k123EditorLayout';
 import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 import { useTranslation } from '../../../lib/i18n';
 import { NoteGraphViewLazy } from './NoteGraphViewLazy';
@@ -722,10 +723,10 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             </div>
           ) : (
             <>
-              {showFindInNotePanel ? (
+              {showFindInNotePanel && isMobile ? (
                 <FindInNotePanel
                   open={documentSearchOpen}
-                  isMobile={isMobile}
+                  isMobile
                   colors={c}
                   searchInputRef={searchInputRef}
                   searchQuery={searchQuery}
@@ -742,18 +743,24 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 />
               ) : null}
 
-              {/* Toolbar - edit 모드에서만 (블록 에디터: 슬래시 커맨드 기반) */}
+              {/* Toolbar - edit 모드에서만 */}
               {!isTrash && viewMode === 'edit' && (
+                <div
+                  data-k123-editor-toolbar-row
+                  style={{
+                    flexShrink: 0,
+                    background: c.toolbar,
+                    borderBottom: `1px solid ${c.toolBdr}`,
+                  }}
+                >
+                <div className="k123-editor-toolbar-shell" data-k123-editor-toolbar-shell>
                 <div
                   className="be-editor-toolbar"
                   style={{
-                    padding: '5px 12px',
-                    borderBottom: `1px solid ${c.toolBdr}`,
+                    padding: '6px 0',
                     display: 'flex',
                     alignItems: 'center',
                     gap: EDITOR_TOOLBAR_GAP,
-                    flexShrink: 0,
-                    background: c.toolbar,
                     flexWrap: 'wrap',
                     minHeight: METADATA_CHIP_HEIGHT + 10,
                   }}
@@ -764,6 +771,16 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
+                  <button
+                    type="button"
+                    onClick={openDocumentSearch}
+                    className="be-editor-toolbar-btn"
+                    title={t('nvDocumentSearch')}
+                    data-k123-toolbar-find
+                    style={{ minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : 24, minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 24 }}
+                  >
+                    <Search size={12} />
+                  </button>
                   <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={12}/>
                   </button>
@@ -844,13 +861,16 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     )}
                   </div>
                 </div>
+                </div>
+                </div>
               )}
     
-              {/* Body — 드래그&드롭 + 단일 컬럼 전체 너비 */}
+              {/* Body — centered editor column */}
               <div
                 className="editor-drop-zone"
                 ref={editorScrollRef}
-                style={{ flex: 1, overflow: 'auto', position: 'relative', overscrollBehavior: 'contain' }}
+                data-k123-editor-scroll
+                style={{ flex: 1, overflow: 'auto', position: 'relative', overscrollBehavior: 'contain', minWidth: 0 }}
                 onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
                 onPaste={e => {
@@ -884,11 +904,34 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     </div>
                   ) : (
                     <div
+                      className="k123-editor-column-shell"
+                      data-k123-editor-column
+                      style={{ maxWidth: K123_EDITOR_SHELL_MAX_PX }}
                       onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
                       data-k108-editor-focus={viewMode === 'edit' ? 'active' : undefined}
-                      style={{ minHeight: '100%', padding: isMobile ? '12px 0 48px' : '24px 0 80px' }}>
+                    >
+                      {showFindInNotePanel && !isMobile ? (
+                        <FindInNotePanel
+                          open={documentSearchOpen}
+                          isMobile={false}
+                          colors={c}
+                          searchInputRef={searchInputRef}
+                          searchQuery={searchQuery}
+                          matchCount={documentSearchMatchCount}
+                          activeMatchIndex={searchMatchIdx}
+                          onQueryChange={query => {
+                            setSearchQuery(query);
+                            setSearchScope('document');
+                          }}
+                          onPrevMatch={() => setSearchMatchIdx(i => Math.max(0, i - 1))}
+                          onNextMatch={() => setSearchMatchIdx(i => i + 1)}
+                          onClose={closeDocumentSearch}
+                          onKeyDown={handleDocumentSearchKeyDown}
+                        />
+                      ) : null}
+                      <div className="k123-editor-body-pad">
                       {viewMode === 'reading' && (
-                        <div style={{ maxWidth: isMobile ? '100%' : 720, margin: '0 auto 8px', padding: isMobile ? '0 12px' : '0 16px', fontSize: 11, color: c.textMuted }}>
+                        <div style={{ maxWidth: NOTE_DOCUMENT_MAX_WIDTH, margin: '0 auto 8px', fontSize: 11, color: c.textMuted }}>
                           {t('nvReadingModeHint')}
                         </div>
                       )}
@@ -907,6 +950,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                         virtualScrollApiRef={virtualScrollApiRef}
                         virtualScrollParentRef={editorScrollRef}
                       />
+                      </div>
                     </div>
                   )
                 )}
