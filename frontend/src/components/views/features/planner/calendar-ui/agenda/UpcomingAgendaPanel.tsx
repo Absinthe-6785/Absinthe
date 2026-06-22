@@ -55,7 +55,7 @@ export function UpcomingAgendaPanel({
     >
       <div className="flex items-center justify-between gap-2 shrink-0">
         <h3 className="font-heading text-xs lg:text-sm font-bold">{t('k80UpcomingAgenda')}</h3>
-        {canAdd ? (
+        {canAdd && !embedded ? (
           <button
             type="button"
             onClick={scheduleActions!.onAdd}
@@ -72,6 +72,11 @@ export function UpcomingAgendaPanel({
         {!visible ? (
           <div className="h-16 rounded-lg bg-muted/20 animate-pulse" aria-hidden />
         ) : itemCount === 0 ? (
+          embedded ? (
+            <p className={`text-xs py-2 ${theme.textMuted}`} data-k125b-upcoming-empty-compact>
+              {t('k103PlannerAgendaEmptyDesc')}
+            </p>
+          ) : (
           <ProductEmptyState
             variant="tailwind"
             theme={theme}
@@ -81,6 +86,7 @@ export function UpcomingAgendaPanel({
             dataHook="k103-planner-agenda-empty"
             primaryAction={canAdd ? { label: t('k80AddEvent'), onClick: scheduleActions!.onAdd! } : undefined}
           />
+          )
         ) : (
           <UpcomingTierGroupList
             sections={tierSections}

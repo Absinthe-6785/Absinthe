@@ -5,6 +5,7 @@ import {
   ListTodo,
   Sun,
 } from 'lucide-react';
+import { useLayoutEffect, useState } from 'react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { Theme } from '../../../../types';
 
@@ -14,28 +15,49 @@ export const SCHEDULE_SECTIONS: readonly {
   id: ScheduleSectionId;
   icon: typeof Sun;
 }[] = [
+  { id: 'routine', icon: Clock },
   { id: 'today', icon: Sun },
+  { id: 'timetable', icon: CalendarDays },
   { id: 'calendar', icon: CalendarRange },
   { id: 'upcoming', icon: ListTodo },
-  { id: 'timetable', icon: CalendarDays },
-  { id: 'routine', icon: Clock },
 ];
 
 export function scrollToScheduleSection(id: ScheduleSectionId): void {
-  document
-    .querySelector(`[data-k117-schedule-section="${id}"]`)
-    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const el = document.querySelector(`[data-k117-schedule-section="${id}"]`);
+  if (el instanceof HTMLElement && el.classList.contains('hidden')) return;
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function useDomHiddenScheduleSections(): ScheduleSectionId[] {
+  const [hidden, setHidden] = useState<ScheduleSectionId[]>([]);
+  useLayoutEffect(() => {
+    const sync = () => {
+      setHidden(
+        SCHEDULE_SECTIONS
+          .filter(({ id }) => document.querySelector(`[data-k117-schedule-section="${id}"]`)?.classList.contains('hidden'))
+          .map(({ id }) => id),
+      );
+    };
+    sync();
+    const frame = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(frame);
+  });
+  return hidden;
 }
 
 export interface ScheduleSectionNavProps {
   theme: Theme;
   compact?: boolean;
   onNavigate?: (id: ScheduleSectionId) => void;
+  /** K-125B — omit section anchors when empty (e.g. upcoming). */
+  hiddenSections?: readonly ScheduleSectionId[];
 }
 
 /** K-117 — in-page section anchors for unified Schedule workspace. */
-export function ScheduleSectionNav({ theme, compact, onNavigate }: ScheduleSectionNavProps) {
+export function ScheduleSectionNav({ theme, compact, onNavigate, hiddenSections }: ScheduleSectionNavProps) {
   const { t } = useTranslation();
+  const domHidden = useDomHiddenScheduleSections();
+  const resolvedHidden = hiddenSections ?? domHidden;
 
   const labelFor = (id: ScheduleSectionId): string => {
     switch (id) {
@@ -52,8 +74,9 @@ export function ScheduleSectionNav({ theme, compact, onNavigate }: ScheduleSecti
       aria-label={t('k117ScheduleSectionNav')}
       className={`flex gap-1 shrink-0 overflow-x-auto pb-0.5 ${compact ? '' : ''}`}
       data-k117-schedule-section-nav
+      data-k125b-schedule-section-nav
     >
-      {SCHEDULE_SECTIONS.map(({ id, icon: Icon }) => (
+      {SCHEDULE_SECTIONS.filter(({ id }) => !resolvedHidden.includes(id)).map(({ id, icon: Icon }) => (
         <button
           key={id}
           type="button"

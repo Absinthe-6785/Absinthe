@@ -13,7 +13,7 @@ describe('k117 schedule layout cleanup audits', () => {
   it('A — unified Schedule workspace', () => {
     expect(auditScheduleRc()).toBe(true);
     expect(SCHEDULE_SECTIONS.map(s => s.id)).toEqual([
-      'today', 'calendar', 'upcoming', 'timetable', 'routine',
+      'routine', 'today', 'timetable', 'calendar', 'upcoming',
     ]);
   });
 

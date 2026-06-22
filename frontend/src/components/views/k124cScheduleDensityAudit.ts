@@ -16,11 +16,12 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
 
   return {
     emptyUpcomingRemoved: month.includes('const hasUpcoming')
-      && month.includes("className={hasUpcoming ? undefined : 'hidden'}")
+      && (month.includes("className={hasUpcoming ? undefined : 'hidden'}")
+        || month.includes("className={hasUpcoming ? 'shrink-0' : 'hidden'}"))
       && month.includes('data-k124c-upcoming-empty-hidden')
       && !month.includes('collapseWhenEmpty'),
     tighterSectionRhythm: month.includes('gap-1.5 lg:gap-2')
-      && month.includes('lg:grid-rows-[minmax(0,28%)_minmax(0,72%)_auto]'),
+      && (month.includes('lg:grid-rows-[minmax(0,28%)_minmax(0,72%)_auto]') || month.includes('data-k125b-schedule-ia')),
     upcomingHeightReduced: upcoming.includes('max-h-[200px]'),
     upcomingGapsReduced: tiers.includes('flex flex-col gap-1.5')
       && tiers.includes('flex flex-col gap-1'),

@@ -69,9 +69,9 @@ export function PlannerTodayPanel({
       data-k105-planner-today
       data-k108-planner-today
     >
-      <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
-        <h2 className="font-heading text-sm font-bold mb-2">{t('plannerToday')}</h2>
-        <div className={`border-t ${theme.border} mb-2`} aria-hidden />
+      <div className={`rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 ${theme.card}`}>
+        <h2 className="font-heading text-sm font-bold mb-1.5">{t('plannerToday')}</h2>
+        <div className={`border-t ${theme.border} mb-1.5`} aria-hidden />
 
         <section className="mb-2" data-k105-planner-todays-note>
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">

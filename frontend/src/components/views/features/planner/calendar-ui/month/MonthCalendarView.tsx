@@ -29,7 +29,7 @@ export interface MonthCalendarViewProps {
   deferMonthGrid?: boolean;
 }
 
-/** K-117 / K-121 unified Schedule workspace — agenda 30% / calendar 70% on desktop. */
+/** K-125B — routine → today → timetable → calendar → upcoming (usage-first scroll). */
 export function MonthCalendarView({
   plannerProjection,
   presentation,
@@ -51,7 +51,7 @@ export function MonthCalendarView({
   const showMonthGrid = !deferMonthGrid || monthVisible;
 
   const monthSkeleton = useMemo(
-    () => <WorkspaceCardSkeleton bars={4} theme={theme} minHeight="min-h-[220px]" />,
+    () => <WorkspaceCardSkeleton bars={4} theme={theme} minHeight="min-h-[180px]" />,
     [theme],
   );
 
@@ -68,46 +68,52 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-1.5 lg:gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[minmax(0,28%)_minmax(0,72%)_auto] lg:flex-1 lg:max-h-[min(74vh,840px)]"
+      className="flex flex-col gap-1.5 lg:gap-2 items-stretch min-h-0 overflow-y-auto overscroll-contain lg:flex-1 lg:max-h-[min(74vh,840px)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
+      data-k125b-schedule-ia
     >
-      <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto overscroll-contain" data-k121-schedule-agenda>
-        <section data-k117-schedule-section="today">
-          <PlannerTodayPanel
-            plannerProjection={plannerProjection}
-            presentation={presentation}
+      <section data-k117-schedule-section="routine" data-k125b-schedule-order="1">
+        <div className={`rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 ${theme.card}`}>
+          <PlannerRoutineTodayCard
             theme={theme}
-            todayKey={todayKey}
-            scheduleActions={scheduleActions}
+            slots={plannerProjection.timetableToday}
+            onOpenTimetable={scrollTimetable}
+          />
+        </div>
+      </section>
+
+      <section data-k117-schedule-section="today" data-k125b-schedule-order="2">
+        <PlannerTodayPanel
+          plannerProjection={plannerProjection}
+          presentation={presentation}
+          theme={theme}
+          todayKey={todayKey}
+          scheduleActions={scheduleActions}
+        />
+      </section>
+
+      {showTimetableSection ? (
+        <section data-k117-schedule-section="timetable" data-k117-timetable-section data-k125b-schedule-order="3">
+          <WeeklyTimetableSection
+            weeklySchedules={[...weeklySchedules]}
+            theme={theme}
+            appSettings={appSettings!}
+            THEME_COLORS={THEME_COLORS!}
+            mutateStatic={mutateStatic!}
+            showToast={showToast!}
+            sectionEmbedded
           />
         </section>
-
-        <section
-          data-k117-schedule-section="upcoming"
-          className={hasUpcoming ? undefined : 'hidden'}
-          aria-hidden={hasUpcoming ? undefined : true}
-          data-k124c-upcoming-empty-hidden={hasUpcoming ? undefined : 'true'}
-        >
-          {hasUpcoming ? (
-            <UpcomingAgendaPanel
-              tierSections={plannerProjection.groupedUpcoming}
-              theme={theme}
-              scheduleActions={scheduleActions}
-              eventActions={eventActions}
-              onDateSelect={onDateSelect}
-              embedded
-            />
-          ) : null}
-        </section>
-      </div>
+      ) : null}
 
       <section
         data-k117-schedule-section="calendar"
+        data-k125b-schedule-order="4"
         ref={monthRef as React.RefObject<HTMLElement>}
-        className={`w-full rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 min-h-0 overflow-hidden flex flex-col ${theme.card}`}
+        className={`w-full rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 min-h-0 max-h-[min(52vh,520px)] overflow-hidden flex flex-col shrink-0 ${theme.card}`}
         data-k117-planner-calendar-adaptive
         data-k108-planner-month-lazy
       >
@@ -125,31 +131,24 @@ export function MonthCalendarView({
         )}
       </section>
 
-      <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
-        <section data-k117-schedule-section="routine">
-          <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
-            <PlannerRoutineTodayCard
-              theme={theme}
-              slots={plannerProjection.timetableToday}
-              onOpenTimetable={scrollTimetable}
-            />
-          </div>
-        </section>
-
-        {showTimetableSection ? (
-          <section data-k117-schedule-section="timetable" data-k117-timetable-section>
-            <WeeklyTimetableSection
-              weeklySchedules={[...weeklySchedules]}
-              theme={theme}
-              appSettings={appSettings!}
-              THEME_COLORS={THEME_COLORS!}
-              mutateStatic={mutateStatic!}
-              showToast={showToast!}
-              sectionEmbedded
-            />
-          </section>
+      <section
+        data-k117-schedule-section="upcoming"
+        data-k125b-schedule-order="5"
+        className={hasUpcoming ? 'shrink-0' : 'hidden'}
+        aria-hidden={hasUpcoming ? undefined : true}
+        data-k124c-upcoming-empty-hidden={hasUpcoming ? undefined : 'true'}
+      >
+        {hasUpcoming ? (
+          <UpcomingAgendaPanel
+            tierSections={plannerProjection.groupedUpcoming}
+            theme={theme}
+            scheduleActions={scheduleActions}
+            eventActions={eventActions}
+            onDateSelect={onDateSelect}
+            embedded
+          />
         ) : null}
-      </div>
+      </section>
     </div>
   );
 }

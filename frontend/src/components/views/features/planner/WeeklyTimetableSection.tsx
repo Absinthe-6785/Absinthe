@@ -192,12 +192,14 @@ export function WeeklyTimetableSection({
               <button
                 type="button"
                 onClick={() => openWeeklyModal()}
-                className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[36px] ${theme.input} ${theme.textMuted} hover:text-primary`}
+                className={`inline-flex items-center justify-center rounded-lg min-h-[36px] min-w-[36px] ${theme.input} ${theme.textMuted} hover:text-primary`}
                 data-planner-weekly-timetable-add
                 data-k121-timetable-add-compact
+                title={hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
+                aria-label={hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
               >
-                <Plus size={14} className="inline mr-1" strokeWidth={2.25}/>
-                {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
+                <Plus size={14} strokeWidth={2.25}/>
+                {hasActivities ? <span className="text-xs font-semibold">{t('add')}</span> : null}
               </button>
             ) : (
             <button

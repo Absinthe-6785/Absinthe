@@ -18,7 +18,16 @@ export const PlannerRoutineTodayCard = memo(function PlannerRoutineTodayCard({
 }: PlannerRoutineTodayCardProps) {
   const { t } = useTranslation();
 
-  if (slots.length === 0) return null;
+  if (slots.length === 0) {
+    return (
+      <section data-k108-planner-routine-today data-k125b-routine-empty-compact>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1">
+          {t('k108RoutineToday')}
+        </p>
+        <p className={`text-xs ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
+      </section>
+    );
+  }
 
   return (
     <section data-k108-planner-routine-today>
