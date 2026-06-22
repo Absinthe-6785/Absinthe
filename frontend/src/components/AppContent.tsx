@@ -12,7 +12,7 @@ import { useDailyData } from '../hooks/useDaily';
 import { useStaticData } from '../hooks/useStatic';
 import { ThemeColor, ViewProps } from '../types';
 import { buildThemeClasses } from '../theme';
-import { Sidebar, TabId } from './common/Sidebar';
+import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
 import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
 import { NoteView } from './views/NoteView';
@@ -55,6 +55,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
   const [activeTab, setActiveTab] = useState<TabId>('note');
+  const [settingsScrollTarget, setSettingsScrollTarget] = useState<SettingsSectionId | null>(null);
 
   // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화 (K-114: once per session)
   useEffect(() => {
@@ -146,6 +147,11 @@ export function AppContent({ authUser }: { authUser: User }) {
   // ── 7. Auth ───────────────────────────────────────────────────────
   const handleSignOut = useCallback(async () => { await supabase.auth.signOut(); }, []);
 
+  const openSettingsSection = useCallback((section: SettingsSectionId) => {
+    setSettingsScrollTarget(section);
+    setActiveTab('settings');
+  }, []);
+
   // ── 8. globalProps ────────────────────────────────────────────────
   // 개선 전: eslint-disable로 deps 경고를 무시. user/formatDate/showToast 등 stable
   //          ref들이 누락되어 stale closure 가능성 존재.
@@ -184,6 +190,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         updateSetting={updateSetting}
         handleSignOut={handleSignOut}
         userName={user.name}
+        onOpenSettingsSection={openSettingsSection}
       />
 
       <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
@@ -191,7 +198,13 @@ export function AppContent({ authUser }: { authUser: User }) {
           {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
           {activeTab === 'health'    && <HealthView    {...globalProps} />}
           {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
-          {activeTab === 'settings'  && <SettingsView  {...globalProps} />}
+          {activeTab === 'settings'  && (
+            <SettingsView
+              {...globalProps}
+              settingsScrollTarget={settingsScrollTarget}
+              onSettingsScrollTargetConsumed={() => setSettingsScrollTarget(null)}
+            />
+          )}
           {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
         </Suspense>
         {activeTab === 'note'      && <NoteView showToast={showToast} />}

@@ -9,7 +9,7 @@
  * 변경: useConfirm() 한 줄로 대체. ConfirmModal 렌더 패턴도 단순화.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardDrive, Info, RotateCcw } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
@@ -38,6 +38,7 @@ import {
   type DataProtectionWarningCode,
 } from '../../lib/vaultStorageMetrics';
 import type { TranslationKey } from '../../lib/i18n';
+import type { SettingsSectionId } from '../common/Sidebar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -50,7 +51,12 @@ const DATA_WARNING_KEYS: Record<DataProtectionWarningCode, TranslationKey> = {
 
 export const SettingsView = ({
   appSettings, updateSetting, showToast, theme, mutateDaily, mutateStatic, onSignOut, user,
-}: ViewProps) => {
+  settingsScrollTarget,
+  onSettingsScrollTargetConsumed,
+}: ViewProps & {
+  settingsScrollTarget?: SettingsSectionId | null;
+  onSettingsScrollTargetConsumed?: () => void;
+}) => {
   // ✅ DRY: useConfirm으로 3줄 → 1줄
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const { t } = useTranslation();
@@ -68,6 +74,17 @@ export const SettingsView = ({
     () => assessDataProtectionWarnings(cloudSyncEnabled),
     [cloudSyncEnabled],
   );
+
+  useEffect(() => {
+    if (!settingsScrollTarget) return;
+    const timer = window.setTimeout(() => {
+      document
+        .querySelector(`[data-settings-section="${settingsScrollTarget}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      onSettingsScrollTargetConsumed?.();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [settingsScrollTarget, onSettingsScrollTargetConsumed]);
 
   const formatSnapshotTime = (iso: string | null) => {
     if (!iso) return t('storageNoSnapshot');
