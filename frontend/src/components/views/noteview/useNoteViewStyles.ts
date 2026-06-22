@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { interactionStateCss } from '../../../theme/k99InteractionTokens';
 import { K99_SCROLL_PANE_CLASS, K99_STICKY_HEADER_CLASS } from '../../common/k99ScrollChrome';
+import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 
 export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string {
   return `
@@ -141,6 +142,106 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
     .bicon-btn:hover .bicon-tooltip{opacity:1}
+    /* ── K-125A notes workspace header polish ── */
+    .k125a-notes-top-bar{
+      padding:6px 12px;
+      border-bottom:1px solid ${c.sideBdr};
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:${UI_INTERACTION.toolbarActionGapPx}px;
+      flex-shrink:0;
+      background:${c.toolbar};
+      min-height:40px;
+      top:0;
+      z-index:5;
+    }
+    .k125a-notes-header-band{
+      padding:6px 12px;
+      border-bottom:1px solid ${c.sideBdr};
+      background:${c.editor};
+      flex-shrink:0;
+      min-width:0;
+    }
+    .k125a-notes-header-band--toolbar{background:${c.toolbar}}
+    .k125a-notes-header-band--title{background:${c.editor}}
+    .k125a-notes-actions-row{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:${UI_INTERACTION.toolbarActionGapPx}px;
+      min-width:0;
+      flex-shrink:0;
+    }
+    .k125a-notes-actions-cluster{
+      display:flex;
+      align-items:center;
+      gap:${UI_INTERACTION.toolbarActionGapPx}px;
+      flex-shrink:0;
+    }
+    .k125a-notes-view-mode-group{
+      display:flex;
+      background:${c.toolbar};
+      border-radius:8px;
+      padding:2px;
+      gap:2px;
+      flex-shrink:0;
+    }
+    .k125a-header-action-btn{
+      width:${UI_INTERACTION.toolbarBtnSizePx}px;
+      height:${UI_INTERACTION.toolbarBtnSizePx}px;
+      min-width:${UI_INTERACTION.toolbarBtnSizePx}px;
+      padding:0;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex-shrink:0;
+      border-radius:6px;
+    }
+    .k125a-notes-new-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      min-height:32px;
+      padding:0 12px;
+      font-size:12px;
+      font-weight:700;
+      border-radius:8px;
+      border:none;
+      background:${c.accent};
+      color:#fff;
+      flex-shrink:0;
+      cursor:pointer;
+      transition:opacity .12s,transform .08s;
+    }
+    .k125a-notes-new-btn:hover{opacity:.92}
+    .k125a-notes-new-btn:active{transform:scale(.98)}
+    .k125a-notes-new-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
+    .k125a-notes-empty-shell{
+      flex:1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-height:0;
+      padding:16px 12px 24px;
+    }
+    @media (max-width:767px){
+      .k125a-notes-top-bar{padding:6px 10px;min-height:${UI_INTERACTION.touchTargetMinPx}px}
+      .k125a-notes-header-band{padding:6px 10px}
+      .k125a-header-action-btn{
+        width:${UI_INTERACTION.touchTargetMinPx}px;
+        height:${UI_INTERACTION.touchTargetMinPx}px;
+        min-width:${UI_INTERACTION.touchTargetMinPx}px;
+        min-height:${UI_INTERACTION.touchTargetMinPx}px;
+      }
+      .k125a-notes-new-btn{
+        min-width:${UI_INTERACTION.touchTargetMinPx}px;
+        min-height:${UI_INTERACTION.touchTargetMinPx}px;
+        padding:0 10px;
+      }
+      .k125a-notes-empty-shell{padding:12px 10px 20px}
+    }
   `;
 }
 

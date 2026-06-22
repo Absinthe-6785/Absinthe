@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search, Trash2,
+  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search, Trash2, Plus,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -38,6 +38,7 @@ export interface NoteEditorHeaderActionsProps {
   onOpenSettings?: () => void;
   onOpenAppearance?: () => void;
   onOpenHelp?: () => void;
+  onNewNote?: () => void;
 }
 
 export const K108A_HEADER_ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
@@ -76,6 +77,7 @@ export function NoteEditorHeaderActions({
   onOpenSettings,
   onOpenAppearance,
   onOpenHelp,
+  onNewNote,
 }: NoteEditorHeaderActionsProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -176,9 +178,6 @@ export function NoteEditorHeaderActions({
   ) : null;
 
   const iconBtnStyle = {
-    width: isMobile ? 44 : ACTION_BTN_SIZE,
-    height: isMobile ? 44 : ACTION_BTN_SIZE,
-    minWidth: isMobile ? 44 : ACTION_BTN_SIZE,
     padding: 0,
     display: 'inline-flex' as const,
     alignItems: 'center' as const,
@@ -191,30 +190,24 @@ export function NoteEditorHeaderActions({
       data-note-editor-header-actions
       data-k108-header-actions
       data-k108-header-layout="normalized"
+      data-k125a-notes-header-actions
       data-k104-mobile-toolbar={mobileCompact ? 'compact' : undefined}
+      className="k125a-notes-actions-row"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: ACTION_GAP,
-        flexShrink: 0,
         flexWrap: isTrash ? 'wrap' : 'nowrap',
-        minWidth: 0,
-        justifyContent: 'flex-end',
       }}
     >
+      <div className="k125a-notes-actions-cluster">
       {!mobileCompact ? (
-        <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
+        <div className="k125a-notes-view-mode-group">
           {viewModeButtons.map(({ key, icon }) => (
             <button
               key={key}
               title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
               onClick={() => onViewModeToggle(key)}
-              className="btbtn"
+              className="btbtn k125a-header-action-btn"
               style={{
                 ...iconBtnStyle,
-                width: ACTION_BTN_SIZE,
-                height: ACTION_BTN_SIZE,
-                minWidth: ACTION_BTN_SIZE,
                 borderRadius: 5,
                 background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
                 color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
@@ -229,7 +222,7 @@ export function NoteEditorHeaderActions({
         <button
           type="button"
           onClick={onOpenDocumentSearch}
-          className="btbtn shrink-0"
+          className="btbtn k125a-header-action-btn shrink-0"
           title={t('nvDocumentSearch')}
           style={iconBtnStyle}
           data-read-mode-search-btn
@@ -241,7 +234,7 @@ export function NoteEditorHeaderActions({
       {!mobileCompact && !isTrash ? (
         <button
           onClick={onToggleStar}
-          className="btbtn shrink-0"
+          className="btbtn k125a-header-action-btn shrink-0"
           title={starred ? t('nvUnstar') : t('nvStar')}
           style={iconBtnStyle}
         >
@@ -252,7 +245,7 @@ export function NoteEditorHeaderActions({
       {!mobileCompact && !isTrash ? (
         <button
           onClick={() => void onCopyDocument()}
-          className="btbtn shrink-0"
+          className="btbtn k125a-header-action-btn shrink-0"
           title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
           style={{ ...iconBtnStyle, color: docCopied ? c.green : c.textMuted }}
         >
@@ -263,7 +256,7 @@ export function NoteEditorHeaderActions({
       <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
         <button
           type="button"
-          className="btbtn"
+          className="btbtn k125a-header-action-btn"
           aria-expanded={menuOpen}
           aria-haspopup="menu"
           title={t('nvMoreActions')}
@@ -290,20 +283,37 @@ export function NoteEditorHeaderActions({
       {!mobileCompact ? (
         <button
           onClick={onTogglePanel}
-          className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
+          className="btbtn k125a-header-action-btn shrink-0"
           title={t('nvTogglePanel')}
           style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
         >
           <AlignLeft size={14}/>
         </button>
       ) : null}
+      </div>
+
+      {onNewNote && !isTrash ? (
+        <button
+          type="button"
+          onClick={onNewNote}
+          title={t('nvNewNoteBtn')}
+          data-k117-new-note-btn
+          data-noteview-new-note-btn
+          data-k121-notes-new
+          data-k125a-notes-new-inline
+          className="btbtn k125a-notes-new-btn"
+        >
+          <Plus size={14} />
+          {!isMobile ? t('nvNewNoteBtn') : null}
+        </button>
+      ) : null}
 
       {isTrash ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: ACTION_GAP, flexShrink: 0 }} data-k102-trash-actions>
+        <div className="k125a-notes-actions-cluster" data-k102-trash-actions>
           <button
             type="button"
             onClick={onRestore}
-            className="btbtn k101-interactive shrink-0"
+            className="btbtn k125a-header-action-btn k101-interactive shrink-0"
             title={t('restoreLabel')}
             aria-label={t('restoreLabel')}
             style={{ ...iconBtnStyle, color: c.green }}
@@ -315,7 +325,7 @@ export function NoteEditorHeaderActions({
             <button
               type="button"
               onClick={onPermanentDelete}
-              className="btbtn k101-interactive shrink-0"
+              className="btbtn k125a-header-action-btn k101-interactive shrink-0"
               title={t('nvDeletePermanently')}
               aria-label={t('nvDeletePermanently')}
               style={{ ...iconBtnStyle, color: c.danger }}

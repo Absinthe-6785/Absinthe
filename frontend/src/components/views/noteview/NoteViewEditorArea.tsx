@@ -286,6 +286,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   } = handlers;
 
   const showFindInNotePanel = documentSearchOpen && Boolean(activeNote) && !isTrash;
+  const showNotesTopBar = !isTrash && !activeNote && !isEmptyVault;
 
   const editorFocusBeforeSearchRef = useRef<HTMLElement | null>(null);
 
@@ -363,25 +364,13 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
 
   return (
     <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
-      {!isTrash && (
+      {showNotesTopBar ? (
         <div
           data-k117-note-top-actions
           data-k121-notes-header-action-row
           data-k122-notes-header
-          className="bsticky-header"
-          style={{
-            padding: isMobile ? '6px 10px' : '6px 12px',
-            borderBottom: `1px solid ${c.sideBdr}`,
-            display: 'flex',
-            alignItems: 'stretch',
-            justifyContent: 'flex-end',
-            gap: 8,
-            flexShrink: 0,
-            background: c.toolbar,
-            top: 0,
-            zIndex: 5,
-            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 40,
-          }}
+          data-k125a-notes-top-bar
+          className="bsticky-header k125a-notes-top-bar"
         >
           <button
             type="button"
@@ -390,35 +379,20 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             data-k117-new-note-btn
             data-noteview-new-note-btn
             data-k121-notes-new
-            className="btbtn"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
-              minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : undefined,
-              padding: '0 14px',
-              fontSize: 12,
-              fontWeight: 700,
-              borderRadius: 8,
-              border: 'none',
-              background: c.accent,
-              color: '#fff',
-              flexShrink: 0,
-            }}
+            className="btbtn k125a-notes-new-btn"
           >
             <Plus size={14} />
             {!isMobile ? t('nvNewNoteBtn') : null}
           </button>
         </div>
-      )}
+      ) : null}
       {activeNote ? (
         <>
           {/* Note Header — title */}
           <div
             data-note-header-title-row
-            style={{ padding: isMobile ? '6px 10px' : '6px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}
+            className="k125a-notes-header-band k125a-notes-header-band--title"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: isMobile ? 'wrap' : 'nowrap' }}
           >
             {isMobile ? (
               <>
@@ -502,16 +476,12 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {!isTrash && activeNote && (
             <div
               data-note-header-metadata-row
+              className="k125a-notes-header-band k125a-notes-header-band--title"
               style={{
-                padding: '5px 13px',
-                borderBottom: `1px solid ${c.sideBdr}`,
-                background: c.editor,
-                flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
                 flexWrap: 'wrap',
-                minWidth: 0,
               }}
             >
               {!isCompactChrome && (
@@ -570,16 +540,8 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {/* Actions toolbar */}
           <div
             data-note-header-actions-row
-            style={{
-              padding: isMobile ? '4px 10px' : '4px 13px',
-              borderBottom: `1px solid ${c.sideBdr}`,
-              background: c.toolbar,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              minWidth: 0,
-            }}
+            data-k125a-notes-workspace-header
+            className="k125a-notes-header-band k125a-notes-header-band--toolbar"
           >
             <NoteEditorHeaderActions
               colors={c}
@@ -635,6 +597,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onOpenAppearance={() => setShowAppearance(true)}
               onOpenHelp={setShowShortcuts ? () => setShowShortcuts(true) : undefined}
               onTrash={() => moveNoteToTrash(activeNote.id)}
+              onNewNote={handleNewNote}
             />
           </div>
           <NoteBreadcrumbBar
@@ -965,6 +928,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution} sharedDiscoveryFeed={discoveryFeed}/>
           </div>
         ) : isEmptyVault ? (
+          <div className="k125a-notes-empty-shell" data-k125a-notes-empty data-k125a-notes-empty-vault>
           <ProductEmptyState
             variant="note-chrome"
             colors={c}
@@ -997,7 +961,9 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               </button>
             ) : null}
           </ProductEmptyState>
+          </div>
         ) : (
+          <div className="k125a-notes-empty-shell" data-k125a-notes-empty data-k125a-notes-empty-select>
           <ProductEmptyState
             variant="note-chrome"
             colors={c}
@@ -1008,6 +974,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
             secondaryAction={{ label: t('nvScGraph'), onClick: () => setViewMode('graph') }}
           />
+          </div>
         )
       )}
     </main>
