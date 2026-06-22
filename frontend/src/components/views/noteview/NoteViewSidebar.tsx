@@ -1190,12 +1190,16 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
           </div>
         )}
         {!isTrash && !isWorkspacePanelMode && (
-          <div style={{ padding: '4px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+          <div
+            data-k126c-notes-list-filters
+            style={{ padding: '3px 6px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}
+          >
             <WorkspaceSectionNav
               mode="toggle"
               variant="note-chrome"
               colors={c}
               compact
+              dense
               active={noteListFilter}
               onSelect={id => setNoteListFilter(id as typeof noteListFilter)}
               ariaLabel={t('k81NoteListFilters')}
@@ -1216,8 +1220,8 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               style={{
                 width: '100%',
                 fontSize: 10,
-                padding: '4px 8px',
-                height: 26,
+                padding: '3px 8px',
+                height: 24,
                 boxSizing: 'border-box',
                 background: c.input,
                 border: `1px solid ${c.sideBdr}`,
@@ -1226,7 +1230,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               }}
               {...{ [SIDEBAR_NOTE_SEARCH_ATTR]: '' }}
             />
-            <span style={{ fontSize: 9, color: c.textFaint }}>{t('nvSearchShortcutHint')}</span>
           </div>
         )}
         {isTraceDiscoveryMode ? (

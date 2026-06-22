@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, RotateCcw, MoreHorizontal, Search, Trash2,
+  Star, Copy, AlignLeft, Search, Trash2, RotateCcw,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
 import { useTranslation } from '@/lib/i18n';
 import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
+import { NotesActionMenu, type NotesActionMenuItem } from './NotesActionMenu';
 
 export interface NoteEditorHeaderActionsProps {
   colors: NoteChromeColors;
@@ -38,6 +39,8 @@ export interface NoteEditorHeaderActionsProps {
   onOpenSettings?: () => void;
   onOpenAppearance?: () => void;
   onOpenHelp?: () => void;
+  /** K-126C — primary actions live in the unified header action row. */
+  layout?: 'header-bar' | 'trash';
 }
 
 export const K108A_HEADER_ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
@@ -73,232 +76,77 @@ export function NoteEditorHeaderActions({
   onRestore,
   onPermanentDelete,
   onTrash,
-  onOpenSettings,
+  onOpenSettings: _onOpenSettings,
   onOpenAppearance,
   onOpenHelp,
+  layout = 'header-bar',
 }: NoteEditorHeaderActionsProps) {
   const { t } = useTranslation();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const mobileCompact = isMobile && !isTrash;
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [menuOpen]);
-
-  const menuItemStyle = {
-    width: '100%' as const,
-    textAlign: 'left' as const,
-    fontSize: 11,
-    padding: '8px 10px',
-    minHeight: ACTION_BTN_SIZE,
-    boxSizing: 'border-box' as const,
-  };
-
-  const overflowItems = !isTrash ? (
-    <>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onMarkEvent(); setMenuOpen(false); }}>
-        {isEvent ? t('nvEditEvent') : t('nvMarkEvent')}
-      </button>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onMarkMilestone(); setMenuOpen(false); }}>
-        {isMilestone ? t('nvEditMilestone') : t('nvMarkMilestone')}
-      </button>
-      {(isArea || canMarkArea) ? (
-        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onToggleArea(); setMenuOpen(false); }}>
-          {isArea ? t('nvClearArea') : t('nvMarkArea')}
-        </button>
-      ) : null}
-      {onToggleWeakTopic ? (
-        <button
-          type="button"
-          className="btbtn"
-          style={{ ...menuItemStyle, color: isWeakTopic ? c.danger : undefined }}
-          onClick={() => { onToggleWeakTopic(); setMenuOpen(false); }}
-        >
-          {isWeakTopic ? t('knWeakTopicActive') : t('knWeakTopicInactive')}
-        </button>
-      ) : null}
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onDuplicate(); setMenuOpen(false); }}>
-        {t('nvDuplicate')}
-      </button>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onTrash(); setMenuOpen(false); }}>
-        {t('trash')}
-      </button>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onExport(); setMenuOpen(false); }}>
-        {t('nvExportMd')}
-      </button>
-    </>
-  ) : null;
-
-  const mobileMenuExtras = mobileCompact ? (
-    <>
-      {viewModeButtons.map(({ key, icon }) => (
-        <button
-          key={key}
-          type="button"
-          className="btbtn"
-          style={menuItemStyle}
-          onClick={() => { onViewModeToggle(key); setMenuOpen(false); }}
-        >
-          {key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
-        </button>
-      ))}
-      {onOpenDocumentSearch ? (
-        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenDocumentSearch(); setMenuOpen(false); }}>
-          {t('nvDocumentSearch')}
-        </button>
-      ) : null}
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onToggleStar(); setMenuOpen(false); }}>
-        {starred ? t('nvUnstar') : t('nvStar')}
-      </button>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { void onCopyDocument(); setMenuOpen(false); }}>
-        {docCopied ? t('nvCopied') : t('nvCopyDocument')}
-      </button>
-      <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onTogglePanel(); setMenuOpen(false); }}>
-        {t('nvTogglePanel')}
-      </button>
-      {onOpenAppearance ? (
-        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenAppearance(); setMenuOpen(false); }}>
-          {t('nvAppearance')}
-        </button>
-      ) : null}
-      {onOpenHelp ? (
-        <button type="button" className="btbtn" style={menuItemStyle} onClick={() => { onOpenHelp(); setMenuOpen(false); }}>
-          {t('nvShortcuts')}
-        </button>
-      ) : null}
-    </>
-  ) : null;
 
   const iconBtnStyle = {
-    width: isMobile ? 44 : ACTION_BTN_SIZE,
-    height: isMobile ? 44 : ACTION_BTN_SIZE,
-    minWidth: isMobile ? 44 : ACTION_BTN_SIZE,
+    width: isMobile ? UI_INTERACTION.touchTargetMinPx : ACTION_BTN_SIZE,
+    height: isMobile ? UI_INTERACTION.touchTargetMinPx : ACTION_BTN_SIZE,
+    minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : ACTION_BTN_SIZE,
     padding: 0,
     display: 'inline-flex' as const,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     flexShrink: 0,
+    borderRadius: 6,
   };
 
-  return (
-    <div
-      data-note-editor-header-actions
-      data-k108-header-actions
-      data-k108-header-layout="normalized"
-      data-k104-mobile-toolbar={mobileCompact ? 'compact' : undefined}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: ACTION_GAP,
-        flexShrink: 0,
-        flexWrap: isTrash ? 'wrap' : 'nowrap',
-        minWidth: 0,
-        justifyContent: 'flex-end',
-      }}
-    >
-      {!mobileCompact ? (
-        <div style={{ display: 'flex', background: c.toolbar, borderRadius: 7, padding: 2, gap: 1, flexShrink: 0 }}>
-          {viewModeButtons.map(({ key, icon }) => (
-            <button
-              key={key}
-              title={key === 'reading' ? t('nvReadingMode') : t('nvGraphMode')}
-              onClick={() => onViewModeToggle(key)}
-              className="btbtn"
-              style={{
-                ...iconBtnStyle,
-                width: ACTION_BTN_SIZE,
-                height: ACTION_BTN_SIZE,
-                minWidth: ACTION_BTN_SIZE,
-                borderRadius: 5,
-                background: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.card : 'none',
-                color: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph') ? c.accent : c.textMuted,
-              }}>
-              {icon}
-            </button>
-          ))}
-        </div>
-      ) : null}
+  const overflowItems: NotesActionMenuItem[] = !isTrash ? [
+    ...viewModeButtons.map(({ key }) => ({
+      key: `view-${key}`,
+      label: key === 'reading' ? t('nvReadingMode') : t('nvGraphMode'),
+      onClick: () => onViewModeToggle(key),
+      accent: (key === 'reading' ? viewMode === 'reading' : viewMode === 'graph'),
+    })),
+    {
+      key: 'event',
+      label: isEvent ? t('nvEditEvent') : t('nvMarkEvent'),
+      onClick: onMarkEvent,
+    },
+    {
+      key: 'milestone',
+      label: isMilestone ? t('nvEditMilestone') : t('nvMarkMilestone'),
+      onClick: onMarkMilestone,
+    },
+    ...((isArea || canMarkArea) ? [{
+      key: 'area',
+      label: isArea ? t('nvClearArea') : t('nvMarkArea'),
+      onClick: onToggleArea,
+    }] : []),
+    ...(onToggleWeakTopic ? [{
+      key: 'weak',
+      label: isWeakTopic ? t('knWeakTopicActive') : t('knWeakTopicInactive'),
+      onClick: onToggleWeakTopic,
+      danger: isWeakTopic,
+    }] : []),
+    { key: 'duplicate', label: t('nvDuplicate'), onClick: onDuplicate },
+    { key: 'trash', label: t('trash'), onClick: onTrash },
+    { key: 'export', label: t('nvExportMd'), onClick: onExport },
+    ...(onOpenAppearance ? [{ key: 'appearance', label: t('nvAppearance'), onClick: onOpenAppearance }] : []),
+    ...(onOpenHelp ? [{ key: 'help', label: t('nvShortcuts'), onClick: onOpenHelp }] : []),
+  ] : [];
 
-      {!mobileCompact && onOpenDocumentSearch ? (
-        <button
-          type="button"
-          onClick={onOpenDocumentSearch}
-          className="btbtn shrink-0"
-          title={t('nvDocumentSearch')}
-          style={iconBtnStyle}
-          data-read-mode-search-btn
-        >
-          <Search size={14} />
-        </button>
-      ) : null}
-
-      {!mobileCompact && !isTrash ? (
-        <button
-          onClick={onToggleStar}
-          className="btbtn shrink-0"
-          title={starred ? t('nvUnstar') : t('nvStar')}
-          style={iconBtnStyle}
-        >
-          <Star size={14} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'}/>
-        </button>
-      ) : null}
-
-      {!mobileCompact && !isTrash ? (
-        <button
-          onClick={() => void onCopyDocument()}
-          className="btbtn shrink-0"
-          title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
-          style={{ ...iconBtnStyle, color: docCopied ? c.green : c.textMuted }}
-        >
-          <Copy size={14}/>
-        </button>
-      ) : null}
-
-      <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
-        <button
-          type="button"
-          className="btbtn"
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          title={t('nvMoreActions')}
-          onClick={() => setMenuOpen(v => !v)}
-          style={{ ...iconBtnStyle, color: menuOpen ? c.accent : c.textMuted }}
-        >
-          <MoreHorizontal size={16}/>
-        </button>
-        {menuOpen ? (
-          <div
-            role="menu"
-            style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 200,
-              background: c.card, border: `1px solid ${c.sideBdr}`, borderRadius: 10,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 168, padding: '4px 0',
-            }}
-          >
-            {mobileMenuExtras}
-            {overflowItems}
-          </div>
-        ) : null}
-      </div>
-
-      {!mobileCompact ? (
-        <button
-          onClick={onTogglePanel}
-          className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
-          title={t('nvTogglePanel')}
-          style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
-        >
-          <AlignLeft size={14}/>
-        </button>
-      ) : null}
-
-      {isTrash ? (
+  if (layout === 'trash') {
+    return (
+      <div
+        data-note-editor-header-actions
+        data-k108-header-actions
+        data-k108-header-layout="normalized"
+        data-note-header-actions-row
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: ACTION_GAP,
+          flexShrink: 0,
+          flexWrap: 'wrap',
+          minWidth: 0,
+          justifyContent: 'flex-end',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: ACTION_GAP, flexShrink: 0 }} data-k102-trash-actions>
           <button
             type="button"
@@ -309,7 +157,7 @@ export function NoteEditorHeaderActions({
             style={{ ...iconBtnStyle, color: c.green }}
             data-k102-trash-restore
           >
-            <RotateCcw size={14}/>
+            <RotateCcw size={14} />
           </button>
           {onPermanentDelete ? (
             <button
@@ -321,11 +169,82 @@ export function NoteEditorHeaderActions({
               style={{ ...iconBtnStyle, color: c.danger }}
               data-k102-trash-delete
             >
-              <Trash2 size={14}/>
+              <Trash2 size={14} />
             </button>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-note-editor-header-actions
+      data-k108-header-actions
+      data-k108-header-layout="normalized"
+      data-note-header-actions-row
+      data-k126c-header-primary-actions
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: ACTION_GAP,
+        flexShrink: 0,
+        flexWrap: 'nowrap',
+        minWidth: 0,
+        justifyContent: 'flex-end',
+      }}
+    >
+      {onOpenDocumentSearch ? (
+        <button
+          type="button"
+          onClick={onOpenDocumentSearch}
+          className="btbtn shrink-0"
+          title={t('nvDocumentSearch')}
+          style={iconBtnStyle}
+          data-read-mode-search-btn
+          data-k126c-header-find
+        >
+          <Search size={14} />
+        </button>
       ) : null}
+
+      <button
+        onClick={onToggleStar}
+        className="btbtn shrink-0"
+        title={starred ? t('nvUnstar') : t('nvStar')}
+        style={iconBtnStyle}
+        data-k126c-header-star
+      >
+        <Star size={14} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'} />
+      </button>
+
+      <button
+        onClick={() => void onCopyDocument()}
+        className="btbtn shrink-0"
+        title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
+        style={{ ...iconBtnStyle, color: docCopied ? c.green : c.textMuted }}
+        data-k126c-header-copy
+      >
+        <Copy size={14} />
+      </button>
+
+      <button
+        onClick={onTogglePanel}
+        className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
+        title={t('nvTogglePanel')}
+        style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
+        data-k126c-header-panel
+      >
+        <AlignLeft size={14} />
+      </button>
+
+      <NotesActionMenu
+        colors={c}
+        isMobile={isMobile}
+        title={t('nvMoreActions')}
+        items={overflowItems}
+        iconBtnStyle={iconBtnStyle}
+      />
     </div>
   );
 }

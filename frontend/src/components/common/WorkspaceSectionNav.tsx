@@ -18,6 +18,8 @@ export interface WorkspaceSectionNavProps {
   theme?: Theme;
   colors?: NoteChromeColors;
   compact?: boolean;
+  /** K-126C — tighter filter chips for notes sidebar. */
+  dense?: boolean;
   ariaLabel: string;
   dataHook: string;
   legacyHook?: string;
@@ -34,6 +36,7 @@ export function WorkspaceSectionNav({
   theme,
   colors,
   compact = false,
+  dense = false,
   ariaLabel,
   dataHook,
   legacyHook,
@@ -49,10 +52,12 @@ export function WorkspaceSectionNav({
         className={className}
         data-k125-section-nav={dataHook}
         {...(legacyHook ? { [legacyHook]: true } : {})}
-        style={{ display: 'flex', gap: 4, flexShrink: 0 }}
+        style={{ display: 'flex', gap: dense ? 3 : 4, flexShrink: 0 }}
       >
         {items.map(({ id, label }) => {
           const selected = mode === 'toggle' && active === id;
+          const chipPad = dense ? '4px 6px' : compact ? '6px 8px' : '4px 10px';
+          const chipMinH = dense ? 28 : UI_INTERACTION.touchTargetMinPx;
           return (
             <button
               key={id}
@@ -64,11 +69,11 @@ export function WorkspaceSectionNav({
               style={{
                 flex: compact ? 1 : undefined,
                 minWidth: compact ? 0 : undefined,
-                minHeight: UI_INTERACTION.touchTargetMinPx,
-                fontSize: 10,
+                minHeight: chipMinH,
+                fontSize: dense ? 9 : 10,
                 fontWeight: 700,
-                padding: compact ? '6px 8px' : '4px 10px',
-                borderRadius: 8,
+                padding: chipPad,
+                borderRadius: dense ? 6 : 8,
                 border: `1px solid ${selected ? c.accent : c.sideBdr}`,
                 background: selected ? c.accentBg : 'transparent',
                 color: selected ? c.accent : c.textMuted,

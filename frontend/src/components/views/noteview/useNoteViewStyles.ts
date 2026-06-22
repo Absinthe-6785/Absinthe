@@ -62,7 +62,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btbtn:disabled{opacity:.45;cursor:not-allowed}
     .be-context-chip-btn{background:none;cursor:pointer;font:inherit;transition:background .12s,color .12s,filter .12s}
     .be-context-chip-btn:hover{filter:brightness(1.06)}
-    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box}
     .be-editor-toolbar-btn:hover{background:${c.cardHov};color:${c.accent}}
     .be-editor-toolbar-btn:active{background:${c.accentBg}}
     .be-editor-toolbar-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
@@ -140,7 +140,8 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bicon-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
-    .bicon-btn:hover .bicon-tooltip{opacity:1}
+    .k126c-notes-header-action{align-items:center;display:inline-flex;gap:8px}
+    .k126c-notes-header-btn{border-radius:6px}
   `;
 }
 

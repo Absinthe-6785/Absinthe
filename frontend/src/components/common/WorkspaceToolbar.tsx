@@ -1,6 +1,26 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
 import { UI_SPACING } from '@/lib/uiSpacingTokens';
+
+/** K-126C — shared note-chrome header button metrics (aligned with workspace toolbars). */
+export const NOTE_CHROME_HEADER_BTN_RADIUS_PX = 6;
+export const NOTE_CHROME_HEADER_ROW_PADDING_MOBILE = '4px 10px';
+export const NOTE_CHROME_HEADER_ROW_PADDING_DESKTOP = '4px 12px';
+
+export function noteChromeHeaderButtonStyle(isMobile: boolean): CSSProperties {
+  const size = isMobile ? UI_INTERACTION.touchTargetMinPx : UI_INTERACTION.toolbarBtnSizePx;
+  return {
+    width: size,
+    height: size,
+    minWidth: size,
+    padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    borderRadius: NOTE_CHROME_HEADER_BTN_RADIUS_PX,
+  };
+}
 
 export interface WorkspaceToolbarProps {
   workspace: string;
