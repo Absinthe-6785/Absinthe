@@ -6,6 +6,8 @@ import {
   ChevronDown, ChevronRight, Upload, Keyboard,
   Clock, Calendar, CalendarDays, LayoutDashboard, Folder, MoreHorizontal,
 } from 'lucide-react';
+import { WorkspaceSectionNav } from '../../common/WorkspaceSectionNav';
+import { WorkspacePageHeader } from '../../common/WorkspacePageHeader';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import { estimateDeletedNoteBytes, formatRecoverableStorage } from '../../../lib/trashNoteStorage';
 import { openWorkspaceSearch, switchToTab } from '../../../lib/noteNavigation';
@@ -1189,36 +1191,21 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         )}
         {!isTrash && !isWorkspacePanelMode && (
           <div style={{ padding: '4px 8px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: 4 }} role="tablist" aria-label={t('k81NoteListFilters')}>
-              {(['all', 'recent', 'favorites'] as const).map(filter => {
-                const active = noteListFilter === filter;
-                const label = filter === 'all' ? t('nvAllNotes')
-                  : filter === 'recent' ? t('k81RecentNotes')
-                  : t('k81Favorites');
-                return (
-                  <button
-                    key={filter}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setNoteListFilter(filter)}
-                    style={{
-                      flex: 1,
-                      fontSize: 9,
-                      fontWeight: 700,
-                      padding: '4px 6px',
-                      borderRadius: 6,
-                      border: `1px solid ${active ? c.accent : c.sideBdr}`,
-                      background: active ? c.accentBg : 'transparent',
-                      color: active ? c.accent : c.textMuted,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            <WorkspaceSectionNav
+              mode="toggle"
+              variant="note-chrome"
+              colors={c}
+              compact
+              active={noteListFilter}
+              onSelect={id => setNoteListFilter(id as typeof noteListFilter)}
+              ariaLabel={t('k81NoteListFilters')}
+              dataHook="notes-list-filter"
+              items={([
+                { id: 'all', label: t('nvAllNotes') },
+                { id: 'recent', label: t('k81RecentNotes') },
+                { id: 'favorites', label: t('k81Favorites') },
+              ] as const)}
+            />
             <input
               type="search"
               value={sidebarSearchQuery}
@@ -1278,6 +1265,16 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             onDateChange={setTraceDate}
           />
         ) : isDashboardMode ? (
+          <>
+          <div style={{ padding: '8px 10px 4px', flexShrink: 0 }}>
+            <WorkspacePageHeader
+              workspace="note"
+              variant="note-chrome"
+              colors={c}
+              title={t('note')}
+              subtitle={t('k125NotesSubtitle')}
+            />
+          </div>
           <WorkspaceDashboardView
             colors={c}
             dashboard={dashboard}
@@ -1415,6 +1412,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               onEditProject: handleNavigateToProjectEditor,
             }}
           />
+          </>
         ) : isDatabaseViewMode && activeDatabaseView ? (
           <DatabaseViewPanel
             colors={c}

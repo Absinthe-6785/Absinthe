@@ -4,6 +4,7 @@ import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../../../../common/WorkspaceToolbar';
+import { WorkspacePageHeader } from '../../../../common/WorkspacePageHeader';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../../../../lib/uiSpacingTokens';
 import type { RecipeProjection } from '../recipeProjectionModels';
@@ -79,8 +80,6 @@ export function RecipeStudioView({
     onToggleExpand(id);
   };
 
-  const headingClass = dark ? 'text-white' : 'text-gray-900';
-
   return (
     <div
       className="flex-1 overflow-hidden flex flex-col h-full rounded-none lg:rounded-[32px] lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5"
@@ -92,22 +91,23 @@ export function RecipeStudioView({
         split
         header={(
           <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
-            <div className="flex items-center justify-between gap-3 w-full">
-              <div>
-                <h1 className={`font-heading text-xl lg:text-2xl font-black tracking-tight flex items-center gap-2 ${headingClass}`}>
-                  <BookMarked size={UI_INTERACTION.toolbarIconSizePx} className="text-primary" />
-                  {t('k110StudioTitle')}
-                </h1>
-                <p className={`text-xs font-medium ${theme.textMuted}`}>{t('k110StudioSubtitle')}</p>
-              </div>
-              <WorkspaceToolbarPrimary
-                label={t('newRecipe')}
-                icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
-                onClick={onNewRecipe}
-                className="w-auto shrink-0 px-4 rounded-2xl"
-                dataHook="data-k110-new-recipe"
-              />
-            </div>
+            <WorkspacePageHeader
+              workspace="recipe"
+              title={t('k110StudioTitle')}
+              subtitle={t('k110StudioSubtitle')}
+              icon={BookMarked}
+              theme={theme}
+              dark={dark}
+              trailing={(
+                <WorkspaceToolbarPrimary
+                  label={t('newRecipe')}
+                  icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
+                  onClick={onNewRecipe}
+                  className="w-auto shrink-0 px-4 rounded-2xl"
+                  dataHook="data-k110-new-recipe"
+                />
+              )}
+            />
           </WorkspaceToolbar>
         )}
         secondary={(

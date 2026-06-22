@@ -2,11 +2,13 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { X } from 'lucide-react';
+import { X, Calendar } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
@@ -219,7 +221,17 @@ export const PlannerView = ({
   }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0" data-workspace="planner">
+    <div className={`flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner">
+      <div className="shrink-0 px-0.5">
+        <WorkspacePageHeader
+          workspace="schedule"
+          title={t('planner')}
+          subtitle={t('k125ScheduleSubtitle')}
+          icon={Calendar}
+          theme={theme}
+          dark={appSettings.darkMode}
+        />
+      </div>
       <PlannerStickyActions onNewEvent={() => openModal()}>
         <ScheduleSectionNav
           theme={theme}

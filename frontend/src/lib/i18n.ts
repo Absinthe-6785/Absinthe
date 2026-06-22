@@ -565,6 +565,11 @@ const translations = {
   // ── K-110 Recipe Studio ───────────────────────────────────────────
   k110StudioTitle:           { en: 'Recipe Studio', ko: '레시피 스튜디오', ja: 'レシピスタジオ' },
   k110StudioSubtitle:        { en: 'Your cookbook workspace', ko: '나만의 요리책 공간', ja: 'あなたの料理本ワークスペース' },
+  // ── K-125G global navigation & layout cohesion ───────────────────
+  k125HealthSubtitle:          { en: 'Workouts, nutrition, and progress.', ko: '운동, 영양, 기록을 한곳에서.', ja: 'ワークアウト・栄養・記録を一か所で。' },
+  k125ScheduleSubtitle:        { en: 'Calendar, agenda, and weekly routine.', ko: '캘린더, 일정, 주간 루틴.', ja: 'カレンダー・予定・週間ルーティン。' },
+  k125NotesSubtitle:           { en: 'Knowledge, writing, and discovery.', ko: '지식, 글쓰기, 탐색.', ja: '知識・執筆・探索。' },
+  k125ArchiveEmptyAction:      { en: 'Open discovery', ko: '탐색 열기', ja: 'ディスカバーを開く' },
   k110SectionRecipes:        { en: 'Recipes', ko: '레시피', ja: 'レシピ' },
   k110SectionIngredients:    { en: 'Ingredients', ko: '재료', ja: '材料' },
   k110SectionHistory:        { en: 'Cooking history', ko: '요리 기록', ja: '調理履歴' },

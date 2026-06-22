@@ -9,3 +9,6 @@ export const WORKSPACE_CARD = {
 } as const;
 
 export type WorkspaceCardSize = keyof typeof WORKSPACE_CARD;
+
+/** K-125G — shared card surface rhythm across Tailwind workspaces. */
+export const WORKSPACE_CARD_SURFACE = 'rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5';

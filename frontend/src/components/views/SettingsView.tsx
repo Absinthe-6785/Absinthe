@@ -14,6 +14,9 @@ import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardD
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
+import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { exportAllToCsv } from '../../lib/csvExport';
@@ -169,18 +172,24 @@ export const SettingsView = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300">
-      <div className="flex justify-between items-end mb-3 pl-2 pr-4 lg:pr-6 shrink-0" data-k119-settings-header>
-        <div>
-          <h1 className="font-heading text-2xl lg:text-3xl font-bold">{t('settingsTitle')}</h1>
-        </div>
+    <div className={`flex-1 flex flex-col overflow-hidden py-1 pr-1 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings">
+      <div className="shrink-0 pl-2 pr-4 lg:pr-6">
+        <WorkspacePageHeader
+          workspace="settings"
+          title={t('settingsTitle')}
+          subtitle={t('k100SettingsSubtitle')}
+          icon={Settings}
+          theme={theme}
+          dark={appSettings.darkMode}
+          legacyHook="data-k119-settings-header"
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain bscroll-pane pr-2 pb-16 lg:pb-4" data-settings-scroll data-k119-settings-scroll>
-        <div className="max-w-3xl mx-auto space-y-3 lg:space-y-4">
+        <div className={`max-w-3xl mx-auto ${WORKSPACE_GAP_CLASS}`}>
 
           {/* General */}
-          <div className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="general" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="general" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <Settings size={20} className="text-primary" />{t('k100SettingsGeneral')}
             </h2>
@@ -258,7 +267,7 @@ export const SettingsView = ({
           </div>
 
           {/* Storage */}
-          <div className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="storage" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="storage" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <HardDrive size={20} className="text-primary" />{t('k98SettingsStorage')}
             </h2>
@@ -328,7 +337,7 @@ export const SettingsView = ({
           </div>
 
           {/* Export */}
-          <div className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <Download size={20} className="text-primary" />{t('k98SettingsExport')}
             </h2>
@@ -408,7 +417,7 @@ export const SettingsView = ({
           </div>
 
           {/* Danger zone */}
-          <div className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold text-red-500 mb-4 flex items-center gap-2">
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>

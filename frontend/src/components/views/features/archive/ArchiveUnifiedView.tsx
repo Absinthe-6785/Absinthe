@@ -16,6 +16,9 @@ import {
   type ArchiveBrowseDestination,
 } from './home/archiveBrowsePresentation';
 import { WorkspaceLayout } from '../../../common/workspaceLayout';
+import { WorkspacePageHeader } from '../../../common/WorkspacePageHeader';
+import { ProductEmptyState } from '../../../common/ProductEmptyState';
+import { Archive } from 'lucide-react';
 import { useArchiveSectionPrefs } from './hooks/useArchiveSectionPrefs';
 import { ArchiveHistorySection } from './sections/ArchiveHistorySection';
 import { ArchiveDeletedSection } from './sections/ArchiveDeletedSection';
@@ -43,7 +46,6 @@ export function ArchiveUnifiedView({
   onImportBackup,
 }: ArchiveUnifiedViewProps) {
   const t = getTranslator(resolveAppLanguage(appSettings.language));
-  const headingClass = appSettings.darkMode ? 'text-white' : 'text-gray-900';
   const { prefs, toggle } = useArchiveSectionPrefs();
   const home = projection.home;
 
@@ -75,14 +77,16 @@ export function ArchiveUnifiedView({
     <WorkspaceLayout
       workspace="archive"
       header={(
-        <header className="flex flex-col gap-0.5 px-0.5" data-k109-archive-header>
-          <h1 className={`font-heading text-xl lg:text-2xl font-bold ${headingClass}`}>
-            {t('archiveHomeTitle')}
-          </h1>
-          <p className={`text-xs lg:text-sm font-medium ${theme.textMuted}`}>
-            {t('k109ArchiveSubtitle')}
-          </p>
-        </header>
+        <WorkspacePageHeader
+          workspace="archive"
+          title={t('archiveHomeTitle')}
+          subtitle={t('k109ArchiveSubtitle')}
+          icon={Archive}
+          theme={theme}
+          dark={appSettings.darkMode}
+          className="px-0.5"
+          legacyHook="data-k109-archive-header"
+        />
       )}
       primary={(
         <div
@@ -214,9 +218,20 @@ export function ArchiveUnifiedView({
           )}
 
           {projection.empty.isEmpty && !isLoading && (
-            <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-archive-empty data-k121-empty-state="archive-unified">
-              {t('k109ArchiveAllEmpty')}
-            </p>
+            <div data-k109-archive-empty data-k121-empty-state="archive-unified">
+              <ProductEmptyState
+                variant="tailwind"
+                theme={theme}
+                icon={Archive}
+                title={t('k109ArchiveAllEmpty')}
+                description={t('k109ArchiveSubtitle')}
+                dataHook="archive-unified-empty"
+                primaryAction={{
+                  label: t('k125ArchiveEmptyAction'),
+                  onClick: () => openTraceDiscoveryNavigation(),
+                }}
+              />
+            </div>
           )}
         </div>
       )}

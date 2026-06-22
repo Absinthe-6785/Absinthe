@@ -10,7 +10,9 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
+import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../common/WorkspaceToolbar';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../lib/uiSpacingTokens';
 import { useTranslation } from '../../lib/i18n';
@@ -717,8 +719,16 @@ export const HealthView = ({
 
   return (
     <WorkspaceErrorBoundary workspace="health">
-    <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300" data-workspace="health">
-      <div className="shrink-0 mb-3 px-0.5">
+    <div className={`flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
+      <div className="shrink-0 px-0.5 flex flex-col gap-2">
+        <WorkspacePageHeader
+          workspace="health"
+          title={t('health')}
+          subtitle={t('k125HealthSubtitle')}
+          icon={Dumbbell}
+          theme={theme}
+          dark={appSettings.darkMode}
+        />
         <div className="hidden lg:block">
           <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} />
         </div>
@@ -745,9 +755,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
