@@ -1,13 +1,14 @@
-import { Apple, Dumbbell } from 'lucide-react';
+import { Apple, Dumbbell, TrendingUp } from 'lucide-react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { Theme } from '../../../../types';
 import { WorkspaceSectionNav } from '../../../common/WorkspaceSectionNav';
 
-export type HealthWorkspaceSection = 'nutrition' | 'workout';
+export type HealthWorkspaceSection = 'workout' | 'nutrition' | 'analysis';
 
 export const HEALTH_WORKSPACE_SECTIONS: readonly { id: HealthWorkspaceSection; icon: typeof Dumbbell }[] = [
   { id: 'workout', icon: Dumbbell },
   { id: 'nutrition', icon: Apple },
+  { id: 'analysis', icon: TrendingUp },
 ];
 
 export interface HealthWorkspaceNavProps {
@@ -23,6 +24,14 @@ const SECTIONS = HEALTH_WORKSPACE_SECTIONS;
 export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthWorkspaceNavProps) {
   const { t } = useTranslation();
 
+  const labelFor = (id: HealthWorkspaceSection): string => {
+    switch (id) {
+      case 'workout': return t('healthNavOverview');
+      case 'nutrition': return t('healthNavNutrition');
+      case 'analysis': return t('healthNavAnalysis');
+    }
+  };
+
   return (
     <WorkspaceSectionNav
       mode="toggle"
@@ -35,8 +44,7 @@ export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthW
       dataHook="health-workspace"
       legacyHook="data-health-workspace-nav"
       items={SECTIONS.map(({ id, icon }) => {
-        const labelKey = `healthNav${id.charAt(0).toUpperCase()}${id.slice(1)}` as 'healthNavWorkout' | 'healthNavNutrition';
-        return { id, icon, label: t(labelKey) };
+        return { id, icon, label: labelFor(id) };
       })}
     />
   );

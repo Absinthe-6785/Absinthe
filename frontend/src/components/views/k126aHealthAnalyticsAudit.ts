@@ -17,11 +17,15 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
     historyOpenNote: panel.includes('k113OpenWorkoutNote') && panel.includes('exercise-history'),
     compactChart: panel.includes('h-12') && panel.includes('data-k126-health-chart'),
     analyticsHook: panel.includes('data-k126-health-analytics'),
-    inbodyBeforeAnalytics: (() => {
-      const inbody = health.indexOf('<HealthInbodyQuickPanel');
-      const analytics = health.indexOf('<HealthAnalyticsPanel');
-      return inbody >= 0 && analytics >= 0 && inbody < analytics;
-    })(),
+    overviewAnalysisSplit:
+      health.includes("healthSection === 'analysis'") &&
+      health.includes('data-k129b-health-overview') &&
+      health.includes('data-k129b-health-analysis-view') &&
+      health.includes('standalone'),
+    workoutRecordsScroll:
+      health.includes('data-k129b-workout-records-scroll') &&
+      health.includes('overflow-y-auto') &&
+      health.includes('lg:max-h-full'),
     inbodyQuickHook: readFileSync(join(ROOT, 'components/views/features/health/HealthInbodyQuickPanel.tsx'), 'utf8').includes('data-k126-inbody-quick'),
     scrollAfterSave: health.includes('inbodyQuickRef') && health.includes('scrollIntoView'),
   };
