@@ -22,7 +22,7 @@ export const PlannerRoutineTodayCard = memo(function PlannerRoutineTodayCard({
 
   return (
     <section data-k108-planner-routine-today>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
+      <p className="text-xs font-black uppercase tracking-wide text-primary mb-1.5">
         {t('k108RoutineToday')}
       </p>
       <button
@@ -31,10 +31,10 @@ export const PlannerRoutineTodayCard = memo(function PlannerRoutineTodayCard({
         className={`w-full rounded-xl border ${theme.border} overflow-hidden text-left hover:bg-muted/30 transition-colors`}
       >
         <ul className="divide-y divide-border/50">
-          {slots.slice(0, 6).map(slot => (
+          {slots.slice(0, 5).map(slot => (
             <li
               key={slot.id}
-              className="flex items-center gap-2 px-3 py-2 min-h-[40px]"
+              className="flex items-center gap-2 px-3 py-1.5 min-h-[36px]"
               data-k108-routine-slot={slot.id}
             >
               <Clock size={12} className="text-primary shrink-0 opacity-70" />
@@ -45,9 +45,9 @@ export const PlannerRoutineTodayCard = memo(function PlannerRoutineTodayCard({
             </li>
           ))}
         </ul>
-        {slots.length > 6 ? (
+        {slots.length > 5 ? (
           <p className="text-[10px] font-bold text-center py-1.5 text-muted">
-            +{slots.length - 6}
+            +{slots.length - 5}
           </p>
         ) : null}
       </button>

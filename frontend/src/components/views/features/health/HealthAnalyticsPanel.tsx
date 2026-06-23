@@ -96,13 +96,13 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${standalone ? WORKSPACE_CARD.lg : WORKSPACE_CARD.sm} ${standalone ? 'p-4 lg:p-5 flex flex-col min-h-0 overflow-hidden' : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
+      className={`${standalone ? WORKSPACE_CARD.lg : WORKSPACE_CARD.sm} ${standalone ? 'p-3.5 lg:p-4 flex flex-col min-h-0 overflow-hidden' : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k126-health-analytics
       data-k129b-health-analysis={standalone ? 'true' : undefined}
     >
-      <div className="w-full flex items-center justify-between gap-2 min-h-[44px] shrink-0">
+      <div className="w-full flex items-center justify-between gap-2 min-h-[38px] shrink-0">
         <span className="font-heading text-sm font-bold flex items-center gap-1.5">
           <TrendingUp size={14} className="text-primary" />
           {t('k107HealthAnalytics')}
@@ -120,19 +120,19 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       </div>
 
       {expanded && (
-        <div className={`mt-2 space-y-2.5 ${standalone ? 'min-h-0 overflow-y-auto pr-1' : ''}`} data-k121-health-summary data-k126-health-summary>
+        <div className={`mt-1.5 space-y-2 ${standalone ? 'min-h-0 overflow-y-auto pr-1' : ''}`} data-k121-health-summary data-k126-health-summary>
           {!visible || loading ? (
             <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (
             <>
-              <div className="grid grid-cols-2 gap-2 text-center" data-k126-health-summary-grid>
-                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
+              <div className="grid grid-cols-2 gap-1.5 text-center" data-k126-health-summary-grid>
+                <div className={`rounded-lg py-1 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WeeklySessions')}</p>
-                  <p className="text-base font-black tabular-nums">{projection.weeklySessionCount}</p>
+                  <p className="text-sm font-black tabular-nums">{projection.weeklySessionCount}</p>
                 </div>
-                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
+                <div className={`rounded-lg py-1 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107MonthlySessions')}</p>
-                  <p className="text-base font-black tabular-nums">{projection.monthlySessionCount}</p>
+                  <p className="text-sm font-black tabular-nums">{projection.monthlySessionCount}</p>
                 </div>
               </div>
 

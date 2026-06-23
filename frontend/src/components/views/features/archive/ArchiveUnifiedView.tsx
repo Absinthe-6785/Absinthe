@@ -98,7 +98,24 @@ export function ArchiveUnifiedView({
           data-k121-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <div className={`grid grid-cols-1 lg:grid-cols-2 items-start ${WORKSPACE_GAP_CLASS}`}>
+          <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] items-start ${WORKSPACE_GAP_CLASS}`}>
+            <ArchiveTimelineSection
+              timeline={projection.timelineItems}
+              defaultPeriod={home.browse.timeline.defaultPeriod}
+              markCalendar={home.markCalendar}
+              recentMilestones={home.recentMilestones}
+              youAreHere={home.youAreHere}
+              theme={theme}
+              appSettings={appSettings}
+              collapsed={prefs.timelineCollapsed}
+              onToggle={() => toggle('timelineCollapsed')}
+              onMilestoneClick={onMilestoneClick}
+              onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
+                type: 'period',
+                ref: archivePeriodRefFromDateKey(dateKey),
+              })}
+            />
+
             <ArchiveHistorySection
               history={projection.historyItems}
               theme={theme}
@@ -122,23 +139,6 @@ export function ArchiveUnifiedView({
               collapsed={prefs.snapshotsCollapsed}
               onToggle={() => toggle('snapshotsCollapsed')}
               onRestoreSnapshot={onRestoreSnapshot}
-            />
-
-            <ArchiveTimelineSection
-              timeline={projection.timelineItems}
-              defaultPeriod={home.browse.timeline.defaultPeriod}
-              markCalendar={home.markCalendar}
-              recentMilestones={home.recentMilestones}
-              youAreHere={home.youAreHere}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.timelineCollapsed}
-              onToggle={() => toggle('timelineCollapsed')}
-              onMilestoneClick={onMilestoneClick}
-              onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
-                type: 'period',
-                ref: archivePeriodRefFromDateKey(dateKey),
-              })}
             />
           </div>
 

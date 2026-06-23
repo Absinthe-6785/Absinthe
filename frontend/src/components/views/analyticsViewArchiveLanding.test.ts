@@ -206,11 +206,11 @@ describe('AnalyticsView archive cohesion audit', () => {
     const html = renderAnalyticsView();
     const sections = k109SectionIndices(html);
 
-    expect(sections.history).toBeGreaterThan(-1);
+    expect(sections.timeline).toBeGreaterThan(-1);
+    expect(sections.history).toBeGreaterThan(sections.timeline);
     expect(sections.deleted).toBeGreaterThan(sections.history);
     expect(sections.snapshots).toBeGreaterThan(sections.deleted);
-    expect(sections.timeline).toBeGreaterThan(sections.snapshots);
-    expect(sections.restoreTools).toBeGreaterThan(sections.timeline);
+    expect(sections.restoreTools).toBeGreaterThan(sections.snapshots);
 
     expect(html).toContain('Recent activity');
     expect(html).toContain('Deleted notes');

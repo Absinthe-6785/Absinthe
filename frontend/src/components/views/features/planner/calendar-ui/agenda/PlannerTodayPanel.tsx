@@ -69,9 +69,11 @@ export function PlannerTodayPanel({
       data-k105-planner-today
       data-k108-planner-today
     >
-      <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
-        <h2 className="font-heading text-sm font-bold mb-2">{t('plannerToday')}</h2>
-        <div className={`border-t ${theme.border} mb-2`} aria-hidden />
+      <div className={`rounded-[14px] lg:rounded-[16px] p-3 lg:p-3.5 shadow-sm ${theme.card}`}>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="font-heading text-base font-bold">{t('plannerToday')}</h2>
+          <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{todayLabel}</span>
+        </div>
 
         <section className="mb-2" data-k105-planner-todays-note>
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
@@ -80,11 +82,11 @@ export function PlannerTodayPanel({
           <button
             type="button"
             onClick={openTodaysDailyNoteFromApp}
-            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[40px]`}
+            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[38px]`}
           >
             <span className="flex items-center gap-2 min-w-0">
               <FileText size={14} className="shrink-0 text-muted" />
-              <span className="truncate">{todayLabel}</span>
+              <span className="truncate">{t('k105TodaysNote')}</span>
             </span>
             <span className="text-[10px] font-bold shrink-0 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
               {todayExists ? t('k101DailyNoteExists') : t('k101DailyNoteNew')}

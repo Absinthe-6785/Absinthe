@@ -20,9 +20,10 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
       && month.includes('data-k124c-upcoming-empty-hidden')
       && !month.includes('collapseWhenEmpty'),
     tighterSectionRhythm: month.includes('flex flex-col gap-2 items-stretch')
-      && month.includes('lg:grid-rows-[auto_minmax(0,1fr)_auto]')
+      && month.includes('lg:grid-rows-[auto_auto_minmax(0,1fr)]')
       && month.includes('data-k121-schedule-agenda')
-      && month.includes('flex flex-col gap-2 min-h-0')
+      && month.includes("lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]")
+      && month.indexOf('data-k117-schedule-section="timetable"') < month.indexOf('data-k117-schedule-section="calendar"')
       && month.includes('hasRoutineToday'),
     upcomingHeightReduced: upcoming.includes('max-h-[200px]'),
     upcomingGapsReduced: tiers.includes('flex flex-col gap-1.5')
