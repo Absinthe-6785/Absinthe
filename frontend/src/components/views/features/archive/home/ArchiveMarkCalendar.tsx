@@ -1,5 +1,6 @@
 import { CalendarDays } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
+import { WORKSPACE_CARD_SURFACE } from '../../../../common/workspaceCardSizes';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveMarkCalendarProjection, ArchiveMarkDay } from '../../knowledge/archive';
@@ -52,7 +53,7 @@ export function ArchiveMarkCalendar({
 
   return (
     <section
-      className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
       data-archive-mark-calendar
       data-archive-mark-calendar-empty={markCalendar.hasAnyMarks ? 'false' : 'true'}
       aria-label={t('archiveMarkCalendarTitle')}

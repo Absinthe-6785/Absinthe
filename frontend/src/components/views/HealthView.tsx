@@ -26,7 +26,7 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
-import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
@@ -738,7 +738,7 @@ export const HealthView = ({
   return (
     <WorkspaceErrorBoundary workspace="health">
     <div className={`flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
-      <div className="shrink-0 px-0.5 flex flex-col gap-2">
+      <div className={`shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
         <WorkspacePageHeader
           workspace="health"
           title={t('health')}
@@ -781,7 +781,7 @@ export const HealthView = ({
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
             <button key={tab}
               onClick={() => setMobileHealthTab(tab)}
-              className={`flex-1 min-h-[44px] py-2.5 rounded-2xl text-xs font-bold transition-colors
+              className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
@@ -802,7 +802,7 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'blocks'}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -865,7 +865,7 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -965,7 +965,7 @@ export const HealthView = ({
                 onTouchStart={e => handleTouchStart(e, wIdx)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleDragEnd}
-                className={`border rounded-3xl p-5 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
+                className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
                   dragOverIndex === wIdx && dragIndex !== wIdx
                     ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
                     : ''
@@ -1281,7 +1281,7 @@ export const HealthView = ({
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowBlockModal(false)}>
-          <div className={`p-6 lg:p-8 rounded-[32px] w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+          <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px] ${theme.card}`} onClick={e => e.stopPropagation()}>
             <h3 className="font-heading text-xl font-bold mb-6 flex justify-between items-center">
               {editingBlock ? t('editBlock') : t('newBlockLabel')}
               <button onClick={() => setShowBlockModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
@@ -1379,7 +1379,7 @@ export const HealthView = ({
           a === 'OTHER' ? 1 : b === 'OTHER' ? -1 : a.localeCompare(b));
         return (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowAssembleModal(false)}>
-            <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[440px] shadow-2xl flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[440px] flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-5 shrink-0">
                 <div>
                   <h3 className="font-heading text-xl font-bold">{t('assembleTitle')} {activeDayForm}</h3>

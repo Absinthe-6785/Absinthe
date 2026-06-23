@@ -3,6 +3,7 @@ import type { Theme } from '../../types';
 import type { NoteChromeColors } from '../views/noteEditorTheme';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_DENSITY } from '../../lib/uiDensityTokens';
+import { UI_SPACING } from '../../lib/uiSpacingTokens';
 
 export interface WorkspacePageHeaderProps {
   /** Workspace identifier for tests and analytics */
@@ -19,7 +20,7 @@ export interface WorkspacePageHeaderProps {
   legacyHook?: string;
 }
 
-/** K-125G — unified workspace page title row (icon + title + subtitle + optional actions). */
+/** K-125G / K-127 — unified workspace page title row (icon + title + subtitle + optional actions). */
 export function WorkspacePageHeader({
   workspace,
   title,
@@ -39,10 +40,17 @@ export function WorkspacePageHeader({
       <header
         className={className}
         data-k125-workspace-header={workspace}
+        data-k127-workspace-header
         {...(legacyHook ? { [legacyHook]: true } : {})}
-        style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, width: '100%' }}
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: UI_SPACING.pageHeaderGapPx,
+          width: '100%',
+        }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: UI_SPACING.pageHeaderSubtitleGapPx, minWidth: 0 }}>
           <h1
             style={{
               margin: 0,
@@ -52,10 +60,10 @@ export function WorkspacePageHeader({
               color: c.text,
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: UI_INTERACTION.toolbarActionGapPx,
             }}
           >
-            {Icon ? <Icon size={UI_INTERACTION.toolbarIconSizePx} strokeWidth={2.25} style={{ color: c.accent, flexShrink: 0 }} /> : null}
+            {Icon ? <Icon size={UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} style={{ color: c.accent, flexShrink: 0 }} /> : null}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
           </h1>
           {subtitle ? (
@@ -76,6 +84,7 @@ export function WorkspacePageHeader({
     <header
       className={`flex items-start justify-between gap-3 w-full ${className}`}
       data-k125-workspace-header={workspace}
+      data-k127-workspace-header
       {...(legacyHook ? { [legacyHook]: true } : {})}
     >
       <div className="flex flex-col gap-0.5 min-w-0">

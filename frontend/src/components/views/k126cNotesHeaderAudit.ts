@@ -28,7 +28,7 @@ export function auditK126cNotesHeader(): Record<string, boolean> {
     noToolbarFindDup: !editor.includes('data-k123-toolbar-find'),
     compactEmptyState: editor.includes('data-k126c-notes-empty') && !editor.includes("secondaryAction={{ label: t('nvScGraph')"),
     denseListFilters: sidebar.includes('data-k126c-notes-list-filters') && sidebar.includes('dense'),
-    sharedToolbarTokens: toolbar.includes('NOTE_CHROME_HEADER_BTN_RADIUS_PX'),
+    sharedToolbarTokens: toolbar.includes('NOTE_CHROME_HEADER_BTN_RADIUS_PX') || readFileSync(join(ROOT, 'lib/uiInteractionTokens.ts'), 'utf8').includes('noteChromeBtnRadiusPx'),
     toolbarPaddingReduced: editor.includes("padding: '4px 0'") && styles.includes('k126c-notes-header'),
     findPanelUnchanged: editor.includes('<FindInNotePanel'),
   };

@@ -3,7 +3,7 @@ import { Target } from 'lucide-react';
 import type { HealthProps, Inbody, Theme } from '../../../../types';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { WorkspaceCardSkeleton } from '../../../common/WorkspaceCardSkeleton';
-import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './WorkoutMonthCalendar';
 import { ProteinTracker } from './nutrition';
 import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
@@ -76,7 +76,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
             lang={lang}
             workoutDates={workoutDates}
           />
-          <div className={`${WORKSPACE_CARD.sm} rounded-[24px] lg:rounded-[28px] shadow-sm px-3 py-2.5 transition-colors ${theme.card}`} data-inbody-panel>
+          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} px-3 py-2.5 transition-colors ${theme.card}`} data-inbody-panel>
             <div className="flex items-center justify-between gap-2 mb-2">
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>

@@ -5,8 +5,14 @@ import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../../../../common/WorkspaceToolbar';
 import { WorkspacePageHeader } from '../../../../common/WorkspacePageHeader';
+import { WorkspaceCardSkeleton } from '../../../../common/WorkspaceCardSkeleton';
+import {
+  WORKSPACE_CARD_RADIUS_CLASS,
+  WORKSPACE_CARD_SURFACE,
+  WORKSPACE_SECTION_TITLE_CLASS,
+} from '../../../../common/workspaceCardSizes';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
-import { UI_SPACING } from '../../../../../lib/uiSpacingTokens';
+import { UI_SPACING, WORKSPACE_GAP_CLASS } from '../../../../../lib/uiSpacingTokens';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import type { Recipe, RecipeCategory } from '../recipeTypes';
 import { RECIPE_CATEGORIES } from '../recipeTypes';
@@ -82,7 +88,7 @@ export function RecipeStudioView({
 
   return (
     <div
-      className="flex-1 overflow-hidden flex flex-col h-full rounded-none lg:rounded-[32px] lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5"
+      className={`flex-1 overflow-hidden flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
       data-k110-recipe-studio
       data-recipe-empty={projection.empty.isEmpty ? 'true' : 'false'}
     >
@@ -103,7 +109,7 @@ export function RecipeStudioView({
                   label={t('newRecipe')}
                   icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
                   onClick={onNewRecipe}
-                  className="w-auto shrink-0 px-4 rounded-2xl"
+                  className="w-auto shrink-0 px-4"
                   dataHook="data-k110-new-recipe"
                 />
               )}
@@ -111,7 +117,7 @@ export function RecipeStudioView({
           </WorkspaceToolbar>
         )}
         secondary={(
-          <div className={`flex flex-col gap-2 lg:gap-3 min-h-0 overflow-y-auto ${UI_SPACING.scrollOverscroll}`} data-k110-recipe-sidebar data-k120-scroll-recipe>
+          <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 overflow-y-auto ${UI_SPACING.scrollOverscroll}`} data-k110-recipe-sidebar data-k120-scroll-recipe>
             <RecipeHomeSection
               projection={projection}
               theme={theme}
@@ -122,10 +128,9 @@ export function RecipeStudioView({
           </div>
         )}
         primary={(
-          <div className="flex flex-col gap-2 lg:gap-3 min-h-0 flex-1" data-k110-recipe-primary>
-            {/* Recipes list */}
-            <section className={`rounded-[16px] lg:rounded-[20px] shadow-sm p-3 lg:p-4 flex flex-col min-h-0 flex-1 ${theme.card}`} data-k110-recipe-section="recipes">
-              <h2 className="font-heading text-sm font-bold mb-2 shrink-0">{t('k110SectionRecipes')}</h2>
+          <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>
+            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 flex-1 ${theme.card}`} data-k110-recipe-section="recipes">
+              <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('k110SectionRecipes')}</h2>
 
               <div className="space-y-2 shrink-0 mb-2">
                 <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${theme.border} ${theme.input}`}>
@@ -150,7 +155,7 @@ export function RecipeStudioView({
                       key={cat}
                       type="button"
                       onClick={() => setActiveCategory(cat)}
-                      className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all min-h-[36px] ${
+                      className={`shrink-0 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold transition-all min-h-[44px] ${
                         activeCategory === cat
                           ? 'bg-primary text-primary-foreground'
                           : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
@@ -162,7 +167,7 @@ export function RecipeStudioView({
                   <button
                     type="button"
                     onClick={() => setShowStarredOnly(p => !p)}
-                    className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold min-h-[36px] ${
+                    className={`shrink-0 flex items-center gap-1 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold min-h-[44px] ${
                       showStarredOnly ? 'bg-yellow-400 text-primary-foreground' : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
                     }`}
                   >
@@ -188,9 +193,10 @@ export function RecipeStudioView({
 
               <div className="flex-1 min-h-0 overflow-y-auto">
                 {loading && (
-                  <div className={`text-center py-8 text-sm ${theme.textMuted}`}>{t('recipeLoading')}</div>
+                  <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[200px]" bars={2} />
                 )}
                 {!loading && visible.length === 0 && (
+                  <div data-k121-empty-state="recipe-list">
                   <ProductEmptyState
                     icon={BookMarked}
                     title={t('k110EmptyNoRecipes')}
@@ -199,6 +205,7 @@ export function RecipeStudioView({
                     dataHook="k110-empty-recipes-list"
                     theme={theme}
                   />
+                  </div>
                 )}
                 {!loading && visible.length > 0 && (
                   <RecipeVirtualList

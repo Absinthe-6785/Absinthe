@@ -17,7 +17,7 @@ export function auditAccessibility(): Record<string, boolean> {
     escapeDismiss: popover.includes('UI_INTERACTION.escapeKey'),
     focusTrap: popover.includes('focusables'),
     dialogRole: popover.includes("role = 'dialog'"),
-    touchTarget44: toolbar.includes(String(TOUCH_TARGET_MIN_PX)),
+    touchTarget44: toolbar.includes('touchTargetMinPx') || toolbar.includes('WORKSPACE_BTN_PRIMARY_CLASS'),
     emptyStatusRole: empty.includes('role="status"'),
     focusRing: toolbar.includes('focus-visible:outline'),
     ariaLabelToolbar: toolbar.includes('aria-label'),

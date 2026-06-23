@@ -11,6 +11,7 @@ export function auditSkeletonHeights(): Record<string, boolean> {
   const tokens = readFileSync(join(ROOT, 'lib/k121SkeletonHeights.ts'), 'utf8');
   const analytics = readFileSync(join(ROOT, 'components/views/features/health/HealthAnalyticsPanel.tsx'), 'utf8');
   const supporting = readFileSync(join(ROOT, 'components/views/features/health/HealthSupportingPanels.tsx'), 'utf8');
+  const skeleton = readFileSync(join(ROOT, 'components/common/WorkspaceCardSkeleton.tsx'), 'utf8');
   return {
     tokenModule: tokens.includes('K121_SKELETON_HEIGHT'),
     analyticsSummary: tokens.includes('analyticsSummary') && analytics.includes('K121_SKELETON_HEIGHT.analyticsSummary'),
@@ -18,6 +19,7 @@ export function auditSkeletonHeights(): Record<string, boolean> {
     analyticsHistory: tokens.includes('analyticsHistory') && analytics.includes('K121_SKELETON_HEIGHT.analyticsHistory'),
     compactSummaryHeight: tokens.includes("analyticsSummary: 'min-h-[64px]'"),
     supportingPanels: supporting.includes('K121_SKELETON_HEIGHT.supportingCalendar'),
+    sharedCardSkeleton: skeleton.includes('WORKSPACE_CARD_SURFACE') && skeleton.includes('WORKSPACE_CARD.lg'),
   };
 }
 

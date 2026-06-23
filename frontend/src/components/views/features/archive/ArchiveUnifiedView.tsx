@@ -26,6 +26,7 @@ import { ArchiveSnapshotsSection } from './sections/ArchiveSnapshotsSection';
 import { ArchiveTimelineSection } from './sections/ArchiveTimelineSection';
 import { ArchiveRestoreToolsSection } from './sections/ArchiveRestoreToolsSection';
 import { ArchiveCollapsibleSection } from './sections/ArchiveCollapsibleSection';
+import { WORKSPACE_GAP_CLASS } from '../../../../lib/uiSpacingTokens';
 
 export interface ArchiveUnifiedViewProps {
   projection: ArchiveProjection;
@@ -90,14 +91,14 @@ export function ArchiveUnifiedView({
       )}
       primary={(
         <div
-          className="w-full max-w-[1320px] mx-auto flex flex-col gap-2 lg:gap-3"
+          className={`w-full max-w-[1320px] mx-auto flex flex-col ${WORKSPACE_GAP_CLASS}`}
           data-archive-unified
           data-k109-archive-unified
           data-k117-archive-layout
           data-k121-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-3">
+          <div className={`grid grid-cols-1 lg:grid-cols-2 ${WORKSPACE_GAP_CLASS}`}>
             <ArchiveHistorySection
               history={projection.historyItems}
               theme={theme}
@@ -165,7 +166,7 @@ export function ArchiveUnifiedView({
                     <li key={link.id}>
                       <button
                         type="button"
-                        className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[44px] lg:min-h-0 ${theme.hoverBg}`}
+                        className={`text-xs font-semibold px-2 py-1 rounded-xl min-h-[44px] lg:min-h-0 ${theme.hoverBg}`}
                         onClick={() => onBrowseClick(link.destination)}
                       >
                         {link.label}

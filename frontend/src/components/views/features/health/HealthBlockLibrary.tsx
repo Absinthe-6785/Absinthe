@@ -3,7 +3,7 @@ import { Plus, Dumbbell } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
-import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { WorkoutBlockCard } from './WorkoutBlockCard';
 
@@ -103,7 +103,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.md} lg:max-h-[320px] min-h-0 rounded-[24px] lg:rounded-[28px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.md} lg:max-h-[320px] min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
       data-k126-exercise-library
     >

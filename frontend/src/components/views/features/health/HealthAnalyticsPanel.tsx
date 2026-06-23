@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import type { HealthProjection } from './buildHealthProjection';
 import type { Theme } from '../../../../types';
-import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { HealthVirtualList } from './HealthVirtualList';
@@ -94,7 +94,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0`}
+      className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} transition-colors ${theme.card} shrink-0`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k126-health-analytics

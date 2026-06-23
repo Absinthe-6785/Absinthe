@@ -5,7 +5,7 @@ import { API_URL } from '@/lib/config';
 import { useTranslation } from '@/lib/i18n';
 import type { ProteinSource, Theme } from '@/types';
 import type { ToastType } from '@/hooks/useToast';
-import { WORKSPACE_CARD } from '@/components/common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE, WORKSPACE_CARD_SURFACE_COMPACT } from '@/components/common/workspaceCardSizes';
 import { useProteinData } from '../hooks/useProteinData';
 import {
   PROTEIN_CATEGORY_KEYS,
@@ -248,7 +248,7 @@ export function ProteinTracker({
 
   if (proteinLoading) {
     return (
-      <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col gap-3 ${cardTier} ${theme.card}`} data-workspace="nutrition">
+      <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-3 ${cardTier} ${theme.card}`} data-workspace="nutrition">
         <div className="h-6 w-28 rounded-xl bg-current opacity-10 animate-pulse" />
         <div className="h-12 w-full rounded-2xl bg-current opacity-10 animate-pulse" />
         <div className="h-24 w-full rounded-2xl bg-current opacity-10 animate-pulse" />
@@ -329,7 +329,7 @@ export function ProteinTracker({
   if (mode === 'compact') {
     return (
       <div
-        className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-3.5 flex flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
+        className={`${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
         data-workspace="nutrition-compact"
       >
         <div className="flex items-center justify-between gap-2">
@@ -369,7 +369,7 @@ export function ProteinTracker({
 
   return (
     <div
-      className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col gap-4 transition-colors h-full ${cardTier} ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-4 transition-colors h-full ${cardTier} ${theme.card}`}
       data-workspace="nutrition"
     >
       <div className="flex items-center justify-between">

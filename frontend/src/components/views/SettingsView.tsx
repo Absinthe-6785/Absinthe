@@ -435,7 +435,7 @@ export const SettingsView = ({
 
           {/* Danger zone */}
           <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger" data-k119-settings-card>
-            <h2 className="font-heading text-lg font-bold text-red-500 mb-4 flex items-center gap-2">
+            <h2 className="font-heading text-lg font-bold text-red-500 mb-3 flex items-center gap-2">
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>
             <div className="space-y-4">

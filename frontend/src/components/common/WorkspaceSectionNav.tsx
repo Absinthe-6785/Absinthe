@@ -2,6 +2,7 @@ import type { ElementType } from 'react';
 import type { Theme } from '../../types';
 import type { NoteChromeColors } from '../views/noteEditorTheme';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
+import { UI_DENSITY } from '../../lib/uiDensityTokens';
 
 export interface WorkspaceSectionNavItem {
   id: string;
@@ -27,7 +28,10 @@ export interface WorkspaceSectionNavProps {
   variant?: 'tailwind' | 'note-chrome';
 }
 
-/** K-125G — shared in-workspace section navigation (toggle tabs or anchor links). */
+const CHIP_RADIUS_PX = UI_INTERACTION.noteChromeBtnRadiusPx;
+const CHIP_RADIUS_DENSE_PX = 6;
+
+/** K-125G / K-127 — shared in-workspace section navigation (toggle tabs or anchor links). */
 export function WorkspaceSectionNav({
   items,
   mode,
@@ -51,6 +55,7 @@ export function WorkspaceSectionNav({
         role={mode === 'toggle' ? 'tablist' : undefined}
         className={className}
         data-k125-section-nav={dataHook}
+        data-k127-section-nav
         {...(legacyHook ? { [legacyHook]: true } : {})}
         style={{ display: 'flex', gap: dense ? 3 : 4, flexShrink: 0 }}
       >
@@ -70,10 +75,10 @@ export function WorkspaceSectionNav({
                 flex: compact ? 1 : undefined,
                 minWidth: compact ? 0 : undefined,
                 minHeight: chipMinH,
-                fontSize: dense ? 9 : 10,
+                fontSize: dense ? UI_DENSITY.editorMenuSectionFontPx : 10,
                 fontWeight: 700,
                 padding: chipPad,
-                borderRadius: dense ? 6 : 8,
+                borderRadius: dense ? CHIP_RADIUS_DENSE_PX : CHIP_RADIUS_PX,
                 border: `1px solid ${selected ? c.accent : c.sideBdr}`,
                 background: selected ? c.accentBg : 'transparent',
                 color: selected ? c.accent : c.textMuted,
@@ -91,12 +96,14 @@ export function WorkspaceSectionNav({
 
   const muted = theme?.textMuted ?? 'text-muted-foreground';
   const input = theme?.input ?? 'bg-muted/40';
+  const chipRadius = UI_INTERACTION.sectionChipRadiusClass;
 
   return (
     <nav
       aria-label={ariaLabel}
       className={`flex shrink-0 overflow-x-auto pb-0.5 ${mode === 'toggle' ? 'gap-1.5' : 'gap-1'} ${compact ? 'overflow-x-auto pb-1' : ''} ${className}`}
       data-k125-section-nav={dataHook}
+      data-k127-section-nav
       {...(legacyHook ? { [legacyHook]: true } : {})}
     >
       {items.map(({ id, icon: Icon, label }) => {
@@ -112,12 +119,12 @@ export function WorkspaceSectionNav({
             data-k125-section-nav-item={id}
             className={`flex items-center font-bold transition-colors whitespace-nowrap shrink-0
               ${anchor
-                ? `gap-1 rounded-lg ${compact ? 'min-h-[36px] px-2 py-1.5 text-[10px]' : 'min-h-[32px] px-2.5 py-1.5 text-[11px]'} ${input} ${muted} hover:text-foreground hover:bg-muted/50`
-                : `gap-1.5 rounded-xl ${compact ? 'flex-1 min-w-0 min-h-[44px] px-2 py-2.5 text-[10px] justify-center' : 'px-3 py-2 text-xs'} ${
+                ? `gap-1 ${chipRadius} ${compact ? 'min-h-[44px] px-2 py-1.5 text-[10px]' : 'min-h-[44px] px-2.5 py-1.5 text-[11px]'} ${input} ${muted} hover:text-foreground hover:bg-muted/50`
+                : `gap-1.5 ${chipRadius} ${compact ? 'flex-1 min-w-0 min-h-[44px] px-2 py-2.5 text-[10px] justify-center' : 'min-h-[44px] px-3 py-2 text-xs'} ${
                   selected ? 'bg-primary text-primary-foreground shadow-sm' : unselectedToggle
                 }`}`}
           >
-            {Icon ? <Icon size={compact ? 12 : anchor ? 13 : 15} strokeWidth={2.25} className="shrink-0" /> : null}
+            {Icon ? <Icon size={compact ? 12 : anchor ? 13 : UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} className="shrink-0" /> : null}
             <span className="truncate">{label}</span>
           </button>
         );

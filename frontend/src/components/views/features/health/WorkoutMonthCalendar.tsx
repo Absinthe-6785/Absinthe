@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { buildCalendarDays } from '@/lib/calendarUtils';
 import { useTranslation } from '@/lib/i18n';
 import type { Theme } from '@/types';
-import { WORKSPACE_CARD } from '@/components/common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '@/components/common/workspaceCardSizes';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
@@ -102,7 +102,7 @@ function WorkoutMonthCalendarInner({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[28px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card}`}
       data-health-workout-calendar
       data-k107-calendar-month-key={monthKey}
     >

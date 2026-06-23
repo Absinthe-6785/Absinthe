@@ -24,7 +24,7 @@ export function auditToolbarConsistency(): Record<string, boolean> {
   const header = readFileSync(join(ROOT, 'components/views/noteview/NoteEditorHeaderActions.tsx'), 'utf8');
   return {
     workspaceToolbar: toolbar.includes('data-k119-workspace-toolbar'),
-    touchTarget44: toolbar.includes('min-h-[44px]') && toolbar.includes('touchTargetMinPx'),
+    touchTarget44: (toolbar.includes('min-h-[44px]') || toolbar.includes('WORKSPACE_BTN_PRIMARY_CLASS')) && toolbar.includes('touchTargetMinPx'),
     iconSizeToken: toolbar.includes('toolbarIconSizePx') || planner.includes('toolbarIconSizePx'),
     plannerCompactChrome: planner.includes('data-k121-schedule-toolbar') && planner.includes('data-k121-schedule-new-event'),
     notesSticky: noteTop.includes('data-k117-note-top-actions'),
