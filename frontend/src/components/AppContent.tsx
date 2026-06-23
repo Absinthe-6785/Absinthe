@@ -17,6 +17,7 @@ import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
 import { NoteView } from './views/NoteView';
 
+const HomeView = lazy(() => import('./views/HomeView').then(m => ({ default: m.HomeView })));
 const PlannerView = lazy(() => import('./views/PlannerView').then(m => ({ default: m.PlannerView })));
 const HealthView = lazy(() => import('./views/HealthView').then(m => ({ default: m.HealthView })));
 const AnalyticsView = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
@@ -54,7 +55,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
-  const [activeTab, setActiveTab] = useState<TabId>('note');
+  const [activeTab, setActiveTab] = useState<TabId>('home');
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<SettingsSectionId | null>(null);
 
   // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화 (K-114: once per session)
@@ -195,6 +196,7 @@ export function AppContent({ authUser }: { authUser: User }) {
 
       <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
         <Suspense fallback={<ViewLoadingFallback />}>
+          {activeTab === 'home'      && <HomeView       {...globalProps} />}
           {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
           {activeTab === 'health'    && <HealthView    {...globalProps} />}
           {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
