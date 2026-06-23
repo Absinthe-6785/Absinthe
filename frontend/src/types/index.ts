@@ -153,6 +153,8 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
 }
 
 export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
+  schedules: Schedule[];
+  weeklySchedules: WeeklySchedule[];
   workouts: Workout[];
   inbody: Inbody;
   healthBlocks: ExerciseBlock[];
