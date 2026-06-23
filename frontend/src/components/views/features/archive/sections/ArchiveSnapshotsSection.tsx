@@ -73,7 +73,7 @@ export function ArchiveSnapshotsSection({
 
   return (
     <section
-      className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
+      className={`rounded-[20px] lg:rounded-[24px] shadow-md p-4 lg:p-5 flex flex-col transition-colors ${theme.card}`}
       data-k109-archive-section="snapshots"
       data-k109-collapsed={collapsed ? 'true' : 'false'}
     >
@@ -84,14 +84,14 @@ export function ArchiveSnapshotsSection({
         aria-expanded={!collapsed}
         data-k109-section-toggle="snapshots"
       >
-        <h2 className="font-heading text-sm font-bold">{t('k109SectionSnapshots')}</h2>
+        <h2 className="font-heading text-base font-bold">{t('k109SectionSnapshots')}</h2>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''} ${theme.textMuted}`}
         />
       </button>
       {!collapsed && (
-        <div className="mt-2" data-k109-snapshots-grid>
+        <div className="mt-3" data-k109-snapshots-grid>
           {snapshots.isEmpty ? (
             <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-empty-state="snapshots">
               {t('k109EmptySnapshots')}

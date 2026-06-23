@@ -37,9 +37,10 @@ export function auditK128HealthSkeleton(): Record<string, boolean> {
 
 export function auditK128NotesHeader(): Record<string, boolean> {
   const editor = readFileSync(join(ROOT, 'components/views/noteview/NoteViewEditorArea.tsx'), 'utf8');
+  const sidebar = readFileSync(join(ROOT, 'components/views/noteview/NoteViewSidebar.tsx'), 'utf8');
   return {
     actionRow: editor.includes('data-k121-notes-header-action-row'),
-    newNote: editor.includes('data-k121-notes-new'),
+    newNoteConsolidated: !editor.includes('data-k121-notes-new') && sidebar.includes('data-noteview-new-note-btn'),
     unifiedHeader: editor.includes('data-k126c-notes-header'),
     noHeaderGlobalSearch: !editor.includes('openWorkspaceSearch()'),
     touchTarget: editor.includes('UI_INTERACTION.touchTargetMinPx'),

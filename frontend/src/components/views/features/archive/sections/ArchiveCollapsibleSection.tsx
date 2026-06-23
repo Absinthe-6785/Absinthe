@@ -28,7 +28,7 @@ export function ArchiveCollapsibleSection({
 }: ArchiveCollapsibleSectionProps) {
   return (
     <section
-      className={`${WORKSPACE_CARD_RADIUS_CLASS} shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_RADIUS_CLASS} shadow-md p-4 lg:p-5 flex flex-col transition-colors ${theme.card}`}
       data-k109-archive-section={sectionId}
       data-k109-collapsed={collapsed ? 'true' : 'false'}
       {...(sectionId === 'browse' ? { 'data-archive-browse': true } : {})}
@@ -40,14 +40,14 @@ export function ArchiveCollapsibleSection({
         aria-expanded={!collapsed}
         data-k109-section-toggle={sectionId}
       >
-        <h2 className="font-heading text-sm font-bold">{title}</h2>
+        <h2 className="font-heading text-base font-bold">{title}</h2>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''} ${theme.textMuted}`}
         />
       </button>
       {!collapsed && (
-        <div className="mt-2" data-k109-section-body={sectionId}>
+        <div className="mt-3" data-k109-section-body={sectionId}>
           {isEmpty && emptyHint ? (
             <p className={`text-xs py-2 ${theme.textMuted}`} data-k109-empty-state={sectionId}>
               {emptyHint}

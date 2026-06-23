@@ -10,7 +10,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
-import { Settings, Save, Download, Upload, AlertTriangle, LogOut, Loader2, HardDrive, Info, RotateCcw } from 'lucide-react';
+import { Settings, Download, AlertTriangle, LogOut, Loader2, HardDrive, Info, RotateCcw } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -19,7 +19,6 @@ import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
-import { exportAllToCsv } from '../../lib/csvExport';
 import { buildVaultBackupManifestV3, downloadVaultBackup } from '../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { fetchVaultCloudBlock } from '../../lib/vaultCloudExport';
@@ -91,34 +90,6 @@ export const SettingsView = ({
       return new Date(iso).toLocaleString();
     } catch {
       return iso;
-    }
-  };
-
-  // ── CSV 내보내기 상태 ──────────────────────────────────────────────
-  const today = new Date().toISOString().slice(0, 10);
-  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const [exportStart, setExportStart] = useState(oneMonthAgo);
-  const [exportEnd,   setExportEnd]   = useState(today);
-  const [exporting,   setExporting]   = useState(false);
-  const [exportMsg,   setExportMsg]   = useState('');
-
-  const doExport = async () => {
-    if (!exportStart || !exportEnd) return showToast(t('selectBothDates'), 'error');
-    if (exportStart > exportEnd)    return showToast(t('endTimeError'), 'error');
-    setExporting(true);
-    setExportMsg('');
-    try {
-      await exportAllToCsv({
-        startDate: exportStart,
-        endDate:   exportEnd,
-        onProgress: msg => setExportMsg(msg),
-      });
-      showToast(t('settingsExportComplete'));
-    } catch {
-      showToast(t('settingsExportFailed'), 'error');
-    } finally {
-      setExporting(false);
-      setExportMsg('');
     }
   };
 
@@ -357,10 +328,11 @@ export const SettingsView = ({
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <Download size={20} className="text-primary" />{t('k98SettingsExport')}
             </h2>
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
                 <div>
                   <p className="text-base font-bold">{t('vaultBackupExport')}</p>
+                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                   <button
@@ -379,47 +351,6 @@ export const SettingsView = ({
                   >
                     <Download size={16}/>{t('vaultBackupJsonExport')}
                   </button>
-                </div>
-              </div>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-4 lg:gap-0">
-                  <div>
-                    <p className="text-base font-bold">{t('exportCsv')}</p>
-                  </div>
-                  <button
-                    onClick={doExport}
-                    disabled={exporting}
-                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
-                  >
-                    {exporting
-                      ? <><Loader2 size={16} className="animate-spin"/>{exportMsg || 'Exporting...'}</>
-                      : <><Download size={16}/>{t('exportCsv')}</>
-                    }
-                  </button>
-                </div>
-                <div className={`flex flex-col sm:flex-row gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  <div className="flex-1">
-                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('startDate')}</p>
-                    <input
-                      type="date"
-                      value={exportStart}
-                      max={exportEnd}
-                      onChange={e => setExportStart(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
-                    />
-                  </div>
-                  <div className="flex items-end pb-2 text-sm font-bold opacity-40 hidden sm:flex">→</div>
-                  <div className="flex-1">
-                    <p className={`text-xs font-bold mb-1.5 ${theme.textMuted}`}>{t('endDate')}</p>
-                    <input
-                      type="date"
-                      value={exportEnd}
-                      min={exportStart}
-                      max={today}
-                      onChange={e => setExportEnd(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
-                    />
-                  </div>
                 </div>
               </div>
             </div>
