@@ -98,7 +98,7 @@ export function ArchiveUnifiedView({
           data-k121-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <div className={`grid grid-cols-1 lg:grid-cols-2 ${WORKSPACE_GAP_CLASS}`}>
+          <div className={`grid grid-cols-1 lg:grid-cols-2 items-start ${WORKSPACE_GAP_CLASS}`}>
             <ArchiveHistorySection
               history={projection.historyItems}
               theme={theme}
