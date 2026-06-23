@@ -175,7 +175,7 @@ describe('AnalyticsView archive landing', () => {
     expect(html).toContain('data-archive-mode="cohesion"');
     expect(html).toContain('data-k109-archive-unified');
     expect(html).toContain('Archive');
-    expect(html).toContain('History, milestones, and timelines in one workspace.');
+    expect(html).toContain('A library of traces, milestones, and long-term context.');
   });
 
   it('does not render legacy Analytics widgets by default', () => {
