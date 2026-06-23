@@ -78,7 +78,7 @@ export function assessDataProtectionWarnings(
   }
 
   if (!cloudSyncEnabled) {
-    warnings.push({ code: 'no_cloud_sync', severity: 'info' });
+    // Signed-out cloud coverage is expected; omit noisy info banner (K-132B).
   }
 
   if (metrics.vaultBytes >= LARGE_VAULT_BYTES && !metrics.lastSnapshotAt) {
@@ -90,7 +90,8 @@ export function assessDataProtectionWarnings(
     const payload = loadSnapshotPayload(latest.snapshotId, storage);
     if (payload) {
       const report = validateVaultSnapshot(payload);
-      if (!report.valid) {
+      const onlyFingerprintDrift = report.errors.length === 1 && report.errors[0] === 'fingerprint_mismatch';
+      if (!report.valid && !onlyFingerprintDrift) {
         warnings.push({ code: 'snapshot_quota_failed', severity: 'caution' });
       }
     }

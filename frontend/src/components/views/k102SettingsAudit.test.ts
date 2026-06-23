@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { auditSettingsSections, formatK102SettingsReport } from './k102SettingsAudit';
 
 describe('k102SettingsAudit', () => {
-  it('lists all five settings sections', () => {
-    expect(auditSettingsSections()).toHaveLength(5);
+  it('lists all four settings sections', () => {
+    expect(auditSettingsSections()).toHaveLength(4);
   });
 
   it('prints settings report', () => {

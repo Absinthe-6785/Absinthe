@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Archive, CheckCircle2, Eye, HardDrive, Loader2, Shield, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Download, Eye, HardDrive, Loader2, Upload, XCircle } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import { formatStorageMegabytes } from '@/lib/vaultStorageMetrics';
 import type { useRecoveryCenter } from '@/hooks/useRecoveryCenter';
@@ -12,9 +12,11 @@ type VaultRestoreFlow = ReturnType<typeof useVaultRestoreFlow>;
 export interface RecoveryCenterPanelProps {
   recovery: RecoveryCenter;
   vaultRestore: VaultRestoreFlow;
-  cloudSyncEnabled: boolean;
   theme: { card: string; border: string; input: string; textMuted: string };
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  onExportZip: () => void | Promise<void>;
+  onExportJson: () => void | Promise<void>;
+  backingUpZip: boolean;
 }
 
 function formatTime(iso: string | null, fallback: string): string {
@@ -29,25 +31,15 @@ function formatTime(iso: string | null, fallback: string): string {
 export function RecoveryCenterPanel({
   recovery,
   vaultRestore,
-  cloudSyncEnabled,
   theme,
   showToast,
+  onExportZip,
+  onExportJson,
+  backingUpZip,
 }: RecoveryCenterPanelProps) {
   const { t } = useTranslation();
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [validationResults, setValidationResults] = useState<Record<string, boolean>>({});
-
-  const protectionLabel = {
-    protected: t('recoveryProtectionProtected'),
-    partial: t('recoveryProtectionPartial'),
-    none: t('recoveryProtectionNone'),
-  }[recovery.protectionStatus];
-
-  const protectionClass = {
-    protected: 'text-green-600 dark:text-green-400',
-    partial: 'text-amber-600 dark:text-amber-400',
-    none: 'text-red-500',
-  }[recovery.protectionStatus];
 
   const handleValidate = async (snapshotId: string) => {
     setValidatingId(snapshotId);
@@ -73,42 +65,43 @@ export function RecoveryCenterPanel({
 
   return (
     <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
-      <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
-        <Archive size={20} className="text-primary" />
-        {t('recoveryCenterTitle')}
-      </h2>
-
       <div className="space-y-6">
-        {/* Recovery status */}
-        <div>
-          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoveryStatusTitle')}</p>
-          <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
-              <p className="text-sm font-bold">{formatTime(recovery.lastSnapshotAt, t('storageNoSnapshot'))}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('recoverySnapshotCount')}</p>
-              <p className="text-sm font-bold">{recovery.snapshotCount}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('recoveryLastExport')}</p>
-              <p className="text-sm font-bold">{formatTime(recovery.lastExportAt, t('recoveryNoExport'))}</p>
-            </div>
-            <div>
-              <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
-              <p className="text-sm font-bold">
-                {cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}
-              </p>
-            </div>
-            <div className="sm:col-span-2 flex items-center gap-2">
-              <Shield size={16} className={protectionClass} />
-              <span className={`text-sm font-bold ${protectionClass}`}>{protectionLabel}</span>
-            </div>
+        <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+          <div>
+            <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
+            <p className="text-sm font-bold">{formatTime(recovery.lastSnapshotAt, t('storageNoSnapshot'))}</p>
+          </div>
+          <div>
+            <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('recoveryLastExport')}</p>
+            <p className="text-sm font-bold">{formatTime(recovery.lastExportAt, t('recoveryNoExport'))}</p>
           </div>
         </div>
 
-        {/* Exports */}
+        <div>
+          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('k132BackupExportTitle')}</p>
+          <div className={`flex flex-col sm:flex-row gap-2 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+            <button
+              type="button"
+              onClick={onExportZip}
+              disabled={backingUpZip}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-60"
+            >
+              {backingUpZip
+                ? <><Loader2 size={16} className="animate-spin" />{t('vaultBackupZipping')}</>
+                : <><Download size={16} />{t('vaultBackupZipExport')}</>
+              }
+            </button>
+            <button
+              type="button"
+              onClick={onExportJson}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm border ${theme.border} ${theme.input}`}
+            >
+              <Download size={16} />
+              {t('vaultBackupJsonExport')}
+            </button>
+          </div>
+        </div>
+
         <div>
           <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoveryExportsTitle')}</p>
           <div className={`flex flex-col sm:flex-row gap-2 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
@@ -124,12 +117,9 @@ export function RecoveryCenterPanel({
           </div>
         </div>
 
-        {/* Snapshot browser */}
-        <div>
-          <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoverySnapshotsTitle')}</p>
-          {recovery.snapshots.length === 0 ? (
-            <p className={`text-sm font-medium ${theme.textMuted}`}>{t('recoveryNoSnapshots')}</p>
-          ) : (
+        {recovery.snapshots.length > 0 ? (
+          <div>
+            <p className={`text-xs font-bold mb-3 ${theme.textMuted}`}>{t('recoverySnapshotsTitle')}</p>
             <div className="flex flex-col gap-2">
               {recovery.snapshots.map(snap => {
                 const schemaVersion = recovery.getSnapshotSchemaVersion(snap.snapshotId);
@@ -184,8 +174,8 @@ export function RecoveryCenterPanel({
                 );
               })}
             </div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 /**
- * K-125E — Mobile More sheet audit (K-126B implementation).
+ * K-125E / K-132B — Mobile More sheet audit.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,18 +13,15 @@ export function auditK125eMobileMoreSheet(): Record<string, boolean> {
   return {
     sheetHook: sheet.includes('data-k126-mobile-more-sheet'),
     backdropHook: sheet.includes('data-k126-mobile-more-backdrop'),
-    appearanceSection: sheet.includes('data-k126-more-section="appearance"'),
-    vaultSection: sheet.includes('data-k126-more-section="vault"'),
-    applicationSection: sheet.includes('data-k126-more-section="application"'),
-    accountSection: sheet.includes('data-k126-more-section="account"'),
-    themeControls: sheet.includes('data-k126-more-theme') && sheet.includes('updateSetting'),
-    vaultDeepLinks: sheet.includes('onOpenSettingsSection') && sheet.includes('goSection'),
-    snapshotStatus: sheet.includes('data-k126-snapshot-status'),
+    settingsRow: sheet.includes('data-k126-more-settings'),
+    dataSafetyRow: sheet.includes('data-k126-more-data-safety'),
     signOut: sheet.includes('data-k126-more-signout'),
-    versionInfo: sheet.includes('data-k126-more-version') && sheet.includes('ABSINTHE_APP_VERSION'),
+    removedExport: !sheet.includes('data-k126-more-export'),
+    removedBackupDup: !sheet.includes('data-k126-more-backup'),
+    removedAbout: !sheet.includes('data-k126-more-about'),
     safeAreaPadding: sheet.includes('safe-area-inset-bottom'),
     touchTargets: sheet.includes('touchTargetMinPx'),
-    i18nKeys: i18n.includes('k126MoreSheetTitle') && i18n.includes('k126MoreVault'),
+    i18nKeys: i18n.includes('k132MoreDataSafety') && i18n.includes('k126MoreSheetTitle'),
   };
 }
 

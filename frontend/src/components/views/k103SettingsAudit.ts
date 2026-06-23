@@ -5,7 +5,6 @@ export const K103_SETTINGS_SECTIONS = [
   'general',
   'storage',
   'recovery',
-  'export',
   'danger',
 ] as const;
 

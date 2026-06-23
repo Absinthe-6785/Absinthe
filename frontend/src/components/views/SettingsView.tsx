@@ -9,8 +9,8 @@
  * 변경: useConfirm() 한 줄로 대체. ConfirmModal 렌더 패턴도 단순화.
  */
 
-import { useState, useMemo, useEffect } from 'react';
-import { Settings, Download, AlertTriangle, LogOut, Loader2, HardDrive, Info, RotateCcw } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Settings, AlertTriangle, LogOut, HardDrive, Info, RotateCcw } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -61,13 +61,19 @@ export const SettingsView = ({
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
-  const undoLastVaultRestore = useNotesStore(s => s.undoLastVaultRestore);
-  const vaultRestoreCanUndo = useNotesStore(s => s.vaultRestoreCanUndo);
   const cloudSyncEnabled = Boolean(user?.id);
   const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
-  const storageMetrics = useMemo(() => getVaultStorageMetrics(), []);
+  const [storageTick, setStorageTick] = useState(0);
+  const refreshStorageMetrics = useCallback(() => {
+    setStorageTick(n => n + 1);
+    recovery.refresh();
+  }, [recovery]);
+  const storageMetrics = useMemo(() => {
+    void storageTick;
+    return getVaultStorageMetrics();
+  }, [storageTick]);
   const dataWarnings = useMemo(
     () => assessDataProtectionWarnings(cloudSyncEnabled),
     [cloudSyncEnabled],
@@ -115,6 +121,7 @@ export const SettingsView = ({
     try {
       await downloadVaultBackupZip(await buildExportManifest());
       showToast(t('vaultBackupZipComplete'));
+      refreshStorageMetrics();
     } catch {
       showToast(t('vaultBackupFailed'), 'error');
     } finally {
@@ -131,16 +138,9 @@ export const SettingsView = ({
     try {
       downloadVaultBackup(await buildExportManifest());
       showToast(t('vaultBackupComplete'));
+      refreshStorageMetrics();
     } catch {
       showToast(t('vaultBackupFailed'), 'error');
-    }
-  };
-
-  const doUndoRestore = () => {
-    if (undoLastVaultRestore()) {
-      showToast(t('vaultRestoreUndoComplete'));
-    } else {
-      showToast(t('vaultRestoreUndoUnavailable'), 'error');
     }
   };
 
@@ -229,27 +229,6 @@ export const SettingsView = ({
                   ))}
                 </div>
               </div>
-
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
-                <div>
-                  <p className="text-base font-bold">{t('defaultCategory')}</p>
-                </div>
-                <div className={`flex flex-wrap gap-2 p-2 rounded-2xl border ${theme.border} ${theme.input}`}>
-                  {(['Study', 'Work', 'Exercise', 'Personal'] as const).map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => updateSetting('defaultCategory', cat)}
-                      className={`px-3 py-2 rounded-xl text-sm font-bold transition-all ${
-                        appSettings.defaultCategory === cat
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'text-gray-500 hover:text-current'
-                      }`}
-                    >
-                      {cat === 'Study' ? t('catStudy') : cat === 'Work' ? t('catWork') : cat === 'Exercise' ? t('catExercise') : t('catPersonal')}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
 
@@ -261,30 +240,12 @@ export const SettingsView = ({
             <div className="space-y-3">
               <div className={`grid sm:grid-cols-2 gap-4 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
                 <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('storageTypeLabel')}</p>
-                  <p className="text-sm font-bold">{t('storageTypeLocal')}</p>
-                </div>
-                <div>
                   <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('vaultSizeLabel')}</p>
                   <p className="text-sm font-bold">{formatStorageMegabytes(storageMetrics.vaultBytes)}</p>
                 </div>
                 <div>
                   <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('lastSnapshotLabel')}</p>
                   <p className="text-sm font-bold">{formatSnapshotTime(storageMetrics.lastSnapshotAt)}</p>
-                </div>
-                <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('cloudSyncLabel')}</p>
-                  <p className="text-sm font-bold">
-                    {cloudSyncEnabled ? t('cloudSyncEnabled') : t('cloudSyncDisabled')}
-                  </p>
-                </div>
-                <div>
-                  <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('snapshotStorageLabel')}</p>
-                  <p className="text-sm font-bold">
-                    {t('snapshotCountSummary')
-                      .replace('{count}', String(storageMetrics.snapshotCount))
-                      .replace('{size}', formatStorageMegabytes(storageMetrics.snapshotBytes))}
-                  </p>
                 </div>
               </div>
               {dataWarnings.length > 0 ? (
@@ -309,51 +270,20 @@ export const SettingsView = ({
             </div>
           </div>
 
-          {/* Recovery */}
+          {/* Backup & Recovery */}
           <div data-settings-section="recovery">
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2 px-1">
-              <RotateCcw size={20} className="text-primary" />{t('k98SettingsRecovery')}
+              <RotateCcw size={20} className="text-primary" />{t('k132BackupRecovery')}
             </h2>
             <RecoveryCenterPanel
               recovery={recovery}
               vaultRestore={vaultRestore}
-              cloudSyncEnabled={cloudSyncEnabled}
               theme={theme}
               showToast={showToast}
+              onExportZip={doVaultBackupZip}
+              onExportJson={doVaultBackupJson}
+              backingUpZip={backingUpZip}
             />
-          </div>
-
-          {/* Export */}
-          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="export" data-k119-settings-card>
-            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
-              <Download size={20} className="text-primary" />{t('k98SettingsExport')}
-            </h2>
-            <div className="space-y-4">
-              <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-4 lg:gap-0`}>
-                <div>
-                  <p className="text-base font-bold">{t('vaultBackupExport')}</p>
-                  <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('vaultBackupDesc')}</p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-                  <button
-                    onClick={doVaultBackupZip}
-                    disabled={backingUpZip}
-                    className="bg-primary text-primary-foreground px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-gray-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-60"
-                  >
-                    {backingUpZip
-                      ? <><Loader2 size={16} className="animate-spin"/>{t('vaultBackupZipping')}</>
-                      : <><Download size={16}/>{t('vaultBackupZipExport')}</>
-                    }
-                  </button>
-                  <button
-                    onClick={doVaultBackupJson}
-                    className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors flex justify-center items-center gap-2 border ${theme.border} ${theme.input}`}
-                  >
-                    <Download size={16}/>{t('vaultBackupJsonExport')}
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Danger zone */}
@@ -424,6 +354,13 @@ export const SettingsView = ({
           importing={vaultRestore.importing}
         />
       )}
+      <input
+        ref={vaultRestore.fileInputRef}
+        type="file"
+        accept=".json,.zip,application/json,application/zip"
+        className="hidden"
+        onChange={vaultRestore.handleFileChange}
+      />
     </div>
   );
 };

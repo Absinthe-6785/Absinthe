@@ -13,7 +13,7 @@ describe('k126b mobile navigation & More sheet audits', () => {
   });
 
   it('settings sections remain complete', () => {
-    expect(auditK100SettingsSections().length).toBe(5);
+    expect(auditK100SettingsSections().length).toBe(4);
     expect(auditSettingsRc()).toBe(true);
   });
 });
