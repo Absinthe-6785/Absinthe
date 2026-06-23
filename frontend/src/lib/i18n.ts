@@ -89,7 +89,7 @@ const translations = {
   archiveBrowseAllAreas: { en: 'All areas', ko: '전체 영역', ja: '全エリア' },
   archiveHomeTitle:        { en: 'Archive', ko: '아카이브', ja: 'アーカイブ' },
   archiveHomeSubtitle:     { en: 'What remains when you look back.', ko: '돌아보며 남는 것들.', ja: '振り返ると残るもの。' },
-  k109ArchiveSubtitle:     { en: 'History, milestones, and timelines in one workspace.', ko: '기록·마일스톤·타임라인을 한곳에서.', ja: '履歴・マイルストーン・タイムラインを一つのワークスペースで。' },
+  k109ArchiveSubtitle:     { en: 'A library of traces, milestones, and long-term context.', ko: '흔적, 마일스톤, 장기 맥락을 모아둔 라이브러리.', ja: '痕跡・マイルストーン・長期的な文脈のライブラリ。' },
   k109SectionHistory:      { en: 'Recent activity', ko: '최근 활동', ja: '最近のアクティビティ' },
   k109SectionDeleted:      { en: 'Deleted notes', ko: '삭제된 노트', ja: '削除したノート' },
   k109SectionSnapshots:    { en: 'Snapshots', ko: '스냅샷', ja: 'スナップショット' },

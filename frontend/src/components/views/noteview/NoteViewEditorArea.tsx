@@ -6,7 +6,7 @@ import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Type, Plus,
+  Type,
   AlertTriangle, Upload,
   ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
@@ -328,11 +328,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     else setMobileShowEditor(false);
   };
 
-  const handleNewNote = () => {
-    createNote();
-    if (isMobile) setMobileShowEditor(true);
-  };
-
   const handleDocumentSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
@@ -384,35 +379,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 36,
           }}
         >
-          <button
-            type="button"
-            onClick={handleNewNote}
-            title={t('nvNewNoteBtn')}
-            data-k117-new-note-btn
-            data-noteview-new-note-btn
-            data-k121-notes-new
-            data-k126c-header-new-note
-            className="btbtn"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : UI_INTERACTION.toolbarBtnSizePx,
-              minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : undefined,
-              padding: isMobile ? '0 10px' : '0 12px',
-              fontSize: 12,
-              fontWeight: 700,
-              borderRadius: 6,
-              border: 'none',
-              background: c.accent,
-              color: '#fff',
-              flexShrink: 0,
-            }}
-          >
-            <Plus size={14} />
-            {!isMobile ? t('nvNewNoteBtn') : null}
-          </button>
           {activeNote ? (
             <NoteEditorHeaderActions
               layout="header-bar"

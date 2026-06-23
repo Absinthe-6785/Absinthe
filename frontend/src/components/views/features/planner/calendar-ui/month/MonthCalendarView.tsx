@@ -63,18 +63,19 @@ export function MonthCalendarView({
   const hasUpcoming = plannerProjection.groupedUpcoming.some(section =>
     section.days.some(day => day.items.length > 0),
   );
+  const hasRoutineToday = plannerProjection.timetableToday.length > 0;
 
   const onScheduleBlockClick = scheduleActions?.onView;
 
   return (
     <div
-      className="flex flex-col gap-1.5 lg:gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[minmax(0,28%)_minmax(0,72%)_auto] lg:flex-1 lg:max-h-[min(74vh,840px)]"
+      className="flex flex-col gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto] lg:flex-1 lg:max-h-[min(74vh,840px)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
     >
-      <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto overscroll-contain" data-k121-schedule-agenda>
+      <div className="flex flex-col gap-2 min-h-0" data-k121-schedule-agenda>
         <section data-k117-schedule-section="today">
           <PlannerTodayPanel
             plannerProjection={plannerProjection}
@@ -84,6 +85,18 @@ export function MonthCalendarView({
             scheduleActions={scheduleActions}
           />
         </section>
+
+        {hasRoutineToday ? (
+          <section data-k117-schedule-section="routine">
+            <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
+              <PlannerRoutineTodayCard
+                theme={theme}
+                slots={plannerProjection.timetableToday}
+                onOpenTimetable={scrollTimetable}
+              />
+            </div>
+          </section>
+        ) : null}
 
         <section
           data-k117-schedule-section="upcoming"
@@ -126,16 +139,6 @@ export function MonthCalendarView({
       </section>
 
       <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
-        <section data-k117-schedule-section="routine">
-          <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
-            <PlannerRoutineTodayCard
-              theme={theme}
-              slots={plannerProjection.timetableToday}
-              onOpenTimetable={scrollTimetable}
-            />
-          </div>
-        </section>
-
         {showTimetableSection ? (
           <section data-k117-schedule-section="timetable" data-k117-timetable-section>
             <WeeklyTimetableSection

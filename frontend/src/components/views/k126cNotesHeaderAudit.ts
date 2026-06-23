@@ -17,7 +17,8 @@ export function auditK126cNotesHeader(): Record<string, boolean> {
   return {
     unifiedHeaderHook: editor.includes('data-k126c-notes-header'),
     primaryActionsHook: actions.includes('data-k126c-header-primary-actions'),
-    newNoteInActionRow: editor.includes('data-k126c-header-new-note') && editor.includes('data-k121-notes-new'),
+    newNoteConsolidatedInSidebar: !editor.includes('data-k126c-header-new-note')
+      && sidebar.includes('data-noteview-new-note-btn'),
     findInHeader: actions.includes('data-k126c-header-find') && actions.includes('data-read-mode-search-btn'),
     starCopyPanelHooks: actions.includes('data-k126c-header-star')
       && actions.includes('data-k126c-header-copy')

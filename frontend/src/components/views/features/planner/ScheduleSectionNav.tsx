@@ -16,10 +16,10 @@ export const SCHEDULE_SECTIONS: readonly {
   icon: typeof Sun;
 }[] = [
   { id: 'today', icon: Sun },
+  { id: 'routine', icon: Clock },
   { id: 'calendar', icon: CalendarRange },
   { id: 'upcoming', icon: ListTodo },
   { id: 'timetable', icon: CalendarDays },
-  { id: 'routine', icon: Clock },
 ];
 
 export function scrollToScheduleSection(id: ScheduleSectionId): void {

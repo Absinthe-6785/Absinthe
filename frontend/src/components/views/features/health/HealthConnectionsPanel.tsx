@@ -80,11 +80,11 @@ export function HealthConnectionsPanel({
   const chipClass = `inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${theme.border} ${theme.textMuted} hover:text-foreground`;
 
   return (
-    <div className={`mb-3 rounded-2xl border p-3 ${theme.border} ${darkMode ? 'bg-surface/70' : 'bg-gray-50/80'}`} data-k130a-health-connections>
+    <div className={`mb-2 rounded-xl border px-3 py-2 ${theme.border} ${darkMode ? 'bg-surface/60' : 'bg-gray-50/70'}`} data-k130a-health-connections>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-xs font-black uppercase tracking-wide">{t('healthConnectionsTitle')}</p>
-          <p className={`mt-0.5 text-[11px] font-medium ${theme.textMuted}`}>{t('healthConnectionsSubtitle')}</p>
+          <p className={`text-[11px] font-medium ${theme.textMuted}`}>{t('healthConnectionsSubtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button type="button" onClick={onOpenDayNote} className={chipClass}><StickyNote size={12} />{t('healthConnectionNotesChip')}</button>
@@ -94,11 +94,11 @@ export function HealthConnectionsPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 lg:grid-cols-3">
-        <div className={`rounded-xl border p-2.5 ${theme.border}`} data-k130a-related-notes>
-          <p className={`mb-1.5 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthRelatedNotes')}</p>
+      <div className={`mt-2 grid gap-2 border-t pt-2 ${theme.border} lg:grid-cols-3`}>
+        <div className="min-w-0" data-k130a-related-notes>
+          <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthRelatedNotes')}</p>
           {relatedNotes.length > 0 ? relatedNotes.map(({ note }) => (
-            <button key={note.id} type="button" onClick={() => onOpenNote(note.id)} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
+            <button key={note.id} type="button" onClick={() => onOpenNote(note.id)} className={`flex w-full items-center gap-1.5 rounded-lg py-1 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
               <FileText size={12} className="shrink-0" />
               <span className="truncate">{note.title || t('untitledNote')}</span>
             </button>
@@ -107,10 +107,10 @@ export function HealthConnectionsPanel({
           )}
         </div>
 
-        <div className={`rounded-xl border p-2.5 ${theme.border}`} data-k130a-schedule-connections>
-          <p className={`mb-1.5 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthLinkedSchedule')}</p>
+        <div className="min-w-0" data-k130a-schedule-connections>
+          <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthLinkedSchedule')}</p>
           {[...linkedSchedules.map(s => `${s.start_time}-${s.end_time} ${s.text}`), ...linkedWeekly.map(s => `${s.start_time}-${s.end_time} ${s.title}`)].slice(0, 3).map(item => (
-            <button key={item} type="button" onClick={onOpenSchedule} className={`block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
+            <button key={item} type="button" onClick={onOpenSchedule} className={`block w-full truncate rounded-lg py-1 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
               {item}
             </button>
           ))}
@@ -119,10 +119,10 @@ export function HealthConnectionsPanel({
           ) : null}
         </div>
 
-        <div className={`rounded-xl border p-2.5 ${theme.border}`} data-k130a-archive-awareness>
-          <p className={`mb-1.5 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthArchiveAwareness')}</p>
+        <div className="min-w-0" data-k130a-archive-awareness>
+          <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>{t('healthArchiveAwareness')}</p>
           {previousSessions.length > 0 ? previousSessions.map(row => (
-            <button key={`${row.date}-${row.block_id}`} type="button" onClick={onOpenArchive} className={`block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
+            <button key={`${row.date}-${row.block_id}`} type="button" onClick={onOpenArchive} className={`block w-full truncate rounded-lg py-1 text-left text-xs font-bold hover:bg-muted/40 ${theme.text}`}>
               {compactDate(row.date ?? '')} - {row.exercise_blocks?.name}
             </button>
           )) : (
