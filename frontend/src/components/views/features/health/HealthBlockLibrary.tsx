@@ -1,5 +1,5 @@
-import { memo, useMemo, useRef } from 'react';
-import { Plus, Dumbbell } from 'lucide-react';
+import { memo, useMemo, useRef, useState } from 'react';
+import { Plus, Dumbbell, Search } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
@@ -21,6 +21,13 @@ export interface HealthBlockLibraryProps {
   onDeleteBlock: (id: string, e: React.MouseEvent) => void;
   onNewBlock: () => void;
   mobileVisible: boolean;
+  quickCaptureMeta?: ReadonlyMap<string, HealthBlockQuickCaptureMeta>;
+}
+
+export interface HealthBlockQuickCaptureMeta {
+  lastDate: string;
+  summary: string;
+  recentRank: number;
 }
 
 interface FlatBlockRow {
@@ -69,21 +76,44 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
   onDeleteBlock,
   onNewBlock,
   mobileVisible,
+  quickCaptureMeta,
 }: HealthBlockLibraryProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState('');
 
   const allTags = useMemo(
     () => Array.from(new Set(blocks.flatMap(b => b.tags ?? []))),
     [blocks],
   );
 
-  const flatRows = useMemo(
-    () => buildFlatRows(blocks, activeTagFilter, t('other')),
-    [blocks, activeTagFilter, t],
+  const rankedBlocks = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return [...blocks]
+      .filter(block => {
+        if (!q) return true;
+        const haystack = [block.name, ...(block.tags ?? [])].join(' ').toLowerCase();
+        return haystack.includes(q);
+      })
+      .sort((a, b) => {
+        const ar = quickCaptureMeta?.get(a.id)?.recentRank ?? Number.MAX_SAFE_INTEGER;
+        const br = quickCaptureMeta?.get(b.id)?.recentRank ?? Number.MAX_SAFE_INTEGER;
+        if (ar !== br) return ar - br;
+        return a.name.localeCompare(b.name);
+      });
+  }, [blocks, query, quickCaptureMeta]);
+
+  const recentBlocks = useMemo(
+    () => rankedBlocks.filter(block => quickCaptureMeta?.has(block.id)).slice(0, 5),
+    [rankedBlocks, quickCaptureMeta],
   );
 
-  const useVirtual = blocks.length >= VIRTUALIZE_THRESHOLD;
+  const flatRows = useMemo(
+    () => buildFlatRows(rankedBlocks, activeTagFilter, t('other')),
+    [rankedBlocks, activeTagFilter, t],
+  );
+
+  const useVirtual = rankedBlocks.length >= VIRTUALIZE_THRESHOLD;
   const virtualizer = useVirtualizer({
     count: useVirtual ? flatRows.length : 0,
     getScrollElement: () => scrollRef.current,
@@ -95,6 +125,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
     <WorkoutBlockCard
       block={block}
       theme={theme}
+      meta={quickCaptureMeta?.get(block.id)}
       onAdd={() => void onAddToToday(block)}
       onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
       onDelete={e => onDeleteBlock(block.id, e)}
@@ -113,6 +144,39 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
           <Plus size={16} />
         </button>
       </div>
+
+      <label className={`mb-2 flex items-center gap-2 rounded-xl px-3 py-2 border ${theme.border} ${theme.input}`} data-k129d-health-block-search>
+        <Search size={14} className={theme.textMuted} />
+        <input
+          type="search"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={t('healthExerciseSearchPlaceholder')}
+          className="min-w-0 flex-1 bg-transparent outline-none text-sm font-semibold"
+        />
+      </label>
+
+      {recentBlocks.length > 0 && !activeTagFilter && (
+        <div className="mb-2 shrink-0" data-k129d-recent-exercise-suggestions>
+          <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>
+            {t('healthRecentExercises')}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {recentBlocks.map(block => (
+              <WorkoutBlockCard
+                key={`recent-${block.id}`}
+                block={block}
+                theme={theme}
+                compact
+                meta={quickCaptureMeta?.get(block.id)}
+                onAdd={() => void onAddToToday(block)}
+                onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
+                onDelete={e => onDeleteBlock(block.id, e)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2 shrink-0">
@@ -146,6 +210,12 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
           dataHook="health-blocks-empty"
           primaryAction={{ label: t('k99EmptyHealthBlocksAction'), onClick: onNewBlock }}
         />
+      )}
+
+      {blocks.length > 0 && rankedBlocks.length === 0 && (
+        <p className={`py-4 text-center text-xs font-semibold ${theme.textMuted}`}>
+          {t('healthExerciseSearchEmpty')}
+        </p>
       )}
 
       <div ref={scrollRef} className="overflow-y-auto min-h-0 pr-1 pb-1 flex-1">
