@@ -93,6 +93,8 @@ export const HealthView = ({
   const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
   const [highlightInbodyQuick, setHighlightInbodyQuick] = useState(false);
   const inbodyQuickRef = useRef<HTMLDivElement>(null);
+  const latestWorkoutRecordRef = useRef<HTMLDivElement>(null);
+  const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
@@ -441,6 +443,7 @@ export const HealthView = ({
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
     const prevSets = await fetchPrevForBlock(block.id);
     setIsDirty(true);
+    pendingLatestWorkoutIndexRef.current = localWorkouts.length;
     setLocalWorkouts([...localWorkouts, {
       id: `temp-${Date.now()}`,
       block_id: block.id,
@@ -454,6 +457,7 @@ export const HealthView = ({
   const handleAddSessionBreak = (labelKey: typeof SESSION_KEYS[number]) => {
     const label = t(labelKey);
     setIsDirty(true);
+    pendingLatestWorkoutIndexRef.current = localWorkouts.length;
     setLocalWorkouts(prev => [...prev, {
       id: `session-${Date.now()}`,
       block_id: '__session__',
@@ -479,6 +483,7 @@ export const HealthView = ({
   const handleAddSet = (wIdx: number, asDropset = false) => {
     if (isWorkoutLocked) return;
     setIsDirty(true);
+    pendingLatestWorkoutIndexRef.current = wIdx;
     setLocalWorkouts(prev => {
       const next = [...prev];
       const w = { ...next[wIdx] };
@@ -690,6 +695,24 @@ export const HealthView = ({
 
   const workoutDates = healthProjection.workoutDates;
 
+  const workoutSessionSummary = useMemo(() => {
+    const exerciseCount = localWorkouts.filter(w => w.block_id !== '__session__').length;
+    const setCount = localWorkouts.reduce((total, w) => total + (w.block_id === '__session__' ? 0 : w.sets.length), 0);
+    const doneCount = localWorkouts.reduce(
+      (total, w) => total + (w.block_id === '__session__' ? 0 : w.sets.filter(s => s.done).length),
+      0,
+    );
+    return { exerciseCount, setCount, doneCount };
+  }, [localWorkouts]);
+
+  useEffect(() => {
+    if (pendingLatestWorkoutIndexRef.current === null) return;
+    requestAnimationFrame(() => {
+      latestWorkoutRecordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      pendingLatestWorkoutIndexRef.current = null;
+    });
+  }, [localWorkouts]);
+
   const prBadgeMap = useMemo(() => {
     const toDisplay = (kg: number, blockId: string) => parseFloat(displayKg(kg, blockId) || '0');
     return computeWorkoutPrBadgeMap(localWorkouts, prevData, toDisplay, getUnit);
@@ -887,12 +910,29 @@ export const HealthView = ({
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
         <>
-          <div className={`flex justify-between items-center mb-3 border-b pb-3 ${theme.border}`}>
-            <div>
-              <h2 className="font-heading text-xl font-bold">{t('todayWorkout')}</h2>
-              <p className={`text-xs font-medium mt-0.5 ${theme.textMuted}`}>
+          <div className={`sticky top-0 z-20 -mx-1 px-1 pt-0 pb-3 mb-3 border-b backdrop-blur ${theme.border} ${theme.card}`} data-k129c-session-header>
+            <div className="flex justify-between items-start gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-heading text-xl font-bold">{t('todayWorkout')}</h2>
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${isWorkoutLocked ? (appSettings.darkMode ? 'bg-green-900/40 text-green-300' : 'bg-green-50 text-green-700') : (appSettings.darkMode ? 'bg-blue-900/35 text-blue-300' : 'bg-blue-50 text-blue-700')}`}>
+                  {isWorkoutLocked ? t('healthSessionSaved') : t('healthSessionActive')}
+                </span>
+              </div>
+              <p className={`text-xs font-medium mt-1 ${theme.textMuted}`}>
                 {formatLongDate(selectedDate, lang)}
               </p>
+              <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold ${theme.textMuted}`} data-k129c-session-summary>
+                <span className={`rounded-lg px-2 py-1 ${appSettings.darkMode ? 'bg-surface-alt' : 'bg-gray-100'}`}>
+                  {t('healthSessionExerciseCount').replace('{count}', String(workoutSessionSummary.exerciseCount))}
+                </span>
+                <span className={`rounded-lg px-2 py-1 ${appSettings.darkMode ? 'bg-surface-alt' : 'bg-gray-100'}`}>
+                  {t('healthSessionSetCount').replace('{count}', String(workoutSessionSummary.setCount))}
+                </span>
+                <span className={`rounded-lg px-2 py-1 ${appSettings.darkMode ? 'bg-surface-alt' : 'bg-gray-100'}`}>
+                  {t('healthSessionDoneCount').replace('{count}', String(workoutSessionSummary.doneCount))}
+                </span>
+              </div>
             </div>
             {!isWorkoutLocked && (
               <div className="flex items-center gap-2 shrink-0">
@@ -916,29 +956,32 @@ export const HealthView = ({
                 </select>
               </div>
             )}
+            </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-1 pr-1" data-k129b-workout-records-scroll>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
-              <div data-k121-empty-state="health-workouts">
+              <div className={`rounded-2xl border border-dashed px-4 py-8 ${theme.border}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty>
               <ProductEmptyState
                 variant="tailwind"
                 theme={theme}
                 icon={Dumbbell}
                 title={t('noWorkoutsEmpty')}
-                description={t('k99EmptyHealthWorkoutsDesc')}
+                description={t('healthWorkoutEmptyPolishDesc')}
                 dataHook="health-workouts-empty"
                 primaryAction={{ label: t('k99EmptyHealthWorkoutsAction'), onClick: () => setMobileHealthTab('blocks') }}
               />
               </div>
             )}
             {localWorkouts.map((w: Workout, wIdx: number) => {
+              const isLatestTarget = pendingLatestWorkoutIndexRef.current === wIdx;
 
               /* ── 세션 구분선 렌더링 ── */
               if (w.block_id === '__session__') {
                 return (
                   <div
                     key={w.id}
+                    ref={isLatestTarget ? latestWorkoutRecordRef : undefined}
                     data-workout-index={wIdx}
                     draggable={!isWorkoutLocked}
                     onDragStart={e => handleDragStart(e, wIdx)}
@@ -948,12 +991,13 @@ export const HealthView = ({
                     onTouchStart={e => handleTouchStart(e, wIdx)}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleDragEnd}
-                    className="flex items-center gap-2 py-1 select-none">
+                    className="flex items-center gap-3 py-2 select-none"
+                    data-k129c-session-divider>
                     {!isWorkoutLocked && (
                       <GripVertical size={15} className={`shrink-0 cursor-grab active:cursor-grabbing ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'}`}/>
                     )}
                     <div className={`flex-1 h-px ${appSettings.darkMode ? 'bg-gray-700' : 'bg-gray-200'}`}/>
-                    <span className={`text-[11px] font-black tracking-widest px-3 py-1 rounded-full shrink-0
+                    <span className={`text-[11px] font-black tracking-widest px-3 py-1.5 rounded-full shrink-0 border ${theme.border}
                       ${appSettings.darkMode ? 'bg-surface text-gray-400' : 'bg-gray-100 text-gray-400'}`}>
                       {w.exercise_blocks?.name}
                     </span>
@@ -973,6 +1017,7 @@ export const HealthView = ({
               return (
                 <div
                 key={w.id}
+                ref={isLatestTarget ? latestWorkoutRecordRef : undefined}
                 data-workout-index={wIdx}
                 draggable={!isWorkoutLocked}
                 onDragStart={e => handleDragStart(e, wIdx)}
@@ -982,12 +1027,13 @@ export const HealthView = ({
                 onTouchStart={e => handleTouchStart(e, wIdx)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleDragEnd}
-                className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
+                className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
                   dragOverIndex === wIdx && dragIndex !== wIdx
                     ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
                     : ''
                 } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 data-k126-workout-exercise-card
+                data-k129c-exercise-card
               >
                 {!isWorkoutLocked && (
                   isMobile ? (
@@ -1024,12 +1070,17 @@ export const HealthView = ({
                     </button>
                   )
                 )}
-                <div className="flex items-center gap-3 mb-4">
+                <div className={`flex items-center gap-3 mb-4 pb-3 border-b ${theme.border}`}>
                   {!isWorkoutLocked && (
                     <GripVertical size={18} className={`shrink-0 ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'} cursor-grab active:cursor-grabbing`}/>
                   )}
                   <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
-                  <h3 className="font-heading text-lg font-bold flex-1">{w.exercise_blocks?.name || 'Unknown'}</h3>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-heading text-lg font-bold truncate">{w.exercise_blocks?.name || 'Unknown'}</h3>
+                    <p className={`text-[11px] font-bold mt-0.5 ${theme.textMuted}`}>
+                      {t('healthExerciseSetSummary').replace('{count}', String(w.sets.length))}
+                    </p>
+                  </div>
                   <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
                 </div>
                 {/* 컬럼 헤더 — cardio */}
@@ -1064,11 +1115,11 @@ export const HealthView = ({
                     <div className="w-9 text-center shrink-0">✓</div>
                   </div>
                 )}
-                <div className="space-y-1.5">
+                <div className="space-y-2.5" data-k129c-set-group>
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
                     const isDS = isStrengthSet(s) && s.is_dropset;
                     return (
-                      <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-40' : ''}`}>
+                      <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>
                         {/* 드랍세트 구분선 */}
                         {isDS && (
                           <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
@@ -1077,8 +1128,11 @@ export const HealthView = ({
                             <div className="h-px flex-1 bg-orange-400/50"/>
                           </div>
                         )}
-                        <div className={`flex gap-1.5 px-2 py-2.5 items-center
-                          ${isDS ? 'bg-orange-400/10 border border-orange-400/30 rounded-xl' : theme.input}`}>
+                        <div
+                          ref={isLatestTarget && sIdx === w.sets.length - 1 ? latestWorkoutRecordRef : undefined}
+                          className={`flex gap-2 px-2.5 py-3 items-center border rounded-xl
+                          ${isDS ? 'bg-orange-400/10 border-orange-400/30' : `${theme.input} ${theme.border}`}`}
+                        >
 
                           {/* 세트 번호 — 탭하면 해당 세트 삭제 */}
                           <button
@@ -1159,7 +1213,7 @@ export const HealthView = ({
 
                 {/* Add Set / Drop Set 버튼 — 잠금 시 숨김 */}
                 {!isWorkoutLocked && (
-                  <div className="mt-3 flex gap-2">
+                  <div className={`sticky bottom-2 z-10 mt-4 flex gap-2 rounded-2xl border p-2 backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-exercise-controls>
                     <button onClick={() => handleAddSet(wIdx)}
                       className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-primary text-primary-foreground active:scale-[0.98] transition-all">
                       {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
@@ -1176,7 +1230,7 @@ export const HealthView = ({
             );
             })}
           </div>
-          <div className="shrink-0 pt-3">
+          <div className={`sticky bottom-0 z-30 shrink-0 pt-3 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
             {isWorkoutLocked ? (
               /* ── 잠금 상태: Saved 배너 + Edit 버튼만 표시 ── */
               <div className={`flex items-center justify-between gap-3 px-5 py-4 rounded-2xl border
