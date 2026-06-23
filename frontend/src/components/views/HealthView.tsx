@@ -19,7 +19,7 @@ import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
 import { useNotesStore } from '../../store/useNotesStore';
-import { openHealthDayNote } from '../../lib/noteNavigation';
+import { openHealthDayNote, openNote, openWorkspaceSearch, switchToTab } from '../../lib/noteNavigation';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
 import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock, HealthRoutine, Inbody, Theme,
          isCardioSet, isStrengthSet, makeDefaultSet, makeNextSet } from '../../types';
@@ -35,6 +35,7 @@ import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
 import { HealthInbodyQuickPanel } from './features/health/HealthInbodyQuickPanel';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
+import { HealthConnectionsPanel } from './features/health/HealthConnectionsPanel';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
@@ -51,6 +52,7 @@ import { fetcher } from '../../lib/fetcher';
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
+  schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS, isDailyLoading,
 }: HealthProps) => {
@@ -58,6 +60,7 @@ export const HealthView = ({
   const isMobile = useIsMobile();
   const createNote = useNotesStore(s => s.createNote);
   const updateNote = useNotesStore(s => s.updateNote);
+  const notes = useNotesStore(s => s.notes);
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -790,6 +793,24 @@ export const HealthView = ({
     ]);
   }, [formatDate, selectedDate, createNote, updateNote]);
 
+  const openHealthRelatedNote = useCallback((noteId: string) => {
+    openNote(noteId, {
+      returnTab: 'health',
+      breadcrumb: [
+        { type: 'key', key: 'healthNavOverview' },
+        { type: 'key', key: 'healthConnectionsTitle' },
+      ],
+    });
+  }, []);
+
+  const openHealthScheduleConnections = useCallback(() => {
+    switchToTab('planner');
+  }, []);
+
+  const openHealthArchiveConnections = useCallback(() => {
+    switchToTab('analytics');
+  }, []);
+
   const openWorkoutSessionNote = useCallback((dateLabel: string) => {
     openHealthDayNote(dateLabel, createNote, updateNote, [
       { type: 'key', key: 'healthNavWorkout' },
@@ -1022,6 +1043,22 @@ export const HealthView = ({
             )}
             </div>
           </div>
+
+          <HealthConnectionsPanel
+            dateLabel={selectedDateKey}
+            exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
+            notes={notes}
+            schedules={schedules}
+            weeklySchedules={weeklySchedules}
+            monthWorkouts={monthWorkoutRows}
+            theme={theme}
+            darkMode={appSettings.darkMode}
+            onOpenDayNote={() => openHealthDayLog('workout')}
+            onOpenNote={openHealthRelatedNote}
+            onOpenSchedule={openHealthScheduleConnections}
+            onOpenArchive={openHealthArchiveConnections}
+            onOpenSearch={openWorkspaceSearch}
+          />
 
           <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
