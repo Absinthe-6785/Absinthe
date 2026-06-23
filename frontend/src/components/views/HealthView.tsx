@@ -899,7 +899,7 @@ export const HealthView = ({
     <>
     <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k129b-health-overview>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[34%] lg:max-w-[420px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0" data-k129b-health-secondary>
+      <div className="lg:w-[31%] lg:max-w-[380px] lg:flex-none flex flex-col gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0" data-k129b-health-secondary>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -989,7 +989,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-[1.7] lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+      <div className={`lg:flex-[1.9] lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
         <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 lg:min-h-0 lg:max-h-full ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />

@@ -69,13 +69,13 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[auto_minmax(0,1fr)_auto] lg:flex-1 lg:max-h-[min(74vh,840px)]"
+      className="flex flex-col gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:flex-1 lg:max-h-[min(74vh,840px)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
     >
-      <div className="flex flex-col gap-2 min-h-0" data-k121-schedule-agenda>
+      <div className={`grid grid-cols-1 gap-2 min-h-0 ${hasRoutineToday ? 'lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]' : ''}`} data-k121-schedule-agenda>
         <section data-k117-schedule-section="today">
           <PlannerTodayPanel
             plannerProjection={plannerProjection}
@@ -117,6 +117,22 @@ export function MonthCalendarView({
         </section>
       </div>
 
+      <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
+        {showTimetableSection ? (
+          <section data-k117-schedule-section="timetable" data-k117-timetable-section>
+            <WeeklyTimetableSection
+              weeklySchedules={[...weeklySchedules]}
+              theme={theme}
+              appSettings={appSettings!}
+              THEME_COLORS={THEME_COLORS!}
+              mutateStatic={mutateStatic!}
+              showToast={showToast!}
+              sectionEmbedded
+            />
+          </section>
+        ) : null}
+      </div>
+
       <section
         data-k117-schedule-section="calendar"
         ref={monthRef as React.RefObject<HTMLElement>}
@@ -137,22 +153,6 @@ export function MonthCalendarView({
           />
         )}
       </section>
-
-      <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
-        {showTimetableSection ? (
-          <section data-k117-schedule-section="timetable" data-k117-timetable-section>
-            <WeeklyTimetableSection
-              weeklySchedules={[...weeklySchedules]}
-              theme={theme}
-              appSettings={appSettings!}
-              THEME_COLORS={THEME_COLORS!}
-              mutateStatic={mutateStatic!}
-              showToast={showToast!}
-              sectionEmbedded
-            />
-          </section>
-        ) : null}
-      </div>
     </div>
   );
 }

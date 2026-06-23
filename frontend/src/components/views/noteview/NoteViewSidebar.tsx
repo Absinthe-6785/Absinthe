@@ -509,12 +509,12 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 4,
-                    height: 28,
-                    minHeight: 28,
-                    minWidth: 28,
+                    gap: 5,
+                    height: 32,
+                    minHeight: 32,
+                    minWidth: 32,
                     padding: sidebarCollapsed ? '0 8px' : '0 10px',
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 700,
                     borderRadius: 6,
                     border: 'none',
@@ -525,7 +525,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     boxSizing: 'border-box',
                   }}
                 >
-                  <Plus size={12} strokeWidth={2.5}/>
+                  <Plus size={13} strokeWidth={2.5}/>
                   {!sidebarCollapsed && <span>{t('nvNewNoteBtn')}</span>}
                 </button>
               </div>

@@ -358,7 +358,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
 
   return (
     <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
-      {!isTrash && (
+      {!isTrash && activeNote && (
         <div
           data-k117-note-top-actions
           data-k121-notes-header-action-row
@@ -379,8 +379,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 36,
           }}
         >
-          {activeNote ? (
-            <NoteEditorHeaderActions
+          <NoteEditorHeaderActions
               layout="header-bar"
               colors={c}
               isTrash={isTrash}
@@ -435,8 +434,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onOpenAppearance={() => setShowAppearance(true)}
               onOpenHelp={setShowShortcuts ? () => setShowShortcuts(true) : undefined}
               onTrash={() => moveNoteToTrash(activeNote.id)}
-            />
-          ) : null}
+          />
         </div>
       )}
       {isTrash && activeNote ? (

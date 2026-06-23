@@ -17,9 +17,9 @@ export const SCHEDULE_SECTIONS: readonly {
 }[] = [
   { id: 'today', icon: Sun },
   { id: 'routine', icon: Clock },
+  { id: 'timetable', icon: CalendarDays },
   { id: 'calendar', icon: CalendarRange },
   { id: 'upcoming', icon: ListTodo },
-  { id: 'timetable', icon: CalendarDays },
 ];
 
 export function scrollToScheduleSection(id: ScheduleSectionId): void {
