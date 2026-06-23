@@ -222,7 +222,7 @@ export const PlannerView = ({
   }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
-    <div className={`flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner">
+    <div className={`flex-1 flex flex-col overflow-hidden lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-4 lg:pb-0 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner">
       <div className="shrink-0 px-0.5">
         <WorkspacePageHeader
           workspace="schedule"

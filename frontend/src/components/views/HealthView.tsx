@@ -866,20 +866,20 @@ export const HealthView = ({
       </div>
 
       <div
-        className={`flex-1 flex flex-col min-h-0 overflow-hidden ${UI_SPACING.scrollOverscroll}`}
+        className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain ${UI_SPACING.scrollOverscroll}`}
         data-k120-scroll-health
         onTouchStart={swipeHealthSection.onTouchStart}
         onTouchEnd={swipeHealthSection.onTouchEnd}
       >
 
       {healthSection === 'nutrition' && (
-        <div className="flex-1 min-h-0 overflow-y-auto pb-4">
+        <div className="flex-1 min-h-0 pb-4">
           <ProteinTracker mode="full" theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
         </div>
       )}
 
       {healthSection === 'analysis' && (
-        <div className="flex-1 min-h-0 overflow-hidden pb-4" data-k129b-health-analysis-view>
+        <div className="flex-1 min-h-0 pb-4" data-k129b-health-analysis-view>
           <div className="h-full max-w-[920px] mx-auto">
             <HealthAnalyticsPanel
               projection={healthProjection}
@@ -897,7 +897,7 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k129b-health-overview>
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k129b-health-overview>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="lg:w-[31%] lg:max-w-[380px] lg:flex-none flex flex-col gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0" data-k129b-health-secondary>
         {/* 모바일 전용 탭 헤더 */}
@@ -954,7 +954,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
+          <div className="flex-1 lg:overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -989,7 +989,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-[1.9] lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+      <div className={`lg:flex-[1.9] lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
         <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 lg:min-h-0 lg:max-h-full ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
@@ -1060,7 +1060,7 @@ export const HealthView = ({
             onOpenSearch={openWorkspaceSearch}
           />
 
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div className="flex-1 min-h-0 lg:overflow-y-auto space-y-4 pb-4 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
               <div className={`rounded-2xl border border-dashed px-4 py-8 ${theme.border}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty>
               <ProductEmptyState
@@ -1645,7 +1645,7 @@ export const HealthView = ({
               )}
 
               {/* 태그별 블록 목록 */}
-              <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              <div className="flex-1 lg:overflow-y-auto space-y-4 pr-1">
                 {assembleTagOrder.map(tag => (
                   <div key={tag}>
                     <p className={`text-[11px] font-black tracking-wider mb-2 ${theme.textMuted}`}>

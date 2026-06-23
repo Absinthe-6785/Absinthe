@@ -331,9 +331,9 @@ const translations = {
     ja: 'クラウドのプランナー・ワークアウトデータはローカルスナップショットとは別です。完全な保護のためサインインして定期的に同期してください。',
   },
   dataWarning_large_vault_no_backup: {
-    en: 'Your vault is large and has no snapshot yet. Consider exporting a manual backup from Data Management below.',
-    ko: '볼트가 크지만 스냅샷이 없습니다. 아래 데이터 관리에서 수동 백업을보내는 것을 권장합니다.',
-    ja: 'ボールトが大きいのにスナップショットがありません。下のデータ管理から手動バックアップのエクスポートを検討してください。',
+    en: 'Your vault is large and has no snapshot yet. Export a backup from Backup & Recovery.',
+    ko: '볼트가 크지만 스냅샷이 없습니다. 백업 및 복구에서 백업을보내세요.',
+    ja: 'ボールトが大きいのにスナップショットがありません。バックアップと復旧からバックアップをエクスポートしてください。',
   },
   dataWarning_snapshot_quota_failed: {
     en: 'The latest snapshot could not be validated. Storage may be full — try freeing browser space or export manually.',
@@ -604,6 +604,9 @@ const translations = {
   k126MoreAccount:             { en: 'Account', ko: '계정', ja: 'アカウント' },
   k126MoreBackup:              { en: 'Backup vault', ko: '보관함 백업', ja: 'ボールトバックアップ' },
   k126MoreAbout:               { en: 'About Absinthe', ko: 'Absinthe 정보', ja: 'Absintheについて' },
+  k132MoreDataSafety:          { en: 'Data Safety', ko: '데이터 안전', ja: 'データ保護' },
+  k132BackupRecovery:          { en: 'Backup & Recovery', ko: '백업 및 복구', ja: 'バックアップと復旧' },
+  k132BackupExportTitle:       { en: 'Export vault', ko: '볼트보내기', ja: 'ボールトをエクスポート' },
   k126AppVersion:              { en: 'Version {version}', ko: '버전 {version}', ja: 'バージョン {version}' },
   k126BuildInfo:               { en: 'Build: {mode}', ko: '빌드: {mode}', ja: 'ビルド: {mode}' },
   k110SectionRecipes:        { en: 'Recipes', ko: '레시피', ja: 'レシピ' },
@@ -2034,7 +2037,7 @@ const translations = {
 
   // ── K-100 product cohesion ────────────────────────────────────────
   k100SettingsGeneral:         { en: 'General', ko: '일반', ja: '一般' },
-  k100SettingsSubtitle:        { en: 'Language, theme, and planner defaults.', ko: '언어, 테마, 플래너 기본값.', ja: '言語、テーマ、プランナー既定値。' },
+  k100SettingsSubtitle:        { en: 'Language and appearance.', ko: '언어 및 표시.', ja: '言語と表示。' },
   k100Theme:                   { en: 'Theme', ko: '테마', ja: 'テーマ' },
   k100ThemeDesc:               { en: 'Light or dark appearance.', ko: '밝은/어두운 화면 모드.', ja: 'ライト/ダーク表示。' },
   k100ThemeLight:              { en: 'Light', ko: '라이트', ja: 'ライト' },

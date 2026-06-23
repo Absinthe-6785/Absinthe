@@ -3,7 +3,7 @@ import { auditSettingsCleanup, formatK103SettingsReport } from './k103SettingsAu
 
 describe('k103SettingsAudit', () => {
   it('covers settings sections', () => {
-    expect(auditSettingsCleanup()).toHaveLength(5);
+    expect(auditSettingsCleanup()).toHaveLength(4);
   });
 
   it('prints settings report', () => {
