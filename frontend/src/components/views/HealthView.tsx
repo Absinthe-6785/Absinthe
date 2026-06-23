@@ -95,6 +95,8 @@ export const HealthView = ({
   const inbodyQuickRef = useRef<HTMLDivElement>(null);
   const latestWorkoutRecordRef = useRef<HTMLDivElement>(null);
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
+  const quickCaptureInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
@@ -484,6 +486,7 @@ export const HealthView = ({
     if (isWorkoutLocked) return;
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = wIdx;
+    pendingFocusSetRef.current = { wIdx, sIdx: localWorkouts[wIdx]?.sets.length ?? 0 };
     setLocalWorkouts(prev => {
       const next = [...prev];
       const w = { ...next[wIdx] };
@@ -491,6 +494,25 @@ export const HealthView = ({
       const last = w.sets[w.sets.length - 1] ?? makeDefaultSet(w.exercise_blocks.type);
       w.sets = [...w.sets, makeNextSet(last, asDropset)];
       next[wIdx] = w;
+      return next;
+    });
+  };
+  const handleCompleteSetAndAdd = (wIdx: number, sIdx: number) => {
+    if (isWorkoutLocked) return;
+    setIsDirty(true);
+    pendingLatestWorkoutIndexRef.current = wIdx;
+    pendingFocusSetRef.current = { wIdx, sIdx: sIdx + 1 };
+    setLocalWorkouts(prev => {
+      const next = [...prev];
+      const w = { ...next[wIdx] };
+      const sets = [...w.sets];
+      const current = sets[sIdx];
+      if (!current) return prev;
+      sets[sIdx] = { ...current, done: true } as WorkoutSet;
+      if (sIdx === sets.length - 1) {
+        sets.push(makeNextSet(current, false));
+      }
+      next[wIdx] = { ...w, sets };
       return next;
     });
   };
@@ -695,6 +717,38 @@ export const HealthView = ({
 
   const workoutDates = healthProjection.workoutDates;
 
+  const blockQuickCaptureMeta = useMemo(() => {
+    const formatSetPreview = (sets: readonly WorkoutSet[] | undefined, blockId: string): string => {
+      const lastDone = [...(sets ?? [])].reverse().find(s => s.done) ?? [...(sets ?? [])].reverse()[0];
+      if (!lastDone) return '';
+      if (isStrengthSet(lastDone)) {
+        const reps = lastDone.reps !== '' ? String(lastDone.reps) : '-';
+        if (lastDone.type === 'bodyweight') return `${reps} reps`;
+        const weight = lastDone.kg !== '' ? displayKg(lastDone.kg, blockId) : '-';
+        return `${weight}${getUnit(blockId)} x ${reps}`;
+      }
+      if (isCardioSet(lastDone)) {
+        return [lastDone.time, lastDone.distance ? `${lastDone.distance}km` : ''].filter(Boolean).join(' · ');
+      }
+      return '';
+    };
+
+    const byBlock = new Map<string, { lastDate: string; summary: string; recentRank: number }>();
+    [...monthWorkoutRows]
+      .filter(row => row.block_id && row.date)
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .forEach((row, index) => {
+        const blockId = row.block_id;
+        if (!blockId || byBlock.has(blockId)) return;
+        byBlock.set(blockId, {
+          lastDate: row.date ?? '',
+          summary: formatSetPreview(row.sets, blockId),
+          recentRank: index,
+        });
+      });
+    return byBlock;
+  }, [monthWorkoutRows, weightUnits]);
+
   const workoutSessionSummary = useMemo(() => {
     const exerciseCount = localWorkouts.filter(w => w.block_id !== '__session__').length;
     const setCount = localWorkouts.reduce((total, w) => total + (w.block_id === '__session__' ? 0 : w.sets.length), 0);
@@ -710,6 +764,15 @@ export const HealthView = ({
     requestAnimationFrame(() => {
       latestWorkoutRecordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       pendingLatestWorkoutIndexRef.current = null;
+    });
+  }, [localWorkouts]);
+
+  useEffect(() => {
+    if (!pendingFocusSetRef.current) return;
+    requestAnimationFrame(() => {
+      quickCaptureInputRef.current?.focus({ preventScroll: true });
+      quickCaptureInputRef.current?.select();
+      pendingFocusSetRef.current = null;
     });
   }, [localWorkouts]);
 
@@ -840,6 +903,7 @@ export const HealthView = ({
           onDeleteBlock={handleDeleteBlock}
           onNewBlock={() => openBlockModal()}
           mobileVisible={mobileHealthTab === 'blocks'}
+          quickCaptureMeta={blockQuickCaptureMeta}
         />
 
         <div className={`lg:flex-1 ${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
@@ -1150,6 +1214,7 @@ export const HealthView = ({
                           {/* Strength 입력 (카드별 kg/lbs 단위 변환) */}
                           {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
                             <input type="number" inputMode="decimal" min="0"
+                              ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
                               step={getUnit(w.block_id) === 'lbs' ? '10' : '5'}
                               value={rawKgInput[`${wIdx}-${sIdx}`] ?? displayKg(s.kg, w.block_id)}
                               placeholder="—"
@@ -1169,6 +1234,7 @@ export const HealthView = ({
                           {/* Bodyweight / Strength reps */}
                           {isStrengthSet(s) && (
                             <input type="number" inputMode="numeric" min="0"
+                              ref={w.exercise_blocks?.type === 'bodyweight' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
                               value={s.reps} placeholder="—"
                               onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
                               className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
@@ -1181,6 +1247,7 @@ export const HealthView = ({
                               <>
                                 {(mode === 'time' || mode === 'both') && (
                                   <input type="text" inputMode="numeric"
+                                    ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
                                     value={s.time}
                                     placeholder="0:00"
                                     onChange={e => handleTimeInput(wIdx, sIdx, e.target.value)}
@@ -1189,6 +1256,7 @@ export const HealthView = ({
                                 )}
                                 {(mode === 'distance' || mode === 'both') && (
                                   <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
+                                    ref={mode === 'distance' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
                                     onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
                                     className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
                                 )}
@@ -1214,6 +1282,13 @@ export const HealthView = ({
                 {/* Add Set / Drop Set 버튼 — 잠금 시 숨김 */}
                 {!isWorkoutLocked && (
                   <div className={`sticky bottom-2 z-10 mt-4 flex gap-2 rounded-2xl border p-2 backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-exercise-controls>
+                    <button
+                      onClick={() => handleCompleteSetAndAdd(wIdx, Math.max(0, w.sets.length - 1))}
+                      disabled={w.sets.length === 0}
+                      className={`flex-1 text-sm font-bold py-2.5 rounded-xl active:scale-[0.98] transition-all ${appSettings.darkMode ? 'bg-surface-alt text-gray-100' : 'bg-gray-100 text-gray-700'} disabled:opacity-50`}
+                    >
+                      {t('healthDoneNextShort')}
+                    </button>
                     <button onClick={() => handleAddSet(wIdx)}
                       className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-primary text-primary-foreground active:scale-[0.98] transition-all">
                       {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
