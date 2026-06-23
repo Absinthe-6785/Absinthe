@@ -18,6 +18,7 @@ export interface HealthAnalyticsPanelProps {
   prefs: HealthSectionPrefs;
   onPrefsChange: (next: HealthSectionPrefs) => void;
   onOpenWorkoutNote?: (dateLabel: string) => void;
+  standalone?: boolean;
 }
 
 const HealthWeeklyChart = memo(function HealthWeeklyChart({
@@ -81,10 +82,11 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   prefs,
   onPrefsChange,
   onOpenWorkoutNote,
+  standalone = false,
 }: HealthAnalyticsPanelProps) {
   const { t } = useTranslation();
   const { ref, visible } = useElementVisible('80px');
-  const expanded = !prefs.analyticsCollapsed;
+  const expanded = standalone || !prefs.analyticsCollapsed;
   const chartsExpanded = expanded && !prefs.chartsCollapsed;
 
   const toggle = (key: keyof HealthSectionPrefs) => {
@@ -94,25 +96,31 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} transition-colors ${theme.card} shrink-0`}
+      className={`${standalone ? WORKSPACE_CARD.lg : WORKSPACE_CARD.sm} ${standalone ? 'p-4 lg:p-5 flex flex-col min-h-0 overflow-hidden' : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k126-health-analytics
+      data-k129b-health-analysis={standalone ? 'true' : undefined}
     >
-      <button
-        type="button"
-        onClick={() => toggle('analyticsCollapsed')}
-        className="w-full flex items-center justify-between gap-2 min-h-[44px]"
-      >
+      <div className="w-full flex items-center justify-between gap-2 min-h-[44px] shrink-0">
         <span className="font-heading text-sm font-bold flex items-center gap-1.5">
           <TrendingUp size={14} className="text-primary" />
           {t('k107HealthAnalytics')}
         </span>
-        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
+        {!standalone ? (
+          <button
+            type="button"
+            onClick={() => toggle('analyticsCollapsed')}
+            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl ${theme.textMuted} hover:text-foreground`}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        ) : null}
+      </div>
 
       {expanded && (
-        <div className="mt-2 space-y-2.5" data-k121-health-summary data-k126-health-summary>
+        <div className={`mt-2 space-y-2.5 ${standalone ? 'min-h-0 overflow-y-auto pr-1' : ''}`} data-k121-health-summary data-k126-health-summary>
           {!visible || loading ? (
             <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (

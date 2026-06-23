@@ -667,7 +667,7 @@ export const HealthView = ({
     { revalidateOnFocus: false },
   );
 
-  const analyticsExpanded = !healthSectionPrefs.analyticsCollapsed;
+  const shouldLoadAnalyticsRange = healthSection === 'analysis' || !healthSectionPrefs.analyticsCollapsed;
   const projectionRangeStart = useMemo(() => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 90);
@@ -675,7 +675,7 @@ export const HealthView = ({
   }, [selectedDate, formatDate]);
   const selectedDateKey = formatDate(selectedDate);
   const { data: analyticsRangeRows } = useSWR<RangeWorkoutRow[]>(
-    analyticsExpanded
+    shouldLoadAnalyticsRange
       ? `${API_URL}/api/workouts/range?start_date=${projectionRangeStart}&end_date=${selectedDateKey}`
       : null,
     fetcher,
@@ -683,10 +683,10 @@ export const HealthView = ({
   );
 
   const healthProjection = useMemo(() => buildHealthProjection({
-    rangeWorkouts: analyticsExpanded && analyticsRangeRows ? analyticsRangeRows : monthWorkoutRows,
+    rangeWorkouts: shouldLoadAnalyticsRange && analyticsRangeRows ? analyticsRangeRows : monthWorkoutRows,
     selectedDateKey,
     weightUnits,
-  }), [analyticsExpanded, analyticsRangeRows, monthWorkoutRows, selectedDateKey, weightUnits]);
+  }), [shouldLoadAnalyticsRange, analyticsRangeRows, monthWorkoutRows, selectedDateKey, weightUnits]);
 
   const workoutDates = healthProjection.workoutDates;
 
@@ -771,11 +771,28 @@ export const HealthView = ({
         </div>
       )}
 
+      {healthSection === 'analysis' && (
+        <div className="flex-1 min-h-0 overflow-hidden pb-4" data-k129b-health-analysis-view>
+          <div className="h-full max-w-[920px] mx-auto">
+            <HealthAnalyticsPanel
+              projection={healthProjection}
+              loading={!analyticsRangeRows}
+              theme={theme}
+              darkMode={appSettings.darkMode}
+              prefs={healthSectionPrefs}
+              onPrefsChange={updateHealthSectionPrefs}
+              onOpenWorkoutNote={openWorkoutSessionNote}
+              standalone
+            />
+          </div>
+        </div>
+      )}
+
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k129b-health-overview>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      <div className="lg:w-[34%] lg:max-w-[420px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0" data-k129b-health-secondary>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -864,8 +881,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+      <div className={`lg:flex-[1.7] lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 lg:min-h-0 lg:max-h-full ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -901,7 +918,7 @@ export const HealthView = ({
             )}
           </div>
 
-          <div className="space-y-3 pb-1 lg:space-y-3 lg:flex-1 lg:overflow-y-auto lg:min-h-0 lg:pr-1">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-1 pr-1" data-k129b-workout-records-scroll>
             {localWorkouts.length === 0 && (
               <div data-k121-empty-state="health-workouts">
               <ProductEmptyState
@@ -1242,16 +1259,6 @@ export const HealthView = ({
           onSaveInbody={handleSaveInbody}
           theme={theme}
           highlight={highlightInbodyQuick}
-        />
-
-        <HealthAnalyticsPanel
-          projection={healthProjection}
-          loading={analyticsExpanded && !analyticsRangeRows}
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          prefs={healthSectionPrefs}
-          onPrefsChange={updateHealthSectionPrefs}
-          onOpenWorkoutNote={openWorkoutSessionNote}
         />
 
         <HealthSupportingPanels
