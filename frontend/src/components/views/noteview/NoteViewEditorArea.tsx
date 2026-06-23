@@ -6,9 +6,9 @@ import { NoteBreadcrumbBar } from './NoteBreadcrumbBar';
 import { WorkspaceContextBanner } from './WorkspaceContextBanner';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import {
-  Type, Eye, Orbit, Plus, Search,
-  AlertTriangle, Save, GitFork, Upload,
-  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
+  Type, Plus,
+  AlertTriangle, Upload,
+  ChevronLeft, ChevronRight, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
 import { collectEditorSearchMatches } from '../editorSearch';
@@ -368,19 +368,20 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           data-k117-note-top-actions
           data-k121-notes-header-action-row
           data-k122-notes-header
+          data-k126c-notes-header
           className="bsticky-header"
           style={{
-            padding: isMobile ? '6px 10px' : '6px 12px',
+            padding: isMobile ? '4px 10px' : '4px 12px',
             borderBottom: `1px solid ${c.sideBdr}`,
             display: 'flex',
-            alignItems: 'stretch',
+            alignItems: 'center',
             justifyContent: 'flex-end',
-            gap: 8,
+            gap: UI_INTERACTION.toolbarActionGapPx,
             flexShrink: 0,
             background: c.toolbar,
             top: 0,
             zIndex: 5,
-            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 40,
+            minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 36,
           }}
         >
           <button
@@ -390,18 +391,19 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             data-k117-new-note-btn
             data-noteview-new-note-btn
             data-k121-notes-new
+            data-k126c-header-new-note
             className="btbtn"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 32,
+              minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : UI_INTERACTION.toolbarBtnSizePx,
               minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : undefined,
-              padding: '0 14px',
+              padding: isMobile ? '0 10px' : '0 12px',
               fontSize: 12,
               fontWeight: 700,
-              borderRadius: 8,
+              borderRadius: 6,
               border: 'none',
               background: c.accent,
               color: '#fff',
@@ -411,14 +413,114 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <Plus size={14} />
             {!isMobile ? t('nvNewNoteBtn') : null}
           </button>
+          {activeNote ? (
+            <NoteEditorHeaderActions
+              layout="header-bar"
+              colors={c}
+              isTrash={isTrash}
+              isMobile={isMobile}
+              showRightPanel={showRightPanel}
+              viewMode={viewMode}
+              viewModeButtons={VIEW_MODES}
+              starred={!!activeNote.starred}
+              docCopied={docCopied}
+              isEvent={isEventNote(activeNote)}
+              isMilestone={isMilestoneNote(activeNote)}
+              isArea={isAreaNote(activeNote)}
+              canMarkArea={canMarkAsArea(activeNote)}
+              onViewModeToggle={key => {
+                if (key === 'reading') {
+                  setViewMode(v => {
+                    const next = toggleEditReading(v);
+                    if (next === 'edit' && v === 'reading') scheduleEditorFocus(blockEditorRef);
+                    return next;
+                  });
+                } else {
+                  setViewMode(v => {
+                    const next = v === 'graph' ? 'edit' : 'graph';
+                    if (next === 'edit') scheduleEditorFocus(blockEditorRef);
+                    return next;
+                  });
+                }
+              }}
+              onOpenDocumentSearch={openDocumentSearch}
+              onMarkEvent={() => openEditEventDialog(activeNote)}
+              onMarkMilestone={() => openMilestoneDialog(activeNote)}
+              onToggleArea={handleToggleAreaNote}
+              isWeakTopic={isWeakTopic(activeNote)}
+              onToggleWeakTopic={() => {
+                const updated = setWeakTopic(activeNote, !isWeakTopic(activeNote));
+                noteUpdate(activeNote.id, { properties: updated.properties });
+              }}
+              onToggleStar={() => toggleStar(activeNote.id)}
+              onDuplicate={() => duplicateNote(activeNote)}
+              onTogglePanel={() => {
+                setShowRightPanel(v => {
+                  const opening = !v;
+                  if (opening && noteConnectionCount > 0) setRightPanel('links');
+                  return opening;
+                });
+              }}
+              onCopyDocument={() => void handleCopyDocument()}
+              onExport={() => exportNote(activeNote)}
+              onRestore={() => restoreNote(activeNote.id)}
+              onPermanentDelete={onPermanentDelete}
+              onOpenSettings={onOpenSettings}
+              onOpenAppearance={() => setShowAppearance(true)}
+              onOpenHelp={setShowShortcuts ? () => setShowShortcuts(true) : undefined}
+              onTrash={() => moveNoteToTrash(activeNote.id)}
+            />
+          ) : null}
         </div>
       )}
+      {isTrash && activeNote ? (
+        <div
+          style={{
+            padding: isMobile ? '4px 10px' : '4px 12px',
+            borderBottom: `1px solid ${c.sideBdr}`,
+            background: c.toolbar,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            minWidth: 0,
+          }}
+        >
+          <NoteEditorHeaderActions
+            layout="trash"
+            colors={c}
+            isTrash={isTrash}
+            isMobile={isMobile}
+            showRightPanel={showRightPanel}
+            viewMode={viewMode}
+            viewModeButtons={VIEW_MODES}
+            starred={!!activeNote.starred}
+            docCopied={docCopied}
+            isEvent={isEventNote(activeNote)}
+            isMilestone={isMilestoneNote(activeNote)}
+            isArea={isAreaNote(activeNote)}
+            canMarkArea={canMarkAsArea(activeNote)}
+            onViewModeToggle={() => {}}
+            onMarkEvent={() => openEditEventDialog(activeNote)}
+            onMarkMilestone={() => openMilestoneDialog(activeNote)}
+            onToggleArea={handleToggleAreaNote}
+            onToggleStar={() => toggleStar(activeNote.id)}
+            onDuplicate={() => duplicateNote(activeNote)}
+            onTogglePanel={() => setShowRightPanel(v => !v)}
+            onCopyDocument={() => void handleCopyDocument()}
+            onExport={() => exportNote(activeNote)}
+            onRestore={() => restoreNote(activeNote.id)}
+            onPermanentDelete={onPermanentDelete}
+            onTrash={() => moveNoteToTrash(activeNote.id)}
+          />
+        </div>
+      ) : null}
       {activeNote ? (
         <>
           {/* Note Header — title */}
           <div
             data-note-header-title-row
-            style={{ padding: isMobile ? '6px 10px' : '6px 13px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}
+            style={{ padding: isMobile ? '4px 10px' : '4px 12px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}
           >
             {isMobile ? (
               <>
@@ -503,7 +605,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <div
               data-note-header-metadata-row
               style={{
-                padding: '5px 13px',
+                padding: isMobile ? '3px 10px' : '3px 12px',
                 borderBottom: `1px solid ${c.sideBdr}`,
                 background: c.editor,
                 flexShrink: 0,
@@ -567,76 +669,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               />
             </div>
           )}
-          {/* Actions toolbar */}
-          <div
-            data-note-header-actions-row
-            style={{
-              padding: isMobile ? '4px 10px' : '4px 13px',
-              borderBottom: `1px solid ${c.sideBdr}`,
-              background: c.toolbar,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              minWidth: 0,
-            }}
-          >
-            <NoteEditorHeaderActions
-              colors={c}
-              isTrash={isTrash}
-              isMobile={isMobile}
-              showRightPanel={showRightPanel}
-              viewMode={viewMode}
-              viewModeButtons={VIEW_MODES}
-              starred={!!activeNote.starred}
-              docCopied={docCopied}
-              isEvent={isEventNote(activeNote)}
-              isMilestone={isMilestoneNote(activeNote)}
-              isArea={isAreaNote(activeNote)}
-              canMarkArea={canMarkAsArea(activeNote)}
-              onViewModeToggle={key => {
-                if (key === 'reading') {
-                  setViewMode(v => {
-                    const next = toggleEditReading(v);
-                    if (next === 'edit' && v === 'reading') scheduleEditorFocus(blockEditorRef);
-                    return next;
-                  });
-                } else {
-                  setViewMode(v => {
-                    const next = v === 'graph' ? 'edit' : 'graph';
-                    if (next === 'edit') scheduleEditorFocus(blockEditorRef);
-                    return next;
-                  });
-                }
-              }}
-              onOpenDocumentSearch={openDocumentSearch}
-              onMarkEvent={() => openEditEventDialog(activeNote)}
-              onMarkMilestone={() => openMilestoneDialog(activeNote)}
-              onToggleArea={handleToggleAreaNote}
-              isWeakTopic={isWeakTopic(activeNote)}
-              onToggleWeakTopic={() => {
-                const updated = setWeakTopic(activeNote, !isWeakTopic(activeNote));
-                noteUpdate(activeNote.id, { properties: updated.properties });
-              }}
-              onToggleStar={() => toggleStar(activeNote.id)}
-              onDuplicate={() => duplicateNote(activeNote)}
-              onTogglePanel={() => {
-                setShowRightPanel(v => {
-                  const opening = !v;
-                  if (opening && noteConnectionCount > 0) setRightPanel('links');
-                  return opening;
-                });
-              }}
-              onCopyDocument={() => void handleCopyDocument()}
-              onExport={() => exportNote(activeNote)}
-              onRestore={() => restoreNote(activeNote.id)}
-              onPermanentDelete={onPermanentDelete}
-              onOpenSettings={onOpenSettings}
-              onOpenAppearance={() => setShowAppearance(true)}
-              onOpenHelp={setShowShortcuts ? () => setShowShortcuts(true) : undefined}
-              onTrash={() => moveNoteToTrash(activeNote.id)}
-            />
-          </div>
           <NoteBreadcrumbBar
             colors={c}
             segments={breadcrumb}
@@ -657,7 +689,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             const visibleHeaderTags = headerTagsExpanded ? noteTags : noteTags.slice(0, MAX_INLINE_HEADER_TAGS);
             const hiddenTagCount = noteTags.length - visibleHeaderTags.length;
             return (
-            <div style={{ padding: '4px 13px 3px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
+            <div style={{ padding: '3px 12px 2px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0, minWidth: 0 }}>
               <TagChipRow>
                 {visibleHeaderTags.map(tag => (
                   <TagChip
@@ -707,7 +739,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             );
           })()}
           {!isTrash && activeNoteKind && activeNoteKind !== 'concept' && (
-            <div style={{ padding: '4px 13px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
+            <div style={{ padding: '3px 12px', borderBottom: `1px solid ${c.sideBdr}`, background: c.editor, flexShrink: 0 }}>
               <LiteratureWorkflowIndicator
                 colors={c}
                 kind={activeNoteKind}
@@ -757,30 +789,20 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 <div
                   className="be-editor-toolbar"
                   style={{
-                    padding: '6px 0',
+                    padding: '4px 0',
                     display: 'flex',
                     alignItems: 'center',
                     gap: EDITOR_TOOLBAR_GAP,
                     flexWrap: 'wrap',
-                    minHeight: METADATA_CHIP_HEIGHT + 10,
+                    minHeight: METADATA_CHIP_HEIGHT + 6,
                   }}
                 >
                   <span style={{ fontSize: 10, color: c.textMuted, display: 'flex', alignItems: 'center', gap: EDITOR_TOOLBAR_GAP, flexWrap: 'wrap', lineHeight: 1 }}>
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text, height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>/</kbd>
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 6, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', color: c.text, height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>/</kbd>
                     {t('editorToolbarSlash')} ·
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
-                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 4, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 6, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
+                    <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 6, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
-                  <button
-                    type="button"
-                    onClick={openDocumentSearch}
-                    className="be-editor-toolbar-btn"
-                    title={t('nvDocumentSearch')}
-                    data-k123-toolbar-find
-                    style={{ minWidth: isMobile ? UI_INTERACTION.touchTargetMinPx : 24, minHeight: isMobile ? UI_INTERACTION.touchTargetMinPx : 24 }}
-                  >
-                    <Search size={12} />
-                  </button>
                   <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={12}/>
                   </button>
@@ -974,7 +996,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             description={t('k101EmptyVaultDesc')}
             dataHook="vault-empty"
             primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
-            secondaryAction={onOpenTodaysNote ? { label: t('k101OpenTodaysNote'), onClick: onOpenTodaysNote } : undefined}
           >
             {onImportVault ? (
               <button
@@ -999,6 +1020,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             ) : null}
           </ProductEmptyState>
         ) : (
+          <div data-k126c-notes-empty>
           <ProductEmptyState
             variant="note-chrome"
             colors={c}
@@ -1007,8 +1029,8 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             description={t('k99EmptyNotesDesc')}
             dataHook="notes-editor-empty"
             primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
-            secondaryAction={{ label: t('nvScGraph'), onClick: () => setViewMode('graph') }}
           />
+          </div>
         )
       )}
     </main>

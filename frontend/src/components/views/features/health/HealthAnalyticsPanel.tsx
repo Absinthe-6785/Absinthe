@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import type { HealthProjection } from './buildHealthProjection';
 import type { Theme } from '../../../../types';
-import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { HealthVirtualList } from './HealthVirtualList';
@@ -29,7 +29,7 @@ const HealthWeeklyChart = memo(function HealthWeeklyChart({
 }) {
   const max = Math.max(1, ...points.map(p => p.value));
   return (
-    <div className="flex items-end gap-1 h-16" data-k107-health-weekly-chart>
+    <div className="flex items-end gap-1 h-12" data-k107-health-weekly-chart data-k126-health-chart>
       {points.map(p => (
         <div key={p.label} className="flex-1 flex flex-col items-center gap-0.5">
           <div
@@ -59,11 +59,11 @@ function CollapsibleSection({
   dataHook?: string;
 }) {
   return (
-    <div data-k121-health-collapsible={dataHook}>
+    <div data-k121-health-collapsible={dataHook} data-k126-health-subsection={dataHook}>
       <button
         type="button"
         onClick={onToggle}
-        className={`text-[11px] font-bold mb-1.5 flex items-center gap-1 min-h-[36px] ${theme.textMuted}`}
+        className={`text-[11px] font-bold mb-1 flex items-center gap-1 min-h-[36px] ${theme.textMuted}`}
       >
         {label}
         {!collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -94,9 +94,10 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${WORKSPACE_CARD.sm} rounded-[20px] lg:rounded-[24px] shadow-sm p-3 lg:p-4 transition-colors ${theme.card} shrink-0`}
+      className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} transition-colors ${theme.card} shrink-0`}
       data-k107-health-analytics
       data-k121-health-analytics
+      data-k126-health-analytics
     >
       <button
         type="button"
@@ -111,23 +112,19 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       </button>
 
       {expanded && (
-        <div className="mt-2 space-y-3" data-k121-health-summary>
+        <div className="mt-2 space-y-2.5" data-k121-health-summary data-k126-health-summary>
           {!visible || loading ? (
             <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (
             <>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className={`rounded-xl py-2 ${theme.input}`}>
+              <div className="grid grid-cols-2 gap-2 text-center" data-k126-health-summary-grid>
+                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WeeklySessions')}</p>
-                  <p className="text-lg font-black tabular-nums">{projection.weeklySessionCount}</p>
+                  <p className="text-base font-black tabular-nums">{projection.weeklySessionCount}</p>
                 </div>
-                <div className={`rounded-xl py-2 ${theme.input}`}>
+                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107MonthlySessions')}</p>
-                  <p className="text-lg font-black tabular-nums">{projection.monthlySessionCount}</p>
-                </div>
-                <div className={`rounded-xl py-2 ${theme.input}`}>
-                  <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WorkoutStreak')}</p>
-                  <p className="text-lg font-black tabular-nums">{projection.workoutStreakDays}</p>
+                  <p className="text-base font-black tabular-nums">{projection.monthlySessionCount}</p>
                 </div>
               </div>
 
@@ -135,7 +132,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                 <button
                   type="button"
                   onClick={() => toggle('chartsCollapsed')}
-                  className={`text-[11px] font-bold mb-1.5 flex items-center gap-1 ${theme.textMuted}`}
+                  className={`text-[11px] font-bold mb-1 flex items-center gap-1 min-h-[36px] ${theme.textMuted}`}
                   data-k107-health-charts-toggle
                 >
                   {t('k107Charts')}
@@ -173,42 +170,6 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
               </CollapsibleSection>
 
               <CollapsibleSection
-                label={t('k107RecentSessions')}
-                collapsed={prefs.recentSessionsCollapsed}
-                onToggle={() => toggle('recentSessionsCollapsed')}
-                theme={theme}
-                dataHook="recent-sessions"
-              >
-                <div className={K121_SKELETON_HEIGHT.analyticsRecent}>
-                  <HealthVirtualList
-                    items={projection.recentSessions}
-                    theme={theme}
-                    dataHook="recent-sessions"
-                    getKey={s => s.date}
-                    renderRow={s => (
-                      <div className="flex items-center gap-2 w-full min-h-[44px]">
-                        <span className="text-xs font-semibold truncate flex-1 flex justify-between gap-2">
-                          <span className="tabular-nums shrink-0">{s.date}</span>
-                          <span className="truncate opacity-70">{s.exercises.join(', ')}</span>
-                        </span>
-                        {onOpenWorkoutNote ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenWorkoutNote(s.date)}
-                            className="shrink-0 text-[10px] font-bold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px]"
-                            data-k113-cross-ref="health"
-                            data-k113-open-workout-note={s.date}
-                          >
-                            {t('k113OpenWorkoutNote')}
-                          </button>
-                        ) : null}
-                      </div>
-                    )}
-                  />
-                </div>
-              </CollapsibleSection>
-
-              <CollapsibleSection
                 label={t('k107ExerciseHistory')}
                 collapsed={prefs.exerciseHistoryCollapsed}
                 onToggle={() => toggle('exerciseHistoryCollapsed')}
@@ -222,10 +183,23 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
                     dataHook="exercise-history"
                     getKey={r => r.name}
                     renderRow={r => (
-                      <span className="text-xs font-semibold truncate w-full flex justify-between gap-2">
-                        <span className="truncate">{r.name}</span>
-                        <span className="tabular-nums shrink-0 opacity-70">{r.sessionCount}×</span>
-                      </span>
+                      <div className="flex items-center gap-2 w-full min-h-[40px] py-0.5">
+                        <span className="text-xs font-semibold truncate flex-1 flex justify-between gap-2">
+                          <span className="truncate">{r.name}</span>
+                          <span className="tabular-nums shrink-0 opacity-70">{r.sessionCount}×</span>
+                        </span>
+                        {onOpenWorkoutNote && r.lastDate ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenWorkoutNote(r.lastDate)}
+                            className="shrink-0 text-[10px] font-bold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 min-h-[44px]"
+                            data-k113-cross-ref="health"
+                            data-k113-open-workout-note={r.lastDate}
+                          >
+                            {t('k113OpenWorkoutNote')}
+                          </button>
+                        ) : null}
+                      </div>
                     )}
                   />
                 </div>

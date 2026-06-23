@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { interactionStateCss } from '../../../theme/k99InteractionTokens';
+import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 import { K99_SCROLL_PANE_CLASS, K99_STICKY_HEADER_CLASS } from '../../common/k99ScrollChrome';
 
 export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string {
@@ -53,7 +54,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btsummary:hover{background:${c.cardHov}}
     .btbody{padding:4px 0 4px 22px;border-left:2px solid ${c.textFaint};margin-left:10px}
     /* ── 에디터/UI ── */
-    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;min-width:40px;min-height:40px;border-radius:8px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+    .btbtn{background:none;border:none;color:${c.textMuted};cursor:pointer;padding:0;width:40px;height:40px;min-width:40px;min-height:40px;border-radius:${UI_INTERACTION.noteChromeBtnRadiusPx}px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
     .btbtn-sm{width:32px;height:32px;min-width:32px;min-height:32px;border-radius:6px}
     .btbtn-lg{width:48px;height:48px;min-width:48px;min-height:48px;border-radius:10px}
     .btbtn:hover{background:${c.cardHov};color:${c.accent}}
@@ -62,7 +63,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btbtn:disabled{opacity:.45;cursor:not-allowed}
     .be-context-chip-btn{background:none;cursor:pointer;font:inherit;transition:background .12s,color .12s,filter .12s}
     .be-context-chip-btn:hover{filter:brightness(1.06)}
-    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box}
     .be-editor-toolbar-btn:hover{background:${c.cardHov};color:${c.accent}}
     .be-editor-toolbar-btn:active{background:${c.accentBg}}
     .be-editor-toolbar-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}

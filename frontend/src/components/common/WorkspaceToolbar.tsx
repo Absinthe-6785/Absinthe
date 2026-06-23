@@ -1,6 +1,24 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
 import { UI_SPACING } from '@/lib/uiSpacingTokens';
+import { WORKSPACE_BTN_PRIMARY_CLASS } from './workspaceCardSizes';
+
+export { NOTE_CHROME_HEADER_BTN_RADIUS_PX } from '@/lib/uiInteractionTokens';
+
+export function noteChromeHeaderButtonStyle(isMobile: boolean): CSSProperties {
+  const size = isMobile ? UI_INTERACTION.touchTargetMinPx : UI_INTERACTION.toolbarBtnSizePx;
+  return {
+    width: size,
+    height: size,
+    minWidth: size,
+    padding: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    borderRadius: UI_INTERACTION.noteChromeBtnRadiusPx,
+  };
+}
 
 export interface WorkspaceToolbarProps {
   workspace: string;
@@ -60,8 +78,7 @@ export function WorkspaceToolbarPrimary({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center justify-center gap-1.5 w-full min-h-[44px] rounded-xl font-bold text-sm shadow-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 ${className}`}
-      style={{ minHeight: UI_INTERACTION.touchTargetMinPx }}
+      className={`${WORKSPACE_BTN_PRIMARY_CLASS} w-full ${UI_INTERACTION.focusRingClass} ${className}`}
       {...(dataHook ? { [dataHook]: 'true' } : {})}
       data-k119-toolbar-primary
     >
@@ -92,7 +109,7 @@ export function WorkspaceToolbarIconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`inline-flex items-center justify-center rounded-lg transition-colors hover:bg-muted/60 ${UI_INTERACTION.focusRingClass} ${active ? 'bg-muted' : ''} ${className}`}
+      className={`inline-flex items-center justify-center ${UI_INTERACTION.btnRadiusClass} transition-colors hover:bg-muted/60 ${UI_INTERACTION.focusRingClass} ${active ? 'bg-muted' : ''} ${className}`}
       style={{
         width: UI_INTERACTION.toolbarBtnSizePx,
         height: UI_INTERACTION.toolbarBtnSizePx,

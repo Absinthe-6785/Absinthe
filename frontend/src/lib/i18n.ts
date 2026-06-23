@@ -565,6 +565,25 @@ const translations = {
   // ── K-110 Recipe Studio ───────────────────────────────────────────
   k110StudioTitle:           { en: 'Recipe Studio', ko: '레시피 스튜디오', ja: 'レシピスタジオ' },
   k110StudioSubtitle:        { en: 'Your cookbook workspace', ko: '나만의 요리책 공간', ja: 'あなたの料理本ワークスペース' },
+  // ── K-125G global navigation & layout cohesion ───────────────────
+  k125HealthSubtitle:          { en: 'Workouts, nutrition, and progress.', ko: '운동, 영양, 기록을 한곳에서.', ja: 'ワークアウト・栄養・記録を一か所で。' },
+  k125ScheduleSubtitle:        { en: 'Calendar, agenda, and weekly routine.', ko: '캘린더, 일정, 주간 루틴.', ja: 'カレンダー・予定・週間ルーティン。' },
+  k125NotesSubtitle:           { en: 'Knowledge, writing, and discovery.', ko: '지식, 글쓰기, 탐색.', ja: '知識・執筆・探索。' },
+  k125ArchiveEmptyAction:      { en: 'Open discovery', ko: '탐색 열기', ja: 'ディスカバーを開く' },
+  // ── K-126A health analytics & mobile flow ────────────────────────
+  k126QuickInbody:             { en: 'Quick InBody', ko: '빠른 인바디', ja: 'クイックInBody' },
+  k126BlockActions:            { en: 'Block actions', ko: '블록 작업', ja: 'ブロック操作' },
+  k126WorkoutActions:          { en: 'Workout actions', ko: '운동 작업', ja: 'ワークアウト操作' },
+  // ── K-126B mobile More sheet ─────────────────────────────────────
+  k126MoreSheetTitle:          { en: 'More', ko: '더보기', ja: 'その他' },
+  k126MoreAppearance:          { en: 'Appearance', ko: '표시', ja: '表示' },
+  k126MoreVault:               { en: 'Vault', ko: '보관함', ja: 'ボールト' },
+  k126MoreApplication:         { en: 'Application', ko: '앱', ja: 'アプリ' },
+  k126MoreAccount:             { en: 'Account', ko: '계정', ja: 'アカウント' },
+  k126MoreBackup:              { en: 'Backup vault', ko: '보관함 백업', ja: 'ボールトバックアップ' },
+  k126MoreAbout:               { en: 'About Absinthe', ko: 'Absinthe 정보', ja: 'Absintheについて' },
+  k126AppVersion:              { en: 'Version {version}', ko: '버전 {version}', ja: 'バージョン {version}' },
+  k126BuildInfo:               { en: 'Build: {mode}', ko: '빌드: {mode}', ja: 'ビルド: {mode}' },
   k110SectionRecipes:        { en: 'Recipes', ko: '레시피', ja: 'レシピ' },
   k110SectionIngredients:    { en: 'Ingredients', ko: '재료', ja: '材料' },
   k110SectionHistory:        { en: 'Cooking history', ko: '요리 기록', ja: '調理履歴' },
