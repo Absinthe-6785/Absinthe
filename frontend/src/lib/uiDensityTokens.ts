@@ -1,4 +1,4 @@
-/** K-119 — density scale for cards, empty states, and sidebars. */
+/** K-119 / K-127 — density scale for cards, empty states, and sidebars. */
 export const UI_DENSITY = {
   emptyStatePaddingPx: 16,
   emptyStateGapPx: 8,
@@ -11,6 +11,8 @@ export const UI_DENSITY = {
   cardRadiusMobilePx: 20,
   cardRadiusDesktopPx: 24,
   sectionTitleFontPx: 18,
+  sectionLabelFontPx: 12,
+  bodyFontPx: 14,
   sidebarRowPaddingPx: 8,
   tableCellPaddingPx: 8,
   calloutPaddingPx: 12,

@@ -2,11 +2,14 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { X } from 'lucide-react';
+import { X, Calendar } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
+import { WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
@@ -219,7 +222,17 @@ export const PlannerView = ({
   }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0" data-workspace="planner">
+    <div className={`flex-1 flex flex-col overflow-y-auto lg:overflow-hidden pr-1 animate-in fade-in duration-300 pb-20 lg:pb-0 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner">
+      <div className="shrink-0 px-0.5">
+        <WorkspacePageHeader
+          workspace="schedule"
+          title={t('planner')}
+          subtitle={t('k125ScheduleSubtitle')}
+          icon={Calendar}
+          theme={theme}
+          dark={appSettings.darkMode}
+        />
+      </div>
       <PlannerStickyActions onNewEvent={() => openModal()}>
         <ScheduleSectionNav
           theme={theme}
@@ -249,7 +262,7 @@ export const PlannerView = ({
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
-          <div className={`rounded-[24px] lg:rounded-[28px] p-5 lg:p-6 w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+          <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px] ${theme.card}`} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-heading text-lg font-bold">{editingId ? t('editSchedule') : t('newSchedule')}</h3>
               <button onClick={() => setShowForm(false)} className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-full ${theme.hoverBg}`}><X size={18}/></button>

@@ -1,4 +1,5 @@
 import type { AppSettings, Theme } from '../../../../../types';
+import { WORKSPACE_CARD_SURFACE } from '../../../../common/workspaceCardSizes';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { switchToNotesTab } from '../../../../../lib/noteNavigation';
 import type { ArchiveMilestoneEntry } from '../../knowledge/archive';
@@ -21,7 +22,7 @@ export function ArchiveRecentMilestones({
 
   return (
     <section
-      className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
       data-archive-recent-milestones
       data-archive-recent-milestones-empty={isEmpty ? 'true' : 'false'}
       aria-label={t('archiveRecentMilestonesTitle')}

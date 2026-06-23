@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -10,7 +10,9 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
+import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../common/WorkspaceToolbar';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../lib/uiSpacingTokens';
 import { useTranslation } from '../../lib/i18n';
@@ -24,13 +26,14 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
-import { WORKSPACE_CARD } from '../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
+import { HealthInbodyQuickPanel } from './features/health/HealthInbodyQuickPanel';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
@@ -87,6 +90,9 @@ export const HealthView = ({
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
+  const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
+  const [highlightInbodyQuick, setHighlightInbodyQuick] = useState(false);
+  const inbodyQuickRef = useRef<HTMLDivElement>(null);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
@@ -568,12 +574,26 @@ export const HealthView = ({
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
+      if (isMobile) {
+        setHighlightInbodyQuick(true);
+        requestAnimationFrame(() => {
+          inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+        window.setTimeout(() => setHighlightInbodyQuick(false), 2400);
+      }
     } else if (failed < total) {
       localStorage.removeItem(draftKey);
       showToast(t('partialSave').replace('{done}', String(total - failed)).replace('{total}', String(total)), 'error');
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
+      if (isMobile) {
+        setHighlightInbodyQuick(true);
+        requestAnimationFrame(() => {
+          inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+        window.setTimeout(() => setHighlightInbodyQuick(false), 2400);
+      }
     } else {
       showToast(t('failedSave'), 'error');
     }
@@ -717,8 +737,16 @@ export const HealthView = ({
 
   return (
     <WorkspaceErrorBoundary workspace="health">
-    <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300" data-workspace="health">
-      <div className="shrink-0 mb-3 px-0.5">
+    <div className={`flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
+      <div className={`shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
+        <WorkspacePageHeader
+          workspace="health"
+          title={t('health')}
+          subtitle={t('k125HealthSubtitle')}
+          icon={Dumbbell}
+          theme={theme}
+          dark={appSettings.darkMode}
+        />
         <div className="hidden lg:block">
           <HealthWorkspaceNav active={healthSection} onChange={setHealthSection} theme={theme} />
         </div>
@@ -745,15 +773,15 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-3 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 overflow-y-auto lg:overflow-hidden pb-10 lg:pb-0 min-h-0">
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
+      <div className="lg:w-[48%] lg:max-w-[540px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0">
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
             <button key={tab}
               onClick={() => setMobileHealthTab(tab)}
-              className={`flex-1 min-h-[44px] py-2.5 rounded-2xl text-xs font-bold transition-colors
+              className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
@@ -774,7 +802,7 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'blocks'}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`}>
+        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -837,7 +865,7 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:flex-1 lg:min-w-0 flex flex-col gap-4 lg:gap-4 min-h-0 overflow-y-auto lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`}>
-        <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 ${WORKSPACE_CARD.workoutHero} ${theme.card}`}>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -937,16 +965,47 @@ export const HealthView = ({
                 onTouchStart={e => handleTouchStart(e, wIdx)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleDragEnd}
-                className={`border rounded-3xl p-5 relative group shadow-sm transition-all duration-150 ${theme.border} ${
+                className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
                   dragOverIndex === wIdx && dragIndex !== wIdx
                     ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
                     : ''
-                } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+                } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                data-k126-workout-exercise-card
+              >
                 {!isWorkoutLocked && (
-                  <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
-                    className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
-                    <Trash2 size={18}/>
-                  </button>
+                  isMobile ? (
+                    <div className="absolute top-3 right-3 z-10">
+                      <button
+                        type="button"
+                        aria-label={t('k126WorkoutActions')}
+                        onClick={e => { e.stopPropagation(); setWorkoutOverflowIndex(workoutOverflowIndex === wIdx ? null : wIdx); }}
+                        className={`inline-flex items-center justify-center rounded-lg p-2 ${theme.textMuted} hover:bg-muted/60`}
+                        style={{ minWidth: UI_INTERACTION.touchTargetMinPx, minHeight: UI_INTERACTION.touchTargetMinPx }}
+                        data-k126-workout-overflow-trigger
+                      >
+                        <MoreHorizontal size={18} />
+                      </button>
+                      {workoutOverflowIndex === wIdx ? (
+                        <div
+                          className={`absolute right-0 top-full mt-1 min-w-[120px] rounded-xl shadow-lg border p-1 z-20 ${theme.card} ${theme.border}`}
+                          data-k126-workout-overflow-menu
+                        >
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-red-500 hover:bg-red-500/10 min-h-[44px]"
+                            onClick={() => { setWorkoutOverflowIndex(null); handleRemoveWorkout(wIdx, w.id); }}
+                          >
+                            <Trash2 size={12} /> {t('delete')}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
+                      className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
+                      <Trash2 size={18}/>
+                    </button>
+                  )
                 )}
                 <div className="flex items-center gap-3 mb-4">
                   {!isWorkoutLocked && (
@@ -1175,6 +1234,16 @@ export const HealthView = ({
         )}
         </div>
 
+        <HealthInbodyQuickPanel
+          ref={inbodyQuickRef}
+          localInbody={localInbody}
+          setLocalInbody={setLocalInbody}
+          setIsInbodyDirty={setIsInbodyDirty}
+          onSaveInbody={handleSaveInbody}
+          theme={theme}
+          highlight={highlightInbodyQuick}
+        />
+
         <HealthAnalyticsPanel
           projection={healthProjection}
           loading={analyticsExpanded && !analyticsRangeRows}
@@ -1212,7 +1281,7 @@ export const HealthView = ({
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowBlockModal(false)}>
-          <div className={`p-6 lg:p-8 rounded-[32px] w-full max-w-[380px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()}>
+          <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px] ${theme.card}`} onClick={e => e.stopPropagation()}>
             <h3 className="font-heading text-xl font-bold mb-6 flex justify-between items-center">
               {editingBlock ? t('editBlock') : t('newBlockLabel')}
               <button onClick={() => setShowBlockModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
@@ -1310,7 +1379,7 @@ export const HealthView = ({
           a === 'OTHER' ? 1 : b === 'OTHER' ? -1 : a.localeCompare(b));
         return (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowAssembleModal(false)}>
-            <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[440px] shadow-2xl flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[440px] flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-5 shrink-0">
                 <div>
                   <h3 className="font-heading text-xl font-bold">{t('assembleTitle')} {activeDayForm}</h3>

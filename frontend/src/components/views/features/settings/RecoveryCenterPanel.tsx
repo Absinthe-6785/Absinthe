@@ -4,6 +4,7 @@ import { useTranslation } from '@/lib/i18n';
 import { formatStorageMegabytes } from '@/lib/vaultStorageMetrics';
 import type { useRecoveryCenter } from '@/hooks/useRecoveryCenter';
 import type { useVaultRestoreFlow } from '@/hooks/useVaultRestoreFlow';
+import { WORKSPACE_CARD_SURFACE } from '@/components/common/workspaceCardSizes';
 
 type RecoveryCenter = ReturnType<typeof useRecoveryCenter>;
 type VaultRestoreFlow = ReturnType<typeof useVaultRestoreFlow>;
@@ -71,7 +72,7 @@ export function RecoveryCenterPanel({
   };
 
   return (
-    <div className={`rounded-[24px] lg:rounded-[32px] shadow-sm p-6 lg:p-8 flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
+    <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`}>
       <h2 className="font-heading text-lg font-bold mb-6 flex items-center gap-2">
         <Archive size={20} className="text-primary" />
         {t('recoveryCenterTitle')}

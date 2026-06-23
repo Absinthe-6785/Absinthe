@@ -1,8 +1,9 @@
 import type { ElementType, ReactNode } from 'react';
 import type { Theme } from '../../types';
 import type { NoteChromeColors } from '../views/noteEditorTheme';
-import { TOUCH_TARGET_MIN_PX } from '../../lib/responsiveLayout';
+import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_DENSITY } from '../../lib/uiDensityTokens';
+import { WORKSPACE_BTN_PRIMARY_CLASS, WORKSPACE_BTN_SECONDARY_CLASS } from './workspaceCardSizes';
 
 export interface ProductEmptyAction {
   label: string;
@@ -23,7 +24,7 @@ export interface ProductEmptyStateProps {
   children?: ReactNode;
 }
 
-/** K-99 — friendly empty state with icon, copy, and primary CTA. */
+/** K-99 / K-127 — friendly empty state with icon, copy, and primary CTA. */
 export function ProductEmptyState({
   icon: Icon,
   title,
@@ -42,12 +43,12 @@ export function ProductEmptyState({
       background: c.accent,
       color: '#fff',
       border: 'none',
-      borderRadius: 10,
+      borderRadius: UI_INTERACTION.btnRadiusPx,
       padding: '8px 16px',
-      fontSize: 12,
+      fontSize: UI_DENSITY.sectionLabelFontPx,
       fontWeight: 700,
       cursor: 'pointer',
-      minHeight: TOUCH_TARGET_MIN_PX,
+      minHeight: UI_INTERACTION.touchTargetMinPx,
     } as const;
     const btnSecondary = {
       ...btnPrimary,
@@ -61,6 +62,7 @@ export function ProductEmptyState({
       <div
         role="status"
         data-product-empty={dataHook ?? true}
+        data-k127-empty-state
         {...(dataHook ? { [`data-${dataHook}`]: 'true' } : {})}
         style={{
           padding: UI_DENSITY.emptyStatePaddingPx,
@@ -78,7 +80,7 @@ export function ProductEmptyState({
           <p style={{ fontSize: UI_DENSITY.emptyStateDescFontPx, lineHeight: 1.5, margin: 0, maxWidth: UI_DENSITY.emptyStateDescMaxWidthPx }}>{description}</p>
         ) : null}
         {children}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 4 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: UI_INTERACTION.toolbarActionGapPx, justifyContent: 'center', marginTop: 4 }}>
           {primaryAction ? (
             <button type="button" className="bwbg k99-interactive" onClick={primaryAction.onClick} style={btnPrimary}>
               {primaryAction.label}
@@ -99,6 +101,7 @@ export function ProductEmptyState({
     <div
       role="status"
       data-product-empty={dataHook ?? true}
+      data-k127-empty-state
       {...(dataHook ? { [`data-${dataHook}`]: 'true' } : {})}
       className={`flex flex-col items-center justify-center h-full p-4 text-center ${muted}`}
       data-k119-empty-state
@@ -107,22 +110,14 @@ export function ProductEmptyState({
       <p className="text-sm font-semibold">{title}</p>
       {description ? <p className="text-xs opacity-80 mt-1 max-w-xs leading-relaxed">{description}</p> : null}
       {children}
-      <div className="flex flex-wrap gap-2 justify-center mt-3">
+      <div className={`flex flex-wrap gap-2 justify-center mt-3`}>
         {primaryAction ? (
-          <button
-            type="button"
-            onClick={primaryAction.onClick}
-            className="bg-primary text-primary-foreground font-bold rounded-xl px-4 py-2.5 text-sm min-h-[44px]"
-          >
+          <button type="button" onClick={primaryAction.onClick} className={`${WORKSPACE_BTN_PRIMARY_CLASS} px-4 py-2.5`}>
             {primaryAction.label}
           </button>
         ) : null}
         {secondaryAction ? (
-          <button
-            type="button"
-            onClick={secondaryAction.onClick}
-            className="border border-border rounded-xl px-4 py-2.5 text-sm font-semibold min-h-[44px] opacity-80 hover:opacity-100"
-          >
+          <button type="button" onClick={secondaryAction.onClick} className={`${WORKSPACE_BTN_SECONDARY_CLASS} px-4 py-2.5 opacity-80 hover:opacity-100`}>
             {secondaryAction.label}
           </button>
         ) : null}

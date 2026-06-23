@@ -1,11 +1,11 @@
-import { memo, useMemo } from 'react';
-import { Plus, X, Dumbbell } from 'lucide-react';
+import { memo, useMemo, useRef } from 'react';
+import { Plus, Dumbbell } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef } from 'react';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
-import { WORKSPACE_CARD } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
+import { WorkoutBlockCard } from './WorkoutBlockCard';
 
 const VIRTUALIZE_THRESHOLD = 48;
 const ROW_HEIGHT = 36;
@@ -29,46 +29,6 @@ interface FlatBlockRow {
   block?: ExerciseBlock;
   key: string;
 }
-
-const BlockCard = memo(function BlockCard({
-  b,
-  theme,
-  onAdd,
-  onEdit,
-  onDelete,
-}: {
-  b: ExerciseBlock;
-  theme: Theme;
-  onAdd: () => void;
-  onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <div
-      onClick={onAdd}
-      className={`group relative text-xs font-semibold px-2.5 py-2 rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <div className={`w-2 h-2 rounded-full shrink-0 ${b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500'}`} />
-        <span className="truncate">{b.name}</span>
-      </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all"
-      >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all"
-      >
-        <X size={10} />
-      </button>
-    </div>
-  );
-});
 
 function buildFlatRows(
   blocks: ExerciseBlock[],
@@ -131,10 +91,21 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
     overscan: 8,
   });
 
+  const renderBlock = (block: ExerciseBlock) => (
+    <WorkoutBlockCard
+      block={block}
+      theme={theme}
+      onAdd={() => void onAddToToday(block)}
+      onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
+      onDelete={e => onDeleteBlock(block.id, e)}
+    />
+  );
+
   return (
     <div
-      className={`${WORKSPACE_CARD.md} lg:max-h-[320px] min-h-0 rounded-[24px] lg:rounded-[28px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.md} lg:max-h-[320px] min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
+      data-k126-exercise-library
     >
       <div className="flex justify-between items-center mb-2">
         <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
@@ -196,13 +167,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
                       <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
                     </div>
                   ) : row.block ? (
-                    <BlockCard
-                      b={row.block}
-                      theme={theme}
-                      onAdd={() => void onAddToToday(row.block!)}
-                      onEdit={e => { e.stopPropagation(); onEditBlock(row.block!); }}
-                      onDelete={e => onDeleteBlock(row.block!.id, e)}
-                    />
+                    renderBlock(row.block)
                   ) : null}
                 </div>
               );
@@ -224,13 +189,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
               if (!row.block) return null;
               return (
                 <div key={row.key} className="flex flex-wrap gap-1.5">
-                  <BlockCard
-                    b={row.block}
-                    theme={theme}
-                    onAdd={() => void onAddToToday(row.block!)}
-                    onEdit={e => { e.stopPropagation(); onEditBlock(row.block!); }}
-                    onDelete={e => onDeleteBlock(row.block!.id, e)}
-                  />
+                  {renderBlock(row.block)}
                 </div>
               );
             })}
