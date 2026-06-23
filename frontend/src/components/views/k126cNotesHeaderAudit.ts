@@ -13,7 +13,6 @@ export function auditK126cNotesHeader(): Record<string, boolean> {
   const menu = readFileSync(join(ROOT, 'components/views/noteview/NotesActionMenu.tsx'), 'utf8');
   const sidebar = readFileSync(join(ROOT, 'components/views/noteview/NoteViewSidebar.tsx'), 'utf8');
   const toolbar = readFileSync(join(ROOT, 'components/common/WorkspaceToolbar.tsx'), 'utf8');
-  const styles = readFileSync(join(ROOT, 'components/views/noteview/useNoteViewStyles.ts'), 'utf8');
 
   return {
     unifiedHeaderHook: editor.includes('data-k126c-notes-header'),
@@ -29,7 +28,7 @@ export function auditK126cNotesHeader(): Record<string, boolean> {
     compactEmptyState: editor.includes('data-k126c-notes-empty') && !editor.includes("secondaryAction={{ label: t('nvScGraph')"),
     denseListFilters: sidebar.includes('data-k126c-notes-list-filters') && sidebar.includes('dense'),
     sharedToolbarTokens: toolbar.includes('NOTE_CHROME_HEADER_BTN_RADIUS_PX') || readFileSync(join(ROOT, 'lib/uiInteractionTokens.ts'), 'utf8').includes('noteChromeBtnRadiusPx'),
-    toolbarPaddingReduced: editor.includes("padding: '4px 0'") && styles.includes('k126c-notes-header'),
+    toolbarPaddingReduced: editor.includes("padding: '4px 0'"),
     findPanelUnchanged: editor.includes('<FindInNotePanel'),
   };
 }

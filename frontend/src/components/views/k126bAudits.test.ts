@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { auditK125eRc } from './k125eMobileMoreAudit';
 import { auditK125fRc } from './k125fSidebarNavAudit';
-import { auditK100SettingsSections } from './k100SettingsAudit';
-import { auditSettingsRc } from './k119SettingsAudit';
+import { auditK100SettingsSections, auditSettingsRc } from './k100SettingsAudit';
 
 describe('k126b mobile navigation & More sheet audits', () => {
   it('K-125E — mobile More sheet', () => {

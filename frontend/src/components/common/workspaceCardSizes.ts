@@ -8,8 +8,6 @@ export const WORKSPACE_CARD = {
   workoutHero: 'min-h-[280px] lg:min-h-0',
 } as const;
 
-export type WorkspaceCardSize = keyof typeof WORKSPACE_CARD;
-
 /** K-127 — canonical card radius (matches UI_DENSITY cardRadius*Px). */
 export const WORKSPACE_CARD_RADIUS_CLASS = 'rounded-[20px] lg:rounded-[24px]';
 

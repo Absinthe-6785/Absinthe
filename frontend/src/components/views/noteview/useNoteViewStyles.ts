@@ -141,8 +141,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bicon-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
     .bicon-btn.active{background:${c.accentBg};color:${c.accent}}
     .bicon-tooltip{position:absolute;left:42px;background:${c.card};border:1px solid ${c.sideBdr};color:${c.text};font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s;z-index:200;box-shadow:0 2px 8px #00000015}
-    .k126c-notes-header-action{align-items:center;display:inline-flex;gap:8px}
-    .k126c-notes-header-btn{border-radius:6px}
+    .bicon-btn:hover .bicon-tooltip{opacity:1}
   `;
 }
 
