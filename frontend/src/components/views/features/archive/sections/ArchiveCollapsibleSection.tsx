@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { WORKSPACE_CARD_SURFACE } from '../../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD_RADIUS_CLASS } from '../../../../common/workspaceCardSizes';
 
 export interface ArchiveCollapsibleSectionProps {
   sectionId: string;
@@ -28,7 +28,7 @@ export function ArchiveCollapsibleSection({
 }: ArchiveCollapsibleSectionProps) {
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_RADIUS_CLASS} shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-k109-archive-section={sectionId}
       data-k109-collapsed={collapsed ? 'true' : 'false'}
       {...(sectionId === 'browse' ? { 'data-archive-browse': true } : {})}

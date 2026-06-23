@@ -73,7 +73,7 @@ export function ArchiveSnapshotsSection({
 
   return (
     <section
-      className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-4 lg:p-5 flex flex-col transition-colors ${theme.card}`}
+      className={`rounded-[20px] lg:rounded-[24px] shadow-sm p-5 lg:p-6 flex flex-col transition-colors ${theme.card}`}
       data-k109-archive-section="snapshots"
       data-k109-collapsed={collapsed ? 'true' : 'false'}
     >
