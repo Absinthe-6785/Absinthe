@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Calendar, Dumbbell, Archive, Settings, Moon, Sun, LogOut, BookOpen, BookMarked, MoreHorizontal } from 'lucide-react';
+import { Calendar, Dumbbell, Archive, Settings, Moon, Sun, LogOut, BookOpen, BookMarked, MoreHorizontal, Home } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { resolveAppLanguage, getTranslator } from '../../lib/i18n';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { MobileMoreSheet, type SettingsSectionId } from './MobileMoreSheet';
 
 // AppContent 순환 참조 방지: TabId를 여기서 직접 정의
-export type TabId = 'planner' | 'health' | 'analytics' | 'settings' | 'note' | 'recipe';
+export type TabId = 'home' | 'planner' | 'health' | 'analytics' | 'settings' | 'note' | 'recipe';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -43,13 +43,19 @@ export const Sidebar = ({
   >
     {/* ── 주요 탭 ── */}
     <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
-      {(['note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {
+      {(['home', 'note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {
         const Icon =
+          tab === 'home'      ? Home :
           tab === 'planner'   ? Calendar :
           tab === 'health'    ? Dumbbell :
           tab === 'analytics' ? Archive :
           tab === 'recipe'    ? BookMarked : BookOpen;
-        const label = tab === 'planner' ? t('planner') : tab === 'health' ? t('health') : tab === 'analytics' ? t('analytics') : tab === 'note' ? t('note') : t('recipe');
+        const label =
+          tab === 'home' ? t('home') :
+          tab === 'planner' ? t('planner') :
+          tab === 'health' ? t('health') :
+          tab === 'analytics' ? t('analytics') :
+          tab === 'note' ? t('note') : t('recipe');
         const isActive = activeTab === tab;
         return (
           <button

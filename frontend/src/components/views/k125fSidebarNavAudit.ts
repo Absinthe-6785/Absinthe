@@ -1,5 +1,6 @@
 /**
  * K-125F — Sidebar mobile navigation audit (K-126B implementation).
+ * K-132A adds Home as the first primary workspace tab; legacy workspaces remain in the rail.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -15,7 +16,7 @@ export function auditK125fSidebarNavigation(): Record<string, boolean> {
     mobileMoreTrigger: sidebar.includes('data-k126-mobile-more-trigger'),
     mobileSidebarHook: sidebar.includes('data-k126-mobile-sidebar'),
     desktopUtilsHiddenOnMobile: sidebar.includes('hidden lg:flex') && sidebar.includes('flex lg:hidden'),
-    primaryTabsUnchanged: sidebar.includes("['note', 'health', 'analytics', 'planner', 'recipe']"),
+    primaryWorkspaceTabs: sidebar.includes("['home', 'note', 'health', 'analytics', 'planner', 'recipe']"),
     mobileMoreSheetWired: sidebar.includes('MobileMoreSheet'),
     settingsSectionNav: app.includes('openSettingsSection') && app.includes('settingsScrollTarget'),
     settingsScrollEffect: settings.includes('settingsScrollTarget') && settings.includes('scrollIntoView'),
