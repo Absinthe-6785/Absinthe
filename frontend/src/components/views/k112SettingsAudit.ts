@@ -1,18 +1,14 @@
 /** K-112 — Settings simplification audit. */
 export const K112_SETTINGS_SECTIONS = [
   'general',
-  'storage',
-  'recovery',
-  'export',
+  'data-safety',
   'danger',
 ] as const;
 
 export const K112_SETTINGS_HOOKS = [
   'data-settings-section',
   'data-settings-general',
-  'data-settings-storage',
-  'data-settings-recovery',
-  'data-settings-export',
+  'data-settings-data-safety',
   'data-settings-danger',
 ] as const;
 
@@ -23,8 +19,8 @@ export const K112_REMOVED_SETTINGS_ARTIFACTS = [
 ] as const;
 
 export const K112_SETTINGS_CANONICAL_PATHS = {
-  vaultExport: 'settings-export',
-  vaultRestore: 'settings-recovery',
+  vaultBackup: 'settings-data-safety',
+  vaultRestore: 'settings-data-safety',
   signOut: 'sidebar-sign-out',
   theme: 'settings-general-theme',
 } as const;

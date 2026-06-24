@@ -26,7 +26,7 @@ describe('k128 release preparation audits', () => {
   it('retains K-126B mobile navigation', () => {
     expect(auditK125eRc()).toBe(true);
     expect(auditK125fRc()).toBe(true);
-    expect(auditK100SettingsSections().length).toBe(4);
+    expect(auditK100SettingsSections()).toEqual(['general', 'data-safety', 'danger']);
     expect(auditSettingsRc()).toBe(true);
   });
 

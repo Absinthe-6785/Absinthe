@@ -3,8 +3,7 @@
  */
 export const K102_SETTINGS_SECTIONS = [
   'general',
-  'storage',
-  'recovery',
+  'data-safety',
   'danger',
 ] as const;
 
