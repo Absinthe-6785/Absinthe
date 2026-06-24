@@ -125,9 +125,9 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       data-k107-health-block-library
       data-k126-exercise-library
     >
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center gap-3 mb-2">
         <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
-        <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md min-h-[36px] min-w-[36px] inline-flex items-center justify-center">
+        <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-sm min-h-[36px] min-w-[36px] inline-flex items-center justify-center">
           <Plus size={16} />
         </button>
       </div>
@@ -148,7 +148,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
           <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>
             {t('healthRecentExercises')}
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-start gap-1.5">
             {recentBlocks.map(block => (
               <WorkoutBlockCard
                 key={`recent-${block.id}`}
@@ -166,11 +166,11 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       )}
 
       {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2 shrink-0">
+        <div className="flex flex-wrap items-start gap-1 mb-2 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTagFilter(null)}
-            className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
+            className={`max-w-full text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === null ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
           >
             {t('filterAll')}
           </button>
@@ -220,7 +220,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
             }
             if (!row.block) return null;
             return (
-              <div key={row.key} className="flex flex-wrap gap-1.5 overflow-visible px-0.5">
+              <div key={row.key} className="flex flex-wrap items-start gap-1.5 overflow-visible px-0.5">
                 {renderBlock(row.block)}
               </div>
             );

@@ -88,7 +88,7 @@ export function CalendarShell({
       className="w-full shrink-0 mb-3 lg:mb-4 min-h-0"
       primary={(
         <div
-          className={`touch-pan-y ${WORKSPACE_CARD.lg} pt-2 lg:pt-2.5`}
+          className={`touch-pan-y ${WORKSPACE_CARD.md} pt-2 lg:pt-2.5`}
           aria-label={t('plannerCalendarRegion')}
           data-planner-calendar-shell
           data-planner-calendar-mode="month"
