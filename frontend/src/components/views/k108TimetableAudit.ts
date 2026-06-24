@@ -2,7 +2,7 @@
 export const K108_TIMETABLE_HOOKS = [
   'data-k108-planner-routine-today',
   'data-k108-routine-slot',
-  'data-k104-timetable-summary',
+  'data-k117-timetable-section',
 ] as const;
 
 export function auditTimetableCohesion(): readonly string[] {
