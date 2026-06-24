@@ -24,8 +24,8 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
       health.includes('standalone'),
     workoutRecordsScroll:
       health.includes('data-k129b-workout-records-scroll') &&
-      health.includes('overflow-y-auto') &&
-      health.includes('lg:max-h-full'),
+      health.includes('data-k134b-health-natural-scroll') &&
+      !health.includes('lg:max-h-full'),
     inbodyQuickHook: readFileSync(join(ROOT, 'components/views/features/health/HealthInbodyQuickPanel.tsx'), 'utf8').includes('data-k126-inbody-quick'),
     scrollAfterSave: health.includes('inbodyQuickRef') && health.includes('scrollIntoView'),
   };

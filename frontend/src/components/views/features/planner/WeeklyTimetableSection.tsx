@@ -66,8 +66,9 @@ export function WeeklyTimetableSection({
   const hasActivities = weeklySchedules.length > 0;
   const inlineExpanded = standalone || sectionEmbedded;
   const [expanded, setExpanded] = useState(hasActivities || sectionEmbedded);
-  const showGrid = inlineExpanded ? !isMobile : expanded;
-  const showMobileList = (standalone || sectionEmbedded) && isMobile;
+  const showCompactList = sectionEmbedded || ((standalone || sectionEmbedded) && isMobile);
+  const showGrid = inlineExpanded ? !isMobile && !sectionEmbedded : expanded;
+  const showMobileList = showCompactList;
 
   const openWeeklyModal = (sch?: WeeklySchedule) => {
     setNewWeeklySch(sch ?? {
@@ -158,7 +159,7 @@ export function WeeklyTimetableSection({
       <section
         className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
           ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
-          ${showGrid || showMobileList ? (sectionEmbedded ? (hasActivities ? 'min-h-[140px]' : 'min-h-0') : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
+          ${showGrid || showMobileList ? (sectionEmbedded ? 'min-h-0' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
@@ -227,7 +228,7 @@ export function WeeklyTimetableSection({
         )}
 
         {showMobileList && (
-          <div className="flex flex-col gap-5" data-planner-weekly-timetable-mobile>
+          <div className={`${sectionEmbedded ? 'grid gap-2 lg:grid-cols-2 xl:grid-cols-3' : 'flex flex-col gap-5'}`} data-planner-weekly-timetable-mobile data-k134b-timetable-compact={sectionEmbedded ? 'true' : undefined}>
             {!hasActivities ? (
               <ProductEmptyState
                 variant="tailwind"
@@ -240,15 +241,15 @@ export function WeeklyTimetableSection({
               />
             ) : (
               mobileByDay.map(({ day, label, blocks }) => (
-                <div key={day} className="pb-3 border-b border-border/40 last:border-b-0" data-planner-weekly-day-group={day}>
-                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2.5 ${theme.textMuted}`} data-planner-weekly-day-label>{label}</h3>
-                  <ul className="flex flex-col gap-2">
+                <div key={day} className={`${sectionEmbedded ? `rounded-xl border p-2 ${theme.border}` : 'pb-3 border-b border-border/40 last:border-b-0'}`} data-planner-weekly-day-group={day}>
+                  <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`} data-planner-weekly-day-label>{label}</h3>
+                  <ul className="flex flex-col gap-1.5">
                     {blocks.map(block => (
                       <li key={block.id}>
                         <button
                           type="button"
                           onClick={() => openWeeklyModal(block)}
-                          className={`w-full text-left rounded-xl px-3 py-2.5 min-h-[44px] flex items-center justify-between gap-2 ${theme.input}`}
+                          className={`w-full text-left rounded-xl px-3 py-2 min-h-[40px] flex items-center justify-between gap-2 ${theme.input}`}
                           data-planner-weekly-mobile-block={block.id}
                         >
                           <span className="text-sm font-bold truncate">{block.title}</span>

@@ -33,8 +33,9 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
     compactEmptyTimetable: timetable.includes("min-h-[64px]")
       && timetable.includes('data-k124c-timetable-empty-compact')
       && !timetable.includes("!hasActivities && sectionEmbedded ? 'min-h-[120px]'"),
-    compactEmbeddedTimetable: timetable.includes("hasActivities ? 'min-h-[140px]'")
-      && timetable.includes("sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3'"),
+    compactEmbeddedTimetable: timetable.includes('data-k134b-timetable-compact')
+      && timetable.includes("sectionEmbedded ? 'min-h-0'")
+      && timetable.includes("sectionEmbedded ? 'grid gap-2 lg:grid-cols-2 xl:grid-cols-3'"),
   };
 }
 

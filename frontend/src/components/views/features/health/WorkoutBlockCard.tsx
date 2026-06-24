@@ -36,7 +36,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   return (
     <div
       onClick={onAdd}
-      className={`group relative isolate z-0 text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-2'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
+      className={`group relative isolate z-0 min-w-0 max-w-full text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-2'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >
@@ -96,14 +96,14 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
           <button
             type="button"
             onClick={onEdit}
-            className="absolute -top-1.5 -left-1.5 bg-blue-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className="absolute top-1 left-1 bg-blue-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
           >
             <Pencil size={10} />
           </button>
           <button
             type="button"
             onClick={onDelete}
-            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
           >
             <X size={10} />
           </button>

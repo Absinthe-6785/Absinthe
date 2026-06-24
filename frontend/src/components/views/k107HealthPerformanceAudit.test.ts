@@ -64,9 +64,9 @@ describe('k107 health lazy/calendar/chart/virtual audits', () => {
     expect(auditHealthChartLazyMount()).toContain('data-k107-health-weekly-chart');
   });
 
-  it('virtualization thresholds', () => {
+  it('list rendering modes', () => {
     expect(auditHealthVirtualization().length).toBe(4);
-    expect(auditHealthVirtualizationThresholds()['block-library']).toBe(48);
+    expect(auditHealthVirtualizationThresholds()['block-library']).toBe('natural');
   });
 });
 

@@ -1,14 +1,10 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Plus, Dumbbell, Search } from 'lucide-react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { WorkoutBlockCard } from './WorkoutBlockCard';
-
-const VIRTUALIZE_THRESHOLD = 48;
-const ROW_HEIGHT = 36;
 
 export interface HealthBlockLibraryProps {
   blocks: ExerciseBlock[];
@@ -79,7 +75,6 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
   quickCaptureMeta,
 }: HealthBlockLibraryProps) {
   const { t } = useTranslation();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
 
   const allTags = useMemo(
@@ -113,14 +108,6 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
     [rankedBlocks, activeTagFilter, t],
   );
 
-  const useVirtual = rankedBlocks.length >= VIRTUALIZE_THRESHOLD;
-  const virtualizer = useVirtualizer({
-    count: useVirtual ? flatRows.length : 0,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: i => (flatRows[i]?.kind === 'header' ? 28 : ROW_HEIGHT),
-    overscan: 8,
-  });
-
   const renderBlock = (block: ExerciseBlock) => (
     <WorkoutBlockCard
       block={block}
@@ -134,13 +121,13 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.md} lg:max-h-[320px] min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.sm} min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
       data-k126-exercise-library
     >
       <div className="flex justify-between items-center mb-2">
         <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
-        <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md">
+        <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-md min-h-[36px] min-w-[36px] inline-flex items-center justify-center">
           <Plus size={16} />
         </button>
       </div>
@@ -192,7 +179,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
               key={tag}
               type="button"
               onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
-              className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
+              className={`max-w-full truncate text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${activeTagFilter === tag ? 'bg-blue-500 text-white' : `${theme.input} ${theme.textMuted}`}`}
             >
               #{tag}
             </button>
@@ -218,53 +205,27 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
         </p>
       )}
 
-      <div ref={scrollRef} className="overflow-y-auto min-h-0 pr-1 pb-1 flex-1">
-        {useVirtual ? (
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map(vi => {
-              const row = flatRows[vi.index];
-              if (!row) return null;
+      <div className="min-h-0 pb-1 flex-1">
+        <div className="space-y-2">
+          {flatRows.map(row => {
+            if (row.kind === 'header') {
               return (
-                <div
-                  key={row.key}
-                  style={{ position: 'absolute', top: vi.start, left: 0, width: '100%' }}
-                >
-                  {row.kind === 'header' ? (
-                    <div className={`flex items-center gap-1.5 mb-1 mt-1`}>
-                      <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>
-                        {row.tag === t('other') ? t('other') : `#${row.tag?.toUpperCase()}`}
-                      </span>
-                      <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                    </div>
-                  ) : row.block ? (
-                    renderBlock(row.block)
-                  ) : null}
+                <div key={row.key} className="flex items-center gap-1.5 mb-1">
+                  <span className={`max-w-full truncate text-[11px] font-black tracking-wide ${theme.textMuted}`}>
+                    {row.tag === t('other') ? t('other') : `#${row.tag?.toUpperCase()}`}
+                  </span>
+                  <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
                 </div>
               );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {flatRows.map(row => {
-              if (row.kind === 'header') {
-                return (
-                  <div key={row.key} className="flex items-center gap-1.5 mb-1">
-                    <span className={`text-[11px] font-black tracking-wide ${theme.textMuted}`}>
-                      {row.tag === t('other') ? t('other') : `#${row.tag?.toUpperCase()}`}
-                    </span>
-                    <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                  </div>
-                );
-              }
-              if (!row.block) return null;
-              return (
-                <div key={row.key} className="flex flex-wrap gap-1.5">
-                  {renderBlock(row.block)}
-                </div>
-              );
-            })}
-          </div>
-        )}
+            }
+            if (!row.block) return null;
+            return (
+              <div key={row.key} className="flex flex-wrap gap-1.5 overflow-visible px-0.5">
+                {renderBlock(row.block)}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
