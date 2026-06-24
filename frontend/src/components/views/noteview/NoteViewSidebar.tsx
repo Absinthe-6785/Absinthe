@@ -981,26 +981,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                 >
                   <Search size={16} />
                 </button>
-                {!isTrash && (
-                  <button
-                    type="button"
-                    className="btbtn btbtn-mobile"
-                    onClick={() => { createNote(); if (isMobile) setMobileShowEditor(true); }}
-                    title={t('nvNewNoteBtn')}
-                    aria-label={t('nvNewNoteBtn')}
-                    data-noteview-new-note-btn
-                    style={{
-                      padding: '4px 8px',
-                      background: c.accent,
-                      border: 'none',
-                      borderRadius: 8,
-                      color: dark ? '#0F0F11' : '#fff',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Plus size={16} />
-                  </button>
-                )}
               </>
             )}
             {isMobile && (

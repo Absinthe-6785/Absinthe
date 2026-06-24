@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import {
-  Star, Copy, AlignLeft, Search, Trash2, RotateCcw,
+  Star, AlignLeft, Search, Trash2, RotateCcw,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -123,6 +123,7 @@ export function NoteEditorHeaderActions({
       onClick: onToggleWeakTopic,
       danger: isWeakTopic,
     }] : []),
+    { key: 'copy', label: docCopied ? t('nvCopied') : t('nvCopyDocument'), onClick: onCopyDocument },
     { key: 'duplicate', label: t('nvDuplicate'), onClick: onDuplicate },
     { key: 'trash', label: t('trash'), onClick: onTrash },
     { key: 'export', label: t('nvExportMd'), onClick: onExport },
@@ -216,16 +217,6 @@ export function NoteEditorHeaderActions({
         data-k126c-header-star
       >
         <Star size={14} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'} />
-      </button>
-
-      <button
-        onClick={() => void onCopyDocument()}
-        className="btbtn shrink-0"
-        title={docCopied ? t('nvCopied') : t('nvCopyDocument')}
-        style={{ ...iconBtnStyle, color: docCopied ? c.green : c.textMuted }}
-        data-k126c-header-copy
-      >
-        <Copy size={14} />
       </button>
 
       <button
