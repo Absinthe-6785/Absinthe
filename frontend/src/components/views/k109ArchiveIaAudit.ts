@@ -1,9 +1,9 @@
 /** K-109 — Archive information architecture audit. */
 export const K109_ARCHIVE_IA_SECTIONS = [
+  'timeline',
   'history',
   'deleted',
   'snapshots',
-  'timeline',
   'restore-tools',
 ] as const;
 

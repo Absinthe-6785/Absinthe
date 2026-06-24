@@ -1,6 +1,6 @@
 /** K-112 — Terminology normalization audit. */
 export const K112_TERMINOLOGY_MAP = {
-  'k109SectionHistory': 'Recent activity',
+  'k109SectionHistory': 'Recent history',
   'k101TimeLens': 'Timeline lens',
   'k111SearchTitle': 'Search',
   'k81WorkspaceSearchHint': 'Search (Ctrl+Shift+F)',
@@ -8,7 +8,7 @@ export const K112_TERMINOLOGY_MAP = {
   'nvWorkspaceSearchBtn': 'Search',
   'k110HomeRecentlyViewed': 'Recently viewed',
   'k110HomeRecentlyCooked': 'Recently cooked',
-  'k109SectionRestoreTools': 'Restore tools',
+  'k109SectionRestoreTools': 'Restore',
   'k110SectionCollections': 'Collections',
 } as const;
 

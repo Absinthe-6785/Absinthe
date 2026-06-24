@@ -43,17 +43,18 @@ export function ArchiveHistorySection({
       dark={appSettings.darkMode}
       isEmpty={history.isEmpty}
       emptyHint={t('k109EmptyHistory')}
+      tone="primary"
     >
-      <div className="space-y-4" data-k109-history-list>
+      <div className="space-y-3.5" data-k109-history-list>
         {history.groups.map(group => {
           const hasAny = group.opened.length + group.edited.length + group.restored.length > 0;
           if (!hasAny) return null;
           return (
             <div key={group.bucket} data-k109-history-group={group.bucket}>
-              <p className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${theme.textMuted}`}>
                 {t(BUCKET_LABEL_KEYS[group.bucket])}
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {(['opened', 'edited', 'restored'] as const).map(kind => {
                   const items = kind === 'opened' ? group.opened
                     : kind === 'edited' ? group.edited
@@ -64,7 +65,7 @@ export function ArchiveHistorySection({
                       <p className={`text-[10px] font-semibold mb-1 ${theme.textMuted}`}>
                         {t(KIND_LABEL_KEYS[kind])}
                       </p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-0.5">
                         {items.map(item => (
                           <li key={`${kind}-${item.noteId}`}>
                             <button
