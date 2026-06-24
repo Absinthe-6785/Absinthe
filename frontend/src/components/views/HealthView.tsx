@@ -879,7 +879,7 @@ export const HealthView = ({
 
       {healthSection === 'analysis' && (
         <div className="flex-1 min-h-0 pb-4" data-k129b-health-analysis-view>
-          <div className="h-full max-w-[840px] mx-auto">
+          <div className="max-w-[840px] mx-auto">
             <HealthAnalyticsPanel
               projection={healthProjection}
               loading={!analyticsRangeRows}
@@ -896,9 +896,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 lg:overflow-hidden pb-8 lg:pb-0 min-h-0" data-k129b-health-overview data-k134a-health-flow>
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[28%] lg:max-w-[340px] lg:flex-none flex flex-col gap-2.5 shrink-0 lg:overflow-y-auto lg:pb-3 min-h-0" data-k129b-health-secondary>
+      <div className="lg:w-[28%] lg:max-w-[340px] lg:flex-none flex flex-col gap-2.5 shrink-0 lg:pb-3 min-h-0" data-k129b-health-secondary>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -953,7 +953,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="flex-1 lg:overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -988,8 +988,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-[2.35] lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:overflow-hidden lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 lg:min-h-0 lg:max-h-full ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
+      <div className={`lg:flex-[2.35] lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -1043,9 +1043,9 @@ export const HealthView = ({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 lg:overflow-y-auto space-y-3 pb-3 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div className="min-h-0 space-y-3 pb-3 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
-              <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty>
+              <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="font-heading text-lg font-bold">{t('noWorkoutsEmpty')}</p>

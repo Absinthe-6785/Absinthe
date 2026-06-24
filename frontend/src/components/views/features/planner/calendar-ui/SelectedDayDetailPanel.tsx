@@ -97,7 +97,7 @@ export function SelectedDayDetailPanel({
               </button>
             </div>
           ) : null}
-          <div className="min-h-0 overflow-y-auto max-h-[280px] lg:max-h-[360px]">
+          <div className="min-h-0">
             <UnifiedAgendaList
               blocks={model.timelineBlocks}
               carryOverBlocks={model.carryOverBlocks}

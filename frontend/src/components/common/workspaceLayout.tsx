@@ -46,13 +46,13 @@ export function WorkspaceLayout({
 
       <div
         className={`flex-1 min-h-0 flex flex-col ${WORKSPACE_GAP_CLASS} ${
-          split ? 'lg:flex-row lg:overflow-hidden' : `overflow-y-auto lg:overflow-hidden ${UI_SPACING.scrollOverscroll}`
+          split ? 'lg:flex-row' : `overflow-y-auto ${UI_SPACING.scrollOverscroll}`
         }`}
         data-k119-scroll-primary
       >
         {secondary ? (
           <div
-            className="lg:w-[32%] lg:max-w-[360px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 lg:overflow-y-auto min-h-0"
+            className="lg:w-[32%] lg:max-w-[360px] lg:flex-none flex flex-col gap-3 lg:gap-4 shrink-0 min-h-0"
             data-workspace-zone={WORKSPACE_ZONE.secondary}
           >
             {secondary}
@@ -61,7 +61,7 @@ export function WorkspaceLayout({
 
         <div
           className={`flex flex-col gap-3 lg:gap-4 min-h-0 ${
-            split ? 'lg:flex-1 lg:min-w-0 lg:overflow-y-auto' : 'flex-1'
+            split ? 'lg:flex-1 lg:min-w-0' : 'flex-1'
           }`}
           data-workspace-zone={WORKSPACE_ZONE.primary}
         >
