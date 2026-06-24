@@ -25,7 +25,7 @@ describe('k112 audits', () => {
   });
 
   it('settings sections', () => {
-    expect(auditSettings()).toContain('recovery');
+    expect(auditSettings()).toContain('data-safety');
     expect(auditSettings()).toContain('components/common/SettingsView.tsx');
   });
 

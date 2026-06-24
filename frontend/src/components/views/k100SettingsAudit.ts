@@ -9,8 +9,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export const K100_SETTINGS_SECTIONS = [
   'general',
-  'storage',
-  'recovery',
+  'data-safety',
   'danger',
 ] as const;
 
@@ -22,8 +21,16 @@ export function auditK100SettingsSections(): K100SettingsSection[] {
 
 export function auditSettingsCleanup(): Record<string, boolean> {
   const settings = readFileSync(join(ROOT, 'components/views/SettingsView.tsx'), 'utf8');
+  const dataSafetyPanel = readFileSync(
+    join(ROOT, 'components/views/features/settings/RecoveryCenterPanel.tsx'),
+    'utf8',
+  );
   return {
     allSections: K100_SETTINGS_SECTIONS.every(s => settings.includes(`data-settings-section="${s}"`)),
+    removedStorageSection: !settings.includes('data-settings-section="storage"'),
+    dataSafetySurface: settings.includes('dataSafetyTitle')
+      && dataSafetyPanel.includes('data-settings-data-safety')
+      && dataSafetyPanel.includes('dataSafetyCreateBackup'),
     settingsCardHook: settings.includes('data-k119-settings-card'),
     compactSpacing: settings.includes('space-y-3'),
     scrollHook: settings.includes('data-k119-settings-scroll'),
@@ -34,7 +41,7 @@ export function auditSettingsCleanup(): Record<string, boolean> {
 
 export function auditSettingsRc(): boolean {
   const r = auditSettingsCleanup();
-  return r.allSections && r.settingsCardHook && r.compactSpacing && r.cardSurface;
+  return r.allSections && r.removedStorageSection && r.dataSafetySurface && r.settingsCardHook && r.compactSpacing && r.cardSurface;
 }
 
 export function formatK100SettingsReport(sections: readonly K100SettingsSection[]): string {

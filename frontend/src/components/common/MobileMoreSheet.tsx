@@ -5,7 +5,7 @@ import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { PopoverDismiss, PopoverPanel, PopoverPortal, PopoverRoot } from './popover/Popover';
 
-export type SettingsSectionId = 'general' | 'storage' | 'recovery' | 'danger';
+export type SettingsSectionId = 'general' | 'data-safety' | 'danger';
 
 export interface MobileMoreSheetProps {
   open: boolean;
@@ -62,7 +62,7 @@ export function MobileMoreSheet({
 
   const close = () => onOpenChange(false);
   const goSettings = () => { close(); onOpenSettings(); };
-  const goDataSafety = () => { close(); onOpenSettingsSection('recovery'); };
+  const goDataSafety = () => { close(); onOpenSettingsSection('data-safety'); };
 
   return (
     <PopoverRoot open={open} onOpenChange={onOpenChange} isMobile>
