@@ -53,7 +53,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className="hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3 shrink-0"
+      className="hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.46fr)_minmax(0,0.9fr)] gap-2.5 shrink-0"
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >
@@ -76,7 +76,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
             lang={lang}
             workoutDates={workoutDates}
           />
-          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} px-3 py-2.5 transition-colors ${theme.card}`} data-inbody-panel>
+          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} px-3 py-2 transition-colors ${theme.card}`} data-inbody-panel>
             <div className="flex items-center justify-between gap-2 mb-2">
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>

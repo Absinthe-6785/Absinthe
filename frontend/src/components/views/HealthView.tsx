@@ -7,7 +7,6 @@ import { useAppStore } from '../../store/useAppStore';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
@@ -880,7 +879,7 @@ export const HealthView = ({
 
       {healthSection === 'analysis' && (
         <div className="flex-1 min-h-0 pb-4" data-k129b-health-analysis-view>
-          <div className="h-full max-w-[920px] mx-auto">
+          <div className="h-full max-w-[840px] mx-auto">
             <HealthAnalyticsPanel
               projection={healthProjection}
               loading={!analyticsRangeRows}
@@ -897,9 +896,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 lg:overflow-hidden pb-10 lg:pb-0 min-h-0" data-k129b-health-overview>
+    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 lg:overflow-hidden pb-8 lg:pb-0 min-h-0" data-k129b-health-overview data-k134a-health-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[31%] lg:max-w-[380px] lg:flex-none flex flex-col gap-3 shrink-0 lg:overflow-y-auto lg:pb-4 min-h-0" data-k129b-health-secondary>
+      <div className="lg:w-[28%] lg:max-w-[340px] lg:flex-none flex flex-col gap-2.5 shrink-0 lg:overflow-y-auto lg:pb-3 min-h-0" data-k129b-health-secondary>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -927,9 +926,9 @@ export const HealthView = ({
           quickCaptureMeta={blockQuickCaptureMeta}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="font-heading text-lg font-bold">{t('routineSetup')}</h2>
+        <div className={`lg:flex-1 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+          <div className="flex justify-between items-center mb-2.5">
+            <h2 className="font-heading text-base font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
                 type="number" inputMode="numeric" min="1" max="7"
@@ -989,7 +988,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-[1.9] lg:min-w-0 flex flex-col gap-3 lg:gap-3 min-h-0 lg:overflow-hidden lg:pr-1 pb-4 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+      <div className={`lg:flex-[2.35] lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:overflow-hidden lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
         <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors lg:flex-1 lg:min-h-0 lg:max-h-full ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
@@ -1044,34 +1043,31 @@ export const HealthView = ({
             </div>
           </div>
 
-          <HealthConnectionsPanel
-            dateLabel={selectedDateKey}
-            exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
-            notes={notes}
-            schedules={schedules}
-            weeklySchedules={weeklySchedules}
-            monthWorkouts={monthWorkoutRows}
-            theme={theme}
-            darkMode={appSettings.darkMode}
-            onOpenDayNote={() => openHealthDayLog('workout')}
-            onOpenNote={openHealthRelatedNote}
-            onOpenSchedule={openHealthScheduleConnections}
-            onOpenArchive={openHealthArchiveConnections}
-            onOpenSearch={openWorkspaceSearch}
-          />
-
-          <div className="flex-1 min-h-0 lg:overflow-y-auto space-y-4 pb-4 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div className="flex-1 min-h-0 lg:overflow-y-auto space-y-3 pb-3 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
-              <div className={`rounded-2xl border border-dashed px-4 py-8 ${theme.border}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty>
-              <ProductEmptyState
-                variant="tailwind"
-                theme={theme}
-                icon={Dumbbell}
-                title={t('noWorkoutsEmpty')}
-                description={t('healthWorkoutEmptyPolishDesc')}
-                dataHook="health-workouts-empty"
-                primaryAction={{ label: t('k99EmptyHealthWorkoutsAction'), onClick: () => setMobileHealthTab('blocks') }}
-              />
+              <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-heading text-lg font-bold">{t('noWorkoutsEmpty')}</p>
+                    <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>{t('healthWorkoutEmptyPolishDesc')}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMobileHealthTab('blocks')}
+                      className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
+                    >
+                      {t('k99EmptyHealthWorkoutsAction')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileHealthTab('routine')}
+                      className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-4 py-2 text-sm font-bold ${theme.border} ${theme.textMuted} hover:text-foreground`}
+                    >
+                      {t('tabRoutine')}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
             {localWorkouts.map((w: Workout, wIdx: number) => {
@@ -1341,6 +1337,23 @@ export const HealthView = ({
               </div>
             );
             })}
+            {localWorkouts.length > 0 && (
+              <HealthConnectionsPanel
+                dateLabel={selectedDateKey}
+                exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
+                notes={notes}
+                schedules={schedules}
+                weeklySchedules={weeklySchedules}
+                monthWorkouts={monthWorkoutRows}
+                theme={theme}
+                darkMode={appSettings.darkMode}
+                onOpenDayNote={() => openHealthDayLog('workout')}
+                onOpenNote={openHealthRelatedNote}
+                onOpenSchedule={openHealthScheduleConnections}
+                onOpenArchive={openHealthArchiveConnections}
+                onOpenSearch={openWorkspaceSearch}
+              />
+            )}
           </div>
           <div className={`sticky bottom-0 z-30 shrink-0 pt-3 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
             {isWorkoutLocked ? (
