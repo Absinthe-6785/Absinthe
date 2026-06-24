@@ -37,7 +37,7 @@ export interface ArchiveUnifiedViewProps {
   onImportBackup: () => void;
 }
 
-/** K-117 Archive workspace — vertical flow: primary sections → restore → browse → supporting. */
+/** K-133C Archive workspace: timeline and history first, utilities secondary. */
 export function ArchiveUnifiedView({
   projection,
   theme,
@@ -98,125 +98,131 @@ export function ArchiveUnifiedView({
           data-k121-archive-layout
           data-archive-empty={projection.empty.isEmpty ? 'true' : 'false'}
         >
-          <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] items-start ${WORKSPACE_GAP_CLASS}`}>
-            <ArchiveTimelineSection
-              timeline={projection.timelineItems}
-              defaultPeriod={home.browse.timeline.defaultPeriod}
-              markCalendar={home.markCalendar}
-              recentMilestones={home.recentMilestones}
-              youAreHere={home.youAreHere}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.timelineCollapsed}
-              onToggle={() => toggle('timelineCollapsed')}
-              onMilestoneClick={onMilestoneClick}
-              onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
-                type: 'period',
-                ref: archivePeriodRefFromDateKey(dateKey),
-              })}
-            />
-
-            <ArchiveHistorySection
-              history={projection.historyItems}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.historyCollapsed}
-              onToggle={() => toggle('historyCollapsed')}
-            />
-
-            <ArchiveDeletedSection
-              deleted={projection.deletedItems}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.deletedCollapsed}
-              onToggle={() => toggle('deletedCollapsed')}
-            />
-
-            <ArchiveSnapshotsSection
-              snapshots={projection.snapshotItems}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.snapshotsCollapsed}
-              onToggle={() => toggle('snapshotsCollapsed')}
-              onRestoreSnapshot={onRestoreSnapshot}
-            />
-          </div>
-
-          <ArchiveRestoreToolsSection
-            restoreTools={projection.restoreTools}
-            theme={theme}
-            appSettings={appSettings}
-            collapsed={prefs.restoreToolsCollapsed}
-            onToggle={() => toggle('restoreToolsCollapsed')}
-            onImportBackup={onImportBackup}
-          />
-
-          <ArchiveCollapsibleSection
-            sectionId="browse"
-            title={t('archiveBrowseTitle')}
-            collapsed={prefs.browseCollapsed}
-            onToggle={() => toggle('browseCollapsed')}
-            theme={theme}
-            dark={appSettings.darkMode}
-          >
-            <div data-archive-section="browse">
-              {periodLinks.length > 0 && (
-                <ul className="flex flex-wrap gap-1.5 mb-2">
-                  {periodLinks.map(link => (
-                    <li key={link.id}>
-                      <button
-                        type="button"
-                        className={`text-xs font-semibold px-2 py-1 rounded-xl min-h-[44px] lg:min-h-0 ${theme.hoverBg}`}
-                        onClick={() => onBrowseClick(link.destination)}
-                      >
-                        {link.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <ArchiveBrowseLinks
-                browse={home.browse}
+          <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1.28fr)_minmax(300px,0.72fr)] items-start ${WORKSPACE_GAP_CLASS}`} data-k133c-archive-library-flow>
+            <div className={`flex flex-col ${WORKSPACE_GAP_CLASS}`}>
+              <ArchiveTimelineSection
+                timeline={projection.timelineItems}
+                defaultPeriod={home.browse.timeline.defaultPeriod}
+                markCalendar={home.markCalendar}
+                recentMilestones={home.recentMilestones}
+                youAreHere={home.youAreHere}
                 theme={theme}
                 appSettings={appSettings}
-                onBrowseClick={onBrowseClick}
+                collapsed={prefs.timelineCollapsed}
+                onToggle={() => toggle('timelineCollapsed')}
+                onMilestoneClick={onMilestoneClick}
+                onMarkDayClick={(dateKey) => openArchiveBrowseDestination({
+                  type: 'period',
+                  ref: archivePeriodRefFromDateKey(dateKey),
+                })}
               />
-              <button
-                type="button"
-                className="mt-2 text-xs font-semibold text-primary hover:underline min-h-[44px]"
-                onClick={openCurrentPeriod}
-              >
-                {t('archiveOpenCurrentPeriod')}
-              </button>
-            </div>
-          </ArchiveCollapsibleSection>
 
-          {!home.empty.noAreas && (
-            <ArchiveCollapsibleSection
-              sectionId="areas"
-              title={t('archiveAreaTitle')}
-              collapsed={prefs.areasCollapsed}
-              onToggle={() => toggle('areasCollapsed')}
-              theme={theme}
-              dark={appSettings.darkMode}
-            >
-              <div data-archive-section="areas">
-                <ArchiveAreaPills
-                  areaPills={home.areaPills}
+              <ArchiveHistorySection
+                history={projection.historyItems}
+                theme={theme}
+                appSettings={appSettings}
+                collapsed={prefs.historyCollapsed}
+                onToggle={() => toggle('historyCollapsed')}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 lg:gap-3.5" data-k133c-archive-utilities>
+              <ArchiveDeletedSection
+                deleted={projection.deletedItems}
+                theme={theme}
+                appSettings={appSettings}
+                collapsed={prefs.deletedCollapsed}
+                onToggle={() => toggle('deletedCollapsed')}
+              />
+
+              <ArchiveSnapshotsSection
+                snapshots={projection.snapshotItems}
+                theme={theme}
+                appSettings={appSettings}
+                collapsed={prefs.snapshotsCollapsed}
+                onToggle={() => toggle('snapshotsCollapsed')}
+                onRestoreSnapshot={onRestoreSnapshot}
+              />
+
+              <ArchiveRestoreToolsSection
+                restoreTools={projection.restoreTools}
+                theme={theme}
+                appSettings={appSettings}
+                collapsed={prefs.restoreToolsCollapsed}
+                onToggle={() => toggle('restoreToolsCollapsed')}
+                onImportBackup={onImportBackup}
+              />
+
+              <ArchiveCollapsibleSection
+                sectionId="browse"
+                title={t('archiveBrowseTitle')}
+                collapsed={prefs.browseCollapsed}
+                onToggle={() => toggle('browseCollapsed')}
+                theme={theme}
+                dark={appSettings.darkMode}
+                tone="utility"
+              >
+                <div data-archive-section="browse">
+                  {periodLinks.length > 0 && (
+                    <ul className="flex flex-wrap gap-1.5 mb-2">
+                      {periodLinks.map(link => (
+                        <li key={link.id}>
+                          <button
+                            type="button"
+                            className={`text-xs font-semibold px-2 py-1 rounded-xl min-h-[44px] lg:min-h-[32px] ${theme.hoverBg}`}
+                            onClick={() => onBrowseClick(link.destination)}
+                          >
+                            {link.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <ArchiveBrowseLinks
+                    browse={home.browse}
+                    theme={theme}
+                    appSettings={appSettings}
+                    onBrowseClick={onBrowseClick}
+                  />
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-semibold text-primary hover:underline min-h-[44px] lg:min-h-[32px]"
+                    onClick={openCurrentPeriod}
+                  >
+                    {t('archiveOpenCurrentPeriod')}
+                  </button>
+                </div>
+              </ArchiveCollapsibleSection>
+
+              {!home.empty.noAreas && (
+                <ArchiveCollapsibleSection
+                  sectionId="areas"
+                  title={t('archiveAreaTitle')}
+                  collapsed={prefs.areasCollapsed}
+                  onToggle={() => toggle('areasCollapsed')}
                   theme={theme}
-                  appSettings={appSettings}
-                  onAreaClick={pill => openNote(pill.areaNoteId, { returnTab: 'analytics' })}
-                />
-                <button
-                  type="button"
-                  className="mt-2 text-xs font-semibold text-primary hover:underline"
-                  onClick={() => openTraceDiscoveryNavigation()}
+                  dark={appSettings.darkMode}
+                  tone="utility"
                 >
-                  {t('archiveOpenDiscovery')}
-                </button>
-              </div>
-            </ArchiveCollapsibleSection>
-          )}
+                  <div data-archive-section="areas">
+                    <ArchiveAreaPills
+                      areaPills={home.areaPills}
+                      theme={theme}
+                      appSettings={appSettings}
+                      onAreaClick={pill => openNote(pill.areaNoteId, { returnTab: 'analytics' })}
+                    />
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-semibold text-primary hover:underline"
+                      onClick={() => openTraceDiscoveryNavigation()}
+                    >
+                      {t('archiveOpenDiscovery')}
+                    </button>
+                  </div>
+                </ArchiveCollapsibleSection>
+              )}
+            </div>
+          </div>
 
           {projection.empty.isEmpty && !isLoading && (
             <div data-k109-archive-empty data-k121-empty-state="archive-unified">

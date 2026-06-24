@@ -15,8 +15,8 @@ import { buildArchiveProjection, sortArchiveDeletedItems } from './features/know
 describe('k109 audits', () => {
   it('archive IA section order', () => {
     const { sections } = auditArchiveIa();
-    expect(sections[0]).toBe('history');
-    expect(sections[1]).toBe('deleted');
+    expect(sections[0]).toBe('timeline');
+    expect(sections[1]).toBe('history');
     expect(K109_ARCHIVE_IA_SECTIONS).toContain('restore-tools');
   });
 

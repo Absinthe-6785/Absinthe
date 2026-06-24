@@ -92,7 +92,7 @@ describe('ArchiveHomeView', () => {
     );
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('Marks will accumulate here over time.');
+    expect(html).toContain('Traces will gather here over time.');
     expect(html).toContain('Go to Notes to start writing');
   });
 

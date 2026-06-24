@@ -46,8 +46,9 @@ export function ArchiveDeletedSection({
       dark={appSettings.darkMode}
       isEmpty={deleted.isEmpty}
       emptyHint={t('k109EmptyDeleted')}
+      tone="utility"
     >
-      <div className="space-y-3" data-k109-deleted-panel>
+      <div className="space-y-2.5" data-k109-deleted-panel>
         <div className="flex flex-col sm:flex-row gap-2">
           <label className={`flex items-center gap-2 flex-1 min-h-[44px] px-2 rounded-lg border ${theme.border} ${theme.input}`}>
             <Search size={14} className={theme.textMuted} />
@@ -76,7 +77,7 @@ export function ArchiveDeletedSection({
             {t('k109DeletedCount').replace('{count}', String(deleted.totalCount))}
           </p>
         )}
-        <ul className="space-y-1" data-k109-deleted-list>
+        <ul className="space-y-0.5" data-k109-deleted-list>
           {visible.map(item => (
             <li
               key={item.noteId}

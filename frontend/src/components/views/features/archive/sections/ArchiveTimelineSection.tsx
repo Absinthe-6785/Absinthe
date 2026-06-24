@@ -60,10 +60,11 @@ export function ArchiveTimelineSection({
       dark={appSettings.darkMode}
       isEmpty={timeline.isEmpty && !hasCalendar}
       emptyHint={t('k109EmptyTimeline')}
+      tone="primary"
     >
-      <div className="space-y-4" data-k109-timeline-groups>
+      <div className="space-y-3.5" data-k109-timeline-groups>
         {hasCalendar && (
-          <div data-archive-mark-calendar className="mb-2">
+          <div data-archive-mark-calendar className="mb-1">
             <ArchiveMarkCalendar
               markCalendar={markCalendar}
               endDate={youAreHere.today}
@@ -91,10 +92,10 @@ export function ArchiveTimelineSection({
           if (group.entries.length === 0) return null;
           return (
             <div key={group.bucket} data-k109-timeline-group={group.bucket}>
-              <p className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${theme.textMuted}`}>
                 {t(BUCKET_LABEL_KEYS[group.bucket])}
               </p>
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {group.entries.map(entry => (
                   <li key={entry.id}>
                     <button

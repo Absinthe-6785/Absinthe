@@ -175,7 +175,7 @@ describe('AnalyticsView archive landing', () => {
     expect(html).toContain('data-archive-mode="cohesion"');
     expect(html).toContain('data-k109-archive-unified');
     expect(html).toContain('Archive');
-    expect(html).toContain('A library of traces, milestones, and long-term context.');
+    expect(html).toContain('A quiet library of traces, memory, and long-term context.');
   });
 
   it('does not render legacy Analytics widgets by default', () => {
@@ -193,11 +193,11 @@ describe('AnalyticsView archive landing', () => {
     const html = renderAnalyticsView();
 
     expect(html).toContain('data-archive-empty="true"');
-    expect(html).toContain('Your archive will fill as you work.');
-    expect(html).toContain('No recent note activity yet.');
-    expect(html).toContain('No deleted notes — trash is empty.');
-    expect(html).toContain('No snapshots yet. Auto snapshots appear after note changes.');
-    expect(html).toContain('No timeline marks yet.');
+    expect(html).toContain('Your traces will gather here over time.');
+    expect(html).toContain('No recent history yet.');
+    expect(html).toContain('No deleted notes. Trash is empty.');
+    expect(html).toContain('No saved snapshots yet.');
+    expect(html).toContain('No timeline traces yet.');
   });
 });
 
@@ -212,11 +212,13 @@ describe('AnalyticsView archive cohesion audit', () => {
     expect(sections.snapshots).toBeGreaterThan(sections.deleted);
     expect(sections.restoreTools).toBeGreaterThan(sections.snapshots);
 
-    expect(html).toContain('Recent activity');
+    expect(html).toContain('Recent history');
     expect(html).toContain('Deleted notes');
-    expect(html).toContain('Snapshots');
+    expect(html).toContain('Saved snapshots');
     expect(html).toContain('Timeline');
-    expect(html).toContain('Restore tools');
+    expect(html).toContain('Restore');
+    expect(html).toContain('data-k133c-archive-library-flow');
+    expect(html).toContain('data-k133c-archive-utilities');
 
     expect(html).not.toContain('Recent transitions');
     expect(html).not.toContain('data-archive-home-complete');
@@ -249,7 +251,7 @@ describe('AnalyticsView projection-driven archive content', () => {
 
     const html = renderAnalyticsView();
     expect(html).toContain('data-k109-archive-section="browse"');
-    expect(html).toContain('Recent activity');
+    expect(html).toContain('Recent history');
     expect(html).toContain('Browse');
     expect(html).not.toContain('Recent transitions');
   });
