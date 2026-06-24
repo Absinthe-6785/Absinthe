@@ -188,7 +188,8 @@ describe('MonthCalendarView', () => {
 
     expect(html).toContain('data-planner-calendar-month');
     expect(html).toContain('data-planner-month-grid');
-    expect(html).toContain('data-planner-upcoming-agenda');
+    expect(html).toContain('data-k133b-schedule-flow');
+    expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html.match(/data-planner-month-cell=/g)?.length).toBe(42);
   });
 
@@ -269,7 +270,6 @@ describe('MonthCalendarView', () => {
       createElement(MonthCalendarView, { plannerProjection, presentation, theme, deferMonthGrid: false, ...MONTH_VIEW_PROPS }),
     );
 
-    expect(html).toContain('data-k124c-upcoming-empty-hidden="true"');
     expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html.match(/data-planner-month-cell=/g)?.length).toBe(42);
   });
@@ -323,7 +323,7 @@ describe('MonthCalendarView', () => {
     expect(ko.labels.weekdayShortLabels.some(label => label.length > 0)).toBe(true);
   });
 
-  it('renders schedule blocks in month cells; upcoming agenda omits routines and tasks', () => {
+  it('renders schedule blocks in month cells while omitting routines and tasks from the calendar context', () => {
     const { plannerProjection, presentation } = buildPlannerProjectionFixture({
       scheduleBlocks: [{
         id: 'b1',
@@ -345,7 +345,7 @@ describe('MonthCalendarView', () => {
 
     expect(html).toContain('Deep Work');
     expect(html).toContain('10:00');
-    expect(html).toContain('data-planner-upcoming-agenda');
+    expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html).not.toContain('Pack bag');
     expect(html).not.toContain('Stretch');
     const cellFeb3 = html.slice(

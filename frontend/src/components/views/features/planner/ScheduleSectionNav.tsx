@@ -2,14 +2,13 @@ import {
   CalendarDays,
   CalendarRange,
   Clock,
-  ListTodo,
   Sun,
 } from 'lucide-react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { Theme } from '../../../../types';
 import { WorkspaceSectionNav } from '../../../common/WorkspaceSectionNav';
 
-export type ScheduleSectionId = 'today' | 'calendar' | 'upcoming' | 'timetable' | 'routine';
+export type ScheduleSectionId = 'today' | 'calendar' | 'timetable' | 'routine';
 
 export const SCHEDULE_SECTIONS: readonly {
   id: ScheduleSectionId;
@@ -19,7 +18,6 @@ export const SCHEDULE_SECTIONS: readonly {
   { id: 'routine', icon: Clock },
   { id: 'timetable', icon: CalendarDays },
   { id: 'calendar', icon: CalendarRange },
-  { id: 'upcoming', icon: ListTodo },
 ];
 
 export function scrollToScheduleSection(id: ScheduleSectionId): void {
@@ -42,7 +40,6 @@ export function ScheduleSectionNav({ theme, compact, onNavigate }: ScheduleSecti
     switch (id) {
       case 'today': return t('plannerToday');
       case 'calendar': return t('k117ScheduleSectionCalendar');
-      case 'upcoming': return t('k80UpcomingAgenda');
       case 'timetable': return t('k74TimetableTab');
       case 'routine': return t('k117ScheduleSectionRoutine');
     }

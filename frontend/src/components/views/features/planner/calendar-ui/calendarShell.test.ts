@@ -64,7 +64,7 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
 }
 
 describe('DEFAULT_PLANNER_CALENDAR_MODE', () => {
-  it('defaults to month for calendar-first schedule (K-80)', () => {
+  it('keeps month as the supporting calendar mode', () => {
     expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
   });
 });
@@ -121,7 +121,7 @@ describe('calendar presentation labels', () => {
 });
 
 describe('CalendarShell', () => {
-  it('renders month calendar with upcoming agenda panel (K-80)', () => {
+  it('renders today-first schedule flow with calendar as supporting context', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps()),
     );
@@ -130,8 +130,10 @@ describe('CalendarShell', () => {
     expect(html).toContain('data-planner-calendar-mode="month"');
     expect(html).toContain('data-planner-calendar-period-nav');
     expect(html).toContain('data-planner-calendar-month');
+    expect(html).toContain('data-k133b-schedule-flow');
+    expect(html).toContain('data-k133b-calendar-supporting-nav');
     expect(html).toContain('data-k117-schedule-workspace');
-    expect(html).toContain('data-k124c-upcoming-empty-hidden="true"');
+    expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html).not.toContain('data-planner-calendar-mode-switcher');
     expect(html).not.toContain('data-planner-calendar-day');
     expect(html).not.toContain('data-planner-calendar-week');

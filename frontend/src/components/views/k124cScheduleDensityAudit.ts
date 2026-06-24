@@ -9,25 +9,26 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export function auditScheduleDensityRecovery(): Record<string, boolean> {
   const month = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/month/MonthCalendarView.tsx'), 'utf8');
-  const upcoming = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/agenda/UpcomingAgendaPanel.tsx'), 'utf8');
-  const tiers = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/agenda/UpcomingTierGroupList.tsx'), 'utf8');
+  const cell = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/month/MonthCalendarCell.tsx'), 'utf8');
+  const shell = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/CalendarShell.tsx'), 'utf8');
+  const nav = readFileSync(join(ROOT, 'components/views/features/planner/ScheduleSectionNav.tsx'), 'utf8');
   const routine = readFileSync(join(ROOT, 'components/views/features/planner/calendar-ui/agenda/PlannerRoutineTodayCard.tsx'), 'utf8');
   const timetable = readFileSync(join(ROOT, 'components/views/features/planner/WeeklyTimetableSection.tsx'), 'utf8');
 
   return {
-    emptyUpcomingRemoved: month.includes('const hasUpcoming')
-      && month.includes("className={hasUpcoming ? undefined : 'hidden'}")
-      && month.includes('data-k124c-upcoming-empty-hidden')
-      && !month.includes('collapseWhenEmpty'),
-    tighterSectionRhythm: month.includes('flex flex-col gap-2 items-stretch')
-      && month.includes('lg:grid-rows-[auto_auto_minmax(0,1fr)]')
+    todayFirstFlow: month.includes('data-k133b-schedule-flow')
       && month.includes('data-k121-schedule-agenda')
-      && month.includes("lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]")
+      && month.indexOf('data-k117-schedule-section="today"') < month.indexOf('data-k117-schedule-section="routine"')
+      && month.indexOf('data-k117-schedule-section="routine"') < month.indexOf('data-k117-schedule-section="timetable"')
       && month.indexOf('data-k117-schedule-section="timetable"') < month.indexOf('data-k117-schedule-section="calendar"')
-      && month.includes('hasRoutineToday'),
-    upcomingHeightReduced: upcoming.includes('max-h-[200px]'),
-    upcomingGapsReduced: tiers.includes('flex flex-col gap-1.5')
-      && tiers.includes('flex flex-col gap-1'),
+      && !month.includes('data-k117-schedule-section="upcoming"'),
+    calendarSupporting: shell.includes('calendarHeader={(')
+      && month.includes('data-k133b-calendar-supporting-nav')
+      && !shell.includes('header={('),
+    upcomingNavRemoved: !nav.includes("'upcoming'")
+      && !nav.includes('k80UpcomingAgenda'),
+    compactMonthCells: cell.includes('min-h-[52px] lg:min-h-[58px]')
+      && cell.includes('px-1 py-0.5 text-[9px]'),
     routineNoDuplicateMargin: routine.includes('<section data-k108-planner-routine-today>'),
     compactEmptyTimetable: timetable.includes("min-h-[64px]")
       && timetable.includes('data-k124c-timetable-empty-compact')

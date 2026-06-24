@@ -1,10 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { AppSettings, Theme, ThemeColor } from '@/types';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { PlannerTodayPanel } from '../agenda/PlannerTodayPanel';
-import { UpcomingAgendaPanel } from '../agenda/UpcomingAgendaPanel';
 import { PlannerRoutineTodayCard } from '../agenda/PlannerRoutineTodayCard';
 import { WeeklyTimetableSection } from '../../WeeklyTimetableSection';
 import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
@@ -27,9 +26,10 @@ export interface MonthCalendarViewProps {
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   deferMonthGrid?: boolean;
+  calendarHeader?: ReactNode;
 }
 
-/** K-117 / K-121 unified Schedule workspace — agenda 30% / calendar 70% on desktop. */
+/** K-117 / K-133B unified Schedule workspace: Today, Routine, Timetable, then Calendar. */
 export function MonthCalendarView({
   plannerProjection,
   presentation,
@@ -45,6 +45,7 @@ export function MonthCalendarView({
   mutateStatic,
   showToast,
   deferMonthGrid = true,
+  calendarHeader,
 }: MonthCalendarViewProps) {
   const month = plannerProjection.calendar.views.month;
   const { ref: monthRef, visible: monthVisible } = useElementVisible('120px');
@@ -60,22 +61,20 @@ export function MonthCalendarView({
   const showTimetableSection = Boolean(
     appSettings && THEME_COLORS && mutateStatic && showToast,
   );
-  const hasUpcoming = plannerProjection.groupedUpcoming.some(section =>
-    section.days.some(day => day.items.length > 0),
-  );
   const hasRoutineToday = plannerProjection.timetableToday.length > 0;
 
   const onScheduleBlockClick = scheduleActions?.onView;
 
   return (
     <div
-      className="flex flex-col gap-2 items-stretch min-h-0 lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:flex-1 lg:max-h-[min(74vh,840px)]"
+      className="flex flex-col gap-2 items-stretch min-h-0 lg:flex-1"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
+      data-k133b-schedule-flow
     >
-      <div className={`grid grid-cols-1 gap-2 min-h-0 ${hasRoutineToday ? 'lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]' : ''}`} data-k121-schedule-agenda>
+      <div className={`grid grid-cols-1 gap-2 min-h-0 ${hasRoutineToday ? 'lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]' : ''}`} data-k121-schedule-agenda>
         <section data-k117-schedule-section="today">
           <PlannerTodayPanel
             plannerProjection={plannerProjection}
@@ -98,23 +97,6 @@ export function MonthCalendarView({
           </section>
         ) : null}
 
-        <section
-          data-k117-schedule-section="upcoming"
-          className={hasUpcoming ? undefined : 'hidden'}
-          aria-hidden={hasUpcoming ? undefined : true}
-          data-k124c-upcoming-empty-hidden={hasUpcoming ? undefined : 'true'}
-        >
-          {hasUpcoming ? (
-            <UpcomingAgendaPanel
-              tierSections={plannerProjection.groupedUpcoming}
-              theme={theme}
-              scheduleActions={scheduleActions}
-              eventActions={eventActions}
-              onDateSelect={onDateSelect}
-              embedded
-            />
-          ) : null}
-        </section>
       </div>
 
       <div className="flex flex-col gap-1.5 lg:gap-2 shrink-0" data-k121-schedule-supporting>
@@ -136,10 +118,15 @@ export function MonthCalendarView({
       <section
         data-k117-schedule-section="calendar"
         ref={monthRef as React.RefObject<HTMLElement>}
-        className={`w-full rounded-[14px] lg:rounded-[16px] p-2 lg:p-2.5 min-h-0 overflow-hidden flex flex-col ${theme.card}`}
+        className={`w-full rounded-[14px] lg:rounded-[16px] p-1.5 lg:p-2 min-h-0 overflow-hidden flex flex-col ${theme.card}`}
         data-k117-planner-calendar-adaptive
         data-k108-planner-month-lazy
       >
+        {calendarHeader ? (
+          <div className="mb-1.5" data-k133b-calendar-supporting-nav>
+            {calendarHeader}
+          </div>
+        ) : null}
         {!showMonthGrid ? monthSkeleton : (
           <MonthCalendarGrid
             month={month}

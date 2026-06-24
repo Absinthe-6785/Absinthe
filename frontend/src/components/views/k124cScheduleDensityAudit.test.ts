@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { auditScheduleDensityRecovery, auditScheduleDensityRecoveryRc } from './k124cScheduleDensityAudit';
 
 describe('K-124c Schedule density', () => {
-  it('restores a compact Today, Upcoming, Calendar, Routine, Timetable rhythm', () => {
+  it('keeps a compact Today, Routine, Timetable, Calendar rhythm', () => {
     expect(auditScheduleDensityRecovery()).toEqual({
-      emptyUpcomingRemoved: true,
-      tighterSectionRhythm: true,
-      upcomingHeightReduced: true,
-      upcomingGapsReduced: true,
+      todayFirstFlow: true,
+      calendarSupporting: true,
+      upcomingNavRemoved: true,
+      compactMonthCells: true,
       routineNoDuplicateMargin: true,
       compactEmptyTimetable: true,
       compactEmbeddedTimetable: true,

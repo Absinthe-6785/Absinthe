@@ -31,7 +31,7 @@ export interface CalendarShellProps {
   showToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-/** K-80 calendar-first shell — month grid + upcoming agenda only. */
+/** Schedule shell: today-first flow with the month calendar as supporting context. */
 export function CalendarShell({
   now,
   anchorDate,
@@ -86,19 +86,9 @@ export function CalendarShell({
     <WorkspaceLayout
       workspace="schedule"
       className="w-full shrink-0 mb-3 lg:mb-4 min-h-0"
-      header={(
-        <CalendarPeriodNav
-          viewMode="month"
-          anchorDate={anchorDate}
-          now={now}
-          periodLabel={periodLabel}
-          theme={theme}
-          onAnchorDateChange={onAnchorDateChange}
-        />
-      )}
       primary={(
         <div
-          className={`touch-pan-y ${WORKSPACE_CARD.lg}`}
+          className={`touch-pan-y ${WORKSPACE_CARD.lg} pt-2 lg:pt-2.5`}
           aria-label={t('plannerCalendarRegion')}
           data-planner-calendar-shell
           data-planner-calendar-mode="month"
@@ -117,6 +107,16 @@ export function CalendarShell({
             THEME_COLORS={THEME_COLORS}
             mutateStatic={mutateStatic}
             showToast={showToast}
+            calendarHeader={(
+              <CalendarPeriodNav
+                viewMode="month"
+                anchorDate={anchorDate}
+                now={now}
+                periodLabel={periodLabel}
+                theme={theme}
+                onAnchorDateChange={onAnchorDateChange}
+              />
+            )}
           />
         </div>
       )}

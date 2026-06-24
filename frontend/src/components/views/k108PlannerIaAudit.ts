@@ -4,9 +4,8 @@ export const K108_PLANNER_IA_SECTIONS = [
   'todays-note',
   'today-schedule',
   'routine-today',
-  'upcoming-tiered',
+  'weekly-timetable',
   'month-calendar',
-  'timetable-summary',
 ] as const;
 
 export function auditPlannerIa(): readonly string[] {
@@ -18,8 +17,7 @@ export function auditPlannerIaHooks(): readonly string[] {
     'data-k108-planner-layout',
     'data-k108-planner-today',
     'data-k108-planner-routine-today',
-    'data-k108-planner-upcoming',
     'data-k108-planner-month-lazy',
-    'data-k104-timetable-summary',
+    'data-k117-timetable-section',
   ];
 }
