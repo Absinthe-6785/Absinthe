@@ -21,7 +21,7 @@ export function auditK126cNotesHeader(): Record<string, boolean> {
       && sidebar.includes('data-noteview-new-note-btn'),
     findInHeader: actions.includes('data-k126c-header-find') && actions.includes('data-read-mode-search-btn'),
     starCopyPanelHooks: actions.includes('data-k126c-header-star')
-      && actions.includes('data-k126c-header-copy')
+      && actions.includes("key: 'copy'")
       && actions.includes('data-k126c-header-panel'),
     moreMenuExtracted: menu.includes('data-k126c-notes-more-menu'),
     noSeparateActionsRowInEditor: !editor.includes('data-note-header-actions-row'),

@@ -286,6 +286,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   } = handlers;
 
   const showFindInNotePanel = documentSearchOpen && Boolean(activeNote) && !isTrash;
+  const recentEmptyStateNotes = useMemo(
+    () => notes
+      .filter(note => !note.deletedAt)
+      .slice()
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 3),
+    [notes],
+  );
 
   const editorFocusBeforeSearchRef = useRef<HTMLElement | null>(null);
 
@@ -960,6 +968,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             description={t('k101EmptyVaultDesc')}
             dataHook="vault-empty"
             primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
+            secondaryAction={onOpenTodaysNote ? { label: t('k101OpenTodaysNote'), onClick: onOpenTodaysNote } : undefined}
           >
             {onImportVault ? (
               <button
@@ -993,7 +1002,66 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             description={t('k99EmptyNotesDesc')}
             dataHook="notes-editor-empty"
             primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
-          />
+            secondaryAction={onOpenTodaysNote ? { label: t('k101OpenTodaysNote'), onClick: onOpenTodaysNote } : undefined}
+          >
+            {recentEmptyStateNotes.length > 0 ? (
+              <div
+                data-notes-empty-recent-traces
+                style={{
+                  width: 'min(100%, 360px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  marginTop: 2,
+                  textAlign: 'left',
+                }}
+              >
+                <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: c.textMuted }}>
+                  {t('notesEmptyContinueRecent')}
+                </p>
+                {recentEmptyStateNotes.map(note => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="btbtn k101-interactive"
+                    onClick={() => {
+                      openNoteById(note.id);
+                      if (isMobile) setMobileShowEditor(true);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      width: '100%',
+                      padding: '8px 10px',
+                      border: `1px solid ${c.inputBdr}`,
+                      borderRadius: 10,
+                      background: c.input,
+                      color: c.text,
+                      minHeight: 40,
+                    }}
+                  >
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 12,
+                        fontWeight: 650,
+                      }}
+                    >
+                      {displayNoteTitle(note.title, appSettings.language)}
+                    </span>
+                    <span style={{ color: c.textFaint, fontSize: 10, flexShrink: 0 }}>
+                      {t('homeContinueAction')}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </ProductEmptyState>
           </div>
         )
       )}

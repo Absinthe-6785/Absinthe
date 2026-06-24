@@ -951,6 +951,7 @@ const translations = {
   nvTrashNoteCount:         { en: '{count} notes', ko: '{count}개 노트', ja: '{count}件のノート' },
   nvTrashRecoverableStorage:{ en: 'Recoverable storage: {size}', ko: '복구 가능 용량: {size}', ja: '回復可能ストレージ: {size}' },
   nvSelectNoteEmpty:        { en: 'Select a note or create a new one', ko: '노트를 선택하거나 새 노트를 만드세요', ja: 'ノートを選択するか、新しいノートを作成してください' },
+  notesEmptyContinueRecent: { en: 'Continue recent note', ko: '최근 노트 이어쓰기', ja: '最近のノートを続ける' },
   nvNewNoteBtn:             { en: 'New Note', ko: '새 노트', ja: '新しいノート' },
   nvInvalidQuery:           { en: 'Invalid query', ko: '잘못된 쿼리', ja: '無効なクエリ' },
   nvFolderName:             { en: 'Folder name', ko: '폴더 이름', ja: 'フォルダ名' },
