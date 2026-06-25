@@ -45,7 +45,7 @@ export class WorkspaceErrorBoundary extends Component<WorkspaceErrorBoundaryProp
       );
     }
     return (
-      <div data-k120-workspace-boundary={this.props.workspace}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-k120-workspace-boundary={this.props.workspace}>
         {this.props.children}
       </div>
     );
