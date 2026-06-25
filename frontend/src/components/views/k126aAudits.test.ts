@@ -14,6 +14,7 @@ describe('k126a health analytics simplification & mobile flow audits', () => {
     expect(r.historyOpenNote).toBe(true);
     expect(r.compactChart).toBe(true);
     expect(r.overviewAnalysisSplit).toBe(true);
+    expect(r.noConnectionsInOverview).toBe(true);
     expect(r.workoutRecordsScroll).toBe(true);
     expect(r.scrollAfterSave).toBe(true);
   });

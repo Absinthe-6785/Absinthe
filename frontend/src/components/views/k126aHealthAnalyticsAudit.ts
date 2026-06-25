@@ -26,6 +26,9 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
       health.includes('data-k129b-health-overview') &&
       !health.includes('data-k129b-health-analysis-view') &&
       !health.includes('<HealthAnalyticsPanel'),
+    noConnectionsInOverview:
+      !health.includes('<HealthConnectionsPanel') &&
+      !health.includes('data-k130a-health-connections'),
     workoutRecordsScroll:
       health.includes('data-k129b-workout-records-scroll') &&
       health.includes('data-k134b-health-natural-scroll') &&
