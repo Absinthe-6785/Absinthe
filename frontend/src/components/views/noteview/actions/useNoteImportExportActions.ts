@@ -2,7 +2,8 @@ import { useCallback } from 'react';
 import type { NoteBase as Note } from '../../noteUtils';
 import { normalizeNoteFolderId } from '../../noteUtils';
 import { serializeNoteMarkdown, parseNoteMarkdown } from '../../features/knowledge';
-import { buildVaultBackupManifest, downloadVaultBackup } from '../../../../lib/exportVaultBackup';
+import { buildValidatedVaultBackupManifest } from '../../../../lib/vaultBackupExport';
+import { downloadVaultBackup } from '../../../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../../../lib/vaultBackupZip';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import type { UseNoteViewActionsParams } from './types';
@@ -55,14 +56,14 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     const folders = useNotesStore.getState().folders;
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) return;
-    await downloadVaultBackupZip(buildVaultBackupManifest(active, folders));
+    await downloadVaultBackupZip(buildValidatedVaultBackupManifest(active, folders));
   }, [notes]);
 
   const exportVaultBackupJson = useCallback(() => {
     const folders = useNotesStore.getState().folders;
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) return;
-    downloadVaultBackup(buildVaultBackupManifest(active, folders));
+    downloadVaultBackup(buildValidatedVaultBackupManifest(active, folders));
   }, [notes]);
 
   const handleCopyDocument = useCallback(async () => {

@@ -1,11 +1,10 @@
-import type { NoteBase } from '@/components/views/noteUtils';
-import { parseNoteMarkdown } from '@/components/views/features/knowledge';
 import {
   VAULT_BACKUP_SCHEMA_VERSION,
   VAULT_EXTENSIONS_SCHEMA_VERSION,
 } from './vaultBackupConstants';
 import type { VaultBackupManifest } from './exportVaultBackup';
 import { isVaultBackupManifestV3 } from './exportVaultBackup';
+import { migrateVaultBackupManifest, validateVaultBackupNotes } from './vaultBackupCompatibility';
 import { fingerprintJson } from './vaultSnapshotFingerprint';
 
 export interface VaultExportValidationReport {
@@ -19,6 +18,7 @@ export interface VaultExportValidationReport {
   hasCloud: boolean;
   cloudCompleteness: string | null;
   corruptedNoteIds: string[];
+  repairedNoteIds: string[];
   fingerprintMatch: boolean;
 }
 
@@ -27,75 +27,66 @@ export function validateVaultExportManifest(
 ): VaultExportValidationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const corruptedNoteIds: string[] = [];
+  const migrated = migrateVaultBackupManifest(manifest);
+  const noteValidation = validateVaultBackupNotes(migrated.manifest.notes);
+  const working = migrated.manifest;
 
-  if (manifest.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
+  if (working.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
     errors.push('unsupported_schema');
   }
-  if (manifest.app !== 'absinthe') errors.push('invalid_app');
-  if (!manifest.exportedAt) errors.push('missing_export_date');
-  if (!Array.isArray(manifest.notes)) errors.push('missing_notes');
-  if (!Array.isArray(manifest.folders)) errors.push('missing_folders');
+  if (working.app !== 'absinthe') errors.push('invalid_app');
+  if (!working.exportedAt) errors.push('missing_export_date');
+  if (!Array.isArray(working.notes)) errors.push('missing_notes');
+  if (!Array.isArray(working.folders)) errors.push('missing_folders');
 
-  for (const note of manifest.notes ?? []) {
-    if (!note.id || !note.title) {
-      corruptedNoteIds.push(note.id || 'unknown');
-      continue;
-    }
-    try {
-      parseNoteMarkdown(note.markdown);
-    } catch {
-      corruptedNoteIds.push(note.id);
-    }
-  }
-
-  const hasExtensions = Boolean(manifest.extensions);
-  if (isVaultBackupManifestV3(manifest) && !hasExtensions) {
+  const hasExtensions = Boolean(working.extensions);
+  if (isVaultBackupManifestV3(working) && !hasExtensions) {
     warnings.push('missing_extensions');
   }
 
-  if (manifest.extensions) {
-    if (manifest.extensions.schemaVersion > VAULT_EXTENSIONS_SCHEMA_VERSION) {
+  if (working.extensions) {
+    if (working.extensions.schemaVersion > VAULT_EXTENSIONS_SCHEMA_VERSION) {
       warnings.push('unsupported_extensions_schema');
     }
-    if (!manifest.extensions.knowledge) errors.push('invalid_extensions_knowledge');
-    if (!manifest.extensions.health) errors.push('invalid_extensions_health');
+    if (!working.extensions.knowledge) errors.push('invalid_extensions_knowledge');
+    if (!working.extensions.health) errors.push('invalid_extensions_health');
   }
 
-  const hasCloud = Boolean(manifest.cloud);
-  const cloudCompleteness = manifest.cloud?.completeness ?? null;
-  if (manifest.cloud) {
-    if (!manifest.cloud.planner || !manifest.cloud.health) {
+  const hasCloud = Boolean(working.cloud);
+  const cloudCompleteness = working.cloud?.completeness ?? null;
+  if (working.cloud) {
+    if (!working.cloud.planner || !working.cloud.health) {
       errors.push('invalid_cloud_block');
     }
-    if (manifest.cloud.completeness === 'partial') {
-      warnings.push(...manifest.cloud.errors.map(e => `cloud_partial:${e}`));
+    if (working.cloud.completeness === 'partial') {
+      warnings.push(...working.cloud.errors.map(e => `cloud_partial:${e}`));
     }
   }
 
   let fingerprintMatch = true;
-  if (manifest.contentFingerprint) {
+  if (working.contentFingerprint) {
     const expected = fingerprintJson({
-      notes: manifest.notes,
-      folders: manifest.folders,
-      extensions: manifest.extensions ?? null,
-      cloud: manifest.cloud ?? null,
+      notes: working.notes,
+      folders: working.folders,
+      extensions: working.extensions ?? null,
+      cloud: working.cloud ?? null,
     });
-    fingerprintMatch = manifest.contentFingerprint === expected;
+    fingerprintMatch = working.contentFingerprint === expected;
     if (!fingerprintMatch) warnings.push('fingerprint_mismatch');
   }
 
   return {
-    valid: errors.length === 0 && corruptedNoteIds.length === 0,
+    valid: errors.length === 0 && noteValidation.valid,
     errors,
     warnings,
-    schemaVersion: manifest.schemaVersion ?? null,
-    noteCount: manifest.notes?.length ?? 0,
-    folderCount: manifest.folders?.length ?? 0,
+    schemaVersion: working.schemaVersion ?? null,
+    noteCount: working.notes?.length ?? 0,
+    folderCount: working.folders?.length ?? 0,
     hasExtensions,
     hasCloud,
     cloudCompleteness,
-    corruptedNoteIds,
+    corruptedNoteIds: noteValidation.corruptedNoteIds,
+    repairedNoteIds: noteValidation.repairedNoteIds,
     fingerprintMatch,
   };
 }
@@ -104,6 +95,5 @@ export function validateVaultExportManifest(
 export function assertExportReady(
   manifest: VaultBackupManifest,
 ): VaultExportValidationReport {
-  const report = validateVaultExportManifest(manifest);
-  return report;
+  return validateVaultExportManifest(manifest);
 }

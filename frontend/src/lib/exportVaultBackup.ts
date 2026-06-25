@@ -16,6 +16,7 @@ import {
   collectPortableVaultExtensions,
 } from './vaultPortableExtensions';
 import { fingerprintJson } from './vaultSnapshotFingerprint';
+import { noteToBackupEntry, migrateVaultBackupManifest } from './vaultBackupCompatibility';
 
 export {
   ABSINTHE_APP_VERSION,
@@ -102,17 +103,7 @@ export function buildVaultBackupManifestV3(
   extensions: VaultPortableExtensions = collectPortableVaultExtensions(),
 ): VaultBackupManifest {
   const active = notes.filter(n => !n.deletedAt);
-  const entries: VaultBackupNoteEntry[] = active.map(n => ({
-    id: n.id,
-    title: n.title,
-    folderId: n.folderId,
-    starred: n.starred ?? false,
-    createdAt: n.createdAt,
-    updatedAt: n.updatedAt,
-    markdown: serializeNoteMarkdown(n),
-    properties: n.properties ?? {},
-    relations: n.relations ?? {},
-  }));
+  const entries: VaultBackupNoteEntry[] = active.map(noteToBackupEntry);
 
   const scope = buildScope(cloud);
   const fingerprintSource = {
@@ -222,7 +213,7 @@ export function normalizeVaultBackupManifest(
   const cloud = normalizeCloud(raw.cloud);
   if (cloud) manifest.cloud = cloud;
 
-  return manifest;
+  return migrateVaultBackupManifest(manifest).manifest;
 }
 
 /** Upgrade v2 manifest shape to v3 with empty extensions. */
