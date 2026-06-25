@@ -492,7 +492,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
           {/* Note Header — title */}
           <div
             data-note-header-title-row
-            style={{ padding: isMobile ? '4px 10px' : '4px 12px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap', minWidth: 0 }}
+            style={{ padding: isMobile ? '4px 10px' : '4px 12px', borderBottom: `1px solid ${c.sideBdr}`, display: 'flex', alignItems: 'center', gap: 5, background: c.editor, flexShrink: 0, flexWrap: 'nowrap', minWidth: 0 }}
           >
             {isMobile ? (
               <>
@@ -548,7 +548,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               onChange={e => handleTitleChange(e.target.value)}
               onCompositionStart={() => { titleComposingRef.current = true; }}
               onCompositionEnd={e => handleTitleCompositionEnd(e.currentTarget.value)}
-              style={{ flex: '1 1 120px', minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700 }}
+              style={{ flex: '1 1 120px', minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: c.text, fontSize: isMobile ? 16 : 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               placeholder={t('title')}/>
             {!isTrash && !isMobile && !isCompactChrome && (
               <select value={activeNote.folderId ?? ''} onChange={e => noteUpdate(activeNote.id, { folderId: e.target.value || null })}

@@ -117,7 +117,7 @@ export const SettingsView = ({
   };
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain py-1 pr-2 pb-16 lg:pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings">
+    <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings">
       <div className="shrink-0 pl-2 pr-4 lg:pr-6">
         <WorkspacePageHeader
           workspace="settings"
