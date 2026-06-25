@@ -77,7 +77,7 @@ export function HealthConnectionsPanel({
     .sort((a, b) => String(b.date).localeCompare(String(a.date)))
     .slice(0, 3);
 
-  const chipClass = `inline-flex min-h-[34px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold transition-colors ${theme.border} ${theme.textMuted} hover:text-foreground`;
+  const chipClass = `inline-flex min-h-[34px] max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold transition-colors ${theme.border} ${theme.textMuted} hover:text-foreground`;
 
   return (
     <div className={`rounded-xl border px-3 py-2 ${theme.border} ${darkMode ? 'bg-surface/45' : 'bg-gray-50/60'}`} data-k130a-health-connections data-k134a-health-connections-support>
@@ -86,7 +86,7 @@ export function HealthConnectionsPanel({
           <p className="text-[11px] font-black uppercase tracking-wide">{t('healthConnectionsTitle')}</p>
           <p className={`text-[10px] font-medium ${theme.textMuted}`}>{t('healthConnectionsSubtitle')}</p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex min-w-0 flex-wrap gap-1.5">
           <button type="button" onClick={onOpenDayNote} className={chipClass}><StickyNote size={12} />{t('healthConnectionNotesChip')}</button>
           <button type="button" onClick={onOpenSchedule} className={chipClass}><CalendarDays size={12} />{t('healthConnectionScheduleChip')}</button>
           <button type="button" onClick={onOpenArchive} className={chipClass}><Archive size={12} />{t('healthConnectionArchiveChip')}</button>

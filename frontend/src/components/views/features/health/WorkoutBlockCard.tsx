@@ -36,7 +36,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   return (
     <div
       onClick={onAdd}
-      className={`group relative isolate z-0 min-w-[140px] max-w-full flex-1 text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2.5'} rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
+      className={`group relative isolate z-0 min-w-[140px] max-w-full grow basis-[160px] text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2.5'} rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >

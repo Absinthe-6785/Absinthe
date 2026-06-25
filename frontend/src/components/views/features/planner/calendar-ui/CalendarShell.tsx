@@ -6,7 +6,6 @@ import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { MonthCalendarView } from './month';
 import type { DayScheduleActions, AgendaEventActions } from './day/dayScheduleActions';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
-import { WorkspaceLayout } from '../../../../common/workspaceLayout';
 import { WORKSPACE_CARD } from '../../../../common/workspaceCardSizes';
 import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
 import { buildPlannerProjection } from '../calendar/buildPlannerProjection';
@@ -83,43 +82,37 @@ export function CalendarShell({
   const periodLabel = presentation.labels.monthTitle;
 
   return (
-    <WorkspaceLayout
-      workspace="schedule"
-      className="w-full shrink-0 mb-3 lg:mb-4 min-h-0"
-      primary={(
-        <div
-          className={`touch-pan-y ${WORKSPACE_CARD.md} pt-2 lg:pt-2.5`}
-          aria-label={t('plannerCalendarRegion')}
-          data-planner-calendar-shell
-          data-planner-calendar-mode="month"
-        >
-          <MonthCalendarView
-            plannerProjection={plannerProjection}
-            presentation={presentation}
+    <div
+      className={`w-full shrink-0 mb-3 lg:mb-4 min-h-0 touch-pan-y ${WORKSPACE_CARD.md} pt-2 lg:pt-2.5`}
+      aria-label={t('plannerCalendarRegion')}
+      data-planner-calendar-shell
+      data-planner-calendar-mode="month"
+    >
+      <MonthCalendarView
+        plannerProjection={plannerProjection}
+        presentation={presentation}
+        theme={theme}
+        todayKey={todayKey}
+        onEventNoteClick={onEventNoteClick}
+        onDateSelect={onAnchorDateChange}
+        scheduleActions={dayScheduleActions}
+        eventActions={eventActions}
+        weeklySchedules={weeklySchedules}
+        appSettings={appSettings}
+        THEME_COLORS={THEME_COLORS}
+        mutateStatic={mutateStatic}
+        showToast={showToast}
+        calendarHeader={(
+          <CalendarPeriodNav
+            viewMode="month"
+            anchorDate={anchorDate}
+            now={now}
+            periodLabel={periodLabel}
             theme={theme}
-            todayKey={todayKey}
-            onEventNoteClick={onEventNoteClick}
-            onDateSelect={onAnchorDateChange}
-            scheduleActions={dayScheduleActions}
-            eventActions={eventActions}
-            weeklySchedules={weeklySchedules}
-            appSettings={appSettings}
-            THEME_COLORS={THEME_COLORS}
-            mutateStatic={mutateStatic}
-            showToast={showToast}
-            calendarHeader={(
-              <CalendarPeriodNav
-                viewMode="month"
-                anchorDate={anchorDate}
-                now={now}
-                periodLabel={periodLabel}
-                theme={theme}
-                onAnchorDateChange={onAnchorDateChange}
-              />
-            )}
+            onAnchorDateChange={onAnchorDateChange}
           />
-        </div>
-      )}
-    />
+        )}
+      />
+    </div>
   );
 }

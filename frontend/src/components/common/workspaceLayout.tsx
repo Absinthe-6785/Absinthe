@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { WORKSPACE_GAP_CLASS, UI_SPACING } from '../../lib/uiSpacingTokens';
+import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 
 /** K-72 shared workspace zones — Header → Primary → Secondary → Supporting */
 export const WORKSPACE_ZONE = {
@@ -46,7 +46,7 @@ export function WorkspaceLayout({
 
       <div
         className={`flex-1 min-h-0 flex flex-col ${WORKSPACE_GAP_CLASS} ${
-          split ? 'lg:flex-row' : `overflow-y-auto ${UI_SPACING.scrollOverscroll}`
+          split ? 'lg:flex-row' : ''
         }`}
         data-k119-scroll-primary
       >

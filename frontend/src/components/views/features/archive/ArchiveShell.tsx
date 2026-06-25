@@ -7,7 +7,6 @@ import { useVaultRestoreFlow } from '../../../../hooks/useVaultRestoreFlow';
 import { VaultRestoreModal } from '../knowledge/VaultRestoreModal';
 import { ArchiveUnifiedView } from './ArchiveUnifiedView';
 import { WorkspaceErrorBoundary } from '../../../common/WorkspaceErrorBoundary';
-import { UI_SPACING } from '../../../../lib/uiSpacingTokens';
 import { useArchiveProjection } from './hooks/useArchiveProjection';
 
 export interface ArchiveShellProps {
@@ -35,7 +34,7 @@ export function ArchiveShell({
     <>
       <WorkspaceErrorBoundary workspace="archive">
       <div
-        className={`flex-1 flex flex-col overflow-hidden min-h-0 overflow-x-hidden px-2 lg:px-4 py-1 pr-1 animate-in fade-in duration-300`}
+        className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 lg:px-4 py-1 pr-2 pb-4 animate-in fade-in duration-300"
         data-archive-shell
         data-archive-mode="cohesion"
         data-k109-archive-shell
