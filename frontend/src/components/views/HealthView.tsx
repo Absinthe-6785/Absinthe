@@ -735,6 +735,7 @@ export const HealthView = ({
     );
     return { exerciseCount, setCount, doneCount };
   }, [localWorkouts]);
+  const hasWorkoutRecords = workoutSessionSummary.exerciseCount > 0;
 
   useEffect(() => {
     if (pendingLatestWorkoutIndexRef.current === null) return;
@@ -947,7 +948,14 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-0 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[61%] lg:min-h-[500px]`} data-k129b-today-workout-primary>
+        <div
+          className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card}
+            ${hasWorkoutRecords
+              ? 'lg:flex-1 lg:min-h-[360px] lg:max-h-[clamp(400px,58vh,620px)]'
+              : 'lg:shrink-0 lg:max-h-[min(380px,48vh)]'}`}
+          data-k129b-today-workout-primary
+          data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
+        >
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -1001,9 +1009,16 @@ export const HealthView = ({
             </div>
           </div>
 
-          <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 pr-1 scroll-smooth ${localWorkouts.length > 0 ? 'pb-24' : 'pb-3'}`} data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div
+            className={`overscroll-contain space-y-3 pr-1 scroll-smooth
+              ${hasWorkoutRecords
+                ? 'min-h-0 flex-1 overflow-y-auto pb-24'
+                : 'shrink-0 overflow-visible pb-1 lg:flex lg:flex-col lg:justify-center'}`}
+            data-k129b-workout-records-scroll
+            data-k129c-session-timeline
+          >
             {localWorkouts.length === 0 && (
-              <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
+              <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-4 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="font-heading text-lg font-bold">{t('noWorkoutsEmpty')}</p>
@@ -1296,7 +1311,7 @@ export const HealthView = ({
             );
             })}
           </div>
-          <div className={`sticky bottom-0 z-30 shrink-0 pt-2 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
+          <div className={`${hasWorkoutRecords ? 'sticky bottom-0' : ''} z-30 shrink-0 pt-2 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
             {isWorkoutLocked ? (
               /* ── 잠금 상태: Saved 배너 + Edit 버튼만 표시 ── */
               <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border
@@ -1371,7 +1386,14 @@ export const HealthView = ({
         )}
         </div>
 
-      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:h-[calc(39%_-_0.75rem)] lg:min-h-[290px] lg:pb-0 lg:overflow-hidden" data-k136a-health-right>
+      <div
+        ref={inbodyQuickRef}
+        className={`flex min-w-0 flex-col gap-2.5 pb-4 lg:min-h-[290px] lg:pb-0 lg:overflow-hidden
+          ${hasWorkoutRecords
+            ? 'shrink-0 lg:h-[calc(39%_-_0.75rem)]'
+            : 'lg:flex-1 lg:min-h-0'}`}
+        data-k136a-health-right
+      >
         <HealthSupportingPanels
           selectedDate={selectedDate}
           currentDate={currentDate}
