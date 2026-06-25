@@ -854,9 +854,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 lg:h-[calc(100vh-7rem)] lg:min-h-[720px] lg:max-h-[940px] lg:overflow-hidden xl:grid-cols-[minmax(320px,0.38fr)_minmax(620px,0.62fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
+    <div className="flex-1 lg:flex-none grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-0 min-h-0 lg:h-[calc(100vh_-_5.75rem)] lg:min-h-[820px] lg:overflow-hidden xl:grid-cols-[minmax(340px,0.37fr)_minmax(680px,0.63fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="flex flex-col gap-2.5 shrink-0 lg:h-full lg:pb-3 min-h-0 xl:min-w-0 lg:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
+      <div className="flex flex-col gap-2.5 shrink-0 lg:h-full min-h-0 xl:min-w-0 lg:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -884,7 +884,7 @@ export const HealthView = ({
           quickCaptureMeta={blockQuickCaptureMeta}
         />
 
-        <div className={`lg:flex-1 lg:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+        <div className={`lg:flex-1 lg:min-h-[340px] ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
           <div className="flex justify-between items-center mb-2.5">
             <h2 className="font-heading text-base font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -946,8 +946,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-4 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[min(58vh,600px)] lg:min-h-[460px] lg:max-h-[600px]`} data-k129b-today-workout-primary>
+      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-0 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[61%] lg:min-h-[500px]`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -1371,7 +1371,7 @@ export const HealthView = ({
         )}
         </div>
 
-      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:h-[min(34vh,320px)] lg:min-h-[260px] lg:max-h-[340px] lg:overflow-y-auto lg:overscroll-contain" data-k136a-health-right>
+      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:h-[calc(39%_-_0.75rem)] lg:min-h-[290px] lg:pb-0 lg:overflow-hidden" data-k136a-health-right>
         <HealthSupportingPanels
           selectedDate={selectedDate}
           currentDate={currentDate}
