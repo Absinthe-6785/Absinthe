@@ -15,7 +15,9 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
     noStreakUi: !panel.includes('k107WorkoutStreak'),
     noRecentSessionsUi: !panel.includes('k107RecentSessions'),
     historyOpenNote: panel.includes('k113OpenWorkoutNote') && panel.includes('exercise-history'),
-    compactChart: panel.includes('h-12') && panel.includes('data-k126-health-chart'),
+    compactChart:
+      (panel.includes('h-10') || panel.includes('h-12')) &&
+      panel.includes('data-k126-health-chart'),
     analyticsHook: panel.includes('data-k126-health-analytics'),
     overviewAnalysisSplit:
       health.includes("healthSection === 'analysis'") &&

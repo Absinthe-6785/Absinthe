@@ -10,6 +10,7 @@ import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleA
 import { useElementVisible } from '@/hooks/useElementVisible';
 import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
 import { scrollToScheduleSection } from '../../ScheduleSectionNav';
+import { WORKSPACE_CARD_RADIUS_CLASS } from '@/components/common/workspaceCardSizes';
 
 export interface MonthCalendarViewProps {
   plannerProjection: PlannerProjection;
@@ -87,7 +88,7 @@ export function MonthCalendarView({
 
         {hasRoutineToday ? (
           <section data-k117-schedule-section="routine">
-            <div className={`rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3 ${theme.card}`}>
+            <div className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm ${theme.card}`}>
               <PlannerRoutineTodayCard
                 theme={theme}
                 slots={plannerProjection.timetableToday}
@@ -118,7 +119,7 @@ export function MonthCalendarView({
       <section
         data-k117-schedule-section="calendar"
         ref={monthRef as React.RefObject<HTMLElement>}
-        className={`w-full rounded-[14px] lg:rounded-[16px] p-1.5 lg:p-2 min-h-0 overflow-hidden flex flex-col ${theme.card}`}
+        className={`w-full ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 min-h-0 overflow-hidden flex flex-col shadow-sm ${theme.card}`}
         data-k117-planner-calendar-adaptive
         data-k108-planner-month-lazy
       >

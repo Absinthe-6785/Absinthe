@@ -36,18 +36,18 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   return (
     <div
       onClick={onAdd}
-      className={`group relative isolate z-0 min-w-0 max-w-full text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-2'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
+      className={`group relative isolate z-0 min-w-[140px] max-w-full flex-1 text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2.5'} rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >
-      <div className="flex items-center gap-1.5 min-w-0 pr-6">
+      <div className="flex items-center gap-1.5 min-w-0 pr-7">
         <div className={`w-2 h-2 rounded-full shrink-0 ${typeColor}`} />
         <span className="truncate">{b.name}</span>
       </div>
       {meta && !compact ? (
-        <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-6 text-[10px] font-bold ${theme.textMuted}`} data-k129d-exercise-history-preview>
-          <span>{meta.lastDate}</span>
-          {meta.summary ? <span className="truncate">{meta.summary}</span> : null}
+        <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-7 text-[10px] font-bold ${theme.textMuted}`} data-k129d-exercise-history-preview>
+          <span className="shrink-0">{meta.lastDate}</span>
+          {meta.summary ? <span className="min-w-0 max-w-full truncate">{meta.summary}</span> : null}
         </div>
       ) : null}
       {meta && compact ? (
@@ -96,14 +96,14 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
           <button
             type="button"
             onClick={onEdit}
-            className="absolute top-1 left-1 bg-blue-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className="absolute top-1.5 left-1.5 inline-flex h-5 w-5 items-center justify-center bg-blue-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
           >
             <Pencil size={10} />
           </button>
           <button
             type="button"
             onClick={onDelete}
-            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className="absolute top-1.5 right-1.5 inline-flex h-5 w-5 items-center justify-center bg-red-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
           >
             <X size={10} />
           </button>

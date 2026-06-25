@@ -10,6 +10,7 @@ import { ConfirmModal } from '../../../common/ConfirmModal';
 import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate } from '../../k98aTimetableMultiDay';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { isDuplicatedWeeklyTitle } from '../../k101TimetableDuplicateDays';
+import { WORKSPACE_CARD_RADIUS_CLASS } from '../../../common/workspaceCardSizes';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
@@ -158,7 +159,7 @@ export function WeeklyTimetableSection({
     <>
       <section
         className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
-          ${sectionEmbedded ? 'rounded-[14px] lg:rounded-[16px] p-2.5 lg:p-3' : 'rounded-[24px] lg:rounded-[32px] p-5 lg:p-6'}
+          ${sectionEmbedded ? `${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4` : `${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6`}
           ${showGrid || showMobileList ? (sectionEmbedded ? 'min-h-0' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
@@ -241,7 +242,7 @@ export function WeeklyTimetableSection({
               />
             ) : (
               mobileByDay.map(({ day, label, blocks }) => (
-                <div key={day} className={`${sectionEmbedded ? `rounded-xl border p-2 ${theme.border}` : 'pb-3 border-b border-border/40 last:border-b-0'}`} data-planner-weekly-day-group={day}>
+                <div key={day} className={`${sectionEmbedded ? `rounded-xl border p-2.5 ${theme.border}` : 'pb-3 border-b border-border/40 last:border-b-0'}`} data-planner-weekly-day-group={day}>
                   <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme.textMuted}`} data-planner-weekly-day-label>{label}</h3>
                   <ul className="flex flex-col gap-1.5">
                     {blocks.map(block => (

@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import type { HealthProjection } from './buildHealthProjection';
 import type { Theme } from '../../../../types';
-import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { HealthVirtualList } from './HealthVirtualList';
@@ -30,7 +30,7 @@ const HealthWeeklyChart = memo(function HealthWeeklyChart({
 }) {
   const max = Math.max(1, ...points.map(p => p.value));
   return (
-    <div className="flex items-end gap-1 h-12" data-k107-health-weekly-chart data-k126-health-chart>
+    <div className="flex items-end gap-1 h-10" data-k107-health-weekly-chart data-k126-health-chart>
       {points.map(p => (
         <div key={p.label} className="flex-1 flex flex-col items-center gap-0.5">
           <div
@@ -96,7 +96,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${standalone ? WORKSPACE_CARD.lg : WORKSPACE_CARD.sm} ${standalone ? 'p-3.5 lg:p-4 flex flex-col min-h-0' : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
+      className={`${standalone ? WORKSPACE_CARD.md : WORKSPACE_CARD.sm} ${standalone ? `${WORKSPACE_CARD_RADIUS_CLASS} p-3.5 lg:p-4 flex flex-col min-h-0 shadow-sm` : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k126-health-analytics
@@ -120,17 +120,17 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
       </div>
 
       {expanded && (
-        <div className={`mt-1.5 space-y-2 ${standalone ? 'min-h-0 pr-1' : ''}`} data-k121-health-summary data-k126-health-summary>
+        <div className={`mt-1.5 space-y-2 ${standalone ? 'min-h-0' : ''}`} data-k121-health-summary data-k126-health-summary>
           {!visible || loading ? (
             <WorkspaceCardSkeleton bars={2} theme={theme} minHeight={K121_SKELETON_HEIGHT.analyticsSummary} />
           ) : projection ? (
             <>
-              <div className="grid grid-cols-2 gap-1.5 text-center" data-k126-health-summary-grid>
-                <div className={`rounded-lg py-1 px-2 ${theme.input}`}>
+              <div className="grid grid-cols-2 gap-2 text-center" data-k126-health-summary-grid>
+                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107WeeklySessions')}</p>
                   <p className="text-sm font-black tabular-nums">{projection.weeklySessionCount}</p>
                 </div>
-                <div className={`rounded-lg py-1 px-2 ${theme.input}`}>
+                <div className={`rounded-xl py-1.5 px-2 ${theme.input}`}>
                   <p className={`text-[10px] font-bold ${theme.textMuted}`}>{t('k107MonthlySessions')}</p>
                   <p className="text-sm font-black tabular-nums">{projection.monthlySessionCount}</p>
                 </div>

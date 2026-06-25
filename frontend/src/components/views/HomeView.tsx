@@ -18,7 +18,7 @@ import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
-import { WORKSPACE_CARD_SURFACE, WORKSPACE_CARD_RADIUS_CLASS } from '../common/workspaceCardSizes';
+import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { openNote, switchToTab } from '../../lib/noteNavigation';
 import { buildRecentActivityProjection } from './buildRecentActivityProjection';
 import { buildRelativeDateLabels } from './k102RelativeDateLabels';
@@ -55,7 +55,7 @@ function HomeSection({
 }) {
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} ${WORKSPACE_CARD_RADIUS_CLASS} p-4 lg:p-5 ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} ${theme.card}`}
       data-k132a-home-section={dataHook}
     >
       <h2 className="font-heading text-base font-bold mb-3">{title}</h2>
