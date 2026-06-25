@@ -31,10 +31,9 @@ import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
-import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
-import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
+import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
@@ -198,11 +197,7 @@ export const HealthView = ({
   // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
   const [isInbodyDirty, setIsInbodyDirty] = useState(false);
   const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
-  const [healthSectionPrefs, setHealthSectionPrefs] = useState<HealthSectionPrefs>(() => readHealthSectionPrefs());
-  const updateHealthSectionPrefs = useCallback((next: HealthSectionPrefs) => {
-    setHealthSectionPrefs(next);
-    writeHealthSectionPrefs(next);
-  }, []);
+  const [healthSectionPrefs] = useState(() => readHealthSectionPrefs());
 
   // weightUnits: zustand store persist
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
@@ -689,26 +684,13 @@ export const HealthView = ({
     { revalidateOnFocus: false },
   );
 
-  const shouldLoadAnalyticsRange = healthSection === 'analysis' || !healthSectionPrefs.analyticsCollapsed;
-  const projectionRangeStart = useMemo(() => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() - 90);
-    return formatDate(d);
-  }, [selectedDate, formatDate]);
   const selectedDateKey = formatDate(selectedDate);
-  const { data: analyticsRangeRows } = useSWR<RangeWorkoutRow[]>(
-    shouldLoadAnalyticsRange
-      ? `${API_URL}/api/workouts/range?start_date=${projectionRangeStart}&end_date=${selectedDateKey}`
-      : null,
-    fetcher,
-    { revalidateOnFocus: false },
-  );
 
   const healthProjection = useMemo(() => buildHealthProjection({
-    rangeWorkouts: shouldLoadAnalyticsRange && analyticsRangeRows ? analyticsRangeRows : monthWorkoutRows,
+    rangeWorkouts: monthWorkoutRows,
     selectedDateKey,
     weightUnits,
-  }), [shouldLoadAnalyticsRange, analyticsRangeRows, monthWorkoutRows, selectedDateKey, weightUnits]);
+  }), [monthWorkoutRows, selectedDateKey, weightUnits]);
 
   const workoutDates = healthProjection.workoutDates;
 
@@ -870,26 +852,9 @@ export const HealthView = ({
         </div>
       )}
 
-      {healthSection === 'analysis' && (
-        <div className="flex-1 min-h-0 pb-4" data-k129b-health-analysis-view>
-          <div className="max-w-[840px] mx-auto">
-            <HealthAnalyticsPanel
-              projection={healthProjection}
-              loading={!analyticsRangeRows}
-              theme={theme}
-              darkMode={appSettings.darkMode}
-              prefs={healthSectionPrefs}
-              onPrefsChange={updateHealthSectionPrefs}
-              onOpenWorkoutNote={openWorkoutSessionNote}
-              standalone
-            />
-          </div>
-        </div>
-      )}
-
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 lg:h-[calc(100vh-10rem)] lg:min-h-[620px] lg:max-h-[820px] lg:overflow-hidden xl:grid-cols-[minmax(300px,0.38fr)_minmax(560px,0.62fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
+    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 lg:h-[calc(100vh-7rem)] lg:min-h-[720px] lg:max-h-[940px] lg:overflow-hidden xl:grid-cols-[minmax(320px,0.38fr)_minmax(620px,0.62fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="flex flex-col gap-2.5 shrink-0 lg:h-full lg:pb-3 min-h-0 xl:min-w-0 lg:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
@@ -946,7 +911,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
+          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -954,7 +919,7 @@ export const HealthView = ({
                 .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
                 .filter((b): b is ExerciseBlock => !!b);
               return (
-                <div key={dayName} className={`rounded-xl p-2.5 border ${theme.border}`}>
+                <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-heading text-sm font-bold">{dayName}</h3>
                     <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
@@ -963,7 +928,7 @@ export const HealthView = ({
                     {blocks.length === 0 ? (
                       <span className={`text-[10px] ${theme.textMuted}`}>—</span>
                     ) : blocks.map(b => (
-                      <div key={b.id} className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+                      <div key={b.id} className="flex items-center justify-between gap-2 text-xs font-semibold">
                         <span className="truncate">{b.name}</span>
                         {showsPlannedSetCount(b.type) ? (
                           <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
@@ -982,7 +947,7 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-4 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[min(52vh,500px)] lg:min-h-[380px] lg:max-h-[500px]`} data-k129b-today-workout-primary>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[min(58vh,600px)] lg:min-h-[460px] lg:max-h-[600px]`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -1331,10 +1296,10 @@ export const HealthView = ({
             );
             })}
           </div>
-          <div className={`sticky bottom-0 z-30 shrink-0 pt-3 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
+          <div className={`sticky bottom-0 z-30 shrink-0 pt-2 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
             {isWorkoutLocked ? (
               /* ── 잠금 상태: Saved 배너 + Edit 버튼만 표시 ── */
-              <div className={`flex items-center justify-between gap-3 px-5 py-4 rounded-2xl border
+              <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border
                 ${appSettings.darkMode ? 'bg-green-900/30 border-green-700/40' : 'bg-green-50 border-green-200'}`}>
                 <div className="flex items-center gap-2.5">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0
@@ -1380,7 +1345,7 @@ export const HealthView = ({
               </WorkspaceToolbar>
             )}
             {/* ── 날짜별 메모 ── */}
-            <div className="mt-2 rounded-xl p-2.5 bg-surface-alt" data-k104-health-workout-footer>
+            <div className="mt-2 rounded-xl p-2 bg-surface-alt" data-k104-health-workout-footer>
               <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
               <textarea
                 value={workoutMemo}
@@ -1389,7 +1354,7 @@ export const HealthView = ({
                   localStorage.setItem(memoKey, e.target.value);
                 }}
                 placeholder={t('memoPlaceholder')}
-                rows={2}
+                rows={1}
                 className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
               />
               <button
@@ -1406,7 +1371,7 @@ export const HealthView = ({
         )}
         </div>
 
-      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:max-h-[240px] lg:overflow-y-auto lg:overscroll-contain" data-k136a-health-right>
+      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:h-[min(34vh,320px)] lg:min-h-[260px] lg:max-h-[340px] lg:overflow-y-auto lg:overscroll-contain" data-k136a-health-right>
         <HealthSupportingPanels
           selectedDate={selectedDate}
           currentDate={currentDate}

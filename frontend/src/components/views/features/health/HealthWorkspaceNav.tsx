@@ -1,14 +1,13 @@
-import { Apple, Dumbbell, TrendingUp } from 'lucide-react';
+import { Apple, Dumbbell } from 'lucide-react';
 import { useTranslation } from '../../../../lib/i18n';
 import type { Theme } from '../../../../types';
 import { WorkspaceSectionNav } from '../../../common/WorkspaceSectionNav';
 
-export type HealthWorkspaceSection = 'workout' | 'nutrition' | 'analysis';
+export type HealthWorkspaceSection = 'workout' | 'nutrition';
 
 export const HEALTH_WORKSPACE_SECTIONS: readonly { id: HealthWorkspaceSection; icon: typeof Dumbbell }[] = [
   { id: 'workout', icon: Dumbbell },
   { id: 'nutrition', icon: Apple },
-  { id: 'analysis', icon: TrendingUp },
 ];
 
 export interface HealthWorkspaceNavProps {
@@ -28,7 +27,6 @@ export function HealthWorkspaceNav({ active, onChange, theme, compact }: HealthW
     switch (id) {
       case 'workout': return t('healthNavOverview');
       case 'nutrition': return t('healthNavNutrition');
-      case 'analysis': return t('healthNavAnalysis');
     }
   };
 
