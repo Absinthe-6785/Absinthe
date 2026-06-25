@@ -32,7 +32,6 @@ import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
-import { HealthInbodyQuickPanel } from './features/health/HealthInbodyQuickPanel';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { HealthConnectionsPanel } from './features/health/HealthConnectionsPanel';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
@@ -93,7 +92,6 @@ export const HealthView = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
-  const [highlightInbodyQuick, setHighlightInbodyQuick] = useState(false);
   const inbodyQuickRef = useRef<HTMLDivElement>(null);
   const latestWorkoutRecordRef = useRef<HTMLDivElement>(null);
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
@@ -604,11 +602,9 @@ export const HealthView = ({
       setIsWorkoutLocked(true);
       mutateDaily();
       if (isMobile) {
-        setHighlightInbodyQuick(true);
         requestAnimationFrame(() => {
           inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
-        window.setTimeout(() => setHighlightInbodyQuick(false), 2400);
       }
     } else if (failed < total) {
       localStorage.removeItem(draftKey);
@@ -617,11 +613,9 @@ export const HealthView = ({
       setIsWorkoutLocked(true);
       mutateDaily();
       if (isMobile) {
-        setHighlightInbodyQuick(true);
         requestAnimationFrame(() => {
           inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
-        window.setTimeout(() => setHighlightInbodyQuick(false), 2400);
       }
     } else {
       showToast(t('failedSave'), 'error');
@@ -896,7 +890,7 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 xl:grid-cols-[minmax(260px,0.72fr)_minmax(460px,1.45fr)_minmax(260px,0.78fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
+    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 xl:grid-cols-[minmax(320px,0.78fr)_minmax(620px,1.55fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="flex flex-col gap-2.5 shrink-0 lg:pb-3 min-h-0 xl:min-w-0" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
@@ -1413,7 +1407,26 @@ export const HealthView = ({
         )}
         </div>
 
-      <div className="hidden xl:flex min-w-0 flex-col gap-2.5 pb-4" data-k136a-health-right>
+      <div ref={inbodyQuickRef} className="hidden lg:flex min-w-0 flex-col gap-2.5 pb-4" data-k136a-health-right>
+        <HealthSupportingPanels
+          selectedDate={selectedDate}
+          currentDate={currentDate}
+          setCurrentDate={setCurrentDate}
+          setSelectedDate={setSelectedDate}
+          formatDate={formatDate}
+          isToday={isToday}
+          theme={theme}
+          lang={lang}
+          workoutDates={workoutDates}
+          localInbody={localInbody}
+          setLocalInbody={setLocalInbody}
+          setIsInbodyDirty={setIsInbodyDirty}
+          onSaveInbody={handleSaveInbody}
+          appSettings={appSettings}
+          showToast={showToast}
+          onOpenNutrition={() => setHealthSection('nutrition')}
+          inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
+        />
         <HealthConnectionsPanel
           dateLabel={selectedDateKey}
           exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
@@ -1437,35 +1450,6 @@ export const HealthView = ({
           prefs={healthSectionPrefs}
           onPrefsChange={updateHealthSectionPrefs}
           onOpenWorkoutNote={openWorkoutSessionNote}
-        />
-        <HealthInbodyQuickPanel
-          ref={inbodyQuickRef}
-          localInbody={localInbody}
-          setLocalInbody={setLocalInbody}
-          setIsInbodyDirty={setIsInbodyDirty}
-          onSaveInbody={handleSaveInbody}
-          theme={theme}
-          highlight={highlightInbodyQuick}
-        />
-        <HealthSupportingPanels
-          selectedDate={selectedDate}
-          currentDate={currentDate}
-          setCurrentDate={setCurrentDate}
-          setSelectedDate={setSelectedDate}
-          formatDate={formatDate}
-          isToday={isToday}
-          theme={theme}
-          lang={lang}
-          workoutDates={workoutDates}
-          localInbody={localInbody}
-          setLocalInbody={setLocalInbody}
-          setIsInbodyDirty={setIsInbodyDirty}
-          onSaveInbody={handleSaveInbody}
-          appSettings={appSettings}
-          showToast={showToast}
-          onOpenNutrition={() => setHealthSection('nutrition')}
-          inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
-          layout="stack"
         />
       </div>
       </div>

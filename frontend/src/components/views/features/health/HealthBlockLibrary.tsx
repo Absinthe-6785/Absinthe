@@ -27,13 +27,12 @@ export interface HealthBlockQuickCaptureMeta {
 }
 
 interface FlatBlockRow {
-  kind: 'header' | 'block';
   tag?: string;
-  block?: ExerciseBlock;
+  blocks: ExerciseBlock[];
   key: string;
 }
 
-function buildFlatRows(
+function buildBlockGroups(
   blocks: ExerciseBlock[],
   activeTagFilter: string | null,
   otherLabel: string,
@@ -44,18 +43,12 @@ function buildFlatRows(
     if (activeTagFilter && tag !== activeTagFilter) continue;
     const items = blocks.filter(b => (b.tags ?? []).includes(tag));
     if (items.length === 0) continue;
-    rows.push({ kind: 'header', tag, key: `h-${tag}` });
-    for (const block of items) {
-      rows.push({ kind: 'block', block, key: block.id });
-    }
+    rows.push({ tag, blocks: items, key: `h-${tag}` });
   }
   if (!activeTagFilter) {
     const untagged = blocks.filter(b => (b.tags ?? []).length === 0);
-    if (untagged.length > 0 && allTags.length > 0) {
-      rows.push({ kind: 'header', tag: otherLabel, key: 'h-other' });
-    }
-    for (const block of untagged) {
-      rows.push({ kind: 'block', block, key: block.id });
+    if (untagged.length > 0) {
+      rows.push({ tag: allTags.length > 0 ? otherLabel : undefined, blocks: untagged, key: 'h-other' });
     }
   }
   return rows;
@@ -98,21 +91,16 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       });
   }, [blocks, query, quickCaptureMeta]);
 
-  const recentBlocks = useMemo(
-    () => rankedBlocks.filter(block => quickCaptureMeta?.has(block.id)).slice(0, 5),
-    [rankedBlocks, quickCaptureMeta],
-  );
-
-  const flatRows = useMemo(
-    () => buildFlatRows(rankedBlocks, activeTagFilter, t('other')),
+  const blockGroups = useMemo(
+    () => buildBlockGroups(rankedBlocks, activeTagFilter, t('other')),
     [rankedBlocks, activeTagFilter, t],
   );
 
   const renderBlock = (block: ExerciseBlock) => (
     <WorkoutBlockCard
+      key={block.id}
       block={block}
       theme={theme}
-      meta={quickCaptureMeta?.get(block.id)}
       onAdd={() => void onAddToToday(block)}
       onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
       onDelete={e => onDeleteBlock(block.id, e)}
@@ -142,28 +130,6 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
           className="min-w-0 flex-1 bg-transparent outline-none text-sm font-semibold"
         />
       </label>
-
-      {recentBlocks.length > 0 && !activeTagFilter && (
-        <div className="mb-2 shrink-0" data-k129d-recent-exercise-suggestions>
-          <p className={`mb-1 text-[10px] font-black uppercase tracking-wide ${theme.textMuted}`}>
-            {t('healthRecentExercises')}
-          </p>
-          <div className="flex flex-wrap items-start gap-1.5">
-            {recentBlocks.map(block => (
-              <WorkoutBlockCard
-                key={`recent-${block.id}`}
-                block={block}
-                theme={theme}
-                compact
-                meta={quickCaptureMeta?.get(block.id)}
-                onAdd={() => void onAddToToday(block)}
-                onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
-                onDelete={e => onDeleteBlock(block.id, e)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {allTags.length > 0 && (
         <div className="flex flex-wrap items-start gap-1 mb-2 shrink-0">
@@ -206,25 +172,22 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       )}
 
       <div className="min-h-0 pb-1 flex-1">
-        <div className="space-y-2">
-          {flatRows.map(row => {
-            if (row.kind === 'header') {
-              return (
-                <div key={row.key} className="flex items-center gap-1.5 mb-1">
+        <div className="space-y-2.5">
+          {blockGroups.map(row => (
+            <section key={row.key} className="min-w-0" data-k136a-health-block-section>
+              {row.tag ? (
+                <div className="flex items-center gap-1.5 mb-1">
                   <span className={`max-w-full truncate text-[11px] font-black tracking-wide ${theme.textMuted}`}>
                     {row.tag === t('other') ? t('other') : `#${row.tag?.toUpperCase()}`}
                   </span>
                   <div className={`flex-1 h-px ${darkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
                 </div>
-              );
-            }
-            if (!row.block) return null;
-            return (
-              <div key={row.key} className="flex flex-wrap items-start gap-1.5 overflow-visible px-0.5">
-                {renderBlock(row.block)}
+              ) : null}
+              <div className="flex flex-wrap items-start gap-1.5 overflow-visible px-0.5">
+                {row.blocks.map(renderBlock)}
               </div>
-            );
-          })}
+            </section>
+          ))}
         </div>
       </div>
     </div>
