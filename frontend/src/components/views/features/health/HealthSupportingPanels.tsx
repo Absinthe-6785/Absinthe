@@ -57,7 +57,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
       ref={ref as React.RefObject<HTMLDivElement>}
       className={layout === 'stack'
         ? 'flex flex-col gap-2.5 shrink-0'
-        : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.52fr)_minmax(0,1fr)] gap-2.5 shrink-0'}
+        : 'grid grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.5fr)_minmax(0,1fr)] lg:items-stretch gap-2.5 shrink-0'}
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >
@@ -69,7 +69,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
         </>
       ) : (
         <>
-          <div className="order-3 min-w-0 lg:order-1">
+          <div className="order-3 min-w-0 lg:order-1 lg:min-h-0">
             <WorkoutMonthCalendar
               selectedDate={selectedDate}
               currentDate={currentDate}
@@ -82,7 +82,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               workoutDates={workoutDates}
             />
           </div>
-          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 min-w-0 px-3 py-2 transition-colors lg:order-2 ${theme.card}`} data-inbody-panel>
+          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 min-w-0 px-3 py-2 transition-colors lg:order-2 lg:min-h-0 ${theme.card}`} data-inbody-panel>
             <div className="flex items-center justify-between gap-2 mb-2">
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
@@ -112,7 +112,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               ))}
             </div>
           </div>
-          <div className="order-2 min-w-0 lg:order-3">
+          <div className="order-2 min-w-0 lg:order-3 lg:min-h-0">
             <ProteinTracker
               mode="compact"
               theme={theme}
