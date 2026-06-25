@@ -329,7 +329,7 @@ export function ProteinTracker({
   if (mode === 'compact') {
     return (
       <div
-        className={`${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
+        className={`${WORKSPACE_CARD_SURFACE_COMPACT} flex h-full min-h-0 flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
         data-workspace="nutrition-compact"
       >
         <div className="flex items-center justify-between gap-2">
