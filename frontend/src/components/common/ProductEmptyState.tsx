@@ -103,7 +103,7 @@ export function ProductEmptyState({
       data-product-empty={dataHook ?? true}
       data-k127-empty-state
       {...(dataHook ? { [`data-${dataHook}`]: 'true' } : {})}
-      className={`flex flex-col items-center justify-center h-full p-4 text-center ${muted}`}
+      className={`flex flex-col items-center justify-center min-h-[120px] p-4 text-center ${muted}`}
       data-k119-empty-state
     >
       <Icon size={UI_DENSITY.emptyStateIconSizePx} strokeWidth={1.5} className="mb-2 opacity-50" />

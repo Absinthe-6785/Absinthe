@@ -234,7 +234,7 @@ export const HomeView = ({
   return (
     <WorkspaceErrorBoundary workspace="home">
       <div
-        className={`flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`}
+        className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain pr-1 pb-6 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`}
         data-workspace="home"
         data-k132a-home
       >
@@ -249,7 +249,7 @@ export const HomeView = ({
           />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto pb-6 pr-1" data-k132a-home-scroll>
+        <div className="flex-1 min-h-0" data-k132a-home-scroll>
           <div className="max-w-[760px] mx-auto flex flex-col gap-3 lg:gap-4">
             <HomeSection title={t('homeContinue')} dataHook="continue" theme={theme}>
               {projection.continueItem ? (
