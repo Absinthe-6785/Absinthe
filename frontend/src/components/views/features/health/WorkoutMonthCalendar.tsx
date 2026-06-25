@@ -102,7 +102,7 @@ function WorkoutMonthCalendarInner({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD.md} ${WORKSPACE_CARD_SURFACE_COMPACT} flex h-full min-h-0 flex-col transition-colors ${theme.card}`}
       data-health-workout-calendar
       data-k107-calendar-month-key={monthKey}
     >

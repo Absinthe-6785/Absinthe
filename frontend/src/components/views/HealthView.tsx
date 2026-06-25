@@ -947,13 +947,19 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-0 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
+      <div
+        className={`lg:min-w-0 min-h-0 pb-3 lg:pb-0 lg:pr-1 lg:overflow-hidden overflow-x-hidden
+          flex flex-col gap-2.5
+          lg:grid lg:grid-rows-[minmax(360px,0.55fr)_minmax(260px,0.45fr)] lg:gap-3 lg:h-full
+          ${mobileHealthTab === 'workout' ? 'flex lg:grid' : 'hidden lg:grid'}`}
+        data-k129b-health-primary
+        data-k136a-health-center
+        data-k138-health-right-grid
+      >
         <div
-          className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card}
-            ${hasWorkoutRecords
-              ? 'lg:flex-1 lg:min-h-[360px] lg:max-h-[clamp(400px,58vh,620px)]'
-              : 'lg:shrink-0 lg:max-h-[min(380px,48vh)]'}`}
+          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-full`}
           data-k129b-today-workout-primary
+          data-k138-workout-row
           data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
         >
         {isDailyLoading ? (
@@ -1010,10 +1016,10 @@ export const HealthView = ({
           </div>
 
           <div
-            className={`overscroll-contain space-y-3 pr-1 scroll-smooth
+            className={`min-h-0 flex-1 overscroll-contain space-y-3 pr-1 scroll-smooth
               ${hasWorkoutRecords
-                ? 'min-h-0 flex-1 overflow-y-auto pb-24'
-                : 'shrink-0 overflow-visible pb-1 lg:flex lg:flex-col lg:justify-center'}`}
+                ? 'overflow-y-auto pb-24'
+                : 'overflow-hidden flex flex-col justify-center pb-1'}`}
             data-k129b-workout-records-scroll
             data-k129c-session-timeline
           >
@@ -1388,11 +1394,9 @@ export const HealthView = ({
 
       <div
         ref={inbodyQuickRef}
-        className={`flex min-w-0 flex-col gap-2.5 pb-4 lg:min-h-[290px] lg:pb-0 lg:overflow-hidden
-          ${hasWorkoutRecords
-            ? 'shrink-0 lg:h-[calc(39%_-_0.75rem)]'
-            : 'lg:flex-1 lg:min-h-0'}`}
+        className="flex min-w-0 min-h-0 flex-col gap-2.5 pb-4 lg:h-full lg:pb-0 lg:overflow-hidden"
         data-k136a-health-right
+        data-k138-support-row
       >
         <HealthSupportingPanels
           selectedDate={selectedDate}
