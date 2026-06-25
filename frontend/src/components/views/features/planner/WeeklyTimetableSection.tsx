@@ -67,8 +67,8 @@ export function WeeklyTimetableSection({
   const hasActivities = weeklySchedules.length > 0;
   const inlineExpanded = standalone || sectionEmbedded;
   const [expanded, setExpanded] = useState(hasActivities || sectionEmbedded);
-  const showCompactList = sectionEmbedded || ((standalone || sectionEmbedded) && isMobile);
-  const showGrid = inlineExpanded ? !isMobile && !sectionEmbedded : expanded;
+  const showCompactList = inlineExpanded && isMobile;
+  const showGrid = inlineExpanded ? !isMobile : expanded;
   const showMobileList = showCompactList;
 
   const openWeeklyModal = (sch?: WeeklySchedule) => {
@@ -135,8 +135,12 @@ export function WeeklyTimetableSection({
   };
 
   const deleteWeeklySchedule = (id: string) =>
-    showConfirm(t('plannerWeeklyDeleteConfirm'), () => {
-      void api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') });
+    showConfirm(t('plannerWeeklyDeleteConfirm'), async () => {
+      const ok = await api('DELETE', `/api/weekly_schedules/${id}`, undefined, { revalidate: 'static', successMsg: t('deleted') });
+      if (ok) {
+        setShowWeeklyModal(false);
+        setEditingWeeklyId(null);
+      }
     },
       { confirmLabel: t('delete') },
     );
@@ -166,7 +170,7 @@ export function WeeklyTimetableSection({
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
         data-k117-timetable-embedded={sectionEmbedded ? 'true' : 'false'}
       >
-        <div className={`flex justify-between items-center ${sectionEmbedded ? (hasActivities ? 'mb-1.5' : 'mb-0') : 'mb-4'}`}>
+        <div className={`flex justify-between items-center gap-3 ${sectionEmbedded ? 'mb-2' : 'mb-4'}`}>
           <div>
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
               <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
@@ -268,7 +272,7 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[64px]' : sectionEmbedded ? 'min-h-[140px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[64px]' : sectionEmbedded ? 'min-h-[320px] max-h-[520px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           {!hasActivities ? (
             <div
               className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-center ${theme.textMuted}`}

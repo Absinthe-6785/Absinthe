@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { FileText } from 'lucide-react';
-import type { Theme } from '@/types';
+import type { Routine, Theme } from '@/types';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
 import { useTranslation } from '@/lib/i18n';
@@ -9,6 +9,8 @@ import { hasDailyNote, formatDailyNoteLabel } from '../../../../k101DailyNote';
 import { openTodaysDailyNoteFromApp } from '../../../../k105DailyWorkflow';
 import { DayScheduleTimeline } from '../day/DayScheduleTimeline';
 import type { DayScheduleActions } from '../day/dayScheduleActions';
+import { DayRoutineSummary } from '../day/DayRoutineSummary';
+import type { DayRoutineActions } from '../day/dayRoutineActions';
 import { buildDayViewPayload } from '../../calendar/buildPlannerViewPayloads';
 import { WORKSPACE_CARD_RADIUS_CLASS } from '@/components/common/workspaceCardSizes';
 
@@ -18,6 +20,8 @@ export interface PlannerTodayPanelProps {
   theme: Theme;
   todayKey: string;
   scheduleActions?: DayScheduleActions;
+  routines?: readonly Routine[];
+  routineActions?: DayRoutineActions;
 }
 
 function resolveTodayTimeline(
@@ -53,6 +57,8 @@ export function PlannerTodayPanel({
   theme,
   todayKey,
   scheduleActions,
+  routines = [],
+  routineActions,
 }: PlannerTodayPanelProps) {
   const { t, lang } = useTranslation();
   const notes = useNotesStore(s => s.notes);
@@ -76,33 +82,44 @@ export function PlannerTodayPanel({
           <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{todayLabel}</span>
         </div>
 
-        <section className="mb-2" data-k105-planner-todays-note>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
-            {t('k105TodaysNote')}
-          </p>
-          <button
-            type="button"
-            onClick={openTodaysDailyNoteFromApp}
-            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[38px]`}
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <FileText size={14} className="shrink-0 text-muted" />
-              <span className="truncate">{t('k105TodaysNote')}</span>
-            </span>
-            <span className="text-[10px] font-bold shrink-0 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-              {todayExists ? t('k101DailyNoteExists') : t('k101DailyNoteNew')}
-            </span>
-          </button>
-        </section>
+        <div className="flex flex-col gap-3" data-k139-schedule-today-stack>
+          <div data-k117-schedule-section="routine">
+            <DayRoutineSummary
+              routines={routines}
+              isRoutineException={Boolean(routines[0]?.is_exception_day)}
+              theme={theme}
+              routineActions={routineActions}
+              compactEmpty
+            />
+          </div>
 
-        <section data-k105-planner-today-schedule>
-          <DayScheduleTimeline
-            blocks={timeline.blocks}
-            carryOverBlocks={timeline.carryOverBlocks}
-            scheduleActions={scheduleActions}
-            suppressEmpty
-          />
-        </section>
+          <section data-k105-planner-today-schedule>
+            <DayScheduleTimeline
+              blocks={timeline.blocks}
+              carryOverBlocks={timeline.carryOverBlocks}
+              scheduleActions={scheduleActions}
+            />
+          </section>
+
+          <section data-k105-planner-todays-note>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
+              {t('k105TodaysNote')}
+            </p>
+            <button
+              type="button"
+              onClick={openTodaysDailyNoteFromApp}
+              className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold border ${theme.border} hover:bg-muted/40 transition-colors min-h-[38px]`}
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <FileText size={14} className="shrink-0 text-muted" />
+                <span className="truncate">{t('k105TodaysNote')}</span>
+              </span>
+              <span className="text-[10px] font-bold shrink-0 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                {todayExists ? t('k101DailyNoteExists') : t('k101DailyNoteNew')}
+              </span>
+            </button>
+          </section>
+        </div>
       </div>
     </div>
   );

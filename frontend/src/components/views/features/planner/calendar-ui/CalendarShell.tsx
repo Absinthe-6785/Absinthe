@@ -1,10 +1,11 @@
 import { useMemo, useCallback } from 'react';
 import type { DateTime } from 'luxon';
-import type { AppSettings, Schedule, Theme, ThemeColor, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Routine, Schedule, Theme, ThemeColor, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { MonthCalendarView } from './month';
 import type { DayScheduleActions, AgendaEventActions } from './day/dayScheduleActions';
+import type { DayRoutineActions } from './day/dayRoutineActions';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
 import { WORKSPACE_CARD } from '../../../../common/workspaceCardSizes';
 import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
@@ -18,12 +19,14 @@ export interface CalendarShellProps {
   schedules: readonly Schedule[];
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
+  routines?: readonly Routine[];
   weeklySchedules: readonly WeeklySchedule[];
   appSettings: AppSettings;
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
   onAnchorDateChange?: (dateKey: string) => void;
   dayScheduleActions?: DayScheduleActions;
+  routineActions?: DayRoutineActions;
   eventActions?: AgendaEventActions;
   THEME_COLORS?: ThemeColor[];
   mutateStatic?: () => void;
@@ -37,12 +40,14 @@ export function CalendarShell({
   schedules,
   previousDaySchedules,
   previousDayDate,
+  routines = [],
   weeklySchedules,
   appSettings,
   theme,
   onEventNoteClick,
   onAnchorDateChange,
   dayScheduleActions,
+  routineActions,
   eventActions,
   THEME_COLORS,
   mutateStatic,
@@ -96,6 +101,8 @@ export function CalendarShell({
         onEventNoteClick={onEventNoteClick}
         onDateSelect={onAnchorDateChange}
         scheduleActions={dayScheduleActions}
+        routines={routines}
+        routineActions={routineActions}
         eventActions={eventActions}
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}

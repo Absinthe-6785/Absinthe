@@ -2,9 +2,10 @@
 export interface DayRoutineActions {
   onToggle?: (routineId: string, currentDone: boolean) => void;
   onEdit?: (routineId: string, text: string) => void;
+  onDelete?: (routineId: string) => void;
   onAdd?: (text: string) => void;
 }
 
 export function dayRoutineActionsEnabled(actions?: DayRoutineActions): boolean {
-  return Boolean(actions?.onToggle ?? actions?.onEdit ?? actions?.onAdd);
+  return Boolean(actions?.onToggle ?? actions?.onEdit ?? actions?.onDelete ?? actions?.onAdd);
 }

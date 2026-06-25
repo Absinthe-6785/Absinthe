@@ -29,7 +29,7 @@ import type { PlannerScheduleRow } from './features/planner/calendar';
 
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
-  formatDate, isToday, showToast,   mutateDaily, mutateStatic,
+  formatDate, isToday, showToast,   mutateDaily, mutateStatic, mutateRoutines,
   appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
@@ -207,7 +207,15 @@ export const PlannerView = ({
     setCurrentDate(new Date(y, m - 1, 1));
   }, [setSelectedDate, setCurrentDate]);
 
+  const handleAddRoutineFocus = useCallback(() => {
+    scrollToScheduleSection('routine');
+    window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('[data-planner-day-routine-add]')?.focus();
+    }, 180);
+  }, []);
+
   const cardScheduleActions = useMemo(() => ({
+    onAdd: () => openModal(),
     onView: openScheduleDetail,
     onEdit: (id: string) => {
       setScheduleDetailId(null);
@@ -221,6 +229,53 @@ export const PlannerView = ({
     onDuplicate: handleDuplicateSchedule,
   }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
+  const routineActions = useMemo(() => ({
+    onAdd: (text: string) => {
+      void api(
+        'POST',
+        '/api/routines',
+        { text, created_date: formatDate(selectedDate) },
+        { revalidate: 'daily', successMsg: t('routineSaved') },
+      );
+    },
+    onToggle: (routineId: string, currentDone: boolean) => {
+      mutateRoutines(
+        cur => cur.map(routine => (
+          routine.id === routineId ? { ...routine, done: !currentDone } : routine
+        )),
+        false,
+      );
+      void api(
+        'POST',
+        '/api/routine_logs',
+        { routine_id: routineId, date: formatDate(selectedDate), done: !currentDone },
+        { revalidate: 'daily' },
+      );
+    },
+    onEdit: (routineId: string, text: string) => {
+      void api(
+        'PUT',
+        `/api/routines/${routineId}`,
+        { text },
+        { revalidate: 'daily', successMsg: t('routineSaved') },
+      );
+    },
+    onDelete: (routineId: string) => {
+      showConfirm(
+        t('deleteRoutine'),
+        async () => {
+          await api(
+            'DELETE',
+            `/api/routines/${routineId}`,
+            undefined,
+            { revalidate: 'daily', successMsg: t('routineDeleted') },
+          );
+        },
+        { confirmLabel: t('deleteLabel') },
+      );
+    },
+  }), [api, formatDate, mutateRoutines, selectedDate, showConfirm, t]);
+
   return (
     <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain pr-1 animate-in fade-in duration-300 pb-4 lg:pb-2 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-k134b-workspace-scroll>
       <div className="shrink-0 px-0.5">
@@ -233,7 +288,7 @@ export const PlannerView = ({
           dark={appSettings.darkMode}
         />
       </div>
-      <PlannerStickyActions onNewEvent={() => openModal()}>
+      <PlannerStickyActions onNewEvent={() => openModal()} onAddRoutine={handleAddRoutineFocus}>
         <ScheduleSectionNav
           theme={theme}
           compact={isMobile}
@@ -247,12 +302,14 @@ export const PlannerView = ({
         schedules={schedules}
         previousDaySchedules={prevSchedules}
         previousDayDate={prevDateStr}
+        routines={routines}
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}
         theme={theme}
         onEventNoteClick={openPlannerNote}
         onAnchorDateChange={handleCalendarAnchorChange}
         dayScheduleActions={cardScheduleActions}
+        routineActions={routineActions}
         eventActions={agendaEventActions}
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}
