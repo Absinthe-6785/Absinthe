@@ -476,8 +476,9 @@ const translations = {
   scheduleWorkspaceNav:   { en: 'Schedule workspace', ko: '스케줄 워크스페이스', ja: 'スケジュール' },
   k117ScheduleSectionNav: { en: 'Schedule sections', ko: '스케줄 섹션', ja: 'スケジュールセクション' },
   k117ScheduleSectionCalendar: { en: 'Calendar', ko: '캘린더', ja: 'カレンダー' },
-  k117ScheduleSectionRoutine: { en: 'Weekly routine', ko: '주간 루틴', ja: '週間ルーティン' },
-  k117NewEvent:           { en: '+ New event', ko: '+ 새 일정', ja: '+ 新しい予定' },
+  k117ScheduleSectionRoutine: { en: 'Routine', ko: '루틴', ja: 'ルーティン' },
+  k117NewEvent:           { en: 'New event', ko: '새 일정', ja: '新しい予定' },
+  k139AddRoutine:         { en: 'Add Routine', ko: '루틴 추가', ja: 'ルーティン追加' },
   k118OpenImageViewer:    { en: 'Open image viewer', ko: '이미지 뷰어 열기', ja: '画像ビューアを開く' },
   k118ZoomIn:             { en: 'Zoom in', ko: '확대', ja: '拡大' },
   k118ZoomOut:            { en: 'Zoom out', ko: '축소', ja: '縮小' },
@@ -595,7 +596,7 @@ const translations = {
   k110StudioSubtitle:        { en: 'Your cookbook workspace', ko: '나만의 요리책 공간', ja: 'あなたの料理本ワークスペース' },
   // ── K-125G global navigation & layout cohesion ───────────────────
   k125HealthSubtitle:          { en: 'Workouts, nutrition, and progress.', ko: '운동, 영양, 기록을 한곳에서.', ja: 'ワークアウト・栄養・記録を一か所で。' },
-  k125ScheduleSubtitle:        { en: 'Calendar, agenda, and weekly routine.', ko: '캘린더, 일정, 주간 루틴.', ja: 'カレンダー・予定・週間ルーティン。' },
+  k125ScheduleSubtitle:        { en: 'Today routines, timed events, and calendar context.', ko: '오늘 루틴, 시간 일정, 캘린더 맥락.', ja: '今日のルーティン・時間予定・カレンダー文脈。' },
   k125NotesSubtitle:           { en: 'Knowledge, writing, and discovery.', ko: '지식, 글쓰기, 탐색.', ja: '知識・執筆・探索。' },
   k125ArchiveEmptyAction:      { en: 'Open discovery', ko: '탐색 열기', ja: 'ディスカバーを開く' },
   // ── K-126A health analytics & mobile flow ────────────────────────

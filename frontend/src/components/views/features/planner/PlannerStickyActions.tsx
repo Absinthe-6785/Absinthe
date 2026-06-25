@@ -5,11 +5,12 @@ import { UI_INTERACTION } from '../../../../lib/uiInteractionTokens';
 
 export interface PlannerStickyActionsProps {
   onNewEvent: () => void;
+  onAddRoutine?: () => void;
   children?: ReactNode;
 }
 
 /** K-121 — compact schedule chrome: section nav + single New Event (no full-width bar). */
-export function PlannerStickyActions({ onNewEvent, children }: PlannerStickyActionsProps) {
+export function PlannerStickyActions({ onNewEvent, onAddRoutine, children }: PlannerStickyActionsProps) {
   const { t } = useTranslation();
 
   return (
@@ -20,17 +21,31 @@ export function PlannerStickyActions({ onNewEvent, children }: PlannerStickyActi
     >
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="flex-1 min-w-0">{children}</div>
-        <button
-          type="button"
-          onClick={onNewEvent}
-          className="inline-flex items-center justify-center gap-1.5 shrink-0 rounded-xl font-bold text-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-          style={{ minHeight: UI_INTERACTION.touchTargetMinPx }}
-          data-k117-new-event-btn
-          data-k121-schedule-new-event
-        >
-          <Plus size={UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} />
-          <span className="hidden sm:inline">{t('k117NewEvent')}</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {onAddRoutine ? (
+            <button
+              type="button"
+              onClick={onAddRoutine}
+              className="hidden sm:inline-flex items-center justify-center gap-1.5 rounded-xl font-bold text-sm border border-border bg-surface text-foreground hover:bg-surface-alt transition-colors px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+              style={{ minHeight: UI_INTERACTION.touchTargetMinPx }}
+              data-k139-schedule-add-routine
+            >
+              <Plus size={UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} />
+              <span>{t('k139AddRoutine')}</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onNewEvent}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl font-bold text-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity px-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+            style={{ minHeight: UI_INTERACTION.touchTargetMinPx }}
+            data-k117-new-event-btn
+            data-k121-schedule-new-event
+          >
+            <Plus size={UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} />
+            <span className="hidden sm:inline">{t('k117NewEvent')}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

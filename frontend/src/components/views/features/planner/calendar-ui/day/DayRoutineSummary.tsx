@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { Routine, Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import { formatDayRoutineSummary } from './dayCalendarPresentation';
@@ -94,29 +94,42 @@ export function DayRoutineSummary({
                   data-planner-day-routine-edit={routine.id}
                 />
               ) : interactive && routineActions?.onToggle ? (
-                <button
-                  type="button"
-                  onClick={() => routineActions.onToggle!(routine.id, routine.done)}
-                  onDoubleClick={routineActions.onEdit ? () => {
-                    setEditingId(routine.id);
-                    setEditText(routine.text);
-                  } : undefined}
-                  className={`w-full text-left px-2 py-2.5 text-xs lg:text-sm rounded-md border ${theme.border}
-                    flex items-center gap-2 min-h-[44px]
-                    ${routine.done ? 'opacity-60 line-through' : 'font-medium'}
-                    hover:bg-surface-alt focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
-                  data-planner-day-routine={routine.id}
-                  data-planner-day-routine-done={routine.done ? 'true' : 'false'}
-                >
-                  <input
-                    type="checkbox"
-                    checked={routine.done}
-                    readOnly
-                    tabIndex={-1}
-                    className="w-4 h-4 accent-primary pointer-events-none shrink-0"
-                  />
-                  <span className="truncate">{routine.text}</span>
-                </button>
+                <div className={`flex items-center gap-1 rounded-md border ${theme.border} hover:bg-surface-alt`}>
+                  <button
+                    type="button"
+                    onClick={() => routineActions.onToggle!(routine.id, routine.done)}
+                    onDoubleClick={routineActions.onEdit ? () => {
+                      setEditingId(routine.id);
+                      setEditText(routine.text);
+                    } : undefined}
+                    className={`flex-1 min-w-0 text-left px-2 py-2.5 text-xs lg:text-sm
+                      flex items-center gap-2 min-h-[44px]
+                      ${routine.done ? 'opacity-60 line-through' : 'font-medium'}
+                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+                    data-planner-day-routine={routine.id}
+                    data-planner-day-routine-done={routine.done ? 'true' : 'false'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={routine.done}
+                      readOnly
+                      tabIndex={-1}
+                      className="w-4 h-4 accent-primary pointer-events-none shrink-0"
+                    />
+                    <span className="truncate flex-1 min-w-0">{routine.text}</span>
+                  </button>
+                  {routineActions.onDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => routineActions.onDelete!(routine.id)}
+                      className="mr-1 p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
+                      data-planner-day-routine-delete={routine.id}
+                      aria-label={t('delete')}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  ) : null}
+                </div>
               ) : (
                 <div
                   className={`px-2 py-1 text-xs lg:text-sm rounded-md border ${theme.border}
