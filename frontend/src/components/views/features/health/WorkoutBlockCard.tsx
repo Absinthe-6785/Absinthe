@@ -4,13 +4,11 @@ import type { ExerciseBlock, Theme } from '../../../../types';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import { UI_INTERACTION } from '../../../../lib/uiInteractionTokens';
 import { useTranslation } from '../../../../lib/i18n';
-import type { HealthBlockQuickCaptureMeta } from './HealthBlockLibrary';
 
 export interface WorkoutBlockCardProps {
   block: ExerciseBlock;
   theme: Theme;
   compact?: boolean;
-  meta?: HealthBlockQuickCaptureMeta;
   onAdd: () => void;
   onEdit: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
@@ -21,7 +19,6 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   block: b,
   theme,
   compact = false,
-  meta,
   onAdd,
   onEdit,
   onDelete,
@@ -32,32 +29,22 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const typeColor = b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500';
+  const tagLabel = b.tags?.[0];
 
   return (
     <div
       onClick={onAdd}
-      className={`group relative isolate z-0 min-w-[140px] max-w-full grow basis-[160px] text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2.5'} rounded-xl border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
+      className={`group relative isolate z-0 max-w-full text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-1.5'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >
-      <div className="flex items-center gap-1.5 min-w-0 pr-7">
+      <div className="flex items-center gap-1.5 min-w-0 pr-6">
         <div className={`w-2 h-2 rounded-full shrink-0 ${typeColor}`} />
-        <span className="truncate">{b.name}</span>
+        <span className="min-w-0 max-w-[118px] truncate">{b.name}</span>
       </div>
-      {meta && !compact ? (
-        <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-7 text-[10px] font-bold ${theme.textMuted}`} data-k129d-exercise-history-preview>
-          <span className="shrink-0 capitalize">{b.type}</span>
-          <span className="shrink-0">{meta.lastDate}</span>
-        </div>
-      ) : null}
-      {meta && compact ? (
-        <span className={`mt-0.5 block truncate pr-4 text-[10px] font-bold ${theme.textMuted}`}>
-          {meta.lastDate}
-        </span>
-      ) : null}
-      {!meta && !compact ? (
-        <span className={`mt-1 block truncate pr-7 text-[10px] font-bold capitalize ${theme.textMuted}`}>
-          {b.type}
+      {!compact && tagLabel ? (
+        <span className={`mt-0.5 block truncate pr-6 text-[10px] font-bold capitalize ${theme.textMuted}`}>
+          {tagLabel} · {b.type}
         </span>
       ) : null}
 
