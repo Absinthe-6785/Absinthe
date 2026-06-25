@@ -841,7 +841,7 @@ export const HealthView = ({
       </div>
 
       <div
-        className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain ${UI_SPACING.scrollOverscroll}`}
+        className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain xl:overflow-hidden ${UI_SPACING.scrollOverscroll}`}
         data-k120-scroll-health
         onTouchStart={swipeHealthSection.onTouchStart}
         onTouchEnd={swipeHealthSection.onTouchEnd}
@@ -855,9 +855,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 lg:flex-none grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-0 min-h-0 lg:h-[calc(100vh_-_5.75rem)] lg:min-h-[820px] lg:overflow-hidden xl:grid-cols-[minmax(340px,0.37fr)_minmax(680px,0.63fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
+    <div className="flex flex-col gap-3 lg:gap-4 pb-8 xl:grid xl:flex-1 xl:pb-0 min-h-0 xl:h-full xl:overflow-hidden xl:grid-cols-[minmax(340px,0.37fr)_minmax(680px,0.63fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="flex flex-col gap-2.5 shrink-0 lg:h-full min-h-0 xl:min-w-0 lg:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
+      <div className="flex flex-col gap-2.5 shrink-0 xl:grid xl:grid-rows-[minmax(0,0.52fr)_minmax(0,0.48fr)] xl:gap-3 xl:h-full min-h-0 xl:min-w-0 xl:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -885,7 +885,7 @@ export const HealthView = ({
           quickCaptureMeta={blockQuickCaptureMeta}
         />
 
-        <div className={`lg:flex-1 lg:min-h-[340px] ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
           <div className="flex justify-between items-center mb-2.5">
             <h2 className="font-heading text-base font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -912,7 +912,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
+          <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -948,16 +948,16 @@ export const HealthView = ({
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
       <div
-        className={`lg:min-w-0 min-h-0 pb-3 lg:pb-0 lg:pr-1 lg:overflow-hidden overflow-x-hidden
+        className={`lg:min-w-0 min-h-0 shrink-0 pb-3 lg:pb-0 lg:pr-1 xl:overflow-hidden
           flex flex-col gap-2.5
-          lg:grid lg:grid-rows-[minmax(360px,0.55fr)_minmax(260px,0.45fr)] lg:gap-3 lg:h-full
-          ${mobileHealthTab === 'workout' ? 'flex lg:grid' : 'hidden lg:grid'}`}
+          xl:grid xl:grid-rows-[minmax(0,0.58fr)_minmax(0,0.42fr)] xl:gap-3 xl:h-full
+          ${mobileHealthTab === 'workout' ? 'flex xl:grid' : 'hidden lg:flex xl:grid'}`}
         data-k129b-health-primary
         data-k136a-health-center
         data-k138-health-right-grid
       >
         <div
-          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-full`}
+          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 ${theme.card} xl:h-full`}
           data-k129b-today-workout-primary
           data-k138-workout-row
           data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
@@ -1394,7 +1394,7 @@ export const HealthView = ({
 
       <div
         ref={inbodyQuickRef}
-        className="flex min-w-0 min-h-0 flex-col gap-2.5 pb-4 lg:h-full lg:pb-0 lg:overflow-hidden"
+        className="flex min-w-0 min-h-0 flex-col gap-2.5 pb-4 xl:h-full xl:pb-0 xl:overflow-hidden"
         data-k136a-health-right
         data-k138-support-row
       >
