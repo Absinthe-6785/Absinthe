@@ -896,9 +896,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 flex flex-col lg:flex-row gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll>
+    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 xl:grid-cols-[minmax(260px,0.72fr)_minmax(460px,1.45fr)_minmax(260px,0.78fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="lg:w-[28%] lg:max-w-[340px] lg:flex-none flex flex-col gap-2.5 shrink-0 lg:pb-3 min-h-0" data-k129b-health-secondary>
+      <div className="flex flex-col gap-2.5 shrink-0 lg:pb-3 min-h-0 xl:min-w-0" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -988,7 +988,7 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:flex-[2.35] lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary>
+      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
         <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
@@ -1337,23 +1337,6 @@ export const HealthView = ({
               </div>
             );
             })}
-            {localWorkouts.length > 0 && (
-              <HealthConnectionsPanel
-                dateLabel={selectedDateKey}
-                exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
-                notes={notes}
-                schedules={schedules}
-                weeklySchedules={weeklySchedules}
-                monthWorkouts={monthWorkoutRows}
-                theme={theme}
-                darkMode={appSettings.darkMode}
-                onOpenDayNote={() => openHealthDayLog('workout')}
-                onOpenNote={openHealthRelatedNote}
-                onOpenSchedule={openHealthScheduleConnections}
-                onOpenArchive={openHealthArchiveConnections}
-                onOpenSearch={openWorkspaceSearch}
-              />
-            )}
           </div>
           <div className={`sticky bottom-0 z-30 shrink-0 pt-3 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
             {isWorkoutLocked ? (
@@ -1430,6 +1413,31 @@ export const HealthView = ({
         )}
         </div>
 
+      <div className="hidden xl:flex min-w-0 flex-col gap-2.5 pb-4" data-k136a-health-right>
+        <HealthConnectionsPanel
+          dateLabel={selectedDateKey}
+          exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
+          notes={notes}
+          schedules={schedules}
+          weeklySchedules={weeklySchedules}
+          monthWorkouts={monthWorkoutRows}
+          theme={theme}
+          darkMode={appSettings.darkMode}
+          onOpenDayNote={() => openHealthDayLog('workout')}
+          onOpenNote={openHealthRelatedNote}
+          onOpenSchedule={openHealthScheduleConnections}
+          onOpenArchive={openHealthArchiveConnections}
+          onOpenSearch={openWorkspaceSearch}
+        />
+        <HealthAnalyticsPanel
+          projection={healthProjection}
+          loading={!analyticsRangeRows}
+          theme={theme}
+          darkMode={appSettings.darkMode}
+          prefs={healthSectionPrefs}
+          onPrefsChange={updateHealthSectionPrefs}
+          onOpenWorkoutNote={openWorkoutSessionNote}
+        />
         <HealthInbodyQuickPanel
           ref={inbodyQuickRef}
           localInbody={localInbody}
@@ -1439,7 +1447,6 @@ export const HealthView = ({
           theme={theme}
           highlight={highlightInbodyQuick}
         />
-
         <HealthSupportingPanels
           selectedDate={selectedDate}
           currentDate={currentDate}
@@ -1458,7 +1465,9 @@ export const HealthView = ({
           showToast={showToast}
           onOpenNutrition={() => setHealthSection('nutrition')}
           inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
+          layout="stack"
         />
+      </div>
       </div>
     </div>
     </>
