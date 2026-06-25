@@ -109,7 +109,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.sm} min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.sm} min-h-0 lg:h-[42%] lg:min-h-[240px] lg:max-h-[360px] ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
       data-k126-exercise-library
     >
@@ -171,7 +171,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
         </p>
       )}
 
-      <div className="min-h-0 pb-1 flex-1">
+      <div className="min-h-0 pb-1 flex-1 overflow-y-auto overscroll-contain pr-1" data-k136b-health-library-scroll>
         <div className="space-y-2.5">
           {blockGroups.map(row => (
             <section key={row.key} className="min-w-0" data-k136a-health-block-section>

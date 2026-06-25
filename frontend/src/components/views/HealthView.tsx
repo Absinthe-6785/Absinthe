@@ -33,7 +33,6 @@ import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadg
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthAnalyticsPanel } from './features/health/HealthAnalyticsPanel';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
-import { HealthConnectionsPanel } from './features/health/HealthConnectionsPanel';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { readHealthSectionPrefs, writeHealthSectionPrefs, type HealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
@@ -890,9 +889,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 xl:grid-cols-[minmax(320px,0.78fr)_minmax(620px,1.55fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
+    <div className="flex-1 grid grid-cols-1 gap-3 lg:gap-4 pb-8 lg:pb-2 min-h-0 lg:h-[calc(100vh-10rem)] lg:min-h-[620px] lg:max-h-[820px] lg:overflow-hidden xl:grid-cols-[minmax(300px,0.38fr)_minmax(560px,0.62fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="flex flex-col gap-2.5 shrink-0 lg:pb-3 min-h-0 xl:min-w-0" data-k129b-health-secondary data-k136a-health-left>
+      <div className="flex flex-col gap-2.5 shrink-0 lg:h-full lg:pb-3 min-h-0 xl:min-w-0 lg:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
           {(['blocks', 'routine', 'workout'] as const).map(tab => (
@@ -920,7 +919,7 @@ export const HealthView = ({
           quickCaptureMeta={blockQuickCaptureMeta}
         />
 
-        <div className={`lg:flex-1 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+        <div className={`lg:flex-1 lg:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
           <div className="flex justify-between items-center mb-2.5">
             <h2 className="font-heading text-base font-bold">{t('routineSetup')}</h2>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
@@ -947,7 +946,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
@@ -982,8 +981,8 @@ export const HealthView = ({
       </div>
 
       {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:pr-1 pb-3 lg:pb-4 ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
-        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card}`} data-k129b-today-workout-primary>
+      <div className={`lg:min-w-0 flex flex-col gap-2.5 lg:gap-3 min-h-0 lg:h-full lg:pr-1 pb-3 lg:pb-4 lg:overflow-hidden ${mobileHealthTab === 'workout' ? 'flex' : 'hidden lg:flex'}`} data-k129b-health-primary data-k136a-health-center>
+        <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} ${theme.card} lg:h-[min(52vh,500px)] lg:min-h-[380px] lg:max-h-[500px]`} data-k129b-today-workout-primary>
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
@@ -1037,7 +1036,7 @@ export const HealthView = ({
             </div>
           </div>
 
-          <div className={`min-h-0 space-y-3 pr-1 scroll-smooth ${localWorkouts.length > 0 ? 'pb-24' : 'pb-3'}`} data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 pr-1 scroll-smooth ${localWorkouts.length > 0 ? 'pb-24' : 'pb-3'}`} data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1407,7 +1406,7 @@ export const HealthView = ({
         )}
         </div>
 
-      <div ref={inbodyQuickRef} className="hidden lg:flex min-w-0 flex-col gap-2.5 pb-4" data-k136a-health-right>
+      <div ref={inbodyQuickRef} className="flex min-w-0 shrink-0 flex-col gap-2.5 pb-4 lg:max-h-[240px] lg:overflow-y-auto lg:overscroll-contain" data-k136a-health-right>
         <HealthSupportingPanels
           selectedDate={selectedDate}
           currentDate={currentDate}
@@ -1426,30 +1425,6 @@ export const HealthView = ({
           showToast={showToast}
           onOpenNutrition={() => setHealthSection('nutrition')}
           inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
-        />
-        <HealthConnectionsPanel
-          dateLabel={selectedDateKey}
-          exercises={localWorkouts.filter(w => w.block_id !== '__session__').map(w => w.exercise_blocks)}
-          notes={notes}
-          schedules={schedules}
-          weeklySchedules={weeklySchedules}
-          monthWorkouts={monthWorkoutRows}
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          onOpenDayNote={() => openHealthDayLog('workout')}
-          onOpenNote={openHealthRelatedNote}
-          onOpenSchedule={openHealthScheduleConnections}
-          onOpenArchive={openHealthArchiveConnections}
-          onOpenSearch={openWorkspaceSearch}
-        />
-        <HealthAnalyticsPanel
-          projection={healthProjection}
-          loading={!analyticsRangeRows}
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          prefs={healthSectionPrefs}
-          onPrefsChange={updateHealthSectionPrefs}
-          onOpenWorkoutNote={openWorkoutSessionNote}
         />
       </div>
       </div>

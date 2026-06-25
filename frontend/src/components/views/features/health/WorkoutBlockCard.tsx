@@ -29,7 +29,6 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const typeColor = b.type === 'strength' ? 'bg-blue-500' : b.type === 'bodyweight' ? 'bg-purple-500' : 'bg-green-500';
-  const tagLabel = b.tags?.[0];
 
   return (
     <div
@@ -42,11 +41,6 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
         <div className={`w-2 h-2 rounded-full shrink-0 ${typeColor}`} />
         <span className="min-w-0 max-w-[118px] truncate">{b.name}</span>
       </div>
-      {!compact && tagLabel ? (
-        <span className={`mt-0.5 block truncate pr-6 text-[10px] font-bold capitalize ${theme.textMuted}`}>
-          {tagLabel} · {b.type}
-        </span>
-      ) : null}
 
       {isMobile ? (
         <div className="absolute top-1 right-1 z-10" ref={menuRef}>
