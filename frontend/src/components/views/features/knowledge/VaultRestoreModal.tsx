@@ -101,20 +101,47 @@ export function VaultRestoreModal({
 
   if (!preview.valid || !preview.manifest) {
     const validation = preview.validation;
+    const repairedCount = validation?.repairedNoteIds.length ?? 0;
+    const unrecoverableIssues = validation?.noteIssues.filter(issue => !issue.repaired) ?? [];
+    const primaryReason = validation?.errors[0]
+      ?? unrecoverableIssues[0]?.message
+      ?? (validation?.corruptedNoteIds.length
+        ? t('vaultRestoreCorruptedNotes').replace('{count}', String(validation.corruptedNoteIds.length))
+        : t('vaultRestoreCannotRepair'));
+
     return (
       <div className="fixed inset-0 flex items-center justify-center z-[200] p-4 backdrop-blur-sm" style={{ background: 'var(--color-overlay)' }} onClick={onCancel} role="presentation">
-        <div ref={panelRef} role="dialog" aria-modal="true" className="rounded-absinthe-xl p-6 w-full max-w-[400px] shadow-absinthe-xl bg-surface text-foreground flex flex-col gap-3" onClick={e => e.stopPropagation()}>
-          <p className="text-sm font-semibold text-center">{t('vaultRestoreInvalid')}</p>
-          {validation && validation.corruptedNoteIds.length > 0 ? (
-            <p className="text-xs text-muted text-center">
-              {t('vaultRestoreCorruptedNotes').replace('{count}', String(validation.corruptedNoteIds.length))}
+        <div ref={panelRef} role="dialog" aria-modal="true" className="rounded-absinthe-xl p-6 w-full max-w-[440px] shadow-absinthe-xl bg-surface text-foreground flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+          <p className="text-sm font-semibold text-center">{t('vaultRestoreFailedTitle')}</p>
+          <p className="text-xs text-muted text-center">{t('vaultRestoreFailedReason').replace('{reason}', primaryReason)}</p>
+          {repairedCount > 0 ? (
+            <p className="text-xs text-center text-amber-600 dark:text-amber-300">
+              {t('vaultRestoreRepairedNotes').replace('{count}', String(repairedCount))}
             </p>
           ) : null}
-          {validation && validation.errors.length > 0 ? (
+          {validation && validation.corruptedNoteIds.length > 0 ? (
+            <p className="text-xs text-muted text-center">
+              {t('vaultRestoreAffectedNotes').replace('{count}', String(validation.corruptedNoteIds.length))}
+            </p>
+          ) : null}
+          {unrecoverableIssues.length > 0 ? (
+            <ul className="text-xs text-red-500 space-y-1 list-disc pl-4 max-h-40 overflow-y-auto">
+              {unrecoverableIssues.slice(0, 5).map(issue => (
+                <li key={`${issue.noteId}-${issue.field}`}>
+                  {t('vaultRestoreNoteIssue')
+                    .replace('{title}', issue.title || issue.noteId)
+                    .replace('{reason}', issue.message)
+                    .replace('{field}', issue.field)}
+                </li>
+              ))}
+            </ul>
+          ) : validation && validation.errors.length > 0 ? (
             <ul className="text-xs text-red-500 list-disc pl-4">
               {validation.errors.slice(0, 5).map(e => <li key={e}>{e}</li>)}
             </ul>
-          ) : null}
+          ) : (
+            <p className="text-xs text-muted text-center">{t('vaultRestoreCannotRepair')}</p>
+          )}
           <button type="button" onClick={onCancel} className="w-full py-2.5 rounded-xl font-bold text-sm bg-surface-alt">{t('cancel')}</button>
         </div>
       </div>
