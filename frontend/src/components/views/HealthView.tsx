@@ -843,7 +843,7 @@ export const HealthView = ({
 
   return (
     <WorkspaceErrorBoundary workspace="health">
-    <div className={`flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
+    <div className={`flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
       <div className={`shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
         <WorkspacePageHeader
           workspace="health"
@@ -1043,7 +1043,7 @@ export const HealthView = ({
             </div>
           </div>
 
-          <div className="min-h-0 space-y-3 pb-3 pr-1 scroll-smooth" data-k129b-workout-records-scroll data-k129c-session-timeline>
+          <div className={`min-h-0 space-y-3 pr-1 scroll-smooth ${localWorkouts.length > 0 ? 'pb-24' : 'pb-3'}`} data-k129b-workout-records-scroll data-k129c-session-timeline>
             {localWorkouts.length === 0 && (
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-5 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1658,7 +1658,7 @@ export const HealthView = ({
               )}
 
               {/* 태그별 블록 목록 */}
-              <div className="flex-1 lg:overflow-y-auto space-y-4 pr-1">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
                 {assembleTagOrder.map(tag => (
                   <div key={tag}>
                     <p className={`text-[11px] font-black tracking-wider mb-2 ${theme.textMuted}`}>
