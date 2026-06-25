@@ -57,7 +57,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
       ref={ref as React.RefObject<HTMLDivElement>}
       className={layout === 'stack'
         ? 'flex flex-col gap-2.5 shrink-0'
-        : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-2.5 shrink-0'}
+        : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.52fr)_minmax(0,1fr)] gap-2.5 shrink-0'}
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >
@@ -87,13 +87,13 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               {([
                 { label: t('inbodyWeight'), field: 'weight' as const, unit: 'kg', color: 'text-blue-400' },
                 { label: t('inbodySMM'), field: 'smm' as const, unit: 'kg', color: 'text-green-400' },
                 { label: t('inbodyPBF'), field: 'pbf' as const, unit: '%', color: 'text-red-400' },
               ]).map(({ label, field, unit, color }) => (
-                <div key={field} className={`rounded-xl px-2.5 py-2 border border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
+                <div key={field} className={`rounded-xl px-2.5 py-1.5 border border-transparent focus-within:border-primary transition-colors ${theme.input}`}>
                   <p className={`text-[9px] font-bold uppercase tracking-wide mb-0.5 ${color}`}>{label}</p>
                   <div className="flex items-baseline gap-1">
                     <input
