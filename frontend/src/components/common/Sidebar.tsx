@@ -38,11 +38,11 @@ export const Sidebar = ({
   return (
   <>
   <div
-    className="w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-around lg:justify-between shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
+    className="w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-between gap-1 lg:gap-0 shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
     data-k126-mobile-sidebar
   >
     {/* ── 주요 탭 ── */}
-    <div className="flex flex-row lg:flex-col gap-1 lg:gap-1.5">
+    <div className="flex min-w-0 flex-1 flex-row lg:flex-none lg:flex-col gap-1 lg:gap-1.5">
       {(['home', 'note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {
         const Icon =
           tab === 'home'      ? Home :
@@ -63,7 +63,7 @@ export const Sidebar = ({
             aria-label={label}
             onClick={() => setActiveTab(tab)}
             className={`relative flex flex-col items-center justify-center gap-0.5 rounded-absinthe-lg transition-all
-              px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full
+              px-1 py-2 sm:px-2.5 lg:px-1.5 lg:py-2.5 min-w-0 flex-1 lg:flex-none lg:w-full
               ${isActive
                 ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
                 : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
@@ -84,7 +84,7 @@ export const Sidebar = ({
       type="button"
       aria-label={t('k126MoreSheetTitle')}
       onClick={() => setMoreOpen(true)}
-      className={`flex lg:hidden flex-col items-center justify-center gap-0.5 px-2.5 py-2 w-16 rounded-absinthe-lg transition-all ${
+      className={`flex lg:hidden flex-col items-center justify-center gap-0.5 px-1 py-2 sm:px-2.5 w-12 sm:w-16 shrink-0 rounded-absinthe-lg transition-all ${
         moreOpen || activeTab === 'settings'
           ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
           : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'

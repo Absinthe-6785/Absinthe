@@ -46,13 +46,18 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
       </div>
       {meta && !compact ? (
         <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-7 text-[10px] font-bold ${theme.textMuted}`} data-k129d-exercise-history-preview>
+          <span className="shrink-0 capitalize">{b.type}</span>
           <span className="shrink-0">{meta.lastDate}</span>
-          {meta.summary ? <span className="min-w-0 max-w-full truncate">{meta.summary}</span> : null}
         </div>
       ) : null}
       {meta && compact ? (
         <span className={`mt-0.5 block truncate pr-4 text-[10px] font-bold ${theme.textMuted}`}>
-          {meta.summary || meta.lastDate}
+          {meta.lastDate}
+        </span>
+      ) : null}
+      {!meta && !compact ? (
+        <span className={`mt-1 block truncate pr-7 text-[10px] font-bold capitalize ${theme.textMuted}`}>
+          {b.type}
         </span>
       ) : null}
 

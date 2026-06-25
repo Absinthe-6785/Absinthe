@@ -27,6 +27,7 @@ export interface HealthSupportingPanelsProps {
   showToast: HealthProps['showToast'];
   onOpenNutrition: () => void;
   inbodyHistoryCollapsed: boolean;
+  layout?: 'grid' | 'stack';
 }
 
 export const HealthSupportingPanels = memo(function HealthSupportingPanels({
@@ -46,6 +47,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
   appSettings,
   showToast,
   onOpenNutrition,
+  layout = 'grid',
 }: HealthSupportingPanelsProps) {
   const { t } = useTranslation();
   const { ref, visible } = useElementVisible('160px');
@@ -53,7 +55,9 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className="hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.46fr)_minmax(0,0.9fr)] gap-2.5 shrink-0"
+      className={layout === 'stack'
+        ? 'hidden lg:flex flex-col gap-2.5 shrink-0'
+        : 'hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.46fr)_minmax(0,0.9fr)] gap-2.5 shrink-0'}
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >
