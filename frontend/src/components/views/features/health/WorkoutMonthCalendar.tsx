@@ -133,7 +133,7 @@ function WorkoutMonthCalendarInner({
         </div>
       </div>
 
-      <div ref={bannerScrollRef} className="lg:hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
+      <div ref={bannerScrollRef} className="hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
         <div className="flex gap-2 w-max">
           {mobileDays.map(day => {
             const deco = mobile.get(day);
@@ -171,7 +171,7 @@ function WorkoutMonthCalendarInner({
         </div>
       </div>
 
-      <div className="hidden lg:block">
+      <div className="block">
         <div className={`grid grid-cols-7 gap-1 text-center text-[11px] font-semibold mb-2 ${theme.textMuted}`}>
           {DESKTOP_DOW.map(d => <div key={d}>{d}</div>)}
         </div>

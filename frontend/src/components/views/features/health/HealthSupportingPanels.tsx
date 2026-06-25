@@ -56,8 +56,8 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
       className={layout === 'stack'
-        ? 'hidden lg:flex flex-col gap-2.5 shrink-0'
-        : 'hidden lg:grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.46fr)_minmax(0,0.9fr)] gap-2.5 shrink-0'}
+        ? 'flex flex-col gap-2.5 shrink-0'
+        : 'grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-2.5 shrink-0'}
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >
@@ -69,18 +69,20 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
         </>
       ) : (
         <>
-          <WorkoutMonthCalendar
-            selectedDate={selectedDate}
-            currentDate={currentDate}
-            setCurrentDate={setCurrentDate}
-            setSelectedDate={setSelectedDate}
-            formatDate={formatDate}
-            isToday={isToday}
-            theme={theme}
-            lang={lang}
-            workoutDates={workoutDates}
-          />
-          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} px-3 py-2 transition-colors ${theme.card}`} data-inbody-panel>
+          <div className="order-3 min-w-0 lg:order-1">
+            <WorkoutMonthCalendar
+              selectedDate={selectedDate}
+              currentDate={currentDate}
+              setCurrentDate={setCurrentDate}
+              setSelectedDate={setSelectedDate}
+              formatDate={formatDate}
+              isToday={isToday}
+              theme={theme}
+              lang={lang}
+              workoutDates={workoutDates}
+            />
+          </div>
+          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 min-w-0 px-3 py-2 transition-colors lg:order-2 ${theme.card}`} data-inbody-panel>
             <div className="flex items-center justify-between gap-2 mb-2">
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>
@@ -110,15 +112,17 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               ))}
             </div>
           </div>
-          <ProteinTracker
-            mode="compact"
-            theme={theme}
-            darkMode={appSettings.darkMode}
-            selectedDate={selectedDate}
-            formatDate={formatDate}
-            showToast={showToast}
-            onOpenFull={onOpenNutrition}
-          />
+          <div className="order-2 min-w-0 lg:order-3">
+            <ProteinTracker
+              mode="compact"
+              theme={theme}
+              darkMode={appSettings.darkMode}
+              selectedDate={selectedDate}
+              formatDate={formatDate}
+              showToast={showToast}
+              onOpenFull={onOpenNutrition}
+            />
+          </div>
         </>
       )}
     </div>
