@@ -13,12 +13,10 @@ import { WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
-import { ScheduleSectionNav, scrollToScheduleSection } from './features/planner/ScheduleSectionNav';
 import { PlannerStickyActions } from './features/planner/PlannerStickyActions';
 import { usePlannerScheduleEventActions } from './features/planner/hooks/usePlannerScheduleEventActions';
 import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
-import { useIsMobile } from '../../hooks/useIsMobile';
 import { openNote } from '../../lib/noteNavigation';
 import { openRelatedNote, findNoteByTitle } from '../../lib/crossDomainReferences';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
@@ -27,13 +25,14 @@ import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/Sch
 import { formatLongDate } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
 
+type ScheduleDday = Schedule & { date: string };
+
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast,   mutateDaily, mutateStatic, mutateRoutines,
   appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
-  const isMobile = useIsMobile();
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -57,6 +56,7 @@ export const PlannerView = ({
     text: '', start_time: '10:00', end_time: '11:00',
     is_dday: false, color: 'purple', category: 'Personal',
   });
+  const [scheduleDateStr, setScheduleDateStr] = useState(formatDate(selectedDate));
   // end_next_day: 익일 종료 여부 (23:00 ~ 01:00 같은 자정 넘는 일정 지원)
   const [endNextDay, setEndNextDay] = useState(false);
 
@@ -71,6 +71,11 @@ export const PlannerView = ({
     `${API_URL}/api/schedules?date=${prevDateStr}`,
     fetcher,
     { revalidateOnFocus: false }
+  );
+  const { data: ddaySchedules = [], mutate: mutateDdaySchedules } = useSWR<ScheduleDday[]>(
+    `${API_URL}/api/schedules/ddays`,
+    fetcher,
+    { revalidateOnFocus: false },
   );
   // 전날 일정 — calendar projection carry-over
 
@@ -97,6 +102,7 @@ export const PlannerView = ({
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Personal' });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);
+    setScheduleDateStr(formatDate(selectedDate));
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
@@ -105,7 +111,7 @@ export const PlannerView = ({
     if (!isDday && !endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
       return showToast(t('endTimeError'), 'error');
 
-    const isOverlap = !isDday && !endNextDay && schedules.some(s =>
+    const isOverlap = scheduleDateStr === formatDate(selectedDate) && !isDday && !endNextDay && schedules.some(s =>
       !s.is_dday && s.id !== editingId && newSch.start_time! < s.end_time && newSch.end_time! > s.start_time
     );
     const payload = {
@@ -120,10 +126,13 @@ export const PlannerView = ({
       const ok = await api(
         editingId ? 'PUT' : 'POST',
         editingId ? `/api/schedules/${editingId}` : '/api/schedules',
-        { ...payload, date: formatDate(selectedDate), end_next_day: isDday ? false : endNextDay },
+        { ...payload, date: scheduleDateStr, end_next_day: isDday ? false : endNextDay },
         { revalidate: 'both', successMsg: t('scheduleSaved') },
       );
-      if (ok) setShowForm(false);
+      if (ok) {
+        setShowForm(false);
+        void mutateDdaySchedules();
+      }
     };
     if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: t('saveLabel'), variant: 'primary' }); return; }
     doSave();
@@ -207,15 +216,7 @@ export const PlannerView = ({
     setCurrentDate(new Date(y, m - 1, 1));
   }, [setSelectedDate, setCurrentDate]);
 
-  const handleAddRoutineFocus = useCallback(() => {
-    scrollToScheduleSection('routine');
-    window.setTimeout(() => {
-      document.querySelector<HTMLInputElement>('[data-planner-day-routine-add]')?.focus();
-    }, 180);
-  }, []);
-
   const cardScheduleActions = useMemo(() => ({
-    onAdd: () => openModal(),
     onView: openScheduleDetail,
     onEdit: (id: string) => {
       setScheduleDetailId(null);
@@ -288,13 +289,7 @@ export const PlannerView = ({
           dark={appSettings.darkMode}
         />
       </div>
-      <PlannerStickyActions onNewEvent={() => openModal()} onAddRoutine={handleAddRoutineFocus}>
-        <ScheduleSectionNav
-          theme={theme}
-          compact={isMobile}
-          onNavigate={scrollToScheduleSection}
-        />
-      </PlannerStickyActions>
+      <PlannerStickyActions onNewEvent={() => openModal()} />
 
       <CalendarShell
         now={now}
@@ -303,6 +298,7 @@ export const PlannerView = ({
         previousDaySchedules={prevSchedules}
         previousDayDate={prevDateStr}
         routines={routines}
+        ddaySchedules={ddaySchedules}
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}
         theme={theme}
@@ -333,9 +329,13 @@ export const PlannerView = ({
               </div>
               <div>
                 <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('k76ScheduleDate')}</label>
-                <p className={`rounded-xl p-3 text-sm font-semibold ${theme.input}`}>
-                  {formatLongDate(selectedDate, lang)}
-                </p>
+                <input
+                  type="date"
+                  value={scheduleDateStr}
+                  onChange={e => setScheduleDateStr(e.target.value)}
+                  className={`w-full rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-sm font-semibold ${theme.input}`}
+                  data-k139-event-date-picker
+                />
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input

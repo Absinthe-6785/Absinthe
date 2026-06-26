@@ -20,6 +20,7 @@ export interface CalendarShellProps {
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
   routines?: readonly Routine[];
+  ddaySchedules?: readonly (Schedule & { date: string })[];
   weeklySchedules: readonly WeeklySchedule[];
   appSettings: AppSettings;
   theme: Theme;
@@ -41,6 +42,7 @@ export function CalendarShell({
   previousDaySchedules,
   previousDayDate,
   routines = [],
+  ddaySchedules = [],
   weeklySchedules,
   appSettings,
   theme,
@@ -103,6 +105,7 @@ export function CalendarShell({
         scheduleActions={dayScheduleActions}
         routines={routines}
         routineActions={routineActions}
+        ddaySchedules={ddaySchedules}
         eventActions={eventActions}
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}
