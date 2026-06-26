@@ -79,11 +79,13 @@ describe('K-32.1 planner validation', () => {
     const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
     expect(source).toContain('data-k139-event-date-picker');
     expect(source).toContain('onAddSchedule');
-    expect(source).toContain('onAddDday');
     expect(month).toContain('WeeklyTimetableSection');
     expect(month).toContain('data-k139-schedule-dday-list');
     expect(month).toContain('data-k139-schedule-dday-edit');
     expect(month).toContain('data-k139-schedule-dday-delete');
+    expect(month).toContain('data-k139-calendar-add-event');
+    expect(month).not.toContain('data-k139-schedule-dday-add');
+    expect(month).not.toContain('data-k139-timetable-add-local');
     expect(source).not.toContain('ScheduleSectionNav');
     expect(source).not.toContain('data-k117-new-event-btn');
     expect(source).not.toContain('ScheduleWorkspaceNav');
