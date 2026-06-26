@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Edit2, Plus, Trash2 } from 'lucide-react';
 import type { Routine, Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
-import { formatDayRoutineSummary } from './dayCalendarPresentation';
 import type { DayRoutineActions } from './dayRoutineActions';
 import { dayRoutineActionsEnabled } from './dayRoutineActions';
 
@@ -23,14 +22,10 @@ export function DayRoutineSummary({
   compactEmpty = false,
 }: DayRoutineSummaryProps) {
   const { t } = useTranslation();
-  const summaryLabel = formatDayRoutineSummary(routines);
   const interactive = dayRoutineActionsEnabled(routineActions);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-
-  const doneCount = routines.filter(r => r.done).length;
-  const progressPct = routines.length > 0 ? Math.round((doneCount / routines.length) * 100) : 0;
 
   const submitAdd = () => {
     const text = newText.trim();
@@ -55,18 +50,7 @@ export function DayRoutineSummary({
         <h4 className="text-[10px] lg:text-xs font-bold uppercase tracking-wide text-muted">
           {t('scheduleSectionRoutines')}
         </h4>
-        {summaryLabel ? (
-          <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>
-            {summaryLabel}
-          </span>
-        ) : null}
       </div>
-
-      {routines.length > 0 ? (
-        <div className="h-1 rounded-full bg-surface-alt overflow-hidden" data-planner-day-routine-progress>
-          <div className="h-full bg-green-500 transition-all" style={{ width: `${progressPct}%` }} />
-        </div>
-      ) : null}
 
       {isRoutineException ? (
         <p className={`text-[10px] lg:text-xs ${theme.textMuted}`} data-planner-day-routine-exception>
@@ -77,7 +61,7 @@ export function DayRoutineSummary({
       {routines.length === 0 && !routineActions?.onAdd ? (
         <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1 max-h-[150px] overflow-y-auto pr-1" data-k139-routine-list-scroll>
           {routines.map(routine => (
             <li key={routine.id}>
               {editingId === routine.id ? (
@@ -94,7 +78,7 @@ export function DayRoutineSummary({
                   data-planner-day-routine-edit={routine.id}
                 />
               ) : interactive && routineActions?.onToggle ? (
-                <div className={`flex items-center gap-1 rounded-md border ${theme.border} hover:bg-surface-alt`}>
+                <div className={`group flex items-center gap-1 rounded-md border ${theme.border} hover:bg-surface-alt focus-within:bg-surface-alt`}>
                   <button
                     type="button"
                     onClick={() => routineActions.onToggle!(routine.id, routine.done)}
@@ -125,7 +109,7 @@ export function DayRoutineSummary({
                         setEditingId(routine.id);
                         setEditText(routine.text);
                       }}
-                      className="p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
+                      className="p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity"
                       data-planner-day-routine-rename={routine.id}
                       aria-label={t('edit')}
                     >
@@ -136,7 +120,7 @@ export function DayRoutineSummary({
                     <button
                       type="button"
                       onClick={() => routineActions.onDelete!(routine.id)}
-                      className="mr-1 p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
+                      className="mr-1 p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity"
                       data-planner-day-routine-delete={routine.id}
                       aria-label={t('delete')}
                     >
@@ -159,7 +143,8 @@ export function DayRoutineSummary({
       )}
 
       {routineActions?.onAdd ? (
-        <div className="flex items-center gap-1.5 mt-0.5">
+        <div className={`flex items-center gap-2 min-h-[38px] rounded-md border border-dashed ${theme.border} px-2 py-1 mt-0.5`} data-k139-routine-add-row>
+          <span className="w-4 h-4 shrink-0" aria-hidden="true" />
           <Plus size={12} className={`shrink-0 ${theme.textMuted}`} />
           <input
             type="text"
@@ -167,7 +152,7 @@ export function DayRoutineSummary({
             onChange={e => setNewText(e.target.value)}
             placeholder={t('addRoutine')}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitAdd(); } }}
-            className={`flex-1 bg-transparent outline-none text-[10px] lg:text-xs font-medium border-b ${theme.border} py-0.5`}
+            className="flex-1 bg-transparent outline-none text-xs lg:text-sm font-medium py-0.5 min-w-0"
             data-planner-day-routine-add
           />
         </div>

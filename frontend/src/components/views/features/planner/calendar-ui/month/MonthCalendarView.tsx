@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
+import { Edit2, Plus, Trash2 } from 'lucide-react';
 import type { AppSettings, Routine, Schedule, Theme, ThemeColor } from '@/types';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
@@ -31,6 +32,10 @@ export interface MonthCalendarViewProps {
   THEME_COLORS?: ThemeColor[];
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
+  onAddSchedule?: () => void;
+  onAddDday?: () => void;
+  onEditDday?: (schedule: ScheduleDday) => void;
+  onDeleteDday?: (id: string) => void;
   deferMonthGrid?: boolean;
   calendarHeader?: ReactNode;
 }
@@ -53,6 +58,10 @@ export function MonthCalendarView({
   THEME_COLORS,
   mutateStatic,
   showToast,
+  onAddSchedule,
+  onAddDday,
+  onEditDday,
+  onDeleteDday,
   deferMonthGrid = true,
   calendarHeader,
 }: MonthCalendarViewProps) {
@@ -103,6 +112,7 @@ export function MonthCalendarView({
             scheduleActions={scheduleActions}
             routines={routines}
             routineActions={routineActions}
+            onAddSchedule={onAddSchedule}
           />
         </section>
         <span className="sr-only" data-k117-schedule-section="routine" aria-hidden="true" />
@@ -149,24 +159,66 @@ export function MonthCalendarView({
           )}
         </section>
 
-        <section className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm ${theme.card}`} data-k139-schedule-dday-list>
+        <section className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm flex flex-col min-h-[220px] max-h-[300px] ${theme.card}`} data-k139-schedule-dday-list>
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="font-heading text-base font-bold">{t('dday')}</h2>
-            <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('dday')}</span>
+            {onAddDday ? (
+              <button
+                type="button"
+                onClick={onAddDday}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold ${theme.input} ${theme.textMuted} hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+                data-k139-schedule-dday-add
+              >
+                <Plus size={13} strokeWidth={2.25} />
+                {t('add')}
+              </button>
+            ) : (
+              <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('dday')}</span>
+            )}
           </div>
           {upcomingDdays.length > 0 ? (
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-1.5 overflow-y-auto pr-1 min-h-0">
               {upcomingDdays.map(({ item, daysUntil }) => (
-                <li key={item.id} className={`rounded-xl px-3 py-2 ${theme.input}`} data-k139-schedule-dday={item.id}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold truncate">{item.text}</span>
-                    <span className="text-xs font-black text-primary tabular-nums shrink-0">
-                      {daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`}
-                    </span>
+                <li key={item.id} className={`group rounded-xl px-3 py-2 ${theme.input}`} data-k139-schedule-dday={item.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-bold truncate">{item.text}</span>
+                        <span className="text-xs font-black text-primary tabular-nums shrink-0">
+                          {daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] font-semibold mt-0.5 ${theme.textMuted}`}>
+                        {item.date}{item.category ? ` · ${item.category}` : ''}
+                      </p>
+                    </div>
+                    {onEditDday || onDeleteDday ? (
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+                        {onEditDday ? (
+                          <button
+                            type="button"
+                            onClick={() => onEditDday(item)}
+                            className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                            data-k139-schedule-dday-edit={item.id}
+                            aria-label={t('edit')}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                        ) : null}
+                        {onDeleteDday ? (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteDday(item.id)}
+                            className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                            data-k139-schedule-dday-delete={item.id}
+                            aria-label={t('delete')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  <p className={`text-[11px] font-semibold mt-0.5 ${theme.textMuted}`}>
-                    {item.date}{item.category ? ` · ${item.category}` : ''}
-                  </p>
                 </li>
               ))}
             </ul>

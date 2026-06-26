@@ -202,7 +202,18 @@ export function WeeklyTimetableSection({
                 {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
               </button>
             ) : null}
-            {!sectionEmbedded ? (
+            {sectionEmbedded ? (
+              <button
+                type="button"
+                onClick={() => openWeeklyModal()}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold ${theme.input} ${theme.textMuted} hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+                data-planner-weekly-timetable-add
+                data-k139-timetable-add-local
+              >
+                <Plus size={13} strokeWidth={2.25} />
+                {t('add')}
+              </button>
+            ) : (
             <button
               type="button"
               onClick={() => openWeeklyModal()}
@@ -211,7 +222,7 @@ export function WeeklyTimetableSection({
             >
               <Plus size={16} strokeWidth={2.25}/> {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
             </button>
-            ) : null}
+            )}
           </div>
         </div>
 
@@ -269,7 +280,7 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${sectionEmbedded ? 'min-h-[320px] max-h-[520px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${sectionEmbedded ? 'min-h-[280px] max-h-[430px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`} data-planner-weekly-weekday-header>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
             {weekdays.map((day, i) => (

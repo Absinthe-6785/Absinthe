@@ -77,11 +77,15 @@ describe('K-32.1 planner validation', () => {
   it('uses simplified Schedule chrome with embedded timetable (K-139)', () => {
     const source = readSource('PlannerView.tsx');
     const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
-    expect(source).toContain('PlannerStickyActions');
     expect(source).toContain('data-k139-event-date-picker');
+    expect(source).toContain('onAddSchedule');
+    expect(source).toContain('onAddDday');
     expect(month).toContain('WeeklyTimetableSection');
     expect(month).toContain('data-k139-schedule-dday-list');
+    expect(month).toContain('data-k139-schedule-dday-edit');
+    expect(month).toContain('data-k139-schedule-dday-delete');
     expect(source).not.toContain('ScheduleSectionNav');
+    expect(source).not.toContain('data-k117-new-event-btn');
     expect(source).not.toContain('ScheduleWorkspaceNav');
     expect(source).not.toContain('ScheduleCountdownPanel');
     expect(source).not.toContain('MOBILE_PLANNER_TABS');

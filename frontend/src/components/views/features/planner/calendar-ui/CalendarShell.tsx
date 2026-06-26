@@ -32,6 +32,10 @@ export interface CalendarShellProps {
   THEME_COLORS?: ThemeColor[];
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
+  onAddSchedule?: () => void;
+  onAddDday?: () => void;
+  onEditDday?: (schedule: Schedule & { date: string }) => void;
+  onDeleteDday?: (id: string) => void;
 }
 
 /** Schedule shell: today-first flow with the month calendar as supporting context. */
@@ -54,6 +58,10 @@ export function CalendarShell({
   THEME_COLORS,
   mutateStatic,
   showToast,
+  onAddSchedule,
+  onAddDday,
+  onEditDday,
+  onDeleteDday,
 }: CalendarShellProps) {
   const { t } = useTranslation();
   const todayKey = toDateKey(now.toJSDate()) ?? anchorDate;
@@ -112,6 +120,10 @@ export function CalendarShell({
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}
         showToast={showToast}
+        onAddSchedule={onAddSchedule}
+        onAddDday={onAddDday}
+        onEditDday={onEditDday}
+        onDeleteDday={onDeleteDday}
         calendarHeader={(
           <CalendarPeriodNav
             viewMode="month"

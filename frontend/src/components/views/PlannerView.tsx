@@ -13,7 +13,6 @@ import { WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
-import { PlannerStickyActions } from './features/planner/PlannerStickyActions';
 import { usePlannerScheduleEventActions } from './features/planner/hooks/usePlannerScheduleEventActions';
 import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
@@ -98,10 +97,17 @@ export const PlannerView = ({
   }, []);
 
   // ── Schedule ───────────────────────────────────────────────────────
-  const openModal = (sch?: Schedule) => {
+  const openModal = (sch?: Schedule | ScheduleDday) => {
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Personal' });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);
+    setScheduleDateStr(sch && 'date' in sch ? sch.date : formatDate(selectedDate));
+    setShowForm(true);
+  };
+  const openDdayModal = () => {
+    setNewSch({ text: '', start_time: '00:00', end_time: '23:59', is_dday: true, color: 'purple', category: 'Personal' });
+    setEditingId(null);
+    setEndNextDay(false);
     setScheduleDateStr(formatDate(selectedDate));
     setShowForm(true);
   };
@@ -138,8 +144,9 @@ export const PlannerView = ({
     doSave();
   };
   const handleDeleteSchedule = (id: string) =>
-    showConfirm(t('deleteSchedule'), () => {
-      void api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') });
+    showConfirm(t('deleteSchedule'), async () => {
+      const ok = await api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') });
+      if (ok) void mutateDdaySchedules();
     },
       { confirmLabel: t('deleteLabel') },
     );
@@ -289,8 +296,6 @@ export const PlannerView = ({
           dark={appSettings.darkMode}
         />
       </div>
-      <PlannerStickyActions onNewEvent={() => openModal()} />
-
       <CalendarShell
         now={now}
         anchorDate={formatDate(selectedDate)}
@@ -310,6 +315,10 @@ export const PlannerView = ({
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}
         showToast={showToast}
+        onAddSchedule={() => openModal()}
+        onAddDday={openDdayModal}
+        onEditDday={(schedule) => openModal(schedule)}
+        onDeleteDday={(id) => handleDeleteSchedule(id)}
       />
 
       {/* ── 스케줄 추가/편집 모달 ── */}
@@ -385,7 +394,21 @@ export const PlannerView = ({
               </div>
               </>
               ) : (
-                <p className={`text-[11px] ${theme.textMuted}`}>{t('k80DdayTimeHint')}</p>
+                <>
+                  <div>
+                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('defaultCategory')}</label>
+                    <select
+                      value={newSch.category ?? 'Personal'}
+                      onChange={e => setNewSch({ ...newSch, category: e.target.value })}
+                      className={`w-full rounded-xl p-3 outline-none text-sm font-semibold ${theme.input}`}
+                    >
+                      {(['Study', 'Work', 'Exercise', 'Personal'] as const).map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className={`text-[11px] ${theme.textMuted}`}>{t('k80DdayTimeHint')}</p>
+                </>
               )}
               <button onClick={handleSaveSchedule} className="w-full bg-primary text-primary-foreground font-bold text-base rounded-xl py-3 hover:opacity-90 transition-opacity shadow-md">
                 {t('saveSchedule')}
