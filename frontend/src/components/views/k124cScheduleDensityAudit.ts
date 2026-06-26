@@ -16,10 +16,9 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
   const timetable = readFileSync(join(ROOT, 'components/views/features/planner/WeeklyTimetableSection.tsx'), 'utf8');
 
   return {
-    todayFirstFlow: month.includes('data-k133b-schedule-flow')
-      && month.includes('data-k121-schedule-agenda')
-      && month.indexOf('data-k117-schedule-section="today"') < month.indexOf('data-k117-schedule-section="routine"')
-      && month.indexOf('data-k117-schedule-section="routine"') < month.indexOf('data-k117-schedule-section="timetable"')
+    todayFirstFlow: month.includes('data-k140-schedule-grid')
+      && month.includes('data-k133b-schedule-flow')
+      && month.indexOf('data-k117-schedule-section="today"') < month.indexOf('data-k117-schedule-section="timetable"')
       && month.indexOf('data-k117-schedule-section="timetable"') < month.indexOf('data-k117-schedule-section="calendar"')
       && !month.includes('data-k117-schedule-section="upcoming"'),
     calendarSupporting: shell.includes('calendarHeader={(')

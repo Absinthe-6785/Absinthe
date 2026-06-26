@@ -74,22 +74,27 @@ describe('K-32.1 planner validation', () => {
     expect(html).not.toContain('data-planner-calendar-mode-option="week"');
   });
 
-  it('uses simplified Schedule chrome with embedded timetable (K-139)', () => {
+  it('uses K-140 Schedule grid and calendar-owned add event', () => {
     const source = readSource('PlannerView.tsx');
     const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
+    const periodNav = readSource('features/planner/calendar-ui/CalendarPeriodNav.tsx');
     expect(source).toContain('data-k139-event-date-picker');
     expect(source).toContain('onAddSchedule');
-    expect(source).toContain('onAddDday');
+    expect(source).not.toContain('onAddDday');
+    expect(periodNav).toContain('data-k140-calendar-add-event');
+    expect(month).toContain('data-k140-schedule-grid');
     expect(month).toContain('WeeklyTimetableSection');
     expect(month).toContain('data-k139-schedule-dday-list');
     expect(month).toContain('data-k139-schedule-dday-edit');
     expect(month).toContain('data-k139-schedule-dday-delete');
+    expect(month).not.toContain('data-k139-schedule-dday-add');
     expect(source).not.toContain('ScheduleSectionNav');
     expect(source).not.toContain('data-k117-new-event-btn');
     expect(source).not.toContain('ScheduleWorkspaceNav');
     expect(source).not.toContain('ScheduleCountdownPanel');
     expect(source).not.toContain('MOBILE_PLANNER_TABS');
     expect(source).not.toContain('data-planner-column="timeline"');
+    expect(source).not.toContain('PlannerStickyActions');
   });
 
   it('does not declare legacy side-column hierarchy markers', () => {

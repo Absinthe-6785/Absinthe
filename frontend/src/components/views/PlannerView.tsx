@@ -104,13 +104,6 @@ export const PlannerView = ({
     setScheduleDateStr(sch && 'date' in sch ? sch.date : formatDate(selectedDate));
     setShowForm(true);
   };
-  const openDdayModal = () => {
-    setNewSch({ text: '', start_time: '00:00', end_time: '23:59', is_dday: true, color: 'purple', category: 'Personal' });
-    setEditingId(null);
-    setEndNextDay(false);
-    setScheduleDateStr(formatDate(selectedDate));
-    setShowForm(true);
-  };
   const handleSaveSchedule = async () => {
     if (!newSch.text) return showToast(t('enterText'), 'error');
     const isDday = Boolean(newSch.is_dday);
@@ -316,7 +309,6 @@ export const PlannerView = ({
         mutateStatic={mutateStatic}
         showToast={showToast}
         onAddSchedule={() => openModal()}
-        onAddDday={openDdayModal}
         onEditDday={(schedule) => openModal(schedule)}
         onDeleteDday={(id) => handleDeleteSchedule(id)}
       />

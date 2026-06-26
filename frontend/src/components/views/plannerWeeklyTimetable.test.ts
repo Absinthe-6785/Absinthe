@@ -161,10 +161,27 @@ describe('WeeklyTimetableSection', () => {
     expect(html).toContain('Morning Study');
     expect(html).not.toContain('data-planner-weekly-timetable-modal');
   });
+  it('omits embedded header add when sectionEmbedded (K-140)', () => {
+    const html = renderToStaticMarkup(
+      createElement(WeeklyTimetableSection, {
+        weeklySchedules: plannerProps().weeklySchedules,
+        theme,
+        appSettings,
+        THEME_COLORS,
+        mutateStatic: vi.fn(),
+        showToast: vi.fn(),
+        sectionEmbedded: true,
+      }),
+    );
+
+    expect(html).toContain('data-planner-weekly-timetable');
+    expect(html).not.toContain('data-planner-weekly-timetable-add');
+    expect(html).not.toContain('data-k139-timetable-add-local');
+  });
 });
 
 describe('PlannerView timetable integration', () => {
-  it('mounts simplified Schedule workspace with embedded timetable (K-139)', async () => {
+  it('mounts K-140 Schedule workspace grid with calendar-owned add event', async () => {
     const { PlannerView } = await import('./PlannerView');
     const html = renderToStaticMarkup(
       createElement(PlannerView, plannerProps()),
@@ -172,13 +189,17 @@ describe('PlannerView timetable integration', () => {
 
     expect(html).toContain('data-planner-calendar-shell');
     expect(html).toContain('data-k117-schedule-workspace');
+    expect(html).toContain('data-k140-schedule-grid');
     expect(html).toContain('data-planner-weekly-timetable');
-    expect(html).toContain('data-k139-timetable-add-local');
-    expect(html).toContain('data-planner-day-schedule-add');
+    expect(html).toContain('data-k140-calendar-add-event');
     expect(html).toContain('data-k139-routine-add-row');
     expect(html).toContain('data-k139-schedule-dday-list');
     expect(html).not.toContain('data-k117-schedule-section-nav');
     expect(html).not.toContain('data-k117-new-event-btn');
+    expect(html).not.toContain('data-k139-timetable-add-local');
+    expect(html).not.toContain('data-planner-weekly-timetable-add');
+    expect(html).not.toContain('data-planner-day-schedule-add');
+    expect(html).not.toContain('data-k139-schedule-dday-add');
     expect(html).not.toContain('data-k139-schedule-add-routine');
     expect(html).not.toContain('data-schedule-workspace-nav');
     expect(html).not.toContain('data-planner-column="timeline"');
