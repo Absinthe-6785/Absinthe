@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Edit2, Plus, Trash2 } from 'lucide-react';
 import type { Routine, Theme } from '@/types';
 import { useTranslation } from '@/lib/i18n';
 import { formatDayRoutineSummary } from './dayCalendarPresentation';
@@ -118,6 +118,20 @@ export function DayRoutineSummary({
                     />
                     <span className="truncate flex-1 min-w-0">{routine.text}</span>
                   </button>
+                  {routineActions.onEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(routine.id);
+                        setEditText(routine.text);
+                      }}
+                      className="p-1.5 min-h-[32px] min-w-[32px] rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary flex items-center justify-center"
+                      data-planner-day-routine-rename={routine.id}
+                      aria-label={t('edit')}
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                  ) : null}
                   {routineActions.onDelete ? (
                     <button
                       type="button"

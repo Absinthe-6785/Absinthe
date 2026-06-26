@@ -74,12 +74,14 @@ describe('K-32.1 planner validation', () => {
     expect(html).not.toContain('data-planner-calendar-mode-option="week"');
   });
 
-  it('uses unified Schedule section nav with embedded timetable (K-117)', () => {
+  it('uses simplified Schedule chrome with embedded timetable (K-139)', () => {
     const source = readSource('PlannerView.tsx');
     const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
-    expect(source).toContain('ScheduleSectionNav');
     expect(source).toContain('PlannerStickyActions');
+    expect(source).toContain('data-k139-event-date-picker');
     expect(month).toContain('WeeklyTimetableSection');
+    expect(month).toContain('data-k139-schedule-dday-list');
+    expect(source).not.toContain('ScheduleSectionNav');
     expect(source).not.toContain('ScheduleWorkspaceNav');
     expect(source).not.toContain('ScheduleCountdownPanel');
     expect(source).not.toContain('MOBILE_PLANNER_TABS');

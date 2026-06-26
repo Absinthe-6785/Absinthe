@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Plus, X } from 'lucide-react';
 import { useConfirm } from '../../../../hooks/useConfirm';
 import { useEscapeKey } from '../../../../hooks/useEscapeKey';
@@ -65,6 +65,12 @@ export function WeeklyTimetableSection({
 
   const weekdays = WEEKDAY_KEYS.map(key => t(key));
   const hasActivities = weeklySchedules.length > 0;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const HOURS = Array.from({ length: 24 }, (_, i) => i);
+  const ROW_H = 48;
+  const now = useMemo(() => new Date(), []);
+  const currentDay = (now.getDay() + 6) % 7;
+  const currentTimeTop = (now.getHours() + now.getMinutes() / 60) * ROW_H;
   const inlineExpanded = standalone || sectionEmbedded;
   const [expanded, setExpanded] = useState(hasActivities || sectionEmbedded);
   const showCompactList = inlineExpanded && isMobile;
@@ -145,8 +151,10 @@ export function WeeklyTimetableSection({
       { confirmLabel: t('delete') },
     );
 
-  const HOURS = Array.from({ length: 24 }, (_, i) => i);
-  const ROW_H = 48;
+  useEffect(() => {
+    if (!showGrid || !sectionEmbedded || !scrollRef.current) return;
+    scrollRef.current.scrollTop = Math.max(0, currentTimeTop - ROW_H * 2);
+  }, [currentTimeTop, sectionEmbedded, showGrid]);
 
   const mobileByDay = useMemo(() => {
     const groups = WEEKDAY_KEYS.map((_, day) => ({
@@ -194,18 +202,7 @@ export function WeeklyTimetableSection({
                 {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
               </button>
             ) : null}
-            {sectionEmbedded ? (
-              <button
-                type="button"
-                onClick={() => openWeeklyModal()}
-                className={`text-xs font-semibold px-2 py-1 rounded-lg min-h-[36px] ${theme.input} ${theme.textMuted} hover:text-primary`}
-                data-planner-weekly-timetable-add
-                data-k121-timetable-add-compact
-              >
-                <Plus size={14} className="inline mr-1" strokeWidth={2.25}/>
-                {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
-              </button>
-            ) : (
+            {!sectionEmbedded ? (
             <button
               type="button"
               onClick={() => openWeeklyModal()}
@@ -214,7 +211,7 @@ export function WeeklyTimetableSection({
             >
               <Plus size={16} strokeWidth={2.25}/> {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
             </button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -272,28 +269,16 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${!hasActivities && sectionEmbedded ? 'min-h-[64px]' : sectionEmbedded ? 'min-h-[320px] max-h-[520px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
-          {!hasActivities ? (
-            <div
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-center ${theme.textMuted}`}
-              data-planner-weekly-timetable-empty="true"
-              data-k121-empty-state="planner-timetable"
-              data-k124c-timetable-empty-compact
-            >
-              <CalendarDays size={18} strokeWidth={1.5} className="shrink-0 opacity-50" />
-              <p className="text-xs font-semibold">{t('plannerWeeklyTimetableEmptyHint')}</p>
-            </div>
-          ) : (
-          <>
+        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${sectionEmbedded ? 'min-h-[320px] max-h-[520px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`} data-planner-weekly-weekday-header>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
             {weekdays.map((day, i) => (
-              <div key={day} className={`flex-1 flex flex-col items-center justify-center border-r last:border-r-0 ${theme.border} ${i >= 5 ? 'bg-surface-alt/30' : ''}`} data-planner-weekly-weekday={i}>
-                <span className={`text-[10px] lg:text-xs font-semibold ${theme.textMuted}`}>{day}</span>
+              <div key={day} className={`flex-1 flex flex-col items-center justify-center border-r last:border-r-0 ${theme.border} ${i === currentDay ? 'bg-primary/10 text-primary' : i >= 5 ? 'bg-surface-alt/30' : ''}`} data-planner-weekly-weekday={i} data-planner-weekly-today={i === currentDay ? 'true' : undefined}>
+                <span className={`text-[10px] lg:text-xs font-semibold ${i === currentDay ? 'text-primary' : theme.textMuted}`}>{day}</span>
               </div>
             ))}
           </div>
-          <div className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`}>
+          <div ref={scrollRef} className={`flex-1 flex overflow-y-auto ${appSettings.darkMode ? 'bg-[#18181A]/50' : 'bg-white'}`} data-k139-timetable-scroll>
             <div className={`w-10 lg:w-14 shrink-0 border-r relative z-10 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}>
               {HOURS.map(h => (
                 <div key={h} className={`border-b flex items-start justify-center pt-1 ${theme.border}`} style={{ height: `${ROW_H}px` }}>
@@ -311,9 +296,14 @@ export function WeeklyTimetableSection({
               ))}
               <div className="absolute inset-0 flex pointer-events-none">
                 {weekdays.map((_, i) => (
-                  <div key={i} className={`flex-1 border-r border-dashed opacity-30 last:border-r-0 ${theme.border}`}/>
+                  <div key={i} className={`flex-1 border-r border-dashed last:border-r-0 ${theme.border} ${i === currentDay ? 'bg-primary/5 opacity-100' : 'opacity-30'}`}/>
                 ))}
               </div>
+              <div
+                className="absolute left-0 right-0 h-px bg-primary/70 z-10 pointer-events-none"
+                style={{ top: `${currentTimeTop}px` }}
+                data-k139-current-time-line
+              />
               {(weeklySchedules || []).map((block: WeeklySchedule) => {
                 const start = parseTime(block.start_time);
                 let dur = parseTime(block.end_time) - start;
@@ -346,10 +336,19 @@ export function WeeklyTimetableSection({
                   </button>
                 );
               })}
+              {!hasActivities ? (
+                <div
+                  className={`absolute left-3 right-3 top-12 z-20 flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2 text-center ${theme.border} ${theme.textMuted} bg-surface/90`}
+                  data-planner-weekly-timetable-empty="true"
+                  data-k121-empty-state="planner-timetable"
+                  data-k124c-timetable-empty-compact
+                >
+                  <CalendarDays size={18} strokeWidth={1.5} className="shrink-0 opacity-50" />
+                  <p className="text-xs font-semibold">{t('plannerWeeklyTimetableEmptyHint')}</p>
+                </div>
+              ) : null}
             </div>
           </div>
-          </>
-          )}
         </div>
         )}
       </section>

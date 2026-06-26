@@ -30,8 +30,9 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
     compactMonthCells: cell.includes('min-h-[52px] lg:min-h-[58px]')
       && cell.includes('px-1 py-0.5 text-[9px]'),
     routineNoDuplicateMargin: routine.includes('<section data-k108-planner-routine-today>'),
-    compactEmptyTimetable: timetable.includes("min-h-[64px]")
-      && timetable.includes('data-k124c-timetable-empty-compact')
+    compactEmptyTimetable: timetable.includes('data-k124c-timetable-empty-compact')
+      && timetable.includes('data-k139-current-time-line')
+      && timetable.includes('data-planner-weekly-today')
       && !timetable.includes("!hasActivities && sectionEmbedded ? 'min-h-[120px]'"),
     compactEmbeddedTimetable: timetable.includes('data-k134b-timetable-compact')
       && timetable.includes("sectionEmbedded ? 'min-h-0'")

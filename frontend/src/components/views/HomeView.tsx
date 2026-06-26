@@ -42,6 +42,8 @@ import { fetcher } from '../../lib/fetcher';
 import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
 
+type ScheduleDday = Schedule & { date: string };
+
 function HomeSection({
   title,
   children,
@@ -133,6 +135,11 @@ export const HomeView = ({
   const prevDateStr = formatDate(prevDate);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
     `${API_URL}/api/schedules?date=${prevDateStr}`,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
+  const { data: ddaySchedules = [] } = useSWR<ScheduleDday[]>(
+    `${API_URL}/api/schedules/ddays`,
     fetcher,
     { revalidateOnFocus: false },
   );
@@ -230,6 +237,18 @@ export const HomeView = ({
 
   const agendaPreview = projection.todayAgenda.slice(0, 4);
   const timetablePreview = projection.timetableSlots.slice(0, 3);
+  const upcomingDdays = useMemo(() => {
+    const today = new Date(`${todayKey}T00:00:00`);
+    return ddaySchedules
+      .map(item => {
+        const target = new Date(`${item.date}T00:00:00`);
+        const daysUntil = Math.ceil((target.getTime() - today.getTime()) / 86400000);
+        return { item, daysUntil };
+      })
+      .filter(row => Number.isFinite(row.daysUntil) && row.daysUntil >= 0)
+      .sort((a, b) => a.daysUntil - b.daysUntil)
+      .slice(0, 3);
+  }, [ddaySchedules, todayKey]);
 
   return (
     <WorkspaceErrorBoundary workspace="home">
@@ -313,6 +332,23 @@ export const HomeView = ({
                 </div>
               ) : null}
             </HomeSection>
+
+            {upcomingDdays.length > 0 ? (
+              <HomeSection title={t('k139UpcomingDday')} dataHook="dday" theme={theme}>
+                <div className="flex flex-col gap-1.5">
+                  {upcomingDdays.map(({ item, daysUntil }) => (
+                    <FlowRow
+                      key={item.id}
+                      title={item.text}
+                      meta={`${daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`} · ${item.date}`}
+                      onClick={() => switchToTab('planner')}
+                      theme={theme}
+                      dataHook="dday-item"
+                    />
+                  ))}
+                </div>
+              </HomeSection>
+            ) : null}
 
             <HomeSection title={t('homeWorkout')} dataHook="workout" theme={theme}>
               {projection.workout.hasSession ? (
