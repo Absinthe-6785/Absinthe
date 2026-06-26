@@ -111,6 +111,19 @@ describe('useNotesStore — import & DB sync', () => {
     );
     expect(useNotesStore.getState().notes.some(n => n.id === local.id)).toBe(true);
   });
+
+  it('initNotesStorage merges pre-hydration in-memory notes with stored notes', async () => {
+    const stored = { ...sampleNote(), id: 'stored-note', title: 'Stored', updatedAt: 10 };
+    const draft = { ...sampleNote(), id: 'draft-note', title: 'Draft', updatedAt: 20 };
+    storage.set(NOTES_KEY, JSON.stringify([stored]));
+    useNotesStore.setState({ notes: [draft], activeNoteId: draft.id });
+
+    await useNotesStore.getState().initNotesStorage();
+
+    expect(useNotesStore.getState().notes.map(n => n.id).sort()).toEqual(['draft-note', 'stored-note']);
+    const saved = JSON.parse(storage.get(NOTES_KEY) ?? '[]') as NoteBase[];
+    expect(saved.map(n => n.id).sort()).toEqual(['draft-note', 'stored-note']);
+  });
 });
 
 describe('useNotesStore — sync failure & retry', () => {

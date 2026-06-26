@@ -5,6 +5,7 @@ import {
   NOTES_KEY,
   defaultSeedNotes,
   loadRawNotesFromKey,
+  mergeNoteArrays,
   registerNotesStorageBridge,
   type NoteBase,
 } from '@/components/views/noteUtils';
@@ -43,6 +44,27 @@ let persistenceMode: NotesPersistenceMode = 'localStorage';
 let notesCache: NoteBase[] | null = null;
 let lastIndexedDbRevision = readNotesIndexedDbRevision();
 let persistenceHydrated = false;
+
+export const NOTES_DURABILITY_BACKUP_PREFIX = 'absinthe.notes.backup.';
+
+function backupNotesBeforeDurabilityWrite(
+  reason: string,
+  notes: readonly NoteBase[],
+): string | null {
+  if (notes.length === 0) return null;
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const key = `${NOTES_DURABILITY_BACKUP_PREFIX}${stamp}.${reason}`;
+    localStorage.setItem(key, JSON.stringify({
+      reason,
+      createdAt: Date.now(),
+      notes,
+    }));
+    return key;
+  } catch {
+    return null;
+  }
+}
 
 function loadNotesFromLocalStorage(): NoteBase[] {
   const raw = loadRawNotesFromKey(NOTES_KEY);
@@ -103,17 +125,29 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
     return { migrated: false, count: 0 };
   }
 
+  const legacy = loadRawNotesFromKey(NOTES_KEY) ?? [];
   const idbEmpty = await isIndexedDbNotesEmpty();
   if (!idbEmpty) {
+    if (legacy.length > 0) {
+      const idbNotes = await loadNotesFromIndexedDb();
+      const merged = mergeNoteArrays(idbNotes, legacy);
+      backupNotesBeforeDurabilityWrite('merge-local-into-existing-idb', legacy);
+      const ok = await saveNotesToIndexedDb(merged);
+      if (!ok) throw new Error('IndexedDB migration merge failed');
+      markNotesOnboardingComplete();
+      markIndexedDbMigrationComplete();
+      try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+      return { migrated: true, count: merged.length };
+    }
     markIndexedDbMigrationComplete();
     try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
     return { migrated: false, count: 0 };
   }
 
-  const legacy = loadRawNotesFromKey(NOTES_KEY) ?? [];
   let notes: NoteBase[];
   if (legacy.length > 0) {
     notes = legacy;
+    backupNotesBeforeDurabilityWrite('migrate-local-to-idb', legacy);
     markNotesOnboardingComplete();
   } else if (shouldSeedOnboardingNotes()) {
     notes = defaultSeedNotes();
@@ -160,7 +194,13 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     if (notes.length > 0) {
       markNotesOnboardingComplete();
     } else {
-      resolved = await resolveEmptyVaultNotes();
+      const localRescue = loadNotesFromLocalStorage();
+      if (localRescue.length > 0) {
+        backupNotesBeforeDurabilityWrite('rescue-local-after-empty-idb', localRescue);
+        resolved = localRescue;
+      } else {
+        resolved = await resolveEmptyVaultNotes();
+      }
       if (resolved.length > 0) await saveNotesToIndexedDb(resolved);
     }
     persistenceMode = 'indexeddb';
@@ -216,6 +256,10 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
 }
 
 export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolean> {
+  if (!persistenceHydrated && notes.length === 0) {
+    return true;
+  }
+
   notesCache = [...notes];
 
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
@@ -284,6 +328,9 @@ export { INDEXEDDB_FALLBACK_ERROR, NOTES_IDB_REV_KEY };
 registerNotesStorageBridge(
   loadNotesSync,
   (notes) => {
+    if (!persistenceHydrated && notes.length === 0) {
+      return true;
+    }
     notesCache = [...notes];
     if (persistenceMode === 'indexeddb') {
       void saveNotesAsync(notes);
