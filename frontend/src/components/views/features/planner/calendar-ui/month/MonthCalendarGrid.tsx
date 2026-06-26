@@ -32,8 +32,8 @@ export function MonthCalendarGrid({
   const weeks = chunkMonthCells(month.cells, 7);
 
   return (
-    <div data-planner-month-grid>
-      <div className="grid grid-cols-7 gap-px mb-1">
+    <div className="h-full min-h-0 flex flex-col" data-planner-month-grid>
+      <div className="grid grid-cols-7 gap-px mb-1 shrink-0">
         {weekdayLabels.map((label, index) => (
           <div
             key={`${label}-${index}`}
@@ -45,7 +45,7 @@ export function MonthCalendarGrid({
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-px">
+      <div className="grid grid-cols-7 grid-rows-6 gap-px min-h-0 flex-1 overflow-hidden">
         {weeks.flatMap(week =>
           week.map(cell => {
             const model = buildMonthCellDisplayModel(cell, countdowns, formatCountdown);

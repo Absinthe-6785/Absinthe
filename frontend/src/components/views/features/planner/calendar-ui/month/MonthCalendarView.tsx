@@ -90,7 +90,7 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-2 items-stretch min-h-0 lg:flex-1"
+      className="flex flex-col items-stretch min-h-0 h-full lg:flex-1"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
@@ -98,11 +98,15 @@ export function MonthCalendarView({
       data-k133b-schedule-flow
     >
       <div
-        className="flex flex-col gap-2 min-h-0 lg:h-[calc(100vh-170px)] lg:min-h-[640px] lg:max-h-[780px]"
+        className="grid grid-cols-1 gap-2 min-h-0 lg:h-[calc(100vh-170px)] lg:min-h-[640px] lg:max-h-[780px] lg:grid-rows-[minmax(0,48fr)_minmax(0,44fr)] lg:overflow-hidden"
         data-k140-schedule-grid
+        data-k141-schedule-main-grid
       >
-        <div className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,35fr)_minmax(0,65fr)] lg:flex-[48]">
-          <section className="min-h-0" data-k117-schedule-section="today">
+        <div
+          className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,36fr)_minmax(0,64fr)] lg:h-full lg:overflow-hidden"
+          data-k141-schedule-top-row
+        >
+          <section className="min-h-0 h-full overflow-hidden" data-k117-schedule-section="today">
             <PlannerTodayPanel
               plannerProjection={plannerProjection}
               presentation={presentation}
@@ -115,7 +119,7 @@ export function MonthCalendarView({
           </section>
 
           {showTimetableSection ? (
-            <section className="min-h-0" data-k117-schedule-section="timetable" data-k117-timetable-section>
+            <section className="min-h-0 h-full overflow-hidden" data-k117-schedule-section="timetable" data-k117-timetable-section>
               <WeeklyTimetableSection
                 weeklySchedules={[...weeklySchedules]}
                 theme={theme}
@@ -131,11 +135,14 @@ export function MonthCalendarView({
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,74fr)_minmax(220px,26fr)] lg:flex-[44]">
+        <div
+          className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,74fr)_minmax(220px,26fr)] lg:h-full lg:overflow-hidden"
+          data-k141-schedule-bottom-row
+        >
           <section
             data-k117-schedule-section="calendar"
             ref={monthRef as React.RefObject<HTMLElement>}
-            className={`w-full min-h-0 lg:min-h-[220px] ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 overflow-hidden flex flex-col shadow-sm ${theme.card}`}
+            className={`w-full min-h-0 h-full ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 overflow-hidden flex flex-col shadow-sm ${theme.card}`}
             data-k117-planner-calendar-adaptive
             data-k108-planner-month-lazy
           >
@@ -161,7 +168,7 @@ export function MonthCalendarView({
           </section>
 
           <section
-            className={`min-h-0 lg:min-h-[220px] lg:h-full ${WORKSPACE_CARD_RADIUS_CLASS} p-3 shadow-sm flex flex-col max-h-[300px] lg:max-h-none ${theme.card}`}
+            className={`min-h-0 h-full ${WORKSPACE_CARD_RADIUS_CLASS} p-3 shadow-sm flex flex-col max-h-[300px] lg:max-h-none overflow-hidden ${theme.card}`}
             data-k139-schedule-dday-list
           >
             <div className="flex items-center justify-between gap-2 mb-2 shrink-0">

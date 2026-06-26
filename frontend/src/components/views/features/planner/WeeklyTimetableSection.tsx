@@ -239,7 +239,8 @@ export function WeeklyTimetableSection({
       <section
         className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
           ${sectionEmbedded ? `${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4` : `${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6`}
-          ${showGrid || showMobileList ? (sectionEmbedded ? 'min-h-0' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
+          ${sectionEmbedded ? 'h-full min-h-0' : ''}
+          ${showGrid || showMobileList ? (sectionEmbedded ? '' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable
         data-planner-weekly-timetable-expanded={showGrid || showMobileList ? 'true' : 'false'}
         data-planner-weekly-timetable-standalone={standalone ? 'true' : 'false'}
@@ -335,7 +336,7 @@ export function WeeklyTimetableSection({
         )}
 
         {showGrid && (
-        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${sectionEmbedded ? 'min-h-[280px] max-h-[430px]' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
+        <div className={`flex-1 flex flex-col relative border rounded-xl lg:rounded-2xl overflow-hidden ${sectionEmbedded ? 'min-h-0' : 'min-h-[360px]'} ${theme.border} ${appSettings.darkMode ? 'bg-surface-alt/30' : 'bg-gray-50/50'}`}>
           <div className={`flex border-b h-9 shrink-0 ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`} data-planner-weekly-weekday-header>
             <div className={`w-10 lg:w-14 border-r shrink-0 ${theme.border}`}/>
             {weekdays.map((day, i) => (
