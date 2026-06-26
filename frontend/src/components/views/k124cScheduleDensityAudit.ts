@@ -26,7 +26,7 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
       && !shell.includes('header={('),
     upcomingNavRemoved: !nav.includes("'upcoming'")
       && !nav.includes('k80UpcomingAgenda'),
-    compactMonthCells: cell.includes('min-h-[52px] lg:min-h-[58px]')
+    compactMonthCells: cell.includes('min-h-[52px] lg:min-h-0')
       && cell.includes('px-1 py-0.5 text-[9px]'),
     routineNoDuplicateMargin: routine.includes('<section data-k108-planner-routine-today>'),
     compactEmptyTimetable: timetable.includes('data-k124c-timetable-empty-compact')

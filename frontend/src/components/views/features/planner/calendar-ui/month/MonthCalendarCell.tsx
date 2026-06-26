@@ -34,7 +34,7 @@ export function MonthCalendarCell({
           onDateSelect(model.dateKey);
         }
       } : undefined}
-      className={`min-h-[52px] lg:min-h-[58px] border p-1 flex flex-col gap-0.5
+      className={`min-h-[52px] lg:min-h-0 border p-1 flex flex-col gap-0.5 overflow-hidden
         ${model.inMonth ? '' : 'opacity-40'}
         ${theme.border}
         ${model.isToday ? 'ring-2 ring-primary ring-inset bg-primary/8' : ''}
