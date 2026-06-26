@@ -161,7 +161,7 @@ describe('WeeklyTimetableSection', () => {
     expect(html).toContain('Morning Study');
     expect(html).not.toContain('data-planner-weekly-timetable-modal');
   });
-  it('omits embedded header add when sectionEmbedded (K-140)', () => {
+  it('renders embedded Add Block action for timetable-owned recurring blocks', () => {
     const html = renderToStaticMarkup(
       createElement(WeeklyTimetableSection, {
         weeklySchedules: plannerProps().weeklySchedules,
@@ -175,8 +175,8 @@ describe('WeeklyTimetableSection', () => {
     );
 
     expect(html).toContain('data-planner-weekly-timetable');
-    expect(html).not.toContain('data-planner-weekly-timetable-add');
-    expect(html).not.toContain('data-k139-timetable-add-local');
+    expect(html).toContain('data-planner-weekly-timetable-add');
+    expect(html).toContain('data-k139-timetable-add-local');
   });
 });
 
@@ -192,12 +192,11 @@ describe('PlannerView timetable integration', () => {
     expect(html).toContain('data-k140-schedule-grid');
     expect(html).toContain('data-planner-weekly-timetable');
     expect(html).toContain('data-k140-calendar-add-event');
+    expect(html).toContain('data-k139-timetable-add-local');
     expect(html).toContain('data-k139-routine-add-row');
     expect(html).toContain('data-k139-schedule-dday-list');
     expect(html).not.toContain('data-k117-schedule-section-nav');
     expect(html).not.toContain('data-k117-new-event-btn');
-    expect(html).not.toContain('data-k139-timetable-add-local');
-    expect(html).not.toContain('data-planner-weekly-timetable-add');
     expect(html).not.toContain('data-planner-day-schedule-add');
     expect(html).not.toContain('data-k139-schedule-dday-add');
     expect(html).not.toContain('data-k139-schedule-add-routine');

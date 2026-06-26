@@ -7,7 +7,7 @@ import { useTranslation } from '../../../../lib/i18n';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
-import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate } from '../../k98aTimetableMultiDay';
+import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate, weeklyScheduleLinkedBlocks } from '../../k98aTimetableMultiDay';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { isDuplicatedWeeklyTitle } from '../../k101TimetableDuplicateDays';
 import { WORKSPACE_CARD_RADIUS_CLASS } from '../../../common/workspaceCardSizes';
@@ -18,6 +18,9 @@ const parseTime = (timeStr: string): number => {
   const [h, m] = timeStr.split(':');
   return parseInt(h || '0') + parseInt(m || '0') / 60;
 };
+
+const formatDayList = (days: readonly number[], labels: readonly string[]) =>
+  [...new Set(days)].sort((a, b) => a - b).map(day => labels[day]).filter(Boolean).join('/');
 
 export interface WeeklyTimetableSectionProps {
   weeklySchedules: WeeklySchedule[];
@@ -48,7 +51,9 @@ export function WeeklyTimetableSection({
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [activeWeeklyBlock, setActiveWeeklyBlock] = useState<WeeklySchedule | null>(null);
   const [editingWeeklyId, setEditingWeeklyId] = useState<string | null>(null);
+  const [editingScope, setEditingScope] = useState<'single' | 'linked' | null>(null);
   const [newWeeklySch, setNewWeeklySch] = useState<Partial<WeeklySchedule>>({
     day: 0,
     title: '',
@@ -60,6 +65,7 @@ export function WeeklyTimetableSection({
 
   useEscapeKey(() => {
     setShowWeeklyModal(false);
+    setActiveWeeklyBlock(null);
     clearConfirm();
   });
 
@@ -77,7 +83,8 @@ export function WeeklyTimetableSection({
   const showGrid = inlineExpanded ? !isMobile : expanded;
   const showMobileList = showCompactList;
 
-  const openWeeklyModal = (sch?: WeeklySchedule) => {
+  const openWeeklyModal = (sch?: WeeklySchedule, scope: 'single' | 'linked' | null = sch ? 'single' : null) => {
+    const linked = sch ? weeklyScheduleLinkedBlocks(sch, weeklySchedules) : [];
     setNewWeeklySch(sch ?? {
       day: 0,
       title: '',
@@ -85,13 +92,22 @@ export function WeeklyTimetableSection({
       end_time: '10:00',
       color: THEME_COLORS.find(c => c.id === 'blue')?.bg ?? THEME_COLORS[0].bg,
     });
-    setSelectedWeekdays(sch ? [sch.day] : [0]);
+    setSelectedWeekdays(sch ? (scope === 'linked' ? linked.map(item => item.day) : [sch.day]) : [0]);
     setEditingWeeklyId(sch?.id ?? null);
+    setEditingScope(scope);
+    setActiveWeeklyBlock(null);
     setShowWeeklyModal(true);
   };
 
+  const openWeeklyActions = (block: WeeklySchedule) => {
+    setActiveWeeklyBlock(block);
+    setShowWeeklyModal(false);
+    setEditingWeeklyId(null);
+    setEditingScope(null);
+  };
+
   const toggleWeekday = (day: number) => {
-    if (editingWeeklyId) {
+    if (editingWeeklyId && editingScope !== 'linked') {
       setSelectedWeekdays([day]);
       setNewWeeklySch(prev => ({ ...prev, day }));
       return;
@@ -106,11 +122,11 @@ export function WeeklyTimetableSection({
     if (newWeeklySch.start_time && newWeeklySch.end_time && newWeeklySch.start_time >= newWeeklySch.end_time) {
       return showToast(t('plannerWeeklyEndAfterStart'), 'error');
     }
-    if (!editingWeeklyId && selectedWeekdays.length === 0) {
+    if (selectedWeekdays.length === 0) {
       return showToast(t('plannerWeeklyEndAfterStart'), 'error');
     }
 
-    if (editingWeeklyId) {
+    if (editingWeeklyId && editingScope !== 'linked') {
       const ok = await api(
         'PUT',
         `/api/weekly_schedules/${editingWeeklyId}`,
@@ -119,6 +135,41 @@ export function WeeklyTimetableSection({
       );
       if (ok) {
         setShowWeeklyModal(false);
+        setExpanded(true);
+      }
+      return;
+    }
+
+    if (editingWeeklyId && editingScope === 'linked') {
+      const source = weeklySchedules.find(item => item.id === editingWeeklyId);
+      const linked = source ? weeklyScheduleLinkedBlocks(source, weeklySchedules) : [];
+      const linkedByDay = new Map(linked.map(item => [item.day, item]));
+      const selected = [...new Set(selectedWeekdays)].sort((a, b) => a - b);
+      let allOk = true;
+
+      for (const day of selected) {
+        const existing = linkedByDay.get(day);
+        const payload = { ...newWeeklySch, day };
+        const ok = await api(
+          existing ? 'PUT' : 'POST',
+          existing ? `/api/weekly_schedules/${existing.id}` : '/api/weekly_schedules',
+          payload,
+          { revalidate: 'static' },
+        );
+        if (!ok) allOk = false;
+      }
+
+      for (const existing of linked) {
+        if (selected.includes(existing.day)) continue;
+        const ok = await api('DELETE', `/api/weekly_schedules/${existing.id}`, undefined, { revalidate: 'static' });
+        if (!ok) allOk = false;
+      }
+
+      if (allOk) {
+        showToast(t('scheduleSaved'));
+        setShowWeeklyModal(false);
+        setEditingWeeklyId(null);
+        setEditingScope(null);
         setExpanded(true);
       }
       return;
@@ -150,6 +201,22 @@ export function WeeklyTimetableSection({
     },
       { confirmLabel: t('delete') },
     );
+
+  const deleteLinkedWeeklySchedules = (block: WeeklySchedule) => {
+    const linked = weeklyScheduleLinkedBlocks(block, weeklySchedules);
+    showConfirm(t('plannerWeeklyDeleteLinkedConfirm'), async () => {
+      let allOk = true;
+      for (const item of linked) {
+        const ok = await api('DELETE', `/api/weekly_schedules/${item.id}`, undefined, { revalidate: 'static' });
+        if (!ok) allOk = false;
+      }
+      if (allOk) {
+        showToast(t('deleted'));
+        setActiveWeeklyBlock(null);
+        setShowWeeklyModal(false);
+      }
+    }, { confirmLabel: t('delete') });
+  };
 
   useEffect(() => {
     if (!showGrid || !sectionEmbedded || !scrollRef.current) return;
@@ -202,16 +269,15 @@ export function WeeklyTimetableSection({
                 {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
               </button>
             ) : null}
-            {sectionEmbedded ? null : (
             <button
               type="button"
               onClick={() => openWeeklyModal()}
               className="text-sm bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-md hover:scale-105 transition-transform"
               data-planner-weekly-timetable-add
+              data-k139-timetable-add-local
             >
-              <Plus size={16} strokeWidth={2.25}/> {hasActivities ? t('add') : t('plannerWeeklyTimetableAddFirst')}
+              <Plus size={16} strokeWidth={2.25}/> {t('plannerWeeklyAddBlock')}
             </button>
-            )}
           </div>
         </div>
 
@@ -224,7 +290,7 @@ export function WeeklyTimetableSection({
               title={t('k99EmptyPlannerTitle')}
               description={t('k99EmptyPlannerDesc')}
               dataHook="planner-timetable-empty"
-              primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+              primaryAction={{ label: t('plannerWeeklyAddBlock'), onClick: () => openWeeklyModal() }}
             />
           </div>
         )}
@@ -239,7 +305,7 @@ export function WeeklyTimetableSection({
                 title={t('k99EmptyPlannerTitle')}
                 description={t('k99EmptyPlannerDesc')}
                 dataHook="planner-timetable-empty"
-                primaryAction={{ label: t('plannerWeeklyTimetableAddFirst'), onClick: () => openWeeklyModal() }}
+                primaryAction={{ label: t('plannerWeeklyAddBlock'), onClick: () => openWeeklyModal() }}
               />
             ) : (
               mobileByDay.map(({ day, label, blocks }) => (
@@ -250,7 +316,7 @@ export function WeeklyTimetableSection({
                       <li key={block.id}>
                         <button
                           type="button"
-                          onClick={() => openWeeklyModal(block)}
+                          onClick={() => openWeeklyActions(block)}
                           className={`w-full text-left rounded-xl px-3 py-2 min-h-[40px] flex items-center justify-between gap-2 ${theme.input}`}
                           data-planner-weekly-mobile-block={block.id}
                         >
@@ -313,7 +379,7 @@ export function WeeklyTimetableSection({
                   <button
                     key={block.id}
                     type="button"
-                    onClick={() => openWeeklyModal(block)}
+                    onClick={() => openWeeklyActions(block)}
                     className="absolute px-0.5 py-0.5 cursor-pointer z-10"
                     style={{
                       top: `${start * ROW_H}px`,
@@ -353,11 +419,38 @@ export function WeeklyTimetableSection({
         )}
       </section>
 
+      {activeWeeklyBlock ? (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setActiveWeeklyBlock(null)}>
+          <div className={`rounded-[24px] p-5 w-full max-w-[360px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()} data-planner-weekly-block-actions>
+            <div className="flex justify-between items-start gap-3 mb-4">
+              <div className="min-w-0">
+                <p className={`text-xs font-bold uppercase tracking-wide mb-1 ${theme.textMuted}`}>{t('plannerWeeklyBlock')}</p>
+                <h3 className="font-heading text-lg font-bold truncate">{activeWeeklyBlock.title}</h3>
+                <p className={`text-xs font-semibold mt-1 ${theme.textMuted}`}>
+                  {formatDayList(weeklyScheduleLinkedBlocks(activeWeeklyBlock, weeklySchedules).map(item => item.day), weekdays)} · {activeWeeklyBlock.start_time}-{activeWeeklyBlock.end_time}
+                </p>
+              </div>
+              <button type="button" onClick={() => setActiveWeeklyBlock(null)} className={`min-h-[36px] min-w-[36px] flex items-center justify-center rounded-full ${theme.hoverBg}`}><X size={18}/></button>
+            </div>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => openWeeklyModal(activeWeeklyBlock, 'single')} className={`text-left rounded-xl px-3 py-2.5 text-sm font-bold ${theme.input}`} data-planner-weekly-edit-single>{t('plannerWeeklyEditThis')}</button>
+              {weeklyScheduleLinkedBlocks(activeWeeklyBlock, weeklySchedules).length > 1 ? (
+                <button type="button" onClick={() => openWeeklyModal(activeWeeklyBlock, 'linked')} className={`text-left rounded-xl px-3 py-2.5 text-sm font-bold ${theme.input}`} data-planner-weekly-edit-linked>{t('plannerWeeklyEditLinked')}</button>
+              ) : null}
+              <button type="button" onClick={() => { deleteWeeklySchedule(activeWeeklyBlock.id); setActiveWeeklyBlock(null); }} className="text-left rounded-xl px-3 py-2.5 text-sm font-bold bg-red-500/10 text-red-500" data-planner-weekly-delete-single>{t('plannerWeeklyDeleteThis')}</button>
+              {weeklyScheduleLinkedBlocks(activeWeeklyBlock, weeklySchedules).length > 1 ? (
+                <button type="button" onClick={() => deleteLinkedWeeklySchedules(activeWeeklyBlock)} className="text-left rounded-xl px-3 py-2.5 text-sm font-bold bg-red-500/10 text-red-500" data-planner-weekly-delete-linked>{t('plannerWeeklyDeleteLinked')}</button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showWeeklyModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowWeeklyModal(false)}>
           <div className={`rounded-[32px] p-6 lg:p-8 w-full max-w-[400px] shadow-2xl ${theme.card}`} onClick={e => e.stopPropagation()} data-planner-weekly-timetable-modal>
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? t('plannerWeeklyEditActivity') : t('plannerWeeklyNewActivity')}</h3>
+              <h3 className="font-heading text-xl lg:text-2xl font-bold">{editingWeeklyId ? t('plannerWeeklyEditActivity') : t('plannerWeeklyNewBlock')}</h3>
               <button type="button" onClick={() => setShowWeeklyModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={20}/></button>
             </div>
             <div className="space-y-5">
@@ -368,7 +461,7 @@ export function WeeklyTimetableSection({
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${theme.textMuted}`}>{t('k98TimetableDays')}</label>
-                {editingWeeklyId ? (
+                {editingWeeklyId && editingScope !== 'linked' ? (
                   <select value={newWeeklySch.day} onChange={e => {
                     const day = parseInt(e.target.value);
                     setNewWeeklySch({ ...newWeeklySch, day });
@@ -386,6 +479,8 @@ export function WeeklyTimetableSection({
                       className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableWeekends')}</button>
                     <button type="button" onClick={() => setSelectedWeekdays([0, 1, 2, 3, 4, 5, 6])}
                       className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('k100TimetableEveryDay')}</button>
+                    <button type="button" onClick={() => setSelectedWeekdays([])}
+                      className="px-2 py-1 rounded-lg text-xs font-bold bg-primary/10 text-primary">{t('plannerWeeklyClearDays')}</button>
                   </div>
                   <div className="flex flex-wrap gap-2" data-planner-weekly-day-checkboxes>
                     {weekdays.map((label, day) => (
