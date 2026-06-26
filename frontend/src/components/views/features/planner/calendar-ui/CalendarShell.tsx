@@ -96,7 +96,7 @@ export function CalendarShell({
 
   return (
     <div
-      className={`w-full flex-1 min-h-0 overflow-hidden touch-pan-y ${WORKSPACE_CARD.md} pt-2 lg:pt-2.5`}
+      className={`w-full flex-1 min-h-0 overflow-y-auto overscroll-contain lg:overflow-hidden touch-pan-y ${WORKSPACE_CARD.md}`}
       aria-label={t('plannerCalendarRegion')}
       data-planner-calendar-shell
       data-planner-calendar-mode="month"

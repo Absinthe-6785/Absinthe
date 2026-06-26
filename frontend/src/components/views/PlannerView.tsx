@@ -278,7 +278,7 @@ export const PlannerView = ({
   }), [api, formatDate, mutateRoutines, selectedDate, showConfirm, t]);
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain pr-1 animate-in fade-in duration-300 pb-4 lg:pb-2 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-k134b-workspace-scroll>
+    <div className={`flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-k134b-workspace-scroll>
       <div className="shrink-0 px-0.5">
         <WorkspacePageHeader
           workspace="schedule"

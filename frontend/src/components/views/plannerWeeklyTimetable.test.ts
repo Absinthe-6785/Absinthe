@@ -190,6 +190,9 @@ describe('PlannerView timetable integration', () => {
     expect(html).toContain('data-planner-calendar-shell');
     expect(html).toContain('data-k117-schedule-workspace');
     expect(html).toContain('data-k140-schedule-grid');
+    expect(html).toContain('data-k141-schedule-main-grid');
+    expect(html).toContain('data-k141-schedule-top-row');
+    expect(html).toContain('data-k141-schedule-bottom-row');
     expect(html).toContain('data-planner-weekly-timetable');
     expect(html).toContain('data-k140-calendar-add-event');
     expect(html).toContain('data-k139-timetable-add-local');
