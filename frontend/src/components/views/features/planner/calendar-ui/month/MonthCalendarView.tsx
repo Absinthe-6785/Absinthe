@@ -90,7 +90,7 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="flex flex-col items-stretch min-h-0 h-full lg:flex-1"
+      className="flex flex-col items-stretch min-h-0 lg:h-full lg:flex-1"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
@@ -98,12 +98,12 @@ export function MonthCalendarView({
       data-k133b-schedule-flow
     >
       <div
-        className="grid grid-cols-1 gap-2 min-h-0 lg:h-[calc(100vh-170px)] lg:min-h-[640px] lg:max-h-[780px] lg:grid-rows-[minmax(0,48fr)_minmax(0,44fr)] lg:overflow-hidden"
+        className="grid grid-cols-1 gap-3 lg:gap-3 min-h-0 lg:h-full lg:min-h-0 lg:grid-rows-[minmax(0,52fr)_minmax(0,44fr)] lg:overflow-hidden"
         data-k140-schedule-grid
         data-k141-schedule-main-grid
       >
         <div
-          className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,36fr)_minmax(0,64fr)] lg:h-full lg:overflow-hidden"
+          className="grid grid-cols-1 gap-3 min-h-0 lg:grid-cols-[minmax(0,36fr)_minmax(0,64fr)] lg:h-full lg:overflow-hidden"
           data-k141-schedule-top-row
         >
           <section className="min-h-0 h-full overflow-hidden" data-k117-schedule-section="today">
@@ -136,7 +136,7 @@ export function MonthCalendarView({
         </div>
 
         <div
-          className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,74fr)_minmax(220px,26fr)] lg:h-full lg:overflow-hidden"
+          className="grid grid-cols-1 gap-3 min-h-0 lg:grid-cols-[minmax(0,70fr)_minmax(240px,30fr)] lg:h-full lg:overflow-hidden"
           data-k141-schedule-bottom-row
         >
           <section
@@ -147,7 +147,7 @@ export function MonthCalendarView({
             data-k108-planner-month-lazy
           >
             {calendarHeader ? (
-              <div className="mb-1.5 shrink-0" data-k133b-calendar-supporting-nav>
+              <div className="mb-2 shrink-0" data-k133b-calendar-supporting-nav>
                 {calendarHeader}
               </div>
             ) : null}
@@ -221,7 +221,7 @@ export function MonthCalendarView({
                 ))}
               </ul>
             ) : (
-              <div className={`rounded-xl px-3 py-3 flex-1 ${theme.input}`} data-k139-schedule-dday-empty>
+              <div className={`rounded-xl px-3 py-3 shrink-0 ${theme.input}`} data-k139-schedule-dday-empty>
                 <p className="text-sm font-bold">{t('k139NoDdaysYet')}</p>
                 <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('k139DdayEmptyHint')}</p>
               </div>

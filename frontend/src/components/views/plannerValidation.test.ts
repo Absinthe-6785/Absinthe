@@ -83,6 +83,9 @@ describe('K-32.1 planner validation', () => {
     expect(source).not.toContain('onAddDday');
     expect(periodNav).toContain('data-k140-calendar-add-event');
     expect(month).toContain('data-k140-schedule-grid');
+    expect(month).toContain('data-k141-schedule-main-grid');
+    expect(month).toContain('data-k141-schedule-top-row');
+    expect(month).toContain('data-k141-schedule-bottom-row');
     expect(month).toContain('WeeklyTimetableSection');
     expect(month).toContain('data-k139-schedule-dday-list');
     expect(month).toContain('data-k139-schedule-dday-edit');
