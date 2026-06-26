@@ -33,7 +33,6 @@ export interface CalendarShellProps {
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   onAddSchedule?: () => void;
-  onAddDday?: () => void;
   onEditDday?: (schedule: Schedule & { date: string }) => void;
   onDeleteDday?: (id: string) => void;
 }
@@ -59,7 +58,6 @@ export function CalendarShell({
   mutateStatic,
   showToast,
   onAddSchedule,
-  onAddDday,
   onEditDday,
   onDeleteDday,
 }: CalendarShellProps) {
@@ -98,7 +96,7 @@ export function CalendarShell({
 
   return (
     <div
-      className={`w-full shrink-0 mb-3 lg:mb-4 min-h-0 touch-pan-y ${WORKSPACE_CARD.md} pt-2 lg:pt-2.5`}
+      className={`w-full shrink-0 mb-2 min-h-0 touch-pan-y ${WORKSPACE_CARD.md} pt-1`}
       aria-label={t('plannerCalendarRegion')}
       data-planner-calendar-shell
       data-planner-calendar-mode="month"
@@ -121,7 +119,6 @@ export function CalendarShell({
         mutateStatic={mutateStatic}
         showToast={showToast}
         onAddSchedule={onAddSchedule}
-        onAddDday={onAddDday}
         onEditDday={onEditDday}
         onDeleteDday={onDeleteDday}
         calendarHeader={(

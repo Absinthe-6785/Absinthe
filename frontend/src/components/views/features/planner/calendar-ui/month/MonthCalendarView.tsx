@@ -33,7 +33,6 @@ export interface MonthCalendarViewProps {
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   onAddSchedule?: () => void;
-  onAddDday?: () => void;
   onEditDday?: (schedule: ScheduleDday) => void;
   onDeleteDday?: (id: string) => void;
   deferMonthGrid?: boolean;
@@ -59,7 +58,6 @@ export function MonthCalendarView({
   mutateStatic,
   showToast,
   onAddSchedule,
-  onAddDday,
   onEditDday,
   onDeleteDday,
   deferMonthGrid = true,
@@ -95,15 +93,15 @@ export function MonthCalendarView({
 
   return (
     <div
-      className="flex flex-col gap-2 items-stretch min-h-0 lg:flex-1"
+      className="grid grid-cols-1 gap-2 items-stretch min-h-0 lg:flex-1 xl:h-[calc(100vh-156px)] xl:min-h-[650px] xl:max-h-[820px] xl:grid-rows-[minmax(0,0.53fr)_minmax(0,0.47fr)]"
       data-planner-calendar-month
       data-k108-planner-layout
       data-k117-schedule-workspace
       data-k121-schedule-layout
       data-k133b-schedule-flow
     >
-      <div className="grid grid-cols-1 gap-2 min-h-0 xl:grid-cols-[minmax(300px,0.38fr)_minmax(0,0.62fr)]" data-k121-schedule-agenda data-k139-schedule-primary-flow>
-        <section data-k117-schedule-section="today">
+      <div className="grid grid-cols-1 gap-2 min-h-0 xl:grid-cols-[minmax(300px,0.38fr)_minmax(0,0.62fr)] xl:h-full" data-k121-schedule-agenda data-k139-schedule-primary-flow>
+        <section className="min-h-0 xl:h-full" data-k117-schedule-section="today">
           <PlannerTodayPanel
             plannerProjection={plannerProjection}
             presentation={presentation}
@@ -118,7 +116,7 @@ export function MonthCalendarView({
         <span className="sr-only" data-k117-schedule-section="routine" aria-hidden="true" />
 
         {showTimetableSection ? (
-          <section data-k117-schedule-section="timetable" data-k117-timetable-section>
+          <section className="min-h-0 xl:h-full" data-k117-schedule-section="timetable" data-k117-timetable-section>
             <WeeklyTimetableSection
               weeklySchedules={[...weeklySchedules]}
               theme={theme}
@@ -132,19 +130,35 @@ export function MonthCalendarView({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,0.68fr)_minmax(240px,0.32fr)]" data-k139-schedule-calendar-dday>
+      <div className="grid grid-cols-1 gap-2 min-h-0 lg:grid-cols-[minmax(0,0.69fr)_minmax(240px,0.31fr)] xl:h-full" data-k139-schedule-calendar-dday>
         <section
           data-k117-schedule-section="calendar"
           ref={monthRef as React.RefObject<HTMLElement>}
-          className={`w-full ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 min-h-[300px] overflow-hidden flex flex-col shadow-sm ${theme.card}`}
+          className={`w-full ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 min-h-[300px] xl:min-h-0 xl:h-full overflow-hidden flex flex-col shadow-sm ${theme.card}`}
           data-k117-planner-calendar-adaptive
           data-k108-planner-month-lazy
         >
-          {calendarHeader ? (
-            <div className="mb-1.5" data-k133b-calendar-supporting-nav>
-              {calendarHeader}
+          <div className="flex items-start justify-between gap-3 mb-1.5" data-k139-calendar-card-header>
+            <div className="min-w-0">
+              <h2 className="font-heading text-base font-bold">{t('calendar')}</h2>
+              {calendarHeader ? (
+                <div className="mt-0.5" data-k133b-calendar-supporting-nav>
+                  {calendarHeader}
+                </div>
+              ) : null}
             </div>
-          ) : null}
+            {onAddSchedule ? (
+              <button
+                type="button"
+                onClick={onAddSchedule}
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                data-k139-calendar-add-event
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                {t('k117NewEvent')}
+              </button>
+            ) : null}
+          </div>
           {!showMonthGrid ? monthSkeleton : (
             <MonthCalendarGrid
               month={month}
@@ -159,22 +173,10 @@ export function MonthCalendarView({
           )}
         </section>
 
-        <section className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm flex flex-col min-h-[220px] max-h-[300px] ${theme.card}`} data-k139-schedule-dday-list>
+        <section className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm flex flex-col min-h-[220px] xl:min-h-0 xl:h-full overflow-hidden ${theme.card}`} data-k139-schedule-dday-list>
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="font-heading text-base font-bold">{t('dday')}</h2>
-            {onAddDday ? (
-              <button
-                type="button"
-                onClick={onAddDday}
-                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold ${theme.input} ${theme.textMuted} hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
-                data-k139-schedule-dday-add
-              >
-                <Plus size={13} strokeWidth={2.25} />
-                {t('add')}
-              </button>
-            ) : (
-              <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('dday')}</span>
-            )}
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{t('dday')}</span>
           </div>
           {upcomingDdays.length > 0 ? (
             <ul className="flex flex-col gap-1.5 overflow-y-auto pr-1 min-h-0">
