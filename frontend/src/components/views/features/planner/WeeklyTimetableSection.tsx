@@ -202,18 +202,7 @@ export function WeeklyTimetableSection({
                 {expanded ? t('plannerWeeklyTimetableCollapse') : t('plannerWeeklyTimetableExpand')}
               </button>
             ) : null}
-            {sectionEmbedded ? (
-              <button
-                type="button"
-                onClick={() => openWeeklyModal()}
-                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold ${theme.input} ${theme.textMuted} hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
-                data-planner-weekly-timetable-add
-                data-k139-timetable-add-local
-              >
-                <Plus size={13} strokeWidth={2.25} />
-                {t('add')}
-              </button>
-            ) : (
+            {sectionEmbedded ? null : (
             <button
               type="button"
               onClick={() => openWeeklyModal()}

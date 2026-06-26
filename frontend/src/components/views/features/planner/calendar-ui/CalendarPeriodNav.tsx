@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import type { DateTime } from 'luxon';
 import type { Theme } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
@@ -13,6 +13,7 @@ export interface CalendarPeriodNavProps {
   periodLabel?: string;
   theme: Theme;
   onAnchorDateChange?: (dateKey: string) => void;
+  onAddSchedule?: () => void;
   compactTouch?: boolean;
 }
 
@@ -23,6 +24,7 @@ export function CalendarPeriodNav({
   periodLabel,
   theme,
   onAnchorDateChange,
+  onAddSchedule,
   compactTouch = false,
 }: CalendarPeriodNavProps) {
   const { t } = useTranslation();
@@ -84,14 +86,27 @@ export function CalendarPeriodNav({
         ) : null}
       </div>
 
-      {periodLabel ? (
-        <p
-          className={`text-sm font-semibold truncate text-right ${theme.textMuted}`}
-          data-planner-calendar-period-label
-        >
-          {periodLabel}
-        </p>
-      ) : null}
+      <div className="flex items-center gap-2 min-w-0 justify-end">
+        {periodLabel ? (
+          <p
+            className={`text-sm font-semibold truncate ${theme.textMuted}`}
+            data-planner-calendar-period-label
+          >
+            {periodLabel}
+          </p>
+        ) : null}
+        {onAddSchedule ? (
+          <button
+            type="button"
+            onClick={onAddSchedule}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold shrink-0 ${theme.input} ${theme.textMuted} hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+            data-k140-calendar-add-event
+          >
+            <Plus size={13} strokeWidth={2.25} />
+            {t('newSchedule')}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

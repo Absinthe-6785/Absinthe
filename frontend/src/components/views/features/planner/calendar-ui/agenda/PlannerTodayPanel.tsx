@@ -22,7 +22,6 @@ export interface PlannerTodayPanelProps {
   scheduleActions?: DayScheduleActions;
   routines?: readonly Routine[];
   routineActions?: DayRoutineActions;
-  onAddSchedule?: () => void;
 }
 
 function resolveTodayTimeline(
@@ -60,7 +59,6 @@ export function PlannerTodayPanel({
   scheduleActions,
   routines = [],
   routineActions,
-  onAddSchedule,
 }: PlannerTodayPanelProps) {
   const { t, lang } = useTranslation();
   const notes = useNotesStore(s => s.notes);
@@ -99,10 +97,7 @@ export function PlannerTodayPanel({
             <DayScheduleTimeline
               blocks={timeline.blocks}
               carryOverBlocks={timeline.carryOverBlocks}
-              scheduleActions={{
-                ...scheduleActions,
-                onAdd: onAddSchedule ?? scheduleActions?.onAdd,
-              }}
+              scheduleActions={scheduleActions}
             />
           </section>
 

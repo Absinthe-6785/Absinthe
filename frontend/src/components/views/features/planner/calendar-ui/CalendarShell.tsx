@@ -33,7 +33,6 @@ export interface CalendarShellProps {
   mutateStatic?: () => void;
   showToast?: (message: string, type?: 'success' | 'error') => void;
   onAddSchedule?: () => void;
-  onAddDday?: () => void;
   onEditDday?: (schedule: Schedule & { date: string }) => void;
   onDeleteDday?: (id: string) => void;
 }
@@ -59,7 +58,6 @@ export function CalendarShell({
   mutateStatic,
   showToast,
   onAddSchedule,
-  onAddDday,
   onEditDday,
   onDeleteDday,
 }: CalendarShellProps) {
@@ -120,8 +118,6 @@ export function CalendarShell({
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}
         showToast={showToast}
-        onAddSchedule={onAddSchedule}
-        onAddDday={onAddDday}
         onEditDday={onEditDday}
         onDeleteDday={onDeleteDday}
         calendarHeader={(
@@ -132,6 +128,7 @@ export function CalendarShell({
             periodLabel={periodLabel}
             theme={theme}
             onAnchorDateChange={onAnchorDateChange}
+            onAddSchedule={onAddSchedule}
           />
         )}
       />
