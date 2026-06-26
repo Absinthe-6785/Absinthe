@@ -18,6 +18,7 @@ import {
 } from '@/lib/persistenceCleanup';
 import {
   initNotesPersistence,
+  NOTES_DURABILITY_BACKUP_PREFIX,
   resetNotesPersistenceForTests,
 } from '@/lib/notePersistence';
 import { createLastSnapshot } from '@/lib/vaultSnapshotAuto';
@@ -107,6 +108,17 @@ export function seedUnindexedSnapshotChunk(
   storage.setItem(`${SNAPSHOT_CHUNK_PREFIX}${orphanId}:0:v1`, '{"orphan":true}');
 }
 
+function durabilityBackupBytes(storage: SnapshotStorageAdapter): number {
+  let bytes = 0;
+  for (let i = 0; i < storage.length; i += 1) {
+    const key = storage.key(i);
+    if (key?.startsWith(NOTES_DURABILITY_BACKUP_PREFIX)) {
+      bytes += storage.getItem(key)?.length ?? 0;
+    }
+  }
+  return bytes;
+}
+
 export async function measureK96DPersistenceRow(
   noteCount: number,
   storage: SnapshotStorageAdapter = localStorage,
@@ -132,6 +144,7 @@ export async function measureK96DPersistenceRow(
   const auditAfter = summarizeStorageAudit(auditLocalStorageKeys(storage));
   const after = await getPersistenceMetrics(storage);
   const snapshotStorageDelta = auditAfter.byCategory.snapshot - auditBefore.byCategory.snapshot;
+  const backupBytes = durabilityBackupBytes(storage);
 
   return {
     noteCount,
@@ -140,7 +153,7 @@ export async function measureK96DPersistenceRow(
     indexedDbRecordCount: after.indexedDbRecordCount,
     orphanCount: before.orphanKeys,
     legacyKeyCount: before.legacyKeys,
-    reclaimedBytes: Math.max(0, auditBefore.totalBytes - auditAfter.totalBytes + snapshotStorageDelta),
+    reclaimedBytes: Math.max(0, auditBefore.totalBytes - (auditAfter.totalBytes - backupBytes) + snapshotStorageDelta),
   };
 }
 

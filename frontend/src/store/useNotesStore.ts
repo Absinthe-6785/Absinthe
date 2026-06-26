@@ -42,6 +42,7 @@ import {
   createDefaultWelcomeNotes,
   mergeDbAndLocalNotes,
   getLocalOnlyNotes,
+  mergeNoteArrays,
   mergeFolderArrays,
   mergeNotesFromStorageJson,
   mergeFoldersFromStorageJson,
@@ -801,16 +802,23 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     initNotesStorage: async () => {
       const result = await initNotesPersistence();
+      const currentNotes = get().notes;
+      const notes = currentNotes.length > 0
+        ? mergeNoteArrays(result.notes, currentNotes)
+        : result.notes;
       const prevActive = get().activeNoteId;
-      const stillValid = result.notes.some(n => n.id === prevActive);
-      const nextActive = stillValid ? prevActive : loadActiveNoteId(result.notes);
+      const stillValid = notes.some(n => n.id === prevActive);
+      const nextActive = stillValid ? prevActive : loadActiveNoteId(notes);
       set({
-        notes: result.notes,
+        notes,
         activeNoteId: nextActive,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         syncError: result.fallbackError ?? get().syncError,
       });
-      rebuildKnowledgeIndex(result.notes);
+      if (notes.length !== result.notes.length || currentNotes.length > 0) {
+        persistNotes(notes);
+      }
+      rebuildKnowledgeIndex(notes);
       if (nextActive !== prevActive) saveActiveNoteId(nextActive);
     },
 
