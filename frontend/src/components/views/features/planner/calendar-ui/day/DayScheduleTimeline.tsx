@@ -44,7 +44,7 @@ export function DayScheduleTimeline({
       {empty ? (
         suppressEmpty ? null : <p className="text-[10px] lg:text-xs text-muted px-1">{t('scheduleSectionEmpty')}</p>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 max-h-[130px] overflow-y-auto pr-1" data-k139-today-schedule-scroll>
           {carryOverBlocks.map(block => (
             <div
               key={`carry-${block.id}`}

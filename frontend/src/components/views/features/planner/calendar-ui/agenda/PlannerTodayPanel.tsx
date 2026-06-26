@@ -22,6 +22,7 @@ export interface PlannerTodayPanelProps {
   scheduleActions?: DayScheduleActions;
   routines?: readonly Routine[];
   routineActions?: DayRoutineActions;
+  onAddSchedule?: () => void;
 }
 
 function resolveTodayTimeline(
@@ -59,6 +60,7 @@ export function PlannerTodayPanel({
   scheduleActions,
   routines = [],
   routineActions,
+  onAddSchedule,
 }: PlannerTodayPanelProps) {
   const { t, lang } = useTranslation();
   const notes = useNotesStore(s => s.notes);
@@ -76,14 +78,14 @@ export function PlannerTodayPanel({
       data-k105-planner-today
       data-k108-planner-today
     >
-      <div className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm ${theme.card}`}>
+      <div className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm h-full max-h-[430px] flex flex-col min-h-0 ${theme.card}`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="font-heading text-base font-bold">{t('plannerToday')}</h2>
           <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{todayLabel}</span>
         </div>
 
-        <div className="flex flex-col gap-3" data-k139-schedule-today-stack>
-          <div data-k117-schedule-section="routine">
+        <div className="flex flex-col gap-2.5 min-h-0 flex-1" data-k139-schedule-today-stack>
+          <div className="min-h-0" data-k117-schedule-section="routine">
             <DayRoutineSummary
               routines={routines}
               isRoutineException={Boolean(routines[0]?.is_exception_day)}
@@ -93,15 +95,18 @@ export function PlannerTodayPanel({
             />
           </div>
 
-          <section data-k105-planner-today-schedule>
+          <section className="min-h-0" data-k105-planner-today-schedule>
             <DayScheduleTimeline
               blocks={timeline.blocks}
               carryOverBlocks={timeline.carryOverBlocks}
-              scheduleActions={scheduleActions}
+              scheduleActions={{
+                ...scheduleActions,
+                onAdd: onAddSchedule ?? scheduleActions?.onAdd,
+              }}
             />
           </section>
 
-          <section data-k105-planner-todays-note>
+          <section className="shrink-0" data-k105-planner-todays-note>
             <p className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
               {t('k105TodaysNote')}
             </p>
