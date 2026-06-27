@@ -6,7 +6,13 @@ import { buildValidatedVaultBackupManifest } from '../../../../lib/vaultBackupEx
 import { downloadVaultBackup } from '../../../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../../../lib/vaultBackupZip';
 import { useNotesStore } from '../../../../store/useNotesStore';
+import { createLocalAttachmentBlobAdapter } from '../../../../lib/attachmentBlobIndexedDb';
+import { createLocalAttachmentMetadataRepository } from '../../../../lib/attachmentMetadataIndexedDb';
+import { attachLocalImageToNote } from '../../../../lib/localImageAttachments';
 import type { UseNoteViewActionsParams } from './types';
+
+const attachmentRepository = createLocalAttachmentMetadataRepository();
+const attachmentBlobAdapter = createLocalAttachmentBlobAdapter();
 
 export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
   const {
@@ -19,6 +25,7 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     setDocCopied,
     setIsDragOver,
     importNote,
+    updateNote,
   } = params;
 
   const exportNote = useCallback((note: Note) => {
@@ -84,18 +91,33 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     blockEditorRef.current.insertEmptyImageBlock();
   }, [viewMode, blockEditorRef]);
 
+  const attachImageFilesToActiveNote = useCallback((files: readonly File[]) => {
+    if (!activeNote || viewMode !== 'edit') return;
+    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    void (async () => {
+      let nextBody = activeNote.body;
+      for (const file of imageFiles) {
+        const result = await attachLocalImageToNote({
+          noteId: activeNote.id,
+          file,
+          currentBody: nextBody,
+          repository: attachmentRepository,
+          blobAdapter: attachmentBlobAdapter,
+        });
+        nextBody = result.body;
+      }
+      updateNote(activeNote.id, { body: nextBody });
+    })();
+  }, [activeNote, updateNote, viewMode]);
+
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
     if (!activeNote || viewMode !== 'edit') return;
     if ((e.target as HTMLElement).closest('.be-image-block')) return;
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = ev => insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), ev.target?.result as string);
-      reader.readAsDataURL(file);
-    });
-  }, [activeNote, viewMode, insertImageAtCursor, setIsDragOver]);
+    attachImageFilesToActiveNote(Array.from(e.dataTransfer.files));
+  }, [activeNote, viewMode, attachImageFilesToActiveNote, setIsDragOver]);
 
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -126,6 +148,7 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     handleCopyDocument,
     insertImageAtCursor,
     insertEmptyImageBlockAtCursor,
+    attachImageFilesToActiveNote,
     handleEditorDrop,
     handleImport,
   };

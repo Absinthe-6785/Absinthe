@@ -74,6 +74,7 @@ export function useNoteViewActions(params: UseNoteViewActionsParams) {
     addFolder: crud.addFolder,
     insertImageAtCursor: importExport.insertImageAtCursor,
     insertEmptyImageBlockAtCursor: importExport.insertEmptyImageBlockAtCursor,
+    attachImageFilesToActiveNote: importExport.attachImageFilesToActiveNote,
     handleEditorDrop: importExport.handleEditorDrop,
     handleImport: importExport.handleImport,
     navigateToWiki: keyboard.navigateToWiki,

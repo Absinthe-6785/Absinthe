@@ -48,6 +48,7 @@ import {
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
 import { FindInNotePanel } from './FindInNotePanel';
+import { NoteImageAttachments } from './NoteImageAttachments';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
@@ -231,6 +232,7 @@ export interface NoteViewEditorHandlers {
   setSearchMatchIdx: React.Dispatch<React.SetStateAction<number>>;
   setDocumentSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
   insertEmptyImageBlockAtCursor: () => void;
+  attachImageFilesToActiveNote: (files: readonly File[]) => void;
   setShowAppearance: React.Dispatch<React.SetStateAction<boolean>>;
   setShowShortcuts?: React.Dispatch<React.SetStateAction<boolean>>;
   onOpenSettings?: () => void;
@@ -279,7 +281,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded, openContextPanel,
     setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
     handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx, setDocumentSearchOpen,
-    insertEmptyImageBlockAtCursor, setShowAppearance, setShowShortcuts, onOpenSettings, updateSetting, setIsDragOver,
+    insertEmptyImageBlockAtCursor, attachImageFilesToActiveNote, setShowAppearance, setShowShortcuts, onOpenSettings, updateSetting, setIsDragOver,
     insertImageAtCursor, handleEditorDrop, handleReadingModeClick, handleActiveBodyChange,
     navigateToWiki, canBackNote, canForwardNote, goBackNote, goForwardNote, openNoteById,
     onOpenTodaysNote, onImportVault,
@@ -875,12 +877,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   e.preventDefault();
                   const file = imageItem.getAsFile();
                   if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = ev => {
-                    const src = ev.target?.result as string;
-                    if (src) insertImageAtCursor(file.name.replace(/\.[^.]+$/, ''), src);
-                  };
-                  reader.readAsDataURL(file);
+                  attachImageFilesToActiveNote([file]);
                 }}
                 onDrop={handleEditorDrop}>
                 {isDragOver && (
@@ -930,6 +927,12 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                           {t('nvReadingModeHint')}
                         </div>
                       )}
+                      <NoteImageAttachments
+                        note={activeNote}
+                        colors={c}
+                        readOnly={viewMode === 'reading'}
+                        onUpdateBody={body => noteUpdate(activeNote.id, { body })}
+                      />
                       <NoteBlockEditor
                         ref={blockEditorRef}
                         key={activeNote.id}
