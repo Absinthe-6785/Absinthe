@@ -10,6 +10,7 @@ import {
   type RemoteBlobUploadInput,
   type RemoteBlobUploadResult,
   type RemoteBlobUploadVerification,
+  type RemoteBlobDownloadResult,
   type SanitizedRemoteBlobProviderError,
 } from './remoteBlobProvider';
 
@@ -162,7 +163,7 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
 
   readonly capabilities: RemoteBlobProviderCapabilities = {
     supportsUpload: true,
-    supportsDownload: false,
+    supportsDownload: true,
     supportsDelete: false,
     supportsResumableUpload: true,
     supportsAppPrivateStorage: true,
@@ -237,8 +238,45 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
     return null;
   }
 
-  async downloadBlob(_input: RemoteBlobDownloadInput): Promise<Blob> {
-    throw new RemoteBlobProviderUnavailableError('Google Drive download is not implemented in K-161.');
+  async downloadBlob(input: RemoteBlobDownloadInput): Promise<RemoteBlobDownloadResult> {
+    try {
+      if (!input.remoteFileId) {
+        throw sanitizeUploadError(new Error('Google Drive download requires a remote file id.'), 'invalid_response');
+      }
+
+      const accessToken = await this.getAccessToken();
+      const response = await this.fetcher(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(input.remoteFileId)}?alt=media`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw sanitizeUploadError(new Error(`Google Drive download failed with status ${response.status}.`), 'download_failed');
+      }
+
+      const blob = await response.blob();
+      const downloadedAt = this.now().toISOString();
+      return {
+        blob,
+        providerType: this.providerType,
+        remoteProvider: this.providerType,
+        remoteFileId: input.remoteFileId,
+        remoteSize: blob.size,
+        remoteMimeType: blob.type || input.expectedMimeType,
+        downloadedAt,
+      };
+    } catch (error) {
+      if (error instanceof GoogleDriveBlobUploadError) {
+        throw error;
+      }
+
+      throw sanitizeUploadError(error, 'download_failed');
+    }
   }
 
   private async startResumableSession(

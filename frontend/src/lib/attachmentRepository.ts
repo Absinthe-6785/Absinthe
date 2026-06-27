@@ -41,10 +41,12 @@ export interface AttachmentMetadata {
     sizeVerified: boolean;
     checksumVerified: boolean;
     checksumAlgorithm?: string;
+    sizeOnlyVerified?: boolean;
     warnings?: string[];
   };
   lastRemoteSyncAttemptAt?: string;
   remoteSyncAttemptCount?: number;
+  lastRemoteRecoveryAt?: string;
   title?: string;
   alt?: string;
   caption?: string;

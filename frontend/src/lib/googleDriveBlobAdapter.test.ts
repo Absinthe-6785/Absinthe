@@ -98,7 +98,7 @@ describe('GoogleDriveBlobAdapter', () => {
     expect(adapter.providerType).toBe('googleDrive');
     expect(adapter.capabilities).toMatchObject({
       supportsUpload: true,
-      supportsDownload: false,
+      supportsDownload: true,
       supportsDelete: false,
       supportsResumableUpload: true,
       supportsAppPrivateStorage: true,
@@ -335,15 +335,69 @@ describe('GoogleDriveBlobAdapter', () => {
     expect(adapterSource).not.toContain('useNotesStore');
   });
 
-  it('does not implement remote delete or Drive download in K-161', async () => {
+  it('downloads Drive file media through injected access token without exposing token', async () => {
+    const { fetcher, calls } = createMockFetch([
+      new Response(new Blob(['hello world'], { type: 'text/plain' }), {
+        status: 200,
+      }),
+    ]);
+    const adapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher,
+      now: () => new Date('2026-06-27T00:02:00.000Z'),
+    });
+
+    const result = await adapter.downloadBlob({
+      attachmentId: 'att-1',
+      remoteFileId: 'drive-file-1',
+      expectedSize: 11,
+      expectedMimeType: 'text/plain',
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://www.googleapis.com/drive/v3/files/drive-file-1?alt=media');
+    expect(calls[0].init?.method).toBe('GET');
+    expect(headersFromInit(calls[0].init).get('Authorization')).toBe('Bearer access-token-secret');
+    expect(result).toMatchObject({
+      providerType: 'googleDrive',
+      remoteProvider: 'googleDrive',
+      remoteFileId: 'drive-file-1',
+      remoteSize: 11,
+      remoteMimeType: 'text/plain',
+      downloadedAt: '2026-06-27T00:02:00.000Z',
+    });
+    expect(JSON.stringify(result)).not.toContain('access-token-secret');
+  });
+
+  it('sanitizes Drive download failures without exposing raw response bodies', async () => {
+    const { fetcher } = createMockFetch([
+      new Response('raw body access-token-secret session-secret data:image/png;base64,AAA111', {
+        status: 503,
+      }),
+    ]);
+    const adapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher,
+    });
+
+    await adapter.downloadBlob({ remoteFileId: 'drive-file-1' }).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      const serialized = JSON.stringify(error);
+      expect(String((error as GoogleDriveBlobUploadError).message)).toContain('status 503');
+      expect(serialized).not.toContain('access-token-secret');
+      expect(serialized).not.toContain('session-secret');
+      expect(serialized).not.toContain('AAA111');
+    });
+  });
+
+  it('does not implement remote delete in K-163', async () => {
     const adapter = new GoogleDriveBlobAdapter({
       accessTokenProvider: tokenProvider(),
       fetcher: vi.fn() as unknown as typeof fetch,
     });
 
     await expect(adapter.getBlobInfo({ remoteFileId: 'drive-file-1' })).resolves.toBeNull();
-    await expect(adapter.downloadBlob({ remoteFileId: 'drive-file-1' })).rejects.toThrow('download is not implemented');
     expect(adapter.capabilities.supportsDelete).toBe(false);
-    expect(adapter.capabilities.supportsDownload).toBe(false);
+    expect('deleteBlob' in adapter).toBe(false);
   });
 });
