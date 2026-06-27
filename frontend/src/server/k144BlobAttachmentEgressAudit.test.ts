@@ -30,11 +30,7 @@ describe('K-144 blob / attachment egress audit', () => {
   it('documents current local-only image data entry points without remote storage fetches', () => {
     const audit = runK144BlobAttachmentEgressAudit();
 
-    expect(audit.userGeneratedBlobEntryPoints).toEqual([
-      'ImageBlock file/drop/paste stores local data URLs',
-      'Note editor drag-drop image import stores local data URLs',
-      'Note editor paste image import stores local data URLs',
-    ]);
+    expect(audit.userGeneratedBlobEntryPoints).toEqual([]);
   });
 
   it('keeps graph and discovery away from raw blob hydration APIs', () => {

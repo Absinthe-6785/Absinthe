@@ -23,10 +23,6 @@ describe('K-145 attachment repository / blob adapter design audit', () => {
     const audit = runK145AttachmentRepositoryAudit();
 
     expect(audit.noRemoteObjectStoreCalls).toBe(true);
-    expect(audit.currentLocalBlobEntryPoints).toEqual([
-      'ImageBlock file/drop/paste stores local data URLs',
-      'Note editor drag-drop image import stores local data URLs',
-      'Note editor paste image import stores local data URLs',
-    ]);
+    expect(audit.currentLocalBlobEntryPoints).toEqual([]);
   });
 });

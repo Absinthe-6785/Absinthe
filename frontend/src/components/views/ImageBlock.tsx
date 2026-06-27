@@ -48,17 +48,11 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
   const imgStyle = (width?: number) => imageDisplayStyle(c, width);
 
   const applyFile = useCallback((f: File) => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const src = ev.target?.result as string;
-      onChange({ src, alt: block.alt || f.name.replace(/\.[^.]+$/, '') });
-      setUrlError('');
-      setShowUrl(false);
-      setUrlDraft('');
-      setMobileMenuOpen(false);
-    };
-    reader.readAsDataURL(f);
-  }, [block.alt, onChange]);
+    if (!f.type.startsWith('image/')) return;
+    setUrlError('Use Attach image to store local images.');
+    setShowUrl(true);
+    setMobileMenuOpen(false);
+  }, []);
 
   const applyUrl = useCallback((raw: string) => {
     const url = raw.trim();
