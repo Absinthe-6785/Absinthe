@@ -4,6 +4,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
+import {
+  attachmentCleanupCandidateId,
+  createAttachmentCleanupConfirmationToken,
+  hashAttachmentCleanupReviewReport,
+  type AttachmentCleanupExecutorInput,
+  type AttachmentCleanupExecutorReport,
+} from '../../../lib/attachmentCleanupExecutor';
 import type { EmbeddedAttachmentAuditReport } from '../../../lib/embeddedAttachmentAudit';
 import type { EmbeddedAttachmentMigrationReport } from '../../../lib/embeddedAttachmentMigration';
 import type { NoteChromeColors } from '../noteEditorTheme';
@@ -213,6 +220,23 @@ function cleanupReviewReport(overrides: Partial<AttachmentCleanupReviewReport> =
         safeActionRecommendation: 'Review the failed migration report before any explicit cleanup.',
       },
       {
+        type: 'restoredMigrationArtifact',
+        severity: 'info',
+        attachmentId: 'att-restored',
+        localBlobKey: 'local-attachment/att-restored',
+        migrationId: 'migration-1',
+        reason: 'Restored migration resource is retained for traceability.',
+        safeActionRecommendation: 'Keep. Restored artifacts are not cleanup candidates.',
+      },
+      {
+        type: 'duplicateCandidate',
+        severity: 'warning',
+        attachmentId: 'att-duplicate',
+        localBlobKey: 'local-attachment/att-duplicate',
+        reason: 'Multiple review entries point to the same local resource.',
+        safeActionRecommendation: 'Resolve manually before cleanup.',
+      },
+      {
         type: 'backupRecord',
         severity: 'info',
         backupKey: 'backup-key',
@@ -226,12 +250,44 @@ function cleanupReviewReport(overrides: Partial<AttachmentCleanupReviewReport> =
   };
 }
 
+function cleanupExecutorReport(overrides: Partial<AttachmentCleanupExecutorReport> = {}): AttachmentCleanupExecutorReport {
+  return {
+    cleanupId: 'cleanup-1',
+    sourceReviewReportId: 'attachment-cleanup-review-1',
+    startedAt: '2026-06-27T00:00:02.000Z',
+    completedAt: '2026-06-27T00:00:03.000Z',
+    dryRun: false,
+    confirmationVerified: true,
+    requestedCandidateCount: 1,
+    eligibleCandidateCount: 1,
+    deletedBlobCount: 0,
+    deletedAttachmentMetadataCount: 1,
+    skippedCandidateCount: 0,
+    failedCandidateCount: 0,
+    blockedCandidateCount: 0,
+    bytesRecoveredEstimate: 1024,
+    results: [{
+      candidateId: 'unreferencedAttachmentMetadata|att-orphan|local-attachment/att-orphan||||1',
+      candidateType: 'unreferencedAttachmentMetadata',
+      status: 'deleted',
+      reason: 'Deleted revalidated unreferenced local attachment metadata.',
+      attachmentId: 'att-orphan',
+      localBlobKey: 'local-attachment/att-orphan',
+      estimatedBytes: 1024,
+    }],
+    warnings: [],
+    errors: [],
+    ...overrides,
+  };
+}
+
 function panelElement(input: {
   notes?: readonly Note[];
   updateNote?: (id: string, patch: Partial<Note>) => void;
   auditFn?: () => EmbeddedAttachmentAuditReport;
   migrateFn?: () => Promise<EmbeddedAttachmentMigrationReport>;
   cleanupReviewFn?: () => Promise<AttachmentCleanupReviewReport>;
+  cleanupExecutorFn?: (input: AttachmentCleanupExecutorInput) => Promise<AttachmentCleanupExecutorReport>;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -240,6 +296,7 @@ function panelElement(input: {
     auditFn: input.auditFn ?? vi.fn(() => reportWithCandidate()),
     migrateFn: input.migrateFn ?? vi.fn(async () => migrationReport()),
     cleanupReviewFn: input.cleanupReviewFn ?? vi.fn(async () => cleanupReviewReport()),
+    cleanupExecutorFn: input.cleanupExecutorFn ?? vi.fn(async () => cleanupExecutorReport()),
   });
 }
 
@@ -269,7 +326,15 @@ function buttonByText(host: HTMLElement, text: string): HTMLButtonElement {
 
 function click(element: HTMLElement) {
   act(() => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    element.click();
+  });
+}
+
+function changeInput(input: HTMLInputElement, value: string) {
+  act(() => {
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    valueSetter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 
@@ -283,18 +348,20 @@ function renderPanel(options: { notes?: readonly Note[] } = {}) {
   const auditFn = vi.fn(() => reportWithCandidate());
   const migrateFn = vi.fn(async () => migrationReport());
   const cleanupReviewFn = vi.fn(async () => cleanupReviewReport());
+  const cleanupExecutorFn = vi.fn(async () => cleanupExecutorReport());
   const updateNote = vi.fn();
-  const mounted = render(panelElement({ notes: options.notes, updateNote, auditFn, migrateFn, cleanupReviewFn }));
-  return { auditFn, migrateFn, cleanupReviewFn, updateNote, ...mounted };
+  const mounted = render(panelElement({ notes: options.notes, updateNote, auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn }));
+  return { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, updateNote, ...mounted };
 }
 
 describe('EmbeddedAttachmentMigrationReviewPanel', () => {
   it('does not scan or migrate on mount', () => {
-    const { auditFn, migrateFn, cleanupReviewFn, root, host } = renderPanel();
+    const { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, root, host } = renderPanel();
 
     expect(auditFn).not.toHaveBeenCalled();
     expect(migrateFn).not.toHaveBeenCalled();
     expect(cleanupReviewFn).not.toHaveBeenCalled();
+    expect(cleanupExecutorFn).not.toHaveBeenCalled();
     cleanup(root, host);
   });
 
@@ -440,7 +507,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
-  it('shows cleanup review warnings, preserved backups, and candidate recommendations without delete actions', async () => {
+  it('shows cleanup review warnings, preserved backups, and only eligible selectable cleanup candidates', async () => {
     const cleanupReviewFn = vi.fn(async () => cleanupReviewReport());
     const { root, host } = render(panelElement({ cleanupReviewFn }));
 
@@ -455,10 +522,126 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Missing blob');
     expect(host.textContent).toContain('Missing metadata');
     expect(host.textContent).toContain('Review manually before any explicit cleanup.');
+    expect(host.textContent).toContain('In use by note content.');
+    expect(host.textContent).toContain('Backup records are preserved.');
+    expect(host.textContent).toContain('Integrity warning; manual restore or repair may be needed.');
+    const checkboxes = Array.from(host.querySelectorAll('input[type="checkbox"]'));
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes.every(input => input instanceof HTMLInputElement && !input.checked)).toBe(true);
     const buttonText = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim()).join(' ');
     expect(buttonText).not.toContain('Delete');
     expect(buttonText).not.toContain('Remove');
     expect(buttonText).not.toContain('Purge');
+    expect(buttonByText(host, 'Clean selected local items').disabled).toBe(true);
+    cleanup(root, host);
+  });
+
+  it('requires candidate selection and report-bound confirmation before executing cleanup', async () => {
+    const review = cleanupReviewReport();
+    const candidateId = attachmentCleanupCandidateId(review.candidates[1], 1);
+    const cleanupReviewFn = vi.fn(async () => review);
+    const cleanupExecutorFn = vi.fn(async () => cleanupExecutorReport({
+      results: [{
+        ...cleanupExecutorReport().results[0],
+        candidateId,
+      }],
+    }));
+    const { root, host } = render(panelElement({ cleanupReviewFn, cleanupExecutorFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Run orphan review'));
+    await flushAsync();
+
+    const runButton = buttonByText(host, 'Clean selected local items');
+    expect(runButton.disabled).toBe(true);
+    const checkbox = host.querySelector('input[type="checkbox"]');
+    if (!(checkbox instanceof HTMLInputElement)) throw new Error('cleanup checkbox missing');
+    click(checkbox);
+    expect(runButton.disabled).toBe(true);
+
+    const input = host.querySelector('input[aria-label="Cleanup confirmation phrase"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('confirmation input missing');
+    changeInput(input, 'wrong phrase');
+    expect(runButton.disabled).toBe(true);
+    changeInput(input, `CLEANUP ${hashAttachmentCleanupReviewReport(review).slice(0, 12)}`);
+    expect(runButton.disabled).toBe(false);
+
+    click(runButton);
+    await flushAsync();
+
+    expect(cleanupExecutorFn).toHaveBeenCalledTimes(1);
+    expect(cleanupExecutorFn.mock.calls[0]?.[0]).toMatchObject({
+      reviewReport: review,
+      confirmationToken: createAttachmentCleanupConfirmationToken(review),
+      selectedCandidateIds: [candidateId],
+    });
+    expect(host.textContent).toContain('Cleanup result');
+    expect(host.textContent).toContain('Confirmation verified: yes');
+    expect(host.textContent).toContain('Re-run cleanup review after cleanup');
+    cleanup(root, host);
+  });
+
+  it('does not execute cleanup while running and reports skipped, blocked, and failed results', async () => {
+    let resolveCleanup: (report: AttachmentCleanupExecutorReport) => void = () => {};
+    const review = cleanupReviewReport();
+    const cleanupReviewFn = vi.fn(async () => review);
+    const cleanupExecutorFn = vi.fn(() => new Promise<AttachmentCleanupExecutorReport>(resolve => {
+      resolveCleanup = resolve;
+    }));
+    const { root, host } = render(panelElement({ cleanupReviewFn, cleanupExecutorFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Run orphan review'));
+    await flushAsync();
+
+    const checkbox = host.querySelector('input[type="checkbox"]');
+    if (!(checkbox instanceof HTMLInputElement)) throw new Error('cleanup checkbox missing');
+    click(checkbox);
+    const input = host.querySelector('input[aria-label="Cleanup confirmation phrase"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('confirmation input missing');
+    changeInput(input, `CLEANUP ${hashAttachmentCleanupReviewReport(review).slice(0, 12)}`);
+
+    click(buttonByText(host, 'Clean selected local items'));
+    click(buttonByText(host, 'Cleaning selected...'));
+    expect(cleanupExecutorFn).toHaveBeenCalledTimes(1);
+    resolveCleanup(cleanupExecutorReport({
+      deletedAttachmentMetadataCount: 0,
+      skippedCandidateCount: 1,
+      blockedCandidateCount: 1,
+      failedCandidateCount: 1,
+      bytesRecoveredEstimate: 0,
+      results: [
+        {
+          candidateId: 'candidate-skipped',
+          candidateType: 'unreferencedBlob',
+          status: 'skipped',
+          reason: 'Candidate is stale or no longer revalidates as unreferenced.',
+          localBlobKey: 'local-attachment/stale',
+        },
+        {
+          candidateId: 'candidate-blocked',
+          candidateType: 'unreferencedAttachmentMetadata',
+          status: 'blocked',
+          reason: 'Attachment metadata is not local-only; explicit sync-aware cleanup is required.',
+          attachmentId: 'att-remote',
+        },
+        {
+          candidateId: 'candidate-failed',
+          candidateType: 'unreferencedBlob',
+          status: 'failed',
+          reason: 'failed data:image/png;base64,[omitted]',
+          localBlobKey: 'local-attachment/fail',
+        },
+      ],
+    }));
+    await flushAsync();
+
+    expect(host.textContent).toContain('Skipped: 1');
+    expect(host.textContent).toContain('Blocked: 1');
+    expect(host.textContent).toContain('Failed: 1');
+    expect(host.textContent).toContain('Candidate is stale or no longer revalidates as unreferenced.');
+    expect(host.textContent).toContain('Attachment metadata is not local-only');
+    expect(host.textContent).not.toContain(embeddedPayload);
     cleanup(root, host);
   });
 
