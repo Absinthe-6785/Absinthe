@@ -6,13 +6,19 @@ import type {
 } from '../../../lib/embeddedAttachmentAudit';
 import { auditEmbeddedAttachments } from '../../../lib/embeddedAttachmentAudit';
 import {
+  buildAttachmentCleanupReview,
+  type AttachmentCleanupReviewReport,
+} from '../../../lib/attachmentCleanupReview';
+import {
   migrateEmbeddedDataUrlsToAttachments,
   type EmbeddedAttachmentMigrationReport,
 } from '../../../lib/embeddedAttachmentMigration';
+import { createLocalEmbeddedAttachmentMigrationBackupReader } from '../../../lib/embeddedAttachmentMigrationRestore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
+type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -20,6 +26,7 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   updateNote: (id: string, patch: Partial<Note>) => void;
   auditFn?: (notes: readonly EmbeddedAttachmentAuditNoteInput[]) => EmbeddedAttachmentAuditReport;
   migrateFn?: typeof migrateEmbeddedDataUrlsToAttachments;
+  cleanupReviewFn?: typeof buildAttachmentCleanupReview;
 }
 
 function formatBytes(bytes: number): string {
@@ -39,24 +46,78 @@ function noteTitle(note: Note | undefined, id: string): string {
   return title || id;
 }
 
+function shortValue(value: string | undefined): string {
+  if (!value) return '';
+  return value.length <= 28 ? value : `${value.slice(0, 12)}...${value.slice(-10)}`;
+}
+
+type CleanupReviewNumericKey = {
+  [Key in keyof AttachmentCleanupReviewReport]: AttachmentCleanupReviewReport[Key] extends number ? Key : never
+}[keyof AttachmentCleanupReviewReport];
+
+const cleanupSummaryRows: Array<[string, CleanupReviewNumericKey]> = [
+  ['Notes scanned', 'notesScanned'],
+  ['Attachments scanned', 'attachmentsScanned'],
+  ['Blobs scanned', 'blobsScanned'],
+  ['Backups scanned', 'backupsScanned'],
+  ['Referenced attachments', 'referencedAttachmentCount'],
+  ['Unreferenced metadata', 'unreferencedAttachmentMetadataCount'],
+  ['Unreferenced blobs', 'unreferencedBlobCount'],
+  ['Partial migration artifacts', 'partialMigrationArtifactCount'],
+  ['Restored migration artifacts', 'restoredMigrationArtifactCount'],
+  ['Missing blobs', 'missingBlobCount'],
+  ['Missing metadata', 'missingMetadataCount'],
+  ['Duplicate candidates', 'duplicateCandidateCount'],
+  ['Backup records', 'backupRecordCount'],
+];
+
+const cleanupTypeLabels: Record<string, string> = {
+  referencedAttachment: 'Referenced attachments',
+  unreferencedAttachmentMetadata: 'Unreferenced attachment metadata',
+  unreferencedBlob: 'Unreferenced blobs',
+  partialMigrationArtifact: 'Partial migration artifacts',
+  restoredMigrationArtifact: 'Restored migration artifacts',
+  backupRecord: 'Backup records',
+  missingBlob: 'Missing blob',
+  missingMetadata: 'Missing metadata',
+  duplicateCandidate: 'Duplicate candidates',
+};
+
+const cleanupStatusLabels: Record<string, string> = {
+  referencedAttachment: 'in use',
+  unreferencedAttachmentMetadata: 'review candidate',
+  unreferencedBlob: 'review candidate',
+  partialMigrationArtifact: 'warning',
+  restoredMigrationArtifact: 'review candidate',
+  backupRecord: 'preserved',
+  missingBlob: 'data integrity warning',
+  missingMetadata: 'data integrity warning',
+  duplicateCandidate: 'review required',
+};
+
 export function EmbeddedAttachmentMigrationReviewPanel({
   notes,
   colors: c,
   updateNote,
   auditFn = auditEmbeddedAttachments,
   migrateFn = migrateEmbeddedDataUrlsToAttachments,
+  cleanupReviewFn = buildAttachmentCleanupReview,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
+  const [cleanupStatus, setCleanupStatus] = useState<CleanupReviewState>('idle');
   const [auditReport, setAuditReport] = useState<EmbeddedAttachmentAuditReport | null>(null);
   const [migrationReport, setMigrationReport] = useState<EmbeddedAttachmentMigrationReport | null>(null);
+  const [cleanupReport, setCleanupReport] = useState<AttachmentCleanupReviewReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const activeNotes = useMemo(() => notes.filter(note => !note.deletedAt), [notes]);
   const notesById = useMemo(() => new Map(notes.map(note => [note.id, note])), [notes]);
   const hasCandidates = (auditReport?.summary.totalEmbeddedPayloads ?? 0) > 0;
   const busy = status === 'scanning' || status === 'migrating';
+  const cleanupBusy = cleanupStatus === 'reviewing';
   const canMigrate = Boolean(auditReport && hasCandidates && !busy);
 
   const scan = async () => {
@@ -77,6 +138,29 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     } catch (err) {
       setError(safeError(err));
       setStatus('error');
+    }
+  };
+
+  const reviewCleanup = async () => {
+    if (cleanupBusy) return;
+    setCleanupStatus('reviewing');
+    setCleanupError(null);
+    try {
+      const report = await cleanupReviewFn({
+        notes: activeNotes.map(note => ({
+          id: note.id,
+          title: note.title,
+          body: note.body,
+          updatedAt: String(note.updatedAt),
+        })),
+        backupReader: createLocalEmbeddedAttachmentMigrationBackupReader(),
+        migrationReports: migrationReport ? [migrationReport] : [],
+      });
+      setCleanupReport(report);
+      setCleanupStatus('complete');
+    } catch (err) {
+      setCleanupError(safeError(err));
+      setCleanupStatus('error');
     }
   };
 
@@ -275,8 +359,91 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             </div>
           ) : null}
 
+          <div data-attachment-cleanup-review-section style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 9, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800 }}>Cleanup review</div>
+              <p style={{ margin: '3px 0 0', fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
+                This review only identifies possible cleanup candidates. Nothing is deleted automatically.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btbtn"
+                onClick={reviewCleanup}
+                disabled={cleanupBusy}
+                style={{ padding: '6px 9px', fontSize: 11, fontWeight: 700 }}
+              >
+                {cleanupBusy ? 'Reviewing...' : cleanupReport ? 'Re-run orphan review' : 'Run orphan review'}
+              </button>
+              <span style={{ fontSize: 10, color: c.textFaint }}>Review required before any future cleanup.</span>
+            </div>
+
+            {cleanupReport ? (
+              <div data-attachment-cleanup-review-report style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {cleanupSummaryRows.map(([label, key]) => (
+                    <div key={label} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                      <div style={{ fontSize: 9.5, color: c.textFaint }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>{cleanupReport[key]}</div>
+                    </div>
+                  ))}
+                  <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                    <div style={{ fontSize: 9.5, color: c.textFaint }}>Estimated recoverable</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{formatBytes(cleanupReport.estimatedRecoverableBytes)}</div>
+                  </div>
+                </div>
+
+                {cleanupReport.warnings.map((warning, index) => (
+                  <div key={`${warning}-${index}`} style={{ display: 'flex', gap: 6, color: c.textMuted, fontSize: 10.5, lineHeight: 1.45 }}>
+                    <AlertTriangle size={13} />
+                    <span>{warning}</span>
+                  </div>
+                ))}
+                {cleanupReport.errors.map((failure, index) => (
+                  <div key={`${failure}-${index}`} style={{ fontSize: 10.5, color: c.danger }}>{failure}</div>
+                ))}
+                {cleanupReport.backupRecordCount > 0 ? (
+                  <div style={{ fontSize: 10.5, color: c.textMuted }}>
+                    Migration backups are preserved. Backup deletion is not part of this review.
+                  </div>
+                ) : null}
+                {cleanupReport.candidates.length === 0 ? (
+                  <div style={{ fontSize: 10.5, color: c.textMuted }}>No cleanup candidates found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {cleanupReport.candidates.slice(0, 10).map((candidate, index) => (
+                      <div key={`${candidate.type}-${candidate.attachmentId ?? candidate.localBlobKey ?? candidate.backupKey ?? index}`} style={{ border: `1px solid ${candidate.severity === 'danger' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 800 }}>{cleanupTypeLabels[candidate.type] ?? candidate.type}</span>
+                          <span style={{ fontSize: 9.5, color: candidate.severity === 'warning' ? c.danger : c.textFaint }}>{cleanupStatusLabels[candidate.type] ?? candidate.severity}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
+                          {candidate.noteId ? <span>note {shortValue(candidate.noteId)} </span> : null}
+                          {candidate.attachmentId ? <span>attachment {shortValue(candidate.attachmentId)} </span> : null}
+                          {candidate.localBlobKey ? <span>blob {shortValue(candidate.localBlobKey)} </span> : null}
+                          {candidate.backupKey ? <span>backup {shortValue(candidate.backupKey)} </span> : null}
+                        </div>
+                        <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>{candidate.reason}</div>
+                        <div style={{ fontSize: 9.5, color: c.textFaint, marginTop: 3, lineHeight: 1.45 }}>{candidate.safeActionRecommendation}</div>
+                      </div>
+                    ))}
+                    {cleanupReport.candidates.length > 10 ? (
+                      <div style={{ fontSize: 10, color: c.textFaint }}>
+                        {cleanupReport.candidates.length - 10} more candidates hidden in this compact review.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
           {error ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{error}</div>
+          ) : null}
+          {cleanupError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{cleanupError}</div>
           ) : null}
         </div>
       ) : null}
