@@ -1,9 +1,21 @@
 import { containsRawBlobData } from './blobPayloadBoundary';
+import type { RemoteBlobProviderType } from './remoteBlobProvider';
 
 export const ATTACHMENT_REFERENCE_SCHEME = 'attachment';
 export const ATTACHMENT_REFERENCE_PREFIX = `${ATTACHMENT_REFERENCE_SCHEME}://`;
 
 export type AttachmentSyncStatus = 'local' | 'dirty' | 'synced' | 'deleted' | 'conflict' | 'failed';
+export type AttachmentRemoteSyncStatus =
+  | 'not_configured'
+  | 'local_only'
+  | 'pending_upload'
+  | 'uploading'
+  | 'synced'
+  | 'failed'
+  | 'paused_offline'
+  | 'missing_local'
+  | 'recoverable_remote'
+  | 'conflict';
 export type AttachmentSource = 'local' | 'remote';
 export type AttachmentTimestamp = string;
 
@@ -16,6 +28,15 @@ export interface AttachmentMetadata {
   checksum?: string;
   localBlobKey?: string;
   remoteBlobKey?: string;
+  remoteProvider?: RemoteBlobProviderType;
+  remoteFileId?: string;
+  remoteChecksum?: string;
+  remoteSize?: number;
+  remoteMimeType?: string;
+  remoteSyncedAt?: string;
+  remoteUpdatedAt?: string;
+  remoteError?: string;
+  remoteSyncStatus?: AttachmentRemoteSyncStatus;
   title?: string;
   alt?: string;
   caption?: string;

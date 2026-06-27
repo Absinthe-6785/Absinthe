@@ -122,6 +122,37 @@ describe('attachment metadata IndexedDB repository', () => {
     })).toThrow('Attachment metadata cannot contain raw blob data');
   });
 
+  it('persists optional remote metadata fields without requiring them for local attachments', async () => {
+    const repo = createLocalAttachmentMetadataRepository();
+    const remoteAttachment = sampleAttachment('att-remote');
+    await repo.putAttachment({
+      ...remoteAttachment,
+      remoteProvider: 'googleDrive',
+      remoteBlobKey: 'drive/appDataFolder/att-remote',
+      remoteFileId: 'drive-file-1',
+      remoteChecksum: 'sha256:remote',
+      remoteSize: 2048,
+      remoteMimeType: 'application/pdf',
+      remoteSyncedAt: '2026-01-03T00:00:00.000Z',
+      remoteUpdatedAt: '2026-01-03T00:00:00.000Z',
+      remoteSyncStatus: 'synced',
+    });
+    await repo.putAttachment(sampleAttachment('att-local'));
+
+    await expect(repo.getAttachment('att-remote')).resolves.toMatchObject({
+      id: 'att-remote',
+      localBlobKey: 'local/att-remote',
+      remoteProvider: 'googleDrive',
+      remoteBlobKey: 'drive/appDataFolder/att-remote',
+      remoteFileId: 'drive-file-1',
+      remoteSyncStatus: 'synced',
+    });
+    const local = await repo.getAttachment('att-local');
+    expect(local).toMatchObject({ id: 'att-local' });
+    expect(local).not.toHaveProperty('remoteProvider');
+    expect(local).not.toHaveProperty('remoteSyncStatus');
+  });
+
   it('local metadata operations do not call remote blob adapters', async () => {
     const adapter: BlobStorageAdapter = {
       putBlob: vi.fn(),
