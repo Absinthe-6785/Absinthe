@@ -51,8 +51,8 @@ export function runK145AttachmentRepositoryAudit(): K145AttachmentRepositoryAudi
     checksum: 'sha256:audit',
     localBlobKey: 'local/att-audit',
     remoteBlobKey: 'remote/att-audit',
-    createdAt: 1,
-    updatedAt: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     deletedAt: null,
     syncStatus: 'dirty',
   };
