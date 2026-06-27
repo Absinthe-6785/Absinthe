@@ -145,6 +145,8 @@ function cleanupReviewReport(overrides: Partial<AttachmentCleanupReviewReport> =
     notesScanned: 2,
     attachmentsScanned: 3,
     blobsScanned: 0,
+    inventoryAvailable: false,
+    inventoryPartial: true,
     backupsScanned: 1,
     referencedAttachmentCount: 1,
     unreferencedAttachmentMetadataCount: 1,
@@ -433,6 +435,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Duplicate candidates');
     expect(host.textContent).toContain('Backup records');
     expect(host.textContent).toContain('Estimated recoverable');
+    expect(host.textContent).toContain('Blob inventory: unavailable.');
     expect(host.textContent).toContain('2.0 KB');
     cleanup(root, host);
   });

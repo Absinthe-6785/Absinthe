@@ -1,4 +1,9 @@
-import type { AttachmentBlobRecord, AttachmentBlobWrite, BlobStorageAdapter } from './attachmentRepository';
+import type {
+  AttachmentBlobInventoryRecord,
+  AttachmentBlobRecord,
+  AttachmentBlobWrite,
+  BlobStorageAdapter,
+} from './attachmentRepository';
 
 export const ATTACHMENT_BLOB_DB_NAME = 'absinthe.attachments.blobs';
 export const ATTACHMENT_BLOB_STORE = 'blobs';
@@ -37,6 +42,8 @@ interface PersistedAttachmentBlobRecord {
   mimeType?: string;
   size: number;
   checksum?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 function normalizeRecord(raw: unknown): AttachmentBlobRecord | null {
@@ -57,8 +64,31 @@ function normalizeRecord(raw: unknown): AttachmentBlobRecord | null {
   };
 }
 
+function normalizeInventoryRecord(raw: unknown): AttachmentBlobInventoryRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Partial<PersistedAttachmentBlobRecord>;
+  if (typeof record.key !== 'string' || !record.key.trim()) return null;
+  const blobSize = record.blob && typeof record.blob.size === 'number' ? record.blob.size : undefined;
+  const bytesSize = record.bytes instanceof ArrayBuffer ? record.bytes.byteLength : undefined;
+  const size = Number.isFinite(record.size) ? Number(record.size) : blobSize ?? bytesSize ?? 0;
+  const mimeType = typeof record.mimeType === 'string'
+    ? record.mimeType
+    : record.blob?.type || undefined;
+  const inventoryPartial = !record.createdAt || !record.updatedAt || !Number.isFinite(record.size);
+  return {
+    localBlobKey: record.key,
+    size,
+    mimeType,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
+    checksum: typeof record.checksum === 'string' ? record.checksum : undefined,
+    inventoryPartial,
+  };
+}
+
 export class LocalAttachmentBlobAdapter implements BlobStorageAdapter {
   async putBlob(input: AttachmentBlobWrite): Promise<AttachmentBlobRecord> {
+    const now = new Date().toISOString();
     const bytes = typeof input.blob.arrayBuffer === 'function'
       ? await input.blob.arrayBuffer()
       : undefined;
@@ -69,6 +99,8 @@ export class LocalAttachmentBlobAdapter implements BlobStorageAdapter {
       mimeType: input.mimeType ?? (input.blob.type || undefined),
       size: input.blob.size,
       checksum: input.checksum,
+      createdAt: now,
+      updatedAt: now,
     };
     const db = await openAttachmentBlobDb();
     try {
@@ -105,6 +137,48 @@ export class LocalAttachmentBlobAdapter implements BlobStorageAdapter {
     } finally {
       db.close();
     }
+  }
+
+  async listBlobRecords(): Promise<AttachmentBlobInventoryRecord[]> {
+    const db = await openAttachmentBlobDb();
+    try {
+      return await new Promise<AttachmentBlobInventoryRecord[]>((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_BLOB_STORE, 'readonly');
+        const store = tx.objectStore(ATTACHMENT_BLOB_STORE);
+        const request = store.getAll();
+        request.onerror = () => reject(request.error ?? new Error('Attachment blob inventory read failed'));
+        request.onsuccess = () => {
+          const records = Array.isArray(request.result)
+            ? request.result
+              .map(normalizeInventoryRecord)
+              .filter((item): item is AttachmentBlobInventoryRecord => item !== null)
+              .sort((a, b) => a.localBlobKey.localeCompare(b.localBlobKey))
+            : [];
+          resolve(records);
+        };
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async getBlobInfo(key: string): Promise<AttachmentBlobInventoryRecord | null> {
+    const db = await openAttachmentBlobDb();
+    try {
+      return await new Promise<AttachmentBlobInventoryRecord | null>((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_BLOB_STORE, 'readonly');
+        const store = tx.objectStore(ATTACHMENT_BLOB_STORE);
+        const request = store.get(key);
+        request.onerror = () => reject(request.error ?? new Error('Attachment blob inventory lookup failed'));
+        request.onsuccess = () => resolve(normalizeInventoryRecord(request.result));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async hasBlob(key: string): Promise<boolean> {
+    return (await this.getBlobInfo(key)) !== null;
   }
 
   async deleteBlob(key: string): Promise<void> {

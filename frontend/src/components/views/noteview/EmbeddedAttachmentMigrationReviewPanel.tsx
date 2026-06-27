@@ -408,6 +408,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     Migration backups are preserved. Backup deletion is not part of this review.
                   </div>
                 ) : null}
+                <div style={{ fontSize: 10.5, color: c.textMuted }}>
+                  Blob inventory: {cleanupReport.inventoryAvailable ? (cleanupReport.inventoryPartial ? 'partial' : 'available') : 'unavailable'}.
+                </div>
                 {cleanupReport.candidates.length === 0 ? (
                   <div style={{ fontSize: 10.5, color: c.textMuted }}>No cleanup candidates found.</div>
                 ) : (

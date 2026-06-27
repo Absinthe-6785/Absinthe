@@ -188,15 +188,40 @@ describe('attachment cleanup review foundation', () => {
     const report = await buildAttachmentCleanupReview({
       notes: [],
       attachments: [],
-      localBlobs: [blob('local-attachment/orphan')],
+      blobInventory: [{
+        localBlobKey: 'local-attachment/orphan',
+        size: 12,
+        mimeType: 'image/png',
+        createdAt: '2026-06-27T00:00:00.000Z',
+      }],
     });
 
+    expect(report.inventoryAvailable).toBe(true);
+    expect(report.inventoryPartial).toBe(false);
     expect(report.unreferencedBlobCount).toBe(1);
     expect(report.estimatedRecoverableBytes).toBe(12);
     expect(report.candidates).toContainEqual(expect.objectContaining({
       type: 'unreferencedBlob',
       localBlobKey: 'local-attachment/orphan',
     }));
+  });
+
+  it('reports partial blob inventory without exposing raw blob data', async () => {
+    const report = await buildAttachmentCleanupReview({
+      notes: [],
+      attachments: [],
+      blobInventory: [{
+        localBlobKey: 'local-attachment/partial',
+        size: 7,
+        mimeType: 'image/png',
+        inventoryPartial: true,
+      }],
+    });
+
+    expect(report.inventoryAvailable).toBe(true);
+    expect(report.inventoryPartial).toBe(true);
+    expect(report.warnings.join(' ')).toContain('partial');
+    expect(JSON.stringify(report)).not.toContain('xxxxxxxx');
   });
 
   it('reports missing blob as an integrity warning, not a deletion candidate', async () => {
@@ -207,6 +232,7 @@ describe('attachment cleanup review foundation', () => {
     });
 
     expect(report.missingBlobCount).toBe(1);
+    expect(report.inventoryAvailable).toBe(true);
     expect(report.estimatedRecoverableBytes).toBe(0);
     expect(report.candidates).toContainEqual(expect.objectContaining({
       type: 'missingBlob',
@@ -214,6 +240,23 @@ describe('attachment cleanup review foundation', () => {
       localBlobKey: 'local-attachment/missing',
       safeActionRecommendation: expect.stringContaining('Do not delete'),
     }));
+  });
+
+  it('still handles unavailable blob inventory without destructive fallback', async () => {
+    const report = await buildAttachmentCleanupReview({
+      notes: [],
+      attachments: [],
+      blobAdapter: {
+        async putBlob() { throw new Error('not used'); },
+        async getBlob() { throw new Error('not used'); },
+        async deleteBlob() { throw new Error('not used'); },
+        async getObjectUrl() { throw new Error('not used'); },
+      },
+    });
+
+    expect(report.inventoryAvailable).toBe(false);
+    expect(report.inventoryPartial).toBe(true);
+    expect(report.warnings.join(' ')).toContain('unavailable');
   });
 
   it('reports missing metadata for attachment references as an integrity warning', async () => {

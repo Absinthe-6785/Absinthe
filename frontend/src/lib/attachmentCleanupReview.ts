@@ -1,9 +1,12 @@
 import { createLocalAttachmentMetadataRepository } from './attachmentMetadataIndexedDb';
+import { createLocalAttachmentBlobAdapter } from './attachmentBlobIndexedDb';
 import {
   ATTACHMENT_REFERENCE_PREFIX,
+  type AttachmentBlobInventoryRecord,
   type AttachmentBlobRecord,
   type AttachmentMetadata,
   type AttachmentRepository,
+  type BlobStorageAdapter,
 } from './attachmentRepository';
 import type {
   EmbeddedAttachmentMigrationNote,
@@ -49,6 +52,8 @@ export interface AttachmentCleanupReviewReport {
   notesScanned: number;
   attachmentsScanned: number;
   blobsScanned: number;
+  inventoryAvailable: boolean;
+  inventoryPartial: boolean;
   backupsScanned: number;
   referencedAttachmentCount: number;
   unreferencedAttachmentMetadataCount: number;
@@ -69,6 +74,8 @@ export interface AttachmentCleanupReviewInput {
   notes: readonly EmbeddedAttachmentMigrationNote[];
   attachments?: readonly AttachmentMetadata[];
   repository?: AttachmentRepository;
+  blobInventory?: readonly AttachmentBlobInventoryRecord[];
+  blobAdapter?: BlobStorageAdapter;
   localBlobs?: readonly AttachmentBlobRecord[];
   backupReader?: EmbeddedAttachmentMigrationBackupReader;
   migrationReports?: readonly EmbeddedAttachmentMigrationReport[];
@@ -128,6 +135,58 @@ async function readBackups(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { summaries: [], error: `Migration backup inventory could not be read: ${message}` };
+  }
+}
+
+async function readBlobInventory(
+  input: AttachmentCleanupReviewInput,
+): Promise<{ records: AttachmentBlobInventoryRecord[]; available: boolean; partial: boolean; warning?: string }> {
+  if (input.blobInventory) {
+    return {
+      records: [...input.blobInventory],
+      available: true,
+      partial: input.blobInventory.some(record => record.inventoryPartial),
+    };
+  }
+
+  if (input.localBlobs) {
+    return {
+      records: input.localBlobs.map(record => ({
+        localBlobKey: record.key,
+        size: record.size,
+        mimeType: record.mimeType,
+        checksum: record.checksum,
+      })),
+      available: true,
+      partial: false,
+    };
+  }
+
+  const adapter = input.blobAdapter ?? createLocalAttachmentBlobAdapter();
+  if (!adapter.listBlobRecords) {
+    return {
+      records: [],
+      available: false,
+      partial: true,
+      warning: 'Local blob inventory is unavailable; unreferenced blob detection is limited.',
+    };
+  }
+
+  try {
+    const records = await adapter.listBlobRecords();
+    return {
+      records,
+      available: true,
+      partial: records.some(record => record.inventoryPartial),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      records: [],
+      available: false,
+      partial: true,
+      warning: `Local blob inventory is unavailable; unreferenced blob detection is limited. ${message}`,
+    };
   }
 }
 
@@ -249,7 +308,9 @@ export async function buildAttachmentCleanupReview(
     dryRun: true,
     notesScanned: input.notes.length,
     attachmentsScanned: 0,
-    blobsScanned: input.localBlobs?.length ?? 0,
+    blobsScanned: 0,
+    inventoryAvailable: false,
+    inventoryPartial: false,
     backupsScanned: 0,
     referencedAttachmentCount: 0,
     unreferencedAttachmentMetadataCount: 0,
@@ -275,8 +336,13 @@ export async function buildAttachmentCleanupReview(
   }
   report.attachmentsScanned = attachments.length;
 
-  if (!input.localBlobs) {
-    report.warnings.push('Local blob inventory is unavailable; unreferenced blob detection is limited.');
+  const blobInventory = await readBlobInventory(input);
+  report.blobsScanned = blobInventory.records.length;
+  report.inventoryAvailable = blobInventory.available;
+  report.inventoryPartial = blobInventory.partial;
+  if (blobInventory.warning) report.warnings.push(blobInventory.warning);
+  if (blobInventory.available && blobInventory.partial) {
+    report.warnings.push('Local blob inventory is partial; some older records may not include complete metadata.');
   }
 
   const backupRead = await readBackups(input.backupReader);
@@ -286,7 +352,7 @@ export async function buildAttachmentCleanupReview(
   const attachmentsById = new Map(attachments.map(metadata => [metadata.id, metadata]));
   const referencedById = findAttachmentReferencesInNotes(input.notes);
   const referencedAttachmentIds = new Set(referencedById.keys());
-  const blobByKey = new Map((input.localBlobs ?? []).map(blob => [blob.key, blob]));
+  const blobByKey = new Map(blobInventory.records.map(blob => [blob.localBlobKey, blob]));
   const metadataBlobKeys = new Set(attachments.map(metadata => metadata.localBlobKey).filter((key): key is string => Boolean(key)));
 
   for (const [attachmentId, noteIds] of referencedById) {
@@ -333,7 +399,7 @@ export async function buildAttachmentCleanupReview(
       });
     }
 
-    if (metadata.localBlobKey && input.localBlobs && !blobByKey.has(metadata.localBlobKey)) {
+    if (metadata.localBlobKey && blobInventory.available && !blobByKey.has(metadata.localBlobKey)) {
       pushCandidate(report, {
         type: 'missingBlob',
         severity: 'warning',
@@ -347,12 +413,12 @@ export async function buildAttachmentCleanupReview(
     }
   }
 
-  for (const blob of input.localBlobs ?? []) {
-    if (metadataBlobKeys.has(blob.key)) continue;
+  for (const blob of blobInventory.records) {
+    if (metadataBlobKeys.has(blob.localBlobKey)) continue;
     pushCandidate(report, {
       type: 'unreferencedBlob',
       severity: 'warning',
-      localBlobKey: blob.key,
+      localBlobKey: blob.localBlobKey,
       reason: 'Local blob has no attachment metadata pointing to it.',
       safeActionRecommendation: 'Review manually before any explicit cleanup.',
       estimatedBytes: blob.size,
