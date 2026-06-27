@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { authFetch } from '../../lib/supabase';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
+import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation, resolveAppLanguage } from '../../lib/i18n';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -38,7 +39,7 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
   const [activityTick, setActivityTick] = useState(0);
 
   const { data: recipes = [], isLoading: loading, mutate: mutateRecipes } = useSWR<Recipe[]>(
-    `${API_URL}/api/recipes`,
+    remoteSWRKey(`${API_URL}/api/recipes`),
     fetcher,
     { onError: () => showToast(t('failLoadRecipes'), 'error') },
   );

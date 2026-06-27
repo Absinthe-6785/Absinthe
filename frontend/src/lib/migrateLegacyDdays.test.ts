@@ -13,6 +13,7 @@ vi.mock('../store/useNotesStore', () => ({
 import { authFetch } from './supabase';
 import { useNotesStore } from '../store/useNotesStore';
 import { migrateLegacyDdays, resetDdayMigrationFlag } from './migrateLegacyDdays';
+import { NOTES_RUNTIME_SYNC_MODE_KEY } from './syncMode';
 
 const mockFetch = vi.mocked(authFetch);
 const mockGetState = vi.mocked(useNotesStore.getState);
@@ -40,6 +41,7 @@ describe('migrateLegacyDdays', () => {
   });
 
   it('sets flag and returns 0 when no legacy rows exist', async () => {
+    localStorage.setItem(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [],
@@ -51,6 +53,7 @@ describe('migrateLegacyDdays', () => {
   });
 
   it('creates event notes and deletes legacy rows', async () => {
+    localStorage.setItem(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     const notes: {
       id: string; title: string; body: string; folderId: null; starred: boolean;
       deletedAt: null; createdAt: number; updatedAt: number;
@@ -87,5 +90,11 @@ describe('migrateLegacyDdays', () => {
       expect.objectContaining({ method: 'DELETE' }),
     );
     expect(localStorage.getItem('absinthe:dday-migration-v1')).toBe('done');
+  });
+
+  it('does not call the remote migration endpoint in local mode', async () => {
+    const result = await migrateLegacyDdays();
+    expect(result).toBe(0);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

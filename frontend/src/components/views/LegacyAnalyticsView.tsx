@@ -3,6 +3,7 @@ import { BookOpen, Briefcase, Dumbbell, Activity, Clock, Calendar, CalendarDays,
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
+import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useTranslation } from '../../lib/i18n';
@@ -82,7 +83,7 @@ export function LegacyAnalyticsView({
     : null;
 
   const { data: routineExceptions = [] } = useSWR<{id: string; start_date: string; end_date: string; reason: string}[]>(
-    `${API_URL}/api/routine_exceptions`,
+    remoteSWRKey(`${API_URL}/api/routine_exceptions`),
     fetcher,
     { revalidateOnFocus: false },
   );
@@ -93,7 +94,7 @@ export function LegacyAnalyticsView({
   );
 
   const { data: rangeSchedules, isLoading: isRangeLoading } = useSWR<Schedule[]>(
-    analyticsUrl,
+    analyticsUrl ? remoteSWRKey(analyticsUrl) : null,
     fetcher,
     { onError: onRangeError },
   );
@@ -115,7 +116,7 @@ export function LegacyAnalyticsView({
     ? `${API_URL}/api/workouts/range?start_date=${thisWeekDates[0]}&end_date=${thisWeekDates[6]}`
     : null;
 
-  const { data: weekWorkouts } = useSWR(workoutDaysUrl, fetcher, { refreshInterval: 60000 });
+  const { data: weekWorkouts } = useSWR(workoutDaysUrl ? remoteSWRKey(workoutDaysUrl) : null, fetcher, { refreshInterval: 60000 });
 
   const workoutDoneSet = useMemo(() => {
     const s = new Set<string>();
@@ -147,7 +148,7 @@ export function LegacyAnalyticsView({
   const { data: heatmapData = [] } = useSWR<{
     date: string; workout_count: number; routine_done: number;
     routine_total: number; study_mins: number; is_exception: boolean;
-  }[]>(`${API_URL}/api/heatmap`, fetcher, { revalidateOnFocus: false });
+  }[]>(remoteSWRKey(`${API_URL}/api/heatmap`), fetcher, { revalidateOnFocus: false });
 
   useEscapeKey(() => { clearConfirm(); });
 

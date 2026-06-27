@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { fetcher } from '../../../../../lib/fetcher';
 import { API_URL } from '../../../../../lib/config';
+import { remoteSWRKey } from '../../../../../lib/remoteBoundary';
 import type { ProteinIntakeLog, ProteinProfile, ProteinSource } from '../../../../../types';
 import {
   computeProteinProgress,
@@ -75,17 +76,17 @@ export function useProteinData(
   const { mutate: globalMutate } = useSWRConfig();
 
   const { data: profile = null, mutate: mutateProfile, isLoading: l1 } =
-    useSWR<ProteinProfile | null>(`${base}/protein_profile`, fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinProfile | null>(remoteSWRKey(`${base}/protein_profile`), fetcher, { revalidateOnFocus: false });
 
   const { data: sources = [], mutate: mutateSources, isLoading: l2 } =
-    useSWR<ProteinSource[]>(`${base}/protein_sources`, fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinSource[]>(remoteSWRKey(`${base}/protein_sources`), fetcher, { revalidateOnFocus: false });
 
   const { data: intakeLogs = [], mutate: mutateIntake, isLoading: l3 } =
-    useSWR<ProteinIntakeLog[]>(`${base}/protein_intake?date=${dateStr}`, fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinIntakeLog[]>(remoteSWRKey(`${base}/protein_intake?date=${dateStr}`), fetcher, { revalidateOnFocus: false });
 
   const weekKey = `${base}/protein_weekly?anchor=${dateStr}`;
   const { data: weeklyData } = useSWR(
-    weekKey,
+    remoteSWRKey(weekKey),
     () => fetchProteinRange(selectedDate, formatDate, 30),
     { revalidateOnFocus: false },
   );

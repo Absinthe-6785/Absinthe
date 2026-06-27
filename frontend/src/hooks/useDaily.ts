@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
+import { remoteSWRKey } from '../lib/remoteBoundary';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
 
 export interface UseDailyDataResult {
@@ -40,19 +41,19 @@ export const useDailyData = (
   );
 
   const { data: schedules = [], mutate: mutateSchedules, isLoading: l1 } =
-    useSWR<Schedule[]>(`${base}/schedules?date=${dateStr}`, fetcher, swrOpts);
+    useSWR<Schedule[]>(remoteSWRKey(`${base}/schedules?date=${dateStr}`), fetcher, swrOpts);
 
   const { data: todos = [], mutate: mutateTodosRaw, isLoading: l2 } =
-    useSWR<Todo[]>(`${base}/todos?date=${dateStr}`, fetcher, swrOpts);
+    useSWR<Todo[]>(remoteSWRKey(`${base}/todos?date=${dateStr}`), fetcher, swrOpts);
 
   const { data: routines = [], mutate: mutateRoutinesRaw, isLoading: l3 } =
-    useSWR<Routine[]>(`${base}/routines_with_logs?date=${dateStr}`, fetcher, swrOpts);
+    useSWR<Routine[]>(remoteSWRKey(`${base}/routines_with_logs?date=${dateStr}`), fetcher, swrOpts);
 
   const { data: workouts = [], mutate: mutateWorkouts, isLoading: l4 } =
-    useSWR<Workout[]>(`${base}/workouts?date=${dateStr}`, fetcher, swrOpts);
+    useSWR<Workout[]>(remoteSWRKey(`${base}/workouts?date=${dateStr}`), fetcher, swrOpts);
 
   const { data: inbodyRaw, mutate: mutateInbody, isLoading: l5 } =
-    useSWR<Inbody[]>(`${base}/inbody?date=${dateStr}`, fetcher, swrOpts);
+    useSWR<Inbody[]>(remoteSWRKey(`${base}/inbody?date=${dateStr}`), fetcher, swrOpts);
 
   /** todos optimistic mutate — updater 함수로 현재 캐시를 즉시 수정 */
   const mutateTodos = useCallback(

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { LocalOnlyRemoteMutationPausedError, shouldUseRemoteData } from './remoteBoundary';
 
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -11,6 +12,10 @@ export const supabase = createClient(
  * getSession()은 메모리에서 즉시 반환되므로 성능 overhead가 없습니다.
  */
 export const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  if (!shouldUseRemoteData()) {
+    throw new LocalOnlyRemoteMutationPausedError();
+  }
+
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 

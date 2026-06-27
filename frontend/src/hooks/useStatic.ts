@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
+import { remoteSWRKey } from '../lib/remoteBoundary';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
 
 const STATIC_SWR_BASE = { revalidateOnFocus: false } as const;
@@ -34,18 +35,18 @@ export const useStaticData = (
   );
 
   const { data: rawDates = [], mutate: mutateDates } = useSWR<(string | { date: string })[]>(
-    `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
+    remoteSWRKey(`${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`),
     fetcher,
     swrOpts,
   );
   const { data: healthBlocks = [], mutate: mutateBlocks } = useSWR<ExerciseBlock[]>(
-    `${base}/blocks`, fetcher, swrOpts,
+    remoteSWRKey(`${base}/blocks`), fetcher, swrOpts,
   );
   const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
-    `${base}/health_routines`, fetcher, swrOpts,
+    remoteSWRKey(`${base}/health_routines`), fetcher, swrOpts,
   );
   const { data: weeklySchedules = [], mutate: mutateWeekly } = useSWR<WeeklySchedule[]>(
-    `${base}/weekly_schedules`, fetcher, swrOpts,
+    remoteSWRKey(`${base}/weekly_schedules`), fetcher, swrOpts,
   );
 
   const markedDates = useMemo(

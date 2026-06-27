@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { authFetch } from '../lib/supabase';
 import { API_URL } from '../lib/config';
+import { shouldUseRemoteData } from '../lib/remoteBoundary';
 
 type MutateTarget = 'daily' | 'static' | 'both' | 'none';
 
@@ -59,6 +60,10 @@ export const useApiMutation = (
         successMsg = '',
         errorMsg = 'Operation failed. Check network.',
       } = options;
+
+      if (!shouldUseRemoteData()) {
+        return false;
+      }
 
       try {
         const res = await authFetch(`${API_URL}${path}`, {

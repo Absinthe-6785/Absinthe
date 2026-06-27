@@ -5,6 +5,7 @@ import { buildNoteChrome } from '../../noteEditorTheme';
 import type { AppSettings, Schedule, Todo, Routine, Workout, WeeklySchedule, ExerciseBlock } from '../../../../types';
 import { fetcher } from '../../../../lib/fetcher';
 import { API_URL } from '../../../../lib/config';
+import { remoteSWRKey } from '../../../../lib/remoteBoundary';
 import type { Recipe } from '../recipe/recipeTypes';
 import { registerWorkspaceSearchOpener } from '../../../../lib/noteNavigation';
 import { resolveAppLanguage } from '../../../../lib/i18n';
@@ -44,7 +45,7 @@ export function GlobalSearchHost({
   const [isSearching, setIsSearching] = useState(false);
 
   const { data: recipes = [] } = useSWR<Recipe[]>(
-    open ? `${API_URL}/api/recipes` : null,
+    open ? remoteSWRKey(`${API_URL}/api/recipes`) : null,
     fetcher,
     { revalidateOnFocus: false },
   );

@@ -1,5 +1,5 @@
 import { authFetch, supabase } from './supabase';
-import { isLocalOnlyRuntime } from './localAuth';
+import { shouldUseRemoteData } from './remoteBoundary';
 
 /**
  * SWR용 공통 fetcher — 인증 헤더 포함, HTTP 오류 시 throw.
@@ -50,7 +50,7 @@ async function refreshToken(): Promise<boolean> {
 }
 
 export const fetcher = async <T = unknown>(url: string): Promise<T> => {
-  if (isLocalOnlyRuntime()) {
+  if (!shouldUseRemoteData()) {
     throw new LocalOnlyRemotePausedError();
   }
 

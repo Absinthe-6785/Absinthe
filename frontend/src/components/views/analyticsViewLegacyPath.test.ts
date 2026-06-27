@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
 import type { AnalyticsProps } from '../../types';
+import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../../lib/syncMode';
 
 vi.mock('./features/archive/archiveShellConfig', () => ({
   ARCHIVE_SHELL_ENABLED: false,
@@ -91,6 +92,7 @@ function analyticsProps(): AnalyticsProps {
 describe('AnalyticsView legacy rollback path', () => {
   beforeEach(() => {
     swrState.keys.length = 0;
+    localStorage.clear();
   });
 
   it('renders legacy Analytics when ARCHIVE_SHELL_ENABLED is false', async () => {
@@ -105,6 +107,7 @@ describe('AnalyticsView legacy rollback path', () => {
   }, 30_000);
 
   it('subscribes to legacy Analytics SWR keys when rollback flag is false', async () => {
+    localStorage.setItem(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     const { AnalyticsView } = await import('./AnalyticsView');
     renderToStaticMarkup(createElement(AnalyticsView, analyticsProps()));
 
@@ -116,6 +119,13 @@ describe('AnalyticsView legacy rollback path', () => {
     expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
+  });
+
+  it('does not subscribe to legacy Analytics remote keys in local mode', async () => {
+    const { AnalyticsView } = await import('./AnalyticsView');
+    renderToStaticMarkup(createElement(AnalyticsView, analyticsProps()));
+
+    expect(swrState.keys.every(key => key === null)).toBe(true);
   });
 
   it('does not render Weekly Timetable planning surface on legacy Analytics', async () => {
