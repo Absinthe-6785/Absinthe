@@ -12,7 +12,16 @@ import {
   type AttachmentCleanupExecutorReport,
 } from '../../../lib/attachmentCleanupExecutor';
 import type { EmbeddedAttachmentAuditReport } from '../../../lib/embeddedAttachmentAudit';
-import type { EmbeddedAttachmentMigrationReport } from '../../../lib/embeddedAttachmentMigration';
+import {
+  hashEmbeddedAttachmentMigrationText,
+  type EmbeddedAttachmentMigrationReport,
+} from '../../../lib/embeddedAttachmentMigration';
+import type {
+  EmbeddedAttachmentMigrationBackupReader,
+  EmbeddedAttachmentMigrationBackupSummary,
+  EmbeddedAttachmentMigrationRestoreInput,
+  EmbeddedAttachmentMigrationRestoreReport,
+} from '../../../lib/embeddedAttachmentMigrationRestore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
 import { EmbeddedAttachmentMigrationReviewPanel } from './EmbeddedAttachmentMigrationReviewPanel';
@@ -281,6 +290,63 @@ function cleanupExecutorReport(overrides: Partial<AttachmentCleanupExecutorRepor
   };
 }
 
+function backupSummary(overrides: Partial<EmbeddedAttachmentMigrationBackupSummary> = {}): EmbeddedAttachmentMigrationBackupSummary {
+  return {
+    backupKey: 'absinthe.notes.embeddedAttachmentMigration.backup.migration-1.note-1',
+    noteId: 'note-1',
+    migrationId: 'migration-1',
+    migrationVersion: 'k149-embedded-attachment-migration-v1',
+    createdAt: '2026-06-27T00:00:00.000Z',
+    originalUpdatedAt: '1',
+    originalBodyBytes: 4096,
+    originalContentBytes: 0,
+    candidateCount: 1,
+    estimatedDecodedBytes: 1024,
+    mimeTypes: ['image/png'],
+    checksum: 'checksum-1',
+    ...overrides,
+  };
+}
+
+function restoreReport(overrides: Partial<EmbeddedAttachmentMigrationRestoreReport> = {}): EmbeddedAttachmentMigrationRestoreReport {
+  return {
+    noteId: 'note-1',
+    backupKey: 'absinthe.notes.embeddedAttachmentMigration.backup.migration-1.note-1',
+    restored: true,
+    forced: false,
+    previousBodyHash: hashEmbeddedAttachmentMigrationText('migrated body'),
+    restoredBodyHash: 'fnv1a:restored',
+    warnings: [],
+    errors: [],
+    ...overrides,
+  };
+}
+
+function migrationReportWithBackup(overrides: Partial<EmbeddedAttachmentMigrationReport> = {}): EmbeddedAttachmentMigrationReport {
+  return migrationReport({
+    noteResults: [{
+      noteId: 'note-1',
+      status: 'migrated',
+      candidatesFound: 1,
+      migratedCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+      backupKey: backupSummary().backupKey,
+      bodyRewritten: true,
+      previousBodyHash: hashEmbeddedAttachmentMigrationText(embeddedPayload),
+      previousContentHash: hashEmbeddedAttachmentMigrationText(''),
+      rewrittenBodyHash: hashEmbeddedAttachmentMigrationText('migrated body'),
+      rewrittenContentHash: hashEmbeddedAttachmentMigrationText(''),
+      attachmentIds: ['att-1'],
+      blobKeys: ['local-attachment/att-1'],
+      orphanedAttachmentIds: [],
+      orphanedBlobKeys: [],
+      errors: [],
+    }],
+    ...overrides,
+  });
+}
+
 function panelElement(input: {
   notes?: readonly Note[];
   updateNote?: (id: string, patch: Partial<Note>) => void;
@@ -288,6 +354,8 @@ function panelElement(input: {
   migrateFn?: () => Promise<EmbeddedAttachmentMigrationReport>;
   cleanupReviewFn?: () => Promise<AttachmentCleanupReviewReport>;
   cleanupExecutorFn?: (input: AttachmentCleanupExecutorInput) => Promise<AttachmentCleanupExecutorReport>;
+  listBackupsFn?: (reader?: EmbeddedAttachmentMigrationBackupReader) => Promise<EmbeddedAttachmentMigrationBackupSummary[]>;
+  restoreBackupFn?: (input: EmbeddedAttachmentMigrationRestoreInput) => Promise<EmbeddedAttachmentMigrationRestoreReport>;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -297,6 +365,8 @@ function panelElement(input: {
     migrateFn: input.migrateFn ?? vi.fn(async () => migrationReport()),
     cleanupReviewFn: input.cleanupReviewFn ?? vi.fn(async () => cleanupReviewReport()),
     cleanupExecutorFn: input.cleanupExecutorFn ?? vi.fn(async () => cleanupExecutorReport()),
+    listBackupsFn: input.listBackupsFn ?? vi.fn(async () => []),
+    restoreBackupFn: input.restoreBackupFn ?? vi.fn(async () => restoreReport()),
   });
 }
 
@@ -321,6 +391,13 @@ function buttonByText(host: HTMLElement, text: string): HTMLButtonElement {
   const button = Array.from(host.querySelectorAll('button'))
     .find(item => item.textContent?.trim() === text);
   if (!(button instanceof HTMLButtonElement)) throw new Error(`Button not found: ${text}`);
+  return button;
+}
+
+function buttonContaining(host: HTMLElement, ...parts: string[]): HTMLButtonElement {
+  const button = Array.from(host.querySelectorAll('button'))
+    .find(item => parts.every(part => item.textContent?.includes(part)));
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`Button not found containing: ${parts.join(', ')}`);
   return button;
 }
 
@@ -349,19 +426,32 @@ function renderPanel(options: { notes?: readonly Note[] } = {}) {
   const migrateFn = vi.fn(async () => migrationReport());
   const cleanupReviewFn = vi.fn(async () => cleanupReviewReport());
   const cleanupExecutorFn = vi.fn(async () => cleanupExecutorReport());
+  const listBackupsFn = vi.fn(async () => [] as EmbeddedAttachmentMigrationBackupSummary[]);
+  const restoreBackupFn = vi.fn(async () => restoreReport());
   const updateNote = vi.fn();
-  const mounted = render(panelElement({ notes: options.notes, updateNote, auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn }));
-  return { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, updateNote, ...mounted };
+  const mounted = render(panelElement({
+    notes: options.notes,
+    updateNote,
+    auditFn,
+    migrateFn,
+    cleanupReviewFn,
+    cleanupExecutorFn,
+    listBackupsFn,
+    restoreBackupFn,
+  }));
+  return { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, updateNote, ...mounted };
 }
 
 describe('EmbeddedAttachmentMigrationReviewPanel', () => {
   it('does not scan or migrate on mount', () => {
-    const { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, root, host } = renderPanel();
+    const { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, root, host } = renderPanel();
 
     expect(auditFn).not.toHaveBeenCalled();
     expect(migrateFn).not.toHaveBeenCalled();
     expect(cleanupReviewFn).not.toHaveBeenCalled();
     expect(cleanupExecutorFn).not.toHaveBeenCalled();
+    expect(listBackupsFn).not.toHaveBeenCalled();
+    expect(restoreBackupFn).not.toHaveBeenCalled();
     cleanup(root, host);
   });
 
@@ -656,6 +746,129 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     expect(host.textContent).toContain('failed data:image/png;base64,[omitted]');
+    expect(host.textContent).not.toContain(embeddedPayload);
+    cleanup(root, host);
+  });
+
+  it('loads migration backup summaries only after explicit click without exposing raw backup content', async () => {
+    const secretOriginalBody = `private ${embeddedPayload}`;
+    const listBackupsFn = vi.fn(async () => [backupSummary({
+      originalBodyBytes: secretOriginalBody.length,
+    })]);
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const { root, host } = render(panelElement({ listBackupsFn, restoreBackupFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    expect(listBackupsFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Migration backups');
+
+    click(buttonByText(host, 'Load migration backups'));
+    await flushAsync();
+
+    expect(listBackupsFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('1 migration backup found.');
+    expect(host.textContent).toContain('Scanned note');
+    expect(host.textContent).toContain('original body');
+    expect(host.textContent).toContain('image/png');
+    expect(host.textContent).not.toContain(secretOriginalBody);
+    expect(host.textContent).not.toContain(embeddedPayload);
+    expect(restoreBackupFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('keeps restore disabled for inspected backups without a current migrated hash checkpoint', async () => {
+    const listBackupsFn = vi.fn(async () => [backupSummary()]);
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const { root, host } = render(panelElement({ listBackupsFn, restoreBackupFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Load migration backups'));
+    await flushAsync();
+    click(buttonContaining(host, 'Scanned note', 'Restore unavailable', 'Safe restore requires the current migration report'));
+
+    expect(host.textContent).toContain('Safe restore requires the current migration report');
+    expect(buttonByText(host, 'Restore selected backup').disabled).toBe(true);
+    expect(restoreBackupFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('blocks normal restore when the current note changed after migration', async () => {
+    const listBackupsFn = vi.fn(async () => [backupSummary()]);
+    const migrateFn = vi.fn(async () => migrationReportWithBackup());
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const { root, host } = render(panelElement({
+      notes: [note('changed after migration')],
+      listBackupsFn,
+      migrateFn,
+      restoreBackupFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Scan embedded attachments'));
+    await flushAsync();
+    click(buttonByText(host, 'Migrate embedded attachments'));
+    click(buttonByText(host, 'Confirm migration'));
+    await flushAsync();
+    click(buttonByText(host, 'Load migration backups'));
+    await flushAsync();
+    click(buttonContaining(host, 'Scanned note', 'Current note changed', 'Normal restore is blocked'));
+
+    expect(host.textContent).toContain('Current note changed');
+    expect(host.textContent).toContain('Normal restore is blocked');
+    expect(buttonByText(host, 'Restore selected backup').disabled).toBe(true);
+    expect(restoreBackupFn).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('force');
+    cleanup(root, host);
+  });
+
+  it('requires backup-bound confirmation before calling restore helper and displays restore report', async () => {
+    const summary = backupSummary();
+    const listBackupsFn = vi.fn(async () => [summary]);
+    const migrateFn = vi.fn(async () => migrationReportWithBackup());
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const updateNote = vi.fn();
+    const { root, host } = render(panelElement({
+      notes: [note('migrated body')],
+      updateNote,
+      listBackupsFn,
+      migrateFn,
+      restoreBackupFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Scan embedded attachments'));
+    await flushAsync();
+    click(buttonByText(host, 'Migrate embedded attachments'));
+    click(buttonByText(host, 'Confirm migration'));
+    await flushAsync();
+    click(buttonByText(host, 'Load migration backups'));
+    await flushAsync();
+    click(buttonContaining(host, 'Scanned note', 'Restorable', 'Current note matches the migrated checkpoint'));
+
+    const restoreButton = buttonByText(host, 'Restore selected backup');
+    expect(restoreButton.disabled).toBe(true);
+    const input = host.querySelector('input[aria-label="Restore confirmation phrase"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('restore confirmation input missing');
+    changeInput(input, 'RESTORE wrong');
+    expect(restoreButton.disabled).toBe(true);
+    changeInput(input, `RESTORE ${summary.backupKey.slice(0, 18)}`);
+    expect(restoreButton.disabled).toBe(false);
+
+    click(restoreButton);
+    await flushAsync();
+
+    expect(restoreBackupFn).toHaveBeenCalledTimes(1);
+    expect(restoreBackupFn.mock.calls[0]?.[0]).toMatchObject({
+      noteId: 'note-1',
+      backupKey: summary.backupKey,
+      expectedCurrentBodyHash: hashEmbeddedAttachmentMigrationText('migrated body'),
+      expectedCurrentContentHash: hashEmbeddedAttachmentMigrationText(''),
+    });
+    expect(restoreBackupFn.mock.calls[0]?.[0].force).toBeUndefined();
+    expect(updateNote).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Restore result');
+    expect(host.textContent).toContain('Restored: yes');
+    expect(host.textContent).toContain('Re-run migration scan or cleanup review');
     expect(host.textContent).not.toContain(embeddedPayload);
     cleanup(root, host);
   });
