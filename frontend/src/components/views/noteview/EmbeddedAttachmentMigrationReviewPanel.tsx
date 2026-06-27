@@ -21,15 +21,24 @@ import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobInd
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import {
   migrateEmbeddedDataUrlsToAttachments,
+  hashEmbeddedAttachmentMigrationText,
   type EmbeddedAttachmentMigrationReport,
 } from '../../../lib/embeddedAttachmentMigration';
-import { createLocalEmbeddedAttachmentMigrationBackupReader } from '../../../lib/embeddedAttachmentMigrationRestore';
+import {
+  createLocalEmbeddedAttachmentMigrationBackupReader,
+  listEmbeddedAttachmentMigrationBackups,
+  restoreEmbeddedAttachmentMigrationBackup,
+  type EmbeddedAttachmentMigrationBackupSummary,
+  type EmbeddedAttachmentMigrationRestoreReport,
+} from '../../../lib/embeddedAttachmentMigrationRestore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
 type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
 type CleanupExecutionState = 'idle' | 'running' | 'complete' | 'error';
+type BackupInspectionState = 'idle' | 'loading' | 'ready' | 'error';
+type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -39,6 +48,8 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   migrateFn?: typeof migrateEmbeddedDataUrlsToAttachments;
   cleanupReviewFn?: typeof buildAttachmentCleanupReview;
   cleanupExecutorFn?: typeof executeAttachmentCleanup;
+  listBackupsFn?: typeof listEmbeddedAttachmentMigrationBackups;
+  restoreBackupFn?: typeof restoreEmbeddedAttachmentMigrationBackup;
 }
 
 function formatBytes(bytes: number): string {
@@ -129,6 +140,88 @@ function cleanupBlockedReason(candidate: AttachmentCleanupReviewCandidate): stri
   return 'Not eligible for explicit cleanup.';
 }
 
+type BackupEligibilityStatus =
+  | 'restorable'
+  | 'current-note-changed'
+  | 'missing-note'
+  | 'missing-hash'
+  | 'restore-unavailable';
+
+interface BackupEligibility {
+  status: BackupEligibilityStatus;
+  label: string;
+  safe: boolean;
+  reason: string;
+  expectedBodyHash?: string;
+  expectedContentHash?: string;
+}
+
+function backupConfirmationPhrase(summary: EmbeddedAttachmentMigrationBackupSummary): string {
+  return `RESTORE ${summary.backupKey.slice(0, 18)}`;
+}
+
+function backupEligibility(input: {
+  summary: EmbeddedAttachmentMigrationBackupSummary;
+  notesById: Map<string, Note>;
+  migrationReport: EmbeddedAttachmentMigrationReport | null;
+}): BackupEligibility {
+  const note = input.notesById.get(input.summary.noteId);
+  if (!note || note.deletedAt) {
+    return {
+      status: 'missing-note',
+      label: 'Missing note',
+      safe: false,
+      reason: 'The note for this backup is missing or deleted.',
+    };
+  }
+
+  const migrationResult = input.migrationReport?.noteResults.find(result => (
+    result.backupKey === input.summary.backupKey && result.noteId === input.summary.noteId
+  ));
+  if (!migrationResult) {
+    return {
+      status: 'restore-unavailable',
+      label: 'Restore unavailable',
+      safe: false,
+      reason: 'Safe restore requires the current migration report so the migrated note hash can be verified.',
+    };
+  }
+
+  if (!migrationResult.rewrittenBodyHash) {
+    return {
+      status: 'missing-hash',
+      label: 'Restore unavailable',
+      safe: false,
+      reason: 'This backup has no migrated body hash to verify against the current note.',
+    };
+  }
+
+  const currentBodyHash = hashEmbeddedAttachmentMigrationText(note.body ?? '');
+  const currentContentHash = hashEmbeddedAttachmentMigrationText('');
+  if (
+    migrationResult.rewrittenBodyHash !== currentBodyHash
+    || (migrationResult.rewrittenContentHash && migrationResult.rewrittenContentHash !== currentContentHash)
+  ) {
+    return {
+      status: 'current-note-changed',
+      label: 'Current note changed',
+      safe: false,
+      reason: 'The current note no longer matches the migrated backup checkpoint. Normal restore is blocked.',
+      expectedBodyHash: migrationResult.rewrittenBodyHash,
+      expectedContentHash: migrationResult.rewrittenContentHash,
+    };
+  }
+
+  return {
+    status: 'restorable',
+    label: 'Restorable',
+    safe: true,
+    reason: 'Current note matches the migrated checkpoint. Restore can replace it with the preserved original body.',
+    expectedBodyHash: migrationResult.rewrittenBodyHash,
+    expectedContentHash: migrationResult.rewrittenContentHash,
+  };
+}
+
 export function EmbeddedAttachmentMigrationReviewPanel({
   notes,
   colors: c,
@@ -137,6 +230,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   migrateFn = migrateEmbeddedDataUrlsToAttachments,
   cleanupReviewFn = buildAttachmentCleanupReview,
   cleanupExecutorFn = executeAttachmentCleanup,
+  listBackupsFn = listEmbeddedAttachmentMigrationBackups,
+  restoreBackupFn = restoreEmbeddedAttachmentMigrationBackup,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -151,6 +246,14 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [cleanupExecutionStatus, setCleanupExecutionStatus] = useState<CleanupExecutionState>('idle');
   const [selectedCleanupCandidateIds, setSelectedCleanupCandidateIds] = useState<ReadonlySet<string>>(() => new Set());
   const [cleanupConfirmation, setCleanupConfirmation] = useState('');
+  const [backupStatus, setBackupStatus] = useState<BackupInspectionState>('idle');
+  const [restoreStatus, setRestoreStatus] = useState<BackupRestoreState>('idle');
+  const [backupSummaries, setBackupSummaries] = useState<EmbeddedAttachmentMigrationBackupSummary[]>([]);
+  const [selectedBackupKey, setSelectedBackupKey] = useState<string | null>(null);
+  const [restoreConfirmation, setRestoreConfirmation] = useState('');
+  const [restoreReport, setRestoreReport] = useState<EmbeddedAttachmentMigrationRestoreReport | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const activeNotes = useMemo(() => notes.filter(note => !note.deletedAt), [notes]);
@@ -174,6 +277,21 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       && selectedCleanupCandidateCount > 0
       && cleanupConfirmation === cleanupConfirmationPhrase
       && !cleanupExecuting,
+  );
+  const backupBusy = backupStatus === 'loading';
+  const restoreBusy = restoreStatus === 'running';
+  const selectedBackup = backupSummaries.find(summary => summary.backupKey === selectedBackupKey) ?? null;
+  const selectedBackupEligibility = selectedBackup ? backupEligibility({
+    summary: selectedBackup,
+    notesById,
+    migrationReport,
+  }) : null;
+  const selectedRestorePhrase = selectedBackup ? backupConfirmationPhrase(selectedBackup) : '';
+  const restoreCanRun = Boolean(
+    selectedBackup
+      && selectedBackupEligibility?.safe
+      && restoreConfirmation === selectedRestorePhrase
+      && !restoreBusy,
   );
 
   const scan = async () => {
@@ -300,6 +418,60 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     } catch (err) {
       setError(safeError(err));
       setStatus('error');
+    }
+  };
+
+  const loadBackups = async () => {
+    if (backupBusy) return;
+    setBackupStatus('loading');
+    setBackupError(null);
+    setRestoreError(null);
+    setRestoreReport(null);
+    setSelectedBackupKey(null);
+    setRestoreConfirmation('');
+    try {
+      const summaries = await listBackupsFn(createLocalEmbeddedAttachmentMigrationBackupReader());
+      setBackupSummaries(summaries);
+      setBackupStatus('ready');
+    } catch (err) {
+      setBackupError(safeError(err));
+      setBackupStatus('error');
+    }
+  };
+
+  const selectBackup = (backupKey: string) => {
+    setSelectedBackupKey(backupKey);
+    setRestoreConfirmation('');
+    setRestoreReport(null);
+    setRestoreError(null);
+  };
+
+  const runRestore = async () => {
+    if (!selectedBackup || !selectedBackupEligibility || !restoreCanRun) return;
+    setRestoreStatus('running');
+    setRestoreError(null);
+    setRestoreReport(null);
+    try {
+      const report = await restoreBackupFn({
+        noteId: selectedBackup.noteId,
+        backupKey: selectedBackup.backupKey,
+        backupReader: createLocalEmbeddedAttachmentMigrationBackupReader(),
+        expectedCurrentBodyHash: selectedBackupEligibility.expectedBodyHash,
+        expectedCurrentContentHash: selectedBackupEligibility.expectedContentHash,
+        readCurrentNote: async noteId => {
+          const note = activeNotes.find(item => item.id === noteId);
+          return note ? { id: note.id, title: note.title, body: note.body, updatedAt: String(note.updatedAt) } : null;
+        },
+        updateNote: async (noteId, patch) => {
+          updateNote(noteId, { body: patch.body ?? '' });
+        },
+      });
+      setRestoreReport(report);
+      setRestoreStatus('complete');
+      setRestoreConfirmation('');
+    } catch (err) {
+      setRestoreError(safeError(err));
+      setRestoreStatus('error');
     }
   };
 
@@ -647,6 +819,145 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             ) : null}
           </div>
 
+          <div data-attachment-backup-restore-section style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 9, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800 }}>Migration backups</div>
+              <p style={{ margin: '3px 0 0', fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
+                Migration backups preserve original note bodies before embedded attachment conversion. This section shows safe summaries only; original content and base64 payloads are not displayed.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btbtn"
+                onClick={loadBackups}
+                disabled={backupBusy}
+                style={{ padding: '6px 9px', fontSize: 11, fontWeight: 700 }}
+              >
+                {backupBusy ? 'Loading backups...' : backupSummaries.length ? 'Reload migration backups' : 'Load migration backups'}
+              </button>
+              <span style={{ fontSize: 10, color: c.textFaint }}>Backup inspection is explicit. Restore never runs automatically.</span>
+            </div>
+
+            {backupStatus === 'ready' ? (
+              <div data-attachment-backup-inspection-report style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ fontSize: 10.5, color: c.textMuted }}>
+                  {backupSummaries.length} migration backup{backupSummaries.length === 1 ? '' : 's'} found.
+                </div>
+                {backupSummaries.length === 0 ? (
+                  <div style={{ fontSize: 10.5, color: c.textMuted }}>No migration backups found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {backupSummaries.slice(0, 10).map(summary => {
+                      const eligibility = backupEligibility({ summary, notesById, migrationReport });
+                      const selected = selectedBackupKey === summary.backupKey;
+                      return (
+                        <button
+                          key={summary.backupKey}
+                          type="button"
+                          className="btbtn"
+                          onClick={() => selectBackup(summary.backupKey)}
+                          style={{
+                            display: 'block',
+                            textAlign: 'left',
+                            border: `1px solid ${selected ? c.accent : c.sideBdr}`,
+                            borderRadius: 6,
+                            padding: 8,
+                            color: c.text,
+                            background: selected ? c.accentBg : 'transparent',
+                            height: 'auto',
+                            width: '100%',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 800 }}>{noteTitle(notesById.get(summary.noteId), summary.noteId)}</span>
+                            <span style={{ fontSize: 9.5, color: eligibility.safe ? c.accent : c.textFaint }}>{eligibility.label}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
+                            backup {shortValue(summary.backupKey)} · migration {shortValue(summary.migrationId)} · note {shortValue(summary.noteId)}
+                          </div>
+                          <div style={{ fontSize: 10, color: c.textMuted, marginTop: 3, lineHeight: 1.45 }}>
+                            created {summary.createdAt} · original body {formatBytes(summary.originalBodyBytes)} · content {formatBytes(summary.originalContentBytes)}
+                          </div>
+                          <div style={{ fontSize: 10, color: c.textMuted, marginTop: 3, lineHeight: 1.45 }}>
+                            candidates {summary.candidateCount} · decoded {formatBytes(summary.estimatedDecodedBytes)} · types {summary.mimeTypes.join(', ') || 'none'}
+                          </div>
+                          <div style={{ fontSize: 9.5, color: eligibility.safe ? c.accent : c.textFaint, marginTop: 3, lineHeight: 1.45 }}>{eligibility.reason}</div>
+                        </button>
+                      );
+                    })}
+                    {backupSummaries.length > 10 ? (
+                      <div style={{ fontSize: 10, color: c.textFaint }}>{backupSummaries.length - 10} more backups hidden in this compact review.</div>
+                    ) : null}
+                  </div>
+                )}
+
+                {selectedBackup && selectedBackupEligibility ? (
+                  <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800 }}>Explicit restore</div>
+                    <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                      Status: <strong>{selectedBackupEligibility.label}</strong>. {selectedBackupEligibility.reason}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                      Type <strong>{selectedRestorePhrase}</strong> to restore this backup. Created attachments, blobs, metadata, and backups are preserved.
+                    </div>
+                    <input
+                      value={restoreConfirmation}
+                      onChange={event => setRestoreConfirmation(event.currentTarget.value)}
+                      placeholder={selectedRestorePhrase}
+                      disabled={!selectedBackupEligibility.safe || restoreBusy}
+                      aria-label="Restore confirmation phrase"
+                      style={{
+                        border: `1px solid ${c.sideBdr}`,
+                        borderRadius: 6,
+                        padding: '6px 8px',
+                        background: c.input,
+                        color: c.text,
+                        fontSize: 11,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btbtn"
+                      onClick={runRestore}
+                      disabled={!restoreCanRun}
+                      style={{
+                        padding: '6px 9px',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: restoreCanRun ? c.accent : c.textFaint,
+                        borderColor: restoreCanRun ? `${c.accent}66` : c.sideBdr,
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      {restoreBusy ? 'Restoring backup...' : 'Restore selected backup'}
+                    </button>
+                    {restoreReport ? (
+                      <div data-attachment-restore-report style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800 }}>Restore result</div>
+                        <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+                          <div>Note: {shortValue(restoreReport.noteId)}</div>
+                          <div>Backup: {shortValue(restoreReport.backupKey)}</div>
+                          <div>Restored: {restoreReport.restored ? 'yes' : 'no'}</div>
+                          <div>Forced: {restoreReport.forced ? 'yes' : 'no'}</div>
+                          {restoreReport.previousBodyHash ? <div>Previous body hash: {restoreReport.previousBodyHash}</div> : null}
+                          {restoreReport.restoredBodyHash ? <div>Restored body hash: {restoreReport.restoredBodyHash}</div> : null}
+                        </div>
+                        {restoreReport.warnings.map((warning, index) => (
+                          <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{warning}</div>
+                        ))}
+                        {restoreReport.errors.map((failure, index) => (
+                          <div key={`${failure}-${index}`} style={{ fontSize: 10, color: c.danger }}>{failure}</div>
+                        ))}
+                        <div style={{ fontSize: 10.5, color: c.textMuted }}>Re-run migration scan or cleanup review if you need updated maintenance counts.</div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           {error ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{error}</div>
           ) : null}
@@ -655,6 +966,12 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ) : null}
           {cleanupExecutionError ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{cleanupExecutionError}</div>
+          ) : null}
+          {backupError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{backupError}</div>
+          ) : null}
+          {restoreError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{restoreError}</div>
           ) : null}
         </div>
       ) : null}
