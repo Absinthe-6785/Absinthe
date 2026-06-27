@@ -5,6 +5,8 @@ import { isAttachmentMetadataLightweight } from './attachmentRepository';
 import {
   NullRemoteBlobProvider,
   RemoteBlobProviderUnavailableError,
+  sanitizeRemoteBlobProviderError,
+  sanitizeRemoteBlobProviderErrorMessage,
   type RemoteBlobProviderCapabilities,
   type RemoteBlobProviderType,
 } from './remoteBlobProvider';
@@ -148,5 +150,80 @@ describe('remote blob provider contract', () => {
     expect(serialized).toContain('attachment://att-1');
     expect(serialized).not.toContain('data:image/png;base64,AAA111');
     expect(serialized).not.toContain(';base64,');
+  });
+});
+
+describe('remote blob provider error sanitization', () => {
+  it('redacts OAuth tokens, authorization headers, and cookie headers', () => {
+    const sanitized = sanitizeRemoteBlobProviderErrorMessage(
+      'Authorization: Bearer ya29.access-token, Set-Cookie: session=secret, refresh_token=refresh-1&access_token=access-1&id_token=id-1&code=auth-code'
+    );
+
+    expect(sanitized).toContain('Authorization: [redacted-secret]');
+    expect(sanitized).toContain('Set-Cookie: [redacted-secret]');
+    expect(sanitized).toContain('refresh_token=[redacted-secret]');
+    expect(sanitized).toContain('access_token=[redacted-secret]');
+    expect(sanitized).toContain('id_token=[redacted-secret]');
+    expect(sanitized).toContain('code=[redacted-secret]');
+    expect(sanitized).not.toContain('ya29.access-token');
+    expect(sanitized).not.toContain('refresh-1');
+    expect(sanitized).not.toContain('auth-code');
+  });
+
+  it('redacts Google OAuth URLs that carry query secrets', () => {
+    const sanitized = sanitizeRemoteBlobProviderErrorMessage(
+      'POST https://oauth2.googleapis.com/token?client_secret=secret-1&code=code-1 failed'
+    );
+
+    expect(sanitized).toBe(`POST [redacted-remote-url] failed`);
+    expect(sanitized).not.toContain('client_secret');
+    expect(sanitized).not.toContain('code-1');
+  });
+
+  it('redacts Drive resumable upload session URLs and upload ids', () => {
+    const sanitized = sanitizeRemoteBlobProviderErrorMessage(
+      'Resume at https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=ABCD1234 with upload_id=ABCD1234'
+    );
+
+    expect(sanitized).toContain('[redacted-remote-url]');
+    expect(sanitized).toContain('upload_id=[redacted-secret]');
+    expect(sanitized).not.toContain('ABCD1234');
+    expect(sanitized).not.toContain('https://www.googleapis.com/upload/drive/v3/files');
+  });
+
+  it('redacts signed URLs and embedded blob data', () => {
+    const sanitized = sanitizeRemoteBlobProviderErrorMessage(
+      'Failed https://storage.example.test/blob?X-Goog-Signature=sig-1 payload data:image/png;base64,AAA111BBB222'
+    );
+
+    expect(sanitized).toContain('[redacted-remote-url]');
+    expect(sanitized).toContain('[redacted-blob-data]');
+    expect(sanitized).not.toContain('sig-1');
+    expect(sanitized).not.toContain('AAA111BBB222');
+  });
+
+  it('returns structured safe remote errors without raw response objects', () => {
+    const sanitized = sanitizeRemoteBlobProviderError(
+      {
+        status: 401,
+        access_token: 'must-not-leak',
+        headers: {
+          Authorization: 'Bearer must-not-leak',
+        },
+      },
+      {
+        category: 'auth',
+        retryable: false,
+        code: 'reauth_required',
+      }
+    );
+
+    expect(sanitized).toEqual({
+      message: 'Remote provider request failed with status 401.',
+      category: 'auth',
+      retryable: false,
+      code: 'reauth_required',
+    });
+    expect(JSON.stringify(sanitized)).not.toContain('must-not-leak');
   });
 });

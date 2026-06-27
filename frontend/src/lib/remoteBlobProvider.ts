@@ -107,6 +107,97 @@ export interface RemoteBlobProvider {
   downloadBlob(input: RemoteBlobDownloadInput): Promise<Blob>;
 }
 
+export type RemoteBlobProviderErrorCategory =
+  | 'auth'
+  | 'network'
+  | 'quota'
+  | 'provider'
+  | 'upload'
+  | 'unknown';
+
+export interface SanitizedRemoteBlobProviderError {
+  readonly message: string;
+  readonly category: RemoteBlobProviderErrorCategory;
+  readonly retryable: boolean;
+  readonly code?: string;
+}
+
+const REDACTED_SECRET = '[redacted-secret]';
+const REDACTED_URL = '[redacted-remote-url]';
+const REDACTED_BLOB_DATA = '[redacted-blob-data]';
+const MAX_REMOTE_ERROR_MESSAGE_LENGTH = 280;
+
+function trimRemoteErrorMessage(message: string): string {
+  const normalized = message.replace(/\s+/g, ' ').trim();
+
+  if (normalized.length <= MAX_REMOTE_ERROR_MESSAGE_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_REMOTE_ERROR_MESSAGE_LENGTH - 1).trimEnd()}...`;
+}
+
+function extractRemoteErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeRecord = error as Record<string, unknown>;
+    const message = maybeRecord.message;
+    const status = maybeRecord.status ?? maybeRecord.statusCode;
+    const code = maybeRecord.code;
+
+    if (typeof message === 'string') {
+      return message;
+    }
+
+    if (typeof status === 'number' || typeof status === 'string') {
+      return `Remote provider request failed with status ${status}.`;
+    }
+
+    if (typeof code === 'string') {
+      return `Remote provider request failed with code ${code}.`;
+    }
+  }
+
+  return 'Remote provider request failed.';
+}
+
+export function sanitizeRemoteBlobProviderErrorMessage(error: unknown): string {
+  return trimRemoteErrorMessage(
+    extractRemoteErrorMessage(error)
+      .replace(/data:[^;\s]+;base64,[A-Za-z0-9+/=._-]+/gi, REDACTED_BLOB_DATA)
+      .replace(/https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?[^\s"'<>]+/gi, REDACTED_URL)
+      .replace(/https:\/\/oauth2\.googleapis\.com\/(?:token|revoke)\?[^\s"'<>]+/gi, REDACTED_URL)
+      .replace(/https?:\/\/[^\s"'<>]*(?:X-Goog-Signature|X-Amz-Signature|Signature=)[^\s"'<>]*/gi, REDACTED_URL)
+      .replace(/\b(Authorization|Set-Cookie)\s*[:=]\s*[^,}\]]+/gi, `$1: ${REDACTED_SECRET}`)
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED_SECRET}`)
+      .replace(/\b(access_token|refresh_token|id_token|code|client_secret|upload_id)=([^&\s"']+)/gi, `$1=${REDACTED_SECRET}`)
+      .replace(/"?(access_token|refresh_token|id_token|code|client_secret)"?\s*:\s*"[^"]*"/gi, '"$1":"[redacted-secret]"')
+  );
+}
+
+export function sanitizeRemoteBlobProviderError(
+  error: unknown,
+  options: {
+    readonly category?: RemoteBlobProviderErrorCategory;
+    readonly retryable?: boolean;
+    readonly code?: string;
+  } = {}
+): SanitizedRemoteBlobProviderError {
+  return {
+    message: sanitizeRemoteBlobProviderErrorMessage(error),
+    category: options.category ?? 'unknown',
+    retryable: options.retryable ?? false,
+    code: options.code,
+  };
+}
+
 export class RemoteBlobProviderUnavailableError extends Error {
   constructor(message = 'Remote blob provider is unavailable or unconfigured.') {
     super(message);
