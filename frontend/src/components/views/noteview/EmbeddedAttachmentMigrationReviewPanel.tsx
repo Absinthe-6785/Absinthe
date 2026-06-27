@@ -7,8 +7,18 @@ import type {
 import { auditEmbeddedAttachments } from '../../../lib/embeddedAttachmentAudit';
 import {
   buildAttachmentCleanupReview,
+  type AttachmentCleanupReviewCandidate,
   type AttachmentCleanupReviewReport,
 } from '../../../lib/attachmentCleanupReview';
+import {
+  attachmentCleanupCandidateId,
+  createAttachmentCleanupConfirmationToken,
+  executeAttachmentCleanup,
+  hashAttachmentCleanupReviewReport,
+  type AttachmentCleanupExecutorReport,
+} from '../../../lib/attachmentCleanupExecutor';
+import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
+import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import {
   migrateEmbeddedDataUrlsToAttachments,
   type EmbeddedAttachmentMigrationReport,
@@ -19,6 +29,7 @@ import type { NoteBase as Note } from '../noteUtils';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
 type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
+type CleanupExecutionState = 'idle' | 'running' | 'complete' | 'error';
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -27,6 +38,7 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   auditFn?: (notes: readonly EmbeddedAttachmentAuditNoteInput[]) => EmbeddedAttachmentAuditReport;
   migrateFn?: typeof migrateEmbeddedDataUrlsToAttachments;
   cleanupReviewFn?: typeof buildAttachmentCleanupReview;
+  cleanupExecutorFn?: typeof executeAttachmentCleanup;
 }
 
 function formatBytes(bytes: number): string {
@@ -88,12 +100,34 @@ const cleanupStatusLabels: Record<string, string> = {
   unreferencedAttachmentMetadata: 'review candidate',
   unreferencedBlob: 'review candidate',
   partialMigrationArtifact: 'warning',
-  restoredMigrationArtifact: 'review candidate',
+  restoredMigrationArtifact: 'preserved',
   backupRecord: 'preserved',
   missingBlob: 'data integrity warning',
   missingMetadata: 'data integrity warning',
   duplicateCandidate: 'review required',
 };
+
+const cleanupResultLabels: Record<string, string> = {
+  deleted: 'Deleted',
+  skipped: 'Skipped',
+  blocked: 'Blocked',
+  failed: 'Failed',
+};
+
+function isSelectableCleanupCandidate(candidate: AttachmentCleanupReviewCandidate): boolean {
+  return candidate.type === 'unreferencedBlob' || candidate.type === 'unreferencedAttachmentMetadata';
+}
+
+function cleanupBlockedReason(candidate: AttachmentCleanupReviewCandidate): string {
+  if (isSelectableCleanupCandidate(candidate)) return 'Selectable after review.';
+  if (candidate.type === 'referencedAttachment') return 'In use by note content.';
+  if (candidate.type === 'backupRecord') return 'Backup records are preserved.';
+  if (candidate.type === 'restoredMigrationArtifact') return 'Restored migration traces are preserved.';
+  if (candidate.type === 'missingBlob' || candidate.type === 'missingMetadata') return 'Integrity warning; manual restore or repair may be needed.';
+  if (candidate.type === 'partialMigrationArtifact') return 'Partial migration artifact; inspect the migration result first.';
+  if (candidate.type === 'duplicateCandidate') return 'Duplicate candidate; resolve manually before cleanup.';
+  return 'Not eligible for explicit cleanup.';
+}
 
 export function EmbeddedAttachmentMigrationReviewPanel({
   notes,
@@ -102,6 +136,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   auditFn = auditEmbeddedAttachments,
   migrateFn = migrateEmbeddedDataUrlsToAttachments,
   cleanupReviewFn = buildAttachmentCleanupReview,
+  cleanupExecutorFn = executeAttachmentCleanup,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -109,8 +144,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [auditReport, setAuditReport] = useState<EmbeddedAttachmentAuditReport | null>(null);
   const [migrationReport, setMigrationReport] = useState<EmbeddedAttachmentMigrationReport | null>(null);
   const [cleanupReport, setCleanupReport] = useState<AttachmentCleanupReviewReport | null>(null);
+  const [cleanupExecutionReport, setCleanupExecutionReport] = useState<AttachmentCleanupExecutorReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [cleanupExecutionError, setCleanupExecutionError] = useState<string | null>(null);
+  const [cleanupExecutionStatus, setCleanupExecutionStatus] = useState<CleanupExecutionState>('idle');
+  const [selectedCleanupCandidateIds, setSelectedCleanupCandidateIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [cleanupConfirmation, setCleanupConfirmation] = useState('');
   const [confirming, setConfirming] = useState(false);
 
   const activeNotes = useMemo(() => notes.filter(note => !note.deletedAt), [notes]);
@@ -118,7 +158,23 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const hasCandidates = (auditReport?.summary.totalEmbeddedPayloads ?? 0) > 0;
   const busy = status === 'scanning' || status === 'migrating';
   const cleanupBusy = cleanupStatus === 'reviewing';
+  const cleanupExecuting = cleanupExecutionStatus === 'running';
   const canMigrate = Boolean(auditReport && hasCandidates && !busy);
+  const cleanupReportHash = cleanupReport ? hashAttachmentCleanupReviewReport(cleanupReport) : '';
+  const cleanupConfirmationPhrase = cleanupReport ? `CLEANUP ${cleanupReportHash.slice(0, 12)}` : '';
+  const cleanupCandidateEntries = cleanupReport?.candidates.map((candidate, index) => ({
+    candidate,
+    candidateId: attachmentCleanupCandidateId(candidate, index),
+    selectable: isSelectableCleanupCandidate(candidate),
+  })) ?? [];
+  const selectedCleanupCandidateCount = selectedCleanupCandidateIds.size;
+  const selectableCleanupCandidateIds = new Set(cleanupCandidateEntries.filter(entry => entry.selectable).map(entry => entry.candidateId));
+  const cleanupCanExecute = Boolean(
+    cleanupReport
+      && selectedCleanupCandidateCount > 0
+      && cleanupConfirmation === cleanupConfirmationPhrase
+      && !cleanupExecuting,
+  );
 
   const scan = async () => {
     if (busy) return;
@@ -145,6 +201,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     if (cleanupBusy) return;
     setCleanupStatus('reviewing');
     setCleanupError(null);
+    setCleanupExecutionError(null);
+    setCleanupExecutionReport(null);
+    setCleanupExecutionStatus('idle');
+    setSelectedCleanupCandidateIds(new Set());
+    setCleanupConfirmation('');
     try {
       const report = await cleanupReviewFn({
         notes: activeNotes.map(note => ({
@@ -161,6 +222,54 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     } catch (err) {
       setCleanupError(safeError(err));
       setCleanupStatus('error');
+    }
+  };
+
+  const toggleCleanupCandidate = (candidateId: string, checked: boolean) => {
+    if (!selectableCleanupCandidateIds.has(candidateId) || cleanupExecuting) return;
+    setSelectedCleanupCandidateIds(previous => {
+      const next = new Set(previous);
+      if (checked) next.add(candidateId);
+      else next.delete(candidateId);
+      return next;
+    });
+    setCleanupExecutionReport(null);
+    setCleanupExecutionError(null);
+  };
+
+  const runCleanup = async () => {
+    if (!cleanupReport || !cleanupCanExecute) return;
+    const selectedCandidateIds = Array.from(selectedCleanupCandidateIds).filter(candidateId => selectableCleanupCandidateIds.has(candidateId));
+    if (selectedCandidateIds.length !== selectedCleanupCandidateIds.size) {
+      setCleanupExecutionStatus('error');
+      setCleanupExecutionError('Cleanup review is stale. Re-run cleanup review before cleanup.');
+      return;
+    }
+
+    setCleanupExecutionStatus('running');
+    setCleanupExecutionError(null);
+    setCleanupExecutionReport(null);
+    try {
+      const report = await cleanupExecutorFn({
+        reviewReport: cleanupReport,
+        confirmationToken: createAttachmentCleanupConfirmationToken(cleanupReport),
+        selectedCandidateIds,
+        notes: activeNotes.map(note => ({
+          id: note.id,
+          title: note.title,
+          body: note.body,
+          updatedAt: String(note.updatedAt),
+        })),
+        repository: createLocalAttachmentMetadataRepository(),
+        blobAdapter: createLocalAttachmentBlobAdapter(),
+      });
+      setCleanupExecutionReport(report);
+      setCleanupExecutionStatus('complete');
+      setSelectedCleanupCandidateIds(new Set());
+      setCleanupConfirmation('');
+    } catch (err) {
+      setCleanupExecutionError(safeError(err));
+      setCleanupExecutionStatus('error');
     }
   };
 
@@ -415,11 +524,24 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   <div style={{ fontSize: 10.5, color: c.textMuted }}>No cleanup candidates found.</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {cleanupReport.candidates.slice(0, 10).map((candidate, index) => (
-                      <div key={`${candidate.type}-${candidate.attachmentId ?? candidate.localBlobKey ?? candidate.backupKey ?? index}`} style={{ border: `1px solid ${candidate.severity === 'danger' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
+                    {cleanupCandidateEntries.slice(0, 10).map(({ candidate, candidateId, selectable }) => (
+                      <div key={candidateId} style={{ border: `1px solid ${candidate.severity === 'danger' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 10.5, fontWeight: 800 }}>{cleanupTypeLabels[candidate.type] ?? candidate.type}</span>
-                          <span style={{ fontSize: 9.5, color: candidate.severity === 'warning' ? c.danger : c.textFaint }}>{cleanupStatusLabels[candidate.type] ?? candidate.severity}</span>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                            {selectable ? (
+                              <input
+                                type="checkbox"
+                                checked={selectedCleanupCandidateIds.has(candidateId)}
+                                disabled={cleanupExecuting}
+                                onChange={event => toggleCleanupCandidate(candidateId, event.currentTarget.checked)}
+                                aria-label={`Select ${cleanupTypeLabels[candidate.type] ?? candidate.type}`}
+                              />
+                            ) : null}
+                            <span style={{ fontSize: 10.5, fontWeight: 800 }}>{cleanupTypeLabels[candidate.type] ?? candidate.type}</span>
+                          </label>
+                          <span style={{ fontSize: 9.5, color: candidate.severity === 'warning' ? c.danger : c.textFaint }}>
+                            {selectable ? 'selectable' : (cleanupStatusLabels[candidate.type] ?? candidate.severity)}
+                          </span>
                         </div>
                         <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
                           {candidate.noteId ? <span>note {shortValue(candidate.noteId)} </span> : null}
@@ -429,6 +551,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                         </div>
                         <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>{candidate.reason}</div>
                         <div style={{ fontSize: 9.5, color: c.textFaint, marginTop: 3, lineHeight: 1.45 }}>{candidate.safeActionRecommendation}</div>
+                        <div style={{ fontSize: 9.5, color: selectable ? c.accent : c.textFaint, marginTop: 3, lineHeight: 1.45 }}>
+                          {selectable ? 'Eligible for selected local cleanup.' : cleanupBlockedReason(candidate)}
+                        </div>
                       </div>
                     ))}
                     {cleanupReport.candidates.length > 10 ? (
@@ -438,6 +563,86 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     ) : null}
                   </div>
                 )}
+                <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800 }}>Explicit cleanup</div>
+                  <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                    Select individual unreferenced local candidates, then type <strong>{cleanupConfirmationPhrase}</strong> to confirm this exact review.
+                    Default selection is zero. Backup records and warnings are not selectable.
+                  </div>
+                  <input
+                    value={cleanupConfirmation}
+                    onChange={event => setCleanupConfirmation(event.currentTarget.value)}
+                    placeholder={cleanupConfirmationPhrase}
+                    disabled={!cleanupReport || cleanupExecuting}
+                    aria-label="Cleanup confirmation phrase"
+                    style={{
+                      border: `1px solid ${c.sideBdr}`,
+                      borderRadius: 6,
+                      padding: '6px 8px',
+                      background: c.input,
+                      color: c.text,
+                      fontSize: 11,
+                    }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btbtn"
+                      onClick={runCleanup}
+                      disabled={!cleanupCanExecute}
+                      style={{
+                        padding: '6px 9px',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: cleanupCanExecute ? c.danger : c.textFaint,
+                        borderColor: cleanupCanExecute ? `${c.danger}66` : c.sideBdr,
+                      }}
+                    >
+                      {cleanupExecuting ? 'Cleaning selected...' : 'Clean selected local items'}
+                    </button>
+                    <span style={{ fontSize: 10, color: c.textFaint }}>
+                      {selectedCleanupCandidateCount} selected
+                    </span>
+                  </div>
+                  {cleanupExecutionReport ? (
+                    <div data-attachment-cleanup-executor-report style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 800 }}>Cleanup result</div>
+                      <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+                        <div>Cleanup ID: {cleanupExecutionReport.cleanupId}</div>
+                        <div>Source review: {cleanupExecutionReport.sourceReviewReportId}</div>
+                        <div>Confirmation verified: {cleanupExecutionReport.confirmationVerified ? 'yes' : 'no'}</div>
+                        <div>Requested: {cleanupExecutionReport.requestedCandidateCount}</div>
+                        <div>Eligible: {cleanupExecutionReport.eligibleCandidateCount}</div>
+                        <div>Blobs deleted: {cleanupExecutionReport.deletedBlobCount}</div>
+                        <div>Metadata deleted: {cleanupExecutionReport.deletedAttachmentMetadataCount}</div>
+                        <div>Skipped: {cleanupExecutionReport.skippedCandidateCount}</div>
+                        <div>Blocked: {cleanupExecutionReport.blockedCandidateCount}</div>
+                        <div>Failed: {cleanupExecutionReport.failedCandidateCount}</div>
+                        <div>Recovered estimate: {formatBytes(cleanupExecutionReport.bytesRecoveredEstimate)}</div>
+                      </div>
+                      {cleanupExecutionReport.results.map(result => (
+                        <div key={result.candidateId} style={{ border: `1px solid ${result.status === 'failed' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 6 }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 800 }}>
+                            {cleanupResultLabels[result.status] ?? result.status} - {cleanupTypeLabels[result.candidateType] ?? result.candidateType}
+                          </div>
+                          <div style={{ fontSize: 10, color: c.textMuted, marginTop: 3, lineHeight: 1.45 }}>
+                            {result.attachmentId ? <span>attachment {shortValue(result.attachmentId)} </span> : null}
+                            {result.localBlobKey ? <span>blob {shortValue(result.localBlobKey)} </span> : null}
+                            {result.estimatedBytes ? <span>{formatBytes(result.estimatedBytes)} </span> : null}
+                          </div>
+                          <div style={{ fontSize: 9.5, color: c.textFaint, marginTop: 3, lineHeight: 1.45 }}>{result.reason}</div>
+                        </div>
+                      ))}
+                      {cleanupExecutionReport.warnings.map((warning, index) => (
+                        <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{warning}</div>
+                      ))}
+                      {cleanupExecutionReport.errors.map((failure, index) => (
+                        <div key={`${failure}-${index}`} style={{ fontSize: 10, color: c.danger }}>{failure}</div>
+                      ))}
+                      <div style={{ fontSize: 10.5, color: c.textMuted }}>Re-run cleanup review after cleanup to refresh local inventory.</div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
@@ -447,6 +652,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ) : null}
           {cleanupError ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{cleanupError}</div>
+          ) : null}
+          {cleanupExecutionError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{cleanupExecutionError}</div>
           ) : null}
         </div>
       ) : null}
