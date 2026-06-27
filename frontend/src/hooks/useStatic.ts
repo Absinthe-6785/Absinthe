@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import useSWR from 'swr';
-import { fetcher } from '../lib/fetcher';
+import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
 
@@ -24,7 +24,11 @@ export const useStaticData = (
   const swrOpts = useMemo(
     () => ({
       ...STATIC_SWR_BASE,
-      onError: (e: Error) => onError?.(`Static fetch failed: ${e.message}`),
+      onError: (e: unknown) => {
+        if (isLocalOnlyRemotePausedError(e)) return;
+        const message = e instanceof Error ? e.message : String(e);
+        onError?.(`Static fetch failed: ${message}`);
+      },
     }),
     [onError],
   );
