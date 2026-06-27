@@ -37,8 +37,8 @@ describe('attachment repository boundary', () => {
       checksum: 'sha256:abc',
       localBlobKey: 'local/att-1',
       remoteBlobKey: 'remote/att-1',
-      createdAt: 1,
-      updatedAt: 2,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
       deletedAt: null,
       syncStatus: 'dirty',
     };
