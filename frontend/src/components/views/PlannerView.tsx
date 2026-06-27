@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
+import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { X, Calendar } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
@@ -67,12 +68,12 @@ export const PlannerView = ({
   }, [selectedDate]);
   const prevDateStr = useMemo(() => formatDate(prevDate), [prevDate, formatDate]);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    `${API_URL}/api/schedules?date=${prevDateStr}`,
+    remoteSWRKey(`${API_URL}/api/schedules?date=${prevDateStr}`),
     fetcher,
     { revalidateOnFocus: false }
   );
   const { data: ddaySchedules = [], mutate: mutateDdaySchedules } = useSWR<ScheduleDday[]>(
-    `${API_URL}/api/schedules/ddays`,
+    remoteSWRKey(`${API_URL}/api/schedules/ddays`),
     fetcher,
     { revalidateOnFocus: false },
   );

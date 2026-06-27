@@ -39,6 +39,7 @@ import {
 import type { RecentActivityItem } from './buildRecentActivityProjection';
 import { API_URL } from '../../lib/config';
 import { fetcher } from '../../lib/fetcher';
+import { remoteSWRKey } from '../../lib/remoteBoundary';
 import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
 
@@ -134,12 +135,12 @@ export const HomeView = ({
   }, [selectedDate]);
   const prevDateStr = formatDate(prevDate);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    `${API_URL}/api/schedules?date=${prevDateStr}`,
+    remoteSWRKey(`${API_URL}/api/schedules?date=${prevDateStr}`),
     fetcher,
     { revalidateOnFocus: false },
   );
   const { data: ddaySchedules = [] } = useSWR<ScheduleDday[]>(
-    `${API_URL}/api/schedules/ddays`,
+    remoteSWRKey(`${API_URL}/api/schedules/ddays`),
     fetcher,
     { revalidateOnFocus: false },
   );

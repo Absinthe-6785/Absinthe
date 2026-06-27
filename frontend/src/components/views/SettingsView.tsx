@@ -30,6 +30,7 @@ import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
 import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
+import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -48,7 +49,7 @@ export const SettingsView = ({
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
-  const cloudSyncEnabled = Boolean(user?.id);
+  const cloudSyncEnabled = shouldUseRemoteData() && Boolean(user?.id);
   const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
@@ -103,6 +104,14 @@ export const SettingsView = ({
   };
 
   const doResetData = async () => {
+    if (!shouldUseRemoteData()) {
+      resetAllNotes();
+      showToast(t('resetSuccess'));
+      mutateDaily();
+      mutateStatic();
+      return;
+    }
+
     try {
       const res = await authFetch(`${API_URL}/api/reset`, { method: 'DELETE' });
       if (res.ok) {

@@ -4,13 +4,17 @@
 import { API_URL } from './config';
 import { authFetch } from './supabase';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
+export {
+  isNotesCloudSyncEnabled,
+  NOTES_RUNTIME_SYNC_MODE_KEY,
+  resolveNotesRuntimeSyncMode,
+  type NotesRuntimeSyncMode,
+} from './syncMode';
 
 export const NOTES_LAST_SYNC_KEY = 'absinthe-notes-last-sync-at';
 export const NOTES_FOLDERS_BOOTSTRAP_KEY = 'absinthe-note-folders-bootstrapped';
-export const NOTES_RUNTIME_SYNC_MODE_KEY = 'absinthe-notes-sync-mode';
 
 export type NotesSyncMode = 'bootstrap' | 'delta' | 'recovery';
-export type NotesRuntimeSyncMode = 'local' | 'remote' | 'hybrid';
 
 export interface DbNoteRow {
   id: string;
@@ -57,27 +61,6 @@ export function clearLastNotesSyncAt(): void {
     localStorage.removeItem(NOTES_LAST_SYNC_KEY);
     localStorage.removeItem(NOTES_FOLDERS_BOOTSTRAP_KEY);
   } catch { /* ignore */ }
-}
-
-function isNotesRuntimeSyncMode(value: unknown): value is NotesRuntimeSyncMode {
-  return value === 'local' || value === 'remote' || value === 'hybrid';
-}
-
-export function resolveNotesRuntimeSyncMode(): NotesRuntimeSyncMode {
-  // Local is the runtime source of truth; remote/hybrid are explicit future sync modes.
-  try {
-    const stored = localStorage.getItem(NOTES_RUNTIME_SYNC_MODE_KEY);
-    if (isNotesRuntimeSyncMode(stored)) return stored;
-  } catch { /* ignore */ }
-
-  const envMode = import.meta.env.VITE_ABSINTHE_SYNC_MODE;
-  if (isNotesRuntimeSyncMode(envMode)) return envMode;
-
-  return 'local';
-}
-
-export function isNotesCloudSyncEnabled(): boolean {
-  return resolveNotesRuntimeSyncMode() !== 'local';
 }
 
 export function resolveNotesSyncMode(explicit?: NotesSyncMode): NotesSyncMode {

@@ -44,6 +44,7 @@ import {
 } from './features/health/routinePlannedSets';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
+import { remoteSWRKey } from '../../lib/remoteBoundary';
 
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -679,7 +680,7 @@ export const HealthView = ({
   const monthStart = formatDate(new Date(year, month, 1));
   const monthEnd = formatDate(new Date(year, month + 1, 0));
   const { data: monthWorkoutRows = [] } = useSWR<RangeWorkoutRow[]>(
-    `${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`,
+    remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`),
     fetcher,
     { revalidateOnFocus: false },
   );

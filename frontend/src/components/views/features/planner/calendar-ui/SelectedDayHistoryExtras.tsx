@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { API_URL } from '@/lib/config';
+import { remoteSWRKey } from '@/lib/remoteBoundary';
 import { useTranslation } from '@/lib/i18n';
 import type { ProteinIntakeLog, Theme } from '@/types';
 import { sumProteinIntake } from '../../health/nutrition/proteinMetrics';
@@ -18,12 +19,12 @@ export interface SelectedDayHistoryExtrasProps {
 export function SelectedDayHistoryExtras({ dateKey, theme }: SelectedDayHistoryExtrasProps) {
   const { t } = useTranslation();
   const { data: workouts = [] } = useSWR<WorkoutRow[]>(
-    `${API_URL}/api/workouts?date=${dateKey}`,
+    remoteSWRKey(`${API_URL}/api/workouts?date=${dateKey}`),
     fetcher,
     { revalidateOnFocus: false },
   );
   const { data: intake = [] } = useSWR<ProteinIntakeLog[]>(
-    `${API_URL}/api/protein_intake?date=${dateKey}`,
+    remoteSWRKey(`${API_URL}/api/protein_intake?date=${dateKey}`),
     fetcher,
     { revalidateOnFocus: false },
   );
