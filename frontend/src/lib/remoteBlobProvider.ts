@@ -61,15 +61,28 @@ export interface RemoteBlobUploadInput {
 
 export interface RemoteBlobUploadResult {
   readonly providerType: RemoteBlobProviderType;
+  readonly remoteProvider?: RemoteBlobProviderType;
   readonly attachmentId: string;
   readonly remoteBlobKey?: string;
   readonly remoteFileId?: string;
   readonly mimeType?: string;
+  readonly remoteMimeType?: string;
   readonly size?: number;
+  readonly remoteSize?: number;
   readonly checksum?: string;
+  readonly remoteChecksum?: string;
   readonly createdAt?: string;
   readonly updatedAt?: string;
+  readonly remoteSyncedAt?: string;
   readonly syncedAt: string;
+  readonly verification?: RemoteBlobUploadVerification;
+}
+
+export interface RemoteBlobUploadVerification {
+  readonly sizeVerified: boolean;
+  readonly checksumVerified: boolean;
+  readonly checksumAlgorithm?: string;
+  readonly warnings?: string[];
 }
 
 export interface RemoteBlobInfoInput {
