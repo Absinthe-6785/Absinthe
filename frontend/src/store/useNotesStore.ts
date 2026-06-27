@@ -65,6 +65,7 @@ import {
   mapDbFolder,
   mergeDeltaNoteRows,
   computeLastSyncTimestamp,
+  isNotesCloudSyncEnabled,
   writeLastNotesSyncAt,
   type NotesSyncMode,
 } from '../lib/notesSyncClient';
@@ -256,6 +257,12 @@ function resolveActiveNoteAfterRemoval(
 
 export const useNotesStore = create<NotesState>((set, get) => {
   const syncNoteToDB = async (note: Note): Promise<boolean> => {
+    if (!isNotesCloudSyncEnabled()) {
+      lastFailedNote = null;
+      if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
+      else set({ savedAt: new Date() });
+      return true;
+    }
     try {
       const res = await authFetch(`${API_URL}/api/notes`, {
         method: 'POST',
@@ -278,6 +285,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const removeNoteFromDB = async (id: string): Promise<boolean> => {
+    if (!isNotesCloudSyncEnabled()) {
+      if (lastFailedDeleteId === id) lastFailedDeleteId = null;
+      if (!lastFailedNote) set({ syncError: null });
+      return true;
+    }
     try {
       const res = await authFetch(`${API_URL}/api/notes/${id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -313,6 +325,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const syncFolderToDB = async (folder: NoteFolder) => {
+    if (!isNotesCloudSyncEnabled()) return;
     try {
       await authFetch(`${API_URL}/api/note_folders`, {
         method: 'POST',
@@ -322,6 +335,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const removeFolderFromDB = async (id: string) => {
+    if (!isNotesCloudSyncEnabled()) return;
     try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
   };
 
@@ -665,6 +679,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     hydrateFromDB: async (options) => {
       await runCoalescedHydrate(async () => {
+        if (!isNotesCloudSyncEnabled()) {
+          set({ isSyncing: false, syncError: null });
+          return;
+        }
         const mode = options?.mode;
         set({ isSyncing: true });
         try {

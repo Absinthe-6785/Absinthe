@@ -31,6 +31,7 @@ vi.mock('../lib/supabase', () => ({
 
 // loadNotes() runs at module init — import after localStorage stub
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
+import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
@@ -53,6 +54,7 @@ const sampleNote = (): NoteBase => ({
 
 function resetStore() {
   storage.clear();
+  storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
   resetNotesPersistenceForTests();
   useNotesStore.setState({
@@ -123,6 +125,33 @@ describe('useNotesStore — import & DB sync', () => {
     expect(useNotesStore.getState().notes.map(n => n.id).sort()).toEqual(['draft-note', 'stored-note']);
     const saved = JSON.parse(storage.get(NOTES_KEY) ?? '[]') as NoteBase[];
     expect(saved.map(n => n.id).sort()).toEqual(['draft-note', 'stored-note']);
+  });
+});
+
+describe('useNotesStore local-only sync mode', () => {
+  beforeEach(() => {
+    resetStore();
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('does not call notes cloud APIs for create, edit, flush, hydrate, folders, or delete', async () => {
+    authFetchMock.mockResolvedValue(okJson([]));
+
+    const id = useNotesStore.getState().createNote({ title: 'Local', body: 'draft' });
+    const folderId = useNotesStore.getState().createFolder('Local Folder');
+    useNotesStore.getState().updateNote(id, { body: 'local edit' });
+    useNotesStore.getState().flushPendingSync();
+    await useNotesStore.getState().hydrateFromDB();
+    useNotesStore.getState().deleteFolder(folderId);
+    useNotesStore.getState().permanentDeleteNote(id);
+
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().syncError).toBeNull();
   });
 });
 
