@@ -18,6 +18,7 @@ describe('k97fServerMemoryAudit policy', () => {
     expect(policy.notesIncrementalFilter).toBe(true);
     expect(policy.backupParallelFetch).toBe(false);
     expect(policy.notesSelectStar).toBe(true);
+    expect(policy.notesDeltaOrFilter).toBe(true);
   });
 });
 

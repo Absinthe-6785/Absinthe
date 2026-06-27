@@ -12,7 +12,7 @@ from auth import AuthConfigurationError, SupabaseJWTVerifier
 from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
 from memory_watchdog import MemoryWatchdog
 from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
-from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, chunk_note_payloads
+from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter, chunk_note_payloads
 from memory_profile import MemoryProfiler
 
 load_dotenv()
@@ -681,7 +681,7 @@ class RoutineExceptionCreate(BaseModel):
     end_date: str
     reason: str = ''
 
-class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None; starred: bool = False; properties: dict[str, str] | None = None
+class NoteCreate(BaseModel): id: str; title: str; body: str; updated_at: int; folder_id: str | None = None; deleted_at: int | None = None; starred: bool = False; properties: dict[str, str] | None = None; relations: dict[str, list[str]] | None = None
 
 class NoteBatchCreate(BaseModel):
     notes: list[NoteCreate]
@@ -760,12 +760,15 @@ def _fetch_user_table(user_id: str, table: str, order: str | None = None):
 @app.get("/api/notes")
 async def get_notes(
     user_id: str = Depends(get_current_user),
-    updated_after: int | None = Query(default=None, ge=0),
+    updated_after: int = Query(default=0, ge=0),
 ):
-    """Full vault when updated_after is absent; delta sync when timestamp provided (K-97G)."""
-    q = supabase.table("notes").select("*").eq("user_id", user_id)
-    if updated_after is not None:
-        q = q.gt("updated_at", updated_after)
+    """Delta sync contract: return notes or tombstones changed after the cursor."""
+    q = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .or_(build_notes_delta_or_filter(updated_after))
+    )
     return q.order("updated_at", desc=True).execute().data or []
 
 @app.post("/api/notes")
@@ -777,6 +780,7 @@ async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)
         # notes 테이블에 starred/properties 컬럼이 아직 없는 구 스키마 호환
         data.pop("starred", None)
         data.pop("properties", None)
+        data.pop("relations", None)
         return supabase.table("notes").upsert(data, on_conflict="id").execute().data
 
 @app.post("/api/notes/batch")
@@ -799,6 +803,7 @@ async def upsert_notes_batch(
                 slim_row = dict(row)
                 slim_row.pop("starred", None)
                 slim_row.pop("properties", None)
+                slim_row.pop("relations", None)
                 slim.append(slim_row)
             data = supabase.table("notes").upsert(slim, on_conflict="id").execute().data or []
         results.extend(data)

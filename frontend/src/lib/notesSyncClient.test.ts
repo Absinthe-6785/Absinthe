@@ -46,6 +46,13 @@ describe('notesSyncClient', () => {
     expect(buildNotesFetchUrl('recovery', 100)).toContain('updated_after=100');
   });
 
+  it('remote and hybrid modes share the same delta endpoint contract', () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'hybrid');
+    expect(resolveNotesRuntimeSyncMode()).toBe('hybrid');
+    expect(isNotesCloudSyncEnabled()).toBe(true);
+    expect(buildNotesFetchUrl('delta', 250)).toContain('/api/notes?updated_after=250');
+  });
+
   it('computeLastSyncTimestamp from rows', () => {
     const ts = computeLastSyncTimestamp([
       { id: '1', title: '', body: '', updated_at: 50, folder_id: null, deleted_at: null },
@@ -94,5 +101,24 @@ describe('notesSyncClient', () => {
     );
 
     expect(merged[0].deletedAt).toBe(300);
+  });
+
+  it('ignores stale remote tombstones behind newer local edits', () => {
+    const merged = mergeDeltaNoteRows(
+      [{ id: 'note', updatedAt: 400, deletedAt: null, body: 'new local edit' }],
+      [{ id: 'note', updatedAt: 100, deletedAt: 300, body: 'old tombstone' }],
+    );
+
+    expect(merged[0].deletedAt).toBeNull();
+    expect(merged[0].body).toBe('new local edit');
+  });
+
+  it('does not let stale non-deleted rows revive newer local tombstones', () => {
+    const merged = mergeDeltaNoteRows(
+      [{ id: 'note', updatedAt: 100, deletedAt: 400, body: 'local tombstone' }],
+      [{ id: 'note', updatedAt: 300, deletedAt: null, body: 'remote stale active' }],
+    );
+
+    expect(merged[0].deletedAt).toBe(400);
   });
 });

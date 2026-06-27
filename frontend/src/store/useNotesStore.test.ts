@@ -710,4 +710,67 @@ describe('useNotesStore K-142 notes delta sync foundation', () => {
     expect(posts).toHaveLength(1);
     expect((posts[0][1] as RequestInit).body).toContain('new local body');
   });
+
+  it('newer remote tombstone hides an older local note', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '200');
+    const local = { ...sampleNote(), id: 'same-note', body: 'old local body', updatedAt: 100, deletedAt: null };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([{
+        id: 'same-note',
+        title: 'Remote deleted',
+        body: 'old local body',
+        updated_at: 100,
+        folder_id: null,
+        deleted_at: 300,
+      }]))
+      .mockResolvedValueOnce(okJson({}));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(useNotesStore.getState().notes.find(n => n.id === 'same-note')?.deletedAt).toBe(300);
+    expect(JSON.parse((noteApiCalls('POST')[0][1] as RequestInit).body as string)).toMatchObject({
+      id: 'same-note',
+      deleted_at: 300,
+    });
+  });
+
+  it('stale remote tombstone does not delete a newer local edit', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '100');
+    const local = { ...sampleNote(), id: 'same-note', body: 'new local body', updatedAt: 400, deletedAt: null };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([{
+        id: 'same-note',
+        title: 'Remote deleted',
+        body: 'stale tombstone',
+        updated_at: 50,
+        folder_id: null,
+        deleted_at: 300,
+      }]))
+      .mockResolvedValueOnce(okJson({}));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    const note = useNotesStore.getState().notes.find(n => n.id === 'same-note');
+    expect(note?.deletedAt).toBeNull();
+    expect(note?.body).toBe('new local body');
+  });
+
+  it('does not advance the cursor when coupled dirty push fails', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '100');
+    const local = { ...sampleNote(), id: 'dirty-note', updatedAt: 300 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([]))
+      .mockResolvedValueOnce(failResponse(503));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('100');
+    expect(useNotesStore.getState().syncError).toContain('503');
+  });
 });

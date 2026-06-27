@@ -29,7 +29,16 @@ export function noteChangedSince(row: DbNoteRow, updatedAfter: number): boolean 
 export function filterNotesIncremental(rows: readonly DbNoteRow[], updatedAfter: number): DbNoteRow[] {
   return rows
     .filter(row => noteChangedSince(row, updatedAfter))
-    .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+    .sort((a, b) => noteRevisionTime(b) - noteRevisionTime(a));
+}
+
+export function noteRevisionTime(row: Pick<DbNoteRow, 'updated_at' | 'deleted_at'>): number {
+  return Math.max(row.updated_at ?? 0, row.deleted_at ?? 0);
+}
+
+export function buildNotesDeltaOrFilter(updatedAfter: number): string {
+  const cursor = Math.max(0, Math.trunc(updatedAfter || 0));
+  return `updated_at.gt.${cursor},deleted_at.gt.${cursor}`;
 }
 
 export function chunkNotePayloads<T>(notes: readonly T[], chunkSize: number): T[][] {

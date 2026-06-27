@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const K114_INCREMENTAL_SYNC_RULES = [
-  'bootstrap: full sync once when lastSyncAt absent',
+  'bootstrap: changed-since from cursor 0 when lastSyncAt absent',
   'steady-state: GET /api/notes?updated_after=<ts>',
-  'recovery: hydrateFromDBFull forces full vault',
+  'recovery: changed-since, never full-vault replace',
   'folders: fetch once then skip on delta',
 ] as const;
 

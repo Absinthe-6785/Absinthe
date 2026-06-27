@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildLargeVaultDataset } from '@/dev/realisticUsageFixture';
 import type { NoteBase } from '@/components/views/noteUtils';
-import { filterNotesIncremental, type DbNoteRow } from '@/server/k97gNotesSyncLogic';
+import { buildNotesDeltaOrFilter, filterNotesIncremental, type DbNoteRow } from '@/server/k97gNotesSyncLogic';
 
 export const K97G_NOTE_COUNTS = [100, 300, 1000, 3000] as const;
 export type K97gNoteCount = (typeof K97G_NOTE_COUNTS)[number];
@@ -93,15 +93,44 @@ export function readK97gIncrementalSyncPolicy(): {
   backwardCompatibleFullSync: boolean;
   batchEndpointPresent: boolean;
   deletedNotesIncluded: boolean;
+  tombstoneOrFilter: boolean;
+  normalSyncFullFetchFallback: boolean;
 } {
   const mainSrc = readFileSync(backendPath('main.py'), 'utf8');
   const notesSrc = readFileSync(backendPath('notes_sync.py'), 'utf8');
   return {
-    updatedAfterParam: mainSrc.includes('updated_after: int | None = Query'),
+    updatedAfterParam: mainSrc.includes('updated_after: int = Query'),
     backwardCompatibleFullSync: mainSrc.includes('if updated_after is not None'),
     batchEndpointPresent: mainSrc.includes('@app.post("/api/notes/batch")'),
     deletedNotesIncluded: notesSrc.includes('deleted_at'),
+    tombstoneOrFilter: mainSrc.includes('build_notes_delta_or_filter') && notesSrc.includes('deleted_at.gt'),
+    normalSyncFullFetchFallback: mainSrc.includes('if updated_after is not None'),
   };
+}
+
+export function readK143BackendDeltaContract(): {
+  notesRoutePresent: boolean;
+  cursorDefaultsToZero: boolean;
+  userScoped: boolean;
+  tombstoneInclusiveQuery: boolean;
+  noNormalFullFetchFallback: boolean;
+  hardDeleteEndpointPresent: boolean;
+  relationPayloadPreserved: boolean;
+} {
+  const mainSrc = readFileSync(backendPath('main.py'), 'utf8');
+  return {
+    notesRoutePresent: mainSrc.includes('@app.get("/api/notes")'),
+    cursorDefaultsToZero: mainSrc.includes('updated_after: int = Query(default=0, ge=0)'),
+    userScoped: mainSrc.includes('.eq("user_id", user_id)'),
+    tombstoneInclusiveQuery: mainSrc.includes('.or_(build_notes_delta_or_filter(updated_after))'),
+    noNormalFullFetchFallback: !mainSrc.includes('if updated_after is not None'),
+    hardDeleteEndpointPresent: mainSrc.includes('@app.delete("/api/notes/{note_id}")'),
+    relationPayloadPreserved: mainSrc.includes('relations: dict[str, list[str]] | None = None'),
+  };
+}
+
+export function expectedBackendNotesDeltaFilter(updatedAfter: number): string {
+  return buildNotesDeltaOrFilter(updatedAfter);
 }
 
 export function formatK97gIncrementalSyncReport(rows: readonly K97gIncrementalSyncRow[]): string {

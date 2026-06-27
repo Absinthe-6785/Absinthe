@@ -20,18 +20,25 @@ def note_changed_since(row: dict[str, Any], updated_after: int) -> bool:
 
 def filter_notes_incremental(rows: Sequence[dict[str, Any]], updated_after: int) -> list[dict[str, Any]]:
     filtered = [row for row in rows if note_changed_since(row, updated_after)]
-    filtered.sort(key=lambda row: int(row.get("updated_at") or 0), reverse=True)
+    filtered.sort(
+        key=lambda row: max(int(row.get("updated_at") or 0), int(row.get("deleted_at") or 0)),
+        reverse=True,
+    )
     return filtered
 
 
-def build_incremental_notes_filter(updated_after: int | None) -> dict[str, Any] | None:
+def build_notes_delta_or_filter(updated_after: int) -> str:
+    """Supabase OR filter for Notes changed-since sync."""
+    cursor = max(0, int(updated_after or 0))
+    return f"updated_at.gt.{cursor},deleted_at.gt.{cursor}"
+
+
+def build_incremental_notes_filter(updated_after: int | None) -> dict[str, Any]:
     """Supabase filter descriptor — None means legacy full sync."""
-    if updated_after is None:
-        return None
+    cursor = max(0, int(updated_after or 0))
     return {
-        "column": "updated_at",
-        "op": "gt",
-        "value": updated_after,
+        "or": build_notes_delta_or_filter(cursor),
+        "value": cursor,
         "order": "updated_at",
         "desc": True,
         "include_deleted": True,
