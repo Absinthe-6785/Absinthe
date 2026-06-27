@@ -12,9 +12,11 @@ export {
 } from './syncMode';
 
 export const NOTES_LAST_SYNC_KEY = 'absinthe-notes-last-sync-at';
+export const NOTES_DELTA_CURSOR_KEY = NOTES_LAST_SYNC_KEY;
 export const NOTES_FOLDERS_BOOTSTRAP_KEY = 'absinthe-note-folders-bootstrapped';
 
 export type NotesSyncMode = 'bootstrap' | 'delta' | 'recovery';
+export type NotesSyncStatus = 'clean' | 'dirty' | 'deleted' | 'conflict';
 
 export interface DbNoteRow {
   id: string;
@@ -32,6 +34,7 @@ export interface NotesFetchResult {
   mode: NotesSyncMode;
   rows: DbNoteRow[];
   usedIncremental: boolean;
+  lastSyncAt: number | null;
 }
 
 export interface FoldersFetchResult {
@@ -65,7 +68,7 @@ export function clearLastNotesSyncAt(): void {
 
 export function resolveNotesSyncMode(explicit?: NotesSyncMode): NotesSyncMode {
   if (explicit) return explicit;
-  return readLastNotesSyncAt() == null ? 'bootstrap' : 'delta';
+  return 'delta';
 }
 
 export function computeLastSyncTimestamp(rows: readonly DbNoteRow[], fallback = Date.now()): number {
@@ -78,17 +81,14 @@ export function computeLastSyncTimestamp(rows: readonly DbNoteRow[], fallback = 
   return max > 0 ? max : fallback;
 }
 
-export function buildNotesFetchUrl(mode: NotesSyncMode, lastSyncAt: number | null): string {
-  if (mode === 'recovery' || mode === 'bootstrap' || lastSyncAt == null) {
-    return `${API_URL}/api/notes`;
-  }
-  return `${API_URL}/api/notes?updated_after=${lastSyncAt}`;
+export function buildNotesFetchUrl(_mode: NotesSyncMode, lastSyncAt: number | null): string {
+  const cursor = lastSyncAt ?? 0;
+  return `${API_URL}/api/notes?updated_after=${cursor}`;
 }
 
 export async function fetchNotesFromCloud(mode?: NotesSyncMode): Promise<NotesFetchResult> {
   const resolved = resolveNotesSyncMode(mode);
   const lastSyncAt = readLastNotesSyncAt();
-  const useIncremental = resolved === 'delta' && lastSyncAt != null;
   const url = buildNotesFetchUrl(resolved, lastSyncAt);
   const res = await authFetch(url);
   if (!res.ok) {
@@ -98,7 +98,8 @@ export async function fetchNotesFromCloud(mode?: NotesSyncMode): Promise<NotesFe
   return {
     mode: resolved,
     rows,
-    usedIncremental: useIncremental,
+    usedIncremental: true,
+    lastSyncAt,
   };
 }
 
@@ -142,11 +143,48 @@ export function mergeDeltaNoteRows<T extends { id: string; updatedAt: number; de
   const byId = new Map(localNotes.map(n => [n.id, n]));
   for (const delta of deltaNotes) {
     const existing = byId.get(delta.id);
-    if (!existing || delta.updatedAt >= existing.updatedAt) {
+    if (!existing || compareNoteRevision(delta, existing) >= 0) {
       byId.set(delta.id, delta);
     }
   }
-  return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  return [...byId.values()].sort((a, b) => noteRevisionTime(b) - noteRevisionTime(a));
+}
+
+export function noteRevisionTime(note: { updatedAt: number; deletedAt: number | null }): number {
+  return Math.max(note.updatedAt ?? 0, note.deletedAt ?? 0);
+}
+
+export function compareNoteRevision(
+  a: { updatedAt: number; deletedAt: number | null },
+  b: { updatedAt: number; deletedAt: number | null },
+): number {
+  return noteRevisionTime(a) - noteRevisionTime(b);
+}
+
+export function getNoteSyncStatus(
+  note: { updatedAt: number; deletedAt: number | null },
+  lastSyncAt: number | null = readLastNotesSyncAt(),
+): NotesSyncStatus {
+  const cursor = lastSyncAt ?? 0;
+  const revision = noteRevisionTime(note);
+  if (revision <= cursor) return 'clean';
+  if (note.deletedAt != null && note.deletedAt >= note.updatedAt) return 'deleted';
+  return 'dirty';
+}
+
+export function shouldPushNoteToCloud(
+  note: { updatedAt: number; deletedAt: number | null },
+  lastSyncAt: number | null = readLastNotesSyncAt(),
+): boolean {
+  const status = getNoteSyncStatus(note, lastSyncAt);
+  return status === 'dirty' || status === 'deleted';
+}
+
+export function selectDirtyNotesForPush<T extends { updatedAt: number; deletedAt: number | null }>(
+  notes: readonly T[],
+  lastSyncAt: number | null = readLastNotesSyncAt(),
+): T[] {
+  return notes.filter(note => shouldPushNoteToCloud(note, lastSyncAt));
 }
 
 export function resetNotesSyncClientForTest(): void {

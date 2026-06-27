@@ -3,10 +3,14 @@ import {
   buildNotesFetchUrl,
   resolveNotesSyncMode,
   computeLastSyncTimestamp,
+  getNoteSyncStatus,
   isNotesCloudSyncEnabled,
+  mergeDeltaNoteRows,
+  NOTES_DELTA_CURSOR_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
   resetNotesSyncClientForTest,
   resolveNotesRuntimeSyncMode,
+  selectDirtyNotesForPush,
   writeLastNotesSyncAt,
 } from './notesSyncClient';
 
@@ -31,15 +35,15 @@ describe('notesSyncClient', () => {
     expect(isNotesCloudSyncEnabled()).toBe(true);
   });
 
-  it('bootstrap when no last sync', () => {
+  it('uses delta mode and changed-since cursor when no last sync exists', () => {
     resetNotesSyncClientForTest();
-    expect(resolveNotesSyncMode()).toBe('bootstrap');
-    expect(buildNotesFetchUrl('bootstrap', null)).not.toContain('updated_after');
+    expect(resolveNotesSyncMode()).toBe('delta');
+    expect(buildNotesFetchUrl('delta', null)).toContain('updated_after=0');
   });
 
-  it('recovery always full', () => {
+  it('recovery still uses changed-since instead of a full vault fetch', () => {
     writeLastNotesSyncAt(100);
-    expect(buildNotesFetchUrl('recovery', 100)).not.toContain('updated_after');
+    expect(buildNotesFetchUrl('recovery', 100)).toContain('updated_after=100');
   });
 
   it('computeLastSyncTimestamp from rows', () => {
@@ -48,5 +52,47 @@ describe('notesSyncClient', () => {
       { id: '2', title: '', body: '', updated_at: 99, folder_id: null, deleted_at: 80 },
     ]);
     expect(ts).toBe(99);
+  });
+
+  it('formalizes local note sync status from the last-sync cursor', () => {
+    expect(NOTES_DELTA_CURSOR_KEY).toBe('absinthe-notes-last-sync-at');
+    expect(getNoteSyncStatus({ updatedAt: 100, deletedAt: null }, 100)).toBe('clean');
+    expect(getNoteSyncStatus({ updatedAt: 101, deletedAt: null }, 100)).toBe('dirty');
+    expect(getNoteSyncStatus({ updatedAt: 101, deletedAt: 120 }, 100)).toBe('deleted');
+  });
+
+  it('selects only dirty and tombstoned notes for push', () => {
+    const notes = [
+      { id: 'clean', updatedAt: 100, deletedAt: null },
+      { id: 'dirty', updatedAt: 150, deletedAt: null },
+      { id: 'deleted', updatedAt: 160, deletedAt: 170 },
+    ];
+    expect(selectDirtyNotesForPush(notes, 120).map(note => note.id)).toEqual(['dirty', 'deleted']);
+  });
+
+  it('merges remote deltas without replacing newer local notes', () => {
+    const local = [
+      { id: 'new-local', updatedAt: 300, deletedAt: null, body: 'local' },
+      { id: 'same', updatedAt: 250, deletedAt: null, body: 'newer local' },
+    ];
+    const remote = [
+      { id: 'same', updatedAt: 200, deletedAt: null, body: 'stale remote' },
+      { id: 'remote', updatedAt: 220, deletedAt: null, body: 'remote' },
+    ];
+
+    const merged = mergeDeltaNoteRows(local, remote);
+
+    expect(merged.find(note => note.id === 'same')?.body).toBe('newer local');
+    expect(merged.find(note => note.id === 'new-local')).toBeDefined();
+    expect(merged.find(note => note.id === 'remote')).toBeDefined();
+  });
+
+  it('applies remote tombstones when they are the newest revision', () => {
+    const merged = mergeDeltaNoteRows(
+      [{ id: 'note', updatedAt: 200, deletedAt: null }],
+      [{ id: 'note', updatedAt: 100, deletedAt: 300 }],
+    );
+
+    expect(merged[0].deletedAt).toBe(300);
   });
 });
