@@ -50,6 +50,7 @@ import type { WorkspaceActivation } from '../features/knowledge/workspace/worksp
 import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtils';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { NoteSidebarVirtualList } from './NoteSidebarVirtualList';
+import { EmbeddedAttachmentMigrationReviewPanel } from './EmbeddedAttachmentMigrationReviewPanel';
 import { SIDEBAR_NOTE_SEARCH_ATTR } from '../searchFocusIsolation';
 import { useTranslation } from '../../../lib/i18n';
 import type { EditorMode } from '../editorMode';
@@ -1211,6 +1212,13 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               {...{ [SIDEBAR_NOTE_SEARCH_ATTR]: '' }}
             />
           </div>
+        )}
+        {!isTrash && !isWorkspacePanelMode && (
+          <EmbeddedAttachmentMigrationReviewPanel
+            notes={activeNotes}
+            colors={c}
+            updateNote={noteUpdate}
+          />
         )}
         {isTraceDiscoveryMode ? (
           <AreaDiscoveryView
