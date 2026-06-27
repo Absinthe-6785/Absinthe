@@ -350,13 +350,15 @@ export function readK97fBackendPolicySnapshot(): {
   notesIncrementalFilter: boolean;
   backupParallelFetch: boolean;
   notesSelectStar: boolean;
+  notesDeltaOrFilter: boolean;
 } {
   const src = readFileSync(backendMainPath(), 'utf8');
   return {
     notesRouteFullVault: src.includes('@app.get("/api/notes")'),
     notesIncrementalFilter: src.includes('updated_after'),
     backupParallelFetch: src.includes('asyncio.gather'),
-    notesSelectStar: src.includes('notes").select("*")'),
+    notesSelectStar: /table\("notes"\)[\s\S]*?\.select\("\*"\)/.test(src),
+    notesDeltaOrFilter: src.includes('.or_(build_notes_delta_or_filter(updated_after))'),
   };
 }
 

@@ -740,10 +740,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
           const dirtyNotes = selectDirtyNotesForPush(get().notes, notesResult.lastSyncAt);
           const pushResults = await Promise.all(
-            dirtyNotes.map(async note => ((await syncNoteToDB(note)) ? note : null)),
+            dirtyNotes.map(async note => ({ note, ok: await syncNoteToDB(note) })),
           );
-          const pushedNotes = pushResults.filter((note): note is Note => note != null);
-          if (raw.length > 0 || pushedNotes.length > 0) {
+          const failedPush = pushResults.some(result => !result.ok);
+          const pushedNotes = pushResults
+            .filter((result): result is { note: Note; ok: true } => result.ok)
+            .map(result => result.note);
+          if (!failedPush && (raw.length > 0 || pushedNotes.length > 0)) {
             writeLastNotesSyncAt(computeLastSyncTimestamp([
               ...raw,
               ...pushedNotes.map(n => ({
@@ -756,7 +759,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
               })),
             ]));
           }
-          set({ syncError: null });
+          if (!failedPush) set({ syncError: null });
         } catch (err) {
           set({ syncError: err instanceof Error ? err.message : 'Failed to load from cloud' });
         } finally {
