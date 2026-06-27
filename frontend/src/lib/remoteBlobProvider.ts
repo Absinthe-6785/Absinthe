@@ -82,6 +82,7 @@ export interface RemoteBlobUploadVerification {
   readonly sizeVerified: boolean;
   readonly checksumVerified: boolean;
   readonly checksumAlgorithm?: string;
+  readonly sizeOnlyVerified?: boolean;
   readonly warnings?: string[];
 }
 
@@ -108,6 +109,23 @@ export interface RemoteBlobDownloadInput {
   readonly attachmentId?: string;
   readonly remoteBlobKey?: string;
   readonly remoteFileId?: string;
+  readonly expectedSize?: number;
+  readonly expectedChecksum?: string;
+  readonly expectedMimeType?: string;
+  readonly requestedAt?: string;
+}
+
+export interface RemoteBlobDownloadResult {
+  readonly blob: Blob;
+  readonly providerType: RemoteBlobProviderType;
+  readonly remoteProvider?: RemoteBlobProviderType;
+  readonly remoteBlobKey?: string;
+  readonly remoteFileId?: string;
+  readonly remoteSize?: number;
+  readonly remoteChecksum?: string;
+  readonly remoteMimeType?: string;
+  readonly downloadedAt?: string;
+  readonly verification?: RemoteBlobUploadVerification;
 }
 
 export interface RemoteBlobProvider {
@@ -117,7 +135,7 @@ export interface RemoteBlobProvider {
   getConnectionStatus(): Promise<RemoteBlobProviderConnectionStatus>;
   uploadBlob(input: RemoteBlobUploadInput): Promise<RemoteBlobUploadResult>;
   getBlobInfo(input: RemoteBlobInfoInput): Promise<RemoteBlobInfoResult | null>;
-  downloadBlob(input: RemoteBlobDownloadInput): Promise<Blob>;
+  downloadBlob(input: RemoteBlobDownloadInput): Promise<Blob | RemoteBlobDownloadResult>;
 }
 
 export type RemoteBlobProviderErrorCategory =
@@ -133,6 +151,14 @@ export interface SanitizedRemoteBlobProviderError {
   readonly category: RemoteBlobProviderErrorCategory;
   readonly retryable: boolean;
   readonly code?: string;
+}
+
+function isSanitizedRemoteBlobProviderError(error: unknown): error is SanitizedRemoteBlobProviderError {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const value = error as Partial<SanitizedRemoteBlobProviderError>;
+  return typeof value.message === 'string' && typeof value.category === 'string' && typeof value.retryable === 'boolean';
 }
 
 const REDACTED_SECRET = '[redacted-secret]';
@@ -203,6 +229,15 @@ export function sanitizeRemoteBlobProviderError(
     readonly code?: string;
   } = {}
 ): SanitizedRemoteBlobProviderError {
+  if (isSanitizedRemoteBlobProviderError(error)) {
+    return {
+      message: sanitizeRemoteBlobProviderErrorMessage(error.message),
+      category: options.category ?? error.category,
+      retryable: options.retryable ?? error.retryable,
+      code: options.code ?? error.code,
+    };
+  }
+
   return {
     message: sanitizeRemoteBlobProviderErrorMessage(error),
     category: options.category ?? 'unknown',
@@ -248,7 +283,7 @@ export class NullRemoteBlobProvider implements RemoteBlobProvider {
     return null;
   }
 
-  async downloadBlob(): Promise<Blob> {
+  async downloadBlob(): Promise<Blob | RemoteBlobDownloadResult> {
     throw new RemoteBlobProviderUnavailableError();
   }
 }
