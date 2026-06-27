@@ -43,11 +43,24 @@ export interface AttachmentBlobRecord {
   checksum?: string;
 }
 
+export interface AttachmentBlobInventoryRecord {
+  localBlobKey: string;
+  size: number;
+  mimeType?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  checksum?: string;
+  inventoryPartial?: boolean;
+}
+
 export interface BlobStorageAdapter {
   putBlob(input: AttachmentBlobWrite): Promise<AttachmentBlobRecord>;
   getBlob(key: string): Promise<AttachmentBlobRecord | null>;
   deleteBlob(key: string): Promise<void>;
   getObjectUrl(key: string): Promise<string | null>;
+  listBlobRecords?(): Promise<AttachmentBlobInventoryRecord[]>;
+  getBlobInfo?(key: string): Promise<AttachmentBlobInventoryRecord | null>;
+  hasBlob?(key: string): Promise<boolean>;
   revokeObjectUrl?(url: string): void;
 }
 
