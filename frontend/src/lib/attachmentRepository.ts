@@ -47,6 +47,10 @@ export interface AttachmentMetadata {
   lastRemoteSyncAttemptAt?: string;
   remoteSyncAttemptCount?: number;
   lastRemoteRecoveryAt?: string;
+  keepOffline?: boolean;
+  lastAccessedAt?: string;
+  lastOpenedAt?: string;
+  lastPreviewedAt?: string;
   title?: string;
   alt?: string;
   caption?: string;
