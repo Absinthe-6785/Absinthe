@@ -192,6 +192,20 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     });
     expect(payload.relations).toEqual({ attachment: ['note-1'] });
   });
+
+  it('noteSyncPayload preserves lightweight attachment references', () => {
+    const payload = noteSyncPayload({
+      id: 'n1',
+      title: 'T',
+      body: 'before ![scan](attachment://att-123) after data:image/png;base64,AAA111',
+      updatedAt: 1,
+      folderId: null,
+      deletedAt: null,
+    });
+
+    expect(String(payload.body)).toContain('attachment://att-123');
+    expect(String(payload.body)).not.toContain('base64');
+  });
 });
 
 describe('mergeNotesFromStorageJson — multi-tab', () => {
