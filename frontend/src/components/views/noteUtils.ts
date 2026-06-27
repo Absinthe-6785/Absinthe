@@ -19,6 +19,11 @@ import {
   markNotesOnboardingComplete,
   shouldSeedOnboardingNotes,
 } from '../../lib/notesOnboarding';
+import {
+  sanitizeRelationsForSync,
+  sanitizeStringRecordForSync,
+  stripRawBlobData,
+} from '../../lib/blobPayloadBoundary';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
@@ -592,17 +597,19 @@ export function noteSyncPayload(note: NoteBase) {
   const payload: Record<string, unknown> = {
     id: note.id,
     title: note.title ?? '',
-    body: note.body ?? '',
+    body: stripRawBlobData(note.body ?? ''),
     updated_at: note.updatedAt,
     folder_id: note.folderId ?? null,
     deleted_at: note.deletedAt ?? null,
     starred: note.starred ?? false,
   };
-  if (note.properties && Object.keys(note.properties).length > 0) {
-    payload.properties = note.properties;
+  const properties = sanitizeStringRecordForSync(note.properties);
+  if (properties && Object.keys(properties).length > 0) {
+    payload.properties = properties;
   }
-  if (note.relations && Object.keys(note.relations).length > 0) {
-    payload.relations = note.relations;
+  const relations = sanitizeRelationsForSync(note.relations);
+  if (relations && Object.keys(relations).length > 0) {
+    payload.relations = relations;
   }
   return payload;
 }

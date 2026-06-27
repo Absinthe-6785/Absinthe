@@ -171,6 +171,27 @@ describe('mergeDbAndLocalNotes / normalizeNoteFolderId', () => {
     });
     expect(payload.properties).toEqual({ status: 'active' });
   });
+
+  it('noteSyncPayload strips raw blob data URLs from remote note rows', () => {
+    const payload = noteSyncPayload({
+      id: 'n1',
+      title: 'T',
+      body: 'before ![scan](data:image/png;base64,AAA111) after',
+      updatedAt: 1,
+      folderId: null,
+      deletedAt: null,
+      properties: { cover: 'data:application/pdf;base64,BBB222', status: 'active' },
+      relations: { attachment: ['note-1', 'data:image/png;base64,CCC333'] },
+    });
+
+    expect(String(payload.body)).not.toContain('base64');
+    expect(String(payload.body)).toContain('[blob-data-omitted:attachment-boundary]');
+    expect(payload.properties).toEqual({
+      cover: '[blob-data-omitted:attachment-boundary]',
+      status: 'active',
+    });
+    expect(payload.relations).toEqual({ attachment: ['note-1'] });
+  });
 });
 
 describe('mergeNotesFromStorageJson — multi-tab', () => {
