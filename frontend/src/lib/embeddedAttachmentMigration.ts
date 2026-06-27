@@ -75,6 +75,11 @@ export interface EmbeddedAttachmentMigrationNoteResult {
   skippedCount: number;
   failedCount: number;
   backupKey?: string;
+  bodyRewritten?: boolean;
+  previousBodyHash?: string;
+  previousContentHash?: string;
+  rewrittenBodyHash?: string;
+  rewrittenContentHash?: string;
   attachmentIds: string[];
   blobKeys: string[];
   orphanedAttachmentIds: string[];
@@ -132,7 +137,7 @@ function classifyMimeType(mimeType: string): EmbeddedDataUrlMatch['kind'] {
   return 'other';
 }
 
-function stableHash(value: string): string {
+export function hashEmbeddedAttachmentMigrationText(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -169,7 +174,7 @@ function findMatchesInField(
     const raw = match[0];
     const mimeType = match[1]?.toLowerCase() ?? 'application/octet-stream';
     const base64 = match[2] ?? '';
-    const sourceHash = stableHash(raw);
+    const sourceHash = hashEmbeddedAttachmentMigrationText(raw);
     matches.push({
       raw,
       mimeType,
@@ -334,7 +339,7 @@ export async function migrateEmbeddedDataUrlsToAttachments(
           estimatedDecodedBytes: match.estimatedDecodedBytes,
           sourceHash: match.sourceHash,
         })),
-        checksum: stableHash(`${note.body ?? ''}\n${note.content ?? ''}`),
+        checksum: hashEmbeddedAttachmentMigrationText(`${note.body ?? ''}\n${note.content ?? ''}`),
       } satisfies EmbeddedAttachmentMigrationBackup;
 
       const { key } = await backupWriter.writeBackup(backup);
@@ -383,6 +388,11 @@ export async function migrateEmbeddedDataUrlsToAttachments(
       await input.updateNote(note.id, notePatch);
 
       noteResult.status = 'migrated';
+      noteResult.bodyRewritten = true;
+      noteResult.previousBodyHash = hashEmbeddedAttachmentMigrationText(note.body ?? '');
+      noteResult.previousContentHash = hashEmbeddedAttachmentMigrationText(note.content ?? '');
+      noteResult.rewrittenBodyHash = hashEmbeddedAttachmentMigrationText(nextBody);
+      noteResult.rewrittenContentHash = hashEmbeddedAttachmentMigrationText(nextContent);
       noteResult.migratedCount = replacements.length;
       noteResult.failedCount = 0;
       noteResult.orphanedAttachmentIds = [];
