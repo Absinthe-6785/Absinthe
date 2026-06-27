@@ -1,4 +1,5 @@
 import { authFetch, supabase } from './supabase';
+import { isLocalOnlyRuntime } from './localAuth';
 
 /**
  * SWR용 공통 fetcher — 인증 헤더 포함, HTTP 오류 시 throw.
@@ -13,6 +14,17 @@ const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 600;
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+export class LocalOnlyRemotePausedError extends Error {
+  constructor() {
+    super('Remote sync paused in local-only mode');
+    this.name = 'LocalOnlyRemotePausedError';
+  }
+}
+
+export function isLocalOnlyRemotePausedError(error: unknown): error is LocalOnlyRemotePausedError {
+  return error instanceof LocalOnlyRemotePausedError;
+}
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
@@ -38,6 +50,10 @@ async function refreshToken(): Promise<boolean> {
 }
 
 export const fetcher = async <T = unknown>(url: string): Promise<T> => {
+  if (isLocalOnlyRuntime()) {
+    throw new LocalOnlyRemotePausedError();
+  }
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

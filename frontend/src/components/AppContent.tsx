@@ -3,6 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { CheckCircle, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
+import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { registerNotesTabSwitcher, registerAppTabSwitcher, openWorkspaceSearch } from '../lib/noteNavigation';
 import { useAppStore } from '../store/useAppStore';
 import { useNotesStore } from '../store/useNotesStore';
@@ -146,7 +147,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   }), [authUser.id, authUser.email]);
 
   // ── 7. Auth ───────────────────────────────────────────────────────
-  const handleSignOut = useCallback(async () => { await supabase.auth.signOut(); }, []);
+  const handleSignOut = useCallback(async () => {
+    if (isLocalOnlyRuntime()) return;
+    await supabase.auth.signOut();
+  }, []);
 
   const openSettingsSection = useCallback((section: SettingsSectionId) => {
     setSettingsScrollTarget(section);
