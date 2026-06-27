@@ -31,7 +31,11 @@ vi.mock('../lib/supabase', () => ({
 
 // loadNotes() runs at module init — import after localStorage stub
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
-import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
+import {
+  NOTES_FOLDERS_BOOTSTRAP_KEY,
+  NOTES_LAST_SYNC_KEY,
+  NOTES_RUNTIME_SYNC_MODE_KEY,
+} from '../lib/notesSyncClient';
 const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
@@ -40,6 +44,17 @@ function okJson(data: unknown) {
 
 function failResponse(status = 500) {
   return { ok: false, status, json: async () => ({}) };
+}
+
+function skipFolderBootstrap() {
+  storage.set(NOTES_FOLDERS_BOOTSTRAP_KEY, '1');
+}
+
+function noteApiCalls(method?: string) {
+  return authFetchMock.mock.calls.filter(([url, opts]) => {
+    const requestMethod = (opts as RequestInit | undefined)?.method ?? 'GET';
+    return String(url).includes('/api/notes') && (!method || requestMethod === method);
+  });
 }
 
 const sampleNote = (): NoteBase => ({
@@ -573,5 +588,126 @@ describe('useNotesStore — K-96A trash cleanup', () => {
     expect(useNotesStore.getState().notes.map(n => n.id)).toEqual(['keep']);
     expect(useNotesStore.getState().folders).toHaveLength(1);
     expect(useNotesStore.getState().activeNoteId).toBeNull();
+  });
+});
+
+describe('useNotesStore K-142 notes delta sync foundation', () => {
+  beforeEach(() => resetStore());
+
+  it('remote mode pulls changed-since only', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '123');
+    authFetchMock.mockResolvedValueOnce(okJson([]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(authFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/notes?updated_after=123'),
+    );
+    expect(noteApiCalls('GET')[0][0]).not.toMatch(/\/api\/notes$/);
+  });
+
+  it('empty remote pull does not clear local notes', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '200');
+    const local = { ...sampleNote(), id: 'local-note', title: 'Keep me', updatedAt: 100 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock.mockResolvedValueOnce(okJson([]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(useNotesStore.getState().notes).toHaveLength(1);
+    expect(useNotesStore.getState().notes[0].id).toBe(local.id);
+    expect(noteApiCalls('POST')).toHaveLength(0);
+  });
+
+  it('dirty local note is pushed after delta pull', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '50');
+    const local = { ...sampleNote(), id: 'dirty-note', updatedAt: 100 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([]))
+      .mockResolvedValueOnce(okJson({}));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    const posts = noteApiCalls('POST');
+    expect(posts).toHaveLength(1);
+    expect((posts[0][1] as RequestInit).body).toContain('dirty-note');
+  });
+
+  it('clean local note is not pushed', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '200');
+    const local = { ...sampleNote(), id: 'clean-note', updatedAt: 100 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock.mockResolvedValueOnce(okJson([]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(noteApiCalls('POST')).toHaveLength(0);
+  });
+
+  it('deleted local note syncs as a tombstone', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '50');
+    const deleted = { ...sampleNote(), id: 'deleted-note', updatedAt: 100, deletedAt: 120 };
+    useNotesStore.setState({ notes: [deleted], activeNoteId: null });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([]))
+      .mockResolvedValueOnce(okJson({}));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    const posts = noteApiCalls('POST');
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse((posts[0][1] as RequestInit).body as string)).toMatchObject({
+      id: 'deleted-note',
+      deleted_at: 120,
+    });
+  });
+
+  it('remote pull merges into local notes instead of replacing them', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '200');
+    const local = { ...sampleNote(), id: 'local-note', title: 'Local', updatedAt: 150 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock.mockResolvedValueOnce(okJson([{
+      id: 'remote-note',
+      title: 'Remote',
+      body: 'remote body',
+      updated_at: 300,
+      folder_id: null,
+      deleted_at: null,
+    }]));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(useNotesStore.getState().notes.map(n => n.id).sort()).toEqual(['local-note', 'remote-note']);
+  });
+
+  it('stale late remote data cannot overwrite newer local in-memory edits', async () => {
+    skipFolderBootstrap();
+    storage.set(NOTES_LAST_SYNC_KEY, '100');
+    const local = { ...sampleNote(), id: 'same-note', body: 'new local body', updatedAt: 300 };
+    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
+    authFetchMock
+      .mockResolvedValueOnce(okJson([{
+        id: 'same-note',
+        title: 'Remote',
+        body: 'stale remote body',
+        updated_at: 200,
+        folder_id: null,
+        deleted_at: null,
+      }]))
+      .mockResolvedValueOnce(okJson({}));
+
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(useNotesStore.getState().notes.find(n => n.id === 'same-note')?.body).toBe('new local body');
+    const posts = noteApiCalls('POST');
+    expect(posts).toHaveLength(1);
+    expect((posts[0][1] as RequestInit).body).toContain('new local body');
   });
 });

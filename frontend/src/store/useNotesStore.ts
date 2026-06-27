@@ -40,8 +40,6 @@ import {
   saveActiveNoteId,
   clearNotesStorage,
   createDefaultWelcomeNotes,
-  mergeDbAndLocalNotes,
-  getLocalOnlyNotes,
   mergeNoteArrays,
   mergeFolderArrays,
   mergeNotesFromStorageJson,
@@ -65,7 +63,10 @@ import {
   mapDbFolder,
   mergeDeltaNoteRows,
   computeLastSyncTimestamp,
+  getNoteSyncStatus,
   isNotesCloudSyncEnabled,
+  noteRevisionTime,
+  selectDirtyNotesForPush,
   writeLastNotesSyncAt,
   type NotesSyncMode,
 } from '../lib/notesSyncClient';
@@ -199,7 +200,8 @@ function mapDbNote(
   },
   local: Note | undefined,
 ): Note {
-  const localIsNewer = local && local.updatedAt > n.updated_at;
+  const remoteRevision = Math.max(n.updated_at ?? 0, n.deleted_at ?? 0);
+  const localIsNewer = local && noteRevisionTime(local) > remoteRevision;
   return {
     id: n.id,
     title:     localIsNewer ? (local.title ?? '') : (n.title ?? ''),
@@ -259,6 +261,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
   const syncNoteToDB = async (note: Note): Promise<boolean> => {
     if (!isNotesCloudSyncEnabled()) {
       lastFailedNote = null;
+      if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
+      else set({ savedAt: new Date() });
+      return true;
+    }
+    const syncStatus = getNoteSyncStatus(note);
+    if (syncStatus === 'clean') {
       if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
       else set({ savedAt: new Date() });
       return true;
@@ -714,31 +722,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             return mapDbNote(n, local);
           });
 
-          if (!notesResult.usedIncremental) {
-            const dbIds = raw.map((n: { id: string }) => n.id);
-            const localOnly = getLocalOnlyNotes(dbIds, localNotes);
-            if (localOnly.length > 0) {
-              await Promise.allSettled(localOnly.map(note => syncNoteToDB(note)));
-            }
-
-            const expired = dbNotes.filter(
-              n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
-            );
-            expired.forEach(n => { void removeNoteFromDB(n.id); });
-
-            const merged = mergeDbAndLocalNotes(dbNotes, localNotes);
-            if (dbNotes.length > 0 || localOnly.length > 0) {
-              const prevActive = get().activeNoteId;
-              const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
-              const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
-              set({ notes: merged, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
-              persistNotes(merged);
-              saveActiveNoteId(nextActive);
-              rebuildKnowledgeIndex(merged);
-            } else if (dbNotes.length === 0) {
-              await Promise.allSettled(localNotes.map(note => syncNoteToDB(note)));
-            }
-          } else if (dbNotes.length > 0) {
+          if (dbNotes.length > 0) {
             const expired = dbNotes.filter(
               n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
             );
@@ -754,11 +738,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
             rebuildKnowledgeIndex(merged);
           }
 
-          if (raw.length > 0) {
-            writeLastNotesSyncAt(computeLastSyncTimestamp(raw));
-          } else if (!notesResult.usedIncremental && localNotes.length > 0) {
-            writeLastNotesSyncAt(computeLastSyncTimestamp(
-              localNotes.map(n => ({
+          const dirtyNotes = selectDirtyNotesForPush(get().notes, notesResult.lastSyncAt);
+          const pushResults = await Promise.all(
+            dirtyNotes.map(async note => ((await syncNoteToDB(note)) ? note : null)),
+          );
+          const pushedNotes = pushResults.filter((note): note is Note => note != null);
+          if (raw.length > 0 || pushedNotes.length > 0) {
+            writeLastNotesSyncAt(computeLastSyncTimestamp([
+              ...raw,
+              ...pushedNotes.map(n => ({
                 id: n.id,
                 title: n.title,
                 body: n.body,
@@ -766,7 +754,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
                 folder_id: n.folderId,
                 deleted_at: n.deletedAt,
               })),
-            ));
+            ]));
           }
           set({ syncError: null });
         } catch (err) {
