@@ -37,6 +37,14 @@ export interface AttachmentMetadata {
   remoteUpdatedAt?: string;
   remoteError?: string;
   remoteSyncStatus?: AttachmentRemoteSyncStatus;
+  remoteVerification?: {
+    sizeVerified: boolean;
+    checksumVerified: boolean;
+    checksumAlgorithm?: string;
+    warnings?: string[];
+  };
+  lastRemoteSyncAttemptAt?: string;
+  remoteSyncAttemptCount?: number;
   title?: string;
   alt?: string;
   caption?: string;
