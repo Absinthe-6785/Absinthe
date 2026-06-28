@@ -22,9 +22,14 @@ import {
   type AttachmentRecoveryDiagnosticsItem,
   type AttachmentSyncDiagnostics,
 } from '../../../lib/attachmentSyncDiagnostics';
-import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
+import {
+  recoverAttachmentBlobFromRemote,
+  type AttachmentRemoteRecoveryResult,
+} from '../../../lib/attachmentRemoteRecovery';
+import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
+import { GoogleDriveBlobAdapter } from '../../../lib/googleDriveBlobAdapter';
 import { sanitizeRemoteBlobProviderErrorMessage } from '../../../lib/remoteBlobProvider';
 import {
   recoveryUnavailableReasonForProvider,
@@ -94,6 +99,9 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
   googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+  googleDriveRecoveryFetcher?: typeof fetch;
+  googleDriveRecoveryRepository?: AttachmentRepository;
+  googleDriveRecoveryBlobAdapter?: BlobStorageAdapter;
 }
 
 function formatBytes(bytes: number): string {
@@ -426,6 +434,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   recoverAttachmentFn,
   remoteProviderConnection,
   googleDriveSessionController,
+  googleDriveRecoveryFetcher,
+  googleDriveRecoveryRepository,
+  googleDriveRecoveryBlobAdapter,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -501,6 +512,31 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     [remoteProviderConnection],
   );
   const providerConnection = googleDriveSessionConnection ?? fallbackProviderConnection;
+  const sessionRecoverAttachmentFn = useMemo(() => {
+    if (!googleDriveSessionController) return undefined;
+    return async (attachmentId: string) => {
+      const accessTokenProvider = googleDriveSessionController.getAccessTokenProvider();
+      if (!accessTokenProvider) {
+        throw new Error('Google Drive session token is unavailable.');
+      }
+      return recoverAttachmentBlobFromRemote({
+        attachmentId,
+        attachmentRepository: googleDriveRecoveryRepository ?? createLocalAttachmentMetadataRepository(),
+        localBlobAdapter: googleDriveRecoveryBlobAdapter ?? createLocalAttachmentBlobAdapter(),
+        remoteProvider: new GoogleDriveBlobAdapter({
+          accessTokenProvider,
+          fetcher: googleDriveRecoveryFetcher,
+        }),
+      });
+    };
+  }, [
+    googleDriveRecoveryBlobAdapter,
+    googleDriveRecoveryFetcher,
+    googleDriveRecoveryRepository,
+    googleDriveSessionController,
+  ]);
+  const activeRecoverAttachmentFn = recoverAttachmentFn ?? sessionRecoverAttachmentFn;
+
   const refreshGoogleDriveSessionConnection = useCallback(async () => {
     if (!googleDriveSessionController) {
       setGoogleDriveSessionConnection(null);
@@ -740,7 +776,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     const eligibility = item ? getAttachmentRecoveryAvailability({
       item,
       providerConnection: latestProviderConnection,
-      hasRecoveryController: Boolean(recoverAttachmentFn),
+      hasRecoveryController: Boolean(activeRecoverAttachmentFn),
       googleDriveSessionController,
       runningRecoveryAttachmentId,
     }) : blocked('item_not_recoverable');
@@ -749,7 +785,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       setRecoveryError(eligibility.reasonLabel);
       return;
     }
-    if (!recoverAttachmentFn) {
+    if (!activeRecoverAttachmentFn) {
       setRecoveryStatus('error');
       setRecoveryError(reasonLabel('recovery_controller_unavailable'));
       return;
@@ -758,7 +794,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     setRecoveryStatus('running');
     setRecoveryError(null);
     try {
-      const report = await recoverAttachmentFn(attachmentId);
+      const report = await activeRecoverAttachmentFn(attachmentId);
       setRecoveryReportsByAttachmentId(previous => ({
         ...previous,
         [attachmentId]: report,
@@ -1403,7 +1439,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                         const recoveryAvailability = getAttachmentRecoveryAvailability({
                           item,
                           providerConnection,
-                          hasRecoveryController: Boolean(recoverAttachmentFn),
+                          hasRecoveryController: Boolean(activeRecoverAttachmentFn),
                           googleDriveSessionController,
                           runningRecoveryAttachmentId,
                         });
