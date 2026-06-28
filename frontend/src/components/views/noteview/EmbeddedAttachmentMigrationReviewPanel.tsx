@@ -166,10 +166,10 @@ function reasonLabel(code: AttachmentRecoveryBlockedReason, fallback?: string): 
     case 'missing_local_but_not_remote_backed':
       return 'Missing local blob is not remote-backed';
     case 'recovery_in_progress':
-      return 'Recovery in progress';
+      return 'Recovery already in progress';
     case 'item_not_recoverable':
     default:
-      return fallback || 'Attachment is not recoverable';
+      return 'Attachment is not recoverable';
   }
 }
 
@@ -193,7 +193,8 @@ function getAttachmentRecoveryAvailability(input: {
   readonly googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
   readonly runningRecoveryAttachmentId?: string | null;
 }): RecoveryEligibility {
-  const { item, providerConnection, hasRecoveryController, googleDriveSessionController } = input;
+  const { item, providerConnection, hasRecoveryController, googleDriveSessionController, runningRecoveryAttachmentId } = input;
+  if (runningRecoveryAttachmentId === item.attachmentId) return blocked('recovery_in_progress', undefined, 'info');
   if (item.localBlobPresent) return blocked('local_blob_already_present', item.reason, 'info');
   const status = String(item.remoteSyncStatus ?? '').toLowerCase();
   const reason = item.reason.toLowerCase();
@@ -714,11 +715,31 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runRecovery = async (attachmentId: string) => {
-    if (!recoverAttachmentFn || runningRecoveryAttachmentId) return;
+    if (runningRecoveryAttachmentId === attachmentId) {
+      setRecoveryStatus('error');
+      setRecoveryError(reasonLabel('recovery_in_progress'));
+      return;
+    }
     const item = diagnosticsReport?.recoveryItems.find(candidate => candidate.attachmentId === attachmentId);
+    let latestProviderConnection = providerConnection;
+    if (googleDriveSessionController) {
+      try {
+        latestProviderConnection = await googleDriveSessionController.getConnectionStatus();
+      } catch (err) {
+        latestProviderConnection = resolveRemoteProviderConnectionBoundary({
+          providerType: 'googleDrive',
+          status: 'error',
+          capabilities: { supportsDownload: false, supportsUpload: false },
+          error: err,
+        });
+      }
+    }
+    if (googleDriveSessionController) {
+      setGoogleDriveSessionConnection(latestProviderConnection);
+    }
     const eligibility = item ? getAttachmentRecoveryAvailability({
       item,
-      providerConnection,
+      providerConnection: latestProviderConnection,
       hasRecoveryController: Boolean(recoverAttachmentFn),
       googleDriveSessionController,
       runningRecoveryAttachmentId,
@@ -726,6 +747,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     if (!eligibility.canRecover) {
       setRecoveryStatus('error');
       setRecoveryError(eligibility.reasonLabel);
+      return;
+    }
+    if (!recoverAttachmentFn) {
+      setRecoveryStatus('error');
+      setRecoveryError(reasonLabel('recovery_controller_unavailable'));
       return;
     }
     setRunningRecoveryAttachmentId(attachmentId);
@@ -1394,12 +1420,12 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   provider {item.remoteProvider ?? 'none'} 쨌 status {item.remoteSyncStatus ?? 'unknown'} 쨌 remote {shortValue(item.remoteFileId)}
                                 </div>
                               </div>
-                              {canRecover ? (
+                              {canRecover || running ? (
                                 <button
                                   type="button"
                                   className="btbtn"
                                   onClick={() => runRecovery(item.attachmentId)}
-                                  disabled={Boolean(runningRecoveryAttachmentId)}
+                                  disabled={running}
                                   style={{ padding: '5px 8px', fontSize: 10.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66` }}
                                 >
                                   {running ? 'Recovering...' : 'Recover'}
@@ -1418,6 +1444,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                               local blob {item.localBlobPresent ? 'present' : 'missing'} 쨌 size verified {item.verification?.sizeVerified ? 'yes' : 'no'} 쨌 checksum verified {item.verification?.checksumVerified ? 'yes' : 'no'}
                               {item.verification?.sizeOnlyVerified ? ' 쨌 size-only review' : ''}
                             </div>
+                            {running ? (
+                              <div
+                                data-recovery-reason-code={recoveryAvailability.reasonCode ?? 'recovery_in_progress'}
+                                data-recovery-reason-severity={recoveryAvailability.severity ?? 'info'}
+                                style={{ fontSize: 9.5, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}
+                              >
+                                {reason}
+                              </div>
+                            ) : null}
                             {item.eligible && !canRecover && providerConnection.status === 'unconfigured' ? (
                               <div style={{ fontSize: 9.5, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
                                 This attachment has remote metadata, but no recovery provider is configured in this build.
