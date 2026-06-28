@@ -148,6 +148,21 @@ describe('Google Drive ephemeral token provider boundary', () => {
     });
   });
 
+  it('does not hand out expired token providers and treats expiresAt equal to now as expired', async () => {
+    const provider = createEphemeralGoogleDriveAccessTokenProvider({
+      tokenSet: tokenSet({ expiresAt: '2026-06-28T00:00:01.000Z' }),
+      now: () => new Date('2026-06-28T00:00:01.000Z'),
+    });
+    const controller = createSessionOnlyGoogleDriveConnectionController({
+      tokenProvider: provider,
+      canDownload: true,
+    });
+
+    expect(provider.isExpired()).toBe(true);
+    expect(controller.getAccessTokenProvider()).toBeNull();
+    await expect(provider.getAccessToken()).rejects.toBeInstanceOf(GoogleDriveEphemeralTokenExpiredError);
+  });
+
   it('disconnect clears memory token and returns unconfigured status afterward', async () => {
     const provider = createEphemeralGoogleDriveAccessTokenProvider({
       tokenSet: tokenSet(),
@@ -163,6 +178,44 @@ describe('Google Drive ephemeral token provider boundary', () => {
       status: 'disconnected',
       safeMessage: 'Google Drive session token was cleared from memory.',
     });
+    expect(controller.getAccessTokenProvider()).toBeNull();
+    expect(provider.hasToken()).toBe(false);
+    await expect(controller.getConnectionStatus()).resolves.toMatchObject({
+      status: 'unconfigured',
+      canRecover: false,
+    });
+  });
+
+  it('stale provider references fail after disconnect clears the session', async () => {
+    const provider = createEphemeralGoogleDriveAccessTokenProvider({
+      tokenSet: tokenSet(),
+      now: () => new Date('2026-06-28T00:00:00.000Z'),
+    });
+    const controller = createSessionOnlyGoogleDriveConnectionController({
+      tokenProvider: provider,
+      canDownload: true,
+    });
+    const staleProvider = controller.getAccessTokenProvider();
+
+    expect(staleProvider).toBe(provider);
+    await controller.disconnect?.();
+
+    expect(controller.getAccessTokenProvider()).toBeNull();
+    await expect(staleProvider?.getAccessToken()).rejects.toThrow(/unavailable/);
+  });
+
+  it('markReconnectRequired clears the provider and returns unconfigured status', async () => {
+    const provider = createEphemeralGoogleDriveAccessTokenProvider({
+      tokenSet: tokenSet(),
+      now: () => new Date('2026-06-28T00:00:00.000Z'),
+    });
+    const controller = createSessionOnlyGoogleDriveConnectionController({
+      tokenProvider: provider,
+      canDownload: true,
+    });
+
+    await controller.markReconnectRequired?.();
+
     expect(controller.getAccessTokenProvider()).toBeNull();
     expect(provider.hasToken()).toBe(false);
     await expect(controller.getConnectionStatus()).resolves.toMatchObject({
