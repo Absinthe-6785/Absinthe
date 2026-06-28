@@ -481,6 +481,46 @@ describe('attachment remote recovery', () => {
     expect(JSON.stringify(result)).not.toContain('access_token=secret');
   });
 
+  it('preserves adapter sanitized rate-limit errors through recovery normalization', async () => {
+    const repo = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter();
+    const provider = remoteProvider(async () => {
+      throw {
+        sanitized: {
+          message: 'Google Drive rate limit blocked recovery access_token=token-secret codeVerifier=verifier-secret',
+          category: 'provider',
+          retryable: true,
+          code: 'rate_limited',
+        },
+      };
+    });
+
+    const result = await recoverAttachmentBlobFromRemote({
+      attachmentRepository: repo,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    const stored = repo.records.get('att-1');
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'rate_limited',
+      category: 'provider',
+      retryable: true,
+    });
+    expect(result.errorDetails?.message).toContain('Google Drive rate limit blocked recovery');
+    expect(result.localBlobKey).toBeUndefined();
+    expect(stored?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(stored?.remoteProvider).toBe('googleDrive');
+    expect(stored?.remoteFileId).toBe('drive-file-1');
+    expect(stored?.localBlobKey).toBeUndefined();
+    expect(blobs.putBlob).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('token-secret');
+    expect(JSON.stringify(result)).not.toContain('verifier-secret');
+  });
+
   it('does not mark recovered when local blob write fails', async () => {
     const repo = memoryRepository([metadata()]);
     const blobs = memoryBlobAdapter();

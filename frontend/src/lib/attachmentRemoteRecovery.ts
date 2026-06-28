@@ -67,7 +67,20 @@ function isDeleted(metadata: AttachmentMetadata): boolean {
   return Boolean(metadata.deletedAt) || metadata.syncStatus === 'deleted';
 }
 
+function hasSanitizedRemoteError(error: unknown): error is { readonly sanitized: SanitizedRemoteBlobProviderError } {
+  if (!error || typeof error !== 'object' || !('sanitized' in error)) return false;
+  const sanitized = (error as { readonly sanitized?: unknown }).sanitized;
+  if (!sanitized || typeof sanitized !== 'object') return false;
+  const value = sanitized as Partial<SanitizedRemoteBlobProviderError>;
+  return typeof value.message === 'string'
+    && typeof value.category === 'string'
+    && typeof value.retryable === 'boolean';
+}
+
 function safeProviderError(error: unknown, code = 'attachment_recovery_failed'): SanitizedRemoteBlobProviderError {
+  if (hasSanitizedRemoteError(error)) {
+    return sanitizeRemoteBlobProviderError(error.sanitized);
+  }
   const sanitized = sanitizeRemoteBlobProviderError(error);
   if (sanitized.code || sanitized.category !== 'unknown' || sanitized.retryable) {
     return sanitized;

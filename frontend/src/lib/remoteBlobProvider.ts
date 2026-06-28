@@ -217,8 +217,9 @@ export function sanitizeRemoteBlobProviderErrorMessage(error: unknown): string {
       .replace(/https?:\/\/[^\s"'<>]*(?:X-Goog-Signature|X-Amz-Signature|Signature=)[^\s"'<>]*/gi, REDACTED_URL)
       .replace(/\b(Authorization|Set-Cookie)\s*[:=]\s*[^,}\]]+/gi, `$1: ${REDACTED_SECRET}`)
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED_SECRET}`)
-      .replace(/\b(access_token|refresh_token|id_token|code|code_verifier|codeVerifierRef|client_secret|upload_id)=([^&\s"']+)/gi, `$1=${REDACTED_SECRET}`)
-      .replace(/"?(access_token|refresh_token|id_token|code|code_verifier|codeVerifierRef|client_secret)"?\s*:\s*"[^"]*"/gi, '"$1":"[redacted-secret]"')
+      .replace(/\b(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret|upload_id)=([^&\s"']+)/gi, `$1=${REDACTED_SECRET}`)
+      .replace(/["']?(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret)["']?\s*:\s*["'][^"']*["']/gi, '"$1":"[redacted-secret]"')
+      .replace(/\b(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret)\s*:\s*[^,}\]\s"']+/gi, `$1: ${REDACTED_SECRET}`)
   );
 }
 

@@ -170,6 +170,20 @@ describe('remote blob provider error sanitization', () => {
     expect(sanitized).not.toContain('auth-code');
   });
 
+  it('redacts bare camelCase code verifier forms', () => {
+    const sanitized = sanitizeRemoteBlobProviderErrorMessage(
+      `failed codeVerifier=super-secret-verifier "codeVerifier":"json-secret-verifier" codeVerifier: colon-secret-verifier 'codeVerifier': 'single-secret-verifier'`
+    );
+
+    expect(sanitized).toContain('codeVerifier=[redacted-secret]');
+    expect(sanitized).toContain('"codeVerifier":"[redacted-secret]"');
+    expect(sanitized).toContain('codeVerifier: [redacted-secret]');
+    expect(sanitized).not.toContain('super-secret-verifier');
+    expect(sanitized).not.toContain('json-secret-verifier');
+    expect(sanitized).not.toContain('colon-secret-verifier');
+    expect(sanitized).not.toContain('single-secret-verifier');
+  });
+
   it('redacts Google OAuth URLs that carry query secrets', () => {
     const sanitized = sanitizeRemoteBlobProviderErrorMessage(
       'POST https://oauth2.googleapis.com/token?client_secret=secret-1&code=code-1 failed'
