@@ -160,7 +160,7 @@ export async function buildGoogleDriveOAuthAuthorizationUrl(
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
-    include_granted_scopes: input.includeGrantedScopes === false ? 'false' : 'true',
+    include_granted_scopes: input.includeGrantedScopes === true ? 'true' : 'false',
   });
 
   if (nonce) {

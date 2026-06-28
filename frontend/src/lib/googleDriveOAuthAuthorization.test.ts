@@ -69,7 +69,7 @@ describe('Google Drive OAuth authorization URL boundary', () => {
     expect(url.searchParams.get('nonce')).toBe('opaque-nonce-456');
     expect(url.searchParams.get('code_challenge')).toBe(CHALLENGE);
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
-    expect(url.searchParams.get('include_granted_scopes')).toBe('true');
+    expect(url.searchParams.get('include_granted_scopes')).toBe('false');
     expect(url.searchParams.get('client_secret')).toBeNull();
     expect(url.searchParams.get('access_token')).toBeNull();
     expect(url.searchParams.get('refresh_token')).toBeNull();
@@ -82,6 +82,21 @@ describe('Google Drive OAuth authorization URL boundary', () => {
     });
     expect(result.authorizationUrl).not.toContain('note-');
     expect(result.authorizationUrl).not.toContain('attachment-');
+    expect(result.authorizationUrl).not.toContain(VERIFIER);
+  });
+
+  it('allows include_granted_scopes only when explicitly requested', async () => {
+    const result = await buildGoogleDriveOAuthAuthorizationUrl({
+      clientId: CLIENT_ID,
+      redirectUri: REDIRECT_URI,
+      allowedRedirectUris: [REDIRECT_URI],
+      codeVerifier: VERIFIER,
+      state: 'opaque-state-123',
+      includeGrantedScopes: true,
+    });
+
+    const url = new URL(result.authorizationUrl);
+    expect(url.searchParams.get('include_granted_scopes')).toBe('true');
   });
 
   it('requires exact redirect URI allowlist matching and rejects unsafe schemes', () => {
@@ -99,6 +114,9 @@ describe('Google Drive OAuth authorization URL boundary', () => {
     ])).toEqual([GOOGLE_DRIVE_APP_DATA_SCOPE]);
     expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/drive'])).toThrow(/broader/);
     expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/drive.readonly'])).toThrow(/broader/);
+    expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/drive.file'])).toThrow(/broader/);
+    expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/drive.metadata'])).toThrow(/broader/);
+    expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/drive.metadata.readonly'])).toThrow(/broader/);
     expect(() => normalizeGoogleDriveOAuthScopes(['https://www.googleapis.com/auth/userinfo.email'])).toThrow(/app data/);
   });
 
