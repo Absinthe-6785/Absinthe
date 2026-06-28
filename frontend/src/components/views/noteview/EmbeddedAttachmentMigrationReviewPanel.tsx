@@ -26,6 +26,11 @@ import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobInd
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import { sanitizeRemoteBlobProviderErrorMessage } from '../../../lib/remoteBlobProvider';
 import {
+  recoveryUnavailableReasonForProvider,
+  resolveRemoteProviderConnectionBoundary,
+  type RemoteProviderConnectionBoundary,
+} from '../../../lib/remoteProviderConnectionStatus';
+import {
   migrateEmbeddedDataUrlsToAttachments,
   hashEmbeddedAttachmentMigrationText,
   type EmbeddedAttachmentMigrationReport,
@@ -60,6 +65,7 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   restoreBackupFn?: typeof restoreEmbeddedAttachmentMigrationBackup;
   diagnosticsFn?: typeof buildAttachmentSyncDiagnostics;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
+  remoteProviderConnection?: RemoteProviderConnectionBoundary;
 }
 
 function formatBytes(bytes: number): string {
@@ -286,6 +292,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   restoreBackupFn = restoreEmbeddedAttachmentMigrationBackup,
   diagnosticsFn = buildAttachmentSyncDiagnostics,
   recoverAttachmentFn,
+  remoteProviderConnection,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -313,7 +320,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [recoveryStatus, setRecoveryStatus] = useState<RecoveryActionState>('idle');
   const [runningRecoveryAttachmentId, setRunningRecoveryAttachmentId] = useState<string | null>(null);
-  const [recoveryReport, setRecoveryReport] = useState<AttachmentRemoteRecoveryResult | null>(null);
+  const [recoveryReportsByAttachmentId, setRecoveryReportsByAttachmentId] = useState<Record<string, AttachmentRemoteRecoveryResult>>({});
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -355,6 +362,10 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       && !restoreBusy,
   );
   const diagnosticsBusy = diagnosticsStatus === 'loading';
+  const providerConnection = useMemo(
+    () => remoteProviderConnection ?? resolveRemoteProviderConnectionBoundary(),
+    [remoteProviderConnection],
+  );
 
   const scan = async () => {
     if (busy) return;
@@ -541,6 +552,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     if (diagnosticsBusy) return;
     setDiagnosticsStatus('loading');
     setDiagnosticsError(null);
+    setRecoveryReportsByAttachmentId({});
+    setRecoveryError(null);
     try {
       const report = await diagnosticsFn({
         repository: createLocalAttachmentMetadataRepository(),
@@ -559,10 +572,12 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     setRunningRecoveryAttachmentId(attachmentId);
     setRecoveryStatus('running');
     setRecoveryError(null);
-    setRecoveryReport(null);
     try {
       const report = await recoverAttachmentFn(attachmentId);
-      setRecoveryReport(report);
+      setRecoveryReportsByAttachmentId(previous => ({
+        ...previous,
+        [attachmentId]: report,
+      }));
       setRecoveryStatus(report.status === 'failed' || report.status === 'blocked' ? 'error' : 'complete');
     } catch (err) {
       setRecoveryError(sanitizeRemoteBlobProviderErrorMessage(err));
@@ -576,6 +591,40 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const orphanResults = migrationReport?.noteResults.filter(
     result => result.orphanedAttachmentIds.length > 0 || result.orphanedBlobKeys.length > 0,
   ) ?? [];
+
+  const renderRecoveryReport = (recoveryReport: AttachmentRemoteRecoveryResult) => (
+    <div data-attachment-recovery-result style={{ border: `1px solid ${recoveryReport.status === 'failed' || recoveryReport.status === 'blocked' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 800 }}>Recovery result</div>
+      <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+        <div>Attachment: {shortValue(recoveryReport.attachmentId)}</div>
+        <div>Status: {recoveryReport.status}</div>
+        <div>Provider: {recoveryReport.remoteProvider ?? 'unknown'}</div>
+        <div>Remote file: {shortValue(recoveryReport.remoteFileId)}</div>
+        {recoveryReport.localBlobKey ? <div>Local blob: {shortValue(recoveryReport.localBlobKey)}</div> : null}
+        {recoveryReport.localSize !== undefined ? <div>Local size: {formatBytes(recoveryReport.localSize)}</div> : null}
+        {recoveryReport.remoteSize !== undefined ? <div>Remote size: {formatBytes(recoveryReport.remoteSize)}</div> : null}
+        {recoveryReport.verification ? (
+          <div>
+            Verification: size {recoveryReport.verification.sizeVerified ? 'yes' : 'no'}, checksum {recoveryReport.verification.checksumVerified ? 'yes' : 'no'}
+            {recoveryReport.verification.sizeOnlyVerified ? ', size-only review' : ''}
+          </div>
+        ) : null}
+        <div>Started: {recoveryReport.startedAt}</div>
+        <div>Completed: {recoveryReport.completedAt}</div>
+      </div>
+      {recoveryReport.errorDetails ? (
+        <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
+          {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{recoveryReport.errorDetails.message} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
+        </div>
+      ) : recoveryReport.error ? (
+        <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.error)}</div>
+      ) : null}
+      {recoveryReport.warnings?.map((warning, index) => (
+        <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
+      ))}
+      <div style={{ fontSize: 10.5, color: c.textMuted }}>Refresh diagnostics after recovery to update local inventory state.</div>
+    </div>
+  );
 
   return (
     <section
@@ -1059,7 +1108,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             <div>
               <div style={{ fontSize: 11, fontWeight: 800 }}>Attachment Sync Diagnostics</div>
               <p style={{ margin: '3px 0 0', fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
-                Diagnostics are read-only. They summarize local and remote attachment state but do not upload, download, evict, or delete anything.
+                Diagnostics are read-only by default. Per-attachment recovery is available only when a provider is configured and you explicitly recover one eligible item.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1079,6 +1128,17 @@ export function EmbeddedAttachmentMigrationReviewPanel({
               <div data-attachment-sync-diagnostics-report style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 <div style={{ fontSize: 10.5, color: c.textMuted }}>
                   Generated {diagnosticsReport.generatedAt}. Inventory: {diagnosticsReport.inventory.available ? (diagnosticsReport.inventory.partial ? 'partial' : 'available') : 'unavailable'}.
+                </div>
+
+                <div data-remote-provider-connection-status style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 5 }}>Provider connection</div>
+                  <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+                    <div>Status: <strong>{providerConnection.displayLabel}</strong>{providerConnection.providerType ? ` (${providerConnection.providerType})` : ''}</div>
+                    <div>{providerConnection.safeMessage}</div>
+                    <div>Recovery capability: {providerConnection.canRecover ? 'available' : 'unavailable'}</div>
+                    {providerConnection.lastCheckedAt ? <div>Last checked: {providerConnection.lastCheckedAt}</div> : null}
+                    {providerConnection.error ? <div style={{ color: c.danger }}>{providerConnection.error}</div> : null}
+                  </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1143,17 +1203,19 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontSize: 10.5, fontWeight: 800 }}>Remote recovery</div>
                   <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                    Recovery is per attachment and runs only when you choose a single eligible item. No recover-all action exists.
+                    This section does not upload, evict, or delete anything. Recovery is per attachment and runs only when a configured provider and controller are available. No recover-all action exists.
                   </div>
                   {diagnosticsReport.recoveryItems.length === 0 ? (
                     <div style={{ fontSize: 10.5, color: c.textMuted }}>No remote-backed attachments need recovery.</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {diagnosticsReport.recoveryItems.slice(0, 10).map(item => {
-                        const configured = Boolean(recoverAttachmentFn);
-                        const canRecover = item.eligible && configured;
+                        const canRecover = item.eligible && providerConnection.canRecover && Boolean(recoverAttachmentFn);
                         const running = runningRecoveryAttachmentId === item.attachmentId;
-                        const reason = item.eligible && !configured ? 'Provider unavailable' : item.reason;
+                        const reason = item.eligible
+                          ? recoveryUnavailableReasonForProvider(providerConnection, Boolean(recoverAttachmentFn))
+                          : item.reason;
+                        const itemRecoveryReport = recoveryReportsByAttachmentId[item.attachmentId];
                         return (
                           <div key={item.attachmentId} data-attachment-recovery-item style={{ border: `1px solid ${item.eligible ? c.accent : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
@@ -1181,6 +1243,12 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                               local blob {item.localBlobPresent ? 'present' : 'missing'} 쨌 size verified {item.verification?.sizeVerified ? 'yes' : 'no'} 쨌 checksum verified {item.verification?.checksumVerified ? 'yes' : 'no'}
                               {item.verification?.sizeOnlyVerified ? ' 쨌 size-only review' : ''}
                             </div>
+                            {item.eligible && !canRecover && providerConnection.status === 'unconfigured' ? (
+                              <div style={{ fontSize: 9.5, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}>
+                                This attachment has remote metadata, but no recovery provider is configured in this build.
+                              </div>
+                            ) : null}
+                            {itemRecoveryReport ? renderRecoveryReport(itemRecoveryReport) : null}
                           </div>
                         );
                       })}
@@ -1190,40 +1258,6 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     </div>
                   )}
                 </div>
-
-                {recoveryReport ? (
-                  <div data-attachment-recovery-result style={{ border: `1px solid ${recoveryReport.status === 'failed' || recoveryReport.status === 'blocked' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 800 }}>Recovery result</div>
-                    <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
-                      <div>Attachment: {shortValue(recoveryReport.attachmentId)}</div>
-                      <div>Status: {recoveryReport.status}</div>
-                      <div>Provider: {recoveryReport.remoteProvider ?? 'unknown'}</div>
-                      <div>Remote file: {shortValue(recoveryReport.remoteFileId)}</div>
-                      {recoveryReport.localBlobKey ? <div>Local blob: {shortValue(recoveryReport.localBlobKey)}</div> : null}
-                      {recoveryReport.localSize !== undefined ? <div>Local size: {formatBytes(recoveryReport.localSize)}</div> : null}
-                      {recoveryReport.remoteSize !== undefined ? <div>Remote size: {formatBytes(recoveryReport.remoteSize)}</div> : null}
-                      {recoveryReport.verification ? (
-                        <div>
-                          Verification: size {recoveryReport.verification.sizeVerified ? 'yes' : 'no'}, checksum {recoveryReport.verification.checksumVerified ? 'yes' : 'no'}
-                          {recoveryReport.verification.sizeOnlyVerified ? ', size-only review' : ''}
-                        </div>
-                      ) : null}
-                      <div>Started: {recoveryReport.startedAt}</div>
-                      <div>Completed: {recoveryReport.completedAt}</div>
-                    </div>
-                    {recoveryReport.errorDetails ? (
-                      <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
-                        {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{recoveryReport.errorDetails.message} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
-                      </div>
-                    ) : recoveryReport.error ? (
-                      <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.error)}</div>
-                    ) : null}
-                    {recoveryReport.warnings?.map((warning, index) => (
-                      <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
-                    ))}
-                    <div style={{ fontSize: 10.5, color: c.textMuted }}>Refresh diagnostics after recovery to update local inventory state.</div>
-                  </div>
-                ) : null}
 
                 {diagnosticsReport.inventory.warnings.map((warning, index) => (
                   <div key={`${warning}-${index}`} style={{ display: 'flex', gap: 6, color: c.textMuted, fontSize: 10.5, lineHeight: 1.45 }}>

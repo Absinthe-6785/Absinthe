@@ -7,6 +7,10 @@ import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentClean
 import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
 import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
 import {
+  resolveRemoteProviderConnectionBoundary,
+  type RemoteProviderConnectionBoundary,
+} from '../../../lib/remoteProviderConnectionStatus';
+import {
   attachmentCleanupCandidateId,
   createAttachmentCleanupConfirmationToken,
   hashAttachmentCleanupReviewReport,
@@ -410,7 +414,7 @@ function diagnosticsReport(overrides: Partial<AttachmentSyncDiagnostics> = {}): 
         remoteProvider: 'googleDrive',
         remoteSyncStatus: 'missing_local',
         eligible: false,
-        reason: 'Remote file missing',
+        reason: 'Missing local blob; recovery state needs reconciliation.',
         localBlobPresent: false,
       },
       {
@@ -465,6 +469,20 @@ function recoveryResult(overrides: Partial<AttachmentRemoteRecoveryResult> = {})
   };
 }
 
+function availableProviderConnection(overrides: Partial<RemoteProviderConnectionBoundary> = {}): RemoteProviderConnectionBoundary {
+  return {
+    ...resolveRemoteProviderConnectionBoundary({
+      providerType: 'googleDrive',
+      status: 'available',
+      capabilities: {
+        supportsDownload: true,
+        supportsUpload: false,
+      },
+    }),
+    ...overrides,
+  };
+}
+
 function migrationReportWithBackup(overrides: Partial<EmbeddedAttachmentMigrationReport> = {}): EmbeddedAttachmentMigrationReport {
   return migrationReport({
     noteResults: [{
@@ -501,6 +519,7 @@ function panelElement(input: {
   restoreBackupFn?: (input: EmbeddedAttachmentMigrationRestoreInput) => Promise<EmbeddedAttachmentMigrationRestoreReport>;
   diagnosticsFn?: () => Promise<AttachmentSyncDiagnostics>;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
+  remoteProviderConnection?: RemoteProviderConnectionBoundary;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -514,6 +533,7 @@ function panelElement(input: {
     restoreBackupFn: input.restoreBackupFn ?? vi.fn(async () => restoreReport()),
     diagnosticsFn: input.diagnosticsFn ?? vi.fn(async () => diagnosticsReport()),
     recoverAttachmentFn: input.recoverAttachmentFn,
+    remoteProviderConnection: input.remoteProviderConnection,
   });
 }
 
@@ -935,8 +955,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Blob inventory is partial');
     expect(host.textContent).toContain('Bearer [redacted-secret]');
     expect(host.textContent).toContain('Remote recovery');
-    expect(host.textContent).toContain('Provider unavailable');
-    expect(host.textContent).toContain('Remote file missing');
+    expect(host.textContent).toContain('Provider not configured');
+    expect(host.textContent).toContain('Recovery capability: unavailable');
+    expect(host.textContent).toContain('Missing local blob; recovery state needs reconciliation.');
     expect(host.textContent).toContain('Recovery unavailable');
     expect(host.textContent).toContain('Upload pending');
     expect(host.textContent).toContain('Local blob already present');
@@ -960,7 +981,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
   it('shows per-item Recover only for eligible attachments when provider is configured', async () => {
     const recoverAttachmentFn = vi.fn(async () => recoveryResult());
-    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
     click(buttonByText(host, 'Refresh diagnostics'));
@@ -977,16 +1001,89 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(recoveryButtons).not.toContain('Delete');
     expect(recoveryButtons).not.toContain('Sign in with Google');
     expect(recoveryButtons).not.toContain('Connect Google Drive');
-    expect(section.textContent).toContain('Remote file missing');
+    expect(section.textContent).toContain('Missing local blob; recovery state needs reconciliation.');
     expect(section.textContent).toContain('Recovery unavailable');
     expect(section.textContent).toContain('Upload pending');
     expect(section.textContent).toContain('Local blob already present');
     cleanup(root, host);
   });
 
-  it('clicking Recover calls recovery for one attachment and displays result report', async () => {
+  it('keeps recovery observe-only when provider is unconfigured even with a controller', async () => {
     const recoverAttachmentFn = vi.fn(async () => recoveryResult());
     const { root, host } = render(panelElement({ recoverAttachmentFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    const buttonLabels = Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttonLabels).not.toContain('Recover');
+    expect(section.textContent).toContain('Provider not configured');
+    expect(section.textContent).toContain('This attachment has remote metadata, but no recovery provider is configured in this build.');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('shows safe provider reconnect state without Google sign-in controls', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection({
+        status: 'reconnect_required',
+        displayLabel: 'Reconnect required',
+        canRecover: false,
+        requiresUserAction: true,
+        safeMessage: 'Remote provider needs reconnect before recovery.',
+      }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(section.textContent).toContain('Reconnect required');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(section.textContent).not.toContain('Sign in with Google');
+    expect(section.textContent).not.toContain('Connect Google Drive');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('blocks recovery when provider download is unsupported', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection({
+        status: 'unsupported',
+        displayLabel: 'Download unsupported',
+        canDownload: false,
+        canRecover: false,
+        safeMessage: 'Remote provider does not support attachment download recovery.',
+      }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(section.textContent).toContain('Download unsupported by provider');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('clicking Recover calls recovery for one attachment and displays result report', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
     click(buttonByText(host, 'Refresh diagnostics'));
@@ -1005,12 +1102,40 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('clears keyed recovery reports when diagnostics refresh runs again', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport());
+    const { root, host } = render(panelElement({
+      diagnosticsFn,
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    expect(host.textContent).toContain('Recovery result');
+
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(diagnosticsFn).toHaveBeenCalledTimes(2);
+    expect(recoverAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain('Status: recovered');
+    cleanup(root, host);
+  });
+
   it('prevents double-submit while recovery is running', async () => {
     let resolveRecovery: ((value: AttachmentRemoteRecoveryResult) => void) | null = null;
     const recoverAttachmentFn = vi.fn(() => new Promise<AttachmentRemoteRecoveryResult>(resolve => {
       resolveRecovery = resolve;
     }));
-    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
     click(buttonByText(host, 'Refresh diagnostics'));
@@ -1040,7 +1165,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       },
       warnings: ['size-only warning access_token=[redacted-secret]'],
     }));
-    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
     click(buttonByText(host, 'Refresh diagnostics'));

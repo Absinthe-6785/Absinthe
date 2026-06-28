@@ -228,7 +228,7 @@ function recoveryReason(input: {
   if (metadata.remoteSyncStatus === 'conflict') return { eligible: false, reason: 'Conflict requires review' };
   if (metadata.remoteSyncStatus === 'failed') return { eligible: false, reason: 'Recovery unavailable' };
   if (metadata.remoteSyncStatus === 'local_only') return { eligible: false, reason: 'Recovery unavailable' };
-  if (metadata.remoteSyncStatus === 'missing_local') return { eligible: false, reason: 'Recovery unavailable' };
+  if (metadata.remoteSyncStatus === 'missing_local') return { eligible: false, reason: 'Missing local blob; recovery state needs reconciliation.' };
   if (!isEligibleRecoverableStatus(metadata)) return { eligible: false, reason: 'Recovery unavailable' };
   return { eligible: true, reason: 'Ready for explicit recovery' };
 }
