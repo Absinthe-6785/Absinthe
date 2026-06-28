@@ -20,6 +20,10 @@ export interface AttachmentSyncDiagnostics {
   readonly statusCounts: Record<string, number>;
   readonly providerCounts: Record<string, number>;
   readonly verificationCounts: {
+    readonly allRemoteBackedFullyVerified: number;
+    readonly allRemoteBackedSizeOnlyVerified: number;
+    readonly eligibleRecoverableFullyVerified: number;
+    readonly eligibleRecoverableSizeOnlyVerified: number;
     readonly fullyVerifiedRemoteAttachments: number;
     readonly sizeOnlyVerifiedAttachments: number;
     readonly checksumMismatchCount: number;
@@ -55,6 +59,25 @@ export interface AttachmentSyncDiagnostics {
   };
   readonly warnings: string[];
   readonly errors: string[];
+  readonly recoveryItems: AttachmentRecoveryDiagnosticsItem[];
+}
+
+export interface AttachmentRecoveryDiagnosticsItem {
+  readonly attachmentId: string;
+  readonly localBlobKey?: string;
+  readonly remoteProvider?: RemoteBlobProviderType;
+  readonly remoteFileId?: string;
+  readonly remoteSyncStatus?: AttachmentRemoteSyncStatus;
+  readonly eligible: boolean;
+  readonly reason: string;
+  readonly localBlobPresent: boolean;
+  readonly remoteSize?: number;
+  readonly verification?: {
+    readonly sizeVerified?: boolean;
+    readonly checksumVerified?: boolean;
+    readonly sizeOnlyVerified?: boolean;
+    readonly warnings?: string[];
+  };
 }
 
 export interface BuildAttachmentSyncDiagnosticsInput {
@@ -186,6 +209,30 @@ function hasStaleUploadConflict(metadata: AttachmentMetadata): boolean {
   return text.includes('stale upload') || text.includes('conflict');
 }
 
+function isEligibleRecoverableStatus(metadata: AttachmentMetadata): boolean {
+  return metadata.remoteSyncStatus === 'recoverable_remote' || metadata.remoteSyncStatus === 'synced';
+}
+
+function recoveryReason(input: {
+  readonly metadata: AttachmentMetadata;
+  readonly localBlobPresent: boolean;
+}): { eligible: boolean; reason: string } {
+  const { metadata, localBlobPresent } = input;
+  if (isDeleted(metadata)) return { eligible: false, reason: 'Recovery unavailable' };
+  if (localBlobPresent) return { eligible: false, reason: 'Local blob already present' };
+  if (!metadata.remoteProvider) return { eligible: false, reason: 'Provider unavailable' };
+  if (!metadata.remoteFileId) return { eligible: false, reason: 'Remote file missing' };
+  if (metadata.remoteSyncStatus === 'pending_upload') return { eligible: false, reason: 'Upload pending' };
+  if (metadata.remoteSyncStatus === 'uploading') return { eligible: false, reason: 'Upload pending' };
+  if (metadata.remoteSyncStatus === 'paused_offline') return { eligible: false, reason: 'Needs reconnect' };
+  if (metadata.remoteSyncStatus === 'conflict') return { eligible: false, reason: 'Conflict requires review' };
+  if (metadata.remoteSyncStatus === 'failed') return { eligible: false, reason: 'Recovery unavailable' };
+  if (metadata.remoteSyncStatus === 'local_only') return { eligible: false, reason: 'Recovery unavailable' };
+  if (metadata.remoteSyncStatus === 'missing_local') return { eligible: false, reason: 'Recovery unavailable' };
+  if (!isEligibleRecoverableStatus(metadata)) return { eligible: false, reason: 'Recovery unavailable' };
+  return { eligible: true, reason: 'Ready for explicit recovery' };
+}
+
 function sanitizedWarnings(attachments: readonly AttachmentMetadata[], inventoryWarnings: readonly string[], evictionReport: LocalBlobEvictionReport): string[] {
   const warnings = [
     ...inventoryWarnings,
@@ -231,6 +278,8 @@ export async function buildAttachmentSyncDiagnostics(
   const providerErrorCountsByCategory: Record<string, number> = {};
   let fullyVerifiedRemoteAttachments = 0;
   let sizeOnlyVerifiedAttachments = 0;
+  let eligibleRecoverableFullyVerified = 0;
+  let eligibleRecoverableSizeOnlyVerified = 0;
   let checksumMismatchCount = 0;
   let sizeMismatchCount = 0;
   let verificationWarningCount = 0;
@@ -239,11 +288,13 @@ export async function buildAttachmentSyncDiagnostics(
   let providerErrorCount = 0;
 
   const inventoryByKey = new Map(inventoryRead.records.map(record => [record.localBlobKey, record]));
+  const recoveryItems: AttachmentRecoveryDiagnosticsItem[] = [];
 
   for (const metadata of attachmentRead.attachments) {
     increment(statusCounts, statusKey(metadata));
     increment(providerCounts, providerKey(metadata.remoteProvider));
-    if (metadata.localBlobKey && inventoryByKey.has(metadata.localBlobKey)) {
+    const localBlobPresent = Boolean(metadata.localBlobKey && inventoryByKey.has(metadata.localBlobKey));
+    if (localBlobPresent) {
       statusCounts.localBlobPresent += 1;
     } else {
       statusCounts.localBlobMissing += 1;
@@ -253,11 +304,34 @@ export async function buildAttachmentSyncDiagnostics(
     if (metadata.remoteProvider && metadata.remoteFileId && !isDeleted(metadata)) {
       if (metadata.remoteVerification?.sizeVerified && metadata.remoteVerification.checksumVerified) {
         fullyVerifiedRemoteAttachments += 1;
+        if (isEligibleRecoverableStatus(metadata)) eligibleRecoverableFullyVerified += 1;
       } else if (hasSizeOnlyVerification(metadata)) {
         sizeOnlyVerifiedAttachments += 1;
+        if (isEligibleRecoverableStatus(metadata)) eligibleRecoverableSizeOnlyVerified += 1;
       } else {
         verificationMissingCount += 1;
       }
+    }
+
+    const recovery = recoveryReason({ metadata, localBlobPresent });
+    if (metadata.remoteProvider || metadata.remoteFileId || metadata.remoteSyncStatus === 'recoverable_remote' || metadata.remoteSyncStatus === 'missing_local') {
+      recoveryItems.push({
+        attachmentId: metadata.id,
+        localBlobKey: metadata.localBlobKey,
+        remoteProvider: metadata.remoteProvider,
+        remoteFileId: metadata.remoteFileId,
+        remoteSyncStatus: metadata.remoteSyncStatus,
+        eligible: recovery.eligible,
+        reason: recovery.reason,
+        localBlobPresent,
+        remoteSize: metadata.remoteSize,
+        verification: metadata.remoteVerification ? {
+          sizeVerified: metadata.remoteVerification.sizeVerified,
+          checksumVerified: metadata.remoteVerification.checksumVerified,
+          sizeOnlyVerified: metadata.remoteVerification.sizeOnlyVerified,
+          warnings: metadata.remoteVerification.warnings?.map(warning => sanitizeRemoteBlobProviderErrorMessage(warning)),
+        } : undefined,
+      });
     }
 
     const verificationText = metadata.remoteVerification?.warnings?.join(' ').toLowerCase() ?? '';
@@ -291,6 +365,10 @@ export async function buildAttachmentSyncDiagnostics(
     statusCounts,
     providerCounts,
     verificationCounts: {
+      allRemoteBackedFullyVerified: fullyVerifiedRemoteAttachments,
+      allRemoteBackedSizeOnlyVerified: sizeOnlyVerifiedAttachments,
+      eligibleRecoverableFullyVerified,
+      eligibleRecoverableSizeOnlyVerified,
       fullyVerifiedRemoteAttachments,
       sizeOnlyVerifiedAttachments,
       checksumMismatchCount,
@@ -326,5 +404,6 @@ export async function buildAttachmentSyncDiagnostics(
     },
     warnings: sanitizedWarnings(attachmentRead.attachments, inventoryRead.warnings, evictionReport),
     errors: sanitizedErrors(attachmentRead.attachments, evictionReport, attachmentRead.errors),
+    recoveryItems,
   };
 }

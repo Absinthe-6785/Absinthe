@@ -5,6 +5,7 @@ import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
 import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
+import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
 import {
   attachmentCleanupCandidateId,
   createAttachmentCleanupConfirmationToken,
@@ -349,6 +350,10 @@ function diagnosticsReport(overrides: Partial<AttachmentSyncDiagnostics> = {}): 
       'local/no remote provider': 1,
     },
     verificationCounts: {
+      allRemoteBackedFullyVerified: 2,
+      allRemoteBackedSizeOnlyVerified: 1,
+      eligibleRecoverableFullyVerified: 1,
+      eligibleRecoverableSizeOnlyVerified: 1,
       fullyVerifiedRemoteAttachments: 2,
       sizeOnlyVerifiedAttachments: 1,
       checksumMismatchCount: 1,
@@ -384,6 +389,78 @@ function diagnosticsReport(overrides: Partial<AttachmentSyncDiagnostics> = {}): 
     },
     warnings: ['Size-only verified / review required.'],
     errors: ['Remote failed with Authorization: Bearer [redacted-secret].'],
+    recoveryItems: [
+      {
+        attachmentId: 'att-recoverable',
+        localBlobKey: 'local-attachment/missing',
+        remoteProvider: 'googleDrive',
+        remoteFileId: 'drive-file-1',
+        remoteSyncStatus: 'recoverable_remote',
+        eligible: true,
+        reason: 'Ready for explicit recovery',
+        localBlobPresent: false,
+        remoteSize: 2048,
+        verification: {
+          sizeVerified: true,
+          checksumVerified: true,
+        },
+      },
+      {
+        attachmentId: 'att-missing-remote',
+        remoteProvider: 'googleDrive',
+        remoteSyncStatus: 'missing_local',
+        eligible: false,
+        reason: 'Remote file missing',
+        localBlobPresent: false,
+      },
+      {
+        attachmentId: 'att-local-only',
+        remoteSyncStatus: 'local_only',
+        eligible: false,
+        reason: 'Recovery unavailable',
+        localBlobPresent: false,
+      },
+      {
+        attachmentId: 'att-uploading',
+        remoteProvider: 'googleDrive',
+        remoteFileId: 'drive-file-2',
+        remoteSyncStatus: 'uploading',
+        eligible: false,
+        reason: 'Upload pending',
+        localBlobPresent: false,
+      },
+      {
+        attachmentId: 'att-present',
+        localBlobKey: 'local-attachment/present',
+        remoteProvider: 'googleDrive',
+        remoteFileId: 'drive-file-3',
+        remoteSyncStatus: 'recoverable_remote',
+        eligible: false,
+        reason: 'Local blob already present',
+        localBlobPresent: true,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function recoveryResult(overrides: Partial<AttachmentRemoteRecoveryResult> = {}): AttachmentRemoteRecoveryResult {
+  return {
+    recoveryId: 'attachment-recovery:att-recoverable:2026-06-28T00:00:00.000Z',
+    attachmentId: 'att-recoverable',
+    remoteProvider: 'googleDrive',
+    remoteFileId: 'drive-file-1',
+    status: 'recovered',
+    localBlobKey: 'local-attachment/recovered-att-recoverable',
+    remoteSize: 2048,
+    localSize: 2048,
+    verification: {
+      sizeVerified: true,
+      checksumVerified: true,
+    },
+    warnings: [],
+    startedAt: '2026-06-28T00:00:00.000Z',
+    completedAt: '2026-06-28T00:00:01.000Z',
     ...overrides,
   };
 }
@@ -423,6 +500,7 @@ function panelElement(input: {
   listBackupsFn?: (reader?: EmbeddedAttachmentMigrationBackupReader) => Promise<EmbeddedAttachmentMigrationBackupSummary[]>;
   restoreBackupFn?: (input: EmbeddedAttachmentMigrationRestoreInput) => Promise<EmbeddedAttachmentMigrationRestoreReport>;
   diagnosticsFn?: () => Promise<AttachmentSyncDiagnostics>;
+  recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -435,6 +513,7 @@ function panelElement(input: {
     listBackupsFn: input.listBackupsFn ?? vi.fn(async () => []),
     restoreBackupFn: input.restoreBackupFn ?? vi.fn(async () => restoreReport()),
     diagnosticsFn: input.diagnosticsFn ?? vi.fn(async () => diagnosticsReport()),
+    recoverAttachmentFn: input.recoverAttachmentFn,
   });
 }
 
@@ -845,7 +924,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Recoverable remote');
     expect(host.textContent).toContain('Missing local');
     expect(host.textContent).toContain('googleDrive');
-    expect(host.textContent).toContain('Size-only / review required');
+    expect(host.textContent).toContain('All remote-backed: fully verified');
+    expect(host.textContent).toContain('Eligible synced/recoverable: size-only');
     expect(host.textContent).toContain('Eviction candidates');
     expect(host.textContent).toContain('Review-only candidates');
     expect(host.textContent).toContain('Fully verified recoverable');
@@ -854,6 +934,125 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('1.0 KB');
     expect(host.textContent).toContain('Blob inventory is partial');
     expect(host.textContent).toContain('Bearer [redacted-secret]');
+    expect(host.textContent).toContain('Remote recovery');
+    expect(host.textContent).toContain('Provider unavailable');
+    expect(host.textContent).toContain('Remote file missing');
+    expect(host.textContent).toContain('Recovery unavailable');
+    expect(host.textContent).toContain('Upload pending');
+    expect(host.textContent).toContain('Local blob already present');
+    cleanup(root, host);
+  });
+
+  it('does not run recovery on mount or diagnostics refresh', async () => {
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport());
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({ diagnosticsFn, recoverAttachmentFn }));
+
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(diagnosticsFn).toHaveBeenCalledTimes(1);
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('shows per-item Recover only for eligible attachments when provider is configured', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    const recoveryButtons = Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(recoveryButtons).toContain('Recover');
+    expect(recoveryButtons).not.toContain('Recover all');
+    expect(recoveryButtons).not.toContain('Upload');
+    expect(recoveryButtons).not.toContain('Sync now');
+    expect(recoveryButtons).not.toContain('Evict');
+    expect(recoveryButtons).not.toContain('Delete');
+    expect(recoveryButtons).not.toContain('Sign in with Google');
+    expect(recoveryButtons).not.toContain('Connect Google Drive');
+    expect(section.textContent).toContain('Remote file missing');
+    expect(section.textContent).toContain('Recovery unavailable');
+    expect(section.textContent).toContain('Upload pending');
+    expect(section.textContent).toContain('Local blob already present');
+    cleanup(root, host);
+  });
+
+  it('clicking Recover calls recovery for one attachment and displays result report', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+
+    expect(recoverAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(recoverAttachmentFn).toHaveBeenCalledWith('att-recoverable');
+    expect(host.textContent).toContain('Recovery result');
+    expect(host.textContent).toContain('Status: recovered');
+    expect(host.textContent).toContain('Provider: googleDrive');
+    expect(host.textContent).toContain('Local blob: local-attach...ecoverable');
+    expect(host.textContent).toContain('Verification: size yes, checksum yes');
+    expect(host.textContent).toContain('Refresh diagnostics after recovery');
+    cleanup(root, host);
+  });
+
+  it('prevents double-submit while recovery is running', async () => {
+    let resolveRecovery: ((value: AttachmentRemoteRecoveryResult) => void) | null = null;
+    const recoverAttachmentFn = vi.fn(() => new Promise<AttachmentRemoteRecoveryResult>(resolve => {
+      resolveRecovery = resolve;
+    }));
+    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const recoverButton = buttonByText(host, 'Recover');
+    click(recoverButton);
+    click(buttonByText(host, 'Recovering...'));
+    expect(recoverAttachmentFn).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRecovery?.(recoveryResult());
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain('Recovery result');
+    cleanup(root, host);
+  });
+
+  it('renders failed recovery results safely without raw token or session URI leakage', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult({
+      status: 'failed',
+      error: 'download failed Authorization: Bearer token-secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
+      errorDetails: {
+        message: 'download failed Authorization: Bearer [redacted-secret] [redacted-remote-url]',
+        category: 'network',
+        retryable: true,
+        code: 'download_failed',
+      },
+      warnings: ['size-only warning access_token=[redacted-secret]'],
+    }));
+    const { root, host } = render(panelElement({ recoverAttachmentFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+
+    expect(host.textContent).toContain('download_failed');
+    expect(host.textContent).toContain('network, retryable yes');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain(embeddedPayload);
     cleanup(root, host);
   });
 
