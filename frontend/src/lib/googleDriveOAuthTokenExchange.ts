@@ -209,10 +209,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function scopeFromResponse(scope: unknown): { scopes: string[]; warnings: string[] } | GoogleDriveOAuthTokenExchangeResult {
   if (scope === undefined || scope === null || scope === '') {
-    return {
-      scopes: [GOOGLE_DRIVE_APP_DATA_SCOPE],
-      warnings: ['Token response did not include scope; assuming the requested app data scope for this in-memory result.'],
-    };
+    return safeExchangeError('invalid_token_response', 'missing_scope', 'OAuth token response did not include scope.');
   }
   if (typeof scope !== 'string') {
     return safeExchangeError('invalid_token_response', 'invalid_scope', 'OAuth token response scope is invalid.');
@@ -239,12 +236,12 @@ function validateTokenResponse(value: unknown, now: Date): GoogleDriveOAuthToken
   }
 
   const tokenType = record.token_type;
-  if (tokenType !== undefined && tokenType !== 'Bearer') {
+  if (tokenType !== 'Bearer') {
     return safeExchangeError('invalid_token_response', 'invalid_token_type', 'OAuth token response token type is unsupported.');
   }
 
   const expiresIn = record.expires_in;
-  if (expiresIn !== undefined && (!Number.isFinite(expiresIn) || typeof expiresIn !== 'number' || expiresIn <= 0)) {
+  if (!Number.isFinite(expiresIn) || typeof expiresIn !== 'number' || expiresIn <= 0) {
     return safeExchangeError('invalid_token_response', 'invalid_expires_in', 'OAuth token response expiration is invalid.');
   }
 
@@ -253,9 +250,7 @@ function validateTokenResponse(value: unknown, now: Date): GoogleDriveOAuthToken
     return scopeResult;
   }
 
-  const expiresAt = typeof expiresIn === 'number'
-    ? new Date(now.getTime() + expiresIn * 1000).toISOString()
-    : undefined;
+  const expiresAt = new Date(now.getTime() + expiresIn * 1000).toISOString();
 
   return {
     providerType: 'googleDrive',
@@ -264,7 +259,7 @@ function validateTokenResponse(value: unknown, now: Date): GoogleDriveOAuthToken
     tokenSet: {
       accessToken,
       tokenType: 'Bearer',
-      expiresIn: typeof expiresIn === 'number' ? expiresIn : undefined,
+      expiresIn,
       expiresAt,
       scope: scopeResult.scopes,
       sensitiveRefreshTokenReturned: typeof record[['refresh', 'token'].join('_')] === 'string',
