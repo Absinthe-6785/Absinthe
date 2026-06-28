@@ -122,8 +122,11 @@ export function resolveRemoteProviderConnectionBoundary(
 export function recoveryUnavailableReasonForProvider(
   provider: RemoteProviderConnectionBoundary,
   hasRecoveryController: boolean,
+  attachmentProvider?: RemoteBlobProviderType,
 ): string {
   if (provider.status === 'unconfigured') return 'Provider not configured';
+  if (attachmentProvider && provider.providerType && attachmentProvider !== provider.providerType) return 'Recovery provider does not match this attachment.';
+  if (attachmentProvider && !provider.providerType) return 'Provider mismatch';
   if (provider.status === 'auth_expired' || provider.status === 'reconnect_required') return 'Reconnect required';
   if (provider.status === 'disabled_by_user') return 'Provider disabled';
   if (provider.status === 'unsupported' || !provider.canDownload) return 'Download unsupported by provider';

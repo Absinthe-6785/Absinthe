@@ -90,4 +90,44 @@ describe('remote provider connection boundary', () => {
     expect(status.error).not.toContain('refresh-secret');
     expect(status.canRecover).toBe(false);
   });
+
+  it('reports provider mismatch before exposing recovery', () => {
+    const status = resolveRemoteProviderConnectionBoundary({
+      providerType: 'googleDrive',
+      status: 'available',
+      capabilities: downloadCapable,
+    });
+
+    expect(recoveryUnavailableReasonForProvider(status, true, 'r2')).toBe('Recovery provider does not match this attachment.');
+    expect(recoveryUnavailableReasonForProvider(status, true, 'googleDrive')).toBe('Recovery unavailable');
+  });
+
+  it('represents disabled and error states without recovery capability', () => {
+    const disabled = resolveRemoteProviderConnectionBoundary({
+      providerType: 'googleDrive',
+      status: 'disabled_by_user',
+      capabilities: downloadCapable,
+    });
+    const error = resolveRemoteProviderConnectionBoundary({
+      providerType: 'googleDrive',
+      status: 'error',
+      capabilities: downloadCapable,
+      error: 'raw provider response Authorization: Bearer token-secret',
+    });
+
+    expect(disabled).toMatchObject({
+      status: 'disabled_by_user',
+      displayLabel: 'Provider disabled',
+      canRecover: false,
+      requiresUserAction: true,
+    });
+    expect(recoveryUnavailableReasonForProvider(disabled, true, 'googleDrive')).toBe('Provider disabled');
+    expect(error).toMatchObject({
+      status: 'error',
+      displayLabel: 'Provider status error',
+      canRecover: false,
+    });
+    expect(error.error).not.toContain('token-secret');
+    expect(recoveryUnavailableReasonForProvider(error, true, 'googleDrive')).toBe('Provider unavailable');
+  });
 });

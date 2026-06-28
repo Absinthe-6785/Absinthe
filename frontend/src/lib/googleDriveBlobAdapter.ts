@@ -13,10 +13,8 @@ import {
   type RemoteBlobDownloadResult,
   type SanitizedRemoteBlobProviderError,
 } from './remoteBlobProvider';
-
-export interface GoogleDriveAccessTokenProvider {
-  getAccessToken(): Promise<string>;
-}
+export type { GoogleDriveAccessTokenProvider } from './googleDriveConnectionBoundary';
+import type { GoogleDriveAccessTokenProvider } from './googleDriveConnectionBoundary';
 
 export interface GoogleDriveBlobAdapterOptions {
   readonly accessTokenProvider: GoogleDriveAccessTokenProvider;
