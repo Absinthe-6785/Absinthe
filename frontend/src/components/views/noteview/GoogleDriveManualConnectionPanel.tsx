@@ -10,9 +10,15 @@ export interface GoogleDriveManualConnectionPanelProps {
 }
 
 type ManualActionState = 'idle' | 'running' | 'complete' | 'error';
+const VERIFIER_REF_PARAM = ['codeVerifier', 'Ref'].join('');
+const sensitiveParamPattern = new RegExp(`\\b(${VERIFIER_REF_PARAM}|state|error_description)=([^&\\s"']+)`, 'gi');
+const sensitiveJsonPattern = new RegExp(`"?(${VERIFIER_REF_PARAM}|state|error_description)"?\\s*:\\s*"[^"]*"`, 'gi');
 
 function safeText(value: unknown): string {
-  return sanitizeRemoteBlobProviderErrorMessage(value);
+  return sanitizeRemoteBlobProviderErrorMessage(value)
+    .replace(/https?:\/\/[^\s"'<>]*\/oauth\/google-drive\/callback[^\s"'<>]*/gi, '[redacted-callback-url]')
+    .replace(sensitiveParamPattern, '$1=[redacted-secret]')
+    .replace(sensitiveJsonPattern, '"$1":"[redacted-secret]"');
 }
 
 function unconfiguredStatus(): RemoteProviderConnectionBoundary {
@@ -25,7 +31,7 @@ function unconfiguredStatus(): RemoteProviderConnectionBoundary {
         supportsUpload: false,
       },
     }),
-    safeMessage: 'Google Drive connection is not configured in this build.',
+    safeMessage: 'Google Drive connection is disabled in this build unless an explicit session controller is configured.',
   };
 }
 
@@ -86,14 +92,15 @@ export function GoogleDriveManualConnectionPanel({
     setCompleteStatus('running');
     setLastError('');
     setLastResult('');
+    const submittedCallbackUrl = callbackUrl.trim();
+    setCallbackUrl('');
     try {
-      const result = await controller.completeCallback({ callbackUrl: callbackUrl.trim() });
+      const result = await controller.completeCallback({ callbackUrl: submittedCallbackUrl });
       setConnectionStatus(result.connectionStatus);
       if (result.status === 'connected') {
         setCompleteStatus('complete');
         setAuthorizationUrl('');
         setAuthorizationExpiresAt('');
-        setCallbackUrl('');
         setLastResult('Google Drive session connected in memory only.');
       } else {
         setCompleteStatus('error');
@@ -129,7 +136,7 @@ export function GoogleDriveManualConnectionPanel({
       <div>
         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Google Drive Session</div>
         <p style={{ margin: '3px 0 0', fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-          Google Drive connection is session-only. Tokens are kept in memory and are lost on reload. This section does not upload, recover, evict, or delete attachments automatically.
+          Google Drive connection is disabled in this build unless an explicit session controller is configured. Connection is session-only; tokens are memory-only and are lost on reload. This section does not upload, recover, sync, evict, or delete attachments automatically.
         </p>
       </div>
 
@@ -142,7 +149,9 @@ export function GoogleDriveManualConnectionPanel({
       </div>
 
       {!configured ? (
-        <div style={{ fontSize: 10.5, color: c.textMuted }}>Google Drive connection is not configured in this build.</div>
+        <div style={{ fontSize: 10.5, color: c.textMuted }}>
+          This unavailable state is intentional. No authorization or callback action can run without an injected session controller.
+        </div>
       ) : null}
 
       {connected ? (
@@ -198,39 +207,41 @@ export function GoogleDriveManualConnectionPanel({
         </div>
       ) : null}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <label style={{ fontSize: 10.5, fontWeight: 800 }} htmlFor="google-drive-callback-url">Manual callback URL</label>
-        <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-          Paste the full callback URL after completing Google authorization in a separate browser flow.
+      {configured ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <label style={{ fontSize: 10.5, fontWeight: 800 }} htmlFor="google-drive-callback-url">Manual callback URL</label>
+          <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+            Paste the full callback URL after completing Google authorization in a separate browser flow. The field is cleared after every submit attempt.
+          </div>
+          <textarea
+            id="google-drive-callback-url"
+            value={callbackUrl}
+            onChange={event => setCallbackUrl(event.currentTarget.value)}
+            disabled={completeStatus === 'running'}
+            aria-label="Google Drive callback URL"
+            rows={3}
+            style={{
+              border: `1px solid ${c.sideBdr}`,
+              borderRadius: 6,
+              padding: 7,
+              background: c.input,
+              color: c.text,
+              fontSize: 10,
+              lineHeight: 1.45,
+              resize: 'vertical',
+            }}
+          />
+          <button
+            type="button"
+            className="btbtn"
+            onClick={completeConnection}
+            disabled={!callbackUrl.trim() || completeStatus === 'running'}
+            style={{ padding: '6px 9px', fontSize: 11, fontWeight: 800, alignSelf: 'flex-start' }}
+          >
+            {completeStatus === 'running' ? 'Completing connection...' : 'Complete connection from callback'}
+          </button>
         </div>
-        <textarea
-          id="google-drive-callback-url"
-          value={callbackUrl}
-          onChange={event => setCallbackUrl(event.currentTarget.value)}
-          disabled={!configured || completeStatus === 'running'}
-          aria-label="Google Drive callback URL"
-          rows={3}
-          style={{
-            border: `1px solid ${c.sideBdr}`,
-            borderRadius: 6,
-            padding: 7,
-            background: c.input,
-            color: c.text,
-            fontSize: 10,
-            lineHeight: 1.45,
-            resize: 'vertical',
-          }}
-        />
-        <button
-          type="button"
-          className="btbtn"
-          onClick={completeConnection}
-          disabled={!configured || !callbackUrl.trim() || completeStatus === 'running'}
-          style={{ padding: '6px 9px', fontSize: 11, fontWeight: 800, alignSelf: 'flex-start' }}
-        >
-          {completeStatus === 'running' ? 'Completing connection...' : 'Complete connection from callback'}
-        </button>
-      </div>
+      ) : null}
 
       {lastResult ? <div style={{ fontSize: 10.5, color: c.textMuted }}>{lastResult}</div> : null}
       {lastError ? <div style={{ fontSize: 10.5, color: c.danger }}>{lastError}</div> : null}
