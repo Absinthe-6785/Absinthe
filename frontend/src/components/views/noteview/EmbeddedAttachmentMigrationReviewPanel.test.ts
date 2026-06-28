@@ -472,6 +472,27 @@ function recoveryResult(overrides: Partial<AttachmentRemoteRecoveryResult> = {})
   };
 }
 
+function recoveryItem(
+  overrides: Partial<AttachmentSyncDiagnostics['recoveryItems'][number]> = {},
+): AttachmentSyncDiagnostics['recoveryItems'][number] {
+  return {
+    attachmentId: 'att-recoverable',
+    localBlobKey: 'local-attachment/missing',
+    remoteProvider: 'googleDrive',
+    remoteFileId: 'drive-file-1',
+    remoteSyncStatus: 'recoverable_remote',
+    eligible: true,
+    reason: 'Ready for explicit recovery',
+    localBlobPresent: false,
+    remoteSize: 2048,
+    verification: {
+      sizeVerified: true,
+      checksumVerified: true,
+    },
+    ...overrides,
+  };
+}
+
 function availableProviderConnection(overrides: Partial<RemoteProviderConnectionBoundary> = {}): RemoteProviderConnectionBoundary {
   return {
     ...resolveRemoteProviderConnectionBoundary({
@@ -577,6 +598,16 @@ function click(element: HTMLElement) {
   act(() => {
     element.click();
   });
+}
+
+function recoveryReasonCodes(host: HTMLElement): string[] {
+  return Array.from(host.querySelectorAll('[data-recovery-reason-code]'))
+    .map(item => item.getAttribute('data-recovery-reason-code') ?? '');
+}
+
+function recoveryReasonLabels(host: HTMLElement): string[] {
+  return Array.from(host.querySelectorAll('[data-recovery-reason-code]'))
+    .map(item => item.textContent?.trim() ?? '');
 }
 
 function changeInput(input: HTMLInputElement, value: string) {
@@ -1039,9 +1070,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Remote recovery');
     expect(host.textContent).toContain('Provider not configured');
     expect(host.textContent).toContain('Recovery capability: unavailable');
-    expect(host.textContent).toContain('Missing local blob; recovery state needs reconciliation.');
-    expect(host.textContent).toContain('Recovery unavailable');
-    expect(host.textContent).toContain('Upload pending');
+    expect(host.textContent).toContain('Remote file missing');
+    expect(host.textContent).toContain('Missing local blob is not remote-backed');
+    expect(host.textContent).toContain('Sync state blocks recovery');
     expect(host.textContent).toContain('Local blob already present');
     cleanup(root, host);
   });
@@ -1245,9 +1276,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(recoveryButtons).not.toContain('Delete');
     expect(recoveryButtons).not.toContain('Sign in with Google');
     expect(recoveryButtons).not.toContain('Connect Google Drive');
-    expect(section.textContent).toContain('Missing local blob; recovery state needs reconciliation.');
-    expect(section.textContent).toContain('Recovery unavailable');
-    expect(section.textContent).toContain('Upload pending');
+    expect(section.textContent).toContain('Remote file missing');
+    expect(section.textContent).toContain('Missing local blob is not remote-backed');
+    expect(section.textContent).toContain('Sync state blocks recovery');
     expect(section.textContent).toContain('Local blob already present');
     cleanup(root, host);
   });
@@ -1266,7 +1297,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
     if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
     expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
-    expect(section.textContent).toContain('Recovery provider does not match this attachment.');
+    expect(section.textContent).toContain('Provider mismatch');
     expect(recoverAttachmentFn).not.toHaveBeenCalled();
     cleanup(root, host);
   });
@@ -1356,9 +1387,197 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
     const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
     if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
-    expect(section.textContent).toContain('Reconnect required');
+    expect(section.textContent).toContain('Token provider unavailable');
     expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
     expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('labels provider and session states that block recovery', async () => {
+    const cases: Array<{
+      name: string;
+      remoteProviderConnection?: RemoteProviderConnectionBoundary;
+      googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+      expectedCode: string;
+      expectedLabel: string;
+    }> = [
+      {
+        name: 'no provider connection',
+        expectedCode: 'provider_not_configured',
+        expectedLabel: 'Provider not configured',
+      },
+      {
+        name: 'unconfigured provider',
+        remoteProviderConnection: availableProviderConnection({ status: 'unconfigured', canRecover: false, canDownload: false }),
+        expectedCode: 'provider_not_configured',
+        expectedLabel: 'Provider not configured',
+      },
+      {
+        name: 'unavailable provider',
+        remoteProviderConnection: availableProviderConnection({ status: 'unavailable', canRecover: false }),
+        expectedCode: 'provider_unavailable',
+        expectedLabel: 'Provider unavailable',
+      },
+      {
+        name: 'auth expired',
+        remoteProviderConnection: availableProviderConnection({ status: 'auth_expired', canRecover: false }),
+        expectedCode: 'session_expired',
+        expectedLabel: 'Session expired',
+      },
+      {
+        name: 'reconnect required',
+        remoteProviderConnection: availableProviderConnection({ status: 'reconnect_required', canRecover: false }),
+        expectedCode: 'reconnect_required',
+        expectedLabel: 'Reconnect required',
+      },
+      {
+        name: 'disabled',
+        remoteProviderConnection: availableProviderConnection({ status: 'disabled_by_user', canRecover: false }),
+        expectedCode: 'provider_unavailable',
+        expectedLabel: 'Provider unavailable',
+      },
+      {
+        name: 'error',
+        remoteProviderConnection: availableProviderConnection({ status: 'error', canRecover: false, error: 'Authorization: Bearer token-secret' }),
+        expectedCode: 'provider_unavailable',
+        expectedLabel: 'Provider unavailable',
+      },
+      {
+        name: 'canRecover false',
+        remoteProviderConnection: availableProviderConnection({ canRecover: false }),
+        expectedCode: 'provider_unavailable',
+        expectedLabel: 'Provider unavailable',
+      },
+      {
+        name: 'download unsupported',
+        remoteProviderConnection: availableProviderConnection({ status: 'unsupported', canRecover: false, canDownload: false }),
+        expectedCode: 'download_unsupported',
+        expectedLabel: 'Download unsupported',
+      },
+      {
+        name: 'token provider null',
+        remoteProviderConnection: availableProviderConnection(),
+        googleDriveSessionController: manualGoogleDriveController({ connected: true, hasAccessTokenProvider: false }),
+        expectedCode: 'token_provider_unavailable',
+        expectedLabel: 'Token provider unavailable',
+      },
+    ];
+
+    for (const item of cases) {
+      const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+      const { root, host } = render(panelElement({
+        recoverAttachmentFn,
+        remoteProviderConnection: item.remoteProviderConnection,
+        googleDriveSessionController: item.googleDriveSessionController,
+        diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem()] })),
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+
+      expect(recoveryReasonCodes(host), item.name).toContain(item.expectedCode);
+      expect(recoveryReasonLabels(host), item.name).toContain(item.expectedLabel);
+      expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+      expect(host.textContent).not.toContain('token-secret');
+      expect(recoverAttachmentFn).not.toHaveBeenCalled();
+      cleanup(root, host);
+    }
+  });
+
+  it('labels attachment states that block Google Drive session recovery', async () => {
+    const cases: Array<{
+      name: string;
+      item: AttachmentSyncDiagnostics['recoveryItems'][number];
+      expectedCode: string;
+      expectedLabel: string;
+    }> = [
+      {
+        name: 'non-google provider',
+        item: recoveryItem({ attachmentId: 'att-r2', remoteProvider: 'r2', remoteFileId: 'r2-file' }),
+        expectedCode: 'provider_mismatch',
+        expectedLabel: 'Provider mismatch',
+      },
+      {
+        name: 'remote provider missing',
+        item: recoveryItem({ attachmentId: 'att-no-provider', remoteProvider: undefined, remoteFileId: undefined, eligible: false, reason: 'Missing local blob.' }),
+        expectedCode: 'missing_local_but_not_remote_backed',
+        expectedLabel: 'Missing local blob is not remote-backed',
+      },
+      {
+        name: 'remote file missing',
+        item: recoveryItem({ attachmentId: 'att-no-remote-file', remoteFileId: undefined, eligible: false, reason: 'remoteFileId=drive-secret access_token=secret' }),
+        expectedCode: 'remote_file_missing',
+        expectedLabel: 'Remote file missing',
+      },
+      {
+        name: 'local blob already present',
+        item: recoveryItem({ attachmentId: 'att-present', localBlobPresent: true, localBlobKey: 'local-attachment/present', eligible: false, reason: 'Local blob already present' }),
+        expectedCode: 'local_blob_already_present',
+        expectedLabel: 'Local blob already present',
+      },
+      {
+        name: 'deleted',
+        item: recoveryItem({ attachmentId: 'att-deleted', eligible: false, reason: 'Attachment deleted Authorization: Bearer token-secret' }),
+        expectedCode: 'attachment_deleted',
+        expectedLabel: 'Attachment is deleted',
+      },
+      {
+        name: 'tombstoned',
+        item: recoveryItem({ attachmentId: 'att-tombstone', eligible: false, reason: 'Attachment tombstone codeVerifierRef=secret' }),
+        expectedCode: 'attachment_tombstoned',
+        expectedLabel: 'Attachment is tombstoned',
+      },
+      ...(['pending_upload', 'uploading', 'failed', 'paused_offline', 'conflict', 'local_only', 'missing_local'] as const).map(status => ({
+        name: status,
+        item: recoveryItem({
+          attachmentId: `att-${status}`,
+          remoteSyncStatus: status,
+          eligible: false,
+          reason: `${status} blocks recovery refresh_token=secret`,
+        }),
+        expectedCode: 'blocked_sync_state',
+        expectedLabel: 'Sync state blocks recovery',
+      })),
+    ];
+
+    for (const item of cases) {
+      const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+      const { root, host } = render(panelElement({
+        recoverAttachmentFn,
+        googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+        diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [item.item] })),
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+
+      expect(recoveryReasonCodes(host), item.name).toContain(item.expectedCode);
+      expect(recoveryReasonLabels(host), item.name).toContain(item.expectedLabel);
+      expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+      expect(host.textContent).not.toContain('token-secret');
+      expect(host.textContent).not.toContain('refresh_token=secret');
+      expect(host.textContent).not.toContain('codeVerifierRef=secret');
+      expect(host.textContent).not.toContain('access_token=secret');
+      expect(recoverAttachmentFn).not.toHaveBeenCalled();
+      cleanup(root, host);
+    }
+  });
+
+  it('labels a missing recovery controller without enabling Recover', async () => {
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem()] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(recoveryReasonCodes(host)).toContain('recovery_controller_unavailable');
+    expect(recoveryReasonLabels(host)).toContain('Recovery controller unavailable');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
     cleanup(root, host);
   });
 
@@ -1518,7 +1737,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
     const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
     if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
-    expect(section.textContent).toContain('Download unsupported by provider');
+    expect(section.textContent).toContain('Download unsupported');
     expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
     expect(recoverAttachmentFn).not.toHaveBeenCalled();
     cleanup(root, host);

@@ -55,10 +55,29 @@ type BackupInspectionState = 'idle' | 'loading' | 'ready' | 'error';
 type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
 type DiagnosticsState = 'idle' | 'loading' | 'ready' | 'error';
 type RecoveryActionState = 'idle' | 'running' | 'complete' | 'error';
+type AttachmentRecoveryBlockedReason =
+  | 'provider_not_configured'
+  | 'provider_unavailable'
+  | 'provider_mismatch'
+  | 'session_expired'
+  | 'reconnect_required'
+  | 'recovery_controller_unavailable'
+  | 'token_provider_unavailable'
+  | 'download_unsupported'
+  | 'remote_file_missing'
+  | 'local_blob_already_present'
+  | 'item_not_recoverable'
+  | 'blocked_sync_state'
+  | 'attachment_deleted'
+  | 'attachment_tombstoned'
+  | 'missing_local_but_not_remote_backed'
+  | 'recovery_in_progress';
 
 interface RecoveryEligibility {
   readonly canRecover: boolean;
-  readonly reason: string;
+  readonly reasonCode?: AttachmentRecoveryBlockedReason;
+  readonly reasonLabel: string;
+  readonly severity?: 'info' | 'warning' | 'blocked';
 }
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
@@ -107,29 +126,99 @@ function hasSessionAccessTokenProvider(controller?: GoogleDriveSessionConnection
   }
 }
 
-function recoveryEligibilityForItem(input: {
+function recoveryUnavailableReasonCode(provider: RemoteProviderConnectionBoundary): AttachmentRecoveryBlockedReason {
+  if (provider.status === 'unconfigured') return 'provider_not_configured';
+  if (provider.status === 'auth_expired') return 'session_expired';
+  if (provider.status === 'reconnect_required') return 'reconnect_required';
+  if (provider.status === 'unsupported' || !provider.canDownload) return 'download_unsupported';
+  if (provider.status === 'disabled_by_user' || provider.status === 'unavailable' || provider.status === 'error') return 'provider_unavailable';
+  return 'provider_unavailable';
+}
+
+function reasonLabel(code: AttachmentRecoveryBlockedReason, fallback?: string): string {
+  switch (code) {
+    case 'provider_not_configured':
+      return 'Provider not configured';
+    case 'provider_unavailable':
+      return 'Provider unavailable';
+    case 'provider_mismatch':
+      return 'Provider mismatch';
+    case 'session_expired':
+      return 'Session expired';
+    case 'reconnect_required':
+      return 'Reconnect required';
+    case 'recovery_controller_unavailable':
+      return 'Recovery controller unavailable';
+    case 'token_provider_unavailable':
+      return 'Token provider unavailable';
+    case 'download_unsupported':
+      return 'Download unsupported';
+    case 'remote_file_missing':
+      return 'Remote file missing';
+    case 'local_blob_already_present':
+      return 'Local blob already present';
+    case 'blocked_sync_state':
+      return 'Sync state blocks recovery';
+    case 'attachment_deleted':
+      return 'Attachment is deleted';
+    case 'attachment_tombstoned':
+      return 'Attachment is tombstoned';
+    case 'missing_local_but_not_remote_backed':
+      return 'Missing local blob is not remote-backed';
+    case 'recovery_in_progress':
+      return 'Recovery in progress';
+    case 'item_not_recoverable':
+    default:
+      return fallback || 'Attachment is not recoverable';
+  }
+}
+
+function blocked(
+  reasonCode: AttachmentRecoveryBlockedReason,
+  fallback?: string,
+  severity: RecoveryEligibility['severity'] = 'blocked',
+): RecoveryEligibility {
+  return {
+    canRecover: false,
+    reasonCode,
+    reasonLabel: reasonLabel(reasonCode, fallback),
+    severity,
+  };
+}
+
+function getAttachmentRecoveryAvailability(input: {
   readonly item: AttachmentRecoveryDiagnosticsItem;
   readonly providerConnection: RemoteProviderConnectionBoundary;
   readonly hasRecoveryController: boolean;
   readonly googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+  readonly runningRecoveryAttachmentId?: string | null;
 }): RecoveryEligibility {
   const { item, providerConnection, hasRecoveryController, googleDriveSessionController } = input;
-  if (!item.eligible) return { canRecover: false, reason: item.reason || 'Item is not recoverable' };
-  if (item.localBlobPresent) return { canRecover: false, reason: 'Local blob already present' };
-  if (!item.remoteFileId) return { canRecover: false, reason: 'Remote file missing' };
-  if (item.remoteProvider !== 'googleDrive') return { canRecover: false, reason: 'Provider mismatch' };
-  if (providerConnection.providerType !== 'googleDrive') {
-    return { canRecover: false, reason: recoveryUnavailableReasonForProvider(providerConnection, hasRecoveryController, item.remoteProvider) };
+  if (item.localBlobPresent) return blocked('local_blob_already_present', item.reason, 'info');
+  const status = String(item.remoteSyncStatus ?? '').toLowerCase();
+  const reason = item.reason.toLowerCase();
+  if (status === 'deleted' || reason.includes('deleted')) return blocked('attachment_deleted');
+  if (reason.includes('tombstone')) return blocked('attachment_tombstoned');
+  if (!item.remoteProvider) return blocked('missing_local_but_not_remote_backed', item.reason, 'info');
+  if (item.remoteProvider !== 'googleDrive') return blocked('provider_mismatch');
+  if (!item.remoteFileId) return blocked('remote_file_missing', item.reason, 'warning');
+  if (['pending_upload', 'uploading', 'failed', 'paused_offline', 'conflict', 'local_only', 'missing_local'].includes(status)) {
+    return blocked('blocked_sync_state', item.reason, 'warning');
   }
-  if (providerConnection.status === 'auth_expired') return { canRecover: false, reason: 'Session expired' };
-  if (providerConnection.status === 'reconnect_required') return { canRecover: false, reason: 'Reconnect required' };
+  if (!item.eligible) return blocked('item_not_recoverable', item.reason, 'info');
+  if (providerConnection.providerType && providerConnection.providerType !== 'googleDrive') {
+    return blocked('provider_mismatch');
+  }
+  if (providerConnection.status === 'auth_expired') return blocked('session_expired');
+  if (providerConnection.status === 'reconnect_required') return blocked('reconnect_required');
   if (!providerConnection.canRecover || providerConnection.status !== 'available') {
-    return { canRecover: false, reason: recoveryUnavailableReasonForProvider(providerConnection, hasRecoveryController, item.remoteProvider) };
+    const code = recoveryUnavailableReasonCode(providerConnection);
+    return blocked(code, recoveryUnavailableReasonForProvider(providerConnection, hasRecoveryController, item.remoteProvider));
   }
-  if (!googleDriveSessionController) return { canRecover: false, reason: 'Provider not configured' };
-  if (!hasSessionAccessTokenProvider(googleDriveSessionController)) return { canRecover: false, reason: 'Reconnect required' };
-  if (!hasRecoveryController) return { canRecover: false, reason: 'Recovery controller unavailable' };
-  return { canRecover: true, reason: 'Ready for explicit recovery' };
+  if (!googleDriveSessionController) return blocked('provider_not_configured');
+  if (!hasSessionAccessTokenProvider(googleDriveSessionController)) return blocked('token_provider_unavailable');
+  if (!hasRecoveryController) return blocked('recovery_controller_unavailable');
+  return { canRecover: true, reasonLabel: 'Ready for explicit recovery', severity: 'info' };
 }
 
 type CleanupReviewNumericKey = {
@@ -627,15 +716,16 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const runRecovery = async (attachmentId: string) => {
     if (!recoverAttachmentFn || runningRecoveryAttachmentId) return;
     const item = diagnosticsReport?.recoveryItems.find(candidate => candidate.attachmentId === attachmentId);
-    const eligibility = item ? recoveryEligibilityForItem({
+    const eligibility = item ? getAttachmentRecoveryAvailability({
       item,
       providerConnection,
       hasRecoveryController: Boolean(recoverAttachmentFn),
       googleDriveSessionController,
-    }) : { canRecover: false, reason: 'Item is not recoverable' };
+      runningRecoveryAttachmentId,
+    }) : blocked('item_not_recoverable');
     if (!eligibility.canRecover) {
       setRecoveryStatus('error');
-      setRecoveryError(eligibility.reason);
+      setRecoveryError(eligibility.reasonLabel);
       return;
     }
     setRunningRecoveryAttachmentId(attachmentId);
@@ -1211,7 +1301,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     <div>{providerConnection.safeMessage}</div>
                     <div>Recovery capability: {providerConnection.canRecover ? 'available' : 'unavailable'}</div>
                     {providerConnection.lastCheckedAt ? <div>Last checked: {providerConnection.lastCheckedAt}</div> : null}
-                    {providerConnection.error ? <div style={{ color: c.danger }}>{providerConnection.error}</div> : null}
+                    {providerConnection.error ? <div style={{ color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(providerConnection.error)}</div> : null}
                   </div>
                 </div>
 
@@ -1284,15 +1374,16 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {diagnosticsReport.recoveryItems.slice(0, 10).map(item => {
-                        const recoveryEligibility = recoveryEligibilityForItem({
+                        const recoveryAvailability = getAttachmentRecoveryAvailability({
                           item,
                           providerConnection,
                           hasRecoveryController: Boolean(recoverAttachmentFn),
                           googleDriveSessionController,
+                          runningRecoveryAttachmentId,
                         });
-                        const canRecover = recoveryEligibility.canRecover;
+                        const canRecover = recoveryAvailability.canRecover;
                         const running = runningRecoveryAttachmentId === item.attachmentId;
-                        const reason = recoveryEligibility.reason;
+                        const reason = recoveryAvailability.reasonLabel;
                         const itemRecoveryReport = recoveryReportsByAttachmentId[item.attachmentId];
                         return (
                           <div key={item.attachmentId} data-attachment-recovery-item style={{ border: `1px solid ${item.eligible ? c.accent : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
@@ -1314,7 +1405,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   {running ? 'Recovering...' : 'Recover'}
                                 </button>
                               ) : (
-                                <span style={{ fontSize: 9.5, color: item.eligible ? c.textMuted : c.textFaint }}>{reason}</span>
+                                <span
+                                  data-recovery-reason-code={recoveryAvailability.reasonCode ?? 'item_not_recoverable'}
+                                  data-recovery-reason-severity={recoveryAvailability.severity ?? 'info'}
+                                  style={{ fontSize: 9.5, color: item.eligible ? c.textMuted : c.textFaint }}
+                                >
+                                  {reason}
+                                </span>
                               )}
                             </div>
                             <div style={{ fontSize: 9.5, color: c.textFaint, marginTop: 4, lineHeight: 1.45 }}>
