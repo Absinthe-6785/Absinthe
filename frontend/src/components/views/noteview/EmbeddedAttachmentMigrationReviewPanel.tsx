@@ -1210,10 +1210,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {diagnosticsReport.recoveryItems.slice(0, 10).map(item => {
-                        const canRecover = item.eligible && providerConnection.canRecover && Boolean(recoverAttachmentFn);
+                        const providerMatchesAttachment = Boolean(item.remoteProvider && providerConnection.providerType && item.remoteProvider === providerConnection.providerType);
+                        const canRecover = item.eligible && providerMatchesAttachment && providerConnection.canRecover && Boolean(recoverAttachmentFn);
                         const running = runningRecoveryAttachmentId === item.attachmentId;
                         const reason = item.eligible
-                          ? recoveryUnavailableReasonForProvider(providerConnection, Boolean(recoverAttachmentFn))
+                          ? recoveryUnavailableReasonForProvider(providerConnection, Boolean(recoverAttachmentFn), item.remoteProvider)
                           : item.reason;
                         const itemRecoveryReport = recoveryReportsByAttachmentId[item.attachmentId];
                         return (

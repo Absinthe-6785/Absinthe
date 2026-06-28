@@ -1008,6 +1008,56 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('blocks recovery when provider type does not match the attachment provider', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection({ providerType: 'r2' }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(section.textContent).toContain('Recovery provider does not match this attachment.');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('blocks recovery for non-Google attachments when the active provider is Google Drive', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [{
+          attachmentId: 'att-r2',
+          localBlobKey: 'local-attachment/missing-r2',
+          remoteProvider: 'r2',
+          remoteFileId: 'r2-file-1',
+          remoteSyncStatus: 'recoverable_remote',
+          eligible: true,
+          reason: 'Ready for explicit recovery',
+          localBlobPresent: false,
+        }],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(section.textContent).toContain('Recovery provider does not match this attachment.');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
   it('keeps recovery observe-only when provider is unconfigured even with a controller', async () => {
     const recoverAttachmentFn = vi.fn(async () => recoveryResult());
     const { root, host } = render(panelElement({ recoverAttachmentFn }));
@@ -1024,6 +1074,98 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(section.textContent).toContain('This attachment has remote metadata, but no recovery provider is configured in this build.');
     expect(recoverAttachmentFn).not.toHaveBeenCalled();
     cleanup(root, host);
+  });
+
+  it('keeps configured but unavailable provider states non-recoverable', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    for (const providerState of [
+      {
+        status: 'configured' as const,
+        displayLabel: 'Provider configured',
+        safeMessage: 'Google Drive configuration exists, but availability has not been confirmed.',
+        reason: 'Provider unavailable',
+      },
+      {
+        status: 'unavailable' as const,
+        displayLabel: 'Provider unavailable',
+        safeMessage: 'Google Drive is unavailable.',
+        reason: 'Provider unavailable',
+      },
+    ]) {
+      const { root, host } = render(panelElement({
+        recoverAttachmentFn,
+        remoteProviderConnection: availableProviderConnection({
+          status: providerState.status,
+          displayLabel: providerState.displayLabel,
+          canRecover: false,
+          safeMessage: providerState.safeMessage,
+        }),
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+
+      const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+      if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+      expect(section.textContent).toContain(providerState.displayLabel);
+      expect(section.textContent).toContain(providerState.reason);
+      expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+      cleanup(root, host);
+    }
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+  });
+
+  it('shows auth expired, disabled, and sanitized error states without OAuth controls', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    for (const providerState of [
+      {
+        status: 'auth_expired' as const,
+        displayLabel: 'Authorization expired',
+        safeMessage: 'Reconnect is required, but connection management is not implemented in this build.',
+        reason: 'Reconnect required',
+      },
+      {
+        status: 'disabled_by_user' as const,
+        displayLabel: 'Provider disabled',
+        safeMessage: 'Google Drive recovery is disabled.',
+        reason: 'Provider disabled',
+      },
+      {
+        status: 'error' as const,
+        displayLabel: 'Provider status error',
+        safeMessage: 'Remote provider status could not be checked.',
+        error: 'Authorization: [redacted-secret]',
+        reason: 'Provider unavailable',
+      },
+    ]) {
+      const { root, host } = render(panelElement({
+        recoverAttachmentFn,
+        remoteProviderConnection: availableProviderConnection({
+          status: providerState.status,
+          displayLabel: providerState.displayLabel,
+          canRecover: false,
+          requiresUserAction: providerState.status !== 'error',
+          safeMessage: providerState.safeMessage,
+          error: providerState.error,
+        }),
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+
+      const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+      if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+      expect(section.textContent).toContain(providerState.displayLabel);
+      expect(section.textContent).toContain(providerState.reason);
+      expect(section.textContent).not.toContain('Sign in with Google');
+      expect(section.textContent).not.toContain('Connect Google Drive');
+      expect(section.textContent).not.toContain('Authorize Google');
+      expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+      cleanup(root, host);
+    }
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
   });
 
   it('shows safe provider reconnect state without Google sign-in controls', async () => {
