@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
 import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
 import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
+import type { GoogleDriveSessionConnectionController } from '../../../lib/googleDriveSessionConnectionController';
 import {
   resolveRemoteProviderConnectionBoundary,
   type RemoteProviderConnectionBoundary,
@@ -520,6 +521,7 @@ function panelElement(input: {
   diagnosticsFn?: () => Promise<AttachmentSyncDiagnostics>;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
+  googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -534,6 +536,7 @@ function panelElement(input: {
     diagnosticsFn: input.diagnosticsFn ?? vi.fn(async () => diagnosticsReport()),
     recoverAttachmentFn: input.recoverAttachmentFn,
     remoteProviderConnection: input.remoteProviderConnection,
+    googleDriveSessionController: input.googleDriveSessionController,
   });
 }
 
@@ -582,10 +585,80 @@ function changeInput(input: HTMLInputElement, value: string) {
   });
 }
 
+function changeTextarea(input: HTMLTextAreaElement, value: string) {
+  act(() => {
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    valueSetter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
 async function flushAsync() {
   await act(async () => {
     await Promise.resolve();
   });
+}
+
+function manualGoogleDriveController(overrides: {
+  connected?: boolean;
+  startAuthorization?: GoogleDriveSessionConnectionController['startAuthorization'];
+  completeCallback?: GoogleDriveSessionConnectionController['completeCallback'];
+  disconnect?: GoogleDriveSessionConnectionController['disconnect'];
+} = {}): GoogleDriveSessionConnectionController {
+  let status = overrides.connected
+    ? availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true })
+    : resolveRemoteProviderConnectionBoundary({
+        providerType: 'googleDrive',
+        status: 'unconfigured',
+        capabilities: { supportsDownload: false, supportsUpload: false },
+      });
+  const controller: GoogleDriveSessionConnectionController = {
+    providerType: 'googleDrive',
+    startAuthorization: overrides.startAuthorization ?? vi.fn(async () => ({
+      providerType: 'googleDrive',
+      status: 'authorization_url_created',
+      authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=test-client&state=state-123&code_challenge=challenge-123',
+      state: 'state-123',
+      expiresAt: '2026-06-28T00:10:00.000Z',
+      warnings: [],
+    })),
+    completeCallback: overrides.completeCallback ?? vi.fn(async () => {
+      status = availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true });
+      return {
+        providerType: 'googleDrive',
+        status: 'connected',
+        connectionStatus: status,
+        safeMessage: 'Google Drive is connected for this session.',
+        warnings: [],
+      };
+    }),
+    disconnect: overrides.disconnect ?? vi.fn(async () => {
+      status = resolveRemoteProviderConnectionBoundary({
+        providerType: 'googleDrive',
+        status: 'unconfigured',
+        capabilities: { supportsDownload: false, supportsUpload: false },
+      });
+      return {
+        providerType: 'googleDrive',
+        status: 'disconnected',
+        safeMessage: 'Google Drive session state was cleared from memory.',
+      };
+    }),
+    async getConnectionStatus() {
+      return status;
+    },
+    getAccessTokenProvider() {
+      return null;
+    },
+    async markReconnectRequired() {
+      status = resolveRemoteProviderConnectionBoundary({
+        providerType: 'googleDrive',
+        status: 'reconnect_required',
+        capabilities: { supportsDownload: false, supportsUpload: false },
+      });
+    },
+  };
+  return controller;
 }
 
 function renderPanel(options: { notes?: readonly Note[] } = {}) {
@@ -964,6 +1037,128 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('shows Google Drive session as unconfigured without enabling manual authorization by default', () => {
+    const { root, host } = render(panelElement({}));
+    click(buttonByText(host, 'Attachment storage maintenance'));
+
+    expect(host.textContent).toContain('Google Drive Session');
+    expect(host.textContent).toContain('Google Drive connection is not configured in this build.');
+    expect(buttonByText(host, 'Generate authorization URL').disabled).toBe(true);
+    expect(buttonByText(host, 'Clear session').disabled).toBe(true);
+    expect(host.textContent).not.toContain('Sync now');
+    expect(host.textContent).not.toContain('Upload all');
+    expect(host.textContent).not.toContain('Recover all');
+
+    cleanup(root, host);
+  });
+
+  it('generates and displays a manual authorization URL without navigation or token provider creation', async () => {
+    const controller = manualGoogleDriveController();
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+
+    click(buttonByText(host, 'Generate authorization URL'));
+    await flushAsync();
+
+    expect(controller.startAuthorization).toHaveBeenCalledTimes(1);
+    expect(controller.getAccessTokenProvider()).toBeNull();
+    expect(host.textContent).toContain('Authorization URL created');
+    expect(host.textContent).toContain('Pending authorization expires 2026-06-28T00:10:00.000Z.');
+    const urlField = host.querySelector('textarea[aria-label="Generated Google Drive authorization URL"]');
+    expect(urlField).toBeInstanceOf(HTMLTextAreaElement);
+    expect((urlField as HTMLTextAreaElement).value).toContain('https://accounts.google.com/o/oauth2/v2/auth');
+    expect((urlField as HTMLTextAreaElement).value).not.toContain('pkce-verifier-secret');
+    expect(openSpy).not.toHaveBeenCalled();
+
+    openSpy.mockRestore();
+    cleanup(root, host);
+  });
+
+  it('completes connection only from an explicit pasted callback and keeps sensitive values out of the UI', async () => {
+    const controller = manualGoogleDriveController();
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+
+    const callbackField = host.querySelector('textarea[aria-label="Google Drive callback URL"]');
+    expect(callbackField).toBeInstanceOf(HTMLTextAreaElement);
+    changeTextarea(callbackField as HTMLTextAreaElement, 'http://127.0.0.1:5173/oauth/google-drive/callback?code=auth-code-secret&state=state-123');
+    click(buttonByText(host, 'Complete connection from callback'));
+    await flushAsync();
+
+    expect(controller.completeCallback).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Google Drive session connected in memory only.');
+    expect(host.textContent).toContain('Status: Provider available');
+    expect(host.textContent).not.toContain('access-token-secret');
+    expect(host.textContent).not.toContain('refresh-token-secret');
+    expect(host.textContent).not.toContain('auth-code-secret');
+    expect(host.textContent).not.toContain('pkce-verifier-secret');
+    expect(host.textContent).not.toContain('Sync now');
+    expect(host.textContent).not.toContain('Upload all');
+    expect(host.textContent).not.toContain('Recover all');
+
+    cleanup(root, host);
+  });
+
+  it('renders sanitized manual callback failures and does not expose token material', async () => {
+    const completeCallback = vi.fn(async () => ({
+      providerType: 'googleDrive' as const,
+      status: 'token_exchange_failed' as const,
+      connectionStatus: resolveRemoteProviderConnectionBoundary({
+        providerType: 'googleDrive',
+        status: 'unconfigured',
+        capabilities: { supportsDownload: false, supportsUpload: false },
+      }),
+      safeMessage: 'Token exchange failed.',
+      error: {
+        code: 'invalid_grant',
+        category: 'auth',
+        retryable: false,
+        status: 400,
+        safeMessage: 'code=auth-code-secret access_token=access-token-secret refresh_token=refresh-token-secret',
+      },
+    }));
+    const controller = manualGoogleDriveController({ completeCallback });
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+
+    const callbackField = host.querySelector('textarea[aria-label="Google Drive callback URL"]');
+    changeTextarea(callbackField as HTMLTextAreaElement, 'callback-url');
+    click(buttonByText(host, 'Complete connection from callback'));
+    await flushAsync();
+
+    expect(completeCallback).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('code=[redacted-secret]');
+    expect(host.textContent).toContain('access_token=[redacted-secret]');
+    expect(host.textContent).toContain('refresh_token=[redacted-secret]');
+    expect(host.textContent).not.toContain('auth-code-secret');
+    expect(host.textContent).not.toContain('access-token-secret');
+    expect(host.textContent).not.toContain('refresh-token-secret');
+
+    cleanup(root, host);
+  });
+
+  it('clears only the in-memory Google Drive session when requested explicitly', async () => {
+    const controller = manualGoogleDriveController({ connected: true });
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+
+    expect(host.textContent).toContain('Starting a new authorization while connected is not yet supported. Clear this session first.');
+    expect(buttonByText(host, 'Generate authorization URL').disabled).toBe(true);
+    click(buttonByText(host, 'Clear session'));
+    await flushAsync();
+
+    expect(controller.disconnect).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Google Drive session state was cleared from memory.');
+    expect(host.textContent).toContain('Provider not configured');
+
+    cleanup(root, host);
+  });
+
   it('does not run recovery on mount or diagnostics refresh', async () => {
     const diagnosticsFn = vi.fn(async () => diagnosticsReport());
     const recoverAttachmentFn = vi.fn(async () => recoveryResult());
@@ -1337,7 +1532,12 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
     const buttonLabels = Array.from(section.querySelectorAll('button')).map(button => button.textContent ?? '');
 
-    expect(buttonLabels).toEqual(['Refresh diagnostics']);
+    expect(buttonLabels).toEqual([
+      'Generate authorization URL',
+      'Clear session',
+      'Complete connection from callback',
+      'Refresh diagnostics',
+    ]);
     for (const forbidden of [
       'Upload',
       'Sync now',
