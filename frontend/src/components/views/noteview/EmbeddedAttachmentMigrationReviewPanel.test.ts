@@ -8,6 +8,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
 import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
 import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
+import type {
+  AttachmentMetadata,
+  AttachmentRepository,
+  BlobStorageAdapter,
+} from '../../../lib/attachmentRepository';
 import type { GoogleDriveSessionConnectionController } from '../../../lib/googleDriveSessionConnectionController';
 import {
   resolveRemoteProviderConnectionBoundary,
@@ -493,6 +498,115 @@ function recoveryItem(
   };
 }
 
+function attachmentMetadata(overrides: Partial<AttachmentMetadata> = {}): AttachmentMetadata {
+  return {
+    id: 'att-recoverable',
+    noteId: 'note-1',
+    fileName: 'sample.txt',
+    mimeType: 'text/plain',
+    size: 5,
+    remoteProvider: 'googleDrive',
+    remoteFileId: 'drive-file-1',
+    remoteSize: 5,
+    remoteMimeType: 'text/plain',
+    remoteSyncStatus: 'recoverable_remote',
+    createdAt: '2026-06-28T00:00:00.000Z',
+    updatedAt: '2026-06-28T00:00:00.000Z',
+    syncStatus: 'synced',
+    ...overrides,
+  };
+}
+
+function memoryAttachmentRepository(initial: readonly AttachmentMetadata[]) {
+  const records = new Map(initial.map(item => [item.id, { ...item }]));
+  const clone = (metadata: AttachmentMetadata): AttachmentMetadata => ({ ...metadata });
+  const repository: AttachmentRepository = {
+    async listAttachments() {
+      return Array.from(records.values()).map(clone);
+    },
+    async listAttachmentsForNote(noteId: string) {
+      return Array.from(records.values()).filter(item => item.noteId === noteId).map(clone);
+    },
+    async getAttachment(id: string) {
+      const metadata = records.get(id);
+      return metadata ? clone(metadata) : null;
+    },
+    async putAttachment(metadata: AttachmentMetadata) {
+      records.set(metadata.id, clone(metadata));
+    },
+    async updateAttachment(id: string, patch: Partial<AttachmentMetadata>) {
+      const metadata = records.get(id);
+      if (metadata) {
+        records.set(id, { ...metadata, ...patch });
+      }
+    },
+    async tombstoneAttachment(id: string, deletedAt = new Date().toISOString()) {
+      const metadata = records.get(id);
+      if (metadata) {
+        records.set(id, { ...metadata, deletedAt, syncStatus: 'deleted' });
+      }
+    },
+    async deleteAttachmentMetadata(id: string) {
+      records.delete(id);
+    },
+    async putMetadata(metadata: AttachmentMetadata) {
+      records.set(metadata.id, clone(metadata));
+      return clone(metadata);
+    },
+    async getMetadata(id: string) {
+      const metadata = records.get(id);
+      return metadata ? clone(metadata) : null;
+    },
+    async listForNote(noteId: string) {
+      return Array.from(records.values()).filter(item => item.noteId === noteId).map(clone);
+    },
+    async markDeleted(id: string, deletedAt: string) {
+      const metadata = records.get(id);
+      if (!metadata) return null;
+      const next = { ...metadata, deletedAt, syncStatus: 'deleted' as const };
+      records.set(id, next);
+      return clone(next);
+    },
+  };
+  return { repository, records };
+}
+
+function memoryBlobAdapter(initial: readonly { key: string; blob: Blob; mimeType?: string; checksum?: string }[] = []) {
+  const blobs = new Map(initial.map(item => [item.key, {
+    key: item.key,
+    blob: item.blob,
+    mimeType: item.mimeType ?? item.blob.type,
+    size: item.blob.size,
+    checksum: item.checksum,
+  }]));
+  const adapter: BlobStorageAdapter = {
+    async putBlob(input) {
+      const record = {
+        key: input.key,
+        blob: input.blob,
+        mimeType: input.mimeType ?? input.blob.type,
+        size: input.blob.size,
+        checksum: input.checksum,
+      };
+      blobs.set(input.key, record);
+      return record;
+    },
+    async getBlob(key: string) {
+      return blobs.get(key) ?? null;
+    },
+    async deleteBlob(key: string) {
+      blobs.delete(key);
+    },
+    async getObjectUrl(key: string) {
+      return blobs.has(key) ? `blob:test/${key}` : null;
+    },
+    async hasBlob(key: string) {
+      return blobs.has(key);
+    },
+  };
+  return { adapter, blobs };
+}
+
 function availableProviderConnection(overrides: Partial<RemoteProviderConnectionBoundary> = {}): RemoteProviderConnectionBoundary {
   return {
     ...resolveRemoteProviderConnectionBoundary({
@@ -545,6 +659,9 @@ function panelElement(input: {
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
   googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+  googleDriveRecoveryFetcher?: typeof fetch;
+  googleDriveRecoveryRepository?: AttachmentRepository;
+  googleDriveRecoveryBlobAdapter?: BlobStorageAdapter;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -560,6 +677,9 @@ function panelElement(input: {
     recoverAttachmentFn: input.recoverAttachmentFn,
     remoteProviderConnection: input.remoteProviderConnection,
     googleDriveSessionController: input.googleDriveSessionController,
+    googleDriveRecoveryFetcher: input.googleDriveRecoveryFetcher,
+    googleDriveRecoveryRepository: input.googleDriveRecoveryRepository,
+    googleDriveRecoveryBlobAdapter: input.googleDriveRecoveryBlobAdapter,
   });
 }
 
@@ -1570,9 +1690,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     }
   });
 
-  it('labels a missing recovery controller without enabling Recover', async () => {
+  it('keeps production default inert when no session recovery controller is provided', async () => {
+    const fetcher = vi.fn<typeof fetch>();
     const { root, host } = render(panelElement({
-      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveRecoveryFetcher: fetcher,
       diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem()] })),
     }));
 
@@ -1580,9 +1701,70 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     click(buttonByText(host, 'Refresh diagnostics'));
     await flushAsync();
 
-    expect(recoveryReasonCodes(host)).toContain('recovery_controller_unavailable');
-    expect(recoveryReasonLabels(host)).toContain('Recovery controller unavailable');
+    expect(recoveryReasonCodes(host)).toContain('provider_not_configured');
     expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(fetcher).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('wires a connected memory session into one explicit Google Drive recovery download', async () => {
+    const { repository, records } = memoryAttachmentRepository([attachmentMetadata()]);
+    const { adapter, blobs } = memoryBlobAdapter();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(new Blob(['hello'], { type: 'text/plain' }), { status: 200 }));
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveRecoveryFetcher: fetcher,
+      googleDriveRecoveryRepository: repository,
+      googleDriveRecoveryBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem({ remoteSize: 5 })] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(fetcher).not.toHaveBeenCalled();
+
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(String(url)).toBe('https://www.googleapis.com/drive/v3/files/drive-file-1?alt=media');
+    expect((init as RequestInit).method).toBe('GET');
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer access-token-secret' });
+    expect(blobs.get('local-attachment/recovered-att-recoverable')?.size).toBe(5);
+    expect(records.get('att-recoverable')?.localBlobKey).toBe('local-attachment/recovered-att-recoverable');
+    expect(records.get('att-recoverable')?.remoteSyncStatus).toBe('synced');
+    expect(host.textContent).toContain('Recovery result');
+    expect(host.textContent).toContain('Status: recovered');
+    expect(host.textContent).not.toContain('access-token-secret');
+    cleanup(root, host);
+  });
+
+  it('does not leak access tokens when a real Google Drive recovery download fails', async () => {
+    const { repository } = memoryAttachmentRepository([attachmentMetadata()]);
+    const { adapter } = memoryBlobAdapter();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response('access-token-secret raw failure', { status: 503 }));
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveRecoveryFetcher: fetcher,
+      googleDriveRecoveryRepository: repository,
+      googleDriveRecoveryBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem({ remoteSize: 5 })] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Status: failed');
+    expect(host.textContent).toContain('Google Drive download failed with status 503.');
+    expect(host.textContent).not.toContain('access-token-secret');
     cleanup(root, host);
   });
 
