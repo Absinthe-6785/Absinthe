@@ -30,6 +30,7 @@ import {
   resolveRemoteProviderConnectionBoundary,
   type RemoteProviderConnectionBoundary,
 } from '../../../lib/remoteProviderConnectionStatus';
+import type { GoogleDriveSessionConnectionController } from '../../../lib/googleDriveSessionConnectionController';
 import {
   migrateEmbeddedDataUrlsToAttachments,
   hashEmbeddedAttachmentMigrationText,
@@ -44,6 +45,7 @@ import {
 } from '../../../lib/embeddedAttachmentMigrationRestore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
+import { GoogleDriveManualConnectionPanel } from './GoogleDriveManualConnectionPanel';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
 type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
@@ -66,6 +68,7 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   diagnosticsFn?: typeof buildAttachmentSyncDiagnostics;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
+  googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -293,6 +296,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   diagnosticsFn = buildAttachmentSyncDiagnostics,
   recoverAttachmentFn,
   remoteProviderConnection,
+  googleDriveSessionController,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -1111,6 +1115,10 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 Diagnostics are read-only by default. Per-attachment recovery is available only when a provider is configured and you explicitly recover one eligible item.
               </p>
             </div>
+            <GoogleDriveManualConnectionPanel
+              colors={c}
+              controller={googleDriveSessionController}
+            />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
