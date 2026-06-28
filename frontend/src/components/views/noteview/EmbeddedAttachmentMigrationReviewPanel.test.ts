@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -1042,9 +1044,12 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     click(buttonByText(host, 'Attachment storage maintenance'));
 
     expect(host.textContent).toContain('Google Drive Session');
-    expect(host.textContent).toContain('Google Drive connection is not configured in this build.');
+    expect(host.textContent).toContain('Google Drive connection is disabled in this build unless an explicit session controller is configured.');
+    expect(host.textContent).toContain('This unavailable state is intentional.');
     expect(buttonByText(host, 'Generate authorization URL').disabled).toBe(true);
     expect(buttonByText(host, 'Clear session').disabled).toBe(true);
+    expect(host.querySelector('textarea[aria-label="Google Drive callback URL"]')).toBeNull();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Complete connection from callback');
     expect(host.textContent).not.toContain('Sync now');
     expect(host.textContent).not.toContain('Upload all');
     expect(host.textContent).not.toContain('Recover all');
@@ -1091,6 +1096,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(controller.completeCallback).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('Google Drive session connected in memory only.');
     expect(host.textContent).toContain('Status: Provider available');
+    expect((callbackField as HTMLTextAreaElement).value).toBe('');
     expect(host.textContent).not.toContain('access-token-secret');
     expect(host.textContent).not.toContain('refresh-token-secret');
     expect(host.textContent).not.toContain('auth-code-secret');
@@ -1117,7 +1123,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
         category: 'auth',
         retryable: false,
         status: 400,
-        safeMessage: 'code=auth-code-secret access_token=access-token-secret refresh_token=refresh-token-secret',
+        safeMessage: 'code=auth-code-secret access_token=access-token-secret refresh_token=refresh-token-secret codeVerifierRef=pkce-ref-secret id_token=id-token-secret http://127.0.0.1:5173/oauth/google-drive/callback?code=auth-code-secret&state=state-secret',
       },
     }));
     const controller = manualGoogleDriveController({ completeCallback });
@@ -1126,17 +1132,22 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     const callbackField = host.querySelector('textarea[aria-label="Google Drive callback URL"]');
-    changeTextarea(callbackField as HTMLTextAreaElement, 'callback-url');
+    changeTextarea(callbackField as HTMLTextAreaElement, 'http://127.0.0.1:5173/oauth/google-drive/callback?code=auth-code-secret&state=state-secret');
     click(buttonByText(host, 'Complete connection from callback'));
     await flushAsync();
 
     expect(completeCallback).toHaveBeenCalledTimes(1);
+    expect((callbackField as HTMLTextAreaElement).value).toBe('');
     expect(host.textContent).toContain('code=[redacted-secret]');
     expect(host.textContent).toContain('access_token=[redacted-secret]');
     expect(host.textContent).toContain('refresh_token=[redacted-secret]');
     expect(host.textContent).not.toContain('auth-code-secret');
     expect(host.textContent).not.toContain('access-token-secret');
     expect(host.textContent).not.toContain('refresh-token-secret');
+    expect(host.textContent).not.toContain('pkce-ref-secret');
+    expect(host.textContent).not.toContain('id-token-secret');
+    expect(host.textContent).not.toContain('state-secret');
+    expect(host.textContent).not.toContain('http://127.0.0.1:5173/oauth/google-drive/callback');
 
     cleanup(root, host);
   });
@@ -1157,6 +1168,29 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Provider not configured');
 
     cleanup(root, host);
+  });
+
+  it('keeps the manual Google Drive panel source free of persistence, navigation, and destructive remote actions', () => {
+    const source = readFileSync(join(process.cwd(), 'src/components/views/noteview/GoogleDriveManualConnectionPanel.tsx'), 'utf8');
+
+    for (const forbidden of [
+      'window.open',
+      'window.location',
+      'localStorage',
+      'sessionStorage',
+      'indexedDB',
+      'document.cookie',
+      'deleteBlob',
+      'remoteDelete',
+      'Recover all',
+      'Upload all',
+      'Sync now',
+      'Sign in with Google',
+      'Connect Google Drive',
+      'Authorize Google',
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
   });
 
   it('does not run recovery on mount or diagnostics refresh', async () => {
@@ -1535,7 +1569,6 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttonLabels).toEqual([
       'Generate authorization URL',
       'Clear session',
-      'Complete connection from callback',
       'Refresh diagnostics',
     ]);
     for (const forbidden of [
