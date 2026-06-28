@@ -638,6 +638,7 @@ function manualGoogleDriveController(overrides: {
   startAuthorization?: GoogleDriveSessionConnectionController['startAuthorization'];
   completeCallback?: GoogleDriveSessionConnectionController['completeCallback'];
   disconnect?: GoogleDriveSessionConnectionController['disconnect'];
+  getConnectionStatus?: GoogleDriveSessionConnectionController['getConnectionStatus'];
 } = {}): GoogleDriveSessionConnectionController {
   let hasAccessTokenProvider = overrides.hasAccessTokenProvider ?? overrides.connected === true;
   let status = overrides.connected
@@ -681,9 +682,9 @@ function manualGoogleDriveController(overrides: {
         safeMessage: 'Google Drive session state was cleared from memory.',
       };
     }),
-    async getConnectionStatus() {
+    getConnectionStatus: overrides.getConnectionStatus ?? vi.fn(async () => {
       return status;
-    },
+    }),
     getAccessTokenProvider() {
       return hasAccessTokenProvider
         ? { getAccessToken: vi.fn(async () => 'access-token-secret') }
@@ -1196,9 +1197,11 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
   it('clears only the in-memory Google Drive session when requested explicitly', async () => {
     const controller = manualGoogleDriveController({ connected: true });
-    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller, recoverAttachmentFn }));
     click(buttonByText(host, 'Attachment storage maintenance'));
     await flushAsync();
+    const statusChecksBeforeClear = vi.mocked(controller.getConnectionStatus).mock.calls.length;
 
     expect(host.textContent).toContain('Starting a new authorization while connected is not yet supported. Clear this session first.');
     expect(buttonByText(host, 'Generate authorization URL').disabled).toBe(true);
@@ -1206,8 +1209,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     expect(controller.disconnect).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(controller.getConnectionStatus).mock.calls.length).toBeGreaterThan(statusChecksBeforeClear);
     expect(host.textContent).toContain('Google Drive session state was cleared from memory.');
     expect(host.textContent).toContain('Provider not configured');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
 
     cleanup(root, host);
   });
@@ -1581,6 +1586,126 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('revalidates a stale disconnected session at click time before calling recovery', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const controller = manualGoogleDriveController({ connected: true });
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      googleDriveSessionController: controller,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem()] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).toContain('Recover');
+
+    await act(async () => {
+      await controller.disconnect();
+    });
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Provider not configured');
+    expect(recoveryReasonCodes(host)).toContain('provider_not_configured');
+    cleanup(root, host);
+  });
+
+  it('revalidates provider and item mutations at click time before recovery', async () => {
+    const cases: Array<{
+      name: string;
+      mutate: (item: AttachmentSyncDiagnostics['recoveryItems'][number], provider: { current: RemoteProviderConnectionBoundary }) => void;
+      expectedCode: string;
+    }> = [
+      {
+        name: 'provider mismatch',
+        mutate: (_item, provider) => {
+          provider.current = availableProviderConnection({ providerType: 'r2' });
+        },
+        expectedCode: 'provider_mismatch',
+      },
+      {
+        name: 'missing remote file',
+        mutate: item => {
+          item.remoteFileId = undefined;
+        },
+        expectedCode: 'remote_file_missing',
+      },
+      {
+        name: 'local blob present',
+        mutate: item => {
+          item.localBlobPresent = true;
+          item.localBlobKey = 'local-attachment/present';
+        },
+        expectedCode: 'local_blob_already_present',
+      },
+      {
+        name: 'blocked sync state',
+        mutate: item => {
+          item.remoteSyncStatus = 'conflict';
+          item.eligible = false;
+        },
+        expectedCode: 'blocked_sync_state',
+      },
+    ];
+
+    for (const itemCase of cases) {
+      const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+      const item = recoveryItem();
+      const provider = { current: availableProviderConnection() };
+      const controller = manualGoogleDriveController({
+        connected: true,
+        getConnectionStatus: vi.fn(async () => provider.current),
+      });
+      const { root, host } = render(panelElement({
+        recoverAttachmentFn,
+        googleDriveSessionController: controller,
+        diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [item] })),
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+      expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim()), itemCase.name).toContain('Recover');
+
+      itemCase.mutate(item, provider);
+      click(buttonByText(host, 'Recover'));
+      await flushAsync();
+
+      expect(recoverAttachmentFn, itemCase.name).not.toHaveBeenCalled();
+      expect(recoveryReasonCodes(host), itemCase.name).toContain(itemCase.expectedCode);
+      cleanup(root, host);
+    }
+  });
+
+  it('uses a fixed safe item_not_recoverable fallback label', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [recoveryItem({
+          eligible: false,
+          reason: 'raw provider failed access_token=secret refresh_token=secret codeVerifierRef=secret http://127.0.0.1:5173/oauth/google-drive/callback?code=secret',
+        })],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(recoveryReasonCodes(host)).toContain('item_not_recoverable');
+    expect(recoveryReasonLabels(host)).toContain('Attachment is not recoverable');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('refresh_token=secret');
+    expect(host.textContent).not.toContain('codeVerifierRef=secret');
+    expect(host.textContent).not.toContain('http://127.0.0.1:5173/oauth/google-drive/callback');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
   it('keeps recovery observe-only when provider is unconfigured even with a controller', async () => {
     const recoverAttachmentFn = vi.fn(async () => recoveryResult());
     const { root, host } = render(panelElement({ recoverAttachmentFn }));
@@ -1799,10 +1924,17 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const recoverAttachmentFn = vi.fn(() => new Promise<AttachmentRemoteRecoveryResult>(resolve => {
       resolveRecovery = resolve;
     }));
+    const secondItem = recoveryItem({
+      attachmentId: 'att-recoverable-2',
+      remoteFileId: 'drive-file-2',
+    });
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
       googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [recoveryItem(), secondItem],
+      })),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -1810,7 +1942,11 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
     const recoverButton = buttonByText(host, 'Recover');
     click(recoverButton);
-    click(buttonByText(host, 'Recovering...'));
+    await flushAsync();
+    expect(buttonByText(host, 'Recovering...').disabled).toBe(true);
+    expect(recoveryReasonCodes(host)).toContain('recovery_in_progress');
+    expect(recoveryReasonLabels(host)).toContain('Recovery already in progress');
+    expect(Array.from(host.querySelectorAll('button')).filter(button => button.textContent?.trim() === 'Recover')).toHaveLength(1);
     expect(recoverAttachmentFn).toHaveBeenCalledTimes(1);
 
     await act(async () => {
