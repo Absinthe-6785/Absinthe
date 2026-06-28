@@ -56,6 +56,57 @@ function sanitizeUploadError(error: unknown, code: string): GoogleDriveBlobUploa
   );
 }
 
+function sanitizeDownloadError(
+  error: unknown,
+  code: string,
+  options: { readonly category?: 'auth' | 'network' | 'provider'; readonly retryable?: boolean } = {},
+): GoogleDriveBlobUploadError {
+  return new GoogleDriveBlobUploadError(
+    sanitizeRemoteBlobProviderError(error, {
+      category: options.category ?? (code === 'auth_unavailable' ? 'auth' : 'provider'),
+      retryable: options.retryable ?? code === 'download_failed',
+      code,
+    })
+  );
+}
+
+function driveDownloadHttpError(status: number): GoogleDriveBlobUploadError {
+  if (status === 401) {
+    return sanitizeDownloadError(new Error('Google Drive authorization expired during download.'), 'auth_expired', {
+      category: 'auth',
+      retryable: false,
+    });
+  }
+  if (status === 403) {
+    return sanitizeDownloadError(new Error('Google Drive download is forbidden for this session.'), 'authorization_failed', {
+      category: 'auth',
+      retryable: false,
+    });
+  }
+  if (status === 404) {
+    return sanitizeDownloadError(new Error('Google Drive file was not found for recovery.'), 'remote_file_missing', {
+      category: 'provider',
+      retryable: false,
+    });
+  }
+  if (status === 429) {
+    return sanitizeDownloadError(new Error('Google Drive rate limit blocked recovery.'), 'rate_limited', {
+      category: 'provider',
+      retryable: true,
+    });
+  }
+  if (status >= 500) {
+    return sanitizeDownloadError(new Error(`Google Drive download failed with status ${status}.`), 'provider_unavailable', {
+      category: 'provider',
+      retryable: true,
+    });
+  }
+  return sanitizeDownloadError(new Error(`Google Drive download failed with status ${status}.`), 'download_failed', {
+    category: 'provider',
+    retryable: status >= 500 || status === 408,
+  });
+}
+
 function parseRemoteSize(size: string | number | undefined): number | undefined {
   if (typeof size === 'number' && Number.isFinite(size)) {
     return size;
@@ -254,10 +305,24 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
       );
 
       if (!response.ok) {
-        throw sanitizeUploadError(new Error(`Google Drive download failed with status ${response.status}.`), 'download_failed');
+        throw driveDownloadHttpError(response.status);
       }
 
-      const blob = await response.blob();
+      let blob: Blob;
+      try {
+        blob = await response.blob();
+      } catch (error) {
+        throw sanitizeDownloadError(error, 'invalid_remote_response', {
+          category: 'provider',
+          retryable: true,
+        });
+      }
+      if (blob.size === 0 && input.expectedSize !== undefined && input.expectedSize > 0) {
+        throw sanitizeDownloadError(new Error('Google Drive download returned an empty response body.'), 'invalid_remote_response', {
+          category: 'provider',
+          retryable: true,
+        });
+      }
       const downloadedAt = this.now().toISOString();
       return {
         blob,
@@ -273,7 +338,10 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
         throw error;
       }
 
-      throw sanitizeUploadError(error, 'download_failed');
+      throw sanitizeDownloadError(error, 'download_failed', {
+        category: 'network',
+        retryable: true,
+      });
     }
   }
 

@@ -436,6 +436,148 @@ describe('attachment remote recovery', () => {
     expect(blobs.deleteBlob).not.toHaveBeenCalled();
   });
 
+  it('keeps metadata retryable and unsynced when Drive download fails', async () => {
+    const repo = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter();
+    const provider = remoteProvider(async () => {
+      throw sanitizeRemoteBlobProviderError(
+        new Error('Google Drive download failed with status 404. Authorization: Bearer token-secret access_token=secret'),
+        { category: 'provider', retryable: false, code: 'remote_file_missing' }
+      );
+    });
+
+    const result = await recoverAttachmentBlobFromRemote({
+      attachmentRepository: repo,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    const stored = repo.records.get('att-1');
+    expect(result).toMatchObject({
+      status: 'failed',
+      remoteProvider: 'googleDrive',
+      remoteFileId: 'drive-file-1',
+      errorDetails: {
+        code: 'remote_file_missing',
+        category: 'provider',
+        retryable: false,
+      },
+    });
+    expect(result.localBlobKey).toBeUndefined();
+    expect(stored).toMatchObject({
+      remoteSyncStatus: 'recoverable_remote',
+      remoteProvider: 'googleDrive',
+      remoteFileId: 'drive-file-1',
+    });
+    expect(stored?.remoteBlobKey).toBeUndefined();
+    expect(stored?.localBlobKey).toBeUndefined();
+    expect(repo.records.has('att-1')).toBe(true);
+    expect(blobs.records.size).toBe(0);
+    expect(blobs.putBlob).not.toHaveBeenCalled();
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('token-secret');
+    expect(JSON.stringify(result)).not.toContain('access_token=secret');
+  });
+
+  it('does not mark recovered when local blob write fails', async () => {
+    const repo = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter();
+    blobs.putBlob.mockImplementation(async () => {
+      throw new Error('local blob write failed Authorization: Bearer token-secret');
+    });
+    const provider = remoteProvider();
+
+    const result = await recoverAttachmentBlobFromRemote({
+      attachmentRepository: repo,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    const stored = repo.records.get('att-1');
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'local_blob_write_failed',
+      retryable: false,
+    });
+    expect(result.localBlobKey).toBeUndefined();
+    expect(stored?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(stored?.remoteProvider).toBe('googleDrive');
+    expect(stored?.remoteFileId).toBe('drive-file-1');
+    expect(stored?.localBlobKey).toBeUndefined();
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('token-secret');
+  });
+
+  it('does not report success when final metadata update fails after local write', async () => {
+    const repo = memoryRepository([metadata()]);
+    const originalUpdate = repo.updateAttachment;
+    repo.updateAttachment = vi.fn(async (id, patch) => {
+      if (patch.remoteSyncStatus === 'synced') {
+        throw new Error('metadata update failed code_verifier=verifier-secret');
+      }
+      return originalUpdate(id, patch);
+    });
+    const blobs = memoryBlobAdapter();
+    const provider = remoteProvider();
+
+    const result = await recoverAttachmentBlobFromRemote({
+      attachmentRepository: repo,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    const stored = repo.records.get('att-1');
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'metadata_update_failed',
+      retryable: false,
+    });
+    expect(result.localBlobKey).toBeUndefined();
+    expect(stored?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(stored?.localBlobKey).toBeUndefined();
+    expect(blobs.records.has('local-attachment/recovered-att-1')).toBe(true);
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('verifier-secret');
+  });
+
+  it('sanitizes callback, code verifier, token, and raw blob payload failures', async () => {
+    const repo = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter();
+    const provider = remoteProvider(async () => {
+      throw new Error(
+        'download failed access_token=token-secret refresh_token=refresh-secret code=auth-secret code_verifier=verifier-secret codeVerifierRef=ref-secret Authorization: Bearer bearer-secret http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret&state=state-secret data:image/png;base64,AAA111'
+      );
+    });
+
+    const result = await recoverAttachmentBlobFromRemote({
+      attachmentRepository: repo,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    const serialized = JSON.stringify(result);
+    expect(result.status).toBe('failed');
+    expect(serialized).not.toContain('token-secret');
+    expect(serialized).not.toContain('refresh-secret');
+    expect(serialized).not.toContain('auth-secret');
+    expect(serialized).not.toContain('verifier-secret');
+    expect(serialized).not.toContain('ref-secret');
+    expect(serialized).not.toContain('bearer-secret');
+    expect(serialized).not.toContain('/oauth/google-drive/callback?code=');
+    expect(serialized).not.toContain('AAA111');
+    expect(repo.records.get('att-1')?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(repo.records.get('att-1')?.localBlobKey).toBeUndefined();
+    expect(blobs.putBlob).not.toHaveBeenCalled();
+  });
+
   it('reconciles stale uploading status only when explicitly invoked', async () => {
     const repo = memoryRepository([
       metadata({

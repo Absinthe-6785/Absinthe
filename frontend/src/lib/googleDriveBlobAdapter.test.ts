@@ -390,6 +390,99 @@ describe('GoogleDriveBlobAdapter', () => {
     });
   });
 
+  it('classifies Drive download HTTP failures without exposing unsafe provider bodies', async () => {
+    const cases = [
+      { status: 400, code: 'download_failed', category: 'provider', retryable: false },
+      { status: 401, code: 'auth_expired', category: 'auth', retryable: false },
+      { status: 403, code: 'authorization_failed', category: 'auth', retryable: false },
+      { status: 404, code: 'remote_file_missing', category: 'provider', retryable: false },
+      { status: 429, code: 'rate_limited', category: 'provider', retryable: true },
+      { status: 500, code: 'provider_unavailable', category: 'provider', retryable: true },
+    ] as const;
+
+    for (const item of cases) {
+      const body = JSON.stringify({
+        error: `access_token=token-secret refresh_token=refresh-secret code=auth-secret code_verifier=verifier-secret`,
+        callback: 'http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret&state=state-secret',
+        Authorization: 'Bearer bearer-secret',
+      });
+      const { fetcher } = createMockFetch([new Response(body, { status: item.status })]);
+      const adapter = new GoogleDriveBlobAdapter({
+        accessTokenProvider: tokenProvider(),
+        fetcher,
+      });
+
+      await adapter.downloadBlob({ remoteFileId: 'drive-file-1', expectedSize: 11 }).catch((error: unknown) => {
+        expect(error, String(item.status)).toBeInstanceOf(GoogleDriveBlobUploadError);
+        expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+          code: item.code,
+          category: item.category,
+          retryable: item.retryable,
+        });
+        const serialized = JSON.stringify(error);
+        expect(serialized).not.toContain('token-secret');
+        expect(serialized).not.toContain('refresh-secret');
+        expect(serialized).not.toContain('auth-secret');
+        expect(serialized).not.toContain('verifier-secret');
+        expect(serialized).not.toContain('bearer-secret');
+        expect(serialized).not.toContain('/oauth/google-drive/callback?code=');
+      });
+    }
+  });
+
+  it('fails Drive download safely on network rejection, empty body, and blob read failure', async () => {
+    const rejectionFetcher = vi.fn(async () => {
+      throw new Error('network failed Authorization: Bearer token-secret');
+    }) as unknown as typeof fetch;
+    const rejectionAdapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: rejectionFetcher,
+    });
+
+    await rejectionAdapter.downloadBlob({ remoteFileId: 'drive-file-1' }).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+        code: 'download_failed',
+        category: 'network',
+        retryable: true,
+      });
+      expect(JSON.stringify(error)).not.toContain('token-secret');
+    });
+
+    const emptyAdapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: createMockFetch([new Response(new Blob([], { type: 'text/plain' }), { status: 200 })]).fetcher,
+    });
+    await expect(emptyAdapter.downloadBlob({ remoteFileId: 'drive-file-1', expectedSize: 11 })).rejects.toMatchObject({
+      sanitized: {
+        code: 'invalid_remote_response',
+        category: 'provider',
+        retryable: true,
+      },
+    });
+
+    const blobFailureResponse = {
+      ok: true,
+      status: 200,
+      blob: vi.fn(async () => {
+        throw new Error('blob read failed access_token=token-secret');
+      }),
+    } as unknown as Response;
+    const blobFailureAdapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: vi.fn(async () => blobFailureResponse) as unknown as typeof fetch,
+    });
+    await blobFailureAdapter.downloadBlob({ remoteFileId: 'drive-file-1', expectedSize: 11 }).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+        code: 'invalid_remote_response',
+        category: 'provider',
+        retryable: true,
+      });
+      expect(JSON.stringify(error)).not.toContain('token-secret');
+    });
+  });
+
   it('does not implement remote delete in K-163', async () => {
     const adapter = new GoogleDriveBlobAdapter({
       accessTokenProvider: tokenProvider(),
