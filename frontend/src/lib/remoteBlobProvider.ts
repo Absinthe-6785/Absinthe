@@ -213,11 +213,13 @@ export function sanitizeRemoteBlobProviderErrorMessage(error: unknown): string {
       .replace(/data:[^;\s]+;base64,[A-Za-z0-9+/=._-]+/gi, REDACTED_BLOB_DATA)
       .replace(/https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?[^\s"'<>]+/gi, REDACTED_URL)
       .replace(/https:\/\/oauth2\.googleapis\.com\/(?:token|revoke)\?[^\s"'<>]+/gi, REDACTED_URL)
+      .replace(/https?:\/\/[^\s"'<>]*\/oauth\/google-drive\/callback\?[^\s"'<>]*/gi, REDACTED_URL)
       .replace(/https?:\/\/[^\s"'<>]*(?:X-Goog-Signature|X-Amz-Signature|Signature=)[^\s"'<>]*/gi, REDACTED_URL)
       .replace(/\b(Authorization|Set-Cookie)\s*[:=]\s*[^,}\]]+/gi, `$1: ${REDACTED_SECRET}`)
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED_SECRET}`)
-      .replace(/\b(access_token|refresh_token|id_token|code|client_secret|upload_id)=([^&\s"']+)/gi, `$1=${REDACTED_SECRET}`)
-      .replace(/"?(access_token|refresh_token|id_token|code|client_secret)"?\s*:\s*"[^"]*"/gi, '"$1":"[redacted-secret]"')
+      .replace(/\b(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret|upload_id)=([^&\s"']+)/gi, `$1=${REDACTED_SECRET}`)
+      .replace(/["']?(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret)["']?\s*:\s*["'][^"']*["']/gi, '"$1":"[redacted-secret]"')
+      .replace(/\b(access_token|refresh_token|id_token|code|code_verifier|codeVerifier|codeVerifierRef|client_secret)\s*:\s*[^,}\]\s"']+/gi, `$1: ${REDACTED_SECRET}`)
   );
 }
 

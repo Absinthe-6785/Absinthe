@@ -67,7 +67,20 @@ function isDeleted(metadata: AttachmentMetadata): boolean {
   return Boolean(metadata.deletedAt) || metadata.syncStatus === 'deleted';
 }
 
+function hasSanitizedRemoteError(error: unknown): error is { readonly sanitized: SanitizedRemoteBlobProviderError } {
+  if (!error || typeof error !== 'object' || !('sanitized' in error)) return false;
+  const sanitized = (error as { readonly sanitized?: unknown }).sanitized;
+  if (!sanitized || typeof sanitized !== 'object') return false;
+  const value = sanitized as Partial<SanitizedRemoteBlobProviderError>;
+  return typeof value.message === 'string'
+    && typeof value.category === 'string'
+    && typeof value.retryable === 'boolean';
+}
+
 function safeProviderError(error: unknown, code = 'attachment_recovery_failed'): SanitizedRemoteBlobProviderError {
+  if (hasSanitizedRemoteError(error)) {
+    return sanitizeRemoteBlobProviderError(error.sanitized);
+  }
   const sanitized = sanitizeRemoteBlobProviderError(error);
   if (sanitized.code || sanitized.category !== 'unknown' || sanitized.retryable) {
     return sanitized;
@@ -192,6 +205,7 @@ export async function recoverAttachmentBlobFromRemote(
   input: RecoverAttachmentBlobFromRemoteInput
 ): Promise<AttachmentRemoteRecoveryResult> {
   const startedAt = nowIso(input.now);
+  let failureCode = 'attachment_recovery_failed';
   const recoveryId = `attachment-recovery:${input.attachmentId}:${startedAt}`;
   const complete = (
     result: Omit<AttachmentRemoteRecoveryResult, 'recoveryId' | 'startedAt' | 'completedAt'>
@@ -249,6 +263,7 @@ export async function recoverAttachmentBlobFromRemote(
   });
 
   try {
+    failureCode = 'download_failed';
     const download = unwrapDownloadResult(await input.remoteProvider.downloadBlob({
       attachmentId: metadata.id,
       remoteFileId: metadata.remoteFileId,
@@ -280,6 +295,7 @@ export async function recoverAttachmentBlobFromRemote(
     }
 
     const localBlobKey = input.localBlobKeyFactory?.(metadata, startedAt) ?? defaultRecoveredBlobKey(metadata);
+    failureCode = 'local_blob_write_failed';
     const written = await input.localBlobAdapter.putBlob({
       key: localBlobKey,
       blob: download.blob,
@@ -287,6 +303,7 @@ export async function recoverAttachmentBlobFromRemote(
       checksum: metadata.remoteChecksum ?? metadata.checksum,
     });
     const completedAt = nowIso(input.now);
+    failureCode = 'metadata_update_failed';
     await input.attachmentRepository.updateAttachment(metadata.id, {
       localBlobKey: written.key,
       remoteProvider: download.remoteProvider ?? download.providerType,
@@ -301,6 +318,7 @@ export async function recoverAttachmentBlobFromRemote(
       updatedAt: completedAt,
     });
 
+    failureCode = 'attachment_recovery_failed';
     return complete({
       attachmentId: metadata.id,
       remoteProvider: download.remoteProvider ?? download.providerType,
@@ -314,14 +332,20 @@ export async function recoverAttachmentBlobFromRemote(
     });
   } catch (error) {
     const completedAt = nowIso(input.now);
-    const errorDetails = safeProviderError(error);
+    const errorDetails = safeProviderError(error, failureCode);
     const remoteError = errorDetails.message;
-    await input.attachmentRepository.updateAttachment(metadata.id, {
-      remoteSyncStatus: 'recoverable_remote',
-      remoteError,
-      lastRemoteRecoveryAt: completedAt,
-      updatedAt: completedAt,
-    });
+    try {
+      await input.attachmentRepository.updateAttachment(metadata.id, {
+        remoteSyncStatus: 'recoverable_remote',
+        remoteError,
+        lastRemoteRecoveryAt: completedAt,
+        updatedAt: completedAt,
+      });
+    } catch {
+      // Keep the original sanitized failure result instead of masking it with a
+      // secondary failure-state write error. A later diagnostics pass can still
+      // review local blob inventory and remote metadata.
+    }
 
     return complete({
       attachmentId: metadata.id,
