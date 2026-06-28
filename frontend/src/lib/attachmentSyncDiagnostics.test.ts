@@ -136,6 +136,10 @@ describe('attachment sync diagnostics', () => {
     expect(diagnostics.providerCounts.googleDrive).toBe(10);
     expect(diagnostics.providerCounts['local/no remote provider']).toBe(1);
     expect(diagnostics.verificationCounts).toMatchObject({
+      allRemoteBackedFullyVerified: 9,
+      allRemoteBackedSizeOnlyVerified: 1,
+      eligibleRecoverableFullyVerified: 3,
+      eligibleRecoverableSizeOnlyVerified: 1,
       fullyVerifiedRemoteAttachments: 9,
       sizeOnlyVerifiedAttachments: 1,
       verificationWarningCount: 1,
@@ -154,6 +158,39 @@ describe('attachment sync diagnostics', () => {
     expect(diagnostics.byteSummary.fullyVerifiedRecoverableBytes).toBe(256);
     expect(diagnostics.byteSummary.reviewOnlyRecoverableBytes).toBe(128);
     expect(diagnostics.byteSummary.blockedBytes).toBeGreaterThan(0);
+    expect(diagnostics.recoveryItems.find(item => item.attachmentId === 'att-recoverable')).toMatchObject({
+      eligible: false,
+      reason: 'Local blob already present',
+      localBlobPresent: true,
+    });
+    expect(diagnostics.recoveryItems.find(item => item.attachmentId === 'att-pending')).toMatchObject({
+      eligible: false,
+      reason: 'Local blob already present',
+    });
+    expect(diagnostics.recoveryItems.find(item => item.attachmentId === 'att-missing-local')).toMatchObject({
+      eligible: false,
+      reason: 'Recovery unavailable',
+    });
+  });
+
+  it('marks a recoverable remote-backed attachment with missing local blob as recovery eligible', async () => {
+    const diagnostics = await buildAttachmentSyncDiagnostics({
+      attachments: [metadata({
+        remoteSyncStatus: 'recoverable_remote',
+        localBlobKey: 'local-attachment/missing',
+      })],
+      blobInventory: [],
+      now: () => new Date(NOW),
+    });
+
+    expect(diagnostics.recoveryItems).toEqual([
+      expect.objectContaining({
+        attachmentId: 'att-1',
+        eligible: true,
+        reason: 'Ready for explicit recovery',
+        localBlobPresent: false,
+      }),
+    ]);
   });
 
   it('reports inventory partial state and sanitizes warnings/errors', async () => {
@@ -178,6 +215,20 @@ describe('attachment sync diagnostics', () => {
     expect(serialized).not.toContain('secret-token');
     expect(serialized).not.toContain('data:image');
     expect(serialized).not.toContain('base64');
+  });
+
+  it('handles empty vault and inventory-unavailable diagnostics without execution', async () => {
+    const diagnostics = await buildAttachmentSyncDiagnostics({
+      attachments: [],
+      blobAdapter: {} as BlobStorageAdapter,
+      now: () => new Date(NOW),
+    });
+
+    expect(diagnostics.attachmentsScanned).toBe(0);
+    expect(diagnostics.inventory.available).toBe(false);
+    expect(diagnostics.inventory.partial).toBe(true);
+    expect(diagnostics.inventory.warnings.join(' ')).toContain('unavailable');
+    expect(diagnostics.recoveryItems).toEqual([]);
   });
 
   it('reads repository and blob inventory explicitly without mutating data or calling delete paths', async () => {
