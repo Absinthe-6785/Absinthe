@@ -158,7 +158,7 @@ export function createSessionOnlyGoogleDriveConnectionController(
       return statusFromProvider(tokenProvider, input);
     },
     getAccessTokenProvider() {
-      return tokenProvider?.hasToken() ? tokenProvider : null;
+      return tokenProvider?.hasToken() && !tokenProvider.isExpired() ? tokenProvider : null;
     },
     async connect(): Promise<GoogleDriveConnectionResult> {
       return {
