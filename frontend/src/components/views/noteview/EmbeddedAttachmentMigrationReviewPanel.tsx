@@ -17,6 +17,10 @@ import {
   hashAttachmentCleanupReviewReport,
   type AttachmentCleanupExecutorReport,
 } from '../../../lib/attachmentCleanupExecutor';
+import {
+  buildAttachmentSyncDiagnostics,
+  type AttachmentSyncDiagnostics,
+} from '../../../lib/attachmentSyncDiagnostics';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import {
@@ -39,6 +43,7 @@ type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
 type CleanupExecutionState = 'idle' | 'running' | 'complete' | 'error';
 type BackupInspectionState = 'idle' | 'loading' | 'ready' | 'error';
 type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
+type DiagnosticsState = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -50,6 +55,7 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   cleanupExecutorFn?: typeof executeAttachmentCleanup;
   listBackupsFn?: typeof listEmbeddedAttachmentMigrationBackups;
   restoreBackupFn?: typeof restoreEmbeddedAttachmentMigrationBackup;
+  diagnosticsFn?: typeof buildAttachmentSyncDiagnostics;
 }
 
 function formatBytes(bytes: number): string {
@@ -124,6 +130,46 @@ const cleanupResultLabels: Record<string, string> = {
   blocked: 'Blocked',
   failed: 'Failed',
 };
+
+const diagnosticsStatusRows = [
+  ['Total attachments', 'total'],
+  ['Local only', 'local_only'],
+  ['Pending upload', 'pending_upload'],
+  ['Uploading', 'uploading'],
+  ['Synced', 'synced'],
+  ['Failed', 'failed'],
+  ['Paused offline', 'paused_offline'],
+  ['Recoverable remote', 'recoverable_remote'],
+  ['Missing local', 'missing_local'],
+  ['Conflict', 'conflict'],
+  ['Local blob present', 'localBlobPresent'],
+  ['Local blob missing', 'localBlobMissing'],
+  ['Keep offline', 'keepOffline'],
+  ['Unknown', 'unknown'],
+] as const;
+
+const diagnosticsVerificationRows: Array<[string, keyof AttachmentSyncDiagnostics['verificationCounts']]> = [
+  ['Fully verified remote', 'fullyVerifiedRemoteAttachments'],
+  ['Size-only / review required', 'sizeOnlyVerifiedAttachments'],
+  ['Verification warnings', 'verificationWarningCount'],
+  ['Verification missing', 'verificationMissingCount'],
+  ['Checksum mismatch', 'checksumMismatchCount'],
+  ['Size mismatch', 'sizeMismatchCount'],
+  ['Stale upload conflict', 'staleUploadConflictCount'],
+  ['Provider errors', 'providerErrorCount'],
+];
+
+const diagnosticsEvictionRows: Array<[string, keyof AttachmentSyncDiagnostics['evictionSummary']]> = [
+  ['Eviction candidates', 'candidateCount'],
+  ['Fully verified candidates', 'fullyVerifiedCandidateCount'],
+  ['Review-only candidates', 'sizeOnlyCandidateCount'],
+  ['Excluded', 'excludedCount'],
+  ['Needs review', 'needsReviewCount'],
+  ['Keep offline protected', 'protectedKeepOfflineCount'],
+  ['Recently used excluded', 'recentlyUsedExcludedCount'],
+  ['Status excluded', 'statusExcludedCount'],
+  ['Verification excluded', 'verificationExcludedCount'],
+];
 
 function isSelectableCleanupCandidate(candidate: AttachmentCleanupReviewCandidate): boolean {
   return candidate.type === 'unreferencedBlob' || candidate.type === 'unreferencedAttachmentMetadata';
@@ -232,6 +278,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   cleanupExecutorFn = executeAttachmentCleanup,
   listBackupsFn = listEmbeddedAttachmentMigrationBackups,
   restoreBackupFn = restoreEmbeddedAttachmentMigrationBackup,
+  diagnosticsFn = buildAttachmentSyncDiagnostics,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -254,6 +301,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [restoreReport, setRestoreReport] = useState<EmbeddedAttachmentMigrationRestoreReport | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [diagnosticsStatus, setDiagnosticsStatus] = useState<DiagnosticsState>('idle');
+  const [diagnosticsReport, setDiagnosticsReport] = useState<AttachmentSyncDiagnostics | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const activeNotes = useMemo(() => notes.filter(note => !note.deletedAt), [notes]);
@@ -293,6 +343,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       && restoreConfirmation === selectedRestorePhrase
       && !restoreBusy,
   );
+  const diagnosticsBusy = diagnosticsStatus === 'loading';
 
   const scan = async () => {
     if (busy) return;
@@ -472,6 +523,23 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     } catch (err) {
       setRestoreError(safeError(err));
       setRestoreStatus('error');
+    }
+  };
+
+  const refreshDiagnostics = async () => {
+    if (diagnosticsBusy) return;
+    setDiagnosticsStatus('loading');
+    setDiagnosticsError(null);
+    try {
+      const report = await diagnosticsFn({
+        repository: createLocalAttachmentMetadataRepository(),
+        blobAdapter: createLocalAttachmentBlobAdapter(),
+      });
+      setDiagnosticsReport(report);
+      setDiagnosticsStatus('ready');
+    } catch (err) {
+      setDiagnosticsError(safeError(err));
+      setDiagnosticsStatus('error');
     }
   };
 
@@ -958,6 +1026,107 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             ) : null}
           </div>
 
+          <div data-attachment-sync-diagnostics-section style={{ borderTop: `1px solid ${c.sideBdr}`, paddingTop: 9, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800 }}>Attachment Sync Diagnostics</div>
+              <p style={{ margin: '3px 0 0', fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
+                Diagnostics are read-only. They summarize local and remote attachment state but do not upload, download, evict, or delete anything.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btbtn"
+                onClick={refreshDiagnostics}
+                disabled={diagnosticsBusy}
+                style={{ padding: '6px 9px', fontSize: 11, fontWeight: 700 }}
+              >
+                {diagnosticsBusy ? 'Refreshing diagnostics...' : diagnosticsReport ? 'Refresh diagnostics' : 'Refresh diagnostics'}
+              </button>
+              <span style={{ fontSize: 10, color: c.textFaint }}>Runs only when requested.</span>
+            </div>
+
+            {diagnosticsReport ? (
+              <div data-attachment-sync-diagnostics-report style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ fontSize: 10.5, color: c.textMuted }}>
+                  Generated {diagnosticsReport.generatedAt}. Inventory: {diagnosticsReport.inventory.available ? (diagnosticsReport.inventory.partial ? 'partial' : 'available') : 'unavailable'}.
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {diagnosticsStatusRows.map(([label, key]) => (
+                    <div key={label} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                      <div style={{ fontSize: 9.5, color: c.textFaint }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>{diagnosticsReport.statusCounts[key] ?? 0}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 5 }}>Provider breakdown</div>
+                  {Object.entries(diagnosticsReport.providerCounts).length === 0 ? (
+                    <div style={{ fontSize: 10.5, color: c.textMuted }}>No providers found.</div>
+                  ) : Object.entries(diagnosticsReport.providerCounts).map(([provider, count]) => (
+                    <div key={provider} style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+                      {provider}: <strong>{count}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {diagnosticsVerificationRows.map(([label, key]) => (
+                    <div key={label} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                      <div style={{ fontSize: 9.5, color: c.textFaint }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>{Number(diagnosticsReport.verificationCounts[key] ?? 0)}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {diagnosticsEvictionRows.map(([label, key]) => (
+                    <div key={label} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                      <div style={{ fontSize: 9.5, color: c.textFaint }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>
+                        {typeof diagnosticsReport.evictionSummary[key] === 'boolean'
+                          ? (diagnosticsReport.evictionSummary[key] ? 'yes' : 'no')
+                          : diagnosticsReport.evictionSummary[key]}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                    <div style={{ fontSize: 9.5, color: c.textFaint }}>Inventory available</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{diagnosticsReport.evictionSummary.inventoryAvailable ? 'yes' : 'no'}</div>
+                  </div>
+                  <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '6px 7px' }}>
+                    <div style={{ fontSize: 9.5, color: c.textFaint }}>Inventory partial</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{diagnosticsReport.evictionSummary.inventoryPartial ? 'yes' : 'no'}</div>
+                  </div>
+                </div>
+
+                <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 5 }}>Recoverable byte estimates</div>
+                  <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+                    <div>Fully verified recoverable: <strong>{formatBytes(diagnosticsReport.byteSummary.fullyVerifiedRecoverableBytes)}</strong></div>
+                    <div>Review-only recoverable: <strong>{formatBytes(diagnosticsReport.byteSummary.reviewOnlyRecoverableBytes)}</strong></div>
+                    <div>Blocked or excluded local bytes: <strong>{formatBytes(diagnosticsReport.byteSummary.blockedBytes)}</strong></div>
+                  </div>
+                </div>
+
+                {diagnosticsReport.inventory.warnings.map((warning, index) => (
+                  <div key={`${warning}-${index}`} style={{ display: 'flex', gap: 6, color: c.textMuted, fontSize: 10.5, lineHeight: 1.45 }}>
+                    <AlertTriangle size={13} />
+                    <span>{warning}</span>
+                  </div>
+                ))}
+                {diagnosticsReport.warnings.map((warning, index) => (
+                  <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{warning}</div>
+                ))}
+                {diagnosticsReport.errors.map((failure, index) => (
+                  <div key={`${failure}-${index}`} style={{ fontSize: 10, color: c.danger }}>{failure}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           {error ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{error}</div>
           ) : null}
@@ -972,6 +1141,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ) : null}
           {restoreError ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{restoreError}</div>
+          ) : null}
+          {diagnosticsError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{diagnosticsError}</div>
           ) : null}
         </div>
       ) : null}

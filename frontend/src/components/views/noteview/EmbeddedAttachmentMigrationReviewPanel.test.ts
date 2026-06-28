@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
+import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
 import {
   attachmentCleanupCandidateId,
   createAttachmentCleanupConfirmationToken,
@@ -322,6 +323,71 @@ function restoreReport(overrides: Partial<EmbeddedAttachmentMigrationRestoreRepo
   };
 }
 
+function diagnosticsReport(overrides: Partial<AttachmentSyncDiagnostics> = {}): AttachmentSyncDiagnostics {
+  return {
+    generatedAt: '2026-06-28T00:00:00.000Z',
+    attachmentsScanned: 8,
+    blobsScanned: 5,
+    statusCounts: {
+      total: 8,
+      local_only: 1,
+      pending_upload: 1,
+      uploading: 1,
+      synced: 2,
+      failed: 1,
+      paused_offline: 1,
+      recoverable_remote: 1,
+      missing_local: 1,
+      conflict: 0,
+      localBlobPresent: 5,
+      localBlobMissing: 3,
+      keepOffline: 1,
+      unknown: 0,
+    },
+    providerCounts: {
+      googleDrive: 4,
+      'local/no remote provider': 1,
+    },
+    verificationCounts: {
+      fullyVerifiedRemoteAttachments: 2,
+      sizeOnlyVerifiedAttachments: 1,
+      checksumMismatchCount: 1,
+      sizeMismatchCount: 1,
+      verificationWarningCount: 2,
+      verificationMissingCount: 1,
+      staleUploadConflictCount: 1,
+      providerErrorCount: 1,
+      providerErrorCountsByCategory: { network: 1 },
+    },
+    evictionSummary: {
+      candidateCount: 2,
+      fullyVerifiedCandidateCount: 1,
+      sizeOnlyCandidateCount: 1,
+      excludedCount: 6,
+      needsReviewCount: 1,
+      protectedKeepOfflineCount: 1,
+      recentlyUsedExcludedCount: 1,
+      statusExcludedCount: 2,
+      verificationExcludedCount: 1,
+      inventoryAvailable: true,
+      inventoryPartial: true,
+    },
+    byteSummary: {
+      fullyVerifiedRecoverableBytes: 2048,
+      reviewOnlyRecoverableBytes: 1024,
+      blockedBytes: 4096,
+    },
+    inventory: {
+      available: true,
+      partial: true,
+      warnings: ['Blob inventory is partial. Diagnostics and eviction estimates may be incomplete.'],
+    },
+    warnings: ['Size-only verified / review required.'],
+    errors: ['Remote failed with Authorization: Bearer [redacted-secret].'],
+    ...overrides,
+  };
+}
+
 function migrationReportWithBackup(overrides: Partial<EmbeddedAttachmentMigrationReport> = {}): EmbeddedAttachmentMigrationReport {
   return migrationReport({
     noteResults: [{
@@ -356,6 +422,7 @@ function panelElement(input: {
   cleanupExecutorFn?: (input: AttachmentCleanupExecutorInput) => Promise<AttachmentCleanupExecutorReport>;
   listBackupsFn?: (reader?: EmbeddedAttachmentMigrationBackupReader) => Promise<EmbeddedAttachmentMigrationBackupSummary[]>;
   restoreBackupFn?: (input: EmbeddedAttachmentMigrationRestoreInput) => Promise<EmbeddedAttachmentMigrationRestoreReport>;
+  diagnosticsFn?: () => Promise<AttachmentSyncDiagnostics>;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -367,6 +434,7 @@ function panelElement(input: {
     cleanupExecutorFn: input.cleanupExecutorFn ?? vi.fn(async () => cleanupExecutorReport()),
     listBackupsFn: input.listBackupsFn ?? vi.fn(async () => []),
     restoreBackupFn: input.restoreBackupFn ?? vi.fn(async () => restoreReport()),
+    diagnosticsFn: input.diagnosticsFn ?? vi.fn(async () => diagnosticsReport()),
   });
 }
 
@@ -428,6 +496,7 @@ function renderPanel(options: { notes?: readonly Note[] } = {}) {
   const cleanupExecutorFn = vi.fn(async () => cleanupExecutorReport());
   const listBackupsFn = vi.fn(async () => [] as EmbeddedAttachmentMigrationBackupSummary[]);
   const restoreBackupFn = vi.fn(async () => restoreReport());
+  const diagnosticsFn = vi.fn(async () => diagnosticsReport());
   const updateNote = vi.fn();
   const mounted = render(panelElement({
     notes: options.notes,
@@ -438,13 +507,14 @@ function renderPanel(options: { notes?: readonly Note[] } = {}) {
     cleanupExecutorFn,
     listBackupsFn,
     restoreBackupFn,
+    diagnosticsFn,
   }));
-  return { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, updateNote, ...mounted };
+  return { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, diagnosticsFn, updateNote, ...mounted };
 }
 
 describe('EmbeddedAttachmentMigrationReviewPanel', () => {
   it('does not scan or migrate on mount', () => {
-    const { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, root, host } = renderPanel();
+    const { auditFn, migrateFn, cleanupReviewFn, cleanupExecutorFn, listBackupsFn, restoreBackupFn, diagnosticsFn, root, host } = renderPanel();
 
     expect(auditFn).not.toHaveBeenCalled();
     expect(migrateFn).not.toHaveBeenCalled();
@@ -452,6 +522,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(cleanupExecutorFn).not.toHaveBeenCalled();
     expect(listBackupsFn).not.toHaveBeenCalled();
     expect(restoreBackupFn).not.toHaveBeenCalled();
+    expect(diagnosticsFn).not.toHaveBeenCalled();
     cleanup(root, host);
   });
 
@@ -747,6 +818,71 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
     expect(host.textContent).toContain('failed data:image/png;base64,[omitted]');
     expect(host.textContent).not.toContain(embeddedPayload);
+    cleanup(root, host);
+  });
+
+  it('runs attachment sync diagnostics only after explicit refresh and shows read-only summaries', async () => {
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport());
+    const { root, host } = render(panelElement({ diagnosticsFn }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+
+    expect(diagnosticsFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Attachment Sync Diagnostics');
+    expect(host.textContent).toContain('Runs only when requested');
+    expect(host.textContent).not.toContain('Provider breakdown');
+
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(diagnosticsFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Total attachments');
+    expect(host.textContent).toContain('Pending upload');
+    expect(host.textContent).toContain('Uploading');
+    expect(host.textContent).toContain('Synced');
+    expect(host.textContent).toContain('Failed');
+    expect(host.textContent).toContain('Paused offline');
+    expect(host.textContent).toContain('Recoverable remote');
+    expect(host.textContent).toContain('Missing local');
+    expect(host.textContent).toContain('googleDrive');
+    expect(host.textContent).toContain('Size-only / review required');
+    expect(host.textContent).toContain('Eviction candidates');
+    expect(host.textContent).toContain('Review-only candidates');
+    expect(host.textContent).toContain('Fully verified recoverable');
+    expect(host.textContent).toContain('2.0 KB');
+    expect(host.textContent).toContain('Review-only recoverable');
+    expect(host.textContent).toContain('1.0 KB');
+    expect(host.textContent).toContain('Blob inventory is partial');
+    expect(host.textContent).toContain('Bearer [redacted-secret]');
+    cleanup(root, host);
+  });
+
+  it('does not render execution controls inside attachment sync diagnostics', async () => {
+    const { root, host } = render(panelElement({}));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    const buttonLabels = Array.from(section.querySelectorAll('button')).map(button => button.textContent ?? '');
+
+    expect(buttonLabels).toEqual(['Refresh diagnostics']);
+    for (const forbidden of [
+      'Upload',
+      'Sync now',
+      'Recover',
+      'Download',
+      'Evict',
+      'Delete',
+      'Cleanup',
+      'Purge',
+      'Sign in with Google',
+      'Connect Google Drive',
+    ]) {
+      expect(buttonLabels.join(' ')).not.toContain(forbidden);
+    }
     cleanup(root, host);
   });
 
