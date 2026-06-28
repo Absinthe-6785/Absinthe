@@ -26,6 +26,7 @@ import {
   recoverAttachmentBlobFromRemote,
   type AttachmentRemoteRecoveryResult,
 } from '../../../lib/attachmentRemoteRecovery';
+import { formatRecoveryFailureForUi } from '../../../lib/attachmentRecoveryFailureLabel';
 import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
@@ -813,39 +814,56 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     result => result.orphanedAttachmentIds.length > 0 || result.orphanedBlobKeys.length > 0,
   ) ?? [];
 
-  const renderRecoveryReport = (recoveryReport: AttachmentRemoteRecoveryResult) => (
-    <div data-attachment-recovery-result style={{ border: `1px solid ${recoveryReport.status === 'failed' || recoveryReport.status === 'blocked' ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 800 }}>Recovery result</div>
-      <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
-        <div>Attachment: {shortValue(recoveryReport.attachmentId)}</div>
-        <div>Status: {recoveryReport.status}</div>
-        <div>Provider: {recoveryReport.remoteProvider ?? 'unknown'}</div>
-        <div>Remote file: {shortValue(recoveryReport.remoteFileId)}</div>
-        {recoveryReport.localBlobKey ? <div>Local blob: {shortValue(recoveryReport.localBlobKey)}</div> : null}
-        {recoveryReport.localSize !== undefined ? <div>Local size: {formatBytes(recoveryReport.localSize)}</div> : null}
-        {recoveryReport.remoteSize !== undefined ? <div>Remote size: {formatBytes(recoveryReport.remoteSize)}</div> : null}
-        {recoveryReport.verification ? (
-          <div>
-            Verification: size {recoveryReport.verification.sizeVerified ? 'yes' : 'no'}, checksum {recoveryReport.verification.checksumVerified ? 'yes' : 'no'}
-            {recoveryReport.verification.sizeOnlyVerified ? ', size-only review' : ''}
+  const renderRecoveryReport = (recoveryReport: AttachmentRemoteRecoveryResult) => {
+    const failureDisplay = recoveryReport.status === 'failed' || recoveryReport.status === 'blocked'
+      ? formatRecoveryFailureForUi({
+          errorDetails: recoveryReport.errorDetails,
+          providerType: recoveryReport.remoteProvider,
+        })
+      : null;
+    return (
+      <div data-attachment-recovery-result style={{ border: `1px solid ${failureDisplay ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 800 }}>Recovery result</div>
+        {failureDisplay ? (
+          <div data-attachment-recovery-failure-label style={{ border: `1px solid ${failureDisplay.severity === 'warning' ? `${c.accent}55` : `${c.danger}55`}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: c.text }}>{failureDisplay.title}</div>
+            <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>{failureDisplay.message}</div>
+            <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+              {failureDisplay.actionHint}{failureDisplay.retryable ? ' · retryable' : ''}
+            </div>
           </div>
         ) : null}
-        <div>Started: {recoveryReport.startedAt}</div>
-        <div>Completed: {recoveryReport.completedAt}</div>
-      </div>
-      {recoveryReport.errorDetails ? (
-        <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
-          {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{recoveryReport.errorDetails.message} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
+        <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+          <div>Attachment: {shortValue(recoveryReport.attachmentId)}</div>
+          <div>Status: {recoveryReport.status}</div>
+          <div>Provider: {recoveryReport.remoteProvider ?? 'unknown'}</div>
+          <div>Remote file: {shortValue(recoveryReport.remoteFileId)}</div>
+          {recoveryReport.localBlobKey ? <div>Local blob: {shortValue(recoveryReport.localBlobKey)}</div> : null}
+          {recoveryReport.localSize !== undefined ? <div>Local size: {formatBytes(recoveryReport.localSize)}</div> : null}
+          {recoveryReport.remoteSize !== undefined ? <div>Remote size: {formatBytes(recoveryReport.remoteSize)}</div> : null}
+          {recoveryReport.verification ? (
+            <div>
+              Verification: size {recoveryReport.verification.sizeVerified ? 'yes' : 'no'}, checksum {recoveryReport.verification.checksumVerified ? 'yes' : 'no'}
+              {recoveryReport.verification.sizeOnlyVerified ? ', size-only review' : ''}
+            </div>
+          ) : null}
+          <div>Started: {recoveryReport.startedAt}</div>
+          <div>Completed: {recoveryReport.completedAt}</div>
         </div>
-      ) : recoveryReport.error ? (
-        <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.error)}</div>
-      ) : null}
-      {recoveryReport.warnings?.map((warning, index) => (
-        <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
-      ))}
-      <div style={{ fontSize: 10.5, color: c.textMuted }}>Refresh diagnostics after recovery to update local inventory state.</div>
-    </div>
-  );
+        {recoveryReport.errorDetails ? (
+          <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
+            {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{recoveryReport.errorDetails.message} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
+          </div>
+        ) : recoveryReport.error ? (
+          <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.error)}</div>
+        ) : null}
+        {recoveryReport.warnings?.map((warning, index) => (
+          <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
+        ))}
+        <div style={{ fontSize: 10.5, color: c.textMuted }}>Refresh diagnostics after recovery to update local inventory state.</div>
+      </div>
+    );
+  };
 
   return (
     <section

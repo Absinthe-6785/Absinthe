@@ -2163,11 +2163,49 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     click(buttonByText(host, 'Recover'));
     await flushAsync();
 
+    expect(host.textContent).toContain('Google Drive is temporarily unavailable');
+    expect(host.textContent).toContain('Try again later');
     expect(host.textContent).toContain('download_failed');
     expect(host.textContent).toContain('network, retryable yes');
     expect(host.textContent).not.toContain('token-secret');
     expect(host.textContent).not.toContain('session-secret');
     expect(host.textContent).not.toContain(embeddedPayload);
+    cleanup(root, host);
+  });
+
+  it('renders rate-limited recovery failure labels without auto retry or secret leakage', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult({
+      status: 'failed',
+      errorDetails: {
+        message: 'Google Drive rate limit blocked recovery access_token=[redacted-secret] codeVerifier=[redacted-secret]',
+        category: 'provider',
+        retryable: true,
+        code: 'rate_limited',
+      },
+      warnings: ['raw callback http://127.0.0.1:5173/oauth/google-drive/callback?code=[redacted-secret]'],
+    }));
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+
+    expect(recoverAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Google Drive is rate limiting requests');
+    expect(host.textContent).toContain('Try again later');
+    expect(host.textContent).toContain('retryable');
+    expect(host.textContent).toContain('rate_limited');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('codeVerifier=secret');
+    expect(host.textContent).not.toContain('/oauth/google-drive/callback?code=secret');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Sync now');
     cleanup(root, host);
   });
 
