@@ -151,6 +151,7 @@ describe('Google Drive OAuth token exchange boundary', () => {
   it('does not call the token endpoint until the explicit exchange function is invoked', async () => {
     const fetchToken = vi.fn(async () => jsonResponse(200, {
       access_token: 'access-token-secret',
+      expires_in: 3600,
       token_type: 'Bearer',
       scope: GOOGLE_DRIVE_APP_DATA_SCOPE,
     }));
@@ -171,6 +172,7 @@ describe('Google Drive OAuth token exchange boundary', () => {
     const verifierLookup = createVerifierLookup();
     const fetchToken = vi.fn(async () => jsonResponse(200, {
       access_token: 'access-token-secret',
+      expires_in: 3600,
       token_type: 'Bearer',
       scope: GOOGLE_DRIVE_APP_DATA_SCOPE,
     }));
@@ -235,25 +237,29 @@ describe('Google Drive OAuth token exchange boundary', () => {
     expect(JSON.stringify(result)).not.toContain(VERIFIER);
   });
 
-  it('returns a warning when token response omits scope', async () => {
-    const result = await exchange({
-      fetchToken: vi.fn(async () => jsonResponse(200, {
-        access_token: 'access-token-secret',
-        token_type: 'Bearer',
-      })),
-    });
-
-    expect(result.status).toBe('exchanged');
-    if (result.status !== 'exchanged') throw new Error('expected exchanged');
-    expect(result.warnings).toEqual([
-      'Token response did not include scope; assuming the requested app data scope for this in-memory result.',
-    ]);
-  });
-
-  it('rejects invalid token type, expiration, missing token, and broad response scopes', async () => {
+  it('rejects token responses that omit scope', async () => {
     await expect(exchange({
       fetchToken: vi.fn(async () => jsonResponse(200, {
         access_token: 'access-token-secret',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      })),
+    })).resolves.toMatchObject({ status: 'invalid_token_response', error: { code: 'missing_scope' } });
+  });
+
+  it('rejects missing or invalid token type, expiration, missing token, and broad response scopes', async () => {
+    await expect(exchange({
+      fetchToken: vi.fn(async () => jsonResponse(200, {
+        access_token: 'access-token-secret',
+        expires_in: 3600,
+        scope: GOOGLE_DRIVE_APP_DATA_SCOPE,
+      })),
+    })).resolves.toMatchObject({ status: 'invalid_token_response', error: { code: 'invalid_token_type' } });
+
+    await expect(exchange({
+      fetchToken: vi.fn(async () => jsonResponse(200, {
+        access_token: 'access-token-secret',
+        expires_in: 3600,
         token_type: 'mac',
         scope: GOOGLE_DRIVE_APP_DATA_SCOPE,
       })),
@@ -278,6 +284,7 @@ describe('Google Drive OAuth token exchange boundary', () => {
     await expect(exchange({
       fetchToken: vi.fn(async () => jsonResponse(200, {
         access_token: 'access-token-secret',
+        expires_in: 3600,
         token_type: 'Bearer',
         scope: 'https://www.googleapis.com/auth/drive.file',
       })),
