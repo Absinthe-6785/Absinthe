@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import type {
   EmbeddedAttachmentAuditReport,
@@ -19,6 +19,7 @@ import {
 } from '../../../lib/attachmentCleanupExecutor';
 import {
   buildAttachmentSyncDiagnostics,
+  type AttachmentRecoveryDiagnosticsItem,
   type AttachmentSyncDiagnostics,
 } from '../../../lib/attachmentSyncDiagnostics';
 import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
@@ -54,6 +55,11 @@ type BackupInspectionState = 'idle' | 'loading' | 'ready' | 'error';
 type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
 type DiagnosticsState = 'idle' | 'loading' | 'ready' | 'error';
 type RecoveryActionState = 'idle' | 'running' | 'complete' | 'error';
+
+interface RecoveryEligibility {
+  readonly canRecover: boolean;
+  readonly reason: string;
+}
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -91,6 +97,39 @@ function noteTitle(note: Note | undefined, id: string): string {
 function shortValue(value: string | undefined): string {
   if (!value) return '';
   return value.length <= 28 ? value : `${value.slice(0, 12)}...${value.slice(-10)}`;
+}
+
+function hasSessionAccessTokenProvider(controller?: GoogleDriveSessionConnectionController | null): boolean {
+  try {
+    return Boolean(controller?.getAccessTokenProvider());
+  } catch {
+    return false;
+  }
+}
+
+function recoveryEligibilityForItem(input: {
+  readonly item: AttachmentRecoveryDiagnosticsItem;
+  readonly providerConnection: RemoteProviderConnectionBoundary;
+  readonly hasRecoveryController: boolean;
+  readonly googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+}): RecoveryEligibility {
+  const { item, providerConnection, hasRecoveryController, googleDriveSessionController } = input;
+  if (!item.eligible) return { canRecover: false, reason: item.reason || 'Item is not recoverable' };
+  if (item.localBlobPresent) return { canRecover: false, reason: 'Local blob already present' };
+  if (!item.remoteFileId) return { canRecover: false, reason: 'Remote file missing' };
+  if (item.remoteProvider !== 'googleDrive') return { canRecover: false, reason: 'Provider mismatch' };
+  if (providerConnection.providerType !== 'googleDrive') {
+    return { canRecover: false, reason: recoveryUnavailableReasonForProvider(providerConnection, hasRecoveryController, item.remoteProvider) };
+  }
+  if (providerConnection.status === 'auth_expired') return { canRecover: false, reason: 'Session expired' };
+  if (providerConnection.status === 'reconnect_required') return { canRecover: false, reason: 'Reconnect required' };
+  if (!providerConnection.canRecover || providerConnection.status !== 'available') {
+    return { canRecover: false, reason: recoveryUnavailableReasonForProvider(providerConnection, hasRecoveryController, item.remoteProvider) };
+  }
+  if (!googleDriveSessionController) return { canRecover: false, reason: 'Provider not configured' };
+  if (!hasSessionAccessTokenProvider(googleDriveSessionController)) return { canRecover: false, reason: 'Reconnect required' };
+  if (!hasRecoveryController) return { canRecover: false, reason: 'Recovery controller unavailable' };
+  return { canRecover: true, reason: 'Ready for explicit recovery' };
 }
 
 type CleanupReviewNumericKey = {
@@ -322,10 +361,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [diagnosticsStatus, setDiagnosticsStatus] = useState<DiagnosticsState>('idle');
   const [diagnosticsReport, setDiagnosticsReport] = useState<AttachmentSyncDiagnostics | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
-  const [recoveryStatus, setRecoveryStatus] = useState<RecoveryActionState>('idle');
+  const [, setRecoveryStatus] = useState<RecoveryActionState>('idle');
   const [runningRecoveryAttachmentId, setRunningRecoveryAttachmentId] = useState<string | null>(null);
   const [recoveryReportsByAttachmentId, setRecoveryReportsByAttachmentId] = useState<Record<string, AttachmentRemoteRecoveryResult>>({});
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [googleDriveSessionConnection, setGoogleDriveSessionConnection] = useState<RemoteProviderConnectionBoundary | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const activeNotes = useMemo(() => notes.filter(note => !note.deletedAt), [notes]);
@@ -366,10 +406,22 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       && !restoreBusy,
   );
   const diagnosticsBusy = diagnosticsStatus === 'loading';
-  const providerConnection = useMemo(
+  const fallbackProviderConnection = useMemo(
     () => remoteProviderConnection ?? resolveRemoteProviderConnectionBoundary(),
     [remoteProviderConnection],
   );
+  const providerConnection = googleDriveSessionConnection ?? fallbackProviderConnection;
+  const refreshGoogleDriveSessionConnection = useCallback(async () => {
+    if (!googleDriveSessionController) {
+      setGoogleDriveSessionConnection(null);
+      return;
+    }
+    setGoogleDriveSessionConnection(await googleDriveSessionController.getConnectionStatus());
+  }, [googleDriveSessionController]);
+
+  useEffect(() => {
+    void refreshGoogleDriveSessionConnection();
+  }, [refreshGoogleDriveSessionConnection]);
 
   const scan = async () => {
     if (busy) return;
@@ -559,6 +611,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     setRecoveryReportsByAttachmentId({});
     setRecoveryError(null);
     try {
+      await refreshGoogleDriveSessionConnection();
       const report = await diagnosticsFn({
         repository: createLocalAttachmentMetadataRepository(),
         blobAdapter: createLocalAttachmentBlobAdapter(),
@@ -572,7 +625,19 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runRecovery = async (attachmentId: string) => {
-    if (!recoverAttachmentFn || runningRecoveryAttachmentId === attachmentId) return;
+    if (!recoverAttachmentFn || runningRecoveryAttachmentId) return;
+    const item = diagnosticsReport?.recoveryItems.find(candidate => candidate.attachmentId === attachmentId);
+    const eligibility = item ? recoveryEligibilityForItem({
+      item,
+      providerConnection,
+      hasRecoveryController: Boolean(recoverAttachmentFn),
+      googleDriveSessionController,
+    }) : { canRecover: false, reason: 'Item is not recoverable' };
+    if (!eligibility.canRecover) {
+      setRecoveryStatus('error');
+      setRecoveryError(eligibility.reason);
+      return;
+    }
     setRunningRecoveryAttachmentId(attachmentId);
     setRecoveryStatus('running');
     setRecoveryError(null);
@@ -1118,6 +1183,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             <GoogleDriveManualConnectionPanel
               colors={c}
               controller={googleDriveSessionController}
+              onConnectionStatusChange={setGoogleDriveSessionConnection}
             />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
@@ -1211,19 +1277,22 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontSize: 10.5, fontWeight: 800 }}>Remote recovery</div>
                   <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                    This section does not upload, evict, or delete anything. Recovery is per attachment and runs only when a configured provider and controller are available. No recover-all action exists.
+                    Google Drive recovery is session-only. Recover is available only for eligible attachments while this in-memory session is connected. Nothing is recovered automatically, and no recover-all action exists.
                   </div>
                   {diagnosticsReport.recoveryItems.length === 0 ? (
                     <div style={{ fontSize: 10.5, color: c.textMuted }}>No remote-backed attachments need recovery.</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {diagnosticsReport.recoveryItems.slice(0, 10).map(item => {
-                        const providerMatchesAttachment = Boolean(item.remoteProvider && providerConnection.providerType && item.remoteProvider === providerConnection.providerType);
-                        const canRecover = item.eligible && providerMatchesAttachment && providerConnection.canRecover && Boolean(recoverAttachmentFn);
+                        const recoveryEligibility = recoveryEligibilityForItem({
+                          item,
+                          providerConnection,
+                          hasRecoveryController: Boolean(recoverAttachmentFn),
+                          googleDriveSessionController,
+                        });
+                        const canRecover = recoveryEligibility.canRecover;
                         const running = runningRecoveryAttachmentId === item.attachmentId;
-                        const reason = item.eligible
-                          ? recoveryUnavailableReasonForProvider(providerConnection, Boolean(recoverAttachmentFn), item.remoteProvider)
-                          : item.reason;
+                        const reason = recoveryEligibility.reason;
                         const itemRecoveryReport = recoveryReportsByAttachmentId[item.attachmentId];
                         return (
                           <div key={item.attachmentId} data-attachment-recovery-item style={{ border: `1px solid ${item.eligible ? c.accent : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
@@ -1239,7 +1308,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   type="button"
                                   className="btbtn"
                                   onClick={() => runRecovery(item.attachmentId)}
-                                  disabled={recoveryStatus === 'running'}
+                                  disabled={Boolean(runningRecoveryAttachmentId)}
                                   style={{ padding: '5px 8px', fontSize: 10.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66` }}
                                 >
                                   {running ? 'Recovering...' : 'Recover'}

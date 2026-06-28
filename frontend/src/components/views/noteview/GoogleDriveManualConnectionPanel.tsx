@@ -7,6 +7,7 @@ import type { NoteChromeColors } from '../noteEditorTheme';
 export interface GoogleDriveManualConnectionPanelProps {
   readonly colors: NoteChromeColors;
   readonly controller?: GoogleDriveSessionConnectionController | null;
+  readonly onConnectionStatusChange?: (status: RemoteProviderConnectionBoundary) => void;
 }
 
 type ManualActionState = 'idle' | 'running' | 'complete' | 'error';
@@ -38,6 +39,7 @@ function unconfiguredStatus(): RemoteProviderConnectionBoundary {
 export function GoogleDriveManualConnectionPanel({
   colors: c,
   controller,
+  onConnectionStatusChange,
 }: GoogleDriveManualConnectionPanelProps) {
   const [connectionStatus, setConnectionStatus] = useState<RemoteProviderConnectionBoundary>(() => unconfiguredStatus());
   const [startStatus, setStartStatus] = useState<ManualActionState>('idle');
@@ -53,11 +55,16 @@ export function GoogleDriveManualConnectionPanel({
   const connected = connectionStatus.status === 'available';
 
   const refreshStatus = async () => {
+    let nextStatus: RemoteProviderConnectionBoundary;
     if (!controller) {
-      setConnectionStatus(unconfiguredStatus());
+      nextStatus = unconfiguredStatus();
+      setConnectionStatus(nextStatus);
+      onConnectionStatusChange?.(nextStatus);
       return;
     }
-    setConnectionStatus(await controller.getConnectionStatus());
+    nextStatus = await controller.getConnectionStatus();
+    setConnectionStatus(nextStatus);
+    onConnectionStatusChange?.(nextStatus);
   };
 
   useEffect(() => {
@@ -97,6 +104,7 @@ export function GoogleDriveManualConnectionPanel({
     try {
       const result = await controller.completeCallback({ callbackUrl: submittedCallbackUrl });
       setConnectionStatus(result.connectionStatus);
+      onConnectionStatusChange?.(result.connectionStatus);
       if (result.status === 'connected') {
         setCompleteStatus('complete');
         setAuthorizationUrl('');

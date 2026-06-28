@@ -603,10 +603,12 @@ async function flushAsync() {
 
 function manualGoogleDriveController(overrides: {
   connected?: boolean;
+  hasAccessTokenProvider?: boolean;
   startAuthorization?: GoogleDriveSessionConnectionController['startAuthorization'];
   completeCallback?: GoogleDriveSessionConnectionController['completeCallback'];
   disconnect?: GoogleDriveSessionConnectionController['disconnect'];
 } = {}): GoogleDriveSessionConnectionController {
+  let hasAccessTokenProvider = overrides.hasAccessTokenProvider ?? overrides.connected === true;
   let status = overrides.connected
     ? availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true })
     : resolveRemoteProviderConnectionBoundary({
@@ -626,6 +628,7 @@ function manualGoogleDriveController(overrides: {
     })),
     completeCallback: overrides.completeCallback ?? vi.fn(async () => {
       status = availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true });
+      hasAccessTokenProvider = true;
       return {
         providerType: 'googleDrive',
         status: 'connected',
@@ -640,6 +643,7 @@ function manualGoogleDriveController(overrides: {
         status: 'unconfigured',
         capabilities: { supportsDownload: false, supportsUpload: false },
       });
+      hasAccessTokenProvider = false;
       return {
         providerType: 'googleDrive',
         status: 'disconnected',
@@ -650,7 +654,9 @@ function manualGoogleDriveController(overrides: {
       return status;
     },
     getAccessTokenProvider() {
-      return null;
+      return hasAccessTokenProvider
+        ? { getAccessToken: vi.fn(async () => 'access-token-secret') }
+        : null;
     },
     async markReconnectRequired() {
       status = resolveRemoteProviderConnectionBoundary({
@@ -658,6 +664,7 @@ function manualGoogleDriveController(overrides: {
         status: 'reconnect_required',
         capabilities: { supportsDownload: false, supportsUpload: false },
       });
+      hasAccessTokenProvider = false;
     },
   };
   return controller;
@@ -1083,7 +1090,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
   it('completes connection only from an explicit pasted callback and keeps sensitive values out of the UI', async () => {
     const controller = manualGoogleDriveController();
-    const { root, host } = render(panelElement({ googleDriveSessionController: controller }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport());
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({ googleDriveSessionController: controller, diagnosticsFn, recoverAttachmentFn }));
     click(buttonByText(host, 'Attachment storage maintenance'));
     await flushAsync();
 
@@ -1104,6 +1113,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).not.toContain('Sync now');
     expect(host.textContent).not.toContain('Upload all');
     expect(host.textContent).not.toContain('Recover all');
+    expect(diagnosticsFn).not.toHaveBeenCalled();
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
 
     cleanup(root, host);
   });
@@ -1176,6 +1187,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     for (const forbidden of [
       'window.open',
       'window.location',
+      'oauth2.googleapis.com/token',
+      'client_secret',
+      'fetchToken',
       'localStorage',
       'sessionStorage',
       'indexedDB',
@@ -1213,6 +1227,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -1261,6 +1276,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
       diagnosticsFn: vi.fn(async () => diagnosticsReport({
         recoveryItems: [{
           attachmentId: 'att-r2',
@@ -1282,7 +1298,66 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
     if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
     expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
-    expect(section.textContent).toContain('Recovery provider does not match this attachment.');
+    expect(section.textContent).toContain('Provider mismatch');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('keeps Google Drive recovery unavailable when provider status exists without a session controller', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(section.textContent).toContain('Provider available');
+    expect(section.textContent).toContain('Provider not configured');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('uses connected session status for Google Drive recovery gating without a static provider prop', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(section.textContent).toContain('Provider available');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).toContain('Recover');
+    expect(recoverAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('blocks Google Drive recovery when the session has no valid in-memory token provider', async () => {
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const { root, host } = render(panelElement({
+      recoverAttachmentFn,
+      remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true, hasAccessTokenProvider: false }),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const section = host.querySelector('[data-attachment-sync-diagnostics-section]');
+    if (!(section instanceof HTMLElement)) throw new Error('diagnostics section missing');
+    expect(section.textContent).toContain('Reconnect required');
+    expect(Array.from(section.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover');
     expect(recoverAttachmentFn).not.toHaveBeenCalled();
     cleanup(root, host);
   });
@@ -1352,7 +1427,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
         status: 'auth_expired' as const,
         displayLabel: 'Authorization expired',
         safeMessage: 'Reconnect is required, but connection management is not implemented in this build.',
-        reason: 'Reconnect required',
+        reason: 'Session expired',
       },
       {
         status: 'disabled_by_user' as const,
@@ -1454,6 +1529,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -1480,6 +1556,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       diagnosticsFn,
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -1506,6 +1583,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -1539,6 +1617,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
       remoteProviderConnection: availableProviderConnection(),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
     }));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
