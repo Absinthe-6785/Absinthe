@@ -169,7 +169,7 @@ describe('attachment sync diagnostics', () => {
     });
     expect(diagnostics.recoveryItems.find(item => item.attachmentId === 'att-missing-local')).toMatchObject({
       eligible: false,
-      reason: 'Recovery unavailable',
+      reason: 'Missing local blob; recovery state needs reconciliation.',
     });
   });
 
