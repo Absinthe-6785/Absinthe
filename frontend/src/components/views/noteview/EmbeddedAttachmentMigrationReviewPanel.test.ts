@@ -1960,7 +1960,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
-  it('renders a dry-run manual upload queue review without executing uploads or unsafe bulk actions', async () => {
+  it('renders a limited manual upload queue review without executing uploads or unsafe bulk actions', async () => {
     const uploadAttachmentFn = vi.fn(async () => uploadResult());
     const diagnosticsFn = vi.fn(async () => diagnosticsReport({
       recoveryItems: [],
@@ -2008,9 +2008,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(diagnosticsFn).toHaveBeenCalledTimes(1);
     expect(uploadAttachmentFn).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Manual upload queue review');
-    expect(host.textContent).toContain('This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section.');
-    expect(host.textContent).toContain('Ready items currently pass the same upload availability gate as the per-item Upload button.');
-    expect(host.textContent).toContain('Eligible items still require individual Upload clicks.');
+    expect(host.textContent).toContain('Select up to 3 visible Ready items for a limited manual upload.');
+    expect(host.textContent).toContain('Selected uploads run one at a time through the same guarded Upload path and stop on the first failure.');
+    expect(host.textContent).toContain('Only selected items upload. Hidden Ready items, blocked items, manual-review items, and already-synced items are not included.');
     expect(host.textContent).toContain('Ready for manual upload');
     expect(host.textContent).toContain('Blocked');
     expect(host.textContent).toContain('Needs manual review');
@@ -2034,6 +2034,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Overwrite');
     expect(buttons).not.toContain('Recover all');
     expect(buttons).not.toContain('Download all');
+    expect(buttonByText(host, 'Upload selected').disabled).toBe(true);
     cleanup(root, host);
   });
 
@@ -2228,7 +2229,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     const readyBucket = queueBucket(host, 'upload-queue-ready');
-    expect(host.textContent).toContain('This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering.');
+    expect(host.textContent).toContain('This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering or by a limited selected run.');
     expect(readyBucket.querySelector('[data-testid="upload-queue-ready-count"]')?.textContent).toBe('5');
     expect(readyBucket.textContent).toContain('attachment att-visible-a - Ready for manual upload');
     expect(readyBucket.textContent).toContain('attachment att-visible-b - Ready for manual upload');
@@ -2240,6 +2241,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     const readyButtons = Array.from(readyBucket.querySelectorAll('button'))
       .filter(button => button.textContent?.trim() === 'Upload this item');
     expect(readyButtons).toHaveLength(3);
+    expect(Array.from(readyBucket.querySelectorAll('input[type="checkbox"]'))).toHaveLength(3);
     const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
     expect(buttons).not.toContain('Upload all');
     expect(buttons).not.toContain('Run queue');
@@ -2341,7 +2343,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     expect(uploadAttachmentFn).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('Ready items still run one at a time. Uploading one item will not start the rest of the queue.');
+    expect(host.textContent).toContain('Select up to 3 visible Ready items for a limited manual upload.');
+    expect(host.textContent).toContain('Only selected items upload.');
     const queueButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button'))
       .filter(button => button.textContent?.trim() === 'Upload this item');
     expect(queueButtons).toHaveLength(2);
@@ -2366,6 +2369,280 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Overwrite');
     expect(buttons).not.toContain('Recover all');
     expect(buttons).not.toContain('Download all');
+    cleanup(root, host);
+  });
+
+  it('allows selection only for visible Ready queue items and enforces the visible max', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-visible-a', localBlobKey: 'local-attachment/visible-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-visible-b', localBlobKey: 'local-attachment/visible-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-visible-c', localBlobKey: 'local-attachment/visible-c', localSize: 512 }),
+        uploadItem({ attachmentId: 'att-hidden-d', localBlobKey: 'local-attachment/hidden-d', localSize: 1024 }),
+        uploadItem({
+          attachmentId: 'att-blocked',
+          localBlobPresent: false,
+          eligible: false,
+          reason: 'Local blob missing',
+        }),
+        uploadItem({
+          attachmentId: 'att-manual-review',
+          remoteSyncStatus: 'failed',
+          eligible: false,
+          reason: 'metadata_update_failed',
+        }),
+        uploadItem({
+          attachmentId: 'att-synced',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-file-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    const blockedBucket = queueBucket(host, 'upload-queue-blocked');
+    const manualBucket = queueBucket(host, 'upload-queue-manual-review');
+    const syncedBucket = queueBucket(host, 'upload-queue-already-synced');
+    expect(Array.from(readyBucket.querySelectorAll('input[type="checkbox"]'))).toHaveLength(3);
+    expect(Array.from(blockedBucket.querySelectorAll('input[type="checkbox"]'))).toHaveLength(0);
+    expect(Array.from(manualBucket.querySelectorAll('input[type="checkbox"]'))).toHaveLength(0);
+    expect(Array.from(syncedBucket.querySelectorAll('input[type="checkbox"]'))).toHaveLength(0);
+    expect(readyBucket.textContent).not.toContain('att-hidden-d');
+
+    const selections = Array.from(readyBucket.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(buttonByText(host, 'Upload selected').disabled).toBe(true);
+    click(selections[0]);
+    await flushAsync();
+    click(selections[1]);
+    await flushAsync();
+    click(selections[2]);
+    await flushAsync();
+    expect(selections.every(selection => selection.checked)).toBe(true);
+    expect(host.textContent).toContain('3 selected of 3.');
+    expect(buttonByText(host, 'Upload selected').disabled).toBe(false);
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('uploads selected visible Ready items sequentially and skips unselected or hidden Ready items', async () => {
+    const resolvers = new Map<string, (value: AttachmentExplicitUploadResult) => void>();
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolvers.set(attachmentId, resolve);
+    }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-seq-a', localBlobKey: 'local-attachment/seq-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-seq-b', localBlobKey: 'local-attachment/seq-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-seq-c', localBlobKey: 'local-attachment/seq-c', localSize: 512 }),
+        uploadItem({ attachmentId: 'att-hidden-d', localBlobKey: 'local-attachment/hidden-d', localSize: 1024 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    const selections = Array.from(readyBucket.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    click(selections[0]);
+    click(selections[1]);
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).toHaveBeenLastCalledWith('att-seq-a');
+
+    await act(async () => {
+      resolvers.get('att-seq-a')?.(uploadResult({ attachmentId: 'att-seq-a' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenLastCalledWith('att-seq-b');
+
+    await act(async () => {
+      resolvers.get('att-seq-b')?.(uploadResult({ attachmentId: 'att-seq-b' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-seq-c');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-hidden-d');
+    expect(host.textContent).toContain('2 of 2 selected uploads completed.');
+    expect(host.textContent).toContain('Failed: 0. Not started: 0.');
+    cleanup(root, host);
+  });
+
+  it('stops a limited selected upload run on the first failure without starting later selected items', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => {
+      if (attachmentId === 'att-stop-b') {
+        return uploadResult({
+          attachmentId,
+          status: 'failed',
+          errorDetails: {
+            code: 'rate_limited',
+            category: 'rate_limited',
+            retryable: true,
+            message: 'Too many requests Authorization: Bearer token-secret access_token=secret',
+          },
+        });
+      }
+      return uploadResult({ attachmentId });
+    });
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-stop-a', localBlobKey: 'local-attachment/stop-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-stop-b', localBlobKey: 'local-attachment/stop-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-stop-c', localBlobKey: 'local-attachment/stop-c', localSize: 512 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    selections.forEach(selection => click(selection));
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(1, 'att-stop-a');
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(2, 'att-stop-b');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-stop-c');
+    expect(host.textContent).toContain('1 of 3 selected uploads completed.');
+    expect(host.textContent).toContain('Failed: 1. Not started: 1. Stopped after the first failure.');
+    expect(host.textContent).toContain('Failed item: attachment att-stop-b');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access_token=secret');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Continue queue');
+    expect(buttons).not.toContain('Run next');
+    cleanup(root, host);
+  });
+
+  it('revalidates each selected item before its turn and stops when a later item leaves Ready', async () => {
+    let resolveUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolveUpload = resolve;
+    }).then(() => uploadResult({ attachmentId })));
+    const firstItem = uploadItem({ attachmentId: 'att-revalidate-a', localBlobKey: 'local-attachment/revalidate-a', localSize: 128 });
+    const staleItem = uploadItem({ attachmentId: 'att-revalidate-b', localBlobKey: 'local-attachment/revalidate-b', localSize: 256 });
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [firstItem, staleItem],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    click(selections[0]);
+    click(selections[1]);
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    staleItem.localBlobPresent = false;
+    staleItem.reason = 'Local blob missing';
+
+    await act(async () => {
+      resolveUpload?.(uploadResult({ attachmentId: 'att-revalidate-a' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('1 of 2 selected uploads completed.');
+    expect(host.textContent).toContain('Failed: 1. Not started: 0. Stopped after the first failure.');
+    expect(host.textContent).toContain('Failed item: attachment att-revalidate-b');
+    expect(host.textContent).toContain('Local blob missing');
+    cleanup(root, host);
+  });
+
+  it('blocks limited selected run double-clicks with the shared in-flight guard', async () => {
+    let resolveUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolveUpload = resolve;
+    }).then(() => uploadResult({ attachmentId })));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-double-a', localBlobKey: 'local-attachment/double-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-double-b', localBlobKey: 'local-attachment/double-b', localSize: 256 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    click(selections[0]);
+    click(selections[1]);
+    await flushAsync();
+
+    const runButton = buttonByText(host, 'Upload selected');
+    click(runButton);
+    click(runButton);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).toHaveBeenCalledWith('att-double-a');
+    expect(host.textContent).toContain('Another upload is in progress');
+    const perItemButtons = Array.from(host.querySelectorAll('[data-attachment-upload-item] button'))
+      .filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement && button.textContent?.trim() === 'Upload');
+    expect(perItemButtons.every(button => button.disabled)).toBe(true);
+
+    await act(async () => {
+      resolveUpload?.(uploadResult({ attachmentId: 'att-double-a' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     cleanup(root, host);
   });
 
@@ -2447,7 +2724,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
     const inFlightButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
-    expect(inFlightButtons).toHaveLength(0);
+    expect(inFlightButtons.filter(button => button.textContent?.trim() === 'Upload this item')).toHaveLength(0);
     expect(host.textContent).toContain('Another upload is in progress');
 
     await act(async () => {
@@ -2459,7 +2736,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).not.toContain('access_token=secret');
 
     const nextButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
-    expect(nextButtons.some(button => button.disabled)).toBe(false);
+    expect(nextButtons.filter(button => button.textContent?.trim() === 'Upload this item').some(button => button.disabled)).toBe(false);
     click(nextButtons[1]);
     await flushAsync();
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
@@ -2638,7 +2915,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Status: uploaded');
     const nextButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
     expect(nextButtons.filter(button => button.textContent?.trim() === 'Upload this item')).toHaveLength(2);
-    expect(nextButtons.some(button => button.disabled)).toBe(false);
+    expect(nextButtons.filter(button => button.textContent?.trim() === 'Upload this item').some(button => button.disabled)).toBe(false);
     click(nextButtons[1]);
     await flushAsync();
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
@@ -2927,7 +3204,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       await Promise.resolve();
     });
     const queueButtonsAfterSuccess = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
-    expect(queueButtonsAfterSuccess.some(button => button.disabled)).toBe(false);
+    expect(queueButtonsAfterSuccess.filter(button => button.textContent?.trim() === 'Upload this item').some(button => button.disabled)).toBe(false);
     cleanup(root, host);
   });
 
@@ -2970,7 +3247,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       await Promise.resolve();
     });
     const queueButtonsAfterSuccess = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
-    expect(queueButtonsAfterSuccess.some(button => button.disabled)).toBe(false);
+    expect(queueButtonsAfterSuccess.filter(button => button.textContent?.trim() === 'Upload this item').some(button => button.disabled)).toBe(false);
     cleanup(root, host);
   });
 
@@ -3917,7 +4194,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
-  it('does not render execution controls inside attachment sync diagnostics', async () => {
+  it('does not render unsafe bulk execution controls inside attachment sync diagnostics', async () => {
     const { root, host } = render(panelElement({}));
 
     click(buttonByText(host, 'Attachment storage maintenance'));
@@ -3932,11 +4209,11 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       'Generate authorization URL',
       'Clear session',
       'Refresh diagnostics',
+      'Upload selected',
     ]);
     for (const forbidden of [
-      'Upload',
       'Sync now',
-      'Recover',
+      'Recover all',
       'Download',
       'Evict',
       'Delete',
@@ -3944,6 +4221,13 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       'Purge',
       'Sign in with Google',
       'Connect Google Drive',
+      'Upload all',
+      'Run queue',
+      'Run all',
+      'Retry all',
+      'Process queue',
+      'Run next',
+      'Continue queue',
     ]) {
       expect(buttonLabels.join(' ')).not.toContain(forbidden);
     }
