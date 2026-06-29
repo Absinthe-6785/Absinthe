@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { formatUploadFailureForUi } from './attachmentUploadFailureLabel';
+import {
+  formatUploadFailureForUi,
+  getUploadManualReviewDiagnostics,
+} from './attachmentUploadFailureLabel';
 import type { SanitizedRemoteBlobProviderError } from './remoteBlobProvider';
 
 function error(overrides: Partial<SanitizedRemoteBlobProviderError>): SanitizedRemoteBlobProviderError {
@@ -91,6 +94,30 @@ describe('attachment upload failure labels', () => {
       title: 'Upload response could not be verified',
       hint: 'Review diagnostics before retrying',
       retryable: true,
+      manualReview: false,
+    },
+    {
+      name: 'invalid remote response',
+      input: error({ code: 'invalid_remote_response', retryable: true }),
+      title: 'Upload response could not be verified',
+      hint: 'Review diagnostics before retrying',
+      retryable: true,
+      manualReview: false,
+    },
+    {
+      name: 'remote conflict',
+      input: error({ code: 'remote_conflict', retryable: true }),
+      title: 'Upload conflict needs review',
+      hint: 'Review remote state',
+      retryable: false,
+      manualReview: true,
+    },
+    {
+      name: 'remote file missing',
+      input: error({ code: 'remote_file_missing' }),
+      title: 'Upload target is unavailable',
+      hint: 'Review provider state',
+      retryable: false,
       manualReview: false,
     },
     {
@@ -218,5 +245,129 @@ describe('attachment upload failure labels', () => {
     expect(serialized).not.toContain('<html>');
     expect(serialized).not.toContain('json-secret');
     expect(serialized).not.toContain('AAA111');
+  });
+
+  it.each([
+    {
+      name: 'metadata update',
+      code: 'metadata_update_failed',
+      title: 'Upload needs manual review',
+      summary: 'The remote upload may have succeeded, but local metadata was not updated safely.',
+      checklist: [
+        'Do not upload this attachment again until diagnostics are reviewed.',
+        'Local file is still preserved.',
+        'A remote object may exist in Google Drive.',
+        'No automatic cleanup was performed.',
+        'Upload was not marked synced.',
+      ],
+      actionHint: 'Review diagnostics before retrying',
+      manualReview: true,
+      remoteObjectAmbiguous: true,
+    },
+    {
+      name: 'verification mismatch',
+      code: 'size_mismatch',
+      title: 'Uploaded file could not be verified',
+      summary: 'The upload result did not match the local attachment, so Absinthe did not mark it synced.',
+      checklist: [
+        'Local file is still preserved.',
+        'Upload was not marked synced.',
+        'Review the remote result before retrying.',
+      ],
+      actionHint: 'Review diagnostics',
+      manualReview: false,
+      remoteObjectAmbiguous: true,
+    },
+    {
+      name: 'remote conflict',
+      code: 'remote_conflict',
+      title: 'Upload conflict needs review',
+      summary: 'The upload target appears to conflict with existing remote state.',
+      checklist: [
+        'No overwrite was performed.',
+        'No remote file was deleted.',
+        'Review before uploading again.',
+      ],
+      actionHint: 'Review remote state',
+      manualReview: true,
+      remoteObjectAmbiguous: true,
+    },
+    {
+      name: 'invalid response',
+      code: 'invalid_remote_response',
+      title: 'Upload response could not be verified',
+      summary: 'Google Drive responded, but Absinthe could not verify the uploaded file id or metadata.',
+      checklist: [
+        'Upload was not marked synced.',
+        'Local file is still preserved.',
+        'Review diagnostics before retrying.',
+      ],
+      actionHint: 'Review diagnostics',
+      manualReview: false,
+      remoteObjectAmbiguous: true,
+    },
+    {
+      name: 'remote file missing',
+      code: 'remote_file_missing',
+      title: 'Upload target is unavailable',
+      summary: 'The upload target or session context was unavailable.',
+      checklist: [
+        'No local file was deleted.',
+        'No upload was marked synced.',
+        'Reconnect or review provider state before retrying.',
+      ],
+      actionHint: 'Review provider state',
+      manualReview: false,
+      remoteObjectAmbiguous: false,
+    },
+  ])('builds safe manual-review diagnostics for $name', item => {
+    const diagnostics = getUploadManualReviewDiagnostics({
+      providerType: 'googleDrive',
+      errorDetails: error({
+        code: item.code,
+        retryable: true,
+        message: 'raw provider body access_token=secret <html>bad</html>',
+      }),
+    });
+
+    expect(diagnostics).toMatchObject({
+      isManualReview: true,
+      title: item.title,
+      summary: item.summary,
+      actionHint: item.actionHint,
+      reasonCode: item.code,
+      safeTechnicalDetails: {
+        reasonCode: item.code,
+        manualReview: item.manualReview,
+        remoteObjectAmbiguous: item.remoteObjectAmbiguous,
+        providerType: 'googleDrive',
+      },
+    });
+    expect(diagnostics.checklist).toEqual(item.checklist);
+    expect(JSON.stringify(diagnostics)).not.toContain('access_token=secret');
+    expect(JSON.stringify(diagnostics)).not.toContain('<html>');
+  });
+
+  it('keeps manual-review technical details structured and safe', () => {
+    const diagnostics = getUploadManualReviewDiagnostics({
+      providerType: 'googleDrive',
+      errorDetails: error({
+        code: 'metadata_update_failed',
+        category: 'upload',
+        retryable: true,
+        message: 'metadata failed Authorization: Bearer bearer-secret data:image/png;base64,AAA111',
+      }),
+    });
+
+    expect(diagnostics.safeTechnicalDetails).toEqual({
+      category: 'upload',
+      reasonCode: 'metadata_update_failed',
+      retryable: false,
+      manualReview: true,
+      remoteObjectAmbiguous: true,
+      providerType: 'googleDrive',
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain('bearer-secret');
+    expect(JSON.stringify(diagnostics)).not.toContain('AAA111');
   });
 });

@@ -2291,9 +2291,67 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('The remote upload may have succeeded, but Absinthe could not update local metadata safely.');
     expect(host.textContent).toContain('Action: Review diagnostics before uploading again');
     expect(host.textContent).toContain('Manual review');
+    expect(host.textContent).toContain('Remote object ambiguity: the upload may have created a Google Drive file');
+    expect(host.textContent).toContain('Do not upload this attachment again until diagnostics are reviewed.');
+    expect(host.textContent).toContain('Local file is still preserved.');
+    expect(host.textContent).toContain('No automatic cleanup was performed.');
+    expect(host.textContent).toContain('Upload was not marked synced.');
+    expect(host.textContent).toContain('Technical: reason metadata_update_failed; category upload; retryable no; manualReview yes; remoteObjectAmbiguous yes');
     expect(host.textContent).not.toContain('Action: Try again later');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Retry');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Delete');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Cleanup');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Overwrite');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Sync now');
     expect(host.textContent).not.toContain('token-secret');
     expect(host.textContent).not.toContain('access-secret');
+    cleanup(root, host);
+  });
+
+  it('renders verification mismatch upload diagnostics without implying success or leaking raw payloads', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult({
+      status: 'failed',
+      remoteFileId: 'drive-file-size-mismatch',
+      error: 'Remote upload size verification failed. Authorization: Bearer token-secret',
+      errorDetails: {
+        message: 'Remote upload size verification failed. Authorization: Bearer token-secret access_token=access-secret <html>raw</html> data:image/png;base64,AAA111',
+        category: 'upload',
+        retryable: false,
+        code: 'size_mismatch',
+      },
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [uploadItem()],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Upload'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Uploaded file could not be verified');
+    expect(host.textContent).toContain('The upload result did not match the local attachment, so Absinthe did not mark it synced.');
+    expect(host.textContent).toContain('Local file is still preserved.');
+    expect(host.textContent).toContain('Upload was not marked synced.');
+    expect(host.textContent).toContain('Review the remote result before retrying.');
+    expect(host.textContent).toContain('Technical: reason size_mismatch; category upload; retryable no; manualReview no; remoteObjectAmbiguous yes');
+    expect(host.textContent).not.toContain('Status: uploaded');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access-secret');
+    expect(host.textContent).not.toContain('<html>');
+    expect(host.textContent).not.toContain('AAA111');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Retry');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Delete');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Sync now');
     cleanup(root, host);
   });
 
