@@ -14,6 +14,24 @@ export interface AttachmentUploadFailureDisplay {
   readonly actionHint: string;
 }
 
+export interface AttachmentUploadManualReviewDiagnostics {
+  readonly isManualReview: boolean;
+  readonly title: string;
+  readonly summary: string;
+  readonly checklist: readonly string[];
+  readonly severity: 'info' | 'warning' | 'blocked';
+  readonly actionHint: string;
+  readonly reasonCode: string;
+  readonly safeTechnicalDetails: {
+    readonly category?: string;
+    readonly reasonCode: string;
+    readonly retryable: boolean;
+    readonly manualReview: boolean;
+    readonly remoteObjectAmbiguous: boolean;
+    readonly providerType?: RemoteBlobProviderType;
+  };
+}
+
 export interface AttachmentUploadFailureDisplayInput {
   readonly errorDetails?: SanitizedRemoteBlobProviderError | null;
   readonly providerType?: RemoteBlobProviderType;
@@ -112,6 +130,30 @@ export function formatUploadFailureForUi(
     };
   }
 
+  if (code === 'remote_conflict' || code === 'conflict' || code === 'authorization_conflict') {
+    return {
+      title: 'Upload conflict needs review',
+      message: 'The upload target appears to conflict with existing remote state.',
+      severity: 'warning',
+      retryable: false,
+      manualReview: true,
+      remoteObjectAmbiguous: true,
+      actionHint: 'Review remote state',
+    };
+  }
+
+  if (code === 'remote_file_missing') {
+    return {
+      title: 'Upload target is unavailable',
+      message: 'The upload target or session context was unavailable.',
+      severity: 'warning',
+      retryable,
+      manualReview: false,
+      remoteObjectAmbiguous: false,
+      actionHint: 'Review provider state',
+    };
+  }
+
   if (code === 'provider_unavailable' || category === 'network' || safeMessage.includes('network')) {
     return {
       title: `${provider} is temporarily unavailable`,
@@ -148,7 +190,7 @@ export function formatUploadFailureForUi(
     };
   }
 
-  if (code === 'invalid_response' || code === 'invalid_upload_response' || code === 'missing_remote_id' || safeMessage.includes('remote file id')) {
+  if (code === 'invalid_response' || code === 'invalid_remote_response' || code === 'invalid_upload_response' || code === 'missing_remote_id' || safeMessage.includes('remote file id')) {
     return {
       title: 'Upload response could not be verified',
       message: `${provider} responded, but Absinthe could not verify the uploaded file id.`,
@@ -192,5 +234,136 @@ export function formatUploadFailureForUi(
     manualReview: false,
     remoteObjectAmbiguous: false,
     actionHint: retryable ? 'Try again later or review diagnostics' : 'Review diagnostics',
+  };
+}
+
+export function getUploadManualReviewDiagnostics(
+  input: AttachmentUploadFailureDisplayInput,
+): AttachmentUploadManualReviewDiagnostics {
+  const error = input.errorDetails;
+  const code = codeFrom(input) || 'upload_failed';
+  const display = formatUploadFailureForUi(input);
+  const remoteObjectAmbiguous = display.remoteObjectAmbiguous || Boolean(input.remoteObjectAmbiguous);
+
+  const baseDetails = {
+    category: error?.category,
+    reasonCode: code,
+    retryable: display.retryable,
+    manualReview: display.manualReview,
+    remoteObjectAmbiguous,
+    providerType: input.providerType,
+  };
+
+  if (code === 'remote_conflict' || code === 'conflict' || code === 'authorization_conflict') {
+    return {
+      isManualReview: true,
+      title: 'Upload conflict needs review',
+      summary: 'The upload target appears to conflict with existing remote state.',
+      checklist: [
+        'No overwrite was performed.',
+        'No remote file was deleted.',
+        'Review before uploading again.',
+      ],
+      severity: 'blocked',
+      actionHint: 'Review remote state',
+      reasonCode: code,
+      safeTechnicalDetails: baseDetails,
+    };
+  }
+
+  if (code === 'metadata_update_failed' || display.manualReview) {
+    return {
+      isManualReview: true,
+      title: 'Upload needs manual review',
+      summary: 'The remote upload may have succeeded, but local metadata was not updated safely.',
+      checklist: [
+        'Do not upload this attachment again until diagnostics are reviewed.',
+        'Local file is still preserved.',
+        'A remote object may exist in Google Drive.',
+        'No automatic cleanup was performed.',
+        'Upload was not marked synced.',
+      ],
+      severity: 'warning',
+      actionHint: 'Review diagnostics before retrying',
+      reasonCode: code,
+      safeTechnicalDetails: {
+        ...baseDetails,
+        manualReview: true,
+        retryable: false,
+        remoteObjectAmbiguous: true,
+      },
+    };
+  }
+
+  if (code === 'remote_file_missing') {
+    return {
+      isManualReview: true,
+      title: 'Upload target is unavailable',
+      summary: 'The upload target or session context was unavailable.',
+      checklist: [
+        'No local file was deleted.',
+        'No upload was marked synced.',
+        'Reconnect or review provider state before retrying.',
+      ],
+      severity: 'warning',
+      actionHint: 'Review provider state',
+      reasonCode: code,
+      safeTechnicalDetails: baseDetails,
+    };
+  }
+
+  if (code === 'invalid_response' || code === 'invalid_remote_response' || code === 'invalid_upload_response' || code === 'missing_remote_id') {
+    return {
+      isManualReview: true,
+      title: 'Upload response could not be verified',
+      summary: 'Google Drive responded, but Absinthe could not verify the uploaded file id or metadata.',
+      checklist: [
+        'Upload was not marked synced.',
+        'Local file is still preserved.',
+        'Review diagnostics before retrying.',
+      ],
+      severity: 'warning',
+      actionHint: 'Review diagnostics',
+      reasonCode: code,
+      safeTechnicalDetails: {
+        ...baseDetails,
+        remoteObjectAmbiguous: true,
+      },
+    };
+  }
+
+  if (code === 'verification_failed' || code === 'size_mismatch' || code === 'checksum_mismatch') {
+    return {
+      isManualReview: true,
+      title: 'Uploaded file could not be verified',
+      summary: 'The upload result did not match the local attachment, so Absinthe did not mark it synced.',
+      checklist: [
+        'Local file is still preserved.',
+        'Upload was not marked synced.',
+        'Review the remote result before retrying.',
+      ],
+      severity: 'warning',
+      actionHint: 'Review diagnostics',
+      reasonCode: code,
+      safeTechnicalDetails: {
+        ...baseDetails,
+        remoteObjectAmbiguous: true,
+      },
+    };
+  }
+
+  return {
+    isManualReview: display.manualReview || remoteObjectAmbiguous || code === 'upload_failed',
+    title: 'Upload requires review',
+    summary: 'This upload failed in a state that requires review before retrying.',
+    checklist: [
+      'Local file is preserved.',
+      'No automatic retry was started.',
+      'No cleanup was performed.',
+    ],
+    severity: 'info',
+    actionHint: 'Review diagnostics',
+    reasonCode: code,
+    safeTechnicalDetails: baseDetails,
   };
 }

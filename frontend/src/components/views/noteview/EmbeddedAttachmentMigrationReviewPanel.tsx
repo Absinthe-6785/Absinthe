@@ -31,7 +31,10 @@ import {
   type AttachmentExplicitUploadResult,
 } from '../../../lib/attachmentExplicitUploadAction';
 import { formatRecoveryFailureForUi } from '../../../lib/attachmentRecoveryFailureLabel';
-import { formatUploadFailureForUi } from '../../../lib/attachmentUploadFailureLabel';
+import {
+  formatUploadFailureForUi,
+  getUploadManualReviewDiagnostics,
+} from '../../../lib/attachmentUploadFailureLabel';
 import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
@@ -1108,6 +1111,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           remoteObjectAmbiguous: Boolean(uploadReport.remoteFileId),
         })
       : null;
+    const manualReviewDiagnostics = failureDisplay
+      ? getUploadManualReviewDiagnostics({
+          errorDetails: uploadReport.errorDetails,
+          providerType: uploadReport.remoteProvider,
+          reasonCode: uploadReport.errorDetails?.code,
+          manualReview: failureDisplay.manualReview,
+          remoteObjectAmbiguous: failureDisplay.remoteObjectAmbiguous || Boolean(uploadReport.remoteFileId),
+        })
+      : null;
     return (
       <div data-attachment-upload-result style={{ border: `1px solid ${failureDisplay ? (failureDisplay.severity === 'error' ? c.danger : `${c.accent}66`) : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Upload result</div>
@@ -1119,6 +1131,23 @@ export function EmbeddedAttachmentMigrationReviewPanel({
               <span style={{ fontSize: 9.5, color: c.textFaint }}>Action: {failureDisplay.actionHint}</span>
               <span style={{ fontSize: 9.5, color: c.textFaint }}>Retryable: {failureDisplay.retryable ? 'after action' : 'no'}</span>
               {failureDisplay.manualReview ? <span style={{ fontSize: 9.5, color: c.textFaint }}>Manual review</span> : null}
+            </div>
+          </div>
+        ) : null}
+        {manualReviewDiagnostics?.isManualReview ? (
+          <div data-attachment-upload-manual-review-diagnostics style={{ border: `1px solid ${manualReviewDiagnostics.severity === 'blocked' ? `${c.danger}55` : `${c.accent}44`}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: c.text }}>{manualReviewDiagnostics.title}</div>
+            <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>{manualReviewDiagnostics.summary}</div>
+            {manualReviewDiagnostics.safeTechnicalDetails.remoteObjectAmbiguous ? (
+              <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+                Remote object ambiguity: the upload may have created a Google Drive file, but Absinthe could not safely persist the final metadata.
+              </div>
+            ) : null}
+            <ul style={{ margin: '2px 0 0 16px', padding: 0, fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+              {manualReviewDiagnostics.checklist.map(item => <li key={item}>{item}</li>)}
+            </ul>
+            <div style={{ fontSize: 9.5, color: c.textFaint, lineHeight: 1.45 }}>
+              Technical: reason {manualReviewDiagnostics.safeTechnicalDetails.reasonCode}; category {manualReviewDiagnostics.safeTechnicalDetails.category ?? 'unknown'}; retryable {manualReviewDiagnostics.safeTechnicalDetails.retryable ? 'yes' : 'no'}; manualReview {manualReviewDiagnostics.safeTechnicalDetails.manualReview ? 'yes' : 'no'}; remoteObjectAmbiguous {manualReviewDiagnostics.safeTechnicalDetails.remoteObjectAmbiguous ? 'yes' : 'no'}
             </div>
           </div>
         ) : null}
