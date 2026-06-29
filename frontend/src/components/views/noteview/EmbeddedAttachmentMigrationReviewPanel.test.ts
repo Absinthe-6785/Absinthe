@@ -2140,6 +2140,173 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('executes one selected ready queue item through the existing upload action only', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-ready-a', localBlobKey: 'local-attachment/ready-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-ready-b', localBlobKey: 'local-attachment/ready-b', localSize: 256 }),
+        uploadItem({
+          attachmentId: 'att-blocked',
+          localBlobPresent: false,
+          eligible: false,
+          reason: 'Local blob missing',
+        }),
+        uploadItem({
+          attachmentId: 'att-manual-review',
+          remoteSyncStatus: 'failed',
+          eligible: false,
+          reason: 'metadata_update_failed',
+        }),
+        uploadItem({
+          attachmentId: 'att-synced',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-file-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Ready items still run one at a time. Uploading one item will not start the rest of the queue.');
+    const queueButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button'))
+      .filter(button => button.textContent?.trim() === 'Upload this item');
+    expect(queueButtons).toHaveLength(2);
+    expect(host.textContent).toContain('Blocked1attachment att-blocked - Local blob missing');
+    expect(host.textContent).toContain('Needs manual review1attachment att-manual-review - Upload needs manual review');
+    expect(host.textContent).toContain('Already synced1attachment att-synced - Already synced');
+
+    click(queueButtons[0]);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).toHaveBeenCalledWith('att-ready-a');
+    expect(host.textContent).toContain('Upload result');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Run all');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Delete remote');
+    expect(buttons).not.toContain('Clear orphan');
+    expect(buttons).not.toContain('Overwrite');
+    expect(buttons).not.toContain('Recover all');
+    expect(buttons).not.toContain('Download all');
+    cleanup(root, host);
+  });
+
+  it('revalidates a stale ready queue item before upload execution', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const getConnectionStatus = vi.fn(async () => availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true }));
+    const expiredConnection = resolveRemoteProviderConnectionBoundary({
+        providerType: 'googleDrive',
+        status: 'auth_expired',
+        capabilities: { supportsDownload: false, supportsUpload: false },
+      });
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-stale-ready', localBlobKey: 'local-attachment/stale-ready', localSize: 128 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true, getConnectionStatus }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const queueButton = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button'))
+      .find(button => button.textContent?.trim() === 'Upload this item');
+    expect(queueButton).toBeInstanceOf(HTMLButtonElement);
+    getConnectionStatus.mockResolvedValue(expiredConnection);
+    click(queueButton as HTMLButtonElement);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Session expired');
+    cleanup(root, host);
+  });
+
+  it('keeps selected queue uploads one-at-a-time and releases the lock after failure', async () => {
+    let resolveUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolveUpload = resolve;
+    }).then(() => uploadResult({
+      attachmentId,
+      status: 'failed',
+      errorDetails: {
+        code: 'provider_unavailable',
+        category: 'network',
+        retryable: true,
+        message: 'failed Authorization: Bearer token-secret access_token=secret',
+      },
+    })));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-ready-a', localBlobKey: 'local-attachment/ready-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-ready-b', localBlobKey: 'local-attachment/ready-b', localSize: 256 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const queueButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
+    expect(queueButtons.filter(button => button.textContent?.trim() === 'Upload this item')).toHaveLength(2);
+
+    click(queueButtons[0]);
+    click(queueButtons[0]);
+    click(queueButtons[1]);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    const inFlightButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
+    expect(inFlightButtons).toHaveLength(0);
+    expect(host.textContent).toContain('Another upload is in progress');
+
+    await act(async () => {
+      resolveUpload?.(uploadResult({ attachmentId: 'att-ready-a' }));
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain('Google Drive is temporarily unavailable');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access_token=secret');
+
+    const nextButtons = Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button')) as HTMLButtonElement[];
+    expect(nextButtons.some(button => button.disabled)).toBe(false);
+    click(nextButtons[1]);
+    await flushAsync();
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenLastCalledWith('att-ready-b');
+    cleanup(root, host);
+  });
+
   it('uploads exactly one eligible local attachment after an explicit Google Drive Upload click', async () => {
     const { repository, records } = memoryAttachmentRepository([
       attachmentMetadata({
