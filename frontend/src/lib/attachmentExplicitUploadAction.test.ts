@@ -249,6 +249,51 @@ describe('explicit attachment upload action', () => {
     expect(blobs.deleteBlob).not.toHaveBeenCalled();
   });
 
+  it('does not call remote upload when the local blob is missing or unreadable', async () => {
+    const missingRepository = memoryRepository([metadata()]);
+    const missingBlobs = memoryBlobAdapter({});
+    const missingProvider = remoteProvider();
+
+    const missing = await uploadAttachmentBlobToRemote({
+      attachmentRepository: missingRepository,
+      localBlobAdapter: missingBlobs,
+      remoteProvider: missingProvider,
+      attachmentId: 'att-1',
+    });
+
+    expect(missing.status).toBe('blocked');
+    expect(missing.error).toContain('Local attachment blob is missing');
+    expect(missingProvider.uploadBlob).not.toHaveBeenCalled();
+    expect(missingRepository.records.get('att-1')?.remoteFileId).toBeUndefined();
+    expect(missingRepository.records.get('att-1')?.remoteSyncStatus).toBe('local_only');
+    expect(missingRepository.records.get('att-1')?.localBlobKey).toBe('local/att-1');
+    expect(missingBlobs.deleteBlob).not.toHaveBeenCalled();
+
+    const unreadableRepository = memoryRepository([metadata()]);
+    const unreadableBlobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) });
+    unreadableBlobs.getBlob.mockRejectedValueOnce(new Error('IndexedDB read failed access_token=token-secret Authorization: Bearer bearer-secret'));
+    const unreadableProvider = remoteProvider();
+
+    const unreadable = await uploadAttachmentBlobToRemote({
+      attachmentRepository: unreadableRepository,
+      localBlobAdapter: unreadableBlobs,
+      remoteProvider: unreadableProvider,
+      attachmentId: 'att-1',
+    });
+
+    expect(unreadable.status).toBe('failed');
+    expect(unreadable.errorDetails).toMatchObject({
+      code: 'local_blob_unreadable',
+    });
+    expect(JSON.stringify(unreadable)).not.toContain('token-secret');
+    expect(JSON.stringify(unreadable)).not.toContain('bearer-secret');
+    expect(unreadableProvider.uploadBlob).not.toHaveBeenCalled();
+    expect(unreadableRepository.records.get('att-1')?.remoteFileId).toBeUndefined();
+    expect(unreadableRepository.records.get('att-1')?.remoteSyncStatus).toBe('local_only');
+    expect(unreadableRepository.records.get('att-1')?.localBlobKey).toBe('local/att-1');
+    expect(unreadableBlobs.deleteBlob).not.toHaveBeenCalled();
+  });
+
   it('does not update remote metadata when upload response is invalid or metadata changes during upload', async () => {
     const invalidRepository = memoryRepository([metadata()]);
     const invalidBlobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello'], { type: 'text/plain' }) });
@@ -302,6 +347,58 @@ describe('explicit attachment upload action', () => {
     expect(changedRepository.records.get('att-1')?.remoteFileId).toBeUndefined();
     expect(changedRepository.records.get('att-1')?.localBlobKey).toBe('local/newer');
     expect(changedBlobs.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it('keeps failed upload states non-destructive and does not trigger queue, sync, recovery, eviction, or remote delete', async () => {
+    const repository = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello'], { type: 'text/plain' }) });
+    const provider = remoteProvider(async () => {
+      throw sanitizeRemoteBlobProviderError(
+        new Error('provider failed access_token=token-secret refresh_token=refresh-secret id_token=id-secret code=auth-secret code_verifier=verifier-secret codeVerifier=camel-secret http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret Authorization: Bearer bearer-secret data:image/png;base64,AAA111'),
+        { category: 'upload', retryable: true, code: 'rate_limited' },
+      );
+    });
+    const runQueue = vi.fn();
+    const runSync = vi.fn();
+    const runRecovery = vi.fn();
+    const runEviction = vi.fn();
+    const remoteDelete = vi.fn();
+    const deleteBackups = vi.fn();
+
+    const result = await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'rate_limited',
+      retryable: true,
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('token-secret');
+    expect(serialized).not.toContain('refresh-secret');
+    expect(serialized).not.toContain('id-secret');
+    expect(serialized).not.toContain('auth-secret');
+    expect(serialized).not.toContain('verifier-secret');
+    expect(serialized).not.toContain('camel-secret');
+    expect(serialized).not.toContain('callback-secret');
+    expect(serialized).not.toContain('bearer-secret');
+    expect(serialized).not.toContain('AAA111');
+    expect(repository.records.get('att-1')?.remoteFileId).toBeUndefined();
+    expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('failed');
+    expect(repository.records.get('att-1')?.remoteSyncStatus).not.toBe('synced');
+    expect(repository.records.get('att-1')?.localBlobKey).toBe('local/att-1');
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(remoteDelete).not.toHaveBeenCalled();
+    expect(deleteBackups).not.toHaveBeenCalled();
+    expect(runQueue).not.toHaveBeenCalled();
+    expect(runSync).not.toHaveBeenCalled();
+    expect(runRecovery).not.toHaveBeenCalled();
+    expect(runEviction).not.toHaveBeenCalled();
   });
 
   it('does not leave metadata stuck uploading when the final metadata update fails after remote upload succeeds', async () => {
