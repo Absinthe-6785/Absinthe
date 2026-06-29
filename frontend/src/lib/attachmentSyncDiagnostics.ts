@@ -60,6 +60,7 @@ export interface AttachmentSyncDiagnostics {
   readonly warnings: string[];
   readonly errors: string[];
   readonly recoveryItems: AttachmentRecoveryDiagnosticsItem[];
+  readonly uploadItems: AttachmentUploadDiagnosticsItem[];
 }
 
 export interface AttachmentRecoveryDiagnosticsItem {
@@ -78,6 +79,18 @@ export interface AttachmentRecoveryDiagnosticsItem {
     readonly sizeOnlyVerified?: boolean;
     readonly warnings?: string[];
   };
+}
+
+export interface AttachmentUploadDiagnosticsItem {
+  readonly attachmentId: string;
+  readonly localBlobKey?: string;
+  readonly remoteProvider?: RemoteBlobProviderType;
+  readonly remoteFileId?: string;
+  readonly remoteSyncStatus?: AttachmentRemoteSyncStatus;
+  readonly eligible: boolean;
+  readonly reason: string;
+  readonly localBlobPresent: boolean;
+  readonly localSize?: number;
 }
 
 export interface BuildAttachmentSyncDiagnosticsInput {
@@ -233,6 +246,26 @@ function recoveryReason(input: {
   return { eligible: true, reason: 'Ready for explicit recovery' };
 }
 
+function uploadReason(input: {
+  readonly metadata: AttachmentMetadata;
+  readonly localBlobPresent: boolean;
+}): { eligible: boolean; reason: string } {
+  const { metadata, localBlobPresent } = input;
+  if (isDeleted(metadata)) return { eligible: false, reason: 'Upload unavailable' };
+  if (!metadata.localBlobKey) return { eligible: false, reason: 'Local blob missing' };
+  if (!localBlobPresent) return { eligible: false, reason: 'Local blob missing' };
+  if (metadata.remoteProvider && metadata.remoteProvider !== 'googleDrive') return { eligible: false, reason: 'Provider mismatch' };
+  if (metadata.remoteSyncStatus === 'synced' && metadata.remoteFileId) return { eligible: false, reason: 'Already synced' };
+  if (metadata.remoteSyncStatus === 'pending_upload') return { eligible: false, reason: 'Queue upload pending' };
+  if (metadata.remoteSyncStatus === 'uploading') return { eligible: false, reason: 'Upload already in progress' };
+  if (metadata.remoteSyncStatus === 'failed') return { eligible: false, reason: 'Upload state requires review' };
+  if (metadata.remoteSyncStatus === 'paused_offline') return { eligible: false, reason: 'Needs reconnect' };
+  if (metadata.remoteSyncStatus === 'conflict') return { eligible: false, reason: 'Conflict requires review' };
+  if (metadata.remoteSyncStatus === 'missing_local') return { eligible: false, reason: 'Local blob missing' };
+  if (metadata.remoteSyncStatus === 'recoverable_remote') return { eligible: false, reason: 'Recovery state requires review' };
+  return { eligible: true, reason: 'Ready for explicit upload' };
+}
+
 function sanitizedWarnings(attachments: readonly AttachmentMetadata[], inventoryWarnings: readonly string[], evictionReport: LocalBlobEvictionReport): string[] {
   const warnings = [
     ...inventoryWarnings,
@@ -289,6 +322,7 @@ export async function buildAttachmentSyncDiagnostics(
 
   const inventoryByKey = new Map(inventoryRead.records.map(record => [record.localBlobKey, record]));
   const recoveryItems: AttachmentRecoveryDiagnosticsItem[] = [];
+  const uploadItems: AttachmentUploadDiagnosticsItem[] = [];
 
   for (const metadata of attachmentRead.attachments) {
     increment(statusCounts, statusKey(metadata));
@@ -314,6 +348,7 @@ export async function buildAttachmentSyncDiagnostics(
     }
 
     const recovery = recoveryReason({ metadata, localBlobPresent });
+    const upload = uploadReason({ metadata, localBlobPresent });
     if (metadata.remoteProvider || metadata.remoteFileId || metadata.remoteSyncStatus === 'recoverable_remote' || metadata.remoteSyncStatus === 'missing_local') {
       recoveryItems.push({
         attachmentId: metadata.id,
@@ -331,6 +366,28 @@ export async function buildAttachmentSyncDiagnostics(
           sizeOnlyVerified: metadata.remoteVerification.sizeOnlyVerified,
           warnings: metadata.remoteVerification.warnings?.map(warning => sanitizeRemoteBlobProviderErrorMessage(warning)),
         } : undefined,
+      });
+    }
+    if (
+      metadata.localBlobKey
+      || metadata.remoteSyncStatus === 'local_only'
+      || metadata.remoteSyncStatus === 'not_configured'
+      || metadata.remoteSyncStatus === 'pending_upload'
+      || metadata.remoteSyncStatus === 'uploading'
+      || metadata.remoteSyncStatus === 'failed'
+      || metadata.remoteSyncStatus === 'paused_offline'
+      || metadata.remoteSyncStatus === 'conflict'
+    ) {
+      uploadItems.push({
+        attachmentId: metadata.id,
+        localBlobKey: metadata.localBlobKey,
+        remoteProvider: metadata.remoteProvider,
+        remoteFileId: metadata.remoteFileId,
+        remoteSyncStatus: metadata.remoteSyncStatus,
+        eligible: upload.eligible,
+        reason: upload.reason,
+        localBlobPresent,
+        localSize: metadata.localBlobKey ? inventoryByKey.get(metadata.localBlobKey)?.size : undefined,
       });
     }
 
@@ -405,5 +462,6 @@ export async function buildAttachmentSyncDiagnostics(
     warnings: sanitizedWarnings(attachmentRead.attachments, inventoryRead.warnings, evictionReport),
     errors: sanitizedErrors(attachmentRead.attachments, evictionReport, attachmentRead.errors),
     recoveryItems,
+    uploadItems,
   };
 }
