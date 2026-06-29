@@ -2132,10 +2132,84 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Upload already in progress');
     resolveUpload?.(uploadResult());
     await flushAsync();
     await flushAsync();
     expect(host.textContent).toContain('Status: uploaded');
+    cleanup(root, host);
+  });
+
+  it('blocks a second attachment Upload while another upload is already running', async () => {
+    let resolveUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolveUpload = () => resolve(uploadResult({
+        uploadId: `attachment-upload:${attachmentId}:2026-06-28T00:00:00.000Z`,
+        attachmentId,
+      }));
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-uploadable-a', localBlobKey: 'local-attachment/uploadable-a' }),
+          uploadItem({ attachmentId: 'att-uploadable-b', localBlobKey: 'local-attachment/uploadable-b' }),
+        ],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const uploadButtons = Array.from(host.querySelectorAll('[data-attachment-upload-item] button'))
+      .filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement && button.textContent?.trim() === 'Upload');
+    expect(uploadButtons).toHaveLength(2);
+
+    click(uploadButtons[0]);
+    click(uploadButtons[1]);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).toHaveBeenCalledWith('att-uploadable-a');
+    expect(host.textContent).toContain('Another upload is in progress');
+    resolveUpload?.(uploadResult({
+      uploadId: 'attachment-upload:att-uploadable-a:2026-06-28T00:00:00.000Z',
+      attachmentId: 'att-uploadable-a',
+    }));
+    await flushAsync();
+    await flushAsync();
+    expect(host.textContent).toContain('Status: uploaded');
+    cleanup(root, host);
+  });
+
+  it('keeps failed upload items in manual review instead of offering retry from diagnostics', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({
+            attachmentId: 'att-manual-review',
+            remoteSyncStatus: 'failed',
+            eligible: false,
+            reason: 'Remote upload may have completed before metadata update failed. access_token=secret',
+          }),
+        ],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload');
+    expect(host.textContent).toContain('Manual review required');
+    expect(host.textContent).not.toContain('access_token=secret');
     cleanup(root, host);
   });
 

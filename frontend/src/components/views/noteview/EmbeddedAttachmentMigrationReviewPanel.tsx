@@ -98,7 +98,9 @@ type AttachmentUploadBlockedReason =
   | 'blocked_sync_state'
   | 'attachment_deleted'
   | 'attachment_tombstoned'
-  | 'upload_in_progress';
+  | 'upload_in_progress'
+  | 'another_upload_in_progress'
+  | 'manual_review_required';
 
 interface RecoveryEligibility {
   readonly canRecover: boolean;
@@ -244,6 +246,10 @@ function uploadReasonLabel(code: AttachmentUploadBlockedReason): string {
       return 'Attachment is tombstoned';
     case 'upload_in_progress':
       return 'Upload already in progress';
+    case 'another_upload_in_progress':
+      return 'Another upload is in progress';
+    case 'manual_review_required':
+      return 'Manual review required';
     case 'item_not_uploadable':
     default:
       return 'Attachment is not uploadable';
@@ -329,12 +335,14 @@ function getAttachmentUploadAvailability(input: {
 }): UploadEligibility {
   const { item, providerConnection, hasUploadController, googleDriveSessionController, runningUploadAttachmentId } = input;
   if (runningUploadAttachmentId === item.attachmentId) return uploadBlocked('upload_in_progress', 'info');
+  if (runningUploadAttachmentId) return uploadBlocked('another_upload_in_progress', 'info');
   const status = String(item.remoteSyncStatus ?? '').toLowerCase();
   const reason = item.reason.toLowerCase();
   if (status === 'deleted' || reason.includes('deleted')) return uploadBlocked('attachment_deleted');
   if (reason.includes('tombstone')) return uploadBlocked('attachment_tombstoned');
   if (!item.localBlobKey || !item.localBlobPresent) return uploadBlocked('local_blob_missing', 'warning');
   if (item.remoteProvider && item.remoteProvider !== 'googleDrive') return uploadBlocked('provider_mismatch');
+  if (status === 'failed') return uploadBlocked('manual_review_required', 'warning');
   if (['pending_upload', 'uploading', 'failed', 'paused_offline', 'conflict', 'missing_local', 'recoverable_remote'].includes(status)) {
     return uploadBlocked('blocked_sync_state', 'warning');
   }
@@ -968,9 +976,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runUpload = async (attachmentId: string) => {
-    if (runningUploadAttachmentIdsRef.current.has(attachmentId)) {
+    if (runningUploadAttachmentIdsRef.current.size > 0) {
       setUploadStatus('error');
-      setUploadError(uploadReasonLabel('upload_in_progress'));
+      setUploadError(uploadReasonLabel(
+        runningUploadAttachmentIdsRef.current.has(attachmentId)
+          ? 'upload_in_progress'
+          : 'another_upload_in_progress',
+      ));
       return;
     }
     runningUploadAttachmentIdsRef.current.add(attachmentId);

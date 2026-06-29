@@ -349,6 +349,45 @@ describe('explicit attachment upload action', () => {
     expect(changedBlobs.deleteBlob).not.toHaveBeenCalled();
   });
 
+  it('fails closed when action-layer upload verification mismatches after remote success', async () => {
+    const repository = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello'], { type: 'text/plain' }) });
+    const provider = remoteProvider(async input => ({
+      providerType: 'googleDrive',
+      remoteProvider: 'googleDrive',
+      attachmentId: input.attachmentId,
+      remoteFileId: 'drive-file-size-mismatch',
+      remoteSize: 999,
+      syncedAt: '2026-06-28T00:02:00.000Z',
+    }));
+    const remoteDelete = vi.fn();
+
+    const result = await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'upload_failed',
+      category: 'upload',
+    });
+    expect(result.error).toContain('Remote upload size verification failed');
+    expect(result.remoteFileId).toBe('drive-file-size-mismatch');
+    expect(result.remoteSize).toBe(999);
+    expect(result.verification).toMatchObject({
+      sizeVerified: false,
+    });
+    expect(repository.records.get('att-1')?.remoteFileId).toBeUndefined();
+    expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('failed');
+    expect(repository.records.get('att-1')?.localBlobKey).toBe('local/att-1');
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(remoteDelete).not.toHaveBeenCalled();
+  });
+
   it('keeps failed upload states non-destructive and does not trigger queue, sync, recovery, eviction, or remote delete', async () => {
     const repository = memoryRepository([metadata()]);
     const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello'], { type: 'text/plain' }) });
