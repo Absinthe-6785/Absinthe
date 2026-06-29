@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AttachmentCleanupReviewReport } from '../../../lib/attachmentCleanupReview';
 import type { AttachmentSyncDiagnostics } from '../../../lib/attachmentSyncDiagnostics';
 import type { AttachmentRemoteRecoveryResult } from '../../../lib/attachmentRemoteRecovery';
+import type { AttachmentExplicitUploadResult } from '../../../lib/attachmentExplicitUploadAction';
 import type {
   AttachmentMetadata,
   AttachmentRepository,
@@ -452,6 +453,7 @@ function diagnosticsReport(overrides: Partial<AttachmentSyncDiagnostics> = {}): 
         localBlobPresent: true,
       },
     ],
+    uploadItems: [],
     ...overrides,
   };
 }
@@ -494,6 +496,42 @@ function recoveryItem(
       sizeVerified: true,
       checksumVerified: true,
     },
+    ...overrides,
+  };
+}
+
+function uploadItem(
+  overrides: Partial<AttachmentSyncDiagnostics['uploadItems'][number]> = {},
+): AttachmentSyncDiagnostics['uploadItems'][number] {
+  return {
+    attachmentId: 'att-uploadable',
+    localBlobKey: 'local-attachment/uploadable',
+    remoteSyncStatus: 'local_only',
+    eligible: true,
+    reason: 'Ready for explicit upload',
+    localBlobPresent: true,
+    localSize: 5,
+    ...overrides,
+  };
+}
+
+function uploadResult(overrides: Partial<AttachmentExplicitUploadResult> = {}): AttachmentExplicitUploadResult {
+  return {
+    uploadId: 'attachment-upload:att-uploadable:2026-06-28T00:00:00.000Z',
+    attachmentId: 'att-uploadable',
+    localBlobKey: 'local-attachment/uploadable',
+    remoteProvider: 'googleDrive',
+    remoteFileId: 'drive-upload-1',
+    remoteSize: 5,
+    remoteChecksum: 'abc123abc123abc123abc123abc123ab',
+    status: 'uploaded',
+    verification: {
+      sizeVerified: true,
+      checksumVerified: false,
+    },
+    warnings: [],
+    startedAt: '2026-06-28T00:00:00.000Z',
+    completedAt: '2026-06-28T00:00:01.000Z',
     ...overrides,
   };
 }
@@ -657,11 +695,15 @@ function panelElement(input: {
   restoreBackupFn?: (input: EmbeddedAttachmentMigrationRestoreInput) => Promise<EmbeddedAttachmentMigrationRestoreReport>;
   diagnosticsFn?: () => Promise<AttachmentSyncDiagnostics>;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
+  uploadAttachmentFn?: (attachmentId: string) => Promise<AttachmentExplicitUploadResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
   googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
   googleDriveRecoveryFetcher?: typeof fetch;
   googleDriveRecoveryRepository?: AttachmentRepository;
   googleDriveRecoveryBlobAdapter?: BlobStorageAdapter;
+  googleDriveUploadFetcher?: typeof fetch;
+  googleDriveUploadRepository?: AttachmentRepository;
+  googleDriveUploadBlobAdapter?: BlobStorageAdapter;
 }) {
   return createElement(EmbeddedAttachmentMigrationReviewPanel, {
     notes: input.notes ?? [note()],
@@ -675,11 +717,15 @@ function panelElement(input: {
     restoreBackupFn: input.restoreBackupFn ?? vi.fn(async () => restoreReport()),
     diagnosticsFn: input.diagnosticsFn ?? vi.fn(async () => diagnosticsReport()),
     recoverAttachmentFn: input.recoverAttachmentFn,
+    uploadAttachmentFn: input.uploadAttachmentFn,
     remoteProviderConnection: input.remoteProviderConnection,
     googleDriveSessionController: input.googleDriveSessionController,
     googleDriveRecoveryFetcher: input.googleDriveRecoveryFetcher,
     googleDriveRecoveryRepository: input.googleDriveRecoveryRepository,
     googleDriveRecoveryBlobAdapter: input.googleDriveRecoveryBlobAdapter,
+    googleDriveUploadFetcher: input.googleDriveUploadFetcher,
+    googleDriveUploadRepository: input.googleDriveUploadRepository,
+    googleDriveUploadBlobAdapter: input.googleDriveUploadBlobAdapter,
   });
 }
 
@@ -1883,6 +1929,255 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(records.get('att-recoverable')?.localBlobKey).toBeUndefined();
     expect(host.textContent).toContain('Reconnect required');
     expect(host.textContent).not.toContain('oauth2.googleapis.com/token');
+    cleanup(root, host);
+  });
+
+  it('does not create an upload controller or upload on render, panel open, or diagnostics refresh by default', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      uploadItems: [uploadItem()],
+      recoveryItems: [],
+    }));
+    const { root, host } = render(panelElement({ diagnosticsFn }));
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('Upload');
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(diagnosticsFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Sync now');
+    cleanup(root, host);
+  });
+
+  it('uploads exactly one eligible local attachment after an explicit Google Drive Upload click', async () => {
+    const { repository, records } = memoryAttachmentRepository([
+      attachmentMetadata({
+        id: 'att-uploadable',
+        localBlobKey: 'local-attachment/uploadable',
+        remoteProvider: undefined,
+        remoteFileId: undefined,
+        remoteSize: undefined,
+        remoteSyncStatus: 'local_only',
+        syncStatus: 'local',
+        checksum: undefined,
+      }),
+      attachmentMetadata({
+        id: 'att-other',
+        localBlobKey: 'local-attachment/other',
+        remoteProvider: undefined,
+        remoteFileId: undefined,
+        remoteSize: undefined,
+        remoteSyncStatus: 'local_only',
+        syncStatus: 'local',
+        checksum: undefined,
+      }),
+    ]);
+    const deleteBlob = vi.fn(async () => {});
+    const { adapter } = memoryBlobAdapter([
+      { key: 'local-attachment/uploadable', blob: new Blob(['hello'], { type: 'text/plain' }) },
+      { key: 'local-attachment/other', blob: new Blob(['other'], { type: 'text/plain' }) },
+    ]);
+    adapter.deleteBlob = deleteBlob;
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === 'POST' && String(input).includes('uploadType=resumable')) {
+        return new Response(null, {
+          status: 200,
+          headers: { Location: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret' },
+        });
+      }
+      return new Response(JSON.stringify({
+        id: 'drive-upload-1',
+        mimeType: 'text/plain',
+        size: '5',
+        modifiedTime: '2026-06-28T00:02:00.000Z',
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveUploadFetcher: fetcher,
+      googleDriveUploadRepository: repository,
+      googleDriveUploadBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-uploadable', localBlobKey: 'local-attachment/uploadable', localSize: 5 }),
+          uploadItem({ attachmentId: 'att-other', localBlobKey: 'local-attachment/other', localSize: 5 }),
+          uploadItem({ attachmentId: 'att-missing', localBlobKey: 'local-attachment/missing', localBlobPresent: false, eligible: false, reason: 'Local blob missing' }),
+        ],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(Array.from(host.querySelectorAll('button')).filter(button => button.textContent?.trim() === 'Upload')).toHaveLength(2);
+
+    const uploadButtons = Array.from(host.querySelectorAll('[data-attachment-upload-item] button'))
+      .filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement && button.textContent?.trim() === 'Upload');
+    click(uploadButtons[0]);
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(String(fetcher.mock.calls[0][0])).toContain('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable');
+    expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer access-token-secret');
+    expect(records.get('att-uploadable')).toMatchObject({
+      remoteProvider: 'googleDrive',
+      remoteFileId: 'drive-upload-1',
+      remoteSize: 5,
+      remoteSyncStatus: 'synced',
+      localBlobKey: 'local-attachment/uploadable',
+    });
+    expect(records.get('att-other')).toMatchObject({
+      remoteFileId: undefined,
+      remoteSyncStatus: 'local_only',
+      localBlobKey: 'local-attachment/other',
+    });
+    expect(deleteBlob).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Status: uploaded');
+    expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain('access-token-secret');
+    cleanup(root, host);
+  });
+
+  it('blocks explicit Upload when local blob, provider, or session eligibility is missing', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: false }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-missing', localBlobKey: 'local-attachment/missing', localBlobPresent: false, eligible: false, reason: 'Local blob missing' }),
+          uploadItem({ attachmentId: 'att-r2', remoteProvider: 'r2', eligible: false, reason: 'Provider mismatch' }),
+          uploadItem({ attachmentId: 'att-deleted', remoteSyncStatus: 'local_only', eligible: false, reason: 'Attachment deleted' }),
+          uploadItem({ attachmentId: 'att-conflict', remoteSyncStatus: 'conflict', eligible: false, reason: 'Conflict requires review' }),
+          uploadItem({ attachmentId: 'att-ready' }),
+        ],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload');
+    expect(host.textContent).toContain('Local blob missing');
+    expect(host.textContent).toContain('Provider mismatch');
+    expect(host.textContent).toContain('Attachment is deleted');
+    expect(host.textContent).toContain('Sync state blocks upload');
+    expect(host.textContent).toContain('Provider not configured');
+    cleanup(root, host);
+  });
+
+  it('revalidates session at Upload click time and blocks expired memory sessions without uploading', async () => {
+    const controller = manualGoogleDriveController({ connected: true });
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: controller,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [uploadItem()],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).toContain('Upload');
+
+    await act(async () => {
+      await controller.markReconnectRequired?.();
+    });
+    click(buttonByText(host, 'Upload'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Reconnect required');
+    expect(host.textContent).not.toContain('oauth2.googleapis.com/token');
+    cleanup(root, host);
+  });
+
+  it('prevents duplicate same-item Upload clicks while an upload is already running', async () => {
+    let resolveUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn(() => new Promise<AttachmentExplicitUploadResult>(resolve => {
+      resolveUpload = resolve;
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [uploadItem()],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const uploadButton = buttonByText(host, 'Upload');
+    click(uploadButton);
+    click(uploadButton);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    resolveUpload?.(uploadResult());
+    await flushAsync();
+    await flushAsync();
+    expect(host.textContent).toContain('Status: uploaded');
+    cleanup(root, host);
+  });
+
+  it('renders failed upload results safely without raw token or session URI leakage', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult({
+      status: 'failed',
+      remoteFileId: undefined,
+      error: 'upload failed Authorization: Bearer token-secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
+      errorDetails: {
+        message: 'upload failed Authorization: Bearer token-secret access_token=access-secret refresh_token=refresh-secret id_token=id-secret codeVerifier=verifier-secret http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret data:image/png;base64,AAA111',
+        category: 'upload',
+        retryable: true,
+        code: 'upload_failed',
+      },
+      warnings: ['warning access_token=warning-secret'],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [uploadItem()],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Upload'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('upload_failed');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access-secret');
+    expect(host.textContent).not.toContain('refresh-secret');
+    expect(host.textContent).not.toContain('id-secret');
+    expect(host.textContent).not.toContain('verifier-secret');
+    expect(host.textContent).not.toContain('callback-secret');
+    expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain('AAA111');
+    expect(host.textContent).not.toContain('warning-secret');
     cleanup(root, host);
   });
 

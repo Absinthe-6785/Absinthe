@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import type {
   EmbeddedAttachmentAuditReport,
@@ -26,6 +26,10 @@ import {
   recoverAttachmentBlobFromRemote,
   type AttachmentRemoteRecoveryResult,
 } from '../../../lib/attachmentRemoteRecovery';
+import {
+  uploadAttachmentBlobToRemote,
+  type AttachmentExplicitUploadResult,
+} from '../../../lib/attachmentExplicitUploadAction';
 import { formatRecoveryFailureForUi } from '../../../lib/attachmentRecoveryFailureLabel';
 import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
@@ -61,6 +65,7 @@ type BackupInspectionState = 'idle' | 'loading' | 'ready' | 'error';
 type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
 type DiagnosticsState = 'idle' | 'loading' | 'ready' | 'error';
 type RecoveryActionState = 'idle' | 'running' | 'complete' | 'error';
+type UploadActionState = 'idle' | 'running' | 'complete' | 'error';
 type AttachmentRecoveryBlockedReason =
   | 'provider_not_configured'
   | 'provider_unavailable'
@@ -78,10 +83,33 @@ type AttachmentRecoveryBlockedReason =
   | 'attachment_tombstoned'
   | 'missing_local_but_not_remote_backed'
   | 'recovery_in_progress';
+type AttachmentUploadBlockedReason =
+  | 'provider_not_configured'
+  | 'provider_unavailable'
+  | 'provider_mismatch'
+  | 'session_expired'
+  | 'reconnect_required'
+  | 'token_provider_unavailable'
+  | 'upload_controller_unavailable'
+  | 'upload_unsupported'
+  | 'local_blob_missing'
+  | 'local_blob_unreadable'
+  | 'item_not_uploadable'
+  | 'blocked_sync_state'
+  | 'attachment_deleted'
+  | 'attachment_tombstoned'
+  | 'upload_in_progress';
 
 interface RecoveryEligibility {
   readonly canRecover: boolean;
   readonly reasonCode?: AttachmentRecoveryBlockedReason;
+  readonly reasonLabel: string;
+  readonly severity?: 'info' | 'warning' | 'blocked';
+}
+
+interface UploadEligibility {
+  readonly canUpload: boolean;
+  readonly reasonCode?: AttachmentUploadBlockedReason;
   readonly reasonLabel: string;
   readonly severity?: 'info' | 'warning' | 'blocked';
 }
@@ -98,11 +126,15 @@ export interface EmbeddedAttachmentMigrationReviewPanelProps {
   restoreBackupFn?: typeof restoreEmbeddedAttachmentMigrationBackup;
   diagnosticsFn?: typeof buildAttachmentSyncDiagnostics;
   recoverAttachmentFn?: (attachmentId: string) => Promise<AttachmentRemoteRecoveryResult>;
+  uploadAttachmentFn?: (attachmentId: string) => Promise<AttachmentExplicitUploadResult>;
   remoteProviderConnection?: RemoteProviderConnectionBoundary;
   googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
   googleDriveRecoveryFetcher?: typeof fetch;
   googleDriveRecoveryRepository?: AttachmentRepository;
   googleDriveRecoveryBlobAdapter?: BlobStorageAdapter;
+  googleDriveUploadFetcher?: typeof fetch;
+  googleDriveUploadRepository?: AttachmentRepository;
+  googleDriveUploadBlobAdapter?: BlobStorageAdapter;
 }
 
 function formatBytes(bytes: number): string {
@@ -182,6 +214,42 @@ function reasonLabel(code: AttachmentRecoveryBlockedReason, fallback?: string): 
   }
 }
 
+function uploadReasonLabel(code: AttachmentUploadBlockedReason): string {
+  switch (code) {
+    case 'provider_not_configured':
+      return 'Provider not configured';
+    case 'provider_unavailable':
+      return 'Provider unavailable';
+    case 'provider_mismatch':
+      return 'Provider mismatch';
+    case 'session_expired':
+      return 'Session expired';
+    case 'reconnect_required':
+      return 'Reconnect required';
+    case 'token_provider_unavailable':
+      return 'Token provider unavailable';
+    case 'upload_controller_unavailable':
+      return 'Upload controller unavailable';
+    case 'upload_unsupported':
+      return 'Upload unsupported';
+    case 'local_blob_missing':
+      return 'Local blob missing';
+    case 'local_blob_unreadable':
+      return 'Local blob unreadable';
+    case 'blocked_sync_state':
+      return 'Sync state blocks upload';
+    case 'attachment_deleted':
+      return 'Attachment is deleted';
+    case 'attachment_tombstoned':
+      return 'Attachment is tombstoned';
+    case 'upload_in_progress':
+      return 'Upload already in progress';
+    case 'item_not_uploadable':
+    default:
+      return 'Attachment is not uploadable';
+  }
+}
+
 function blocked(
   reasonCode: AttachmentRecoveryBlockedReason,
   fallback?: string,
@@ -193,6 +261,27 @@ function blocked(
     reasonLabel: reasonLabel(reasonCode, fallback),
     severity,
   };
+}
+
+function uploadBlocked(
+  reasonCode: AttachmentUploadBlockedReason,
+  severity: UploadEligibility['severity'] = 'blocked',
+): UploadEligibility {
+  return {
+    canUpload: false,
+    reasonCode,
+    reasonLabel: uploadReasonLabel(reasonCode),
+    severity,
+  };
+}
+
+function uploadUnavailableReasonCode(provider: RemoteProviderConnectionBoundary): AttachmentUploadBlockedReason {
+  if (provider.status === 'unconfigured') return 'provider_not_configured';
+  if (provider.status === 'auth_expired') return 'session_expired';
+  if (provider.status === 'reconnect_required') return 'reconnect_required';
+  if (provider.status === 'unsupported' || !provider.canUpload) return 'upload_unsupported';
+  if (provider.status === 'disabled_by_user' || provider.status === 'unavailable' || provider.status === 'error') return 'provider_unavailable';
+  return 'provider_unavailable';
 }
 
 function getAttachmentRecoveryAvailability(input: {
@@ -229,6 +318,37 @@ function getAttachmentRecoveryAvailability(input: {
   if (!hasSessionAccessTokenProvider(googleDriveSessionController)) return blocked('token_provider_unavailable');
   if (!hasRecoveryController) return blocked('recovery_controller_unavailable');
   return { canRecover: true, reasonLabel: 'Ready for explicit recovery', severity: 'info' };
+}
+
+function getAttachmentUploadAvailability(input: {
+  readonly item: AttachmentSyncDiagnostics['uploadItems'][number];
+  readonly providerConnection: RemoteProviderConnectionBoundary;
+  readonly hasUploadController: boolean;
+  readonly googleDriveSessionController?: GoogleDriveSessionConnectionController | null;
+  readonly runningUploadAttachmentId?: string | null;
+}): UploadEligibility {
+  const { item, providerConnection, hasUploadController, googleDriveSessionController, runningUploadAttachmentId } = input;
+  if (runningUploadAttachmentId === item.attachmentId) return uploadBlocked('upload_in_progress', 'info');
+  const status = String(item.remoteSyncStatus ?? '').toLowerCase();
+  const reason = item.reason.toLowerCase();
+  if (status === 'deleted' || reason.includes('deleted')) return uploadBlocked('attachment_deleted');
+  if (reason.includes('tombstone')) return uploadBlocked('attachment_tombstoned');
+  if (!item.localBlobKey || !item.localBlobPresent) return uploadBlocked('local_blob_missing', 'warning');
+  if (item.remoteProvider && item.remoteProvider !== 'googleDrive') return uploadBlocked('provider_mismatch');
+  if (['pending_upload', 'uploading', 'failed', 'paused_offline', 'conflict', 'missing_local', 'recoverable_remote'].includes(status)) {
+    return uploadBlocked('blocked_sync_state', 'warning');
+  }
+  if (!item.eligible) return uploadBlocked('item_not_uploadable', 'info');
+  if (providerConnection.providerType && providerConnection.providerType !== 'googleDrive') return uploadBlocked('provider_mismatch');
+  if (providerConnection.status === 'auth_expired') return uploadBlocked('session_expired');
+  if (providerConnection.status === 'reconnect_required') return uploadBlocked('reconnect_required');
+  if (!providerConnection.canUpload || providerConnection.status !== 'available') {
+    return uploadBlocked(uploadUnavailableReasonCode(providerConnection));
+  }
+  if (!googleDriveSessionController) return uploadBlocked('provider_not_configured');
+  if (!hasSessionAccessTokenProvider(googleDriveSessionController)) return uploadBlocked('token_provider_unavailable');
+  if (!hasUploadController) return uploadBlocked('upload_controller_unavailable');
+  return { canUpload: true, reasonLabel: 'Ready for explicit upload', severity: 'info' };
 }
 
 type CleanupReviewNumericKey = {
@@ -433,11 +553,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   restoreBackupFn = restoreEmbeddedAttachmentMigrationBackup,
   diagnosticsFn = buildAttachmentSyncDiagnostics,
   recoverAttachmentFn,
+  uploadAttachmentFn,
   remoteProviderConnection,
   googleDriveSessionController,
   googleDriveRecoveryFetcher,
   googleDriveRecoveryRepository,
   googleDriveRecoveryBlobAdapter,
+  googleDriveUploadFetcher,
+  googleDriveUploadRepository,
+  googleDriveUploadBlobAdapter,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
@@ -467,6 +591,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [runningRecoveryAttachmentId, setRunningRecoveryAttachmentId] = useState<string | null>(null);
   const [recoveryReportsByAttachmentId, setRecoveryReportsByAttachmentId] = useState<Record<string, AttachmentRemoteRecoveryResult>>({});
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [, setUploadStatus] = useState<UploadActionState>('idle');
+  const [runningUploadAttachmentId, setRunningUploadAttachmentId] = useState<string | null>(null);
+  const [uploadReportsByAttachmentId, setUploadReportsByAttachmentId] = useState<Record<string, AttachmentExplicitUploadResult>>({});
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const runningUploadAttachmentIdsRef = useRef<Set<string>>(new Set());
   const [googleDriveSessionConnection, setGoogleDriveSessionConnection] = useState<RemoteProviderConnectionBoundary | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -537,6 +666,33 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     googleDriveSessionController,
   ]);
   const activeRecoverAttachmentFn = recoverAttachmentFn ?? sessionRecoverAttachmentFn;
+  const sessionUploadAttachmentFn = useMemo(() => {
+    if (!googleDriveSessionController) return undefined;
+    return async (attachmentId: string) => {
+      const accessTokenProvider = googleDriveSessionController.getAccessTokenProvider();
+      if (!accessTokenProvider) {
+        throw new Error('Google Drive session token is unavailable.');
+      }
+      return uploadAttachmentBlobToRemote({
+        attachmentId,
+        attachmentRepository: googleDriveUploadRepository ?? googleDriveRecoveryRepository ?? createLocalAttachmentMetadataRepository(),
+        localBlobAdapter: googleDriveUploadBlobAdapter ?? googleDriveRecoveryBlobAdapter ?? createLocalAttachmentBlobAdapter(),
+        remoteProvider: new GoogleDriveBlobAdapter({
+          accessTokenProvider,
+          fetcher: googleDriveUploadFetcher ?? googleDriveRecoveryFetcher,
+        }),
+      });
+    };
+  }, [
+    googleDriveRecoveryBlobAdapter,
+    googleDriveRecoveryFetcher,
+    googleDriveRecoveryRepository,
+    googleDriveSessionController,
+    googleDriveUploadBlobAdapter,
+    googleDriveUploadFetcher,
+    googleDriveUploadRepository,
+  ]);
+  const activeUploadAttachmentFn = uploadAttachmentFn ?? sessionUploadAttachmentFn;
 
   const refreshGoogleDriveSessionConnection = useCallback(async () => {
     if (!googleDriveSessionController) {
@@ -737,6 +893,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     setDiagnosticsError(null);
     setRecoveryReportsByAttachmentId({});
     setRecoveryError(null);
+    setUploadReportsByAttachmentId({});
+    setUploadError(null);
     try {
       await refreshGoogleDriveSessionConnection();
       const report = await diagnosticsFn({
@@ -809,6 +967,68 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     }
   };
 
+  const runUpload = async (attachmentId: string) => {
+    if (runningUploadAttachmentIdsRef.current.has(attachmentId)) {
+      setUploadStatus('error');
+      setUploadError(uploadReasonLabel('upload_in_progress'));
+      return;
+    }
+    runningUploadAttachmentIdsRef.current.add(attachmentId);
+    const item = diagnosticsReport?.uploadItems.find(candidate => candidate.attachmentId === attachmentId);
+    let latestProviderConnection = providerConnection;
+    if (googleDriveSessionController) {
+      try {
+        latestProviderConnection = await googleDriveSessionController.getConnectionStatus();
+      } catch (err) {
+        latestProviderConnection = resolveRemoteProviderConnectionBoundary({
+          providerType: 'googleDrive',
+          status: 'error',
+          capabilities: { supportsDownload: false, supportsUpload: false },
+          error: err,
+        });
+      }
+    }
+    if (googleDriveSessionController) {
+      setGoogleDriveSessionConnection(latestProviderConnection);
+    }
+    const eligibility = item ? getAttachmentUploadAvailability({
+      item,
+      providerConnection: latestProviderConnection,
+      hasUploadController: Boolean(activeUploadAttachmentFn),
+      googleDriveSessionController,
+      runningUploadAttachmentId,
+    }) : uploadBlocked('item_not_uploadable');
+    if (!eligibility.canUpload) {
+      setUploadStatus('error');
+      setUploadError(eligibility.reasonLabel);
+      runningUploadAttachmentIdsRef.current.delete(attachmentId);
+      return;
+    }
+    if (!activeUploadAttachmentFn) {
+      setUploadStatus('error');
+      setUploadError(uploadReasonLabel('upload_controller_unavailable'));
+      runningUploadAttachmentIdsRef.current.delete(attachmentId);
+      return;
+    }
+    setRunningUploadAttachmentId(attachmentId);
+    setUploadStatus('running');
+    setUploadError(null);
+    try {
+      const report = await activeUploadAttachmentFn(attachmentId);
+      setUploadReportsByAttachmentId(previous => ({
+        ...previous,
+        [attachmentId]: report,
+      }));
+      setUploadStatus(report.status === 'failed' || report.status === 'blocked' ? 'error' : 'complete');
+    } catch (err) {
+      setUploadError(sanitizeRemoteBlobProviderErrorMessage(err));
+      setUploadStatus('error');
+    } finally {
+      runningUploadAttachmentIdsRef.current.delete(attachmentId);
+      setRunningUploadAttachmentId(null);
+    }
+  };
+
   const failedResults = migrationReport?.noteResults.filter(result => result.failedCount > 0 || result.errors.length > 0) ?? [];
   const orphanResults = migrationReport?.noteResults.filter(
     result => result.orphanedAttachmentIds.length > 0 || result.orphanedBlobKeys.length > 0,
@@ -861,6 +1081,41 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
         ))}
         <div style={{ fontSize: 10.5, color: c.textMuted }}>Refresh diagnostics after recovery to update local inventory state.</div>
+      </div>
+    );
+  };
+
+  const renderUploadReport = (uploadReport: AttachmentExplicitUploadResult) => {
+    const failed = uploadReport.status === 'failed' || uploadReport.status === 'blocked';
+    return (
+      <div data-attachment-upload-result style={{ border: `1px solid ${failed ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 800 }}>Upload result</div>
+        <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
+          <div>Attachment: {shortValue(uploadReport.attachmentId)}</div>
+          <div>Status: {uploadReport.status}</div>
+          <div>Provider: {uploadReport.remoteProvider ?? 'unknown'}</div>
+          <div>Remote file: {shortValue(uploadReport.remoteFileId)}</div>
+          {uploadReport.localBlobKey ? <div>Local blob: {shortValue(uploadReport.localBlobKey)}</div> : null}
+          {uploadReport.remoteSize !== undefined ? <div>Remote size: {formatBytes(uploadReport.remoteSize)}</div> : null}
+          {uploadReport.verification ? (
+            <div>
+              Verification: size {uploadReport.verification.sizeVerified ? 'yes' : 'no'}, checksum {uploadReport.verification.checksumVerified ? 'yes' : 'no'}
+              {uploadReport.verification.sizeOnlyVerified ? ', size-only review' : ''}
+            </div>
+          ) : null}
+          <div>Started: {uploadReport.startedAt}</div>
+          <div>Completed: {uploadReport.completedAt}</div>
+        </div>
+        {uploadReport.errorDetails ? (
+          <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
+            {uploadReport.errorDetails.code ? `${uploadReport.errorDetails.code}: ` : ''}{sanitizeRemoteBlobProviderErrorMessage(uploadReport.errorDetails.message)} ({uploadReport.errorDetails.category}, retryable {uploadReport.errorDetails.retryable ? 'yes' : 'no'})
+          </div>
+        ) : uploadReport.error ? (
+          <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(uploadReport.error)}</div>
+        ) : null}
+        {uploadReport.warnings?.map((warning, index) => (
+          <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>
+        ))}
       </div>
     );
   };
@@ -1379,6 +1634,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
                     <div>Status: <strong>{providerConnection.displayLabel}</strong>{providerConnection.providerType ? ` (${providerConnection.providerType})` : ''}</div>
                     <div>{providerConnection.safeMessage}</div>
+                    <div>Upload capability: {providerConnection.canUpload ? 'available' : 'unavailable'}</div>
                     <div>Recovery capability: {providerConnection.canRecover ? 'available' : 'unavailable'}</div>
                     {providerConnection.lastCheckedAt ? <div>Last checked: {providerConnection.lastCheckedAt}</div> : null}
                     {providerConnection.error ? <div style={{ color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(providerConnection.error)}</div> : null}
@@ -1442,6 +1698,79 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     <div>Review-only recoverable: <strong>{formatBytes(diagnosticsReport.byteSummary.reviewOnlyRecoverableBytes)}</strong></div>
                     <div>Blocked or excluded local bytes: <strong>{formatBytes(diagnosticsReport.byteSummary.blockedBytes)}</strong></div>
                   </div>
+                </div>
+
+                <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800 }}>Remote upload</div>
+                  <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                    Google Drive upload is session-only. Upload is available only for one eligible local attachment after an explicit click. Nothing uploads automatically, and no upload-all action exists.
+                  </div>
+                  {diagnosticsReport.uploadItems.length === 0 ? (
+                    <div style={{ fontSize: 10.5, color: c.textMuted }}>No local attachments are waiting for explicit upload.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {diagnosticsReport.uploadItems.slice(0, 10).map(item => {
+                        const uploadAvailability = getAttachmentUploadAvailability({
+                          item,
+                          providerConnection,
+                          hasUploadController: Boolean(activeUploadAttachmentFn),
+                          googleDriveSessionController,
+                          runningUploadAttachmentId,
+                        });
+                        const canUpload = uploadAvailability.canUpload;
+                        const running = runningUploadAttachmentId === item.attachmentId;
+                        const reason = uploadAvailability.reasonLabel;
+                        const itemUploadReport = uploadReportsByAttachmentId[item.attachmentId];
+                        return (
+                          <div key={item.attachmentId} data-attachment-upload-item style={{ border: `1px solid ${item.eligible ? c.accent : c.sideBdr}`, borderRadius: 6, padding: 7 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 10.5, fontWeight: 800 }}>attachment {shortValue(item.attachmentId)}</div>
+                                <div style={{ fontSize: 10, color: c.textMuted, marginTop: 3, lineHeight: 1.45 }}>
+                                  provider {item.remoteProvider ?? 'none'} - status {item.remoteSyncStatus ?? 'unknown'} - blob {shortValue(item.localBlobKey)}
+                                </div>
+                              </div>
+                              {canUpload || running ? (
+                                <button
+                                  type="button"
+                                  className="btbtn"
+                                  onClick={() => runUpload(item.attachmentId)}
+                                  disabled={running}
+                                  style={{ padding: '5px 8px', fontSize: 10.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66` }}
+                                >
+                                  {running ? 'Uploading...' : 'Upload'}
+                                </button>
+                              ) : (
+                                <span
+                                  data-upload-reason-code={uploadAvailability.reasonCode ?? 'item_not_uploadable'}
+                                  data-upload-reason-severity={uploadAvailability.severity ?? 'info'}
+                                  style={{ fontSize: 9.5, color: item.eligible ? c.textMuted : c.textFaint }}
+                                >
+                                  {reason}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 9.5, color: c.textFaint, marginTop: 4, lineHeight: 1.45 }}>
+                              local blob {item.localBlobPresent ? 'present' : 'missing'} - local size {item.localSize !== undefined ? formatBytes(item.localSize) : 'unknown'}
+                            </div>
+                            {running ? (
+                              <div
+                                data-upload-reason-code={uploadAvailability.reasonCode ?? 'upload_in_progress'}
+                                data-upload-reason-severity={uploadAvailability.severity ?? 'info'}
+                                style={{ fontSize: 9.5, color: c.textMuted, marginTop: 4, lineHeight: 1.45 }}
+                              >
+                                {reason}
+                              </div>
+                            ) : null}
+                            {itemUploadReport ? renderUploadReport(itemUploadReport) : null}
+                          </div>
+                        );
+                      })}
+                      {diagnosticsReport.uploadItems.length > 10 ? (
+                        <div style={{ fontSize: 10, color: c.textFaint }}>{diagnosticsReport.uploadItems.length - 10} more upload entries hidden in this compact review.</div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1559,6 +1888,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ) : null}
           {recoveryError ? (
             <div style={{ fontSize: 10.5, color: c.danger }}>{recoveryError}</div>
+          ) : null}
+          {uploadError ? (
+            <div style={{ fontSize: 10.5, color: c.danger }}>{uploadError}</div>
           ) : null}
         </div>
       ) : null}
