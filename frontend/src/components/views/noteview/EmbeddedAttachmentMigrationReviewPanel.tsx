@@ -829,7 +829,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             <div style={{ fontSize: 10.5, fontWeight: 800, color: c.text }}>{failureDisplay.title}</div>
             <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>{failureDisplay.message}</div>
             <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
-              {failureDisplay.actionHint}{failureDisplay.retryable ? ' · retryable' : ''}
+              {failureDisplay.actionHint}{failureDisplay.retryable ? ' - retryable' : ''}
             </div>
           </div>
         ) : null}
@@ -852,7 +852,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         </div>
         {recoveryReport.errorDetails ? (
           <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
-            {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{recoveryReport.errorDetails.message} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
+            {recoveryReport.errorDetails.code ? `${recoveryReport.errorDetails.code}: ` : ''}{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.errorDetails.message)} ({recoveryReport.errorDetails.category}, retryable {recoveryReport.errorDetails.retryable ? 'yes' : 'no'})
           </div>
         ) : recoveryReport.error ? (
           <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(recoveryReport.error)}</div>
