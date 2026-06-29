@@ -106,6 +106,16 @@ The current remote attachment MVP supports:
 - Result and error details are sanitized.
 - No raw provider body, token, verifier, callback URL, Authorization header, Bearer token, or secret payload is exposed by intended UI copy.
 
+## K-202 Source Audit Polish
+
+- Recovery source remains explicit, per-item, and manually gated.
+- Upload source remains explicit per-item or limited selected max-3 only.
+- Upload/recovery UI source does not bypass provider, session, token, or guarded action paths.
+- No `Recover all`, `Download all`, `Upload all`, `Run queue`, `Retry all`, or `Continue queue` controls are introduced.
+- Upload/recovery UI source does not add cleanup, delete, overwrite, or eviction behavior.
+- K-202 adds source-slice audit coverage only; it does not change runtime behavior.
+- Real Google Drive manual QA remains the next step.
+
 ## Known Limitations And Out Of Scope
 
 - No `Upload all`.
