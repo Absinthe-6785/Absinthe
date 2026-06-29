@@ -273,6 +273,30 @@ function uploadReasonLabel(code: AttachmentUploadBlockedReason): string {
   }
 }
 
+function uploadQueueStopReason(report: AttachmentExplicitUploadResult | null): string {
+  if (!report) return 'Stopped because a selected item did not return a completed upload result.';
+  if (report.status === 'skipped') return 'Stopped because a selected item was skipped.';
+  if (report.status === 'blocked') {
+    const display = formatUploadFailureForUi({
+      errorDetails: report.errorDetails,
+      providerType: report.remoteProvider,
+      reasonCode: report.errorDetails?.code,
+      remoteObjectAmbiguous: Boolean(report.remoteFileId),
+    });
+    return `Stopped because a selected item is no longer ready to upload: ${display.title}`;
+  }
+  if (report.status === 'failed') {
+    const display = formatUploadFailureForUi({
+      errorDetails: report.errorDetails,
+      providerType: report.remoteProvider,
+      reasonCode: report.errorDetails?.code,
+      remoteObjectAmbiguous: Boolean(report.remoteFileId),
+    });
+    return `Stopped because a selected item failed to upload: ${display.title}`;
+  }
+  return 'Stopped because a selected item did not complete successfully.';
+}
+
 function blocked(
   reasonCode: AttachmentRecoveryBlockedReason,
   fallback?: string,
@@ -1242,16 +1266,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       const report = await runUpload(attachmentId);
       if (!report || report.status !== 'uploaded') {
         failedAttachmentId = attachmentId;
-        failureReason = report?.errorDetails
-          ? formatUploadFailureForUi({
-              errorDetails: report.errorDetails,
-              providerType: report.remoteProvider,
-              reasonCode: report.errorDetails.code,
-              remoteObjectAmbiguous: Boolean(report.remoteFileId),
-            }).title
-          : report
-            ? `Upload stopped with status ${report.status}`
-          : 'Upload stopped before this item could start';
+        failureReason = uploadQueueStopReason(report);
         break;
       }
       succeededCount += 1;
@@ -1947,7 +1962,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       <div data-manual-upload-queue-review style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Manual upload queue review</div>
                         <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                          Select up to {maxManualUploadQueueSelection} visible Ready items for a limited manual upload. Selected uploads run one at a time through the same guarded Upload path and stop on the first failure.
+                          Select up to {maxManualUploadQueueSelection} visible Ready items for a limited manual upload. Selected uploads run one at a time through the same guarded Upload path and stop after the first item that does not complete successfully.
                         </div>
                         <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
                           Only selected items upload. Hidden Ready items, blocked items, manual-review items, and already-synced items are not included.
@@ -1993,7 +2008,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                             <div data-upload-queue-limited-run style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                 <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                                  {selectedVisibleCount} selected of {maxManualUploadQueueSelection}. Uploads run sequentially and stop after the first failed item.
+                                  {selectedVisibleCount} selected of {maxManualUploadQueueSelection}. Upload selected Ready items one at a time. The run stops after the first item that does not complete successfully.
                                 </div>
                                 <button
                                   type="button"
@@ -2011,15 +2026,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                               {uploadQueueRunReport ? (
                                 <div data-upload-queue-run-summary style={{ border: `1px solid ${uploadQueueRunReport.stoppedOnFirstFailure ? `${c.danger}55` : c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 3 }}>
                                   <div style={{ fontSize: 10.5, fontWeight: 800 }}>
-                                    {uploadQueueRunReport.succeededCount} of {uploadQueueRunReport.selectedCount} selected uploads completed.
+                                    Uploaded {uploadQueueRunReport.succeededCount} of {uploadQueueRunReport.selectedCount} selected items.
                                   </div>
                                   <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
-                                    Failed: {uploadQueueRunReport.failedCount}. Not started: {uploadQueueRunReport.notStartedCount}.
-                                    {uploadQueueRunReport.stoppedOnFirstFailure ? ' Stopped after the first failure.' : ''}
+                                    Non-success stops: {uploadQueueRunReport.failedCount}. Not started: {uploadQueueRunReport.notStartedCount} selected item{uploadQueueRunReport.notStartedCount === 1 ? '' : 's'}.
+                                    {uploadQueueRunReport.stoppedOnFirstFailure ? ' Stopped after one selected item did not complete successfully.' : ''}
                                   </div>
                                   {uploadQueueRunReport.failedAttachmentId ? (
                                     <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
-                                      Failed item: attachment {shortValue(uploadQueueRunReport.failedAttachmentId)} - {uploadQueueRunReport.failureReason ?? 'Review diagnostics before trying again.'}
+                                      Stopped item: attachment {shortValue(uploadQueueRunReport.failedAttachmentId)} - {uploadQueueRunReport.failureReason ?? 'Review diagnostics before trying again.'}
                                     </div>
                                   ) : null}
                                 </div>

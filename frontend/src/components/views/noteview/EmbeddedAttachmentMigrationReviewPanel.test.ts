@@ -2009,7 +2009,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Manual upload queue review');
     expect(host.textContent).toContain('Select up to 3 visible Ready items for a limited manual upload.');
-    expect(host.textContent).toContain('Selected uploads run one at a time through the same guarded Upload path and stop on the first failure.');
+    expect(host.textContent).toContain('Selected uploads run one at a time through the same guarded Upload path and stop after the first item that does not complete successfully.');
+    expect(host.textContent).toContain('Upload selected Ready items one at a time. The run stops after the first item that does not complete successfully.');
     expect(host.textContent).toContain('Only selected items upload. Hidden Ready items, blocked items, manual-review items, and already-synced items are not included.');
     expect(host.textContent).toContain('Ready for manual upload');
     expect(host.textContent).toContain('Blocked');
@@ -2490,8 +2491,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-seq-c');
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-hidden-d');
-    expect(host.textContent).toContain('2 of 2 selected uploads completed.');
-    expect(host.textContent).toContain('Failed: 0. Not started: 0.');
+    expect(host.textContent).toContain('Uploaded 2 of 2 selected items.');
+    expect(host.textContent).toContain('Non-success stops: 0. Not started: 0 selected items.');
     const selectionsAfterRun = Array.from(readyBucket.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
     expect(selectionsAfterRun[0].checked).toBe(false);
     expect(selectionsAfterRun[1].checked).toBe(false);
@@ -2535,11 +2536,11 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).toHaveBeenNthCalledWith(2, 'att-order-b');
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-order-c');
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-hidden-d');
-    expect(host.textContent).toContain('2 of 2 selected uploads completed.');
+    expect(host.textContent).toContain('Uploaded 2 of 2 selected items.');
     cleanup(root, host);
   });
 
-  it('stops a limited selected upload run on the first failure without starting later selected items', async () => {
+  it('stops a limited selected upload run on the first non-success result without starting later selected items', async () => {
     const uploadAttachmentFn = vi.fn(async (attachmentId: string) => {
       if (attachmentId === 'att-stop-b') {
         return uploadResult({
@@ -2585,9 +2586,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).toHaveBeenNthCalledWith(1, 'att-stop-a');
     expect(uploadAttachmentFn).toHaveBeenNthCalledWith(2, 'att-stop-b');
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-stop-c');
-    expect(host.textContent).toContain('1 of 3 selected uploads completed.');
-    expect(host.textContent).toContain('Failed: 1. Not started: 1. Stopped after the first failure.');
-    expect(host.textContent).toContain('Failed item: attachment att-stop-b');
+    expect(host.textContent).toContain('Uploaded 1 of 3 selected items.');
+    expect(host.textContent).toContain('Non-success stops: 1. Not started: 1 selected item. Stopped after one selected item did not complete successfully.');
+    expect(host.textContent).toContain('Stopped item: attachment att-stop-b');
+    expect(host.textContent).toContain('Stopped because a selected item failed to upload');
     expect(selections.every(selection => !selection.checked)).toBe(true);
     expect(host.textContent).not.toContain('token-secret');
     expect(host.textContent).not.toContain('access_token=secret');
@@ -2617,12 +2619,12 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       {
         name: 'skipped',
         result: uploadResult({ attachmentId: 'att-stop-status-a', status: 'skipped' }),
-        expectedReason: 'Upload stopped with status skipped',
+        expectedReason: 'Stopped because a selected item was skipped',
       },
       {
         name: 'null',
         result: null,
-        expectedReason: 'Upload stopped before this item could start',
+        expectedReason: 'Stopped because a selected item did not return a completed upload result',
       },
       {
         name: 'unknown',
@@ -2630,7 +2632,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
           attachmentId: 'att-stop-status-a',
           status: 'paused' as AttachmentExplicitUploadResult['status'],
         }),
-        expectedReason: 'Upload stopped with status paused',
+        expectedReason: 'Stopped because a selected item did not complete successfully',
       },
     ]) {
       const uploadAttachmentFn = vi.fn(async () => scenario.result as AttachmentExplicitUploadResult);
@@ -2662,8 +2664,8 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
 
       expect(uploadAttachmentFn, scenario.name).toHaveBeenCalledTimes(1);
       expect(uploadAttachmentFn, scenario.name).toHaveBeenCalledWith('att-stop-status-a');
-      expect(host.textContent, scenario.name).toContain('0 of 2 selected uploads completed.');
-      expect(host.textContent, scenario.name).toContain('Failed: 1. Not started: 1. Stopped after the first failure.');
+      expect(host.textContent, scenario.name).toContain('Uploaded 0 of 2 selected items.');
+      expect(host.textContent, scenario.name).toContain('Non-success stops: 1. Not started: 1 selected item. Stopped after one selected item did not complete successfully.');
       expect(host.textContent, scenario.name).toContain(scenario.expectedReason);
       expect(selections.every(selection => !selection.checked), scenario.name).toBe(true);
       expect(host.textContent, scenario.name).not.toContain('token-secret');
@@ -2711,9 +2713,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     });
 
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
-    expect(host.textContent).toContain('1 of 2 selected uploads completed.');
-    expect(host.textContent).toContain('Failed: 1. Not started: 0. Stopped after the first failure.');
-    expect(host.textContent).toContain('Failed item: attachment att-revalidate-b');
+    expect(host.textContent).toContain('Uploaded 1 of 2 selected items.');
+    expect(host.textContent).toContain('Non-success stops: 1. Not started: 0 selected items. Stopped after one selected item did not complete successfully.');
+    expect(host.textContent).toContain('Stopped item: attachment att-revalidate-b');
     expect(host.textContent).toContain('Local blob missing');
     const selectionsAfterRun = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
     expect(selectionsAfterRun.every(selection => !selection.checked)).toBe(true);
