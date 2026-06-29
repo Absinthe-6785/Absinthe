@@ -42,8 +42,11 @@ This milestone does not add runtime upload behavior.
 - No automatic queue drain.
 - No automatic retry.
 - No `Retry all`.
+- No `Retry queue`.
+- No `Start queue`.
 - No `Continue queue`.
 - No `Run next`.
+- No upload queue eviction controls.
 - No cancellation UI.
 - No rate-limit timer or backoff scheduler.
 - No background sync.
@@ -61,6 +64,7 @@ This milestone does not add runtime upload behavior.
 - No cleanup executor.
 - No overwrite policy.
 - No local blob eviction executor.
+- No `Evict`, `Evict local`, or `Evict blob` action in upload queue execution.
 - No token persistence.
 - No refresh token lifecycle.
 - No silent session restore.
@@ -78,3 +82,11 @@ This milestone does not add runtime upload behavior.
 ## Exit Criteria
 
 The limited queue run phase is MVP-complete when the above constraints remain true and the K-195 through K-199 tests pass. Remaining work should be treated as future product design or polish, not as a blocker for this phase.
+
+## K-200 Audit Gap Polish
+
+- `Retry queue` remains forbidden.
+- `Start queue` remains forbidden.
+- `Evict` and eviction controls are not part of upload queue execution.
+- `uploadQueueStopReason`, when present, is reporting and summary copy only; it must not trigger automatic retry, continue, run-next, queue drain, or eviction behavior.
+- The limited upload queue run phase remains MVP-closed at visible Ready-only, max-3 selected execution.
