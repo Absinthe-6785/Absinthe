@@ -1954,6 +1954,82 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('renders a dry-run manual upload queue review without executing uploads or unsafe bulk actions', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-ready', localBlobKey: 'local-attachment/ready', localSize: 120 }),
+        uploadItem({ attachmentId: 'att-unknown-size', localBlobKey: 'local-attachment/unknown', localSize: undefined }),
+        uploadItem({
+          attachmentId: 'att-missing-local',
+          localBlobKey: 'local-attachment/missing',
+          localBlobPresent: false,
+          localSize: undefined,
+          eligible: false,
+          reason: 'Local blob missing access_token=secret',
+        }),
+        uploadItem({
+          attachmentId: 'att-manual-review',
+          remoteSyncStatus: 'failed',
+          eligible: false,
+          reason: 'metadata_update_failed access_token=secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
+        }),
+        uploadItem({
+          attachmentId: 'att-synced',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-file-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+          localSize: 300,
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(diagnosticsFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Manual upload queue review');
+    expect(host.textContent).toContain('This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section.');
+    expect(host.textContent).toContain('Eligible items still require individual Upload clicks.');
+    expect(host.textContent).toContain('Ready for manual upload');
+    expect(host.textContent).toContain('Blocked');
+    expect(host.textContent).toContain('Needs manual review');
+    expect(host.textContent).toContain('Already synced');
+    expect(host.textContent).toContain('Estimated ready bytes: 120 B (1 ready item with unknown size)');
+    expect(host.textContent).toContain('attachment att-ready - Ready for manual upload');
+    expect(host.textContent).toContain('attachment att-missing-local - Local blob missing');
+    expect(host.textContent).toContain('attachment att-manual-review - Upload needs manual review');
+    expect(host.textContent).toContain('attachment att-synced - Already synced');
+    expect(host.textContent).not.toContain('drive-file-secret');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain('upload/drive/v3/files');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Delete remote');
+    expect(buttons).not.toContain('Clear orphan');
+    expect(buttons).not.toContain('Overwrite');
+    expect(buttons).not.toContain('Recover all');
+    expect(buttons).not.toContain('Download all');
+    cleanup(root, host);
+  });
+
   it('uploads exactly one eligible local attachment after an explicit Google Drive Upload click', async () => {
     const { repository, records } = memoryAttachmentRepository([
       attachmentMetadata({
