@@ -2003,6 +2003,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Manual upload queue review');
     expect(host.textContent).toContain('This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section.');
+    expect(host.textContent).toContain('Ready items currently pass the same upload availability gate as the per-item Upload button.');
     expect(host.textContent).toContain('Eligible items still require individual Upload clicks.');
     expect(host.textContent).toContain('Ready for manual upload');
     expect(host.textContent).toContain('Blocked');
@@ -2027,6 +2028,67 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Overwrite');
     expect(buttons).not.toContain('Recover all');
     expect(buttons).not.toContain('Download all');
+    cleanup(root, host);
+  });
+
+  it('renders specific manual-review upload queue categories without making them ready', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({
+          attachmentId: 'att-conflict',
+          remoteSyncStatus: 'failed',
+          eligible: true,
+          reason: 'remote_conflict requires review access_token=secret',
+          localSize: 120,
+        }),
+        uploadItem({
+          attachmentId: 'att-remote-missing',
+          remoteSyncStatus: 'failed',
+          eligible: true,
+          reason: 'remote_file_missing https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
+          localSize: 80,
+        }),
+        uploadItem({
+          attachmentId: 'att-invalid',
+          remoteSyncStatus: 'failed',
+          eligible: true,
+          reason: 'invalid_remote_response Authorization: Bearer bearer-secret',
+          localSize: 60,
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Manual review3');
+    expect(host.textContent).toContain('Ready0');
+    expect(host.textContent).toContain('Estimated ready bytes: 0 B');
+    expect(host.textContent).toContain('attachment att-conflict - Upload conflict needs review');
+    expect(host.textContent).toContain('attachment att-remote-missing - Upload target is unavailable');
+    expect(host.textContent).toContain('attachment att-invalid - Upload response could not be verified');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain('bearer-secret');
+    expect(host.textContent).not.toContain('upload/drive/v3/files');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Delete remote');
+    expect(buttons).not.toContain('Clear orphan');
+    expect(buttons).not.toContain('Overwrite');
     cleanup(root, host);
   });
 

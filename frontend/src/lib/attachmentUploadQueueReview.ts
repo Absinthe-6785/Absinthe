@@ -40,7 +40,7 @@ export interface ManualUploadQueueReview {
 
 export interface BuildManualUploadQueueReviewInput {
   readonly items: readonly AttachmentUploadDiagnosticsItem[];
-  readonly getAvailability?: (item: AttachmentUploadDiagnosticsItem) => UploadQueueAvailability;
+  readonly getAvailability?: (item: AttachmentUploadDiagnosticsItem) => UploadQueueAvailability | undefined;
 }
 
 function normalized(value: string | undefined): string {
@@ -51,23 +51,43 @@ function safeLabel(value: string): string {
   return sanitizeRemoteBlobProviderErrorMessage(value);
 }
 
+function specificReasonCodeFromReason(reason: string): string | undefined {
+  if (reason.includes('metadata_update_failed')) return 'metadata_update_failed';
+  if (reason.includes('remote_conflict')) return 'remote_conflict';
+  if (reason.includes('remote_file_missing')) return 'remote_file_missing';
+  if (reason.includes('invalid_remote_response')) return 'invalid_remote_response';
+  if (reason.includes('invalid_upload_response')) return 'invalid_upload_response';
+  if (reason.includes('invalid response') || reason.includes('invalid_response')) return 'invalid_response';
+  if (reason.includes('missing_remote_id') || reason.includes('remote file id')) return 'missing_remote_id';
+  if (reason.includes('verification failed') || reason.includes('verification')) return 'verification_failed';
+  if (reason.includes('size_mismatch') || reason.includes('size mismatch')) return 'size_mismatch';
+  if (reason.includes('checksum_mismatch') || reason.includes('checksum mismatch')) return 'checksum_mismatch';
+  return undefined;
+}
+
 function reasonCodeFor(item: AttachmentUploadDiagnosticsItem, availability?: UploadQueueAvailability): string {
-  if (availability?.reasonCode) return availability.reasonCode;
   const status = normalized(item.remoteSyncStatus);
   const reason = normalized(item.reason);
-  if (status === 'synced') return 'already_synced';
+  const specificReasonCode = specificReasonCodeFromReason(reason);
+  if (availability?.reasonCode && availability.reasonCode !== 'manual_review_required') return availability.reasonCode;
+  if (specificReasonCode) return specificReasonCode;
+  if (availability?.reasonCode) return availability.reasonCode;
+  if (status === 'synced') return item.remoteProvider === 'googleDrive' && item.remoteFileId ? 'already_synced' : 'remote_file_missing';
+  if (status === 'conflict') return 'remote_conflict';
   if (status) return status;
   if (reason.includes('missing')) return 'local_blob_missing';
-  return item.eligible ? 'ready_for_upload' : 'not_uploadable';
+  return item.eligible ? 'upload_gate_unavailable' : 'not_uploadable';
 }
 
 function isRemoteAmbiguous(code: string, reason: string): boolean {
   return code === 'metadata_update_failed'
     || code === 'remote_conflict'
+    || code === 'remote_file_missing'
     || code === 'invalid_response'
     || code === 'invalid_remote_response'
     || code === 'invalid_upload_response'
     || code === 'missing_remote_id'
+    || code === 'verification_failed'
     || code === 'size_mismatch'
     || code === 'checksum_mismatch'
     || reason.includes('metadata_update_failed')
@@ -82,10 +102,12 @@ function isManualReview(code: string, reason: string, availability?: UploadQueue
     || code === 'failed'
     || code === 'metadata_update_failed'
     || code === 'remote_conflict'
+    || code === 'remote_file_missing'
     || code === 'invalid_response'
     || code === 'invalid_remote_response'
     || code === 'invalid_upload_response'
     || code === 'missing_remote_id'
+    || code === 'verification_failed'
     || code === 'size_mismatch'
     || code === 'checksum_mismatch'
     || reason.includes('requires review')
@@ -139,8 +161,8 @@ export function buildManualUploadQueueReview(
     if (isManualReview(code, reason, availability)) {
       const diagnostics = getUploadManualReviewDiagnostics({
         providerType: item.remoteProvider,
-        reasonCode: code === 'failed' ? 'metadata_update_failed' : code,
-        manualReview: true,
+        reasonCode: code,
+        manualReview: code === 'manual_review_required' || code === 'failed',
         remoteObjectAmbiguous: isRemoteAmbiguous(code, reason),
       });
       manualReview.push(reviewItem(item, diagnostics.reasonCode, diagnostics.title, {
@@ -150,7 +172,7 @@ export function buildManualUploadQueueReview(
       continue;
     }
 
-    if (availability?.canUpload || (item.eligible && item.localBlobPresent && item.remoteSyncStatus === 'local_only')) {
+    if (availability?.canUpload === true) {
       eligible.push(reviewItem(item, 'ready_for_upload', 'Ready for manual upload'));
       if (typeof item.localSize === 'number' && Number.isFinite(item.localSize)) {
         estimatedEligibleBytes += item.localSize;
