@@ -1185,6 +1185,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const renderUploadQueueGroup = (
     title: string,
     items: readonly ManualUploadQueueReviewItem[],
+    options: { executable?: boolean } = {},
   ) => (
     <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
@@ -1196,10 +1197,24 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {items.slice(0, 3).map(item => (
-            <div key={item.attachmentId} data-upload-queue-review-item style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
-              attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
-              {item.manualReview ? ' - manual review' : ''}
-              {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
+            <div key={item.attachmentId} data-upload-queue-review-item style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
+              <div>
+                attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
+                {item.manualReview ? ' - manual review' : ''}
+                {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
+                {runningUploadAttachmentId && runningUploadAttachmentId !== item.attachmentId && options.executable ? ' - one upload is currently in progress' : ''}
+              </div>
+              {options.executable ? (
+                <button
+                  type="button"
+                  className="btbtn"
+                  onClick={() => runUpload(item.attachmentId)}
+                  disabled={Boolean(runningUploadAttachmentId)}
+                  style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
+                >
+                  {runningUploadAttachmentId === item.attachmentId ? 'Uploading...' : 'Upload this item'}
+                </button>
+              ) : null}
             </div>
           ))}
           {items.length > 3 ? (
@@ -1819,6 +1834,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                         <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
                           This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section. Ready items currently pass the same upload availability gate as the per-item Upload button. Eligible items still require individual Upload clicks.
                         </div>
+                        <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
+                          Ready items still run one at a time. Uploading one item will not start the rest of the queue.
+                        </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 5 }}>
                           {[
                             ['Total', uploadQueueReview.summary.totalItems],
@@ -1842,7 +1860,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                           Providers: {Object.entries(uploadQueueReview.summary.providerCounts).map(([provider, count]) => `${provider} ${count}`).join(', ') || 'none'}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 6 }}>
-                          {renderUploadQueueGroup('Ready for manual upload', uploadQueueReview.groups.eligible)}
+                          {renderUploadQueueGroup('Ready for manual upload', uploadQueueReview.groups.eligible, { executable: true })}
                           {renderUploadQueueGroup('Blocked', uploadQueueReview.groups.blocked)}
                           {renderUploadQueueGroup('Needs manual review', uploadQueueReview.groups.manualReview)}
                           {renderUploadQueueGroup('Already synced', uploadQueueReview.groups.alreadySynced)}
