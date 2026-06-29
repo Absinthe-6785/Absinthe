@@ -31,6 +31,7 @@ import {
   type AttachmentExplicitUploadResult,
 } from '../../../lib/attachmentExplicitUploadAction';
 import { formatRecoveryFailureForUi } from '../../../lib/attachmentRecoveryFailureLabel';
+import { formatUploadFailureForUi } from '../../../lib/attachmentUploadFailureLabel';
 import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
@@ -1099,9 +1100,28 @@ export function EmbeddedAttachmentMigrationReviewPanel({
 
   const renderUploadReport = (uploadReport: AttachmentExplicitUploadResult) => {
     const failed = uploadReport.status === 'failed' || uploadReport.status === 'blocked';
+    const failureDisplay = failed
+      ? formatUploadFailureForUi({
+          errorDetails: uploadReport.errorDetails,
+          providerType: uploadReport.remoteProvider,
+          reasonCode: uploadReport.errorDetails?.code,
+          remoteObjectAmbiguous: Boolean(uploadReport.remoteFileId),
+        })
+      : null;
     return (
-      <div data-attachment-upload-result style={{ border: `1px solid ${failed ? c.danger : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
+      <div data-attachment-upload-result style={{ border: `1px solid ${failureDisplay ? (failureDisplay.severity === 'error' ? c.danger : `${c.accent}66`) : c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Upload result</div>
+        {failureDisplay ? (
+          <div data-attachment-upload-failure-label style={{ border: `1px solid ${failureDisplay.severity === 'error' ? `${c.danger}55` : `${c.accent}55`}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: c.text }}>{failureDisplay.title}</div>
+            <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>{failureDisplay.message}</div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 9.5, color: c.textFaint }}>Action: {failureDisplay.actionHint}</span>
+              <span style={{ fontSize: 9.5, color: c.textFaint }}>Retryable: {failureDisplay.retryable ? 'after action' : 'no'}</span>
+              {failureDisplay.manualReview ? <span style={{ fontSize: 9.5, color: c.textFaint }}>Manual review</span> : null}
+            </div>
+          </div>
+        ) : null}
         <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.55 }}>
           <div>Attachment: {shortValue(uploadReport.attachmentId)}</div>
           <div>Status: {uploadReport.status}</div>
@@ -1120,10 +1140,10 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         </div>
         {uploadReport.errorDetails ? (
           <div style={{ fontSize: 10, color: c.danger, lineHeight: 1.45 }}>
-            {uploadReport.errorDetails.code ? `${uploadReport.errorDetails.code}: ` : ''}{sanitizeRemoteBlobProviderErrorMessage(uploadReport.errorDetails.message)} ({uploadReport.errorDetails.category}, retryable {uploadReport.errorDetails.retryable ? 'yes' : 'no'})
+            {uploadReport.errorDetails.code ? `${uploadReport.errorDetails.code}: ` : ''}{uploadReport.errorDetails.category}, retryable {uploadReport.errorDetails.retryable ? 'yes' : 'no'}
           </div>
         ) : uploadReport.error ? (
-          <div style={{ fontSize: 10, color: c.danger }}>{sanitizeRemoteBlobProviderErrorMessage(uploadReport.error)}</div>
+          <div style={{ fontSize: 10, color: c.danger }}>Upload failed. Review diagnostics.</div>
         ) : null}
         {uploadReport.warnings?.map((warning, index) => (
           <div key={`${warning}-${index}`} style={{ fontSize: 10, color: c.textMuted }}>{sanitizeRemoteBlobProviderErrorMessage(warning)}</div>

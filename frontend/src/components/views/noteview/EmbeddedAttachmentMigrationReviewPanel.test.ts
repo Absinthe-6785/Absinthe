@@ -2242,6 +2242,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
 
     expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Upload failed');
+    expect(host.textContent).toContain('This attachment could not be uploaded to Google Drive.');
+    expect(host.textContent).toContain('Action: Try again later or review diagnostics');
     expect(host.textContent).toContain('upload_failed');
     expect(host.textContent).not.toContain('token-secret');
     expect(host.textContent).not.toContain('access-secret');
@@ -2252,6 +2255,115 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).not.toContain('session-secret');
     expect(host.textContent).not.toContain('AAA111');
     expect(host.textContent).not.toContain('warning-secret');
+    cleanup(root, host);
+  });
+
+  it('renders metadata update upload failures as manual-review without immediate retry copy', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult({
+      status: 'failed',
+      remoteFileId: 'drive-file-possibly-created',
+      error: 'metadata write failed Authorization: Bearer token-secret',
+      errorDetails: {
+        message: 'metadata write failed Authorization: Bearer token-secret access_token=access-secret',
+        category: 'upload',
+        retryable: true,
+        code: 'metadata_update_failed',
+      },
+      warnings: ['Remote upload may have completed before local metadata update failed. Review before retrying.'],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [uploadItem()],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Upload'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Upload needs manual review');
+    expect(host.textContent).toContain('The remote upload may have succeeded, but Absinthe could not update local metadata safely.');
+    expect(host.textContent).toContain('Action: Review diagnostics before uploading again');
+    expect(host.textContent).toContain('Manual review');
+    expect(host.textContent).not.toContain('Action: Try again later');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access-secret');
+    cleanup(root, host);
+  });
+
+  it('releases the global upload lock after a failed upload result', async () => {
+    let resolveFirstUpload: ((value: AttachmentExplicitUploadResult) => void) | null = null;
+    const uploadAttachmentFn = vi.fn((attachmentId: string) => {
+      if (attachmentId === 'att-uploadable-a') {
+        return new Promise<AttachmentExplicitUploadResult>(resolve => {
+          resolveFirstUpload = () => resolve(uploadResult({
+            uploadId: 'attachment-upload:att-uploadable-a:2026-06-28T00:00:00.000Z',
+            attachmentId: 'att-uploadable-a',
+            status: 'failed',
+            errorDetails: {
+              message: 'Google Drive upload failed with status 503.',
+              category: 'upload',
+              retryable: true,
+              code: 'provider_unavailable',
+            },
+          }));
+        });
+      }
+      return Promise.resolve(uploadResult({
+        uploadId: `attachment-upload:${attachmentId}:2026-06-28T00:00:00.000Z`,
+        attachmentId,
+      }));
+    });
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-uploadable-a', localBlobKey: 'local-attachment/uploadable-a' }),
+          uploadItem({ attachmentId: 'att-uploadable-b', localBlobKey: 'local-attachment/uploadable-b' }),
+        ],
+      })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    let uploadButtons = Array.from(host.querySelectorAll('[data-attachment-upload-item] button'))
+      .filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement && button.textContent?.trim() === 'Upload');
+    click(uploadButtons[0]);
+    await flushAsync();
+    expect(host.textContent).toContain('Another upload is in progress');
+
+    resolveFirstUpload?.(uploadResult({
+      uploadId: 'attachment-upload:att-uploadable-a:2026-06-28T00:00:00.000Z',
+      attachmentId: 'att-uploadable-a',
+      status: 'failed',
+      errorDetails: {
+        message: 'Google Drive upload failed with status 503.',
+        category: 'upload',
+        retryable: true,
+        code: 'provider_unavailable',
+      },
+    }));
+    await flushAsync();
+    await flushAsync();
+
+    expect(host.textContent).toContain('Google Drive is temporarily unavailable');
+    uploadButtons = Array.from(host.querySelectorAll('[data-attachment-upload-item] button'))
+      .filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement && button.textContent?.trim() === 'Upload');
+    expect(uploadButtons.length).toBeGreaterThanOrEqual(2);
+    click(uploadButtons[1]);
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenLastCalledWith('att-uploadable-b');
     cleanup(root, host);
   });
 
