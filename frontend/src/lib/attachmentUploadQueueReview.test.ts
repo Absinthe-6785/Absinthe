@@ -245,7 +245,7 @@ describe('manual upload queue review', () => {
       ['att-conflict', 'remote_conflict', 'Upload conflict needs review'],
       ['att-missing-remote', 'remote_file_missing', 'Upload target is unavailable'],
       ['att-invalid', 'invalid_remote_response', 'Upload response could not be verified'],
-      ['att-verification', 'verification_failed', 'Uploaded file could not be verified'],
+      ['att-verification', 'size_mismatch', 'Uploaded file could not be verified'],
       ['att-checksum', 'checksum_mismatch', 'Uploaded file could not be verified'],
     ]);
   });
