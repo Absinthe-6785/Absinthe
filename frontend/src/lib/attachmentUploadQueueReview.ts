@@ -59,9 +59,9 @@ function specificReasonCodeFromReason(reason: string): string | undefined {
   if (reason.includes('invalid_upload_response')) return 'invalid_upload_response';
   if (reason.includes('invalid response') || reason.includes('invalid_response')) return 'invalid_response';
   if (reason.includes('missing_remote_id') || reason.includes('remote file id')) return 'missing_remote_id';
-  if (reason.includes('verification failed') || reason.includes('verification')) return 'verification_failed';
   if (reason.includes('size_mismatch') || reason.includes('size mismatch')) return 'size_mismatch';
   if (reason.includes('checksum_mismatch') || reason.includes('checksum mismatch')) return 'checksum_mismatch';
+  if (reason.includes('verification failed') || reason.includes('verification')) return 'verification_failed';
   return undefined;
 }
 

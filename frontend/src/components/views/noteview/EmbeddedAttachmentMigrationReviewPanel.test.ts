@@ -2092,6 +2092,54 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('keeps metadata-eligible local uploads blocked when the session upload gate is unavailable', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({
+          attachmentId: 'att-gated-local',
+          localBlobKey: 'local-attachment/gated-local',
+          remoteProvider: 'googleDrive',
+          remoteFileId: undefined,
+          remoteSyncStatus: 'local_only',
+          eligible: true,
+          reason: 'Ready for explicit upload',
+          localBlobPresent: true,
+          localSize: 512,
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: false }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Manual upload queue review');
+    expect(host.textContent).toContain('Ready0');
+    expect(host.textContent).toContain('Blocked1');
+    expect(host.textContent).toContain('Estimated ready bytes: 0 B');
+    expect(host.textContent).toContain('Ready for manual upload0No items in this bucket.');
+    expect(host.textContent).toContain('Blocked1attachment att-gated-local - Provider not configured');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Delete');
+    expect(buttons).not.toContain('Cleanup');
+    expect(buttons).not.toContain('Overwrite');
+    expect(buttons).not.toContain('Recover all');
+    cleanup(root, host);
+  });
+
   it('uploads exactly one eligible local attachment after an explicit Google Drive Upload click', async () => {
     const { repository, records } = memoryAttachmentRepository([
       attachmentMetadata({
