@@ -303,4 +303,54 @@ describe('explicit attachment upload action', () => {
     expect(changedRepository.records.get('att-1')?.localBlobKey).toBe('local/newer');
     expect(changedBlobs.deleteBlob).not.toHaveBeenCalled();
   });
+
+  it('does not leave metadata stuck uploading when the final metadata update fails after remote upload succeeds', async () => {
+    const repository = memoryRepository([metadata()]);
+    const originalUpdate = repository.updateAttachment.bind(repository);
+    repository.updateAttachment = vi.fn(async (id: string, patch: Partial<AttachmentMetadata>) => {
+      if (patch.remoteSyncStatus === 'synced') {
+        throw new Error('metadata write failed Authorization: Bearer token-secret');
+      }
+      return originalUpdate(id, patch);
+    });
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello'], { type: 'text/plain' }) });
+    const provider = remoteProvider();
+    const remoteDelete = vi.fn();
+    const cleanupOrEvict = vi.fn();
+
+    const result = await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository,
+      localBlobAdapter: blobs,
+      remoteProvider: provider,
+      attachmentId: 'att-1',
+      now: fixedNow(),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.errorDetails).toMatchObject({
+      code: 'metadata_update_failed',
+      category: 'upload',
+    });
+    expect(result.error).not.toContain('token-secret');
+    expect(result.remoteFileId).toBe('drive-file-1');
+    expect(result.warnings).toContain('Remote upload may have completed before local metadata update failed. Review before retrying.');
+    expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('failed');
+    expect(repository.records.get('att-1')?.remoteSyncStatus).not.toBe('uploading');
+    expect(repository.records.get('att-1')?.remoteSyncStatus).not.toBe('synced');
+    expect(repository.records.get('att-1')?.remoteFileId).toBeUndefined();
+    expect(repository.records.get('att-1')?.localBlobKey).toBe('local/att-1');
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    expect(remoteDelete).not.toHaveBeenCalled();
+    expect(cleanupOrEvict).not.toHaveBeenCalled();
+
+    const later = await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository,
+      localBlobAdapter: blobs,
+      remoteProvider,
+      attachmentId: 'att-1',
+    });
+    expect(later.status).toBe('blocked');
+    expect(later.error).toContain('requires review');
+    expect(later.error).not.toContain('already in progress');
+  });
 });

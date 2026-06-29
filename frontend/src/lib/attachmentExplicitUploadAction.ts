@@ -7,6 +7,7 @@ import {
   sanitizeRemoteBlobProviderError,
   type RemoteBlobProvider,
   type RemoteBlobProviderType,
+  type RemoteBlobUploadResult,
   type RemoteBlobUploadVerification,
   type SanitizedRemoteBlobProviderError,
 } from './remoteBlobProvider';
@@ -111,6 +112,8 @@ export async function uploadAttachmentBlobToRemote(
   const startedAt = nowIso(input.now);
   const uploadId = `attachment-upload:${input.attachmentId}:${startedAt}`;
   let failureCode = 'attachment_upload_failed';
+  let completedUploadResult: RemoteBlobUploadResult | null = null;
+  let completedUploadVerification: RemoteBlobUploadVerification | undefined;
   const complete = (
     result: Omit<AttachmentExplicitUploadResult, 'uploadId' | 'startedAt' | 'completedAt'>,
   ): AttachmentExplicitUploadResult => {
@@ -198,12 +201,14 @@ export async function uploadAttachmentBlobToRemote(
       size: metadata.size,
       checksum: metadata.checksum,
     });
+    completedUploadResult = uploadResult;
 
     if (!uploadResult.remoteFileId && !uploadResult.remoteBlobKey) {
       throw new Error('Remote upload completed without a remote file id.');
     }
 
     const verification = verifyAttachmentUploadResult(metadata, uploadResult);
+    completedUploadVerification = verification;
     assertUploadVerification(verification);
 
     const latest = await input.attachmentRepository.getAttachment(metadata.id);
@@ -256,7 +261,7 @@ export async function uploadAttachmentBlobToRemote(
     const errorDetails = safeUploadError(error, failureCode);
     try {
       await input.attachmentRepository.updateAttachment(metadata.id, {
-        remoteSyncStatus: failureCode === 'metadata_update_failed' ? 'uploading' : 'failed',
+        remoteSyncStatus: 'failed',
         remoteError: errorDetails.message,
         lastRemoteSyncAttemptAt: completedAt,
         updatedAt: completedAt,
@@ -269,7 +274,17 @@ export async function uploadAttachmentBlobToRemote(
     return complete({
       attachmentId: metadata.id,
       localBlobKey,
-      remoteProvider: input.remoteProvider.providerType,
+      remoteProvider: completedUploadResult?.remoteProvider ?? completedUploadResult?.providerType ?? input.remoteProvider.providerType,
+      remoteFileId: completedUploadResult?.remoteFileId,
+      remoteSize: completedUploadResult ? remoteSize(completedUploadResult) : undefined,
+      remoteChecksum: completedUploadResult ? remoteChecksum(completedUploadResult) : undefined,
+      verification: completedUploadVerification,
+      warnings: completedUploadResult && failureCode === 'metadata_update_failed'
+        ? [
+            ...(completedUploadVerification?.warnings ?? []),
+            'Remote upload may have completed before local metadata update failed. Review before retrying.',
+          ]
+        : completedUploadVerification?.warnings,
       status: 'failed',
       errorDetails,
     });
