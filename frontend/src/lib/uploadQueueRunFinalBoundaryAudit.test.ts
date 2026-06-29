@@ -25,6 +25,14 @@ function manualQueueReviewSource(): string {
   return source.slice(start, end);
 }
 
+function uploadQueueStopReasonSource(): string {
+  const source = readText(panelPath);
+  const start = source.indexOf('function uploadQueueStopReason');
+  const end = source.indexOf('function blocked', start);
+  if (start < 0 || end < 0) throw new Error('Upload queue stop reason segment not found.');
+  return source.slice(start, end);
+}
+
 describe('K-199 upload queue run final boundary audit', () => {
   it('documents the final implemented boundary for selected visible Ready queue execution', () => {
     const text = readText(docsPath);
@@ -64,12 +72,19 @@ describe('K-199 upload queue run final boundary audit', () => {
       'No automatic queue drain',
       'No automatic retry',
       'No `Retry all`',
+      'No `Retry queue`',
+      'No `Start queue`',
       'No `Continue queue`',
       'No `Run next`',
+      'No upload queue eviction controls',
       'No cancellation UI',
       'No rate-limit timer or backoff scheduler',
       'No background sync',
       'Selection remains limited to 3 visible Ready items',
+      '`Retry queue` remains forbidden',
+      '`Start queue` remains forbidden',
+      '`Evict` and eviction controls are not part of upload queue execution',
+      'visible Ready-only, max-3 selected execution',
     ]) {
       expect(text).toContain(required);
     }
@@ -87,11 +102,14 @@ describe('K-199 upload queue run final boundary audit', () => {
       'No cleanup executor',
       'No overwrite policy',
       'No local blob eviction executor',
+      'No `Evict`, `Evict local`, or `Evict blob` action in upload queue execution',
       'No token persistence',
       'No refresh token lifecycle',
       'No silent session restore',
       'No token endpoint call in the limited queue runner',
       'No OAuth widening',
+      '`uploadQueueStopReason`, when present, is reporting and summary copy only',
+      'must not trigger automatic retry, continue, run-next, queue drain, or eviction behavior',
     ]) {
       expect(text).toContain(required);
     }
@@ -116,9 +134,34 @@ describe('K-199 upload queue run final boundary audit', () => {
     expect(runner).not.toContain('remoteDelete');
     expect(runner).not.toContain('executeAttachmentCleanup');
     expect(runner).not.toContain('executeLocalBlobEviction');
+    expect(runner).not.toContain('Retry queue');
+    expect(runner).not.toContain('Start queue');
+    expect(runner).not.toContain('Evict');
+    expect(runner).not.toContain('Evict local');
+    expect(runner).not.toContain('Evict blob');
     expect(runner).not.toContain('localStorage');
     expect(runner).not.toContain('sessionStorage');
     expect(runner).not.toContain('oauth2.googleapis.com/token');
+  });
+
+  it('keeps uploadQueueStopReason scoped to summary copy without retry, continue, or eviction actions', () => {
+    const stopReason = uploadQueueStopReasonSource();
+
+    expect(stopReason).toContain('function uploadQueueStopReason');
+    expect(stopReason).toContain('Stopped because a selected item');
+    expect(stopReason).toContain('did not complete successfully');
+    expect(stopReason).not.toContain('runUpload(');
+    expect(stopReason).not.toContain('Upload selected');
+    expect(stopReason).not.toContain('Retry queue');
+    expect(stopReason).not.toContain('Start queue');
+    expect(stopReason).not.toContain('Continue queue');
+    expect(stopReason).not.toContain('Run next');
+    expect(stopReason).not.toContain('Retry all');
+    expect(stopReason).not.toContain('Sync now');
+    expect(stopReason).not.toContain('Promise.all');
+    expect(stopReason).not.toContain('executeLocalBlobEviction');
+    expect(stopReason).not.toContain('deleteBlob');
+    expect(stopReason).not.toContain('remoteDelete');
   });
 
   it('keeps manual queue review controls limited to Upload selected and forbids bulk/drain controls', () => {
@@ -134,10 +177,21 @@ describe('K-199 upload queue run final boundary audit', () => {
       'Run queue',
       'Run all',
       'Retry all',
+      'Retry queue',
+      'Start queue',
       'Sync now',
       'Process queue',
       'Continue queue',
       'Run next',
+      'Start upload queue',
+      'Resume queue',
+      'Run remaining',
+      'Continue uploads',
+      'Retry selected',
+      'Retry queue upload',
+      'Evict',
+      'Evict local',
+      'Evict blob',
       'Delete remote',
       'Clear orphan',
       'Overwrite',
