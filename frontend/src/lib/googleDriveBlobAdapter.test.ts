@@ -220,6 +220,34 @@ describe('GoogleDriveBlobAdapter', () => {
     });
   });
 
+  it('fails safely when a 200 OK upload response omits the Drive file id', async () => {
+    const sessionUri = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret';
+    const { fetcher } = createMockFetch([
+      responseWithLocation(sessionUri),
+      responseJson({
+        name: 'scan.txt',
+        mimeType: 'text/plain',
+        size: '11',
+      }),
+    ]);
+    const adapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher,
+    });
+
+    await adapter.uploadBlob(uploadInput()).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+        code: 'invalid_response',
+        retryable: false,
+      });
+      const serialized = JSON.stringify(error);
+      expect(serialized).not.toContain('access-token-secret');
+      expect(serialized).not.toContain('session-secret');
+      expect(serialized).not.toContain(sessionUri);
+    });
+  });
+
   it('fails safely with a sanitized error when compatible md5 mismatches', async () => {
     const sessionUri = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret';
     const { fetcher } = createMockFetch([
