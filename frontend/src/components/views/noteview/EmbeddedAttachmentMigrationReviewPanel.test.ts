@@ -766,6 +766,37 @@ function queueBucket(host: HTMLElement, testId: string): HTMLElement {
   return bucket;
 }
 
+function queueButtonLabels(host: HTMLElement): Array<string | undefined> {
+  return Array.from(host.querySelectorAll('[data-manual-upload-queue-review] button'))
+    .map(button => button.textContent?.trim());
+}
+
+function readyQueueSelections(host: HTMLElement): HTMLInputElement[] {
+  return Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+}
+
+function expectNoUnsafeQueueActions(host: HTMLElement) {
+  const labels = queueButtonLabels(host);
+  for (const forbidden of [
+    'Select all',
+    'Upload all',
+    'Run queue',
+    'Run all',
+    'Retry all',
+    'Sync now',
+    'Process queue',
+    'Continue queue',
+    'Run next',
+    'Delete remote',
+    'Clear orphan',
+    'Overwrite',
+    'Recover all',
+    'Download all',
+  ]) {
+    expect(labels).not.toContain(forbidden);
+  }
+}
+
 function click(element: HTMLElement) {
   act(() => {
     element.click();
@@ -2598,6 +2629,311 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Continue queue');
     expect(buttons).not.toContain('Run next');
     cleanup(root, host);
+  });
+
+  it('runs a limited real scenario until metadata update failure and recomputes Ready, synced, and manual-review buckets', async () => {
+    let uploadedA = false;
+    let failedB = false;
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => {
+      if (attachmentId === 'att-real-meta-a') {
+        uploadedA = true;
+        return uploadResult({
+          attachmentId,
+          localBlobKey: 'local-attachment/real-meta-a',
+          remoteFileId: 'drive-real-meta-a-secret',
+          remoteSize: 128,
+          verification: { sizeVerified: true, checksumVerified: true },
+        });
+      }
+      if (attachmentId === 'att-real-meta-b') {
+        failedB = true;
+        return uploadResult({
+          attachmentId,
+          localBlobKey: 'local-attachment/real-meta-b',
+          remoteFileId: 'drive-real-meta-b-secret',
+          status: 'failed',
+          errorDetails: {
+            code: 'metadata_update_failed',
+            category: 'upload',
+            retryable: true,
+            message: 'metadata failed Authorization: Bearer token-secret access_token=secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
+          },
+          warnings: ['Remote upload may have completed before metadata update failed. access_token=warning-secret'],
+        });
+      }
+      return uploadResult({ attachmentId });
+    });
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: uploadedA || failedB ? [
+        uploadItem({
+          attachmentId: 'att-real-meta-a',
+          localBlobKey: 'local-attachment/real-meta-a',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-real-meta-a-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+          localBlobPresent: true,
+          localSize: 128,
+          remoteSize: 128,
+          verification: { sizeVerified: true, checksumVerified: true },
+        }),
+        uploadItem({
+          attachmentId: 'att-real-meta-b',
+          localBlobKey: 'local-attachment/real-meta-b',
+          remoteSyncStatus: 'failed',
+          eligible: false,
+          reason: 'metadata_update_failed Authorization: Bearer bearer-secret access_token=secret',
+          localBlobPresent: true,
+          localSize: 256,
+        }),
+        uploadItem({ attachmentId: 'att-real-meta-c', localBlobKey: 'local-attachment/real-meta-c', localSize: 512 }),
+        uploadItem({ attachmentId: 'att-real-meta-d', localBlobKey: 'local-attachment/real-meta-d', localSize: 1024 }),
+      ] : [
+        uploadItem({ attachmentId: 'att-real-meta-a', localBlobKey: 'local-attachment/real-meta-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-real-meta-b', localBlobKey: 'local-attachment/real-meta-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-real-meta-c', localBlobKey: 'local-attachment/real-meta-c', localSize: 512 }),
+        uploadItem({ attachmentId: 'att-real-meta-d', localBlobKey: 'local-attachment/real-meta-d', localSize: 1024 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    const selections = readyQueueSelections(host);
+    expect(selections).toHaveLength(3);
+    selections.forEach(selection => click(selection));
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(1, 'att-real-meta-a');
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(2, 'att-real-meta-b');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-real-meta-c');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-real-meta-d');
+    expect(host.textContent).toContain('Uploaded 1 of 3 selected items.');
+    expect(host.textContent).toContain('Non-success stops: 1. Not started: 1 selected item. Stopped after one selected item did not complete successfully.');
+    expect(host.textContent).toContain('Stopped item: attachment att-real-meta-b');
+    expect(host.textContent).toContain('Stopped because a selected item failed to upload');
+    expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('drive/v3/files');
+    expectNoUnsafeQueueActions(host);
+
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('Ready2');
+    expect(host.textContent).toContain('Manual review1');
+    expect(host.textContent).toContain('Already synced1');
+    expect(host.textContent).toContain('Estimated ready bytes: 1.5 KB');
+    expect(queueBucket(host, 'upload-queue-already-synced').textContent).toContain('attachment att-real-meta-a - Already synced');
+    expect(queueBucket(host, 'upload-queue-manual-review').textContent).toContain('attachment att-real-meta-b - Upload needs manual review');
+    expect(queueBucket(host, 'upload-queue-ready').textContent).toContain('attachment att-real-meta-c - Ready for manual upload');
+    expect(queueBucket(host, 'upload-queue-ready').textContent).toContain('attachment att-real-meta-d - Ready for manual upload');
+    expect(host.textContent).not.toContain('drive-real-meta-a-secret');
+    expect(host.textContent).not.toContain('drive-real-meta-b-secret');
+    expect(host.textContent).not.toContain('bearer-secret');
+    expect(host.textContent).not.toContain('warning-secret');
+    expectNoUnsafeQueueActions(host);
+    cleanup(root, host);
+  });
+
+  it('stops a limited real scenario when the session expires before the second selected item', async () => {
+    let expired = false;
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => {
+      expired = true;
+      return uploadResult({
+        attachmentId,
+        localBlobKey: 'local-attachment/session-a',
+        remoteFileId: 'drive-session-a-secret',
+        remoteSize: 128,
+        verification: { sizeVerified: true, checksumVerified: true },
+      });
+    });
+    const controller = manualGoogleDriveController({
+      connected: true,
+      getConnectionStatus: vi.fn(async () => expired
+        ? resolveRemoteProviderConnectionBoundary({
+            providerType: 'googleDrive',
+            status: 'auth_expired',
+            capabilities: { supportsDownload: true, supportsUpload: false },
+          })
+        : availableProviderConnection({ canUpload: true, canDownload: true, canRecover: true })),
+    });
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: expired ? [
+        uploadItem({
+          attachmentId: 'att-session-a',
+          localBlobKey: 'local-attachment/session-a',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-session-a-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+          localBlobPresent: true,
+          localSize: 128,
+          remoteSize: 128,
+          verification: { sizeVerified: true, checksumVerified: true },
+        }),
+        uploadItem({ attachmentId: 'att-session-b', localBlobKey: 'local-attachment/session-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-session-c', localBlobKey: 'local-attachment/session-c', localSize: 512 }),
+      ] : [
+        uploadItem({ attachmentId: 'att-session-a', localBlobKey: 'local-attachment/session-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-session-b', localBlobKey: 'local-attachment/session-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-session-c', localBlobKey: 'local-attachment/session-c', localSize: 512 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: controller,
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    readyQueueSelections(host).forEach(selection => click(selection));
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(uploadAttachmentFn).toHaveBeenCalledWith('att-session-a');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-session-b');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-session-c');
+    expect(host.textContent).toContain('Uploaded 1 of 3 selected items.');
+    expect(host.textContent).toContain('Non-success stops: 1. Not started: 1 selected item. Stopped after one selected item did not complete successfully.');
+    expect(host.textContent).toContain('Stopped item: attachment att-session-b');
+    expect(host.textContent).toContain('Session expired');
+    expect(queueButtonLabels(host)).not.toContain('Generate authorization URL');
+    expectNoUnsafeQueueActions(host);
+
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Already synced1');
+    expect(host.textContent).toContain('Blocked2');
+    expect(queueBucket(host, 'upload-queue-already-synced').textContent).toContain('attachment att-session-a - Already synced');
+    expect(queueBucket(host, 'upload-queue-blocked').textContent).toContain('attachment att-session-b - Session expired');
+    expect(queueBucket(host, 'upload-queue-blocked').textContent).toContain('attachment att-session-c - Session expired');
+    expect(host.textContent).not.toContain('drive-session-a-secret');
+    expectNoUnsafeQueueActions(host);
+    cleanup(root, host);
+  });
+
+  it('keeps later selected items idle for representative rate-limit, verification, and null limited-run stops', async () => {
+    for (const scenario of [
+      {
+        name: 'rate limited',
+        result: uploadResult({
+          attachmentId: 'att-real-stop-b',
+          status: 'failed',
+          errorDetails: {
+            code: 'rate_limited',
+            category: 'rate_limited',
+            retryable: true,
+            message: 'Too many requests Authorization: Bearer token-secret access_token=secret',
+          },
+        }),
+        expectedReason: 'Google Drive is rate limiting uploads',
+      },
+      {
+        name: 'invalid response',
+        result: uploadResult({
+          attachmentId: 'att-real-stop-b',
+          status: 'failed',
+          errorDetails: {
+            code: 'invalid_response',
+            category: 'verification',
+            retryable: false,
+            message: '{"access_token":"secret","remoteFileId":"drive-secret","html":"<b>raw</b>"}',
+          },
+        }),
+        expectedReason: 'Upload response could not be verified',
+      },
+      {
+        name: 'checksum mismatch',
+        result: uploadResult({
+          attachmentId: 'att-real-stop-b',
+          status: 'failed',
+          errorDetails: {
+            code: 'checksum_mismatch',
+            category: 'verification',
+            retryable: false,
+            message: 'checksum mismatch data:image/png;base64,secret',
+          },
+        }),
+        expectedReason: 'Uploaded file could not be verified',
+      },
+      {
+        name: 'null result',
+        result: null,
+        expectedReason: 'Stopped because a selected item did not return a completed upload result',
+      },
+    ]) {
+      const uploadAttachmentFn = vi.fn(async (attachmentId: string) => {
+        if (attachmentId === 'att-real-stop-a') return uploadResult({ attachmentId });
+        return scenario.result as AttachmentExplicitUploadResult;
+      });
+      const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-real-stop-a', localBlobKey: 'local-attachment/real-stop-a', localSize: 128 }),
+          uploadItem({ attachmentId: 'att-real-stop-b', localBlobKey: 'local-attachment/real-stop-b', localSize: 256 }),
+          uploadItem({ attachmentId: 'att-real-stop-c', localBlobKey: 'local-attachment/real-stop-c', localSize: 512 }),
+          uploadItem({ attachmentId: 'att-real-stop-hidden-d', localBlobKey: 'local-attachment/real-stop-hidden-d', localSize: 1024 }),
+        ],
+      }));
+      const { root, host } = render(panelElement({
+        uploadAttachmentFn,
+        googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+        diagnosticsFn,
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      await flushAsync();
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+      readyQueueSelections(host).forEach(selection => click(selection));
+      await flushAsync();
+
+      click(buttonByText(host, 'Upload selected'));
+      await flushAsync();
+      await flushAsync();
+
+      expect(uploadAttachmentFn, scenario.name).toHaveBeenCalledTimes(2);
+      expect(uploadAttachmentFn, scenario.name).toHaveBeenNthCalledWith(1, 'att-real-stop-a');
+      expect(uploadAttachmentFn, scenario.name).toHaveBeenNthCalledWith(2, 'att-real-stop-b');
+      expect(uploadAttachmentFn, scenario.name).not.toHaveBeenCalledWith('att-real-stop-c');
+      expect(uploadAttachmentFn, scenario.name).not.toHaveBeenCalledWith('att-real-stop-hidden-d');
+      expect(host.textContent, scenario.name).toContain('Uploaded 1 of 3 selected items.');
+      expect(host.textContent, scenario.name).toContain('Non-success stops: 1. Not started: 1 selected item. Stopped after one selected item did not complete successfully.');
+      expect(host.textContent, scenario.name).toContain('Stopped item: attachment att-real-stop-b');
+      expect(host.textContent, scenario.name).toContain(scenario.expectedReason);
+      expect(host.textContent, scenario.name).not.toContain('token-secret');
+      expect(host.textContent, scenario.name).not.toContain('access_token');
+      expect(host.textContent, scenario.name).not.toContain('drive-secret');
+      expect(host.textContent, scenario.name).not.toContain('data:image/png;base64');
+      expectNoUnsafeQueueActions(host);
+      cleanup(root, host);
+    }
   });
 
   it('stops selected runs on blocked, skipped, null, or unknown non-success upload results', async () => {
