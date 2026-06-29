@@ -35,6 +35,7 @@ import {
   formatUploadFailureForUi,
   getUploadManualReviewDiagnostics,
 } from '../../../lib/attachmentUploadFailureLabel';
+import { buildManualUploadQueueReview, type ManualUploadQueueReviewItem } from '../../../lib/attachmentUploadQueueReview';
 import type { AttachmentRepository, BlobStorageAdapter } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
@@ -1181,6 +1182,34 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     );
   };
 
+  const renderUploadQueueGroup = (
+    title: string,
+    items: readonly ManualUploadQueueReviewItem[],
+  ) => (
+    <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <div style={{ fontSize: 10.5, fontWeight: 800 }}>{title}</div>
+        <div style={{ fontSize: 10, color: c.textFaint }}>{items.length}</div>
+      </div>
+      {items.length === 0 ? (
+        <div style={{ fontSize: 10, color: c.textFaint }}>No items in this bucket.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {items.slice(0, 3).map(item => (
+            <div key={item.attachmentId} data-upload-queue-review-item style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
+              attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
+              {item.manualReview ? ' - manual review' : ''}
+              {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
+            </div>
+          ))}
+          {items.length > 3 ? (
+            <div style={{ fontSize: 9.5, color: c.textFaint }}>{items.length - 3} more items in this bucket.</div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section
       data-embedded-attachment-migration-review
@@ -1766,6 +1795,61 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
                     Google Drive upload is session-only. Upload is available only for one eligible local attachment after an explicit click. Nothing uploads automatically, and no upload-all action exists.
                   </div>
+                  {(() => {
+                    const uploadQueueReview = buildManualUploadQueueReview({
+                      items: diagnosticsReport.uploadItems,
+                      getAvailability: item => {
+                        const availability = getAttachmentUploadAvailability({
+                          item,
+                          providerConnection,
+                          hasUploadController: Boolean(activeUploadAttachmentFn),
+                          googleDriveSessionController,
+                          runningUploadAttachmentId,
+                        });
+                        return {
+                          canUpload: availability.canUpload,
+                          reasonCode: availability.reasonCode,
+                          reasonLabel: availability.reasonLabel,
+                        };
+                      },
+                    });
+                    return (
+                      <div data-manual-upload-queue-review style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800 }}>Manual upload queue review</div>
+                        <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                          This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section. Eligible items still require individual Upload clicks.
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 5 }}>
+                          {[
+                            ['Total', uploadQueueReview.summary.totalItems],
+                            ['Ready', uploadQueueReview.summary.eligibleCount],
+                            ['Blocked', uploadQueueReview.summary.blockedCount],
+                            ['Manual review', uploadQueueReview.summary.manualReviewCount],
+                            ['Synced', uploadQueueReview.summary.alreadySyncedCount],
+                            ['Missing local', uploadQueueReview.summary.missingLocalCount],
+                          ].map(([label, value]) => (
+                            <div key={label} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: '5px 6px' }}>
+                              <div style={{ fontSize: 9.5, color: c.textFaint }}>{label}</div>
+                              <div style={{ fontSize: 11.5, fontWeight: 800 }}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+                          Estimated ready bytes: <strong>{formatBytes(uploadQueueReview.summary.estimatedEligibleBytes)}</strong>
+                          {uploadQueueReview.summary.unknownEligibleSizeCount > 0 ? ` (${uploadQueueReview.summary.unknownEligibleSizeCount} ready item${uploadQueueReview.summary.unknownEligibleSizeCount === 1 ? '' : 's'} with unknown size)` : ''}
+                        </div>
+                        <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
+                          Providers: {Object.entries(uploadQueueReview.summary.providerCounts).map(([provider, count]) => `${provider} ${count}`).join(', ') || 'none'}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 6 }}>
+                          {renderUploadQueueGroup('Ready for manual upload', uploadQueueReview.groups.eligible)}
+                          {renderUploadQueueGroup('Blocked', uploadQueueReview.groups.blocked)}
+                          {renderUploadQueueGroup('Needs manual review', uploadQueueReview.groups.manualReview)}
+                          {renderUploadQueueGroup('Already synced', uploadQueueReview.groups.alreadySynced)}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {diagnosticsReport.uploadItems.length === 0 ? (
                     <div style={{ fontSize: 10.5, color: c.textMuted }}>No local attachments are waiting for explicit upload.</div>
                   ) : (
