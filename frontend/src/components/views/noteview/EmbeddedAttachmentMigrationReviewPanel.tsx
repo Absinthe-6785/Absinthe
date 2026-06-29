@@ -1225,9 +1225,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       setUploadError(uploadReasonLabel('another_upload_in_progress'));
       return;
     }
-    const visibleReadyIds = new Set(visibleReadyItems.map(item => item.attachmentId));
-    const selectedIds = Array.from(selectedUploadQueueAttachmentIds)
-      .filter(id => visibleReadyIds.has(id))
+    const selectedIds = visibleReadyItems
+      .map(item => item.attachmentId)
+      .filter(id => selectedUploadQueueAttachmentIds.has(id))
       .slice(0, maxManualUploadQueueSelection);
     if (selectedIds.length === 0) return;
 
@@ -1240,7 +1240,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
 
     for (const attachmentId of selectedIds) {
       const report = await runUpload(attachmentId);
-      if (!report || report.status === 'failed' || report.status === 'blocked') {
+      if (!report || report.status !== 'uploaded') {
         failedAttachmentId = attachmentId;
         failureReason = report?.errorDetails
           ? formatUploadFailureForUi({
@@ -1249,6 +1249,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
               reasonCode: report.errorDetails.code,
               remoteObjectAmbiguous: Boolean(report.remoteFileId),
             }).title
+          : report
+            ? `Upload stopped with status ${report.status}`
           : 'Upload stopped before this item could start';
         break;
       }

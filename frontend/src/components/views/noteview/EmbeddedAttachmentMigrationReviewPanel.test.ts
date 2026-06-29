@@ -2492,6 +2492,50 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-hidden-d');
     expect(host.textContent).toContain('2 of 2 selected uploads completed.');
     expect(host.textContent).toContain('Failed: 0. Not started: 0.');
+    const selectionsAfterRun = Array.from(readyBucket.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(selectionsAfterRun[0].checked).toBe(false);
+    expect(selectionsAfterRun[1].checked).toBe(false);
+    cleanup(root, host);
+  });
+
+  it('executes selected Ready items in visible display order even when selected out of order', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-order-a', localBlobKey: 'local-attachment/order-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-order-b', localBlobKey: 'local-attachment/order-b', localSize: 256 }),
+        uploadItem({ attachmentId: 'att-order-c', localBlobKey: 'local-attachment/order-c', localSize: 512 }),
+        uploadItem({ attachmentId: 'att-hidden-d', localBlobKey: 'local-attachment/hidden-d', localSize: 1024 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    const selections = Array.from(readyBucket.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    click(selections[1]);
+    click(selections[0]);
+    await flushAsync();
+
+    click(buttonByText(host, 'Upload selected'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(uploadAttachmentFn).toHaveBeenCalledTimes(2);
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(1, 'att-order-a');
+    expect(uploadAttachmentFn).toHaveBeenNthCalledWith(2, 'att-order-b');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-order-c');
+    expect(uploadAttachmentFn).not.toHaveBeenCalledWith('att-hidden-d');
+    expect(host.textContent).toContain('2 of 2 selected uploads completed.');
     cleanup(root, host);
   });
 
@@ -2544,6 +2588,7 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('1 of 3 selected uploads completed.');
     expect(host.textContent).toContain('Failed: 1. Not started: 1. Stopped after the first failure.');
     expect(host.textContent).toContain('Failed item: attachment att-stop-b');
+    expect(selections.every(selection => !selection.checked)).toBe(true);
     expect(host.textContent).not.toContain('token-secret');
     expect(host.textContent).not.toContain('access_token=secret');
     const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
@@ -2551,6 +2596,80 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Continue queue');
     expect(buttons).not.toContain('Run next');
     cleanup(root, host);
+  });
+
+  it('stops selected runs on blocked, skipped, null, or unknown non-success upload results', async () => {
+    for (const scenario of [
+      {
+        name: 'blocked',
+        result: uploadResult({
+          attachmentId: 'att-stop-status-a',
+          status: 'blocked',
+          errorDetails: {
+            code: 'local_blob_missing',
+            category: 'local',
+            retryable: false,
+            message: 'Local blob missing Authorization: Bearer token-secret access_token=secret',
+          },
+        }),
+        expectedReason: 'Local blob missing',
+      },
+      {
+        name: 'skipped',
+        result: uploadResult({ attachmentId: 'att-stop-status-a', status: 'skipped' }),
+        expectedReason: 'Upload stopped with status skipped',
+      },
+      {
+        name: 'null',
+        result: null,
+        expectedReason: 'Upload stopped before this item could start',
+      },
+      {
+        name: 'unknown',
+        result: uploadResult({
+          attachmentId: 'att-stop-status-a',
+          status: 'paused' as AttachmentExplicitUploadResult['status'],
+        }),
+        expectedReason: 'Upload stopped with status paused',
+      },
+    ]) {
+      const uploadAttachmentFn = vi.fn(async () => scenario.result as AttachmentExplicitUploadResult);
+      const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+        recoveryItems: [],
+        uploadItems: [
+          uploadItem({ attachmentId: 'att-stop-status-a', localBlobKey: 'local-attachment/stop-status-a', localSize: 128 }),
+          uploadItem({ attachmentId: 'att-stop-status-b', localBlobKey: 'local-attachment/stop-status-b', localSize: 256 }),
+        ],
+      }));
+      const { root, host } = render(panelElement({
+        uploadAttachmentFn,
+        googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+        diagnosticsFn,
+      }));
+
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      await flushAsync();
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+      const selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+      click(selections[0]);
+      click(selections[1]);
+      await flushAsync();
+
+      click(buttonByText(host, 'Upload selected'));
+      await flushAsync();
+      await flushAsync();
+
+      expect(uploadAttachmentFn, scenario.name).toHaveBeenCalledTimes(1);
+      expect(uploadAttachmentFn, scenario.name).toHaveBeenCalledWith('att-stop-status-a');
+      expect(host.textContent, scenario.name).toContain('0 of 2 selected uploads completed.');
+      expect(host.textContent, scenario.name).toContain('Failed: 1. Not started: 1. Stopped after the first failure.');
+      expect(host.textContent, scenario.name).toContain(scenario.expectedReason);
+      expect(selections.every(selection => !selection.checked), scenario.name).toBe(true);
+      expect(host.textContent, scenario.name).not.toContain('token-secret');
+      expect(host.textContent, scenario.name).not.toContain('access_token=secret');
+      cleanup(root, host);
+    }
   });
 
   it('revalidates each selected item before its turn and stops when a later item leaves Ready', async () => {
@@ -2596,6 +2715,61 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Failed: 1. Not started: 0. Stopped after the first failure.');
     expect(host.textContent).toContain('Failed item: attachment att-revalidate-b');
     expect(host.textContent).toContain('Local blob missing');
+    const selectionsAfterRun = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(selectionsAfterRun.every(selection => !selection.checked)).toBe(true);
+    cleanup(root, host);
+  });
+
+  it('clears selected Ready items after diagnostics refresh when they leave the Ready bucket', async () => {
+    let refreshed = false;
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: refreshed ? [
+        uploadItem({
+          attachmentId: 'att-refresh-a',
+          localBlobKey: 'local-attachment/refresh-a',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-refresh-a-secret',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+        }),
+        uploadItem({ attachmentId: 'att-refresh-b', localBlobKey: 'local-attachment/refresh-b', localSize: 256 }),
+      ] : [
+        uploadItem({ attachmentId: 'att-refresh-a', localBlobKey: 'local-attachment/refresh-a', localSize: 128 }),
+        uploadItem({ attachmentId: 'att-refresh-b', localBlobKey: 'local-attachment/refresh-b', localSize: 256 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    let selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    click(selections[0]);
+    click(selections[1]);
+    await flushAsync();
+    expect(host.textContent).toContain('2 selected of 3.');
+
+    refreshed = true;
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Ready1');
+    expect(host.textContent).toContain('Already synced1');
+    expect(host.textContent).toContain('0 selected of 3.');
+    expect(host.textContent).not.toContain('drive-refresh-a-secret');
+    selections = Array.from(queueBucket(host, 'upload-queue-ready').querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+    expect(selections).toHaveLength(1);
+    expect(selections[0].checked).toBe(false);
+    expect(buttonByText(host, 'Upload selected').disabled).toBe(true);
     cleanup(root, host);
   });
 
