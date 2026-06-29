@@ -1742,6 +1742,150 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('recovers only the eligible cross-device Google Drive attachment after an explicit click', async () => {
+    const { repository, records } = memoryAttachmentRepository([
+      attachmentMetadata({ id: 'att-recoverable', remoteFileId: 'drive-file-1' }),
+      attachmentMetadata({
+        id: 'att-present',
+        localBlobKey: 'local-attachment/present',
+        remoteFileId: 'drive-file-present',
+        remoteSyncStatus: 'synced',
+      }),
+      attachmentMetadata({
+        id: 'att-conflict',
+        remoteFileId: 'drive-file-conflict',
+        remoteSyncStatus: 'conflict',
+      }),
+    ]);
+    const { adapter, blobs } = memoryBlobAdapter([
+      { key: 'local-attachment/present', blob: new Blob(['already-local'], { type: 'text/plain' }) },
+    ]);
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(new Blob(['hello'], { type: 'text/plain' }), { status: 200 }));
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveRecoveryFetcher: fetcher,
+      googleDriveRecoveryRepository: repository,
+      googleDriveRecoveryBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({
+        recoveryItems: [
+          recoveryItem({ attachmentId: 'att-recoverable', remoteFileId: 'drive-file-1', remoteSize: 5 }),
+          recoveryItem({ attachmentId: 'att-r2', remoteProvider: 'r2', remoteFileId: 'r2-file-1' }),
+          recoveryItem({ attachmentId: 'att-present', remoteFileId: 'drive-file-present', localBlobKey: 'local-attachment/present', localBlobPresent: true }),
+          recoveryItem({ attachmentId: 'att-no-remote-file', remoteFileId: undefined }),
+          recoveryItem({ attachmentId: 'att-conflict', remoteFileId: 'drive-file-conflict', remoteSyncStatus: 'conflict', eligible: false }),
+        ],
+      })),
+    }));
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(blobs.size).toBe(1);
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    expect(fetcher).not.toHaveBeenCalled();
+
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(Array.from(host.querySelectorAll('[data-attachment-sync-diagnostics-section] button')).map(button => button.textContent?.trim()).filter(Boolean)).toContain('Recover');
+    expect(Array.from(host.querySelectorAll('button')).filter(button => button.textContent?.trim() === 'Recover')).toHaveLength(1);
+    expect(host.textContent).toContain('Provider mismatch');
+    expect(host.textContent).toContain('Local blob already present');
+    expect(host.textContent).toContain('Remote file missing');
+    expect(host.textContent).toContain('Sync state blocks recovery');
+
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0][0])).toBe('https://www.googleapis.com/drive/v3/files/drive-file-1?alt=media');
+    expect(blobs.get('local-attachment/recovered-att-recoverable')?.size).toBe(5);
+    expect(records.get('att-recoverable')?.remoteSyncStatus).toBe('synced');
+    expect(records.get('att-recoverable')?.localBlobKey).toBe('local-attachment/recovered-att-recoverable');
+    expect(records.get('att-present')?.localBlobKey).toBe('local-attachment/present');
+    expect(records.get('att-conflict')?.remoteSyncStatus).toBe('conflict');
+    expect(host.textContent).not.toContain('access-token-secret');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Recover all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Download all');
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Sync now');
+    cleanup(root, host);
+  });
+
+  it('requires an explicit second click to retry after a failed Google Drive recovery', async () => {
+    const { repository, records } = memoryAttachmentRepository([attachmentMetadata()]);
+    const { adapter, blobs } = memoryBlobAdapter();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('<html>access_token=token-secret</html>', { status: 500 }))
+      .mockResolvedValueOnce(new Response(new Blob(['hello'], { type: 'text/plain' }), { status: 200 }));
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      googleDriveRecoveryFetcher: fetcher,
+      googleDriveRecoveryRepository: repository,
+      googleDriveRecoveryBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem({ remoteSize: 5 })] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Google Drive is temporarily unavailable');
+    expect(records.get('att-recoverable')?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(records.get('att-recoverable')?.localBlobKey).toBeUndefined();
+    expect(blobs.has('local-attachment/recovered-att-recoverable')).toBe(false);
+    expect(host.textContent).not.toContain('token-secret');
+
+    await flushAsync();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+    await flushAsync();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(records.get('att-recoverable')?.remoteSyncStatus).toBe('synced');
+    expect(records.get('att-recoverable')?.localBlobKey).toBe('local-attachment/recovered-att-recoverable');
+    expect(blobs.get('local-attachment/recovered-att-recoverable')?.size).toBe(5);
+    expect(host.textContent).toContain('Status: recovered');
+    cleanup(root, host);
+  });
+
+  it('blocks real recovery when the session expires between diagnostics and click', async () => {
+    const controller = manualGoogleDriveController({ connected: true });
+    const { repository, records } = memoryAttachmentRepository([attachmentMetadata()]);
+    const { adapter, blobs } = memoryBlobAdapter();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(new Blob(['hello'], { type: 'text/plain' }), { status: 200 }));
+    const { root, host } = render(panelElement({
+      googleDriveSessionController: controller,
+      googleDriveRecoveryFetcher: fetcher,
+      googleDriveRecoveryRepository: repository,
+      googleDriveRecoveryBlobAdapter: adapter,
+      diagnosticsFn: vi.fn(async () => diagnosticsReport({ recoveryItems: [recoveryItem({ remoteSize: 5 })] })),
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+    expect(Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim())).toContain('Recover');
+
+    await act(async () => {
+      await controller.markReconnectRequired?.();
+    });
+    click(buttonByText(host, 'Recover'));
+    await flushAsync();
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(blobs.has('local-attachment/recovered-att-recoverable')).toBe(false);
+    expect(records.get('att-recoverable')?.remoteSyncStatus).toBe('recoverable_remote');
+    expect(records.get('att-recoverable')?.localBlobKey).toBeUndefined();
+    expect(host.textContent).toContain('Reconnect required');
+    expect(host.textContent).not.toContain('oauth2.googleapis.com/token');
+    cleanup(root, host);
+  });
+
   it('does not leak access tokens when a real Google Drive recovery download fails', async () => {
     const { repository } = memoryAttachmentRepository([attachmentMetadata()]);
     const { adapter } = memoryBlobAdapter();
@@ -2144,12 +2288,12 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
       status: 'failed',
       error: 'download failed Authorization: Bearer token-secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret',
       errorDetails: {
-        message: 'download failed Authorization: Bearer [redacted-secret] [redacted-remote-url]',
+        message: 'download failed Authorization: Bearer token-secret https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret access_token=access-secret codeVerifier=verifier-secret http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret',
         category: 'network',
         retryable: true,
         code: 'download_failed',
       },
-      warnings: ['size-only warning access_token=[redacted-secret]'],
+      warnings: ['size-only warning access_token=warning-secret data:image/png;base64,AAA111'],
     }));
     const { root, host } = render(panelElement({
       recoverAttachmentFn,
@@ -2168,7 +2312,12 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('download_failed');
     expect(host.textContent).toContain('network, retryable yes');
     expect(host.textContent).not.toContain('token-secret');
+    expect(host.textContent).not.toContain('access-secret');
+    expect(host.textContent).not.toContain('verifier-secret');
+    expect(host.textContent).not.toContain('callback-secret');
+    expect(host.textContent).not.toContain('warning-secret');
     expect(host.textContent).not.toContain('session-secret');
+    expect(host.textContent).not.toContain('AAA111');
     expect(host.textContent).not.toContain(embeddedPayload);
     cleanup(root, host);
   });
