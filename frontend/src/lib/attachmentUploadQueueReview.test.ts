@@ -250,6 +250,52 @@ describe('manual upload queue review', () => {
     ]);
   });
 
+  it('keeps checksum mismatch as manual review without upload, delete, or retry behavior', () => {
+    const upload = vi.fn();
+    const retry = vi.fn();
+    const cleanup = vi.fn();
+    const deleteBlob = vi.fn();
+    const review = buildManualUploadQueueReview({
+      items: [
+        item({
+          attachmentId: 'att-checksum-specific',
+          remoteSyncStatus: 'failed',
+          eligible: true,
+          reason: 'checksum_mismatch Authorization: Bearer bearer-secret access_token=secret',
+          localBlobPresent: true,
+          localSize: 512,
+        }),
+      ],
+      getAvailability: () => ({ canUpload: true, reasonLabel: 'Ready for explicit upload' }),
+    });
+
+    expect(upload).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(deleteBlob).not.toHaveBeenCalled();
+    expect(review.groups.eligible).toHaveLength(0);
+    expect(review.groups.alreadySynced).toHaveLength(0);
+    expect(review.groups.blocked).toHaveLength(0);
+    expect(review.groups.manualReview).toHaveLength(1);
+    expect(review.summary).toMatchObject({
+      eligibleCount: 0,
+      manualReviewCount: 1,
+      alreadySyncedCount: 0,
+      estimatedEligibleBytes: 0,
+    });
+    expect(review.groups.manualReview[0]).toMatchObject({
+      attachmentId: 'att-checksum-specific',
+      reasonCode: 'checksum_mismatch',
+      label: 'Uploaded file could not be verified',
+      manualReview: true,
+      remoteObjectAmbiguous: true,
+    });
+    const serialized = JSON.stringify(review);
+    expect(serialized).not.toContain('metadata_update_failed');
+    expect(serialized).not.toContain('bearer-secret');
+    expect(serialized).not.toContain('access_token=secret');
+  });
+
   it('keeps already-synced classification conservative', () => {
     const review = buildManualUploadQueueReview({
       items: [

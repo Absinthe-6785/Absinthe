@@ -760,6 +760,12 @@ function buttonContaining(host: HTMLElement, ...parts: string[]): HTMLButtonElem
   return button;
 }
 
+function queueBucket(host: HTMLElement, testId: string): HTMLElement {
+  const bucket = host.querySelector(`[data-testid="${testId}"]`);
+  if (!(bucket instanceof HTMLElement)) throw new Error(`Queue bucket not found: ${testId}`);
+  return bucket;
+}
+
 function click(element: HTMLElement) {
   act(() => {
     element.click();
@@ -2089,6 +2095,160 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Delete remote');
     expect(buttons).not.toContain('Clear orphan');
     expect(buttons).not.toContain('Overwrite');
+    cleanup(root, host);
+  });
+
+  it('renders checksum mismatch in the manual-review bucket with scoped selectors and no execute action', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({
+          attachmentId: 'att-checksum-mismatch',
+          localBlobKey: 'local-attachment/checksum-mismatch',
+          remoteSyncStatus: 'failed',
+          eligible: true,
+          reason: 'checksum_mismatch Authorization: Bearer bearer-secret access_token=secret refresh_token=secret http://127.0.0.1:5173/oauth/google-drive/callback?code=secret data:image/png;base64,AAA111',
+          localBlobPresent: true,
+          localSize: 512,
+        }),
+        uploadItem({ attachmentId: 'att-ready-scoped', localBlobKey: 'local-attachment/ready-scoped', localSize: 128 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    const manualBucket = queueBucket(host, 'upload-queue-manual-review');
+    const syncedBucket = queueBucket(host, 'upload-queue-already-synced');
+    expect(queueBucket(host, 'upload-queue-ready').querySelector('[data-testid="upload-queue-ready-count"]')?.textContent).toBe('1');
+    expect(manualBucket.querySelector('[data-testid="upload-queue-manual-review-count"]')?.textContent).toBe('1');
+    expect(syncedBucket.querySelector('[data-testid="upload-queue-already-synced-count"]')?.textContent).toBe('0');
+    expect(readyBucket.textContent).toContain('attachment att-ready-scoped - Ready for manual upload');
+    expect(readyBucket.textContent).not.toContain('att-checksum-mismatch');
+    expect(manualBucket.textContent).toContain('attachment att-checksum-mismatch - Uploaded file could not be verified');
+    expect(manualBucket.textContent).toContain('manual review');
+    expect(manualBucket.textContent).toContain('remote object ambiguity');
+    expect(syncedBucket.textContent).not.toContain('att-checksum-mismatch');
+    expect(Array.from(manualBucket.querySelectorAll('button')).map(button => button.textContent?.trim())).not.toContain('Upload this item');
+    expect(Array.from(host.querySelectorAll('[data-attachment-upload-item] button')).map(button => button.textContent?.trim())).toEqual(['Upload']);
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('metadata_update_failed');
+    expect(host.textContent).not.toContain('bearer-secret');
+    expect(host.textContent).not.toContain('access_token=secret');
+    expect(host.textContent).not.toContain('refresh_token=secret');
+    expect(host.textContent).not.toContain('callback?code=secret');
+    expect(host.textContent).not.toContain('AAA111');
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Run all');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Run next');
+    expect(buttons).not.toContain('Continue queue');
+    expect(buttons).not.toContain('Delete remote');
+    expect(buttons).not.toContain('Clear orphan');
+    expect(buttons).not.toContain('Overwrite');
+    cleanup(root, host);
+  });
+
+  it('uses scoped queue buckets for zero-count assertions instead of concatenated text', async () => {
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({
+          attachmentId: 'att-blocked-scoped',
+          localBlobKey: 'local-attachment/blocked-scoped',
+          remoteProvider: 'googleDrive',
+          remoteFileId: undefined,
+          remoteSyncStatus: 'local_only',
+          eligible: true,
+          reason: 'Ready for explicit upload',
+          localBlobPresent: true,
+          localSize: 512,
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: false }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    const blockedBucket = queueBucket(host, 'upload-queue-blocked');
+    const manualBucket = queueBucket(host, 'upload-queue-manual-review');
+    const syncedBucket = queueBucket(host, 'upload-queue-already-synced');
+    expect(readyBucket.querySelector('[data-testid="upload-queue-ready-count"]')?.textContent).toBe('0');
+    expect(readyBucket.textContent).toContain('No items in this bucket.');
+    expect(blockedBucket.querySelector('[data-testid="upload-queue-blocked-count"]')?.textContent).toBe('1');
+    expect(blockedBucket.textContent).toContain('attachment att-blocked-scoped - Provider not configured');
+    expect(manualBucket.querySelector('[data-testid="upload-queue-manual-review-count"]')?.textContent).toBe('0');
+    expect(syncedBucket.querySelector('[data-testid="upload-queue-already-synced-count"]')?.textContent).toBe('0');
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('clarifies compact Ready rendering and does not execute hidden ready items', async () => {
+    const uploadAttachmentFn = vi.fn(async (attachmentId: string) => uploadResult({ attachmentId }));
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-visible-a', localBlobKey: 'local-attachment/visible-a', localSize: 100 }),
+        uploadItem({ attachmentId: 'att-visible-b', localBlobKey: 'local-attachment/visible-b', localSize: 100 }),
+        uploadItem({ attachmentId: 'att-visible-c', localBlobKey: 'local-attachment/visible-c', localSize: 100 }),
+        uploadItem({ attachmentId: 'att-hidden-d', localBlobKey: 'local-attachment/hidden-d', localSize: 100 }),
+        uploadItem({ attachmentId: 'att-hidden-e', localBlobKey: 'local-attachment/hidden-e', localSize: 100 }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    const readyBucket = queueBucket(host, 'upload-queue-ready');
+    expect(host.textContent).toContain('This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering.');
+    expect(readyBucket.querySelector('[data-testid="upload-queue-ready-count"]')?.textContent).toBe('5');
+    expect(readyBucket.textContent).toContain('attachment att-visible-a - Ready for manual upload');
+    expect(readyBucket.textContent).toContain('attachment att-visible-b - Ready for manual upload');
+    expect(readyBucket.textContent).toContain('attachment att-visible-c - Ready for manual upload');
+    expect(readyBucket.textContent).toContain('2 more items in this bucket.');
+    expect(readyBucket.textContent).not.toContain('att-hidden-d');
+    expect(readyBucket.textContent).not.toContain('att-hidden-e');
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    const readyButtons = Array.from(readyBucket.querySelectorAll('button'))
+      .filter(button => button.textContent?.trim() === 'Upload this item');
+    expect(readyButtons).toHaveLength(3);
+    const buttons = Array.from(host.querySelectorAll('button')).map(button => button.textContent?.trim());
+    expect(buttons).not.toContain('Upload all');
+    expect(buttons).not.toContain('Run queue');
+    expect(buttons).not.toContain('Run all');
+    expect(buttons).not.toContain('Sync now');
+    expect(buttons).not.toContain('Retry all');
+    expect(buttons).not.toContain('Process queue');
+    expect(buttons).not.toContain('Run next');
+    expect(buttons).not.toContain('Continue queue');
     cleanup(root, host);
   });
 

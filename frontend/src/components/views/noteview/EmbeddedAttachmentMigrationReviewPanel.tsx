@@ -1186,11 +1186,19 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     title: string,
     items: readonly ManualUploadQueueReviewItem[],
     options: { executable?: boolean } = {},
-  ) => (
-    <div style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
+  ) => {
+    const testId = title === 'Ready for manual upload'
+      ? 'upload-queue-ready'
+      : title === 'Blocked'
+        ? 'upload-queue-blocked'
+        : title === 'Needs manual review'
+          ? 'upload-queue-manual-review'
+          : 'upload-queue-already-synced';
+    return (
+    <div data-testid={testId} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
         <div style={{ fontSize: 10.5, fontWeight: 800 }}>{title}</div>
-        <div style={{ fontSize: 10, color: c.textFaint }}>{items.length}</div>
+        <div data-testid={`${testId}-count`} style={{ fontSize: 10, color: c.textFaint }}>{items.length}</div>
       </div>
       {items.length === 0 ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>No items in this bucket.</div>
@@ -1223,7 +1231,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <section
@@ -1836,6 +1845,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                         </div>
                         <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
                           Ready items still run one at a time. Uploading one item will not start the rest of the queue.
+                        </div>
+                        <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
+                          This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering.
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 5 }}>
                           {[
