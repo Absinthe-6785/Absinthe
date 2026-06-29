@@ -1817,7 +1817,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       <div data-manual-upload-queue-review style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Manual upload queue review</div>
                         <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                          This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section. Eligible items still require individual Upload clicks.
+                          This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section. Ready items currently pass the same upload availability gate as the per-item Upload button. Eligible items still require individual Upload clicks.
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 5 }}>
                           {[
