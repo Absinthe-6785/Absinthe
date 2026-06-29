@@ -71,6 +71,16 @@ type BackupRestoreState = 'idle' | 'running' | 'complete' | 'error';
 type DiagnosticsState = 'idle' | 'loading' | 'ready' | 'error';
 type RecoveryActionState = 'idle' | 'running' | 'complete' | 'error';
 type UploadActionState = 'idle' | 'running' | 'complete' | 'error';
+type UploadQueueRunState = 'idle' | 'running' | 'complete' | 'error';
+type UploadQueueRunReport = {
+  readonly selectedCount: number;
+  readonly succeededCount: number;
+  readonly failedCount: number;
+  readonly notStartedCount: number;
+  readonly stoppedOnFirstFailure: boolean;
+  readonly failedAttachmentId?: string;
+  readonly failureReason?: string;
+};
 type AttachmentRecoveryBlockedReason =
   | 'provider_not_configured'
   | 'provider_unavailable'
@@ -120,6 +130,8 @@ interface UploadEligibility {
   readonly reasonLabel: string;
   readonly severity?: 'info' | 'warning' | 'blocked';
 }
+
+const maxManualUploadQueueSelection = 3;
 
 export interface EmbeddedAttachmentMigrationReviewPanelProps {
   notes: readonly Note[];
@@ -609,6 +621,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   const [uploadReportsByAttachmentId, setUploadReportsByAttachmentId] = useState<Record<string, AttachmentExplicitUploadResult>>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
   const runningUploadAttachmentIdsRef = useRef<Set<string>>(new Set());
+  const [selectedUploadQueueAttachmentIds, setSelectedUploadQueueAttachmentIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [uploadQueueRunStatus, setUploadQueueRunStatus] = useState<UploadQueueRunState>('idle');
+  const [uploadQueueRunReport, setUploadQueueRunReport] = useState<UploadQueueRunReport | null>(null);
   const [googleDriveSessionConnection, setGoogleDriveSessionConnection] = useState<RemoteProviderConnectionBoundary | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -908,6 +923,9 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     setRecoveryError(null);
     setUploadReportsByAttachmentId({});
     setUploadError(null);
+    setSelectedUploadQueueAttachmentIds(new Set());
+    setUploadQueueRunStatus('idle');
+    setUploadQueueRunReport(null);
     try {
       await refreshGoogleDriveSessionConnection();
       const report = await diagnosticsFn({
@@ -980,7 +998,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     }
   };
 
-  const runUpload = async (attachmentId: string) => {
+  const runUpload = async (attachmentId: string): Promise<AttachmentExplicitUploadResult | null> => {
     if (runningUploadAttachmentIdsRef.current.size > 0) {
       setUploadStatus('error');
       setUploadError(uploadReasonLabel(
@@ -988,7 +1006,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ? 'upload_in_progress'
           : 'another_upload_in_progress',
       ));
-      return;
+      return null;
     }
     runningUploadAttachmentIdsRef.current.add(attachmentId);
     const item = diagnosticsReport?.uploadItems.find(candidate => candidate.attachmentId === attachmentId);
@@ -1019,13 +1037,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       setUploadStatus('error');
       setUploadError(eligibility.reasonLabel);
       runningUploadAttachmentIdsRef.current.delete(attachmentId);
-      return;
+      return null;
     }
     if (!activeUploadAttachmentFn) {
       setUploadStatus('error');
       setUploadError(uploadReasonLabel('upload_controller_unavailable'));
       runningUploadAttachmentIdsRef.current.delete(attachmentId);
-      return;
+      return null;
     }
     setRunningUploadAttachmentId(attachmentId);
     setUploadStatus('running');
@@ -1037,9 +1055,12 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         [attachmentId]: report,
       }));
       setUploadStatus(report.status === 'failed' || report.status === 'blocked' ? 'error' : 'complete');
+      return report;
     } catch (err) {
-      setUploadError(sanitizeRemoteBlobProviderErrorMessage(err));
+      const message = sanitizeRemoteBlobProviderErrorMessage(err);
+      setUploadError(message);
       setUploadStatus('error');
+      return null;
     } finally {
       runningUploadAttachmentIdsRef.current.delete(attachmentId);
       setRunningUploadAttachmentId(null);
@@ -1182,6 +1203,72 @@ export function EmbeddedAttachmentMigrationReviewPanel({
     );
   };
 
+  const toggleUploadQueueSelection = (attachmentId: string, checked: boolean) => {
+    if (uploadQueueRunStatus === 'running' || runningUploadAttachmentId) return;
+    setUploadQueueRunReport(null);
+    setUploadQueueRunStatus('idle');
+    setSelectedUploadQueueAttachmentIds(previous => {
+      const next = new Set(previous);
+      if (checked) {
+        if (next.size >= maxManualUploadQueueSelection && !next.has(attachmentId)) return previous;
+        next.add(attachmentId);
+      } else {
+        next.delete(attachmentId);
+      }
+      return next;
+    });
+  };
+
+  const runSelectedUploadQueueItems = async (visibleReadyItems: readonly ManualUploadQueueReviewItem[]) => {
+    if (uploadQueueRunStatus === 'running' || runningUploadAttachmentIdsRef.current.size > 0) {
+      setUploadStatus('error');
+      setUploadError(uploadReasonLabel('another_upload_in_progress'));
+      return;
+    }
+    const visibleReadyIds = new Set(visibleReadyItems.map(item => item.attachmentId));
+    const selectedIds = Array.from(selectedUploadQueueAttachmentIds)
+      .filter(id => visibleReadyIds.has(id))
+      .slice(0, maxManualUploadQueueSelection);
+    if (selectedIds.length === 0) return;
+
+    setUploadQueueRunStatus('running');
+    setUploadQueueRunReport(null);
+    setUploadError(null);
+    let succeededCount = 0;
+    let failedAttachmentId: string | undefined;
+    let failureReason: string | undefined;
+
+    for (const attachmentId of selectedIds) {
+      const report = await runUpload(attachmentId);
+      if (!report || report.status === 'failed' || report.status === 'blocked') {
+        failedAttachmentId = attachmentId;
+        failureReason = report?.errorDetails
+          ? formatUploadFailureForUi({
+              errorDetails: report.errorDetails,
+              providerType: report.remoteProvider,
+              reasonCode: report.errorDetails.code,
+              remoteObjectAmbiguous: Boolean(report.remoteFileId),
+            }).title
+          : 'Upload stopped before this item could start';
+        break;
+      }
+      succeededCount += 1;
+    }
+
+    const failedCount = failedAttachmentId ? 1 : 0;
+    setUploadQueueRunReport({
+      selectedCount: selectedIds.length,
+      succeededCount,
+      failedCount,
+      notStartedCount: Math.max(0, selectedIds.length - succeededCount - failedCount),
+      stoppedOnFirstFailure: Boolean(failedAttachmentId),
+      failedAttachmentId,
+      failureReason,
+    });
+    setUploadQueueRunStatus(failedAttachmentId ? 'error' : 'complete');
+    setSelectedUploadQueueAttachmentIds(new Set());
+  };
+
   const renderUploadQueueGroup = (
     title: string,
     items: readonly ManualUploadQueueReviewItem[],
@@ -1206,18 +1293,35 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {items.slice(0, 3).map(item => (
             <div key={item.attachmentId} data-upload-queue-review-item style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
-              <div>
-                attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
-                {item.manualReview ? ' - manual review' : ''}
-                {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
-                {runningUploadAttachmentId && runningUploadAttachmentId !== item.attachmentId && options.executable ? ' - one upload is currently in progress' : ''}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                {options.executable ? (
+                  <input
+                    type="checkbox"
+                    aria-label={`Select attachment ${shortValue(item.attachmentId)} for limited upload`}
+                    data-upload-queue-select={item.attachmentId}
+                    checked={selectedUploadQueueAttachmentIds.has(item.attachmentId)}
+                    onChange={event => toggleUploadQueueSelection(item.attachmentId, event.currentTarget.checked)}
+                    disabled={
+                      uploadQueueRunStatus === 'running'
+                      || Boolean(runningUploadAttachmentId)
+                      || (!selectedUploadQueueAttachmentIds.has(item.attachmentId) && selectedUploadQueueAttachmentIds.size >= maxManualUploadQueueSelection)
+                    }
+                    style={{ flexShrink: 0 }}
+                  />
+                ) : null}
+                <div>
+                  attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
+                  {item.manualReview ? ' - manual review' : ''}
+                  {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
+                  {runningUploadAttachmentId && runningUploadAttachmentId !== item.attachmentId && options.executable ? ' - one upload is currently in progress' : ''}
+                </div>
               </div>
               {options.executable ? (
                 <button
                   type="button"
                   className="btbtn"
                   onClick={() => runUpload(item.attachmentId)}
-                  disabled={Boolean(runningUploadAttachmentId)}
+                  disabled={Boolean(runningUploadAttachmentId) || uploadQueueRunStatus === 'running'}
                   style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
                 >
                   {runningUploadAttachmentId === item.attachmentId ? 'Uploading...' : 'Upload this item'}
@@ -1841,13 +1945,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       <div data-manual-upload-queue-review style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 7 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 800 }}>Manual upload queue review</div>
                         <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
-                          This is a dry-run summary. Absinthe will not upload, retry, sync, or delete anything from this section. Ready items currently pass the same upload availability gate as the per-item Upload button. Eligible items still require individual Upload clicks.
+                          Select up to {maxManualUploadQueueSelection} visible Ready items for a limited manual upload. Selected uploads run one at a time through the same guarded Upload path and stop on the first failure.
                         </div>
                         <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
-                          Ready items still run one at a time. Uploading one item will not start the rest of the queue.
+                          Only selected items upload. Hidden Ready items, blocked items, manual-review items, and already-synced items are not included.
                         </div>
                         <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
-                          This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering.
+                          This compact review shows the first visible items in each bucket; hidden items are never uploaded by review rendering or by a limited selected run.
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 5 }}>
                           {[
@@ -1877,6 +1981,50 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                           {renderUploadQueueGroup('Needs manual review', uploadQueueReview.groups.manualReview)}
                           {renderUploadQueueGroup('Already synced', uploadQueueReview.groups.alreadySynced)}
                         </div>
+                        {(() => {
+                          const visibleReadyItems = uploadQueueReview.groups.eligible.slice(0, maxManualUploadQueueSelection);
+                          const selectedVisibleCount = visibleReadyItems.filter(item => selectedUploadQueueAttachmentIds.has(item.attachmentId)).length;
+                          const runDisabled = selectedVisibleCount === 0
+                            || uploadQueueRunStatus === 'running'
+                            || Boolean(runningUploadAttachmentId);
+                          return (
+                            <div data-upload-queue-limited-run style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: 10.5, color: c.textMuted, lineHeight: 1.45 }}>
+                                  {selectedVisibleCount} selected of {maxManualUploadQueueSelection}. Uploads run sequentially and stop after the first failed item.
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btbtn"
+                                  onClick={() => runSelectedUploadQueueItems(visibleReadyItems)}
+                                  disabled={runDisabled}
+                                  style={{ padding: '5px 8px', fontSize: 10, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
+                                >
+                                  {uploadQueueRunStatus === 'running' ? 'Uploading selected...' : 'Upload selected'}
+                                </button>
+                              </div>
+                              <div style={{ fontSize: 10, color: c.textFaint, lineHeight: 1.45 }}>
+                                Limited manual run only. No hidden item, retry action, cleanup action, sync action, or delete action is started.
+                              </div>
+                              {uploadQueueRunReport ? (
+                                <div data-upload-queue-run-summary style={{ border: `1px solid ${uploadQueueRunReport.stoppedOnFirstFailure ? `${c.danger}55` : c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                  <div style={{ fontSize: 10.5, fontWeight: 800 }}>
+                                    {uploadQueueRunReport.succeededCount} of {uploadQueueRunReport.selectedCount} selected uploads completed.
+                                  </div>
+                                  <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+                                    Failed: {uploadQueueRunReport.failedCount}. Not started: {uploadQueueRunReport.notStartedCount}.
+                                    {uploadQueueRunReport.stoppedOnFirstFailure ? ' Stopped after the first failure.' : ''}
+                                  </div>
+                                  {uploadQueueRunReport.failedAttachmentId ? (
+                                    <div style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.45 }}>
+                                      Failed item: attachment {shortValue(uploadQueueRunReport.failedAttachmentId)} - {uploadQueueRunReport.failureReason ?? 'Review diagnostics before trying again.'}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })()}
@@ -1910,7 +2058,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   type="button"
                                   className="btbtn"
                                   onClick={() => runUpload(item.attachmentId)}
-                                  disabled={running}
+                                  disabled={running || uploadQueueRunStatus === 'running'}
                                   style={{ padding: '5px 8px', fontSize: 10.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66` }}
                                 >
                                   {running ? 'Uploading...' : 'Upload'}
