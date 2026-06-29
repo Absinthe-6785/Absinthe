@@ -47,10 +47,12 @@ const GOOGLE_DRIVE_RESUMABLE_UPLOAD_URL =
   'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,md5Checksum,modifiedTime';
 
 function sanitizeUploadError(error: unknown, code: string): GoogleDriveBlobUploadError {
+  const authCodes = new Set(['auth_unavailable', 'auth_expired', 'authorization_failed']);
+  const nonRetryableCodes = new Set(['checksum_mismatch', 'size_mismatch', 'invalid_response', 'auth_expired', 'authorization_failed', 'remote_file_missing', 'remote_conflict']);
   return new GoogleDriveBlobUploadError(
     sanitizeRemoteBlobProviderError(error, {
-      category: code === 'auth_unavailable' ? 'auth' : 'upload',
-      retryable: code !== 'checksum_mismatch' && code !== 'size_mismatch' && code !== 'invalid_response',
+      category: authCodes.has(code) ? 'auth' : 'upload',
+      retryable: !nonRetryableCodes.has(code),
       code,
     })
   );
@@ -105,6 +107,34 @@ function driveDownloadHttpError(status: number): GoogleDriveBlobUploadError {
     category: 'provider',
     retryable: status >= 500 || status === 408,
   });
+}
+
+function driveUploadHttpError(status: number, phase: 'session' | 'chunk' | 'empty'): GoogleDriveBlobUploadError {
+  const prefix = phase === 'session'
+    ? 'Google Drive upload session'
+    : phase === 'empty'
+      ? 'Google Drive empty upload'
+      : 'Google Drive chunk upload';
+
+  if (status === 401) {
+    return sanitizeUploadError(new Error(`${prefix} authorization expired.`), 'auth_expired');
+  }
+  if (status === 403) {
+    return sanitizeUploadError(new Error(`${prefix} is forbidden for this session.`), 'authorization_failed');
+  }
+  if (status === 404) {
+    return sanitizeUploadError(new Error(`${prefix} target was not found.`), 'remote_file_missing');
+  }
+  if (status === 409) {
+    return sanitizeUploadError(new Error(`${prefix} encountered a remote conflict.`), 'remote_conflict');
+  }
+  if (status === 429) {
+    return sanitizeUploadError(new Error(`${prefix} was rate limited.`), 'rate_limited');
+  }
+  if (status >= 500) {
+    return sanitizeUploadError(new Error(`${prefix} failed because Google Drive is unavailable.`), 'provider_unavailable');
+  }
+  return sanitizeUploadError(new Error(`${prefix} failed with status ${status}.`), phase === 'session' ? 'session_start_failed' : 'upload_failed');
 }
 
 function parseRemoteSize(size: string | number | undefined): number | undefined {
@@ -369,7 +399,7 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
     });
 
     if (!response.ok) {
-      throw sanitizeUploadError(new Error(`Google Drive upload session failed with status ${response.status}.`), 'session_start_failed');
+      throw driveUploadHttpError(response.status, 'session');
     }
 
     const sessionUri = response.headers.get('Location');
@@ -414,7 +444,7 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
         return parseDriveMetadata(response);
       }
 
-      throw sanitizeUploadError(new Error(`Google Drive chunk upload failed with status ${response.status}.`), 'upload_failed');
+      throw driveUploadHttpError(response.status, 'chunk');
     }
 
     throw sanitizeUploadError(new Error('Google Drive upload ended without final metadata.'), 'invalid_response');
@@ -433,7 +463,7 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
       return parseDriveMetadata(response);
     }
 
-    throw sanitizeUploadError(new Error(`Google Drive empty upload failed with status ${response.status}.`), 'upload_failed');
+    throw driveUploadHttpError(response.status, 'empty');
   }
 }
 

@@ -313,11 +313,158 @@ describe('GoogleDriveBlobAdapter', () => {
       expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
       const serialized = JSON.stringify(error);
       const message = String((error as GoogleDriveBlobUploadError).message);
-      expect(message).toContain('status 500');
+      expect(message).toContain('Google Drive is unavailable');
+      expect((error as GoogleDriveBlobUploadError).sanitized.code).toBe('provider_unavailable');
       expect(serialized).not.toContain('access-token-secret');
       expect(serialized).not.toContain('session-secret');
       expect(serialized).not.toContain('AAA111');
       expect(serialized).not.toContain(sessionUri);
+    });
+  });
+
+  it('classifies upload session HTTP failures without exposing unsafe provider bodies', async () => {
+    const cases = [
+      { status: 400, code: 'session_start_failed', category: 'upload', retryable: true },
+      { status: 401, code: 'auth_expired', category: 'auth', retryable: false },
+      { status: 403, code: 'authorization_failed', category: 'auth', retryable: false },
+      { status: 404, code: 'remote_file_missing', category: 'upload', retryable: false },
+      { status: 409, code: 'remote_conflict', category: 'upload', retryable: false },
+      { status: 429, code: 'rate_limited', category: 'upload', retryable: true },
+      { status: 500, code: 'provider_unavailable', category: 'upload', retryable: true },
+    ] as const;
+
+    for (const item of cases) {
+      const body = JSON.stringify({
+        error: `access_token=token-secret refresh_token=refresh-secret id_token=id-secret code=auth-secret code_verifier=verifier-secret codeVerifier=camel-secret`,
+        callback: 'http://127.0.0.1:5173/oauth/google-drive/callback?code=callback-secret&state=state-secret',
+        Authorization: 'Bearer bearer-secret',
+        image: 'data:image/png;base64,AAA111',
+      });
+      const { fetcher } = createMockFetch([new Response(body, { status: item.status })]);
+      const adapter = new GoogleDriveBlobAdapter({
+        accessTokenProvider: tokenProvider(),
+        fetcher,
+      });
+
+      await adapter.uploadBlob(uploadInput()).catch((error: unknown) => {
+        expect(error, String(item.status)).toBeInstanceOf(GoogleDriveBlobUploadError);
+        expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+          code: item.code,
+          category: item.category,
+          retryable: item.retryable,
+        });
+        const serialized = JSON.stringify(error);
+        expect(serialized).not.toContain('token-secret');
+        expect(serialized).not.toContain('refresh-secret');
+        expect(serialized).not.toContain('id-secret');
+        expect(serialized).not.toContain('auth-secret');
+        expect(serialized).not.toContain('verifier-secret');
+        expect(serialized).not.toContain('camel-secret');
+        expect(serialized).not.toContain('bearer-secret');
+        expect(serialized).not.toContain('callback-secret');
+        expect(serialized).not.toContain('AAA111');
+        expect(serialized).not.toContain('/oauth/google-drive/callback?code=');
+      });
+    }
+  });
+
+  it('classifies upload chunk failures, invalid final bodies, and fetch rejections safely', async () => {
+    const sessionUri = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=session-secret';
+    const chunkCases = [
+      { status: 401, code: 'auth_expired', category: 'auth', retryable: false },
+      { status: 403, code: 'authorization_failed', category: 'auth', retryable: false },
+      { status: 404, code: 'remote_file_missing', category: 'upload', retryable: false },
+      { status: 409, code: 'remote_conflict', category: 'upload', retryable: false },
+      { status: 429, code: 'rate_limited', category: 'upload', retryable: true },
+      { status: 503, code: 'provider_unavailable', category: 'upload', retryable: true },
+    ] as const;
+
+    for (const item of chunkCases) {
+      const { fetcher } = createMockFetch([
+        responseWithLocation(sessionUri),
+        new Response('<html>Authorization: Bearer token-secret access_token=secret data:image/png;base64,AAA111</html>', { status: item.status }),
+      ]);
+      const adapter = new GoogleDriveBlobAdapter({
+        accessTokenProvider: tokenProvider(),
+        fetcher,
+      });
+
+      await adapter.uploadBlob(uploadInput()).catch((error: unknown) => {
+        expect(error, String(item.status)).toBeInstanceOf(GoogleDriveBlobUploadError);
+        expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+          code: item.code,
+          category: item.category,
+          retryable: item.retryable,
+        });
+        const serialized = JSON.stringify(error);
+        expect(serialized).not.toContain('token-secret');
+        expect(serialized).not.toContain('access_token=secret');
+        expect(serialized).not.toContain('AAA111');
+        expect(serialized).not.toContain('session-secret');
+      });
+    }
+
+    const invalidJson = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: createMockFetch([
+        responseWithLocation(sessionUri),
+        new Response('<html>access_token=secret</html>', { status: 200 }),
+      ]).fetcher,
+    });
+    await expect(invalidJson.uploadBlob(uploadInput())).rejects.toMatchObject({
+      sanitized: {
+        code: 'invalid_response',
+        retryable: false,
+      },
+    });
+
+    const emptyBody = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: createMockFetch([
+        responseWithLocation(sessionUri),
+        new Response('', { status: 200 }),
+      ]).fetcher,
+    });
+    await expect(emptyBody.uploadBlob(uploadInput())).rejects.toMatchObject({
+      sanitized: {
+        code: 'invalid_response',
+      },
+    });
+
+    const bodyReadFailureResponse = {
+      ok: true,
+      status: 200,
+      json: vi.fn(async () => {
+        throw new Error('json read failed Authorization: Bearer token-secret');
+      }),
+    } as unknown as Response;
+    const bodyReadFailure = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: createMockFetch([
+        responseWithLocation(sessionUri),
+        bodyReadFailureResponse,
+      ]).fetcher,
+    });
+    await bodyReadFailure.uploadBlob(uploadInput()).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      expect((error as GoogleDriveBlobUploadError).sanitized.code).toBe('invalid_response');
+      expect(JSON.stringify(error)).not.toContain('token-secret');
+    });
+
+    const rejectionAdapter = new GoogleDriveBlobAdapter({
+      accessTokenProvider: tokenProvider(),
+      fetcher: vi.fn(async () => {
+        throw new Error('network failed Authorization: Bearer token-secret access_token=secret');
+      }) as unknown as typeof fetch,
+    });
+    await rejectionAdapter.uploadBlob(uploadInput()).catch((error: unknown) => {
+      expect(error).toBeInstanceOf(GoogleDriveBlobUploadError);
+      expect((error as GoogleDriveBlobUploadError).sanitized).toMatchObject({
+        code: 'network_failed',
+        retryable: true,
+      });
+      expect(JSON.stringify(error)).not.toContain('token-secret');
+      expect(JSON.stringify(error)).not.toContain('access_token=secret');
     });
   });
 
