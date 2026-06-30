@@ -10,6 +10,8 @@ This checklist defines manual QA steps and should not be treated as executed unt
 
 Before executing this checklist, complete `frontend/docs/K-205-real-google-drive-qa-environment-setup-checklist.md`.
 
+K-206 retries this checklist with the K-205 prepared environment in `frontend/docs/K-206-real-google-drive-manual-qa-retry-results.md`.
+
 ## Preconditions
 
 - Use a test Google account only.
