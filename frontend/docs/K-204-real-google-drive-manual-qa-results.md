@@ -186,6 +186,8 @@ No real Google Drive upload, recovery, OAuth connection, selected queue run, ses
 
 This result should not be treated as real Google Drive E2E validation. It is a blocked execution log that preserves the boundary honestly and identifies what is needed for the next attempt.
 
+K-205 defines the setup needed before retrying these blocked/not-run scenarios in K-206.
+
 ## Follow-up Recommendations
 
 | Recommendation | Severity | Blocker before broader usage | Suggested milestone |

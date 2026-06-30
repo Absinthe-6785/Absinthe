@@ -8,6 +8,8 @@ This checklist is manual QA, not a feature expansion. It does not introduce pers
 
 This checklist defines manual QA steps and should not be treated as executed until a result log exists. K-204 records the first execution attempt in `frontend/docs/K-204-real-google-drive-manual-qa-results.md`.
 
+Before executing this checklist, complete `frontend/docs/K-205-real-google-drive-qa-environment-setup-checklist.md`.
+
 ## Preconditions
 
 - Use a test Google account only.
