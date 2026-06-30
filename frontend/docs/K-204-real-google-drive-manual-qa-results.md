@@ -188,6 +188,8 @@ This result should not be treated as real Google Drive E2E validation. It is a b
 
 K-205 defines the setup needed before retrying these blocked/not-run scenarios in K-206.
 
+K-206 is the retry result after K-205 environment setup.
+
 ## Follow-up Recommendations
 
 | Recommendation | Severity | Blocker before broader usage | Suggested milestone |

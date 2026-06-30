@@ -8,6 +8,10 @@ K-204 was blocked/not-run because a disposable Google test account, external OAu
 
 K-206 should retry the K-203 checklist only after this setup checklist is complete.
 
+Required OAuth scope: `https://www.googleapis.com/auth/drive.appdata`.
+
+Expected storage target: Google Drive `appDataFolder`. Uploads may not appear in the normal user-visible My Drive UI because `appDataFolder` is used.
+
 ## Required External Prerequisites
 
 - Isolated disposable Google test account.
@@ -15,6 +19,7 @@ K-206 should retry the K-203 checklist only after this setup checklist is comple
 - Authorized JavaScript origin for local development.
 - Authorized redirect/callback URL for local development.
 - Google Drive API enabled only for the test project.
+- OAuth scope limited to `https://www.googleapis.com/auth/drive.appdata`.
 - Test-only OAuth consent configuration.
 - Test user allowlist if the Google OAuth app is in testing mode.
 - Non-sensitive test image/attachment files.
