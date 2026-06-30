@@ -6,6 +6,8 @@ Validate the existing explicit-only remote attachment upload/recovery MVP using 
 
 This checklist is manual QA, not a feature expansion. It does not introduce persistent credentials, refresh token lifecycle, background sync, Upload all, Run queue, Recover all, or any production Google Drive credential wiring.
 
+This checklist defines manual QA steps and should not be treated as executed until a result log exists. K-204 records the first execution attempt in `frontend/docs/K-204-real-google-drive-manual-qa-results.md`.
+
 ## Preconditions
 
 - Use a test Google account only.
@@ -231,6 +233,7 @@ Verify:
 - No callback URL with code rendered.
 - No Authorization or Bearer value rendered.
 - No raw Google error body rendered.
+- No resumable upload session URI is displayed, logged, copied, or persisted.
 - No client secret in source/docs.
 - No token in localStorage.
 - No token in sessionStorage.
