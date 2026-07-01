@@ -9,7 +9,7 @@ This is a visual/component pilot only. It does not change upload execution, reco
 ## Files Changed
 
 - `frontend/src/components/common/PixelInventory.tsx`
-- `frontend/src/components/common/PixelInventory.test.tsx`
+- `frontend/src/components/common/PixelInventory.test.ts`
 - `frontend/src/components/views/noteview/EmbeddedAttachmentMigrationReviewPanel.tsx`
 - `frontend/src/components/views/noteview/EmbeddedAttachmentMigrationReviewPanel.test.ts`
 - `frontend/docs/K-207-pixel-ui-direction-grammar-spec.md`
@@ -24,13 +24,13 @@ The pilot adds two small primitives:
 
 Supported pilot states:
 
-- Ready slot
-- Locked slot
-- Manual review slot
-- Synced slot
-- Missing local slot
-- Recoverable signal
-- Inventory slot
+- Ready / Inventory slot
+- Blocked / Locked slot
+- Manual Review / Review slot
+- Synced / Archived slot
+- Missing Local / Broken slot
+- Recoverable / Remote signal
+- Inventory / Neutral slot
 
 Status remains text-first. The pixel marker is a secondary cue, not the only state indicator.
 
@@ -74,3 +74,7 @@ Revert the pilot if:
 ## Next Recommendation
 
 Keep the pilot in Attachment Maintenance until the grammar is reviewed in Cursor and CI. If accepted, K-209 can either refine the Attachment Maintenance pixel treatment or extract a slightly broader token/component contract. Do not expand into Notes/Cosmos, Health, or Schedule until the inventory pilot is judged readable and reversible.
+
+## K-209 Polish Note
+
+K-209 polishes spacing, vocabulary, badge placement, responsive wrapping, and focus acceptance for the same Attachment Maintenance pilot. The literal state remains primary while the pixel inventory metaphor stays secondary. K-209 does not change upload, recovery, queue, diagnostics, OAuth, Supabase, persistence, Health, or Schedule behavior.
