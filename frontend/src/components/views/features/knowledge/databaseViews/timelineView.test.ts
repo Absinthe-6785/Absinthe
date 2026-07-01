@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -63,6 +63,10 @@ const timelineColors: NoteChromeColors = {
   green: '#0a0',
   danger: '#c00',
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function note(
   id: string,
@@ -320,6 +324,8 @@ describe('workspace integration', () => {
 
 describe('DatabaseTimelineView', () => {
   it('renders month navigation and timeline items', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 12, 12, 0, 0));
     const service = new KnowledgeIndexService();
     const notes = [
       note('a', 'N1 Vocabulary', '', {
@@ -358,5 +364,7 @@ describe('DatabaseTimelineView', () => {
       noteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(selectedId).toBe('a');
+    root.unmount();
+    container.remove();
   });
 });

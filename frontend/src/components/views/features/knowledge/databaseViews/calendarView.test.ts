@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
@@ -63,6 +63,10 @@ const calendarColors: NoteChromeColors = {
   green: '#0a0',
   danger: '#c00',
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function note(
   id: string,
@@ -276,6 +280,8 @@ describe('workspace integration', () => {
 
 describe('DatabaseCalendarView', () => {
   it('renders month grid and note cards', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 12, 12, 0, 0));
     const service = new KnowledgeIndexService();
     const notes = [
       note('a', 'N1 Vocabulary', '', { properties: { tags: 'study', reviewDate: '2026-06-10' } }),
@@ -300,5 +306,7 @@ describe('DatabaseCalendarView', () => {
     expect(container.textContent).toContain('N1 Vocabulary');
     expect(container.textContent).toContain('Tobira Ch.4');
     expect(container.textContent).toContain('Today');
+    root.unmount();
+    container.remove();
   });
 });
