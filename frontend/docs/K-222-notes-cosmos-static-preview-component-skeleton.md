@@ -11,7 +11,7 @@ The component is fixture-driven, static, read-only, and fallback-first. It uses 
 ## Files
 
 - Component: `frontend/src/components/notes/NotesCosmosStaticPreview.tsx`
-- Test: `frontend/src/components/notes/NotesCosmosStaticPreview.test.tsx`
+- Test: `frontend/src/components/notes/NotesCosmosStaticPreview.test.ts`
 - Fixture contract: `frontend/src/lib/notesCosmosStaticPreviewMockContract.ts`
 
 ## Boundaries
