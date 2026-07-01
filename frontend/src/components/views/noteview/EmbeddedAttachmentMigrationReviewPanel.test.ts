@@ -2047,6 +2047,16 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(host.textContent).toContain('Blocked');
     expect(host.textContent).toContain('Needs manual review');
     expect(host.textContent).toContain('Already synced');
+    expect(host.textContent).toContain('Ready slot');
+    expect(host.textContent).toContain('Locked slot');
+    expect(host.textContent).toContain('Manual review slot');
+    expect(host.textContent).toContain('Synced slot');
+    expect(queueBucket(host, 'upload-queue-ready').getAttribute('data-pixel-inventory-card')).not.toBeNull();
+    expect(queueBucket(host, 'upload-queue-ready').getAttribute('data-pixel-inventory-state')).toBe('ready');
+    expect(queueBucket(host, 'upload-queue-blocked').getAttribute('data-pixel-inventory-state')).toBe('blocked');
+    expect(queueBucket(host, 'upload-queue-manual-review').getAttribute('data-pixel-inventory-state')).toBe('manual-review');
+    expect(queueBucket(host, 'upload-queue-already-synced').getAttribute('data-pixel-inventory-state')).toBe('synced');
+    expect(queueBucket(host, 'upload-queue-ready').querySelector('[data-pixel-status-badge]')?.textContent).toContain('Ready slot');
     expect(host.textContent).toContain('Estimated ready bytes: 120 B (1 ready item with unknown size)');
     expect(host.textContent).toContain('attachment att-ready - Ready for manual upload');
     expect(host.textContent).toContain('attachment att-missing-local - Local blob missing');
@@ -2067,6 +2077,10 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttons).not.toContain('Recover all');
     expect(buttons).not.toContain('Download all');
     expect(buttonByText(host, 'Upload selected').disabled).toBe(true);
+    expect(buttonByText(host, 'Upload selected').className).toContain('abs-focus-ring');
+    const readyCheckbox = queueBucket(host, 'upload-queue-ready').querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(readyCheckbox?.className).toContain('abs-focus-ring');
+    expect(buttonByText(host, 'Upload this item').className).toContain('abs-focus-ring');
     cleanup(root, host);
   });
 
