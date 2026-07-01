@@ -56,14 +56,18 @@ function NodesByCluster({
                     data-node-id={node.id}
                     data-node-kind={node.kind}
                     data-node-status={node.status}
+                    data-node-tone={node.tone}
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <strong className="break-words text-sm text-slate-950">{node.label}</strong>
                       <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
-                        {node.kind}
+                        Kind: {node.kind}
                       </span>
                       <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
-                        {node.status}
+                        Status: {node.status}
+                      </span>
+                      <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
+                        Tone: {node.tone}
                       </span>
                     </div>
                     <p className="mt-1 break-words text-xs leading-5 text-slate-700">

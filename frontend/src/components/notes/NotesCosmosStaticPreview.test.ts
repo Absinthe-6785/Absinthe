@@ -15,6 +15,24 @@ function renderFixture(fixture: NotesCosmosPreviewFixture = notesCosmosStaticPre
   return renderToStaticMarkup(createElement(NotesCosmosStaticPreview, { fixture }));
 }
 
+function renderFixtureInNarrowContainer(
+  fixture: NotesCosmosPreviewFixture = notesCosmosStaticPreviewFixture,
+): string {
+  return renderToStaticMarkup(
+    createElement(
+      'div',
+      {
+        style: {
+          width: '390px',
+          maxWidth: '390px',
+          minWidth: 0,
+        },
+      },
+      createElement(NotesCosmosStaticPreview, { fixture }),
+    ),
+  );
+}
+
 function renderedText(fixture: NotesCosmosPreviewFixture = notesCosmosStaticPreviewFixture): string {
   return renderFixture(fixture)
     .replaceAll('&#x27;', "'")
@@ -40,15 +58,17 @@ describe('NotesCosmosStaticPreview', () => {
     expect(html).toContain('data-min-mobile-width="390"');
   });
 
-  it('renders all nodes with label, summary, kind, status, cluster, and date text', () => {
+  it('renders all nodes with label, summary, kind, status, tone, cluster, and date text', () => {
     const html = renderedText();
 
     for (const node of notesCosmosStaticPreviewFixture.nodes) {
       expect(html).toContain(`data-node-id="${node.id}"`);
+      expect(html).toContain(`data-node-tone="${node.tone}"`);
       expect(html).toContain(node.label);
       expect(html).toContain(node.summary);
-      expect(html).toContain(node.kind);
-      expect(html).toContain(node.status);
+      expect(html).toContain(`Kind: ${node.kind}`);
+      expect(html).toContain(`Status: ${node.status}`);
+      expect(html).toContain(`Tone: ${node.tone}`);
       expect(html).toContain(node.clusterLabel);
       expect(html).toContain(node.createdAtLabel);
       expect(html).toContain(node.updatedAtLabel);
@@ -69,6 +89,19 @@ describe('NotesCosmosStaticPreview', () => {
       expect(html).toContain(`Kind: ${relationship.kind}`);
       expect(html).toContain(`Strength: ${relationship.strength}`);
     }
+  });
+
+  it('keeps tone literal and does not represent tone by color only', () => {
+    const html = renderedText();
+
+    for (const node of notesCosmosStaticPreviewFixture.nodes) {
+      expect(html).toContain(`Tone: ${node.tone}`);
+    }
+
+    expect(html).toContain('Tone: active');
+    expect(html).toContain('Tone: quiet');
+    expect(html).toContain('Tone: reference');
+    expect(html).toContain('Tone: archival');
   });
 
   it('uses top-level relationships only and does not require node-level relationship fields', () => {
@@ -121,6 +154,8 @@ describe('NotesCosmosStaticPreview', () => {
       'role="application"',
       'role="button"',
       'href=',
+      '<button',
+      'tabindex=',
       ' x=',
       ' y=',
       'coordinate',
@@ -155,6 +190,70 @@ describe('NotesCosmosStaticPreview', () => {
     expect(html).toContain(fixture.nodes[0].summary);
     expect(html).toContain('break-words');
     expect(html).toContain('min-w-0');
+  });
+
+  it('keeps all fixture content present in a 390px narrow-container render', () => {
+    const fixture = cloneFixture();
+    fixture.nodes[0] = {
+      ...fixture.nodes[0],
+      label:
+        'A very long 390px acceptance node label that remains readable and present without a fixed graph canvas',
+      summary:
+        'A very long 390px acceptance node summary that remains in the text-first DOM instead of being clipped out of the fixture preview.',
+    };
+    fixture.relationships[0] = {
+      ...fixture.relationships[0],
+      label:
+        'A very long 390px acceptance relationship label that stays readable in the relationship list',
+    };
+    fixture.fallback.nodeSummaries[0] = {
+      ...fixture.fallback.nodeSummaries[0],
+      label: fixture.nodes[0].label,
+      summary: fixture.nodes[0].summary,
+    };
+    fixture.fallback.relationshipSummaries[0] = {
+      ...fixture.fallback.relationshipSummaries[0],
+      label: fixture.relationships[0].label,
+    };
+
+    const html = renderFixtureInNarrowContainer(fixture)
+      .replaceAll('&#x27;', "'")
+      .replaceAll('&quot;', '"')
+      .replaceAll('&amp;', '&');
+
+    expect(html).toContain('width:390px');
+    expect(html).toContain('data-min-mobile-width="390"');
+    expect(html).toContain('max-w-full');
+    expect(html).toContain('min-w-0');
+    expect(html).toContain('break-words');
+    expect(html).not.toContain('<canvas');
+    expect(html).not.toContain('<svg');
+
+    for (const node of fixture.nodes) {
+      expect(html).toContain(`data-node-id="${node.id}"`);
+      expect(html).toContain(node.label);
+      expect(html).toContain(`Tone: ${node.tone}`);
+    }
+
+    for (const relationship of fixture.relationships) {
+      expect(html).toContain(`data-relationship-id="${relationship.id}"`);
+      expect(html).toContain(relationship.label);
+    }
+  });
+
+  it('keeps semantic list structure and avoids interactive graph affordances', () => {
+    const html = renderedText();
+
+    expect(html).toContain('<article');
+    expect(html).toContain('<section');
+    expect(html).toContain('<h2');
+    expect(html).toContain('<h3');
+    expect(html).toContain('<ol');
+    expect(html).toContain('<li');
+    expect(html).not.toContain('role="application"');
+    expect(html).not.toContain('role="button"');
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('href=');
   });
 
   it('does not import forbidden runtime services or generated assets', () => {
