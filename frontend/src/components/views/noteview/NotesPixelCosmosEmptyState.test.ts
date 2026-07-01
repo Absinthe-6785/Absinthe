@@ -2,6 +2,8 @@
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NotesPixelCosmosEmptyState } from './NotesPixelCosmosEmptyState';
@@ -108,5 +110,16 @@ describe('NotesPixelCosmosEmptyState', () => {
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('@font-face');
+  });
+
+  it('keeps mobile empty vault on the editor pane instead of squeezing it beside the note list', () => {
+    const noteViewSource = readFileSync(
+      join(process.cwd(), 'src/components/views/NoteView.tsx'),
+      'utf8',
+    );
+
+    expect(noteViewSource).toContain("const isMobileEmptyVault = activeFolderId !== 'trash' && notes.every(n => n.deletedAt);");
+    expect(noteViewSource).toContain('const hideNoteList = (isMobile && mobileShowEditor && !!activeNoteId) || (isMobile && isMobileEmptyVault);');
+    expect(noteViewSource).toContain('const hideEditorArea = isMobile && !mobileShowEditor && !isMobileEmptyVault;');
   });
 });

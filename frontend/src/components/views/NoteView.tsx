@@ -746,8 +746,8 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
   const hideLeftChrome = focusMode || hideSidebarByFocus;
   const hideSecondaryChrome = hideSecondaryByFocus;
-  const hideNoteList = isMobile && mobileShowEditor && !!activeNoteId;
   const isMobileEmptyVault = activeFolderId !== 'trash' && notes.every(n => n.deletedAt);
+  const hideNoteList = (isMobile && mobileShowEditor && !!activeNoteId) || (isMobile && isMobileEmptyVault);
   const hideEditorArea = isMobile && !mobileShowEditor && !isMobileEmptyVault;
 
   useEffect(() => {
