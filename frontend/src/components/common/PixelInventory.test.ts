@@ -22,18 +22,19 @@ const colors: PixelInventoryColors = {
 
 describe('PixelInventory pilot primitives', () => {
   it.each([
-    ['ready', 'Ready slot'],
-    ['blocked', 'Locked slot'],
-    ['manual-review', 'Manual review slot'],
-    ['synced', 'Synced slot'],
-    ['missing', 'Missing local slot'],
-    ['recoverable', 'Recoverable signal'],
-  ] satisfies Array<[PixelInventoryState, string]>)('renders %s with readable state text', (state, label) => {
+    ['ready', 'Ready', 'Inventory slot'],
+    ['blocked', 'Blocked', 'Locked slot'],
+    ['manual-review', 'Manual Review', 'Review slot'],
+    ['synced', 'Synced', 'Archived slot'],
+    ['missing', 'Missing Local', 'Broken slot'],
+    ['recoverable', 'Recoverable', 'Remote signal'],
+  ] satisfies Array<[PixelInventoryState, string, string]>)('renders %s with readable state text', (state, label, motif) => {
     const html = renderToStaticMarkup(createElement(PixelStatusBadge, { state, colors }));
 
     expect(html).toContain('data-pixel-status-badge');
     expect(html).toContain(`data-pixel-inventory-state="${state}"`);
     expect(html).toContain(label);
+    expect(html).toContain(motif);
   });
 
   it('renders a card as an inventory slot with title, count, and text content', () => {
@@ -48,7 +49,8 @@ describe('PixelInventory pilot primitives', () => {
     expect(html).toContain('data-pixel-inventory-card');
     expect(html).toContain('data-pixel-marker="slot-ready"');
     expect(html).toContain('Ready for manual upload');
-    expect(html).toContain('Ready slot');
+    expect(html).toContain('Ready');
+    expect(html).toContain('Inventory slot');
     expect(html).toContain('2');
     expect(html).toContain('Upload is explicit and limited to selected Ready items.');
   });
@@ -56,8 +58,31 @@ describe('PixelInventory pilot primitives', () => {
   it('does not make state icon-only or color-only', () => {
     const html = renderToStaticMarkup(createElement(PixelStatusBadge, { state: 'blocked', colors }));
 
+    expect(html).toContain('Blocked');
     expect(html).toContain('Locked slot');
     expect(html).toContain('data-pixel-marker="slot-locked"');
     expect(html).toContain('data-pixel-inventory-state="blocked"');
+  });
+
+  it('keeps long titles and counts in the card without dropping status text', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        PixelInventoryCard,
+        {
+          state: 'manual-review',
+          colors,
+          title: 'Needs manual review for attachment-with-a-very-long-local-blob-name',
+          count: 12,
+          testId: 'upload-queue-manual-review',
+        },
+        createElement('button', { type: 'button' }, 'Upload this item'),
+      ),
+    );
+
+    expect(html).toContain('Needs manual review for attachment-with-a-very-long-local-blob-name');
+    expect(html).toContain('12');
+    expect(html).toContain('Manual Review');
+    expect(html).toContain('Review slot');
+    expect(html).toContain('Upload this item');
   });
 });
