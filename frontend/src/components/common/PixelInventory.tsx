@@ -107,7 +107,7 @@ export function PixelStatusBadge({
 }) {
   const tone = stateTone(state, colors);
   const text = label ?? tone.label;
-  const motif = label ? tone.label : tone.motif;
+  const motif = tone.motif;
   return (
     <span
       data-pixel-status-badge
@@ -141,7 +141,7 @@ export function PixelStatusBadge({
           boxShadow: `2px 0 0 ${hexWithAlpha(tone.border, '55')}`,
         }}
       />
-      <span style={{ minWidth: 0 }}>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <span>{text}</span>
         <span style={{ color: colors.textMuted, fontWeight: 700 }}> · {motif}</span>
       </span>

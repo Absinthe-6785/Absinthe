@@ -2087,9 +2087,102 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     expect(buttonByText(host, 'Upload selected').className).toContain('abs-focus-ring');
     const readyCheckbox = queueBucket(host, 'upload-queue-ready').querySelector('input[type="checkbox"]') as HTMLInputElement | null;
     expect(readyCheckbox?.className).toContain('abs-focus-ring');
+    const readyRow = queueBucket(host, 'upload-queue-ready').querySelector('[data-upload-queue-review-item]') as HTMLElement | null;
+    expect(readyRow).toBeInstanceOf(HTMLElement);
+    expect(readyRow?.style.minWidth).toBe('0');
+    expect(readyRow?.style.flexWrap).toBe('wrap');
+    const readyTextLane = queueBucket(host, 'upload-queue-ready').querySelector('[data-upload-queue-review-text]') as HTMLElement | null;
+    const readyLabel = queueBucket(host, 'upload-queue-ready').querySelector('[data-upload-queue-review-label]') as HTMLElement | null;
+    const readyAction = queueBucket(host, 'upload-queue-ready').querySelector('[data-upload-queue-review-action]') as HTMLButtonElement | null;
+    expect(readyTextLane?.style.minWidth).toBe('0');
+    expect(readyLabel?.style.overflowWrap).toBe('anywhere');
+    expect(readyAction).toBeInstanceOf(HTMLButtonElement);
+    expect(readyAction?.textContent?.trim()).toBe('Upload this item');
+    expect(readyAction?.className).toContain('abs-focus-ring');
+    expect(readyAction?.style.flexShrink).toBe('0');
+    expect(readyAction?.style.whiteSpace).toBe('nowrap');
     expect(buttonByText(host, 'Upload this item').className).toContain('abs-focus-ring');
     expect(buttons).toContain('Upload this item');
     expect(buttons).toContain('Upload selected');
+    cleanup(root, host);
+  });
+
+  it('keeps long upload queue item text wrapped while preserving status labels and action buttons', async () => {
+    const longReason = `Provider session unavailable for ${'attachmentfilename'.repeat(18)}`;
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({
+      recoveryItems: [],
+      uploadItems: [
+        uploadItem({ attachmentId: 'att-ready-with-long-neighbor', localBlobKey: 'local-attachment/ready-long', localSize: 120 }),
+        uploadItem({
+          attachmentId: 'att-blocked-long-label',
+          localBlobKey: 'local-attachment/blocked-long-label',
+          eligible: true,
+          reason: longReason,
+          localSize: 4096,
+        }),
+        uploadItem({
+          attachmentId: 'att-manual-long-label',
+          localBlobKey: 'local-attachment/manual-long-label',
+          remoteSyncStatus: 'failed',
+          eligible: false,
+          reason: `metadata_update_failed ${'manualreviewfilename'.repeat(12)}`,
+        }),
+        uploadItem({
+          attachmentId: 'att-synced-long-label',
+          remoteProvider: 'googleDrive',
+          remoteFileId: 'drive-file-1',
+          remoteSyncStatus: 'synced',
+          eligible: false,
+          reason: 'Already synced',
+        }),
+      ],
+    }));
+    const { root, host } = render(panelElement({
+      uploadAttachmentFn,
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+      diagnosticsFn,
+    }));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    await flushAsync();
+    click(buttonByText(host, 'Refresh diagnostics'));
+    await flushAsync();
+
+    expect(uploadAttachmentFn).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Ready');
+    expect(host.textContent).toContain('Blocked');
+    expect(host.textContent).toContain('Manual Review');
+    expect(host.textContent).toContain('Synced');
+    expect(host.textContent).toContain('Inventory slot');
+    expect(host.textContent).toContain('Locked slot');
+    expect(host.textContent).toContain('Review slot');
+    expect(host.textContent).toContain('Archived slot');
+    expect(host.textContent).toContain('Upload this item');
+    expect(host.textContent).toContain('Upload selected');
+
+    const rows = Array.from(host.querySelectorAll('[data-upload-queue-review-item]')) as HTMLElement[];
+    expect(rows.length).toBeGreaterThanOrEqual(4);
+    for (const row of rows) {
+      expect(row.style.minWidth).toBe('0');
+      expect(row.style.maxWidth).toBe('100%');
+      expect(row.style.flexWrap).toBe('wrap');
+      const textLane = row.querySelector('[data-upload-queue-review-text]') as HTMLElement | null;
+      const label = row.querySelector('[data-upload-queue-review-label]') as HTMLElement | null;
+      expect(textLane?.style.minWidth).toBe('0');
+      expect(textLane?.style.maxWidth).toBe('100%');
+      expect(label?.style.minWidth).toBe('0');
+      expect(label?.style.maxWidth).toBe('100%');
+      expect(label?.style.overflowWrap).toBe('anywhere');
+    }
+
+    const uploadButton = buttonByText(host, 'Upload this item');
+    expect(uploadButton).toBeInstanceOf(HTMLButtonElement);
+    expect(uploadButton.disabled).toBe(false);
+    expect(uploadButton.className).toContain('abs-focus-ring');
+    expect(uploadButton.style.flexShrink).toBe('0');
+    expect(uploadButton.style.whiteSpace).toBe('nowrap');
+    expectNoUnsafeQueueActions(host);
     cleanup(root, host);
   });
 
