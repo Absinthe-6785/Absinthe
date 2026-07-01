@@ -739,13 +739,16 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const relationsTabActive = isRelationsContextTabActive(contextPanelOpen, rightPanel);
   const tagsTabActive = isTagsContextTabActive(contextPanelOpen, rightPanel);
 
+  // Mobile needs the empty-vault editor state before deciding whether to hide
+  // the editor pane; the normal active-note mobile flow remains unchanged.
   // ── E. Layout-derived constants ───────────────────────────────────
   const hideSidebarByFocus = isFocusPresetActive && focusUiPreferences.hideSidebar;
   const hideSecondaryByFocus = isFocusPresetActive && focusUiPreferences.hideSecondaryPanels;
   const hideLeftChrome = focusMode || hideSidebarByFocus;
   const hideSecondaryChrome = hideSecondaryByFocus;
   const hideNoteList = isMobile && mobileShowEditor && !!activeNoteId;
-  const hideEditorArea = isMobile && !mobileShowEditor;
+  const isMobileEmptyVault = activeFolderId !== 'trash' && notes.every(n => n.deletedAt);
+  const hideEditorArea = isMobile && !mobileShowEditor && !isMobileEmptyVault;
 
   useEffect(() => {
     if (isMobile) setMobileSidebarOpen(false);
