@@ -58,6 +58,7 @@ import { K123_EDITOR_SHELL_MAX_PX } from '../../../lib/k123EditorLayout';
 import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 import { useTranslation } from '../../../lib/i18n';
 import { NoteGraphViewLazy } from './NoteGraphViewLazy';
+import { NotesPixelCosmosEmptyState } from './NotesPixelCosmosEmptyState';
 import type { KnowledgeTimeline } from '../features/knowledge/timeline';
 import type { DiscoveryFeed } from '../features/knowledge/discovery';
 import type { ReviewQueueEntry } from '../features/knowledge/review/reviewQueue';
@@ -963,38 +964,12 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             <NoteGraphViewLazy notes={Array.isArray(notes) ? notes : []} folders={folders} activeNoteId={null} onSelect={handleCosmosSelect} dark={dark} compactChrome={isCompactChrome} onCreateNote={() => createNote()} onLearnLinking={handleLearnLinking} onHudReviewWeakAreas={handleHudReviewWeakAreas} onHudOpenDiscover={handleOpenDiscover} onHudReviewDiscoveries={handleOpenDiscover} onHudOpenTimeline={handleOpenTimeline} recentEvolution={knowledgeTimeline.recentEvolution} sharedDiscoveryFeed={discoveryFeed}/>
           </div>
         ) : isEmptyVault ? (
-          <ProductEmptyState
-            variant="note-chrome"
+          <NotesPixelCosmosEmptyState
             colors={c}
-            icon={FileText}
-            title={t('k101EmptyVaultTitle')}
-            description={t('k101EmptyVaultDesc')}
-            dataHook="vault-empty"
-            primaryAction={{ label: t('nvNewNoteBtn'), onClick: () => createNote() }}
-            secondaryAction={onOpenTodaysNote ? { label: t('k101OpenTodaysNote'), onClick: onOpenTodaysNote } : undefined}
-          >
-            {onImportVault ? (
-              <button
-                type="button"
-                className="k101-interactive"
-                onClick={onImportVault}
-                data-vault-empty-import
-                style={{
-                  background: 'transparent',
-                  color: c.textMuted,
-                  border: `1px solid ${c.inputBdr}`,
-                  borderRadius: 10,
-                  padding: '8px 16px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  minHeight: 44,
-                }}
-              >
-                {t('nvImportVaultBackup')}
-              </button>
-            ) : null}
-          </ProductEmptyState>
+            onCreateNote={() => createNote()}
+            onOpenTodaysNote={onOpenTodaysNote}
+            onImportVault={onImportVault}
+          />
         ) : (
           <div data-k126c-notes-empty>
           <ProductEmptyState
