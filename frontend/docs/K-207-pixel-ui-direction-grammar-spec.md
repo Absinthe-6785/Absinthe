@@ -222,6 +222,10 @@ Suggested scope:
 - Avoid layout overhaul.
 - Test in Attachment Maintenance or an isolated component/story-like test area if available.
 
+## K-208 Pilot Note
+
+K-208 should validate the pixel panel, inventory card, and status badge grammar inside the Attachment Maintenance inventory/status surface. The pilot must stay reversible, avoid assets/fonts/dependencies, and preserve upload, recovery, diagnostics, OAuth, Supabase, and persistence behavior. Stop criteria apply if readability, keyboard access, focus visibility, overflow, state clarity, or action clarity regresses.
+
 ## Non-Goals
 
 - No runtime implementation in K-207.

@@ -61,6 +61,7 @@ import {
 } from '../../../lib/embeddedAttachmentMigrationRestore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
+import { PixelInventoryCard, type PixelInventoryState } from '../../common/PixelInventory';
 import { GoogleDriveManualConnectionPanel } from './GoogleDriveManualConnectionPanel';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
@@ -1298,12 +1299,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
         : title === 'Needs manual review'
           ? 'upload-queue-manual-review'
           : 'upload-queue-already-synced';
+    const pixelState: PixelInventoryState = title === 'Ready for manual upload'
+      ? 'ready'
+      : title === 'Blocked'
+        ? 'blocked'
+        : title === 'Needs manual review'
+          ? 'manual-review'
+          : 'synced';
     return (
-    <div data-testid={testId} style={{ border: `1px solid ${c.sideBdr}`, borderRadius: 6, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-        <div style={{ fontSize: 10.5, fontWeight: 800 }}>{title}</div>
-        <div data-testid={`${testId}-count`} style={{ fontSize: 10, color: c.textFaint }}>{items.length}</div>
-      </div>
+    <PixelInventoryCard state={pixelState} colors={c} title={title} count={items.length} testId={testId}>
       {items.length === 0 ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>No items in this bucket.</div>
       ) : (
@@ -1314,6 +1318,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 {options.executable ? (
                   <input
                     type="checkbox"
+                    className="abs-focus-ring"
                     aria-label={`Select attachment ${shortValue(item.attachmentId)} for limited upload`}
                     data-upload-queue-select={item.attachmentId}
                     checked={selectedUploadQueueAttachmentIds.has(item.attachmentId)}
@@ -1336,7 +1341,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
               {options.executable ? (
                 <button
                   type="button"
-                  className="btbtn"
+                  className="btbtn abs-focus-ring"
                   onClick={() => runUpload(item.attachmentId)}
                   disabled={Boolean(runningUploadAttachmentId) || uploadQueueRunStatus === 'running'}
                   style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
@@ -1351,7 +1356,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           ) : null}
         </div>
       )}
-    </div>
+    </PixelInventoryCard>
     );
   };
 
@@ -2012,7 +2017,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                 </div>
                                 <button
                                   type="button"
-                                  className="btbtn"
+                                  className="btbtn abs-focus-ring"
                                   onClick={() => runSelectedUploadQueueItems(visibleReadyItems)}
                                   disabled={runDisabled}
                                   style={{ padding: '5px 8px', fontSize: 10, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
