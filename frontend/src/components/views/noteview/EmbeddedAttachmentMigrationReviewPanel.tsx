@@ -1311,10 +1311,10 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       {items.length === 0 ? (
         <div style={{ fontSize: 10, color: c.textFaint }}>No items in this bucket.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
           {items.slice(0, 3).map(item => (
-            <div key={item.attachmentId} data-upload-queue-review-item style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <div key={item.attachmentId} data-upload-queue-review-item style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%', fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
+              <div data-upload-queue-review-text style={{ display: 'flex', alignItems: 'flex-start', gap: 6, minWidth: 0, flex: '1 1 165px', maxWidth: '100%' }}>
                 {options.executable ? (
                   <input
                     type="checkbox"
@@ -1331,7 +1331,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     style={{ flexShrink: 0 }}
                   />
                 ) : null}
-                <div>
+                <div data-upload-queue-review-label style={{ minWidth: 0, maxWidth: '100%', overflowWrap: 'anywhere' }}>
                   attachment {shortValue(item.attachmentId)} - {item.label} - provider {item.providerType ?? 'none'} - size {item.localSizeBytes !== undefined ? formatBytes(item.localSizeBytes) : 'unknown'}
                   {item.manualReview ? ' - manual review' : ''}
                   {item.remoteObjectAmbiguous ? ' - remote object ambiguity' : ''}
@@ -1342,9 +1342,10 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 <button
                   type="button"
                   className="btbtn abs-focus-ring"
+                  data-upload-queue-review-action
                   onClick={() => runUpload(item.attachmentId)}
                   disabled={Boolean(runningUploadAttachmentId) || uploadQueueRunStatus === 'running'}
-                  style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
+                  style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0, whiteSpace: 'nowrap' }}
                 >
                   {runningUploadAttachmentId === item.attachmentId ? 'Uploading...' : 'Upload this item'}
                 </button>

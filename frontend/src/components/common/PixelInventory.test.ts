@@ -64,6 +64,14 @@ describe('PixelInventory pilot primitives', () => {
     expect(html).toContain('data-pixel-inventory-state="blocked"');
   });
 
+  it('keeps the state motif stable when the visible badge label is customized', () => {
+    const html = renderToStaticMarkup(createElement(PixelStatusBadge, { state: 'ready', colors, label: 'Upload Ready' }));
+
+    expect(html).toContain('Upload Ready');
+    expect(html).toContain('Inventory slot');
+    expect(html).not.toContain('· Ready');
+  });
+
   it('keeps long titles and counts in the card without dropping status text', () => {
     const html = renderToStaticMarkup(
       createElement(
@@ -80,6 +88,7 @@ describe('PixelInventory pilot primitives', () => {
     );
 
     expect(html).toContain('Needs manual review for attachment-with-a-very-long-local-blob-name');
+    expect(html).toContain('overflow-wrap:anywhere');
     expect(html).toContain('12');
     expect(html).toContain('Manual Review');
     expect(html).toContain('Review slot');
