@@ -16,11 +16,13 @@ The hook calls `createLocalBackupManifestExportDiagnostic` from `localBackupMani
 
 It maps the current export metadata into the K-241 diagnostic helper:
 
-- `noteCount` -> `counts.notes`
-- `folderCount` -> `counts.noteMetadata`
-- `relationCount` -> `counts.noteRelationships`
+- `noteCount` is the source note count from `VaultBackupManifest.notes`
+- `folderCount` is the source folder count from `VaultBackupManifest.folders`
+- `relationCount` is the source relation count computed from note relationships
 - attachment metadata and blob payloads remain excluded
 - default diagnostic scope remains `diagnostic-manifest` / `0`
+
+The source export type does not expose a generic `counts` object. K-244 uses the concrete `VaultBackupManifest` fields directly and does not invent additional export counts.
 
 ## Output Neutrality
 

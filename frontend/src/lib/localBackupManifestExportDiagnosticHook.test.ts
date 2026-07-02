@@ -18,6 +18,7 @@ import { buildVaultBackupZip } from './vaultBackupZip';
 
 const exportSourcePath = join(process.cwd(), 'src', 'lib', 'exportVaultBackup.ts');
 const zipSourcePath = join(process.cwd(), 'src', 'lib', 'vaultBackupZip.ts');
+const docPath = join(process.cwd(), 'docs', 'K-244-local-backup-manifest-export-diagnostic-hook.md');
 
 function note(id: string, title: string, relations: NoteBase['relations'] = {}): NoteBase {
   return {
@@ -65,6 +66,16 @@ async function zipSnapshot(manifest: VaultBackupManifest): Promise<{
 }
 
 describe('local backup manifest export diagnostic hook', () => {
+  it('documents source-grounded VaultBackupManifest count mapping without generic count overclaim', () => {
+    const doc = readFileSync(docPath, 'utf8');
+
+    expect(doc).toContain('`noteCount` is the source note count from `VaultBackupManifest.notes`');
+    expect(doc).toContain('`folderCount` is the source folder count from `VaultBackupManifest.folders`');
+    expect(doc).toContain('`relationCount` is the source relation count computed from note relationships');
+    expect(doc).toContain('The source export type does not expose a generic `counts` object.');
+    expect(doc).not.toContain('`folderCount` -> `counts.noteMetadata`');
+  });
+
   it('runs from the post-buildVaultBackupManifestV3 choke point', () => {
     const source = readFileSync(exportSourcePath, 'utf8');
 
