@@ -59,6 +59,10 @@ describe('local backup manifest export diagnostic', () => {
       '`VaultBackupManifest` v3 unchanged.',
       'no sidecar file.',
       'no ZIP entry changes.',
+      'K-241 supports only diagnostic/core-data scopes.',
+      'Level 2+ / Level 3+ / provider-aware scopes are unsupported in K-241.',
+      'higher-scope requests are hard failures, not warnings.',
+      'manifestInputOverrides cannot be used to claim blob/provider-aware support.',
       'K-241 does not claim Level 3 blob support.',
       'validation errors do not print detected sensitive values.',
       'K-242 Local Backup Manifest Export Diagnostic Closure Audit',
@@ -115,6 +119,65 @@ describe('local backup manifest export diagnostic', () => {
     expect(result.manifest?.scopeLevel).toBe(1);
     expect(result.manifest?.attachments.attachmentBlobPayloadIncluded).toBe(false);
     expect(result.manifest?.warnings).toContain('attachment-blob-payload-not-included');
+  });
+
+  it('hard-fails full-content-metadata scope because K-241 is diagnostic/core-data only', () => {
+    const result = createLocalBackupManifestExportDiagnostic({
+      vaultManifest: vaultManifest(),
+      backupKind: 'full-content-metadata' as never,
+      scopeLevel: 2 as never,
+    });
+
+    expect(result.hardFailure).toBe(true);
+    expect(result.hardFailureReasons).toContain('unsupported_k241_diagnostic_scope:full-content-metadata:2');
+    expect(result.warnings).not.toContain('validation_warning:unsupported_k241_diagnostic_scope:full-content-metadata:2');
+    expect(result.manifest).toBeNull();
+  });
+
+  it('hard-fails full-content-with-blobs scope instead of claiming Level 3 blob support', () => {
+    const result = createLocalBackupManifestExportDiagnostic({
+      vaultManifest: vaultManifest(),
+      backupKind: 'full-content-with-blobs' as never,
+      scopeLevel: 3 as never,
+    });
+
+    expect(result.hardFailure).toBe(true);
+    expect(result.hardFailureReasons).toContain('unsupported_k241_diagnostic_scope:full-content-with-blobs:3');
+    expect(result.manifest).toBeNull();
+  });
+
+  it('hard-fails provider-aware recovery scope because it is future-scoped', () => {
+    const result = createLocalBackupManifestExportDiagnostic({
+      vaultManifest: vaultManifest(),
+      backupKind: 'provider-aware-recovery' as never,
+      scopeLevel: 4 as never,
+    });
+
+    expect(result.hardFailure).toBe(true);
+    expect(result.hardFailureReasons).toContain('unsupported_k241_diagnostic_scope:provider-aware-recovery:4');
+    expect(result.manifest).toBeNull();
+  });
+
+  it('prevents manifestInputOverrides from escalating to higher-scope blob support', () => {
+    const result = createLocalBackupManifestExportDiagnostic({
+      vaultManifest: vaultManifest(),
+      manifestInputOverrides: {
+        backupKind: 'full-content-with-blobs',
+        scopeLevel: 3,
+        attachments: {
+          attachmentBlobPayloadIncluded: true,
+          blobPayloadCount: 1,
+        },
+      } as never,
+    });
+
+    expect(result.hardFailure).toBe(true);
+    expect(result.hardFailureReasons).toEqual(expect.arrayContaining([
+      'unsupported_k241_diagnostic_override:backupKind',
+      'unsupported_k241_diagnostic_override:scopeLevel',
+      'unsupported_k241_diagnostic_override:attachments',
+    ]));
+    expect(result.manifest).toBeNull();
   });
 
   it('treats invalid backup kind and scope level as a hard failure', () => {

@@ -6,7 +6,6 @@ import {
   type LocalFirstBackupKind,
   type LocalFirstBackupManifest,
   type LocalFirstBackupManifestValidationResult,
-  type LocalFirstBackupScopeLevel,
 } from './localFirstBackupManifest';
 
 export const LOCAL_BACKUP_MANIFEST_EXPORT_DIAGNOSTIC_GATE =
@@ -14,11 +13,11 @@ export const LOCAL_BACKUP_MANIFEST_EXPORT_DIAGNOSTIC_GATE =
 
 export interface LocalBackupManifestExportDiagnosticInput {
   vaultManifest: VaultBackupManifest;
-  backupKind?: LocalFirstBackupKind;
-  scopeLevel?: LocalFirstBackupScopeLevel;
+  backupKind?: LocalBackupManifestExportDiagnosticKind;
+  scopeLevel?: LocalBackupManifestExportDiagnosticScopeLevel;
   warnings?: string[];
   limitations?: string[];
-  manifestInputOverrides?: Partial<CreateLocalFirstBackupManifestInput>;
+  manifestInputOverrides?: LocalBackupManifestExportDiagnosticOverrides;
 }
 
 export interface LocalBackupManifestExportDiagnosticResult {
@@ -31,6 +30,8 @@ export interface LocalBackupManifestExportDiagnosticResult {
 }
 
 const HARD_FAILURE_PREFIXES = [
+  'unsupported_k241_diagnostic_scope:',
+  'unsupported_k241_diagnostic_override:',
   'credential_like_value:',
   'forbidden_key:',
   'raw_blob_payload_value:',
@@ -42,9 +43,40 @@ const HARD_FAILURE_PREFIXES = [
   'privacy_exclusion_not_true:',
 ] as const;
 
+const K241_SUPPORTED_KIND_SCOPE = {
+  'diagnostic-manifest': 0,
+  'core-data': 1,
+} as const satisfies Partial<Record<LocalFirstBackupKind, number>>;
+
+const K241_SAFE_OVERRIDE_KEYS = new Set(['createdAt', 'backupId']);
+
+export type LocalBackupManifestExportDiagnosticKind = keyof typeof K241_SUPPORTED_KIND_SCOPE;
+export type LocalBackupManifestExportDiagnosticScopeLevel =
+  typeof K241_SUPPORTED_KIND_SCOPE[LocalBackupManifestExportDiagnosticKind];
+export type LocalBackupManifestExportDiagnosticOverrides =
+  Partial<Pick<CreateLocalFirstBackupManifestInput, 'createdAt' | 'backupId'>>;
+
 function hasExtensionsDomain(manifest: VaultBackupManifest, domain: 'settings' | 'health'): boolean {
   if (domain === 'settings') return manifest.extensions?.settings != null;
   return manifest.extensions?.health != null;
+}
+
+function collectK241BoundaryErrors(input: LocalBackupManifestExportDiagnosticInput): string[] {
+  const errors: string[] = [];
+  const backupKind = input.backupKind ?? 'diagnostic-manifest';
+  const scopeLevel = input.scopeLevel ?? 0;
+
+  if (K241_SUPPORTED_KIND_SCOPE[backupKind] !== scopeLevel) {
+    errors.push(`unsupported_k241_diagnostic_scope:${String(backupKind)}:${String(scopeLevel)}`);
+  }
+
+  for (const key of Object.keys(input.manifestInputOverrides ?? {})) {
+    if (!K241_SAFE_OVERRIDE_KEYS.has(key)) {
+      errors.push(`unsupported_k241_diagnostic_override:${key}`);
+    }
+  }
+
+  return errors;
 }
 
 function buildDiagnosticInput(
@@ -55,12 +87,14 @@ function buildDiagnosticInput(
   const healthIncluded = hasExtensionsDomain(vaultManifest, 'health');
   const backupKind = input.backupKind ?? 'diagnostic-manifest';
   const scopeLevel = input.scopeLevel ?? 0;
+  const createdAt = input.manifestInputOverrides?.createdAt ?? vaultManifest.exportedAt;
 
   const diagnosticInput: CreateLocalFirstBackupManifestInput = {
     appVersion: vaultManifest.appVersion || 'unknown',
     schemaVersion: vaultManifest.schemaVersion,
-    createdAt: vaultManifest.exportedAt,
-    backupId: `local-first-export-diagnostic-${vaultManifest.exportedAt.replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`,
+    createdAt,
+    backupId: input.manifestInputOverrides?.backupId
+      ?? `local-first-export-diagnostic-${createdAt.replace(/[^0-9A-Za-z]/g, '').slice(0, 20)}`,
     backupKind,
     scopeLevel,
     domains: [
@@ -170,7 +204,6 @@ function buildDiagnosticInput(
       'existing VaultBackupManifest v3 remains the export artifact contract',
       ...(input.limitations ?? []),
     ],
-    ...(input.manifestInputOverrides ?? {}),
   };
 
   return diagnosticInput;
@@ -200,9 +233,15 @@ export function classifyLocalBackupManifestExportDiagnosticValidation(
 export function createLocalBackupManifestExportDiagnostic(
   input: LocalBackupManifestExportDiagnosticInput,
 ): LocalBackupManifestExportDiagnosticResult {
+  const boundaryErrors = collectK241BoundaryErrors(input);
   const diagnosticInput = buildDiagnosticInput(input);
   const manifest = createLocalFirstBackupManifest(diagnosticInput);
-  const validation = validateLocalFirstBackupManifest(manifest);
+  const manifestValidation = validateLocalFirstBackupManifest(manifest);
+  const validation = {
+    ...manifestValidation,
+    ok: manifestValidation.ok && boundaryErrors.length === 0,
+    errors: [...boundaryErrors, ...manifestValidation.errors],
+  };
   const classification = classifyLocalBackupManifestExportDiagnosticValidation(validation);
 
   return {

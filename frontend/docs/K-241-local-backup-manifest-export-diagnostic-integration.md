@@ -74,7 +74,10 @@ The diagnostic helper:
 - accepts an existing `VaultBackupManifest`.
 - maps source metadata into a `LocalFirstBackupManifest`.
 - defaults to `diagnostic-manifest` with scope level `0`.
+- K-241 supports only diagnostic/core-data scopes.
 - optionally supports `core-data` with scope level `1` for diagnostic tests.
+- Level 2+ / Level 3+ / provider-aware scopes are unsupported in K-241.
+- manifestInputOverrides cannot be used to claim blob/provider-aware support.
 - calls `createLocalFirstBackupManifest`.
 - calls `validateLocalFirstBackupManifest`.
 - returns the generated manifest when validation has no hard-failure category.
@@ -90,6 +93,8 @@ The diagnostic helper:
 
 Hard failure categories:
 
+- unsupported K-241 backup scope requests.
+- unsupported K-241 diagnostic overrides.
 - credentials/tokens/secrets detected.
 - forbidden credential-like keys detected.
 - raw blob payload embedded in manifest JSON.
@@ -105,6 +110,8 @@ Warning categories:
 - attachment blob payload not included under metadata-only scope.
 - provider metadata unresolved.
 - compatibility gaps that do not claim restore-grade completeness.
+
+higher-scope requests are hard failures, not warnings.
 
 No output shape change:
 
@@ -134,6 +141,12 @@ Current artifact relationship:
 ## Attachment Boundary
 
 K-241 does not claim Level 3 blob support.
+
+Level 2 metadata-complete exports, Level 3 blob payload exports, and Level 4 provider-aware recovery are explicitly unsupported in K-241.
+
+Those scopes require future explicitly scoped tickets.
+
+manifestInputOverrides cannot be used to claim blob/provider-aware support.
 
 K-241 does not copy blobs.
 
