@@ -23,6 +23,14 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+function summaryForBackupKind(backupKind: unknown) {
+  return createLocalBackupManifestDiagnosticSummary({
+    manifest: {
+      backupKind: backupKind as string,
+    },
+  });
+}
+
 describe('local backup manifest diagnostic harness', () => {
   it('returns pass status when there are no hard failures or warnings', () => {
     const summary = createLocalBackupManifestDiagnosticSummary({
@@ -111,6 +119,44 @@ describe('local backup manifest diagnostic harness', () => {
     });
 
     expect(summary.sourceCounts).toEqual({ noteCount: 5, folderCount: 2, relationCount: 9 });
+  });
+
+  it('allowlists only supported backup kinds in the public scope summary', () => {
+    expect(summaryForBackupKind('diagnostic-manifest').scopeSummary.backupKind).toBe('diagnostic-manifest');
+    expect(summaryForBackupKind('core-data').scopeSummary.backupKind).toBe('core-data');
+  });
+
+  it('redacts unsupported and adversarial backup kinds from the public summary', () => {
+    const adversarialBackupKinds = [
+      'full-content-metadata',
+      'full-content-with-blobs',
+      'provider-aware-recovery',
+      'arbitrary-vault-kind',
+      '',
+      '   ',
+      'accessToken=FAKE_SECRET',
+      'refreshToken:FAKE_SECRET',
+      'client_secret=FAKE_SECRET',
+      'data:application/octet-stream;base64,FAKE',
+      'full-content-with-blobs\naccessToken=FAKE_SECRET',
+      '{"backupKind":"core-data","secret":"FAKE"}',
+      null,
+      undefined,
+      42,
+      ['core-data'],
+      { backupKind: 'core-data' },
+      () => 'core-data',
+    ];
+
+    for (const backupKind of adversarialBackupKinds) {
+      const summary = summaryForBackupKind(backupKind);
+      const output = serialized(summary);
+
+      expect(summary.scopeSummary.backupKind).toBe('unknown');
+      if (typeof backupKind === 'string' && backupKind.length > 0) {
+        expect(output).not.toContain(backupKind);
+      }
+    }
   });
 
   it('keeps attachment summary metadata-only and never claims blob payload output', () => {
