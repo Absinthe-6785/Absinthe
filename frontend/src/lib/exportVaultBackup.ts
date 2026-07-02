@@ -9,6 +9,10 @@ import {
   VAULT_EXPORT_KIND,
   VAULT_SCOPE_DOC,
 } from './vaultBackupConstants';
+import {
+  createLocalBackupManifestExportDiagnostic,
+  type LocalBackupManifestExportDiagnosticResult,
+} from './localBackupManifestExportDiagnostic';
 import type { VaultPortableExtensions } from './vaultPortableExtensions';
 import {
   PORTABLE_VAULT_EXCLUDED,
@@ -96,6 +100,12 @@ export function isVaultBackupManifestV3(manifest: VaultBackupManifest): boolean 
   return manifest.schemaVersion >= 3 || manifest.kind === VAULT_EXPORT_KIND;
 }
 
+export function runVaultBackupManifestExportDiagnostic(
+  manifest: VaultBackupManifest,
+): LocalBackupManifestExportDiagnosticResult {
+  return createLocalBackupManifestExportDiagnostic({ vaultManifest: manifest });
+}
+
 export function buildVaultBackupManifestV3(
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
@@ -130,6 +140,7 @@ export function buildVaultBackupManifestV3(
   };
 
   if (cloud) manifest.cloud = cloud;
+  runVaultBackupManifestExportDiagnostic(manifest);
   return manifest;
 }
 

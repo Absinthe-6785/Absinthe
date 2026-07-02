@@ -145,15 +145,19 @@ describe('K-242 local backup manifest export diagnostic closure audit', () => {
     expect(helper).not.toMatch(/import\s*\([^)]*supabase/i);
   });
 
-  it('confirms the diagnostic helper is not wired into export, ZIP, import, or restore paths', () => {
-    const sources = [
-      readFileSync(exportSourcePath, 'utf8'),
+  it('confirms the diagnostic helper is wired only into the K-244 export hook and not ZIP, import, or restore paths', () => {
+    const exportSource = readFileSync(exportSourcePath, 'utf8');
+    const untouchedOutputSources = [
       readFileSync(zipSourcePath, 'utf8'),
       readFileSync(importSourcePath, 'utf8'),
       readFileSync(restoreSourcePath, 'utf8'),
     ];
 
-    for (const source of sources) {
+    expect(exportSource).toContain('localBackupManifestExportDiagnostic');
+    expect(exportSource).toContain('createLocalBackupManifestExportDiagnostic');
+    expect(exportSource).toContain('runVaultBackupManifestExportDiagnostic(manifest);');
+
+    for (const source of untouchedOutputSources) {
       expect(source).not.toContain('localBackupManifestExportDiagnostic');
       expect(source).not.toContain('createLocalBackupManifestExportDiagnostic');
     }

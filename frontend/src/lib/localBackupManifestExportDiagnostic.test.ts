@@ -321,12 +321,13 @@ describe('local backup manifest export diagnostic', () => {
     expect(source).not.toMatch(/import\s*\([^)]*supabase/i);
   });
 
-  it('does not wire the diagnostic helper into export or zip output paths', () => {
+  it('wires the diagnostic helper only at the export manifest hook and not into ZIP output paths', () => {
     const exportSource = readFileSync(exportSourcePath, 'utf8');
     const zipSource = readFileSync(zipSourcePath, 'utf8');
 
-    expect(exportSource).not.toContain('localBackupManifestExportDiagnostic');
-    expect(exportSource).not.toContain('createLocalBackupManifestExportDiagnostic');
+    expect(exportSource).toContain('localBackupManifestExportDiagnostic');
+    expect(exportSource).toContain('createLocalBackupManifestExportDiagnostic');
+    expect(exportSource).toContain('runVaultBackupManifestExportDiagnostic(manifest);');
     expect(zipSource).not.toContain('localBackupManifestExportDiagnostic');
     expect(zipSource).not.toContain('createLocalBackupManifestExportDiagnostic');
     expect(zipSource).not.toContain('local-first-manifest.json');
