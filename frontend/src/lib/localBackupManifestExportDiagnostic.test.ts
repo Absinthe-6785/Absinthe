@@ -121,6 +121,24 @@ describe('local backup manifest export diagnostic', () => {
     expect(result.manifest?.warnings).toContain('attachment-blob-payload-not-included');
   });
 
+  it('accepts safe createdAt and backupId overrides without widening diagnostic scope', () => {
+    const result = createLocalBackupManifestExportDiagnostic({
+      vaultManifest: vaultManifest(),
+      manifestInputOverrides: {
+        createdAt: '2026-07-02T12:34:56.000Z',
+        backupId: 'local-first-export-diagnostic-safe-override',
+      },
+    });
+
+    expect(result.validation.ok).toBe(true);
+    expect(result.hardFailure).toBe(false);
+    expect(result.manifest?.createdAt).toBe('2026-07-02T12:34:56.000Z');
+    expect(result.manifest?.backupId).toBe('local-first-export-diagnostic-safe-override');
+    expect(result.manifest?.backupKind).toBe('diagnostic-manifest');
+    expect(result.manifest?.scopeLevel).toBe(0);
+    expect(result.manifest?.attachments.attachmentBlobPayloadIncluded).toBe(false);
+  });
+
   it('hard-fails full-content-metadata scope because K-241 is diagnostic/core-data only', () => {
     const result = createLocalBackupManifestExportDiagnostic({
       vaultManifest: vaultManifest(),
