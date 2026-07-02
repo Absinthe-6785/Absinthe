@@ -165,6 +165,7 @@ const ALLOWED_SECURITY_EXCLUSION_KEYS = new Set([
 ]);
 
 const RAW_BLOB_VALUE_PATTERN = /\bdata:[^;,\s)"']+(?:;[^,\s)"']*)*;base64,/i;
+const CREDENTIAL_LIKE_VALUE_PATTERN = /\b(?:access[_\s-]?token|refresh[_\s-]?token|id[_\s-]?token|auth[_\s-]?token|oauth[_\s-]?token|client[_\s-]?secret|api[_\s-]?key)\b\s*(?::|=)|\bbearer\s+[A-Za-z0-9._~+/=-]{3,}|\b(?:secret|token|password|session)\s*=|\bsupabase\b|\bgoogle\s+oauth\b|\bgoogle\s+drive\s+token\b/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -290,6 +291,9 @@ function scanForbiddenFields(
   if (!isRecord(value)) {
     if (typeof value === 'string' && RAW_BLOB_VALUE_PATTERN.test(value)) {
       errors.push(`raw_blob_payload_value:${path}`);
+    }
+    if (typeof value === 'string' && CREDENTIAL_LIKE_VALUE_PATTERN.test(value)) {
+      errors.push(`credential_like_value:${path}`);
     }
     return;
   }

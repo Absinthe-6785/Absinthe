@@ -140,6 +140,10 @@ The validator rejects forbidden keys/patterns in manifest objects:
 
 The validator also rejects raw data URL blob payload values.
 
+The validator scans nested arrays and objects for obvious credential/token/secret-like string values, including token assignment strings, bearer tokens, client secrets, API keys, session/password assignments, Supabase references, and Google OAuth/Drive token references.
+
+This is a guardrail for obvious leakage in otherwise allowed manifest fields such as warnings, limitations, metadata, or diagnostics. It is not a claim of perfect secret detection.
+
 The validation helper operates on manifest objects, not docs.
 
 ## Attachment Boundary

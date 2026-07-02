@@ -91,6 +91,24 @@ describe('localFirstBackupManifest', () => {
     expectValid(manifest);
   });
 
+  it('accepts every valid backup kind and scope level mapping', () => {
+    const validMappings = [
+      ['diagnostic-manifest', 0],
+      ['core-data', 1],
+      ['full-content-metadata', 2],
+      ['full-content-with-blobs', 3],
+      ['provider-aware-recovery', 4],
+    ] as const;
+
+    for (const [backupKind, scopeLevel] of validMappings) {
+      const manifest = validManifest({ backupKind, scopeLevel });
+      expect(manifest.backupKind).toBe(backupKind);
+      expect(manifest.scopeLevel).toBe(scopeLevel);
+      expect(LOCAL_FIRST_BACKUP_KIND_SCOPE_LEVEL[backupKind]).toBe(scopeLevel);
+      expectValid(manifest);
+    }
+  });
+
   it('rejects diagnostic-manifest with scope level 1', () => {
     const manifest = validManifest({
       backupKind: 'diagnostic-manifest',
@@ -174,6 +192,53 @@ describe('localFirstBackupManifest', () => {
     const result = validateLocalFirstBackupManifest(manifest);
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('forbidden_key:metadata.apiToken');
+  });
+
+  it('rejects credential-like string values inside allowed nested fields', () => {
+    const cases = [
+      [{ ...validManifest(), warnings: ['access_token=abc'] }, 'credential_like_value:warnings[0]'],
+      [{ ...validManifest(), warnings: ['refresh_token=abc'] }, 'credential_like_value:warnings[0]'],
+      [
+        { ...validManifest(), metadata: { note: 'Bearer abc.def' } },
+        'credential_like_value:metadata.note',
+      ],
+      [
+        { ...validManifest(), diagnostics: [{ message: 'client_secret=abc' }] },
+        'credential_like_value:diagnostics[0].message',
+      ],
+      [
+        { ...validManifest(), metadata: { nested: { note: 'api_key=abc' } } },
+        'credential_like_value:metadata.nested.note',
+      ],
+      [
+        { ...validManifest(), diagnostics: ['oauth token: abc'] },
+        'credential_like_value:diagnostics[0]',
+      ],
+      [
+        { ...validManifest(), metadata: { note: 'google drive token unavailable' } },
+        'credential_like_value:metadata.note',
+      ],
+    ] as const;
+
+    for (const [manifest, expectedError] of cases) {
+      const result = validateLocalFirstBackupManifest(manifest);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(expectedError);
+    }
+  });
+
+  it('allows benign manifest warning and metadata strings', () => {
+    const manifest = {
+      ...validManifest({
+        warnings: ['metadata-only manifest preview'],
+        limitations: ['restore preview required'],
+      }),
+      metadata: {
+        note: 'Domain counts are synthetic and safe for review.',
+      },
+    };
+
+    expect(validateLocalFirstBackupManifest(manifest).errors).toEqual([]);
   });
 
   it('rejects raw blob payload fields and raw data URLs', () => {
