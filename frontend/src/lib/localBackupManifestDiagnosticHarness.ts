@@ -1,5 +1,6 @@
 export type LocalBackupManifestDiagnosticStatus = 'pass' | 'warning' | 'blocked';
 export type LocalBackupManifestDiagnosticSummaryBackupKind = 'diagnostic-manifest' | 'core-data' | 'unknown';
+export type LocalBackupManifestDiagnosticSummaryScopeLevel = 0 | 1 | 'unknown';
 
 export type LocalBackupManifestDiagnosticCategory =
   | 'privacy'
@@ -24,7 +25,7 @@ export interface LocalBackupManifestDiagnosticHarnessInput {
   } | null;
   manifest?: {
     backupKind?: string;
-    scopeLevel?: number;
+    scopeLevel?: unknown;
     counts?: Readonly<Record<string, number>>;
     attachments?: {
       attachmentMetadataIncluded?: boolean;
@@ -54,7 +55,7 @@ export interface LocalBackupManifestDiagnosticSummary {
   warningCategories: LocalBackupManifestDiagnosticCategory[];
   scopeSummary: {
     backupKind: LocalBackupManifestDiagnosticSummaryBackupKind;
-    scopeLevel?: number;
+    scopeLevel: LocalBackupManifestDiagnosticSummaryScopeLevel;
   };
   sourceCounts: {
     noteCount?: number;
@@ -94,6 +95,11 @@ function asSafeCount(value: unknown): number | undefined {
 
 function sanitizeBackupKindForSummary(value: unknown): LocalBackupManifestDiagnosticSummaryBackupKind {
   if (value === 'diagnostic-manifest' || value === 'core-data') return value;
+  return 'unknown';
+}
+
+function sanitizeScopeLevelForSummary(value: unknown): LocalBackupManifestDiagnosticSummaryScopeLevel {
+  if (value === 0 || value === 1) return value;
   return 'unknown';
 }
 
@@ -200,7 +206,7 @@ export function createLocalBackupManifestDiagnosticSummary(
     warningCategories: uniqueCategories(warningCategoryList),
     scopeSummary: {
       backupKind: sanitizeBackupKindForSummary(input.manifest?.backupKind),
-      scopeLevel: input.manifest?.scopeLevel,
+      scopeLevel: sanitizeScopeLevelForSummary(input.manifest?.scopeLevel),
     },
     sourceCounts: sourceCounts(input),
     attachmentSummary: {

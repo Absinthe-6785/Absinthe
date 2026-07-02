@@ -31,6 +31,14 @@ function summaryForBackupKind(backupKind: unknown) {
   });
 }
 
+function summaryForScopeLevel(scopeLevel: unknown) {
+  return createLocalBackupManifestDiagnosticSummary({
+    manifest: {
+      scopeLevel,
+    },
+  });
+}
+
 describe('local backup manifest diagnostic harness', () => {
   it('returns pass status when there are no hard failures or warnings', () => {
     const summary = createLocalBackupManifestDiagnosticSummary({
@@ -155,6 +163,46 @@ describe('local backup manifest diagnostic harness', () => {
       expect(summary.scopeSummary.backupKind).toBe('unknown');
       if (typeof backupKind === 'string' && backupKind.length > 0) {
         expect(output).not.toContain(backupKind);
+      }
+    }
+  });
+
+  it('allowlists only current supported scope levels in the public scope summary', () => {
+    expect(summaryForScopeLevel(0).scopeSummary.scopeLevel).toBe(0);
+    expect(summaryForScopeLevel(1).scopeSummary.scopeLevel).toBe(1);
+  });
+
+  it('redacts future, malformed, and adversarial scope levels from the public summary', () => {
+    const adversarialScopeLevels = [
+      2,
+      3,
+      4,
+      -1,
+      0.5,
+      1.1,
+      999999999,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      '0',
+      'arbitrary-scope-level',
+      'accessToken=FAKE_SECRET',
+      'C:\\Users\\Sensitive\\vault\\notes.md',
+      'Error: scope failed\n    at runSecret(C:\\Users\\Sensitive\\app.ts:1:1)',
+      { scopeLevel: 0 },
+      [0],
+      () => 0,
+      null,
+      undefined,
+    ];
+
+    for (const scopeLevel of adversarialScopeLevels) {
+      const summary = summaryForScopeLevel(scopeLevel);
+      const output = serialized(summary);
+
+      expect(summary.scopeSummary.scopeLevel).toBe('unknown');
+      if (typeof scopeLevel === 'string' && scopeLevel.length > 0 && scopeLevel !== '0') {
+        expect(output).not.toContain(scopeLevel);
       }
     }
   });
