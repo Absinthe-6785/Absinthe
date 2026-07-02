@@ -1,4 +1,5 @@
 export type LocalBackupManifestDiagnosticStatus = 'pass' | 'warning' | 'blocked';
+export type LocalBackupManifestDiagnosticSummaryBackupKind = 'diagnostic-manifest' | 'core-data' | 'unknown';
 
 export type LocalBackupManifestDiagnosticCategory =
   | 'privacy'
@@ -52,7 +53,7 @@ export interface LocalBackupManifestDiagnosticSummary {
   hardFailureCategories: LocalBackupManifestDiagnosticCategory[];
   warningCategories: LocalBackupManifestDiagnosticCategory[];
   scopeSummary: {
-    backupKind?: string;
+    backupKind: LocalBackupManifestDiagnosticSummaryBackupKind;
     scopeLevel?: number;
   };
   sourceCounts: {
@@ -89,6 +90,11 @@ function asSafeCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? value
     : undefined;
+}
+
+function sanitizeBackupKindForSummary(value: unknown): LocalBackupManifestDiagnosticSummaryBackupKind {
+  if (value === 'diagnostic-manifest' || value === 'core-data') return value;
+  return 'unknown';
 }
 
 function classifyDiagnosticCode(value: string, fallback: LocalBackupManifestDiagnosticCategory): LocalBackupManifestDiagnosticCategory {
@@ -193,7 +199,7 @@ export function createLocalBackupManifestDiagnosticSummary(
     hardFailureCategories: uniqueCategories(hardFailureCategories),
     warningCategories: uniqueCategories(warningCategoryList),
     scopeSummary: {
-      backupKind: input.manifest?.backupKind,
+      backupKind: sanitizeBackupKindForSummary(input.manifest?.backupKind),
       scopeLevel: input.manifest?.scopeLevel,
     },
     sourceCounts: sourceCounts(input),
