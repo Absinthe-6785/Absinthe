@@ -56,6 +56,9 @@ describe('NotesCosmosStaticPreview', () => {
     expect(html).toContain(notesCosmosStaticPreviewFixture.description);
     expect(html).toContain('data-notes-cosmos-static-preview');
     expect(html).toContain('data-min-mobile-width="390"');
+    expect(html).toContain('Read-only signal preview');
+    expect(html).toContain('Signal readout');
+    expect(html).toContain('Static signal hierarchy readout');
   });
 
   it('renders all nodes with label, summary, kind, status, tone, cluster, and date text', () => {
@@ -73,6 +76,30 @@ describe('NotesCosmosStaticPreview', () => {
       expect(html).toContain(node.createdAtLabel);
       expect(html).toContain(node.updatedAtLabel);
     }
+  });
+
+  it('renders literal primary, secondary, and faint signal hierarchy semantics', () => {
+    const html = renderedText();
+
+    expect(html).toContain('Primary signal');
+    expect(html).toContain('Secondary signals');
+    expect(html).toContain('Faint signals');
+    expect(html).toContain("Today's note");
+    expect(html).toContain('7 supporting records');
+    expect(html).toContain('2 archive traces');
+    expect(html).toContain('Signal tier: Primary signal');
+    expect(html).toContain('Signal tier: Secondary signal');
+    expect(html).toContain('Signal tier: Faint signal');
+    expect(html).toContain('Current anchor or active writing focus.');
+    expect(html).toContain('Supporting note, reference, or recent context.');
+    expect(html).toContain('Older archive trace kept visible without competing.');
+
+    expect(html).toContain('data-node-id="node-today-note"');
+    expect(html).toContain('data-signal-tier="primary"');
+    expect(html).toContain('data-node-id="node-week-review"');
+    expect(html).toContain('data-signal-tier="secondary"');
+    expect(html).toContain('data-node-id="node-archive-thread"');
+    expect(html).toContain('data-signal-tier="faint"');
   });
 
   it('renders all relationships with label, source text, target text, kind, and strength', () => {
@@ -186,6 +213,10 @@ describe('NotesCosmosStaticPreview', () => {
     expect(html).toContain('no horizontal overflow');
     expect(html).toContain('readable labels');
     expect(html).toContain('no clipped primary content');
+    expect(html).toContain('Static signal hierarchy readout');
+    expect(html).toContain('Signal tier: Primary signal');
+    expect(html).toContain('Signal tier: Secondary signal');
+    expect(html).toContain('Signal tier: Faint signal');
     expect(html).toContain(fixture.nodes[0].label);
     expect(html).toContain(fixture.nodes[0].summary);
     expect(html).toContain('break-words');
@@ -226,6 +257,10 @@ describe('NotesCosmosStaticPreview', () => {
     expect(html).toContain('max-w-full');
     expect(html).toContain('min-w-0');
     expect(html).toContain('break-words');
+    expect(html).toContain('Static signal hierarchy readout');
+    expect(html).toContain('Signal tier: Primary signal');
+    expect(html).toContain('Signal tier: Secondary signal');
+    expect(html).toContain('Signal tier: Faint signal');
     expect(html).not.toContain('<canvas');
     expect(html).not.toContain('<svg');
 

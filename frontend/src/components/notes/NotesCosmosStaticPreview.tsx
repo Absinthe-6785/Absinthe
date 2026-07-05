@@ -20,6 +20,102 @@ function nodeLabel(node: NotesCosmosPreviewNode | undefined, fallback: string): 
   return node?.label ?? fallback;
 }
 
+type SignalTier = {
+  id: 'primary' | 'secondary' | 'faint';
+  label: 'Primary signal' | 'Secondary signal' | 'Faint signal';
+  description: string;
+  itemClassName: string;
+  badgeClassName: string;
+};
+
+const SIGNAL_TIERS: Record<SignalTier['id'], SignalTier> = {
+  primary: {
+    id: 'primary',
+    label: 'Primary signal',
+    description: 'Current anchor or active writing focus.',
+    itemClassName: 'border-slate-300 bg-white shadow-sm ring-1 ring-slate-200',
+    badgeClassName: 'border-slate-300 bg-slate-950 text-white',
+  },
+  secondary: {
+    id: 'secondary',
+    label: 'Secondary signal',
+    description: 'Supporting note, reference, or recent context.',
+    itemClassName: 'border-slate-200 bg-white',
+    badgeClassName: 'border-slate-200 bg-white text-slate-700',
+  },
+  faint: {
+    id: 'faint',
+    label: 'Faint signal',
+    description: 'Older archive trace kept visible without competing.',
+    itemClassName: 'border-slate-100 bg-slate-50/80',
+    badgeClassName: 'border-slate-200 bg-slate-50 text-slate-600',
+  },
+};
+
+function signalTierForNode(node: NotesCosmosPreviewNode): SignalTier {
+  if (node.kind === 'anchor' || node.status === 'active') {
+    return SIGNAL_TIERS.primary;
+  }
+
+  if (node.kind === 'archiveTrace' || node.status === 'archived' || node.tone === 'archival') {
+    return SIGNAL_TIERS.faint;
+  }
+
+  return SIGNAL_TIERS.secondary;
+}
+
+function SignalReadout({ nodes }: { nodes: NotesCosmosPreviewNode[] }): ReactElement {
+  const primary = nodes.filter(node => signalTierForNode(node).id === 'primary');
+  const secondaryCount = nodes.filter(node => signalTierForNode(node).id === 'secondary').length;
+  const faintCount = nodes.filter(node => signalTierForNode(node).id === 'faint').length;
+
+  return (
+    <section
+      className="mt-4 max-w-full min-w-0"
+      aria-label="Static signal hierarchy readout"
+    >
+      <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Signal readout
+      </p>
+      <div className="mt-2 grid max-w-full grid-cols-1 gap-2 md:grid-cols-3">
+        <div className="min-w-0 rounded-lg border border-slate-300 bg-white p-3 shadow-sm">
+          <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Primary signal
+          </p>
+          <p className="mt-1 break-words text-sm font-semibold text-slate-950">
+            {nodeLabel(primary[0], 'No primary anchor')}
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+            Current focus from the static fixture.
+          </p>
+        </div>
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
+          <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Secondary signals
+          </p>
+          <p className="mt-1 break-words text-sm font-semibold text-slate-950">
+            {secondaryCount} supporting records
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+            Recent and reference context stays nearby.
+          </p>
+        </div>
+        <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+          <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Faint signals
+          </p>
+          <p className="mt-1 break-words text-sm font-semibold text-slate-800">
+            {faintCount} archive traces
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+            Older context remains readable and quiet.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function NodesByCluster({
   fixture,
   nodes,
@@ -49,42 +145,53 @@ function NodesByCluster({
               </h4>
               <p className="mt-1 break-words text-xs leading-5 text-slate-600">{cluster.summary}</p>
               <ol className="mt-3 space-y-2">
-                {clusterNodes.map(node => (
-                  <li
-                    key={node.id}
-                    className="min-w-0 rounded-md border border-slate-100 bg-slate-50 p-2"
-                    data-node-id={node.id}
-                    data-node-kind={node.kind}
-                    data-node-status={node.status}
-                    data-node-tone={node.tone}
-                  >
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <strong className="break-words text-sm text-slate-950">{node.label}</strong>
-                      <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
-                        Kind: {node.kind}
-                      </span>
-                      <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
-                        Status: {node.status}
-                      </span>
-                      <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
-                        Tone: {node.tone}
-                      </span>
-                    </div>
-                    <p className="mt-1 break-words text-xs leading-5 text-slate-700">
-                      {node.summary}
-                    </p>
-                    <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">
-                      Cluster: {node.clusterLabel}. Created: {node.createdAtLabel}. Freshness:{' '}
-                      {node.updatedAtLabel}.
-                    </p>
-                    {node.positionHint ? (
-                      <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">
-                        Static grouping: {node.positionHint.ring} ring, order{' '}
-                        {node.positionHint.order}, {node.positionHint.density} density.
+                {clusterNodes.map(node => {
+                  const signalTier = signalTierForNode(node);
+                  return (
+                    <li
+                      key={node.id}
+                      className={`min-w-0 rounded-md border p-2 ${signalTier.itemClassName}`}
+                      data-node-id={node.id}
+                      data-node-kind={node.kind}
+                      data-node-status={node.status}
+                      data-node-tone={node.tone}
+                      data-signal-tier={signalTier.id}
+                    >
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <strong className="break-words text-sm text-slate-950">
+                          {node.label}
+                        </strong>
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-[11px] ${signalTier.badgeClassName}`}
+                        >
+                          Signal tier: {signalTier.label}
+                        </span>
+                        <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
+                          Kind: {node.kind}
+                        </span>
+                        <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
+                          Status: {node.status}
+                        </span>
+                        <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700">
+                          Tone: {node.tone}
+                        </span>
+                      </div>
+                      <p className="mt-1 break-words text-xs leading-5 text-slate-700">
+                        {node.summary}
                       </p>
-                    ) : null}
-                  </li>
-                ))}
+                      <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">
+                        {signalTier.description} Cluster: {node.clusterLabel}. Created:{' '}
+                        {node.createdAtLabel}. Freshness: {node.updatedAtLabel}.
+                      </p>
+                      {node.positionHint ? (
+                        <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">
+                          Static grouping: {node.positionHint.ring} ring, order{' '}
+                          {node.positionHint.order}, {node.positionHint.density} density.
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           );
@@ -199,7 +306,7 @@ export function NotesCosmosStaticPreview({
     >
       <header className="max-w-full min-w-0 border-b border-slate-200 pb-4">
         <p className="break-words text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Isolated static preview skeleton
+          Read-only signal preview
         </p>
         <h2
           id="notes-cosmos-static-preview-title"
@@ -216,6 +323,7 @@ export function NotesCosmosStaticPreview({
           {fixture.responsiveAcceptance.minMobileWidthPx}px minimum, no horizontal overflow,
           readable labels, no clipped primary content.
         </p>
+        <SignalReadout nodes={orderedNodes} />
       </header>
 
       <div className="mt-4 space-y-5">
