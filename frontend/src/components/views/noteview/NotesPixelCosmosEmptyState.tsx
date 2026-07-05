@@ -20,6 +20,15 @@ const markerBase = {
   pointerEvents: 'none',
 } as const;
 
+const signalStepBase = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minWidth: 0,
+  fontSize: 12,
+  lineHeight: 1.45,
+} as const;
+
 export function NotesPixelCosmosEmptyState({
   colors: c,
   onCreateNote,
@@ -46,21 +55,22 @@ export function NotesPixelCosmosEmptyState({
       data-k127-empty-state
       data-k212-notes-empty
       style={{
-        width: 'min(100%, 560px)',
-        margin: 'clamp(28px, 8vh, 72px) auto',
-        padding: 'clamp(18px, 4vw, 28px)',
+        width: 'min(100%, 620px)',
+        margin: 'clamp(22px, 7vh, 60px) auto',
+        padding: 'clamp(18px, 4vw, 30px)',
+        boxSizing: 'border-box',
         position: 'relative',
         overflow: 'hidden',
         border: `1px solid ${c.sideBdr}`,
-        borderRadius: 10,
+        borderRadius: 12,
         background: `linear-gradient(135deg, ${c.card}, ${c.editor} 58%)`,
         boxShadow: `inset 3px 0 0 ${c.accent}55`,
         color: c.text,
-        textAlign: 'center',
+        textAlign: 'left',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
-        gap: 12,
+        alignItems: 'stretch',
+        gap: 18,
         minWidth: 0,
       }}
     >
@@ -80,44 +90,87 @@ export function NotesPixelCosmosEmptyState({
       <span aria-hidden="true" style={{ ...markerBase, right: 25, top: 38, border: `1px solid ${c.textFaint}`, background: c.card }} />
       <span aria-hidden="true" style={{ ...markerBase, bottom: 24, left: '18%', border: `1px solid ${c.sideBdr}`, background: c.editor }} />
 
+      <div style={{ zIndex: 1, display: 'flex', alignItems: 'flex-start', gap: 14, minWidth: 0 }}>
+        <div
+          aria-hidden="true"
+          style={{
+            width: 44,
+            height: 44,
+            border: `1px solid ${c.accent}99`,
+            borderRadius: 10,
+            display: 'grid',
+            placeItems: 'center',
+            background: `${c.accent}10`,
+            boxShadow: `inset 3px 0 0 ${c.accent}55`,
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: `2px solid ${c.accent}`,
+              borderRadius: 3,
+              boxShadow: `12px -8px 0 -5px ${c.accent}, -10px 10px 0 -5px ${c.textFaint}`,
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 11, fontWeight: 800, color: c.textMuted, letterSpacing: 0, textTransform: 'uppercase' }}>
+              Notes / Living Cosmos
+            </p>
+            <span
+              style={{
+                border: `1px solid ${c.sideBdr}`,
+                borderRadius: 999,
+                padding: '3px 8px',
+                fontSize: 10,
+                fontWeight: 750,
+                color: c.textMuted,
+                background: `${c.card}cc`,
+              }}
+            >
+              Empty vault
+            </span>
+          </div>
+          <h2 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', lineHeight: 1.12, color: c.text, overflowWrap: 'anywhere' }}>
+            Start with one signal
+          </h2>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: c.textMuted, maxWidth: 470, overflowWrap: 'anywhere' }}>
+            Create a note, open today's page, or bring in an existing vault. Each note becomes a trace you can return to, connect, and grow.
+          </p>
+        </div>
+      </div>
+
       <div
-        aria-hidden="true"
+        aria-label="How Notes grows from here"
         style={{
-          width: 42,
-          height: 42,
-          border: `1px solid ${c.accent}99`,
-          borderRadius: 10,
-          display: 'grid',
-          placeItems: 'center',
-          background: `${c.accent}10`,
-          boxShadow: `inset 3px 0 0 ${c.accent}55`,
           zIndex: 1,
+          display: 'grid',
+          gap: 8,
+          padding: '12px 14px',
+          border: `1px solid ${c.sideBdr}`,
+          borderRadius: 10,
+          background: `${c.editor}aa`,
         }}
       >
-        <span
-          style={{
-            width: 14,
-            height: 14,
-            border: `2px solid ${c.accent}`,
-            borderRadius: 3,
-            boxShadow: `12px -8px 0 -5px ${c.accent}, -10px 10px 0 -5px ${c.textFaint}`,
-          }}
-        />
+        <div style={signalStepBase}>
+          <span aria-hidden="true" style={{ ...markerBase, position: 'relative', flexShrink: 0, border: `1px solid ${c.accent}`, background: `${c.accent}18` }} />
+          <span style={{ color: c.textMuted, minWidth: 0, overflowWrap: 'anywhere' }}>Write the first signal.</span>
+        </div>
+        <div style={signalStepBase}>
+          <span aria-hidden="true" style={{ ...markerBase, position: 'relative', flexShrink: 0, border: `1px solid ${c.textFaint}`, background: c.card }} />
+          <span style={{ color: c.textMuted, minWidth: 0, overflowWrap: 'anywhere' }}>Let links and context form over time.</span>
+        </div>
+        <div style={signalStepBase}>
+          <span aria-hidden="true" style={{ ...markerBase, position: 'relative', flexShrink: 0, border: `1px solid ${c.sideBdr}`, background: c.editor }} />
+          <span style={{ color: c.textMuted, minWidth: 0, overflowWrap: 'anywhere' }}>Return to the traces that matter.</span>
+        </div>
       </div>
 
-      <div style={{ zIndex: 1, display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'center', maxWidth: 430, minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 800, color: c.textMuted, letterSpacing: 0, textTransform: 'uppercase' }}>
-          Notes / Living Cosmos
-        </p>
-        <h2 style={{ margin: 0, fontSize: 'clamp(18px, 3vw, 24px)', lineHeight: 1.15, color: c.text, overflowWrap: 'anywhere' }}>
-          No signals detected yet
-        </h2>
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: c.textMuted, maxWidth: 390, overflowWrap: 'anywhere' }}>
-          Create your first note to start mapping your personal cosmos. Your notes will appear here as signals, nodes, and traces.
-        </p>
-      </div>
-
-      <div style={{ zIndex: 1, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: '100%' }}>
+      <div style={{ zIndex: 1, display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 8, maxWidth: '100%' }}>
         <button
           type="button"
           className="bwbg k99-interactive abs-focus-ring"
