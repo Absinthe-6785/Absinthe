@@ -62,13 +62,19 @@ describe('NotesPixelCosmosEmptyState', () => {
     expect(host.querySelector('[data-notes-pixel-cosmos-empty]')).toBeTruthy();
     expect(host.querySelector('[data-product-empty="vault-empty"]')).toBeTruthy();
     expect(host.textContent).toContain('Notes / Living Cosmos');
-    expect(host.textContent).toContain('No signals detected yet');
-    expect(host.textContent).toContain('Create your first note to start mapping your personal cosmos.');
-    expect(host.textContent).toContain('signals, nodes, and traces');
+    expect(host.textContent).toContain('Empty vault');
+    expect(host.textContent).toContain('Start with one signal');
+    expect(host.textContent).toContain('Each note becomes a trace you can return to, connect, and grow.');
+    expect(host.textContent).toContain('Write the first signal.');
+    expect(host.textContent).toContain('Let links and context form over time.');
+    expect(host.textContent).toContain('Return to the traces that matter.');
     expect(host.textContent).toContain('Create note');
     expect(host.textContent).not.toContain('Upload all');
     expect(host.textContent).not.toContain('Run queue');
     expect(host.textContent).not.toContain('Recover all');
+    expect(host.textContent).not.toContain('Data Safety');
+    expect(host.textContent).not.toContain('cloud sync');
+    expect(host.textContent).not.toContain('restore is ready');
 
     cleanup(root, host);
   });
@@ -105,11 +111,27 @@ describe('NotesPixelCosmosEmptyState', () => {
 
     expect(html).toContain('data-k212-cosmos-motif');
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain('No signals detected yet');
+    expect(html).toContain('Start with one signal');
     expect(html).toContain('Create note');
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('@font-face');
+  });
+
+  it('keeps static preview and graph concepts out of the empty-vault runtime copy', () => {
+    const html = renderToStaticMarkup(createElement(NotesPixelCosmosEmptyState, {
+      colors,
+      onCreateNote: () => {},
+      onOpenTodaysNote: () => {},
+      onImportVault: () => {},
+    }));
+
+    expect(html).not.toContain('NotesCosmosStaticPreview');
+    expect(html).not.toContain('Cosmos Map');
+    expect(html).not.toContain('Graph View');
+    expect(html).not.toContain('KnowledgeIndexService');
+    expect(html).not.toContain('Backup Health');
+    expect(html).not.toContain('Data Safety');
   });
 
   it('keeps mobile empty vault on the editor pane instead of squeezing it beside the note list', () => {
