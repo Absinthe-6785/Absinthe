@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './lib/notesSyncClient';
+import { createMockSupabaseAuthResponse } from './test-utils/auth/mockSupabaseAuthSession';
 
 const getSessionMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
@@ -82,16 +83,10 @@ describe('App local-only auth gate', () => {
   });
 
   it('renders the protected app shell for a real Supabase session in default local sync mode', async () => {
-    getSessionMock.mockResolvedValueOnce({
-      data: {
-        session: {
-          user: {
-            id: 'supabase-user',
-            email: 'signed-in@example.com',
-          },
-        },
-      },
-    });
+    getSessionMock.mockResolvedValueOnce(createMockSupabaseAuthResponse({
+      userId: 'supabase-user',
+      email: 'signed-in@example.com',
+    }));
     const { default: App } = await import('./App');
 
     await act(async () => {

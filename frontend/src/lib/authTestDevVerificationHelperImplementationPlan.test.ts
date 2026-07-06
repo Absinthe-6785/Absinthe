@@ -71,7 +71,7 @@ describe('K-292 auth test/dev verification helper implementation plan', () => {
     expect(doc).toContain('The helper must not intentionally appear in the production bundle.');
     expect(doc).toContain('K-293 must include source audit assertions for import boundaries.');
 
-    expect(existsSync(proposedHelperParentPath)).toBe(false);
+    expect(existsSync(proposedHelperParentPath)).toBe(true);
   });
 
   it('defines the future helper API and safe mock session shape', () => {
