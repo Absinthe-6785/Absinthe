@@ -18,6 +18,11 @@ const loginViewPath = join(process.cwd(), 'src', 'components', 'views', 'LoginSc
 const appLocalAuthTestPath = join(process.cwd(), 'src', 'App.localAuth.test.ts');
 const localAuthTestPath = join(process.cwd(), 'src', 'lib', 'localAuth.test.ts');
 const supabaseBoundaryTestPath = join(process.cwd(), 'src', 'lib', 'supabaseBoundary.test.ts');
+const repoRoot = join(process.cwd(), '..');
+const expectedK286ChangedFiles = [
+  'frontend/docs/K-286-auth-supabase-runtime-access-restoration-boundary-plan.md',
+  'frontend/src/lib/authSupabaseRuntimeAccessRestorationBoundaryPlan.test.ts',
+];
 
 function read(path: string): string {
   return readFileSync(path, 'utf8');
@@ -25,6 +30,41 @@ function read(path: string): string {
 
 function readDoc(): string {
   return read(docPath);
+}
+
+function gitLines(args: string[]): string[] {
+  return execFileSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .split(/\r?\n/)
+    .filter(Boolean);
+}
+
+function gitRefExists(ref: string): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], {
+      cwd: repoRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getCommittedChangedFiles(): string[] {
+  const diffRange = [
+    ['origin/main', 'origin/main...HEAD'],
+    ['main', 'main...HEAD'],
+    // K-286 is a single-commit docs/test PR; this fallback keeps CI clones without
+    // local main refs strict while still checking the committed patch boundary.
+    ['HEAD^', 'HEAD^..HEAD'],
+  ].find(([ref]) => gitRefExists(ref))?.[1];
+
+  expect(diffRange).toBeDefined();
+  return gitLines(['diff', '--name-only', diffRange!]).sort();
 }
 
 describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
@@ -297,48 +337,17 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
   });
 
   it('keeps K-286 changed files limited to the plan doc and audit test', () => {
-    const repoRoot = join(process.cwd(), '..');
-    const statusChanged = execFileSync('git', ['status', '--short'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    })
-      .split(/\r?\n/)
-      .filter(Boolean)
+    const statusChanged = gitLines(['status', '--short'])
       .map(line => line.slice(3));
 
-    const committedChanged = execFileSync('git', ['diff', '--name-only', 'main...HEAD'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    })
-      .split(/\r?\n/)
-      .filter(Boolean);
-
-    const changed = (statusChanged.length > 0 ? statusChanged : committedChanged)
+    const committedChanged = getCommittedChangedFiles();
+    const changed = Array.from(new Set([...committedChanged, ...statusChanged]))
       .sort();
 
-    expect(changed).toEqual([
-      'frontend/docs/K-286-auth-supabase-runtime-access-restoration-boundary-plan.md',
-      'frontend/src/lib/authSupabaseRuntimeAccessRestorationBoundaryPlan.test.ts',
-    ]);
+    expect(changed).toEqual(expectedK286ChangedFiles);
   });
 
   it('keeps committed K-286 branch diff limited after commit', () => {
-    const committedChanged = execFileSync('git', ['diff', '--name-only', 'main...HEAD'], {
-      cwd: join(process.cwd(), '..'),
-      encoding: 'utf8',
-    })
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .sort();
-
-    if (committedChanged.length === 0) {
-      expect(committedChanged).toEqual([]);
-      return;
-    }
-
-    expect(committedChanged).toEqual([
-      'frontend/docs/K-286-auth-supabase-runtime-access-restoration-boundary-plan.md',
-      'frontend/src/lib/authSupabaseRuntimeAccessRestorationBoundaryPlan.test.ts',
-    ]);
+    expect(getCommittedChangedFiles()).toEqual(expectedK286ChangedFiles);
   });
 });
