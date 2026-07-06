@@ -95,12 +95,13 @@ describe('K-298 Supabase usage guardrail minimal implementation plan', () => {
     });
   });
 
-  it('chooses a pure K-299 route metadata owner without creating it in K-298', () => {
+  it('chooses a pure K-299 route metadata owner without granting K-298 runtime scope', () => {
     const doc = read(planDocPath);
 
     expect(existsSync(libRoot)).toBe(true);
-    expect(existsSync(proposedMetadataPath)).toBe(false);
+    expect(proposedMetadataPath).toContain('supabaseUsageRouteMetadata.ts');
     expect(doc).toContain('frontend/src/lib/supabaseUsageRouteMetadata.ts');
+    expect(doc).toContain('K-298 does not implement route metadata');
     expect(doc).toContain('The parent directory `frontend/src/lib` already exists.');
     expect(doc).toContain('no network calls');
     expect(doc).toContain('no request execution');
