@@ -289,7 +289,7 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     }
   });
 
-  it('verifies source facts without changing runtime files', () => {
+  it('verifies post-K-289 auth gate source facts without changing local data boundaries', () => {
     const app = read(appPath);
     const localAuth = read(localAuthPath);
     const syncMode = read(syncModePath);
@@ -298,9 +298,9 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     const appContent = read(appContentPath);
     const login = read(loginViewPath);
 
-    expect(app).toContain("import { createLocalAuthUser, isLocalOnlyRuntime } from './lib/localAuth';");
-    expect(app).toContain('if (isLocalOnlyRuntime())');
-    expect(app).toContain('setAuthUser(createLocalAuthUser())');
+    expect(app).not.toContain("from './lib/localAuth'");
+    expect(app).not.toContain('if (isLocalOnlyRuntime())');
+    expect(app).not.toContain('setAuthUser(createLocalAuthUser())');
     expect(app).toContain('supabase.auth.getSession()');
     expect(app).toContain('supabase.auth.onAuthStateChange');
     expect(app).toContain('!authUser');
@@ -326,7 +326,7 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     expect(remoteBoundary).toContain('return !isLocalOnlyRuntime();');
     expect(remoteBoundary).toContain('remoteSWRKey');
 
-    expect(appContent).toContain('if (isLocalOnlyRuntime()) return;');
+    expect(appContent).not.toContain('if (isLocalOnlyRuntime()) return;');
     expect(appContent).toContain('await supabase.auth.signOut();');
 
     expect(login).toContain('supabase.auth.signUp');

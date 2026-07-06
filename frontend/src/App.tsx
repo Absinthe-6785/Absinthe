@@ -8,7 +8,6 @@ import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { createLocalAuthUser, isLocalOnlyRuntime } from './lib/localAuth';
 import { LoginScreen } from './components/views/LoginScreen';
 import { AppContent } from './components/AppContent';
 
@@ -26,12 +25,6 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    if (isLocalOnlyRuntime()) {
-      setAuthUser(createLocalAuthUser());
-      setAuthLoading(false);
-      return;
-    }
-
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         setAuthUser(session?.user ?? null);

@@ -262,17 +262,20 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
     }
   });
 
-  it('verifies current local-auth bypass source facts still match the plan', () => {
+  it('verifies K-289 restored auth-gate source facts while preserving local data boundaries', () => {
     const app = read(appPath);
     const localAuth = read(localAuthPath);
     const syncMode = read(syncModePath);
     const appLocalAuthTest = read(appLocalAuthTestPath);
 
-    expect(app).toContain("import { createLocalAuthUser, isLocalOnlyRuntime } from './lib/localAuth';");
-    expect(app).toContain('if (isLocalOnlyRuntime())');
-    expect(app).toContain('setAuthUser(createLocalAuthUser())');
+    expect(app).not.toContain("from './lib/localAuth'");
+    expect(app).not.toContain('if (isLocalOnlyRuntime())');
+    expect(app).not.toContain('setAuthUser(createLocalAuthUser())');
     expect(app).toContain('supabase.auth.getSession()');
     expect(app).toContain('supabase.auth.onAuthStateChange');
+    expect(app).toContain('!authUser');
+    expect(app).toContain('<LoginScreen />');
+    expect(app).toContain('<AppContent authUser={authUser} />');
 
     expect(localAuth).toContain("export const LOCAL_AUTH_USER_ID = 'local-user';");
     expect(localAuth).toContain("export const LOCAL_AUTH_EMAIL = 'local@absinthe.dev';");
@@ -281,8 +284,9 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
     expect(syncMode).toContain("export const NOTES_RUNTIME_SYNC_MODE_KEY = 'absinthe-notes-sync-mode';");
     expect(syncMode).toContain("return 'local';");
 
-    expect(appLocalAuthTest).toContain('boots the app shell with a local user without touching Supabase auth in local mode');
+    expect(appLocalAuthTest).toContain('does not let default local sync mode bypass the Supabase auth gate');
     expect(appLocalAuthTest).toContain('keeps the login gate for explicit remote mode when Supabase auth fails');
+    expect(appLocalAuthTest).toContain('renders the protected app shell for a real Supabase session in default local sync mode');
   });
 
   it('verifies remote boundary source facts remain separate from auth restoration planning', () => {
