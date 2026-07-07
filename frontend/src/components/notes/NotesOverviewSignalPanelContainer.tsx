@@ -21,25 +21,76 @@ export function selectNotesOverviewSignalPanelInput(
   state: NotesOverviewSignalPanelStoreState,
 ): NotesOverviewSignalPanelAdapterInput {
   return {
-    notes: state.notes.map(({ id, title, updatedAt, createdAt, deletedAt, starred }) => ({
-      id,
-      title,
-      updatedAt,
-      createdAt,
-      deletedAt,
-      starred,
-    })),
+    notes: state.notes.map(selectNotesOverviewSignalPanelMetadata),
     activeNoteId: state.activeNoteId,
   };
 }
 
-export function NotesOverviewSignalPanelContainer() {
-  const notes = useNotesStore(state => state.notes);
-  const activeNoteId = useNotesStore(state => state.activeNoteId);
-  const adapterInput = useMemo(
-    () => selectNotesOverviewSignalPanelInput({ notes, activeNoteId }),
-    [notes, activeNoteId],
+function selectNotesOverviewSignalPanelMetadata({
+  id,
+  title,
+  updatedAt,
+  createdAt,
+  deletedAt,
+  starred,
+}: NotesOverviewSignalPanelStoreNote): NotesOverviewSignalPanelStoreNote {
+  return {
+    id,
+    title,
+    updatedAt,
+    createdAt,
+    deletedAt,
+    starred,
+  };
+}
+
+function noteMatchesSignalPanelMetadata(
+  note: NotesOverviewSignalPanelStoreNote,
+  metadata: NotesOverviewSignalPanelStoreNote,
+): boolean {
+  return (
+    note.id === metadata.id &&
+    note.title === metadata.title &&
+    Object.is(note.updatedAt, metadata.updatedAt) &&
+    Object.is(note.createdAt, metadata.createdAt) &&
+    Object.is(note.deletedAt, metadata.deletedAt) &&
+    note.starred === metadata.starred
   );
+}
+
+function notesMatchSignalPanelMetadata(
+  notes: readonly NotesOverviewSignalPanelStoreNote[],
+  metadata: readonly NotesOverviewSignalPanelStoreNote[],
+): boolean {
+  return notes.length === metadata.length && notes.every((note, index) => {
+    const previous = metadata[index];
+    return previous ? noteMatchesSignalPanelMetadata(note, previous) : false;
+  });
+}
+
+export function createNotesOverviewSignalPanelInputSelector() {
+  let previousInput: NotesOverviewSignalPanelAdapterInput | null = null;
+
+  return (state: NotesOverviewSignalPanelStoreState): NotesOverviewSignalPanelAdapterInput => {
+    if (
+      previousInput &&
+      previousInput.activeNoteId === state.activeNoteId &&
+      notesMatchSignalPanelMetadata(state.notes, previousInput.notes ?? [])
+    ) {
+      return previousInput;
+    }
+
+    previousInput = selectNotesOverviewSignalPanelInput(state);
+    return previousInput;
+  };
+}
+
+export function NotesOverviewSignalPanelContainer() {
+  const selectSignalPanelInput = useMemo(
+    () => createNotesOverviewSignalPanelInputSelector(),
+    [],
+  );
+  const adapterInput = useNotesStore(selectSignalPanelInput);
   const panelProps = createNotesOverviewSignalPanelProps(adapterInput);
 
   return (

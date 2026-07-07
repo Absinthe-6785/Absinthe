@@ -216,8 +216,9 @@ describe('K-309 notes overview signal panel runtime mount closure audit', () => 
     expect(dashboard).toContain('signalPanel?: React.ReactNode');
     expect(dashboard).toContain('data-testid="notes-overview-signal-panel-slot"');
     expect(container).toContain("import { useNotesStore } from '../../store/useNotesStore'");
-    expect(container).toContain('const notes = useNotesStore(state => state.notes);');
-    expect(container).toContain('const activeNoteId = useNotesStore(state => state.activeNoteId);');
+    expect(container).toContain('createNotesOverviewSignalPanelInputSelector');
+    expect(container).toContain('selectNotesOverviewSignalPanelMetadata');
+    expect(container).toContain('useNotesStore(selectSignalPanelInput)');
     expect(container).toContain('createNotesOverviewSignalPanelProps(adapterInput)');
 
     [
