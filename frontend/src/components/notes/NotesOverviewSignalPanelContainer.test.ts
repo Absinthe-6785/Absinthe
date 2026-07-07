@@ -3,7 +3,11 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useNotesStore } from '../../store/useNotesStore';
-import { NotesOverviewSignalPanelContainer, selectNotesOverviewSignalPanelInput } from './NotesOverviewSignalPanelContainer';
+import {
+  NotesOverviewSignalPanelContainer,
+  createNotesOverviewSignalPanelInputSelector,
+  selectNotesOverviewSignalPanelInput,
+} from './NotesOverviewSignalPanelContainer';
 
 function note(
   id: string,
@@ -155,5 +159,55 @@ describe('NotesOverviewSignalPanelContainer', () => {
     expect(JSON.stringify(input)).not.toContain('secret body');
     expect(JSON.stringify(input)).not.toContain('private');
     expect(JSON.stringify(input)).not.toContain('relations');
+  });
+
+  it('reuses selector input when only non-panel fields change', () => {
+    const selectInput = createNotesOverviewSignalPanelInputSelector();
+    const first = selectInput({
+      notes: [
+        {
+          ...note('metadata-stable', 'Metadata stable', 1000, { body: 'first body' }),
+          properties: { topic: 'private' },
+          relations: { link: ['first'] },
+        },
+      ],
+      activeNoteId: 'metadata-stable',
+    });
+    const second = selectInput({
+      notes: [
+        {
+          ...note('metadata-stable', 'Metadata stable', 1000, { body: 'second body' }),
+          properties: { topic: 'changed' },
+          relations: { link: ['second'] },
+        },
+      ],
+      activeNoteId: 'metadata-stable',
+    });
+
+    expect(second).toBe(first);
+    expect(JSON.stringify(second)).not.toContain('second body');
+    expect(JSON.stringify(second)).not.toContain('changed');
+    expect(JSON.stringify(second)).not.toContain('relations');
+  });
+
+  it('returns a new selector input when panel metadata or active note changes', () => {
+    const selectInput = createNotesOverviewSignalPanelInputSelector();
+    const first = selectInput({
+      notes: [note('one', 'One', 1000)],
+      activeNoteId: 'one',
+    });
+    const renamed = selectInput({
+      notes: [note('one', 'One renamed', 1000)],
+      activeNoteId: 'one',
+    });
+    const activeChanged = selectInput({
+      notes: [note('one', 'One renamed', 1000)],
+      activeNoteId: null,
+    });
+
+    expect(renamed).not.toBe(first);
+    expect(renamed.notes?.[0]).toMatchObject({ title: 'One renamed' });
+    expect(activeChanged).not.toBe(renamed);
+    expect(activeChanged.activeNoteId).toBeNull();
   });
 });

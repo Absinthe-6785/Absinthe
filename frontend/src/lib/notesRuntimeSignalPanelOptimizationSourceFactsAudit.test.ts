@@ -99,10 +99,11 @@ describe('K-311 notes runtime signal panel optimization source facts audit', () 
       expect(doc).toContain(expected);
     });
 
-    expect(container).toContain('const notes = useNotesStore(state => state.notes);');
-    expect(container).toContain('const activeNoteId = useNotesStore(state => state.activeNoteId);');
-    expect(container).toContain('[notes, activeNoteId]');
-    expect(container).toContain('state.notes.map(({ id, title, updatedAt, createdAt, deletedAt, starred })');
+    expect(container).toContain('createNotesOverviewSignalPanelInputSelector');
+    expect(container).toContain('selectNotesOverviewSignalPanelMetadata');
+    expect(container).toContain('noteMatchesSignalPanelMetadata');
+    expect(container).toContain('previousInput.activeNoteId === state.activeNoteId');
+    expect(container).toContain('useNotesStore(selectSignalPanelInput)');
   });
 
   it('documents metadata boundary and local-only runtime mount path', () => {

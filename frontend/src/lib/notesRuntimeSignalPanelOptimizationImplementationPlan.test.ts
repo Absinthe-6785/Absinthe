@@ -284,10 +284,11 @@ describe('K-312 notes runtime signal panel optimization implementation plan', ()
     const editorArea = read(noteViewEditorAreaPath);
     const appContent = read(appContentPath);
 
-    expect(container).toContain('const notes = useNotesStore(state => state.notes);');
-    expect(container).toContain('const activeNoteId = useNotesStore(state => state.activeNoteId);');
-    expect(container).toContain('state.notes.map(({ id, title, updatedAt, createdAt, deletedAt, starred })');
-    expect(container).toContain('[notes, activeNoteId]');
+    expect(container).toContain('createNotesOverviewSignalPanelInputSelector');
+    expect(container).toContain('selectNotesOverviewSignalPanelMetadata');
+    expect(container).toContain('noteMatchesSignalPanelMetadata');
+    expect(container).toContain('previousInput.activeNoteId === state.activeNoteId');
+    expect(container).toContain('useNotesStore(selectSignalPanelInput)');
     expect(adapter).toContain("generatedFrom: 'local-note-metadata'");
     expect(signalPanel).toContain('export function NotesOverviewSignalPanel');
     expect(sidebar).toContain('signalPanel={<NotesOverviewSignalPanelContainer />}');
