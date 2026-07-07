@@ -280,8 +280,8 @@ describe('K-304 notes overview signal panel adapter implementation plan', () => 
     });
   });
 
-  it('confirms no adapter source module exists yet and runtime files do not import it', () => {
-    expect(existsSync(chosenAdapterPath)).toBe(false);
+  it('keeps runtime files from importing the planned adapter path', () => {
+    expect(existsSync(chosenAdapterPath)).toBe(true);
 
     const adapterStem = 'notesOverviewSignalPanelAdapter';
     [
