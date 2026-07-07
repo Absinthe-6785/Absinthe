@@ -190,6 +190,7 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
       'src/lib/notesOverviewSignalPanelAdapterClosureAudit.test.ts',
       'src/lib/notesOverviewSignalPanelAdapterImplementationBoundaryAudit.test.ts',
       'src/lib/notesOverviewSignalPanelAdapterImplementationPlan.test.ts',
+      'src/lib/notesOverviewSignalPanelAuthenticatedVisualQaClosure.test.ts',
       'src/lib/notesOverviewSignalPanelIsolatedComponentClosureAudit.test.ts',
       'src/lib/notesOverviewSignalPanelRuntimeMountBoundaryAudit.test.ts',
       'src/lib/notesOverviewSignalPanelRuntimeMountClosureAudit.test.ts',
