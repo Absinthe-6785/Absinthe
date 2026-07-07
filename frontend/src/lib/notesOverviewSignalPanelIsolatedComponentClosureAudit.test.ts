@@ -453,6 +453,7 @@ describe('K-285 notes overview signal panel isolated component closure audit', (
       path === containerPath ||
       path === containerTestPath ||
       path === noteViewSidebarPath ||
+      /notesRuntimeSignalPanelOptimizationSourceFactsAudit\.test\.ts$/.test(path.replaceAll('\\', '/')) ||
       /notesOverviewSignalPanel.*\.test\.ts$/.test(path.replaceAll('\\', '/')),
     );
 
