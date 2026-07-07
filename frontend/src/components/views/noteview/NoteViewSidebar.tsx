@@ -51,6 +51,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtil
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { NoteSidebarVirtualList } from './NoteSidebarVirtualList';
 import { EmbeddedAttachmentMigrationReviewPanel } from './EmbeddedAttachmentMigrationReviewPanel';
+import { NotesOverviewSignalPanelContainer } from '../../notes/NotesOverviewSignalPanelContainer';
 import { SIDEBAR_NOTE_SEARCH_ATTR } from '../searchFocusIsolation';
 import { useTranslation } from '../../../lib/i18n';
 import type { EditorMode } from '../editorMode';
@@ -1281,6 +1282,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             }}
             crossDomainActivity={crossDomainActivity}
             onCrossDomainActivityNavigate={handleCrossDomainActivityNavigate}
+            signalPanel={<NotesOverviewSignalPanelContainer />}
             quickActions={{
               onNewNote: () => createNote(),
               onNewDatabaseView: () => {

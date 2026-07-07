@@ -183,6 +183,7 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
     matches.add(relativeSourcePath(adapterPath));
 
     expect([...matches].sort()).toEqual([
+      'src/components/notes/NotesOverviewSignalPanelContainer.tsx',
       'src/components/notes/notesOverviewSignalPanelAdapter.test.ts',
       'src/components/notes/notesOverviewSignalPanelAdapter.ts',
       'src/lib/notesOverviewSignalPanelAdapterBoundaryAudit.test.ts',
@@ -190,6 +191,7 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
       'src/lib/notesOverviewSignalPanelAdapterImplementationBoundaryAudit.test.ts',
       'src/lib/notesOverviewSignalPanelAdapterImplementationPlan.test.ts',
       'src/lib/notesOverviewSignalPanelIsolatedComponentClosureAudit.test.ts',
+      'src/lib/notesOverviewSignalPanelRuntimeMountBoundaryAudit.test.ts',
       'src/lib/notesOverviewSignalPanelRuntimeMountPlan.test.ts',
     ]);
   });
