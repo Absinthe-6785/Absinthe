@@ -15,6 +15,20 @@ const componentTestPath = join(
   'notes',
   'NotesOverviewSignalPanel.test.ts',
 );
+const containerPath = join(
+  process.cwd(),
+  'src',
+  'components',
+  'notes',
+  'NotesOverviewSignalPanelContainer.tsx',
+);
+const containerTestPath = join(
+  process.cwd(),
+  'src',
+  'components',
+  'notes',
+  'NotesOverviewSignalPanelContainer.test.ts',
+);
 const noteViewPath = join(process.cwd(), 'src', 'components', 'views', 'NoteView.tsx');
 const noteViewEditorAreaPath = join(
   process.cwd(),
@@ -32,6 +46,14 @@ const emptyStatePath = join(
   'views',
   'noteview',
   'NotesPixelCosmosEmptyState.tsx',
+);
+const noteViewSidebarPath = join(
+  process.cwd(),
+  'src',
+  'components',
+  'views',
+  'noteview',
+  'NoteViewSidebar.tsx',
 );
 const generatedPreviewPath = join(process.cwd(), 'dist', 'notes-cosmos-static-preview');
 
@@ -419,7 +441,7 @@ describe('K-285 notes overview signal panel isolated component closure audit', (
     }
   });
 
-  it('verifies no other source file imports the isolated component', () => {
+  it('verifies K-308 limits runtime component imports to the container and sidebar mount', () => {
     const srcRoot = join(process.cwd(), 'src');
     const adapterPath = join(srcRoot, 'components', 'notes', 'notesOverviewSignalPanelAdapter.ts');
     const importMatches = collectSourceFiles(srcRoot)
@@ -427,7 +449,11 @@ describe('K-285 notes overview signal panel isolated component closure audit', (
       .filter(path => read(path).includes("from './NotesOverviewSignalPanel'") || read(path).includes('NotesOverviewSignalPanel'));
 
     const allowedPlanningTests = importMatches.filter(path =>
-      path === adapterPath || /notesOverviewSignalPanel.*\.test\.ts$/.test(path.replaceAll('\\', '/')),
+      path === adapterPath ||
+      path === containerPath ||
+      path === containerTestPath ||
+      path === noteViewSidebarPath ||
+      /notesOverviewSignalPanel.*\.test\.ts$/.test(path.replaceAll('\\', '/')),
     );
 
     expect(importMatches).toEqual(allowedPlanningTests);

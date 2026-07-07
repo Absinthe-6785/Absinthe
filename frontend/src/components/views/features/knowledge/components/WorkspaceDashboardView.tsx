@@ -214,6 +214,7 @@ export interface WorkspaceDashboardViewProps {
   recentNotesLimit?: number;
   crossDomainActivity?: RecentActivityProjection;
   onCrossDomainActivityNavigate?: (item: RecentActivityItem) => void;
+  signalPanel?: React.ReactNode;
 }
 
 function Card({
@@ -307,6 +308,7 @@ export function WorkspaceDashboardView({
   recentNotesLimit = DEFAULT_RECENT_NOTES_LIMIT,
   crossDomainActivity,
   onCrossDomainActivityNavigate,
+  signalPanel,
 }: WorkspaceDashboardViewProps) {
   const { isMobile, isTablet, isNarrow } = useViewportLayout();
   const outerPadding = dashboardOuterPadding(isMobile, isTablet);
@@ -352,6 +354,12 @@ export function WorkspaceDashboardView({
         <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{dashboard.name}</div>
         <div style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>{t('wsProductivityHub')}</div>
       </div>
+
+      {signalPanel ? (
+        <div data-testid="notes-overview-signal-panel-slot" data-notes-overview-signal-panel-slot>
+          {signalPanel}
+        </div>
+      ) : null}
 
       <Card colors={c} title={t('wsPinnedWorkspaces')}>
         {pinned.length === 0 ? (
