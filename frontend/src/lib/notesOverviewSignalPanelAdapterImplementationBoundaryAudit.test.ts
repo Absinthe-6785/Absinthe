@@ -197,6 +197,7 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
       'src/lib/notesOverviewSignalPanelRuntimeMountPlan.test.ts',
       'src/lib/notesRuntimeSignalPanelOptimizationImplementationPlan.test.ts',
       'src/lib/notesRuntimeSignalPanelOptimizationSourceFactsAudit.test.ts',
+      'src/lib/notesSignalPanelOptimizationClosureAudit.test.ts',
     ]);
   });
 
