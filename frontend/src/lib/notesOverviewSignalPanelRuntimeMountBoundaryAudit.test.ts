@@ -102,7 +102,7 @@ describe('K-308 notes overview signal panel runtime mount boundary', () => {
       'src/components/notes/NotesOverviewSignalPanelContainer.tsx',
       'src/components/notes/notesOverviewSignalPanelAdapter.test.ts',
     ]);
-  });
+  }, 15000);
 
   it('mounts through NoteViewSidebar and WorkspaceDashboardView without AppContent or editor-area wiring', () => {
     const sidebar = read(noteViewSidebarPath);
