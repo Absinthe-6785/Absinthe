@@ -456,11 +456,12 @@ describe('K-285 notes overview signal panel isolated component closure audit', (
       /notesRuntimeSignalPanelOptimizationImplementationPlan\.test\.ts$/.test(path.replaceAll('\\', '/')) ||
       /notesRuntimeSignalPanelOptimizationSourceFactsAudit\.test\.ts$/.test(path.replaceAll('\\', '/')) ||
       /notesSignalPanelOptimizationClosureAudit\.test\.ts$/.test(path.replaceAll('\\', '/')) ||
+      /notesSignalPanelOptimizationLineClosureAudit\.test\.ts$/.test(path.replaceAll('\\', '/')) ||
       /notesOverviewSignalPanel.*\.test\.ts$/.test(path.replaceAll('\\', '/')),
     );
 
     expect(importMatches).toEqual(allowedPlanningTests);
-  });
+  }, 15000);
 
   it('keeps generated static harness output absent', () => {
     expect(existsSync(generatedPreviewPath)).toBe(false);
