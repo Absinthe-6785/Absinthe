@@ -69,17 +69,29 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     }
   }
   const payload = value.payload as { kind?: unknown; record?: unknown; entityId?: unknown; deletedAt?: unknown; revision?: unknown } | null;
-  const payloadValid = value.payloadMode === 'inline' && value.payloadHash === null && payload !== null && (
-    payload.kind === 'entity_snapshot'
-    || payload.kind === 'tombstone' && payload.entityId === value.entityId
-      && validTimestamp(payload.deletedAt) && payload.revision === value.localRevision
-  );
+  const payloadKeys = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+    ? Object.keys(payload).sort() : [];
+  const snapshotPayloadValid = payload?.kind === 'entity_snapshot'
+    && Object.prototype.hasOwnProperty.call(payload, 'record')
+    && payloadKeys.join(',') === 'kind,record';
+  const tombstonePayloadValid = payload?.kind === 'tombstone'
+    && payload.entityId === value.entityId
+    && validTimestamp(payload.deletedAt)
+    && payload.revision === value.localRevision
+    && payloadKeys.join(',') === 'deletedAt,entityId,kind,revision';
+  const payloadValid = value.payloadMode === 'inline' && value.payloadHash === null
+    && (snapshotPayloadValid || tombstonePayloadValid);
+  const revisionsValid = value.baseRevision === null
+    ? value.operation === 'upsert' && value.localRevision === 1
+    : Number.isSafeInteger(value.baseRevision) && value.baseRevision > 0
+      && value.baseRevision < Number.MAX_SAFE_INTEGER
+      && value.localRevision === value.baseRevision + 1;
   if (!['upsert', 'tombstone'].includes(value.operation)
     || !['pending', 'processing', 'retry', 'completed', 'failed'].includes(value.status)
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
     || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0
-    || !validTimestamp(value.createdAt) || !payloadValid
+    || !validTimestamp(value.createdAt) || !payloadValid || !revisionsValid
     || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone')) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');

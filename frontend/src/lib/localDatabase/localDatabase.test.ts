@@ -36,6 +36,23 @@ async function repository(namespace: LocalDatabaseNamespace = baseNamespace, ini
   return value;
 }
 
+async function overwriteOutbox(
+  repo: LocalDatabaseRepository, mutationId: string, transform: (record: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const db = await rawOpen(LOCAL_DATABASE_NAME);
+  const transaction = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
+  const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+  const request = store.get([repo.namespaceKey, repo.namespace.generationId, mutationId]);
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => { store.put(transform(request.result)); resolve(); };
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
 function outbox(mutationId: string, entityId = 'entity-1'): EntityMutationTransactionInput['outbox'] {
   return {
     mutationId, createdAt: '2026-07-11T00:00:00.000Z', idempotencyKey: `idem-${mutationId}-${entityId}`,
@@ -259,14 +276,15 @@ describe('K-321 atomic entity and outbox transaction', () => {
   it('derives tombstone outbox identity, operation, revision, and payload from the entity mutation', async () => {
     const repo = await repository();
     await repo.createEntity({ domain: 'notes', entityId: 'entity-1', record: { body: 'synthetic' } });
+    await repo.updateEntity({ domain: 'notes', entityId: 'entity-1', record: { body: 'updated' }, expectedRevision: 1 });
     await repo.runEntityMutationTransaction({
-      mutation: { mode: 'tombstone', domain: 'notes', entityId: 'entity-1', record: null, expectedRevision: 1,
+      mutation: { mode: 'tombstone', domain: 'notes', entityId: 'entity-1', record: null, expectedRevision: 2,
         timestamp: '2026-07-11T02:00:00.000Z' },
       outbox: outbox('mutation-tombstone'),
     });
     expect(await repo.getOutboxRecord('mutation-tombstone')).toMatchObject({
-      domain: 'notes', entityId: 'entity-1', operation: 'tombstone', baseRevision: 1, localRevision: 2,
-      payload: { kind: 'tombstone', entityId: 'entity-1', deletedAt: '2026-07-11T02:00:00.000Z', revision: 2 },
+      domain: 'notes', entityId: 'entity-1', operation: 'tombstone', baseRevision: 2, localRevision: 3,
+      payload: { kind: 'tombstone', entityId: 'entity-1', deletedAt: '2026-07-11T02:00:00.000Z', revision: 3 },
     });
   });
 
@@ -461,6 +479,58 @@ describe('K-321 lifecycle and static safety', () => {
     const tx = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
     tx.objectStore(LOCAL_DATABASE_STORES.outbox).put({ ...queued, ...corruption });
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['create skips revision', { baseRevision: null, localRevision: 2 }],
+    ['zero base', { baseRevision: 0, localRevision: 1 }],
+    ['unchanged update', { baseRevision: 1, localRevision: 1 }],
+    ['skipped update', { baseRevision: 1, localRevision: 3 }],
+    ['decreasing update', { baseRevision: 42, localRevision: 1 }],
+    ['unsafe base', { baseRevision: Number.MAX_SAFE_INTEGER + 1, localRevision: 1 }],
+    ['unsafe local', { baseRevision: 1, localRevision: Number.MAX_SAFE_INTEGER + 1 }],
+    ['overflow', { baseRevision: Number.MAX_SAFE_INTEGER, localRevision: Number.MAX_SAFE_INTEGER }],
+  ])('rejects persisted outbox revision relationship: %s', async (_label, corruption) => {
+    const repo = await repository();
+    await repo.runEntityMutationTransaction({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    });
+    await overwriteOutbox(repo, 'mutation-1', queued => ({ ...queued, ...corruption }));
+    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['null tombstone base', { baseRevision: null, localRevision: 1 }],
+    ['skipped tombstone revision', { baseRevision: 2, localRevision: 4 }],
+  ])('rejects persisted tombstone revision relationship: %s', async (_label, revisions) => {
+    const repo = await repository();
+    await repo.runEntityMutationTransaction({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    });
+    await overwriteOutbox(repo, 'mutation-1', queued => ({
+      ...queued, ...revisions, operation: 'tombstone',
+      payload: {
+        kind: 'tombstone', entityId: 'n1', deletedAt: '2026-07-12T00:00:00.000Z', revision: revisions.localRevision,
+      },
+    }));
+    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['missing snapshot record', { payload: { kind: 'entity_snapshot' } }],
+    ['extra snapshot field', { payload: { kind: 'entity_snapshot', record: {}, extra: true } }],
+    ['missing tombstone field', {
+      operation: 'tombstone', baseRevision: 1, localRevision: 2,
+      payload: { kind: 'tombstone', entityId: 'n1', revision: 2 },
+    }],
+    ['contradictory hash', { payloadHash: 'a'.repeat(64) }],
+  ])('rejects incomplete persisted outbox payload contract: %s', async (_label, corruption) => {
+    const repo = await repository();
+    await repo.runEntityMutationTransaction({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    });
+    await overwriteOutbox(repo, 'mutation-1', queued => ({ ...queued, ...corruption }));
     await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 

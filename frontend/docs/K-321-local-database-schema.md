@@ -81,7 +81,10 @@ the mutation ID, idempotency key, and creation time for an outbox reservation. T
 the namespace, entity identity, operation, base/local revisions, and a validated inline snapshot or
 tombstone payload from the committed entity mutation, so mismatched queue metadata cannot be
 submitted. Persisted outbox envelopes are validated before being returned. K-321 does not run,
-upload, retry, or acknowledge outbox entries.
+upload, retry, or acknowledge outbox entries. Persisted validation also enforces the exact revision
+transition (`null` to `1` for creation, otherwise `baseRevision + 1`) and the complete selected
+inline payload shape; incomplete snapshots, malformed tombstones, contradictory hashes, and unsafe
+or skipped revisions fail closed as corrupt persisted records.
 
 ## Recovery and unsupported behavior
 
