@@ -105,6 +105,7 @@ export function readZipCentralDirectoryNames(bytes) {
     if (view.getUint32(localOffset, true) !== 0x04034b50) fail('zip_local_header_invalid');
     const localFlags = view.getUint16(localOffset + 6, true);
     if ((localFlags & 0x1) !== 0) fail('zip_encrypted_unsupported');
+    if ((localFlags & 0x0800) !== (flags & 0x0800)) fail('zip_filename_encoding_flag_mismatch');
     const localNameLength = view.getUint16(localOffset + 26, true);
     const localExtraLength = view.getUint16(localOffset + 28, true);
     const localEnd = localOffset + 30 + localNameLength;

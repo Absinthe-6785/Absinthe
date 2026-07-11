@@ -18,11 +18,13 @@ import {
 } from './recoveryExportPackage';
 import {
   adaptSuppliedJsonArray,
+  adaptInbodyJsonArray,
   adaptVaultBackupManifest,
   applyAdapterResult,
   buildAttachmentReferenceDataset,
   readAttachmentInventoryForRecovery,
   readJsonArrayFromStorage,
+  readInbodyJsonArrayFromStorage,
   readJsonValueFromStorage,
   readStoragePrefixForRecovery,
   sanitizeRecoveryProvenance,
@@ -616,5 +618,88 @@ describe('K-320C final semantic corrections', () => {
     expect(() => validateZipBytes(extra)).toThrow('zip64_unsupported');
 
     expect(validateZipBytes(await ordinaryZip()).length).toBeGreaterThan(0);
+  });
+});
+
+describe('K-320D adapter and ZIP flag integration', () => {
+  it('derives stable per-record Inbody identities from source-confirmed dates through supported adapters', async () => {
+    const records = [
+      { date: '2026-07-11', weight: 70, smm: 31, pbf: 18 },
+      { date: '2026-07-10', weight: 69, smm: 30, pbf: 19 },
+    ];
+    const before = JSON.stringify(records);
+    const adapted = adaptInbodyJsonArray(JSON.stringify(records), source);
+    const shuffled = adaptInbodyJsonArray(JSON.stringify([...records].reverse()), source);
+    expect(adapted.recordSources?.map(item => item.sourceId).sort()).toEqual(['date:2026-07-10', 'date:2026-07-11']);
+    expect(shuffled.recordSources?.map(item => item.sourceId).sort()).toEqual(['date:2026-07-10', 'date:2026-07-11']);
+    expect(adapted.records).toEqual(records);
+    expect(JSON.stringify(records)).toBe(before);
+
+    const first = await buildRecoveryExportPackage({ exportedAt, datasets: { inbodyLogs: adapted } });
+    const second = await buildRecoveryExportPackage({ exportedAt, datasets: { inbodyLogs: shuffled } });
+    expect(first.files['health/inbody_logs.json']).toBe(second.files['health/inbody_logs.json']);
+    expect(first.manifest.completeness).not.toBe('invalid');
+
+    const storage = { getItem: () => JSON.stringify(records) };
+    const fromStorage = readInbodyJsonArrayFromStorage(storage, 'inbody-history', source);
+    expect(fromStorage.recordSources?.map(item => item.sourceId).sort()).toEqual(['date:2026-07-10', 'date:2026-07-11']);
+  });
+
+  it('diagnoses duplicate, missing, unsafe, and cross-source Inbody date identities without changing payloads', async () => {
+    const duplicateRecords = [
+      { date: '2026-07-11', weight: 70, smm: 31, pbf: 18 },
+      { date: '2026-07-11', weight: 71, smm: 31, pbf: 18 },
+    ];
+    const duplicate = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      inbodyLogs: adaptInbodyJsonArray(JSON.stringify(duplicateRecords), source),
+    } });
+    expect(duplicate.files['metadata/conflicts.json']).toContain('duplicate_id_within_source');
+
+    const missing = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      inbodyLogs: adaptInbodyJsonArray(JSON.stringify([{ weight: 70, smm: 31, pbf: 18 }]), source),
+    } });
+    expect(missing.files['metadata/conflicts.json']).toContain('missing_external_identity');
+
+    const unsafe = adaptInbodyJsonArray(JSON.stringify([{ date: '../secret', weight: 70, smm: 31, pbf: 18 }]), source);
+    expect(unsafe.recordSources?.[0].sourceId).toBeUndefined();
+
+    const combined = combineRecoveryDatasetSources([
+      adaptInbodyJsonArray(JSON.stringify([{ date: '2026-07-11', weight: 70, smm: 31, pbf: 18 }]), { ...source, label: 'a.json' }),
+      adaptInbodyJsonArray(JSON.stringify([{ date: '2026-07-11', weight: 72, smm: 31, pbf: 18 }]), { ...source, label: 'b.json' }),
+    ], source);
+    const conflicted = await buildRecoveryExportPackage({ exportedAt, datasets: { inbodyLogs: combined } });
+    expect(conflicted.files['metadata/conflicts.json']).toContain('cross_source_record_conflict');
+  });
+
+  it('rejects local and central UTF-8 filename flag disagreement before decoding', async () => {
+    for (const mutate of [
+      (view: DataView, _central: number, local: number) => view.setUint16(local + 6, view.getUint16(local + 6, true) | 0x0800, true),
+      (view: DataView, central: number, _local: number) => view.setUint16(central + 8, view.getUint16(central + 8, true) | 0x0800, true),
+    ]) {
+      const bytes = await ordinaryZip();
+      const { view, central, local } = zipOffsets(bytes);
+      view.setUint16(central + 8, view.getUint16(central + 8, true) & ~0x0800, true);
+      view.setUint16(local + 6, view.getUint16(local + 6, true) & ~0x0800, true);
+      mutate(view, central, local);
+      expect(() => validateZipBytes(bytes)).toThrow('zip_filename_encoding_flag_mismatch');
+    }
+
+    const matching = await ordinaryZip();
+    expect(validateZipBytes(matching).length).toBeGreaterThan(0);
+    const matchingUtf8 = await ordinaryZip();
+    const matchingUtf8Offsets = zipOffsets(matchingUtf8);
+    matchingUtf8Offsets.view.setUint16(matchingUtf8Offsets.central + 8, matchingUtf8Offsets.view.getUint16(matchingUtf8Offsets.central + 8, true) | 0x0800, true);
+    matchingUtf8Offsets.view.setUint16(matchingUtf8Offsets.local + 6, matchingUtf8Offsets.view.getUint16(matchingUtf8Offsets.local + 6, true) | 0x0800, true);
+    expect(validateZipBytes(matchingUtf8).length).toBeGreaterThan(0);
+
+    const nameMismatch = await ordinaryZip();
+    const nameOffsets = zipOffsets(nameMismatch);
+    nameMismatch[nameOffsets.local + 30] ^= 1;
+    expect(() => validateZipBytes(nameMismatch)).toThrow('zip_local_central_name_mismatch');
+
+    const encrypted = await ordinaryZip();
+    const encryptedOffsets = zipOffsets(encrypted);
+    encryptedOffsets.view.setUint16(encryptedOffsets.local + 6, encryptedOffsets.view.getUint16(encryptedOffsets.local + 6, true) | 1, true);
+    expect(() => validateZipBytes(encrypted)).toThrow('zip_encrypted_unsupported');
   });
 });

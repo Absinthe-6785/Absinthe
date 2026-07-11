@@ -75,7 +75,10 @@ reconciled dataset.
 
 Unsupported ZIP and legacy archive variants fail closed. They are not partially parsed, assigned,
 or imported. InBody records without an intrinsic `id` require a sanitized adapter-supplied storage
-key in per-record provenance (`sourceId`); ProteinProfile is verified with a domain singleton
+key in per-record provenance (`sourceId`). The supported InBody JSON and localStorage adapters use
+the source-confirmed `date` field (the backend uniqueness key is `user_id,date`) and emit
+`date:YYYY-MM-DD`; missing or unsafe dates remain unresolved rather than falling back to array
+position. ProteinProfile is verified with a domain singleton
 identity. These external identities remain separate from the preserved source payload.
 
 ## Verification

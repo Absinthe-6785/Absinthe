@@ -73,27 +73,58 @@ export function combineRecoveryDatasetSources(
 export function adaptSuppliedJsonArray(
   json: string,
   source: RecoverySourceProvenance,
-  options: { deletedField?: string | null } = {},
+  options: {
+    deletedField?: string | null;
+    sourceIdForRecord?: (record: RecoveryRecord) => string | undefined;
+  } = {},
 ): RecoveryDatasetInput {
   let parsed: unknown;
   try { parsed = JSON.parse(json); }
   catch { return { availability: 'parse_failed', source: sanitizeRecoveryProvenance(source), warningCodes: ['invalid_json'] }; }
   const records = asRecords(parsed);
   if (!records) return { availability: 'unsupported', source: sanitizeRecoveryProvenance(source), warningCodes: ['expected_record_array'] };
-  return recordsDataset(records, source, options.deletedField);
+  const recordSources = options.sourceIdForRecord
+    ? records.map(record => ({ ...source, sourceId: options.sourceIdForRecord?.(record) }))
+    : undefined;
+  return recordsDataset(records, source, options.deletedField, recordSources);
 }
 
 export function readJsonArrayFromStorage(
   storage: Pick<Storage, 'getItem'>,
   key: string,
   source: RecoverySourceProvenance,
-  options: { deletedField?: string | null } = {},
+  options: {
+    deletedField?: string | null;
+    sourceIdForRecord?: (record: RecoveryRecord) => string | undefined;
+  } = {},
 ): RecoveryDatasetInput {
   let raw: string | null;
   try { raw = storage.getItem(key); }
   catch { return { availability: 'permission_denied', source: sanitizeRecoveryProvenance(source), warningCodes: ['storage_read_denied'] }; }
   if (raw === null) return { availability: 'unavailable', source: sanitizeRecoveryProvenance(source), warningCodes: ['storage_key_unavailable'] };
   return adaptSuppliedJsonArray(raw, source, options);
+}
+
+function inbodyDateSourceId(record: RecoveryRecord): string | undefined {
+  const date = record.date;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? `date:${date}` : undefined;
+}
+
+export function adaptInbodyJsonArray(
+  json: string,
+  source: RecoverySourceProvenance,
+): RecoveryDatasetInput {
+  return adaptSuppliedJsonArray(json, source, { sourceIdForRecord: inbodyDateSourceId });
+}
+
+export function readInbodyJsonArrayFromStorage(
+  storage: Pick<Storage, 'getItem'>,
+  key: string,
+  source: RecoverySourceProvenance,
+): RecoveryDatasetInput {
+  return readJsonArrayFromStorage(storage, key, source, { sourceIdForRecord: inbodyDateSourceId });
 }
 
 export function readJsonValueFromStorage(
