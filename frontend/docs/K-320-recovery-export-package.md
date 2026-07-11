@@ -1,0 +1,59 @@
+# K-320 Recovery Export Package
+
+K-320 is a read-only preservation format. It does not restore, reconcile, migrate, authenticate,
+or synchronize data. Recovery mode remains active while this tooling is used.
+
+## Commands
+
+From `frontend/`:
+
+```text
+npm run recovery:export -- --input <vault-backup.json> --output <new-empty-directory>
+npm run recovery:verify -- --package <directory-or-zip>
+```
+
+Export refuses to overwrite existing package files. Input is read once and is never modified.
+The verifier prints codes and counts only; it does not print record contents or owner identifiers.
+
+## Format
+
+Every archive uses the fixed `absinthe-recovery-export/` root. Schema version 2 contains:
+
+- `manifest.json` — derived completeness, per-dataset availability and counts
+- `checksums.sha256` — SHA-256 for every other expected file
+- `notes/` — physically separate active Notes and tombstones, folders, relationships
+- `health/`, `recipes/`, `planning/` — active and tombstone arrays per domain
+- `attachments/` — metadata inventory and reference relationships; no blob bytes
+- `metadata/` — sanitized provenance inventory, informational sync state, warning codes, conflicts
+
+Canonical JSON uses sorted keys, stable record ordering, and LF line endings. ZIP entry order,
+timestamps, permissions, platform metadata, and compression settings are fixed.
+
+## Availability and completeness
+
+Dataset availability is one of:
+
+`source_not_provided`, `present_empty`, `present_records`, `absent_confirmed`, `unavailable`,
+`unsupported`, `parse_failed`, or `permission_denied`.
+
+Only `present_empty` may authoritatively contain empty arrays. Non-data states contain `null`.
+Package completeness is derived—not adapter-controlled—and is one of `complete`,
+`complete_for_supplied_sources`, `partial`, or `invalid`.
+
+## Source adapters and privacy
+
+The dedicated VaultBackupManifest adapter preserves Notes, folders, relationships, extension data,
+scope, tombstones when present, and attachment references. Optional cloud data is retained only as
+aggregate provenance metadata. Unknown section names become sanitized warning codes; their payloads
+are not copied into diagnostics.
+
+Local adapters use read methods only. Attachment export reads metadata only and never opens or
+copies blobs. Provenance accepts logical labels or filenames; paths, credentials, query strings,
+tokens, cookies, and authorization values are removed or rejected.
+
+## Verification
+
+Verification independently parses expected files, hashes bytes, recomputes dataset and partition
+counts, derives completeness, and recomputes deterministic conflict diagnostics. Missing,
+unexpected, unsafe, or structurally inconsistent paths fail verification. Conflicts are reported
+without choosing a winner and without exposing Note, Health, Recipe, token, or session content.
