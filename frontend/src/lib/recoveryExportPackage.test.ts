@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { validateZipEntryNames } from '../../scripts/recovery-zip-safety.mjs';
 import JSZip from 'jszip';
 import { describe, expect, it, vi } from 'vitest';
 import type { VaultBackupManifest } from './exportVaultBackup';
@@ -25,6 +26,7 @@ import {
   readJsonValueFromStorage,
   readStoragePrefixForRecovery,
   sanitizeRecoveryProvenance,
+  combineRecoveryDatasetSources,
 } from './recoveryExportSourceAdapters';
 
 const exportedAt = '2026-07-11T00:00:00.000Z';
@@ -44,7 +46,7 @@ function withRehashedFiles(pkg: RecoveryExportPackage, changes: Record<string, s
 }
 
 function note(id: string, extra: RecoveryRecord = {}): RecoveryRecord {
-  return { id, user_id: 'owner-a', deleted_at: null, ...extra };
+  return { id, user_id: 'owner-a', body: '', deleted_at: null, ...extra };
 }
 
 describe('K-320A deterministic package and availability', () => {
@@ -54,7 +56,7 @@ describe('K-320A deterministic package and availability', () => {
       datasets: { notes: { availability: 'present_records', source, records: [note('b', { z: 1, a: 2 }), note('a')] } },
     });
     const second = await buildRecoveryExportPackage({
-      datasets: { notes: { records: [{ a: 2, z: 1, deleted_at: null, user_id: 'owner-a', id: 'b' }, note('a')].reverse(), source: { ownerScope: 'confirmed', label: 'synthetic.json', kind: 'supplied_export' }, availability: 'present_records' } },
+      datasets: { notes: { records: [{ a: 2, z: 1, body: '', deleted_at: null, user_id: 'owner-a', id: 'b' }, note('a')].reverse(), source: { ownerScope: 'confirmed', label: 'synthetic.json', kind: 'supplied_export' }, availability: 'present_records' } },
       exportedAt,
     });
     expect(first.files).toEqual(second.files);
@@ -196,7 +198,7 @@ describe('K-320A semantic verification and conflicts', () => {
   });
 
   it('detects rehashed record removal, inconsistent availability, completeness, missing and unexpected files', async () => {
-    const pkg = await buildRecoveryExportPackage({ exportedAt, datasets: { recipes: { availability: 'present_records', records: [{ id: 'r1' }] } } });
+    const pkg = await buildRecoveryExportPackage({ exportedAt, datasets: { recipes: { availability: 'present_records', records: [{ id: 'r1', name: 'Synthetic' }] } } });
     const recipe = JSON.parse(pkg.files['recipes/recipes.json']);
     recipe.activeRecords = [];
     const altered = withRehashedFiles(pkg, { 'recipes/recipes.json': stableRecoveryJson(recipe), 'unexpected.json': '{}\n' });
@@ -222,7 +224,7 @@ describe('K-320A semantic verification and conflicts', () => {
         notes: { availability: 'present_records' as const, records: [
           note('same', { folder_id: 'missing' }), note('same', { deleted_at: exportedAt, user_id: 'owner-b' }), { user_id: 'owner-a', deleted_at: null },
         ] },
-        noteFolders: { availability: 'present_records' as const, records: [{ id: 'unused' }] },
+        noteFolders: { availability: 'present_records' as const, records: [{ id: 'unused', name: 'Empty' }] },
         attachmentReferences: { availability: 'present_records' as const, records: [{ id: 'att-missing', referencedBy: ['same'], orphanCandidate: true }] },
       },
     };
@@ -230,8 +232,8 @@ describe('K-320A semantic verification and conflicts', () => {
     const second = await buildRecoveryExportPackage({ ...input, datasets: { ...input.datasets, notes: { ...input.datasets.notes, records: [...input.datasets.notes.records].reverse() } } });
     const codes = JSON.parse(first.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code);
     expect(codes).toEqual(expect.arrayContaining([
-      'duplicate_id', 'active_tombstone_collision', 'conflicting_owner_ids', 'missing_or_invalid_id',
-      'missing_folder_target', 'orphan_folder', 'missing_attachment_target',
+      'duplicate_id_within_source', 'active_tombstone_collision', 'conflicting_owner_ids', 'missing_or_invalid_id',
+      'missing_folder_target', 'missing_attachment_target',
     ]));
     expect(first.files['metadata/conflicts.json']).toBe(second.files['metadata/conflicts.json']);
     expect(first.manifest.completeness).toBe('invalid');
@@ -265,7 +267,7 @@ describe('K-320A read-only adapters and attachment semantics', () => {
     ], { kind: 'backup', label: 'backup.json' });
     expect(result.records).toEqual([expect.objectContaining({
       id: 'att', referencedBy: ['n1', 'n2'], referenceOnly: true,
-      localAvailability: 'unknown', remoteAvailability: 'unknown', blobAvailability: 'unknown', checksumStatus: 'unknown', orphanCandidate: false,
+      localAvailability: 'local_source_not_provided', remoteAvailability: 'remote_source_not_provided', blobAvailability: 'blob_unknown', checksumStatus: 'checksum_unknown', orphanCandidate: false,
     })]);
     expect(buildAttachmentReferenceDataset(null, source).availability).toBe('source_not_provided');
   });
@@ -278,16 +280,16 @@ describe('K-320A read-only adapters and attachment semantics', () => {
     }]);
     const result = await readAttachmentInventoryForRecovery({ listAttachments }, { kind: 'local', label: 'attachment-metadata' });
     expect(result.records?.[0]).toMatchObject({
-      localAvailability: 'present', remoteAvailability: 'present', blobAvailability: 'present', checksumStatus: 'mismatch',
+      localAvailability: 'local_present', remoteAvailability: 'remote_present', blobAvailability: 'blob_present', checksumStatus: 'checksum_mismatch',
     });
     expect(listAttachments).toHaveBeenCalledTimes(1);
   });
 
   it.each([
-    ['local', { localBlobKey: 'blobs/a' }, 'present', 'unknown'],
-    ['remote', { remoteFileId: 'remote-a' }, 'unknown', 'present'],
-    ['both', { localBlobKey: 'blobs/a', remoteFileId: 'remote-a' }, 'present', 'present'],
-    ['neither', {}, 'unknown', 'unknown'],
+    ['local', { localBlobKey: 'blobs/a' }, 'local_present', 'remote_unknown'],
+    ['remote', { remoteFileId: 'remote-a' }, 'local_unknown', 'remote_present'],
+    ['both', { localBlobKey: 'blobs/a', remoteFileId: 'remote-a' }, 'local_present', 'remote_present'],
+    ['neither', {}, 'local_unknown', 'remote_unknown'],
   ])('keeps attachment availability states distinct: %s', async (_label, fields, local, remote) => {
     const result = await readAttachmentInventoryForRecovery({
       listAttachments: async () => [{ id: 'att', fileName: 'a', mimeType: 'text/plain', size: 1, createdAt: exportedAt, updatedAt: exportedAt, ...fields }],
@@ -321,4 +323,151 @@ describe('K-320A developer CLI', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe('K-320B semantic closure', () => {
+  it('keeps valid empty folders valid while detecting real folder integrity conflicts', async () => {
+    const valid = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'present_empty', records: [] },
+        noteFolders: { availability: 'present_records', records: [{ id: 'empty', name: 'Empty folder' }] },
+      },
+    });
+    const verified = await verifyRecoveryExportPackage(valid);
+    expect(verified.valid).toBe(true);
+    expect(valid.manifest.completeness).not.toBe('invalid');
+    expect(verified.conflictDiagnostics.map(item => item.code)).not.toContain('orphan_folder');
+
+    const broken = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'present_records', records: [note('n1', { folderId: 'missing' })] },
+        noteFolders: { availability: 'present_records', records: [
+          { id: 'f1', name: 'One', parentId: 'missing-parent' },
+          { id: 'f1', name: 'Duplicate' },
+        ] },
+      },
+    });
+    expect(JSON.parse(broken.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code))
+      .toEqual(expect.arrayContaining(['missing_folder_target', 'missing_folder_parent', 'duplicate_id_within_source']));
+  });
+
+  it('validates attachment referencedBy targets and warns when Notes are unavailable', async () => {
+    const valid = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'present_records', records: [note('n1')] },
+        attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: ['n1'] }] },
+      },
+    });
+    expect((await verifyRecoveryExportPackage(valid)).valid).toBe(true);
+
+    const missing = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'present_records', records: [note('n1')] },
+        attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: ['n1', 'missing'] }] },
+      },
+    });
+    expect(JSON.parse(missing.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code))
+      .toContain('missing_attachment_reference_target');
+
+    const unresolved = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'unavailable' },
+        attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: ['unknown-note'] }] },
+      },
+    });
+    const unresolvedResult = await verifyRecoveryExportPackage(unresolved);
+    expect(unresolvedResult.conflictDiagnostics.map(item => item.code)).not.toContain('missing_attachment_reference_target');
+    expect(unresolvedResult.warnings.map(item => item.code)).toContain('attachment_reference_unresolved_due_to_unavailable_notes');
+  });
+
+  it('reports conservative source-confirmed malformed records without private payloads', async () => {
+    const pkg = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: {
+        notes: { availability: 'present_records', records: [{ body: 'private-note-body', deleted_at: null }] },
+        noteFolders: { availability: 'present_records', records: [{ name: 'private-folder-name' }] },
+        recipes: { availability: 'present_records', records: [{ id: 'r1', arbitrary: 'private-recipe' }] },
+        schedules: { availability: 'present_records', records: [{ id: 's1', start_time: '09:00', end_time: '10:00', created_at: 'not-a-date' }] },
+        todos: { availability: 'present_records', records: [{ id: 't1', done: 'yes', deleted_at: true }] },
+        workoutLogs: { availability: 'present_records', records: [{ id: 'w1', privateHealth: 123 }] },
+        attachmentInventory: { availability: 'present_records', records: [{ privateAttachment: 'secret' }] },
+      },
+    });
+    const diagnostics = pkg.files['metadata/conflicts.json'];
+    const codes = JSON.parse(diagnostics).diagnostics.map((item: { code: string }) => item.code);
+    expect(codes).toEqual(expect.arrayContaining(['missing_or_invalid_id', 'malformed_record', 'invalid_timestamp']));
+    expect(diagnostics).not.toContain('private-note-body');
+    expect(diagnostics).not.toContain('private-folder-name');
+    expect(diagnostics).not.toContain('private-recipe');
+    expect(diagnostics).not.toContain('privateHealth');
+  });
+
+  it('distinguishes within-source duplicates and cross-source duplicates/content conflicts stably', async () => {
+    const sourceA = { kind: 'backup' as const, label: 'C:\\private\\a.json?access_token=secret', sourceId: 'a' };
+    const sourceB = { kind: 'snapshot' as const, label: 'b.json', sourceId: 'b' };
+    const combined = combineRecoveryDatasetSources([
+      { availability: 'present_records', records: [{ id: 'r1', name: 'Same' }, { id: 'r2', name: 'A', user_id: 'owner-a' }], source: sourceA },
+      { availability: 'present_records', records: [{ id: 'r1', name: 'Same' }, { id: 'r2', name: 'B', user_id: 'owner-b' }], source: sourceB },
+    ], { kind: 'supplied_export', label: 'combined' });
+    const pkg = await buildRecoveryExportPackage({ exportedAt, datasets: { recipes: combined } });
+    const reversedCombined = combineRecoveryDatasetSources([
+      { availability: 'present_records', records: [{ id: 'r2', name: 'B', user_id: 'owner-b' }, { id: 'r1', name: 'Same' }], source: sourceB },
+      { availability: 'present_records', records: [{ id: 'r2', name: 'A', user_id: 'owner-a' }, { id: 'r1', name: 'Same' }], source: sourceA },
+    ], { kind: 'supplied_export', label: 'combined' });
+    const reversed = await buildRecoveryExportPackage({ exportedAt, datasets: { recipes: reversedCombined } });
+    const conflicts = JSON.parse(pkg.files['metadata/conflicts.json']).diagnostics;
+    expect(conflicts.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining([
+      'cross_source_duplicate_id', 'cross_source_record_conflict', 'conflicting_owner_ids',
+    ]));
+    expect(pkg.files['recipes/recipes.json']).not.toContain('access_token');
+    expect(pkg.files['recipes/recipes.json']).not.toContain('C:\\private');
+    expect(reversed.files['metadata/conflicts.json']).toBe(pkg.files['metadata/conflicts.json']);
+
+    const within = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: { recipes: { availability: 'present_records', records: [{ id: 'same', name: 'A' }, { id: 'same', name: 'B' }], source: sourceB } },
+    });
+    expect(JSON.parse(within.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code))
+      .toContain('duplicate_id_within_source');
+  });
+
+  it('preserves confirmed attachment absence and rejects contradictory supplied states without blob reads', async () => {
+    const listAttachments = vi.fn(async () => [{
+      id: 'a1', fileName: 'a', mimeType: 'text/plain', size: 1, createdAt: exportedAt, updatedAt: exportedAt,
+      localMissingConfirmed: true, remoteMissingConfirmed: true, blobMissingConfirmed: true,
+    } as never]);
+    const missing = await readAttachmentInventoryForRecovery({ listAttachments }, { kind: 'local', label: 'metadata' });
+    expect(missing.records?.[0]).toMatchObject({
+      localAvailability: 'local_missing_confirmed', remoteAvailability: 'remote_missing_confirmed',
+      blobAvailability: 'blob_missing_confirmed', checksumStatus: 'checksum_unknown',
+    });
+    expect(listAttachments).toHaveBeenCalledTimes(1);
+
+    const contradictory = await buildRecoveryExportPackage({
+      exportedAt,
+      datasets: { attachmentInventory: { availability: 'present_records', records: [{
+        id: 'a1', fileName: 'a', mimeType: 'text/plain', localBlobKey: 'blob/a',
+        localAvailability: 'local_missing_confirmed', remoteAvailability: 'remote_unknown',
+        blobAvailability: 'blob_unknown', checksumStatus: 'checksum_mismatch',
+      }] } },
+    });
+    expect(JSON.parse(contradictory.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code))
+      .toEqual(expect.arrayContaining(['contradictory_local_attachment_state', 'incomplete_checksum_mismatch_evidence']));
+  });
+
+  it.each([
+    [['manifest.json', 'manifest.json'], 'zip_duplicate_raw_path'],
+    [['folder/file.json', 'folder\\file.json'], 'zip_duplicate_normalized_path'],
+    [['a/../b.json', 'b.json'], 'zip_traversal_path'],
+    [['Manifest.json', 'manifest.json'], 'zip_case_fold_collision'],
+    [['folder/', 'folder'], 'zip_directory_file_collision'],
+    [['folder', 'folder/file.json'], 'zip_directory_file_collision'],
+  ])('rejects unsafe ZIP names before assignment: %j', (names, code) => {
+    expect(() => validateZipEntryNames(names)).toThrow(code);
+  });
 });

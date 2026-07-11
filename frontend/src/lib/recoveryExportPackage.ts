@@ -28,6 +28,7 @@ export interface RecoverySourceProvenance {
 export interface RecoveryDatasetInput {
   availability: RecoveryAvailability;
   records?: readonly RecoveryRecord[];
+  recordSources?: readonly RecoverySourceProvenance[];
   source?: RecoverySourceProvenance;
   deletedField?: string | null;
   warningCodes?: readonly string[];
@@ -218,11 +219,24 @@ async function sha256(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function sortRecords(records: readonly RecoveryRecord[]): RecoveryRecord[] {
-  return records.map(record => canonicalize(record) as RecoveryRecord).sort((a, b) => {
-    const ai = typeof a.id === 'string' ? a.id : '';
-    const bi = typeof b.id === 'string' ? b.id : '';
-    return `${ai}\0${JSON.stringify(a)}`.localeCompare(`${bi}\0${JSON.stringify(b)}`);
+function sourceRef(source: RecoverySourceProvenance | null): string {
+  if (!source) return 'source:unspecified';
+  return [source.kind, source.label, source.sourceId ?? 'default'].join(':');
+}
+
+function sortRecords(
+  records: readonly RecoveryRecord[],
+  sources: readonly RecoverySourceProvenance[] | undefined,
+  fallbackSource: RecoverySourceProvenance | null,
+): Array<{ record: RecoveryRecord; sourceRef: string }> {
+  if (sources && sources.length !== records.length) throw new Error('record_source_count_mismatch');
+  return records.map((record, index) => ({
+    record: canonicalize(record) as RecoveryRecord,
+    sourceRef: sourceRef(sanitizedSource(sources?.[index] ?? fallbackSource ?? undefined)),
+  })).sort((a, b) => {
+    const ai = typeof a.record.id === 'string' ? a.record.id : '';
+    const bi = typeof b.record.id === 'string' ? b.record.id : '';
+    return `${ai}\0${JSON.stringify(a.record)}\0${a.sourceRef}`.localeCompare(`${bi}\0${JSON.stringify(b.record)}\0${b.sourceRef}`);
   });
 }
 
@@ -242,6 +256,8 @@ interface NormalizedDataset {
   source: RecoverySourceProvenance | null;
   active: RecoveryRecord[] | null;
   tombstones: RecoveryRecord[] | null;
+  activeSourceRefs: string[] | null;
+  tombstoneSourceRefs: string[] | null;
   warningCodes: string[];
 }
 
@@ -251,14 +267,19 @@ function normalizeDataset(input: RecoveryDatasetInput | undefined): NormalizedDa
   if (records === null) return {
     availability: resolved.availability, source: sanitizedSource(resolved.source),
     active: null, tombstones: null, warningCodes: [...(resolved.warningCodes ?? [])].map(sanitizedCode).sort(),
+    activeSourceRefs: null, tombstoneSourceRefs: null,
   };
   const deletedField = resolved.deletedField === undefined ? 'deleted_at' : resolved.deletedField;
-  const sorted = sortRecords(records);
+  const source = sanitizedSource(resolved.source);
+  const sorted = sortRecords(records, resolved.recordSources, source);
   const deleted = (record: RecoveryRecord) => deletedField !== null
     && record[deletedField] !== null && record[deletedField] !== undefined && record[deletedField] !== '';
+  const active = sorted.filter(item => !deleted(item.record));
+  const tombstones = sorted.filter(item => deleted(item.record));
   return {
-    availability: resolved.availability, source: sanitizedSource(resolved.source),
-    active: sorted.filter(record => !deleted(record)), tombstones: sorted.filter(deleted),
+    availability: resolved.availability, source,
+    active: active.map(item => item.record), tombstones: tombstones.map(item => item.record),
+    activeSourceRefs: active.map(item => item.sourceRef), tombstoneSourceRefs: tombstones.map(item => item.sourceRef),
     warningCodes: [...(resolved.warningCodes ?? [])].map(sanitizedCode).sort(),
   };
 }
@@ -286,6 +307,34 @@ function diagSort(items: RecoveryDiagnostic[]): RecoveryDiagnostic[] {
   return items.sort((a, b) => stableRecoveryJson(a).localeCompare(stableRecoveryJson(b)));
 }
 
+function minimumRecordIssue(key: RecoveryDatasetKey, record: RecoveryRecord): string | null {
+  if (!safeId(record.id)) return null;
+  if ('user_id' in record && typeof record.user_id !== 'string') return 'user_id';
+  for (const field of ['deleted_at', 'deletedAt']) if (field in record) {
+    const value = record[field];
+    if (value !== null && typeof value !== 'string' && typeof value !== 'number') return field;
+  }
+  switch (key) {
+    case 'notes': return typeof record.body === 'string' || typeof record.markdown === 'string' ? null : 'body_or_markdown';
+    case 'noteFolders': return typeof record.name === 'string' ? null : 'name';
+    case 'noteRelationships': return record.relations && typeof record.relations === 'object' && !Array.isArray(record.relations) ? null : 'relations';
+    case 'recipes': return typeof record.name === 'string' || typeof record.title === 'string' ? null : 'name_or_title';
+    case 'schedules': return typeof record.start_time === 'string' && typeof record.end_time === 'string' ? null : 'start_time_or_end_time';
+    case 'todos': return typeof record.done === 'boolean' ? null : 'done';
+    case 'workoutLogs': return typeof record.block_id === 'string' || Array.isArray(record.sets) ? null : 'block_id_or_sets';
+    case 'inbodyLogs': return ['weight', 'smm', 'pbf'].some(field => typeof record[field] === 'number') ? null : 'measurement';
+    case 'exerciseBlocks': return typeof record.name === 'string' && typeof record.type === 'string' ? null : 'name_or_type';
+    case 'healthRoutines': return typeof record.day_name === 'string' && Array.isArray(record.blocks) ? null : 'day_name_or_blocks';
+    case 'proteinProfiles': return typeof record.daily_target_g === 'number' || typeof record.goal === 'string' ? null : 'profile_field';
+    case 'proteinSources': return typeof record.name === 'string' ? null : 'name';
+    case 'proteinIntakeLogs': return typeof record.protein_g === 'number' ? null : 'protein_g';
+    case 'attachmentInventory': return typeof record.fileName === 'string' && typeof record.mimeType === 'string' ? null : 'file_name_or_mime_type';
+    case 'attachmentReferences': return Array.isArray(record.referencedBy) && record.referencedBy.every(value => typeof value === 'string') ? null : 'referencedBy';
+    case 'healthLocalDrafts': case 'healthLocalMemos': case 'healthPreferences': case 'recipeLocalMetadata': return null;
+    default: return 'unsupported_schema_detail';
+  }
+}
+
 function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>): RecoveryDiagnostic[] {
   const out: RecoveryDiagnostic[] = [];
   const idsByKey = new Map<RecoveryDatasetKey, Set<string>>();
@@ -293,13 +342,20 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
     if (!dataset.active || !dataset.tombstones) continue;
     const all = [...dataset.active, ...dataset.tombstones];
     const ids = new Set<string>();
-    const duplicate = new Set<string>();
+    const occurrences = new Map<string, Array<{ record: RecoveryRecord; sourceRef: string }>>();
     const owners = new Set<string>();
-    for (const record of all) {
+    const sourceRefs = [...(dataset.activeSourceRefs ?? []), ...(dataset.tombstoneSourceRefs ?? [])];
+    for (const [index, record] of all.entries()) {
       const id = safeId(record.id);
       if (!id) out.push({ code: 'missing_or_invalid_id', domain: key, path: key, fieldPath: 'id' });
-      else if (ids.has(id)) duplicate.add(id);
-      else ids.add(id);
+      else {
+        ids.add(id);
+        const values = occurrences.get(id) ?? [];
+        values.push({ record, sourceRef: sourceRefs[index] ?? 'source:unspecified' });
+        occurrences.set(id, values);
+      }
+      const malformed = minimumRecordIssue(key, record);
+      if (malformed) out.push({ code: malformed === 'unsupported_schema_detail' ? malformed : 'malformed_record', domain: key, path: key, recordId: id, fieldPath: malformed });
       if (typeof record.user_id === 'string' && record.user_id) owners.add(record.user_id);
       for (const [field, value] of Object.entries(record)) {
         if ((field.endsWith('_at') || field.endsWith('At')) && value != null
@@ -308,7 +364,14 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
         }
       }
     }
-    for (const id of duplicate) out.push({ code: 'duplicate_id', domain: key, path: key, recordId: id, count: 2 });
+    for (const [id, values] of occurrences) if (values.length > 1) {
+      const sources = new Set(values.map(value => value.sourceRef));
+      if (sources.size === 1) out.push({ code: 'duplicate_id_within_source', domain: key, path: key, recordId: id, count: values.length });
+      else {
+        const content = new Set(values.map(value => stableRecoveryJson(value.record)));
+        out.push({ code: content.size === 1 ? 'cross_source_duplicate_id' : 'cross_source_record_conflict', domain: key, path: key, recordId: id, count: sources.size });
+      }
+    }
     const activeIds = new Set(dataset.active.map(record => safeId(record.id)).filter(Boolean) as string[]);
     for (const record of dataset.tombstones) {
       const id = safeId(record.id);
@@ -329,15 +392,48 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
         if (!folders.has(folder)) out.push({ code: 'missing_folder_target', domain: 'notes', path: 'notes', recordId: safeId(note.id), fieldPath: 'folderId' });
       }
     }
-    for (const folder of folders) if (!referencedFolders.has(folder)) {
-      out.push({ code: 'orphan_folder', domain: 'noteFolders', path: 'notes/folders.json', recordId: folder });
+  }
+  const folderData = datasets.get('noteFolders');
+  if (folderData?.active) {
+    const parents = new Map<string, string>();
+    for (const folder of folderData.active) {
+      const id = safeId(folder.id);
+      const parent = typeof folder.parentId === 'string' ? folder.parentId : typeof folder.parent_id === 'string' ? folder.parent_id : null;
+      if (!id || !parent) continue;
+      if (id === parent) out.push({ code: 'folder_self_reference', domain: 'noteFolders', path: 'notes/folders.json', recordId: id, fieldPath: 'parentId' });
+      else if (!folders.has(parent)) out.push({ code: 'missing_folder_parent', domain: 'noteFolders', path: 'notes/folders.json', recordId: id, fieldPath: 'parentId' });
+      else parents.set(id, parent);
+    }
+    for (const id of parents.keys()) {
+      const visited = new Set<string>();
+      let current: string | undefined = id;
+      while (current && parents.has(current)) {
+        if (visited.has(current)) { out.push({ code: 'folder_parent_cycle', domain: 'noteFolders', path: 'notes/folders.json', recordId: id, fieldPath: 'parentId' }); break; }
+        visited.add(current); current = parents.get(current);
+      }
     }
   }
   const inventory = idsByKey.get('attachmentInventory') ?? new Set<string>();
+  const noteIds = idsByKey.get('notes') ?? new Set<string>();
   const inventoryData = datasets.get('attachmentInventory');
   if (inventoryData?.active) for (const record of inventoryData.active) {
     if (record.localAvailability === 'unsafe' || record.remoteAvailability === 'unsafe') {
       out.push({ code: 'unsafe_attachment_path', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
+    }
+    if (record.localAvailability === 'local_present' && record.localMissingConfirmed === true
+      || record.localAvailability === 'local_missing_confirmed' && typeof record.localBlobKey === 'string') {
+      out.push({ code: 'contradictory_local_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
+    }
+    if (record.remoteAvailability === 'remote_present' && record.remoteMissingConfirmed === true
+      || record.remoteAvailability === 'remote_missing_confirmed' && (typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')) {
+      out.push({ code: 'contradictory_remote_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
+    }
+    if (record.checksumStatus === 'checksum_mismatch' && !(typeof record.checksum === 'string' && typeof record.remoteChecksum === 'string')) {
+      out.push({ code: 'incomplete_checksum_mismatch_evidence', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
+    }
+    if (record.blobAvailability === 'blob_present' && record.blobMissingConfirmed === true
+      || record.blobAvailability === 'blob_missing_confirmed' && (typeof record.localBlobKey === 'string' || typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')) {
+      out.push({ code: 'contradictory_blob_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
   }
   const references = datasets.get('attachmentReferences');
@@ -347,13 +443,16 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
       if (Array.isArray(record.referencedBy)) {
         const values = record.referencedBy.filter(item => typeof item === 'string') as string[];
         if (new Set(values).size !== values.length) out.push({ code: 'duplicate_attachment_reference', domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id });
+        const notesAvailable = notes?.availability === 'present_empty' || notes?.availability === 'present_records' || notes?.availability === 'absent_confirmed';
+        if (notesAvailable) for (const target of values) if (!noteIds.has(target)) {
+          out.push({ code: 'missing_attachment_reference_target', domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id, fieldPath: 'referencedBy' });
+        }
       }
       if (id && !inventory.has(id) && record.orphanCandidate === true) {
         out.push({ code: 'missing_attachment_target', domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id });
       }
     }
   }
-  const noteIds = idsByKey.get('notes') ?? new Set<string>();
   const relationships = datasets.get('noteRelationships');
   if (relationships?.active) for (const record of relationships.active) {
     const relations = record.relations;
@@ -368,6 +467,13 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
   return diagSort(out);
 }
 
+function analyzeWarnings(datasets: Map<RecoveryDatasetKey, NormalizedDataset>): RecoveryDiagnostic[] {
+  const notes = datasets.get('notes');
+  const references = datasets.get('attachmentReferences');
+  if (!references?.active?.length || notes?.availability === 'present_empty' || notes?.availability === 'present_records' || notes?.availability === 'absent_confirmed') return [];
+  return [{ code: 'attachment_reference_unresolved_due_to_unavailable_notes', domain: 'attachmentReferences', path: 'attachments/references.json', count: references.active.length }];
+}
+
 function payloadFor(descriptor: DatasetDescriptor, data: NormalizedDataset): Record<string, unknown> {
   const common = {
     schemaVersion: RECOVERY_EXPORT_SCHEMA_VERSION, dataset: descriptor.key,
@@ -375,7 +481,8 @@ function payloadFor(descriptor: DatasetDescriptor, data: NormalizedDataset): Rec
   };
   if (descriptor.partition) {
     const records = descriptor.partition === 'active' ? data.active : data.tombstones;
-    return { ...common, partition: descriptor.partition, recordCount: records?.length ?? null, records };
+    const recordSourceRefs = descriptor.partition === 'active' ? data.activeSourceRefs : data.tombstoneSourceRefs;
+    return { ...common, partition: descriptor.partition, recordCount: records?.length ?? null, records, recordSourceRefs };
   }
   return {
     ...common,
@@ -384,6 +491,7 @@ function payloadFor(descriptor: DatasetDescriptor, data: NormalizedDataset): Rec
       active: data.active.length, tombstones: data.tombstones?.length ?? 0,
     },
     activeRecords: data.active, tombstoneRecords: data.tombstones,
+    activeSourceRefs: data.activeSourceRefs, tombstoneSourceRefs: data.tombstoneSourceRefs,
   };
 }
 
@@ -402,9 +510,11 @@ export async function buildRecoveryExportPackage(input: RecoveryExportInput): Pr
   }
   const required = [...new Set(input.requiredDatasets ?? [])].sort();
   const conflicts = analyzeConflicts(normalized);
+  const semanticWarnings = analyzeWarnings(normalized);
   const completeness = deriveRecoveryCompleteness(availability, required, conflicts.length > 0);
   const warningCodes = new Set((input.warningCodes ?? []).map(sanitizedCode));
   for (const [key, value] of normalized) for (const code of value.warningCodes) warningCodes.add(`${key}:${code}`);
+  for (const warning of semanticWarnings) warningCodes.add(warning.code);
   const files: Record<string, string> = {};
   const checksums: Record<string, string> = {};
   const entries: RecoveryDatasetManifestEntry[] = [];
@@ -475,13 +585,28 @@ function parsedDataset(
   ];
   if (!validStatus.includes(status)) errors.push({ code: 'invalid_availability', domain: descriptor.key, path: descriptor.path });
   const partitionRecords = descriptor.partition ? value.records : null;
+  const partitionSourceRefs = descriptor.partition ? value.recordSourceRefs : null;
   const active = descriptor.partition === 'active' ? partitionRecords : descriptor.partition ? null : value.activeRecords;
   const tombstones = descriptor.partition === 'tombstones' ? partitionRecords : descriptor.partition ? null : value.tombstoneRecords;
+  const activeSourceRefs = descriptor.partition === 'active' ? partitionSourceRefs : descriptor.partition ? null : value.activeSourceRefs;
+  const tombstoneSourceRefs = descriptor.partition === 'tombstones' ? partitionSourceRefs : descriptor.partition ? null : value.tombstoneSourceRefs;
   const arraysAllowed = PRESENT.has(status);
   const invalidShape = arraysAllowed
     ? (descriptor.partition ? !Array.isArray(partitionRecords) : !Array.isArray(active) || !Array.isArray(tombstones))
     : (descriptor.partition ? partitionRecords !== null : active !== null || tombstones !== null);
   if (invalidShape) errors.push({ code: 'availability_data_mismatch', domain: descriptor.key, path: descriptor.path });
+  if (arraysAllowed) {
+    const refsValid = descriptor.partition
+      ? Array.isArray(partitionSourceRefs) && Array.isArray(partitionRecords) && partitionSourceRefs.length === partitionRecords.length
+      : Array.isArray(activeSourceRefs) && Array.isArray(tombstoneSourceRefs)
+        && Array.isArray(active) && Array.isArray(tombstones)
+        && activeSourceRefs.length === active.length && tombstoneSourceRefs.length === tombstones.length;
+    if (!refsValid) errors.push({ code: 'record_source_index_mismatch', domain: descriptor.key, path: descriptor.path });
+    const refs = [...(Array.isArray(activeSourceRefs) ? activeSourceRefs : []), ...(Array.isArray(tombstoneSourceRefs) ? tombstoneSourceRefs : [])];
+    if (refs.some(ref => typeof ref !== 'string' || !/^[A-Za-z0-9._:-]{1,320}$/.test(ref) || SENSITIVE_METADATA.test(ref))) {
+      errors.push({ code: 'unsafe_record_source_ref', domain: descriptor.key, path: descriptor.path });
+    }
+  }
   const allCount = (Array.isArray(active) ? active.length : 0) + (Array.isArray(tombstones) ? tombstones.length : 0);
   if (!descriptor.partition && status === 'present_empty' && allCount !== 0) errors.push({ code: 'present_empty_has_records', domain: descriptor.key, path: descriptor.path });
   if (!descriptor.partition && status === 'present_records' && allCount === 0) errors.push({ code: 'present_records_is_empty', domain: descriptor.key, path: descriptor.path });
@@ -490,6 +615,8 @@ function parsedDataset(
     source: (value.source as RecoverySourceProvenance | null) ?? null,
     active: Array.isArray(active) ? active as RecoveryRecord[] : descriptor.partition === 'tombstones' ? [] : null,
     tombstones: Array.isArray(tombstones) ? tombstones as RecoveryRecord[] : descriptor.partition === 'active' ? [] : null,
+    activeSourceRefs: Array.isArray(activeSourceRefs) ? activeSourceRefs.filter(item => typeof item === 'string') as string[] : descriptor.partition === 'tombstones' ? [] : null,
+    tombstoneSourceRefs: Array.isArray(tombstoneSourceRefs) ? tombstoneSourceRefs.filter(item => typeof item === 'string') as string[] : descriptor.partition === 'active' ? [] : null,
     warningCodes: Array.isArray(value.warningCodes) ? value.warningCodes.filter(item => typeof item === 'string') as string[] : [],
   };
 }
@@ -531,7 +658,10 @@ export async function verifyRecoveryExportPackage(pkg: Pick<RecoveryExportPackag
     const current = parsedByKey.get(descriptor.key);
     if (descriptor.partition && current) {
       if (current.availability !== parsed.availability) errors.push({ code: 'partition_availability_mismatch', domain: descriptor.key, path: descriptor.path });
-      if (descriptor.partition === 'tombstones') current.tombstones = parsed.tombstones;
+      if (descriptor.partition === 'tombstones') {
+        current.tombstones = parsed.tombstones;
+        current.tombstoneSourceRefs = parsed.tombstoneSourceRefs;
+      }
     } else parsedByKey.set(descriptor.key, parsed);
     const activeCount = descriptor.partition === 'tombstones' ? 0 : parsed.active?.length ?? null;
     const tombstoneCount = descriptor.partition === 'active' ? 0 : parsed.tombstones?.length ?? null;
@@ -573,8 +703,13 @@ export async function verifyRecoveryExportPackage(pkg: Pick<RecoveryExportPackag
     if (manifest && (warningFile.warningCodes?.length ?? 0) !== manifest.warningCount) {
       errors.push({ code: 'manifest_warning_count_mismatch', domain: 'package', path: 'metadata/warnings.json' });
     }
+    const storedCodes = new Set((warningFile.warningCodes ?? []).filter(value => typeof value === 'string'));
+    for (const warning of analyzeWarnings(parsedByKey)) if (!storedCodes.has(warning.code)) {
+      errors.push({ code: 'semantic_warning_missing', domain: warning.domain, path: 'metadata/warnings.json' });
+    }
   } catch { errors.push({ code: 'invalid_warnings_json', domain: 'package', path: 'metadata/warnings.json' }); }
   const conflicts = analyzeConflicts(parsedByKey);
+  const semanticWarnings = analyzeWarnings(parsedByKey);
   try {
     const conflictFile = JSON.parse(pkg.files['metadata/conflicts.json']) as { diagnostics?: RecoveryDiagnostic[] };
     if (stableRecoveryJson(conflictFile.diagnostics ?? []) !== stableRecoveryJson(conflicts)) {
@@ -590,7 +725,7 @@ export async function verifyRecoveryExportPackage(pkg: Pick<RecoveryExportPackag
   return {
     valid: errors.length === 0 && conflicts.length === 0,
     completeness: errors.length > 0 || conflicts.length > 0 ? 'invalid' : derived,
-    verifiedFiles: verifiedFiles.sort(), errors: diagSort(errors), warnings: diagSort(warnings),
+    verifiedFiles: verifiedFiles.sort(), errors: diagSort(errors), warnings: diagSort([...warnings, ...semanticWarnings]),
     conflictDiagnostics: conflicts,
   };
 }

@@ -44,11 +44,30 @@ function asRecords(value: unknown): RecoveryRecord[] | null {
 
 function recordsDataset(
   records: readonly RecoveryRecord[], source: RecoverySourceProvenance, deletedField?: string | null,
+  recordSources?: readonly RecoverySourceProvenance[],
 ): RecoveryDatasetInput {
   return {
     availability: records.length === 0 ? 'present_empty' : 'present_records',
     records, source: sanitizeRecoveryProvenance(source), deletedField,
+    recordSources: recordSources?.map(sanitizeRecoveryProvenance),
   };
+}
+
+export function combineRecoveryDatasetSources(
+  inputs: readonly RecoveryDatasetInput[],
+  source: RecoverySourceProvenance,
+  deletedField?: string | null,
+): RecoveryDatasetInput {
+  const records: RecoveryRecord[] = [];
+  const recordSources: RecoverySourceProvenance[] = [];
+  for (const input of inputs) {
+    if (input.availability !== 'present_empty' && input.availability !== 'present_records') continue;
+    for (const [index, record] of (input.records ?? []).entries()) {
+      records.push(record);
+      recordSources.push(input.recordSources?.[index] ?? input.source ?? source);
+    }
+  }
+  return recordsDataset(records, source, deletedField, recordSources);
 }
 
 export function adaptSuppliedJsonArray(
@@ -114,17 +133,30 @@ function safeBlobKey(value: unknown): boolean {
 }
 
 function attachmentInventoryRecord(metadata: AttachmentMetadata): RecoveryRecord {
+  const supplied = metadata as AttachmentMetadata & {
+    localMissingConfirmed?: boolean; remoteMissingConfirmed?: boolean; blobMissingConfirmed?: boolean;
+    localSourceProvided?: boolean; remoteSourceProvided?: boolean;
+  };
   const localSafe = safeBlobKey(metadata.localBlobKey);
   const remoteSafe = safeBlobKey(metadata.remoteBlobKey);
-  const localAvailability = metadata.localBlobKey ? (localSafe ? 'present' : 'unsafe') : 'unknown';
-  const remoteAvailability = metadata.remoteBlobKey || metadata.remoteFileId ? (remoteSafe ? 'present' : 'unsafe') : 'unknown';
-  const checksumStatus = metadata.remoteVerification?.checksumVerified === false ? 'mismatch'
-    : metadata.checksum || metadata.remoteChecksum ? 'known' : 'unknown';
+  const localMissingConfirmed = supplied.localMissingConfirmed === true || metadata.remoteSyncStatus === 'missing_local';
+  const localAvailability = metadata.localBlobKey ? (localSafe ? 'local_present' : 'unsafe')
+    : localMissingConfirmed ? 'local_missing_confirmed'
+      : supplied.localSourceProvided === false ? 'local_source_not_provided' : 'local_unknown';
+  const remoteAvailability = metadata.remoteBlobKey || metadata.remoteFileId ? (remoteSafe ? 'remote_present' : 'unsafe')
+    : supplied.remoteMissingConfirmed === true ? 'remote_missing_confirmed'
+      : supplied.remoteSourceProvided === false ? 'remote_source_not_provided' : 'remote_unknown';
+  const checksumStatus = metadata.remoteVerification?.checksumVerified === false ? 'checksum_mismatch'
+    : metadata.checksum || metadata.remoteChecksum ? 'checksum_known' : 'checksum_unknown';
+  const blobAvailability = metadata.localBlobKey || metadata.remoteBlobKey || metadata.remoteFileId ? 'blob_present'
+    : supplied.blobMissingConfirmed === true ? 'blob_missing_confirmed' : 'blob_unknown';
   return {
     ...metadata,
+    localMissingConfirmed: supplied.localMissingConfirmed ?? false,
+    remoteMissingConfirmed: supplied.remoteMissingConfirmed ?? false,
     localAvailability,
     remoteAvailability,
-    blobAvailability: localAvailability === 'present' || remoteAvailability === 'present' ? 'present' : 'unknown',
+    blobAvailability,
     checksumStatus,
   };
 }
@@ -164,13 +196,13 @@ export function buildAttachmentReferenceDataset(
     byId.set(id, current);
   }
   const records: RecoveryRecord[] = [...byId].sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => {
-    const local = value.inventory?.localAvailability ?? 'unknown';
-    const remote = value.inventory?.remoteAvailability ?? 'unknown';
-    const checksum = value.inventory?.checksumStatus ?? 'unknown';
+    const local = value.inventory?.localAvailability ?? 'local_source_not_provided';
+    const remote = value.inventory?.remoteAvailability ?? 'remote_source_not_provided';
+    const checksum = value.inventory?.checksumStatus ?? 'checksum_unknown';
     return {
       id, referencedBy: [...value.referencedBy].sort(), referenceOnly: value.inventory === null,
       localAvailability: local, remoteAvailability: remote,
-      blobAvailability: value.inventory?.blobAvailability ?? 'unknown',
+      blobAvailability: value.inventory?.blobAvailability ?? 'blob_unknown',
       checksumStatus: checksum, orphanCandidate: value.inventory === null && value.inventoryConfirmedAbsent,
     };
   });

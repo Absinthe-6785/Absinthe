@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import JSZip from 'jszip';
 import { createServer } from 'vite';
+import { validateZipBytes } from './recovery-zip-safety.mjs';
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 
@@ -47,11 +48,16 @@ async function readDirectory(root) {
 
 async function readPackage(packagePath) {
   if (packagePath.toLowerCase().endsWith('.zip')) {
-    const zip = await JSZip.loadAsync(await readFile(packagePath));
+    const bytes = await readFile(packagePath);
+    const validated = validateZipBytes(bytes);
+    const zip = await JSZip.loadAsync(bytes);
     const files = {};
-    for (const [name, entry] of Object.entries(zip.files)) {
-      if (entry.dir) continue;
-      const normalized = name.replace(/^absinthe-recovery-export\//, '');
+    for (const item of validated) {
+      if (item.directory) continue;
+      if (!item.path.startsWith('absinthe-recovery-export/')) throw new Error('zip_invalid_root');
+      const entry = zip.file(item.raw);
+      if (!entry) throw new Error('zip_entry_unavailable');
+      const normalized = item.path.replace(/^absinthe-recovery-export\//, '');
       files[normalized] = await entry.async('string');
     }
     return files;

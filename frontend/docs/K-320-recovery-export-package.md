@@ -51,6 +51,26 @@ Local adapters use read methods only. Attachment export reads metadata only and 
 copies blobs. Provenance accepts logical labels or filenames; paths, credentials, query strings,
 tokens, cookies, and authorization values are removed or rejected.
 
+### Supported and unsupported sources
+
+| Source type | Export support | Verification support | Notes |
+|---|---|---|---|
+| VaultBackupManifest JSON | Supported | Supported | Primary CLI export input |
+| Supplied JSON record arrays | Library adapter | Package verification | Only for explicitly mapped domains |
+| localStorage arrays/preferences/prefixes | Read-only library adapter | Package verification | No writes or cursor changes |
+| Supplied attachment metadata | Metadata only | Supported | No blob reads or downloads |
+| Recovery package directory | Not an export source | Supported | Fixed expected paths only |
+| Recovery package ZIP | Not an export source | Supported | Duplicate, unsafe, and colliding entries rejected |
+| Direct Supabase/database dump | Unsupported | Unsupported | No production connection in K-320 |
+| Browser profile or live IndexedDB crawl | Unsupported | Unsupported | No profile inspection in K-320 |
+| Production attachment blobs | Unsupported | Unsupported | Metadata references only |
+| Unsupported legacy backup variants | Unsupported | Unsupported | Must be converted by a separately reviewed adapter |
+| Restore/import/reconciliation/migration/outbox/sync | Unsupported | Unsupported | Outside preservation scope |
+
+The CLI export boundary is limited to the documented supplied VaultBackupManifest format. This
+package is a preservation artifact, not a restore package, migration package, or canonically
+reconciled dataset.
+
 ## Verification
 
 Verification independently parses expected files, hashes bytes, recomputes dataset and partition
