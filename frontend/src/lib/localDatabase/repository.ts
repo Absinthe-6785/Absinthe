@@ -4,7 +4,7 @@ import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_S
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION, LOCAL_SCHEMA_VERSION,
   type AttachmentStateRecord, type DatabaseMetaRecord, type EntityListOptions,
-  type EntityMutationInput, type EntityMutationTransactionInput, type GenerationReason,
+  type EntityCreateInput, type EntityMutationTransactionInput, type EntityUpdateInput, type GenerationReason,
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
   type RestoreSessionRecord, type SafeSourceReference, type SyncCheckpointRecord,
@@ -217,14 +217,35 @@ export class LocalDatabaseRepository {
     return { meta, generation };
   }
 
+  private validatePersistedEntity<T>(value: LocalEntityEnvelope<T>, operation: string): void {
+    try {
+      validateEntityEnvelope(value);
+      if (value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId) throw new Error('scope');
+    } catch {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+    }
+  }
+
+  private validatePersistedOutbox(value: OutboxRecord, operation: string): void {
+    try {
+      validateOutboxRecord(value);
+      if (value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId) throw new Error('scope');
+    } catch {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+    }
+  }
+
   async runEntityMutationTransaction<T>(input: EntityMutationTransactionInput<T>): Promise<LocalEntityEnvelope<T>> {
     this.assertOpen('entity_mutation');
     const { mutation } = input;
+    if (!['create', 'update', 'tombstone'].includes(mutation.mode)) {
+      throw new LocalDatabaseError('INVALID_ENTITY', 'entity_mutation');
+    }
     validateSafeIdentifier(mutation.domain, 'entity_mutation');
     if (typeof mutation.entityId !== 'string' || mutation.entityId.length === 0 || mutation.entityId.length > 512) {
       throw new LocalDatabaseError('INVALID_ENTITY', 'entity_mutation');
     }
-    validateSafeSource(mutation.source);
+    if (mutation.mode !== 'tombstone') validateSafeSource(mutation.source);
     const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities];
     if (input.outbox) stores.push(LOCAL_DATABASE_STORES.outbox);
     const transaction = this.db.transaction(stores, 'readwrite');
@@ -235,32 +256,45 @@ export class LocalDatabaseRepository {
       const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
       const key = entityKey(this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId);
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
+      if (current) this.validatePersistedEntity(current, 'entity_mutation');
       const actualRevision = current?.revision ?? 0;
-      if (mutation.expectedRevision !== undefined && mutation.expectedRevision !== actualRevision) {
-        throw new LocalDatabaseError('STALE_REVISION', 'entity_mutation');
+      if (mutation.mode === 'create') {
+        if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'entity_mutation');
+        if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'entity_mutation');
+      } else {
+        if (mutation.expectedRevision === undefined) throw new LocalDatabaseError('EXPECTED_REVISION_REQUIRED', 'entity_mutation');
+        if (!current) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'entity_mutation');
+        if (current.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'entity_mutation');
+        if (mutation.expectedRevision !== actualRevision) throw new LocalDatabaseError('STALE_REVISION', 'entity_mutation');
       }
-      const operation = mutation.operation ?? 'upsert';
-      if (operation === 'tombstone' && !current) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'entity_mutation');
-      if (operation === 'upsert' && current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'entity_mutation');
+      const isTombstone = mutation.mode === 'tombstone';
       const timestamp = now(mutation.timestamp);
       const envelope: LocalEntityEnvelope<T> = {
         namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
         domain: mutation.domain, entityId: mutation.entityId,
-        record: operation === 'tombstone' ? current!.record : mutation.record,
+        record: isTombstone ? current!.record : mutation.record,
         revision: actualRevision + 1, createdAt: current?.createdAt ?? timestamp, updatedAt: timestamp,
-        deletedAt: operation === 'tombstone' ? timestamp : null, isDeleted: operation === 'tombstone',
-        deletionState: operation === 'tombstone' ? 'deleted' : 'active',
-        ownerId: mutation.ownerId === undefined ? current?.ownerId ?? null : mutation.ownerId,
-        contentHash: mutation.contentHash === undefined ? current?.contentHash ?? null : mutation.contentHash,
-        source: mutation.source === undefined ? current?.source ?? null : mutation.source,
+        deletedAt: isTombstone ? timestamp : null, isDeleted: isTombstone,
+        deletionState: isTombstone ? 'deleted' : 'active',
+        ownerId: mutation.mode === 'tombstone' || mutation.ownerId === undefined ? current?.ownerId ?? null : mutation.ownerId,
+        contentHash: mutation.mode === 'tombstone' || mutation.contentHash === undefined ? current?.contentHash ?? null : mutation.contentHash,
+        source: mutation.mode === 'tombstone' || mutation.source === undefined ? current?.source ?? null : mutation.source,
       };
       validateEntityEnvelope(envelope);
       entityStore.put(envelope);
       if (input.testOnlyAbortAt === 'before_outbox') throw new LocalDatabaseError('INVALID_OUTBOX', 'entity_mutation');
       if (input.outbox) {
         const outbox: OutboxRecord = {
-          ...input.outbox, namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          domain: mutation.domain, entityId: mutation.entityId,
+          mutationId: input.outbox.mutationId, idempotencyKey: input.outbox.idempotencyKey,
+          operation: isTombstone ? 'tombstone' : 'upsert',
           baseRevision: actualRevision || null, localRevision: envelope.revision,
+          payloadMode: 'inline', payloadHash: null,
+          payload: isTombstone
+            ? { kind: 'tombstone', entityId: mutation.entityId, deletedAt: envelope.deletedAt!, revision: envelope.revision }
+            : { kind: 'entity_snapshot', record: envelope.record },
+          createdAt: input.outbox.createdAt, attemptCount: 0, status: 'pending', lastErrorCode: null,
         };
         validateOutboxRecord(outbox);
         transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
@@ -275,12 +309,16 @@ export class LocalDatabaseRepository {
     }
   }
 
-  putEntity<T>(mutation: EntityMutationInput<T>): Promise<LocalEntityEnvelope<T>> {
-    return this.runEntityMutationTransaction({ mutation: { ...mutation, operation: 'upsert' } });
+  createEntity<T>(mutation: Omit<EntityCreateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
+    return this.runEntityMutationTransaction({ mutation: { ...mutation, mode: 'create' } });
+  }
+
+  updateEntity<T>(mutation: Omit<EntityUpdateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
+    return this.runEntityMutationTransaction({ mutation: { ...mutation, mode: 'update' } });
   }
 
   async tombstoneEntity(domain: string, entityId: string, expectedRevision: number, timestamp?: string): Promise<LocalEntityEnvelope> {
-    return this.runEntityMutationTransaction({ mutation: { domain, entityId, record: null, operation: 'tombstone', expectedRevision, timestamp } });
+    return this.runEntityMutationTransaction({ mutation: { domain, entityId, record: null, mode: 'tombstone', expectedRevision, timestamp } });
   }
 
   async getEntity<T>(domain: string, entityId: string): Promise<LocalEntityEnvelope<T> | null> {
@@ -289,7 +327,9 @@ export class LocalDatabaseRepository {
     const done = transactionCompletion(transaction, 'get_entity');
     const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.entities)
       .get(entityKey(this.namespaceKey, this.namespace.generationId, domain, entityId))) as LocalEntityEnvelope<T> | undefined;
-    await done; return value ?? null;
+    await done;
+    if (value) this.validatePersistedEntity(value, 'get_entity');
+    return value ?? null;
   }
 
   async listEntities<T>(options: EntityListOptions): Promise<LocalEntityEnvelope<T>[]> {
@@ -299,6 +339,7 @@ export class LocalDatabaseRepository {
     const index = transaction.objectStore(LOCAL_DATABASE_STORES.entities).index('by_namespace_generation_domain');
     const values = await requestResult(index.getAll(IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, options.domain]))) as LocalEntityEnvelope<T>[];
     await done;
+    values.forEach(value => this.validatePersistedEntity(value, 'list_entities'));
     return values.filter(value => options.includeDeleted || !value.isDeleted)
       .sort((a, b) => a.entityId.localeCompare(b.entityId));
   }
@@ -309,7 +350,9 @@ export class LocalDatabaseRepository {
     const done = transactionCompletion(transaction, 'list_entities_by_owner');
     const index = transaction.objectStore(LOCAL_DATABASE_STORES.entities).index('by_namespace_generation_owner');
     const values = await requestResult(index.getAll(IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, ownerId]))) as LocalEntityEnvelope<T>[];
-    await done; return values.sort((a, b) => `${a.domain}\0${a.entityId}`.localeCompare(`${b.domain}\0${b.entityId}`));
+    await done;
+    values.forEach(value => this.validatePersistedEntity(value, 'list_entities_by_owner'));
+    return values.sort((a, b) => `${a.domain}\0${a.entityId}`.localeCompare(`${b.domain}\0${b.entityId}`));
   }
 
   async getOutboxRecord(mutationId: string): Promise<OutboxRecord | null> {
@@ -318,7 +361,9 @@ export class LocalDatabaseRepository {
     const done = transactionCompletion(transaction, 'get_outbox');
     const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
       .get([this.namespaceKey, this.namespace.generationId, mutationId])) as OutboxRecord | undefined;
-    await done; return value ?? null;
+    await done;
+    if (value) this.validatePersistedOutbox(value, 'get_outbox');
+    return value ?? null;
   }
 
   private async putGenerationReserved<T>(storeName: string, value: T, validate: (record: T) => void): Promise<void> {
@@ -336,22 +381,53 @@ export class LocalDatabaseRepository {
   putSyncCheckpoint(value: SyncCheckpointRecord): Promise<void> { return this.putGenerationReserved(LOCAL_DATABASE_STORES.syncCheckpoints, value, validateCheckpoint); }
   putAttachmentState(value: AttachmentStateRecord): Promise<void> { return this.putGenerationReserved(LOCAL_DATABASE_STORES.attachmentState, value, validateAttachmentState); }
 
-  async putRestoreSession(value: RestoreSessionRecord): Promise<void> {
-    this.assertOpen('put_restore_session'); validateRestoreSession(value);
-    if (value.namespaceKey !== this.namespaceKey) throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'put_restore_session');
-    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.restoreSessions, 'readwrite');
-    const done = transactionCompletion(transaction, 'put_restore_session');
-    try { transaction.objectStore(LOCAL_DATABASE_STORES.restoreSessions).put(value); await done; }
-    catch (error) { abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'put_restore_session'); }
+  private async putStagedMetadata<T extends {
+    namespaceKey: string; expectedActiveGenerationId: string; sourceGenerationId: string; targetGenerationId: string;
+  }>(storeName: string, value: T, validate: (record: T) => void, operation: string): Promise<void> {
+    this.assertOpen(operation); validate(value);
+    if (value.namespaceKey !== this.namespaceKey) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, storeName], 'readwrite',
+    );
+    const done = transactionCompletion(transaction, operation);
+    try {
+      const metaStore = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
+      const generations = transaction.objectStore(LOCAL_DATABASE_STORES.generations);
+      const meta = await requestResult(metaStore.get(this.namespaceKey)) as DatabaseMetaRecord | undefined;
+      if (!meta) throw new LocalDatabaseError('MALFORMED_METADATA', operation);
+      validateDatabaseMeta(meta, this.namespaceKey, this.namespace.schemaVersion);
+      if (meta.activeGenerationId !== this.namespace.generationId
+        || value.expectedActiveGenerationId !== meta.activeGenerationId
+        || value.sourceGenerationId !== meta.activeGenerationId) {
+        throw new LocalDatabaseError('STALE_GENERATION', operation);
+      }
+      if (value.targetGenerationId === value.sourceGenerationId) {
+        throw new LocalDatabaseError('INVALID_GENERATION_TRANSITION', operation);
+      }
+      const source = await requestResult(generations.get(generationKey(this.namespaceKey, value.sourceGenerationId))) as GenerationRecord | undefined;
+      const target = await requestResult(generations.get(generationKey(this.namespaceKey, value.targetGenerationId))) as GenerationRecord | undefined;
+      if (!source || !target) throw new LocalDatabaseError('GENERATION_NOT_FOUND', operation);
+      validateGenerationRecord(source, this.namespaceKey, this.namespace.schemaVersion);
+      validateGenerationRecord(target, this.namespaceKey, this.namespace.schemaVersion);
+      if (source.status !== 'active' || target.status !== 'preparing' || target.schemaVersion !== this.namespace.schemaVersion) {
+        throw new LocalDatabaseError('INVALID_GENERATION_TRANSITION', operation);
+      }
+      transaction.objectStore(storeName).put(value);
+      await done;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
   }
 
-  async putMigrationState(value: MigrationStateRecord): Promise<void> {
-    this.assertOpen('put_migration_state'); validateMigrationState(value);
-    if (value.namespaceKey !== this.namespaceKey) throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'put_migration_state');
-    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
-    const done = transactionCompletion(transaction, 'put_migration_state');
-    try { transaction.objectStore(LOCAL_DATABASE_STORES.migrationState).put(value); await done; }
-    catch (error) { abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'put_migration_state'); }
+  putRestoreSession(value: RestoreSessionRecord): Promise<void> {
+    return this.putStagedMetadata(LOCAL_DATABASE_STORES.restoreSessions, value, validateRestoreSession, 'put_restore_session');
+  }
+
+  putMigrationState(value: MigrationStateRecord): Promise<void> {
+    if (value.targetSchemaVersion !== this.namespace.schemaVersion) {
+      return Promise.reject(new LocalDatabaseError('INVALID_RESERVED_RECORD', 'put_migration_state'));
+    }
+    return this.putStagedMetadata(LOCAL_DATABASE_STORES.migrationState, value, validateMigrationState, 'put_migration_state');
   }
 }
 

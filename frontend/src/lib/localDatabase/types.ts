@@ -62,7 +62,7 @@ export interface LocalEntityEnvelope<T = unknown> {
   source: SafeSourceReference | null;
 }
 
-export type OutboxOperation = 'upsert' | 'tombstone' | 'purge_request';
+export type OutboxOperation = 'upsert' | 'tombstone';
 export type OutboxStatus = 'pending' | 'processing' | 'retry' | 'completed' | 'failed';
 
 export interface OutboxRecord {
@@ -74,7 +74,11 @@ export interface OutboxRecord {
   operation: OutboxOperation;
   baseRevision: number | null;
   localRevision: number;
-  payload: unknown | null;
+  payloadMode: 'inline';
+  payload: Readonly<
+    | { kind: 'entity_snapshot'; record: unknown }
+    | { kind: 'tombstone'; entityId: string; deletedAt: string; revision: number }
+  >;
   payloadHash: string | null;
   createdAt: string;
   attemptCount: number;
@@ -96,7 +100,8 @@ export interface SyncCheckpointRecord {
 export interface RestoreSessionRecord {
   namespaceKey: string;
   sessionId: string;
-  sourceGenerationId: string | null;
+  expectedActiveGenerationId: string;
+  sourceGenerationId: string;
   targetGenerationId: string;
   status: 'preparing' | 'validating' | 'ready' | 'committed' | 'failed' | 'abandoned';
   packageFingerprint: string;
@@ -113,7 +118,8 @@ export interface MigrationStateRecord {
   sourceSchemaVersion: number;
   targetDatabase: string;
   targetSchemaVersion: number;
-  sourceGenerationId: string | null;
+  sourceGenerationId: string;
+  expectedActiveGenerationId: string;
   targetGenerationId: string;
   phase: string;
   lastDurableStep: string;
@@ -138,16 +144,35 @@ export interface AttachmentStateRecord {
   updatedAt: string;
 }
 
-export interface EntityMutationInput<T = unknown> {
+interface EntityMutationCommon<T = unknown> {
   domain: string;
   entityId: string;
   record: T;
-  expectedRevision?: number;
   ownerId?: string | null;
   contentHash?: string | null;
   source?: SafeSourceReference | null;
   timestamp?: string;
 }
+
+export interface EntityCreateInput<T = unknown> extends EntityMutationCommon<T> {
+  mode: 'create';
+}
+
+export interface EntityUpdateInput<T = unknown> extends EntityMutationCommon<T> {
+  mode: 'update';
+  expectedRevision: number;
+}
+
+export interface EntityTombstoneInput {
+  mode: 'tombstone';
+  domain: string;
+  entityId: string;
+  record: null;
+  expectedRevision: number;
+  timestamp?: string;
+}
+
+export type EntityMutationInput<T = unknown> = EntityCreateInput<T> | EntityUpdateInput<T> | EntityTombstoneInput;
 
 export interface EntityListOptions {
   domain: string;
@@ -155,7 +180,11 @@ export interface EntityListOptions {
 }
 
 export interface EntityMutationTransactionInput<T = unknown> {
-  mutation: EntityMutationInput<T> & { operation?: 'upsert' | 'tombstone' };
-  outbox?: Omit<OutboxRecord, 'namespaceKey' | 'generationId' | 'localRevision' | 'baseRevision'>;
+  mutation: EntityMutationInput<T>;
+  outbox?: Readonly<{
+    mutationId: string;
+    idempotencyKey: string;
+    createdAt: string;
+  }>;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';
 }

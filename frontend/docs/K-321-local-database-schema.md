@@ -54,23 +54,33 @@ transaction across metadata and generations: it verifies the caller's expected a
 seals the predecessor, activates the target, and updates the metadata pointer. Failed activation
 aborts all changes. Every entity or generation-scoped reserved-store write reads metadata and the
 generation record inside its write transaction. Stale, sealed, abandoned, or failed generations
-cannot write.
+cannot write. Restore-session and migration-state metadata use the same transactional fence: their
+declared expected/source generation must still be the active generation, and their distinct target
+generation must already exist in `preparing` state with the current schema version. These records
+only reserve staged work; they do not execute restore or migration.
 
 ## Entity, revision, and tombstone rules
 
 Payload is stored unchanged in `record`; namespace, identity, owner, revision, timestamps, deletion,
-hash, and safe source data live in the envelope. Initial revision is `1`. Updates and tombstones
-increment revision inside the transaction. `expectedRevision` provides compare-and-set semantics;
-timestamps never choose a winner. Tombstones remain records with `deletedAt` and `deletionState` and
-ordinary upsert cannot resurrect them. Physical purge, `clear()`, full-array replacement, and
-unscoped reads are absent.
+hash, and safe source data live in the envelope. `createEntity` succeeds only when no entity or
+tombstone exists and deterministically creates revision `1`. `updateEntity` and `tombstoneEntity`
+require an exact `expectedRevision`; omission, stale values, and concurrent losers fail closed.
+Timestamps never choose a winner. Tombstones remain records with `deletedAt` and `deletionState`,
+and ordinary creation or update cannot resurrect them. Every persisted entity envelope is validated
+on point reads, list reads, and before mutation reuse; one malformed row fails the whole read with a
+privacy-safe corruption code. Physical purge, `clear()`, full-array replacement, and unscoped reads
+are absent.
 
 ## Transaction guarantees
 
 `runEntityMutationTransaction` can commit one entity mutation and one reserved outbox record in the
 same IndexedDB transaction. Namespace/generation, revision, entity, and outbox validation occur
 inside that flow. Its promise resolves only from `transaction.oncomplete`; abort or request failure
-rejects with a machine-readable code and neither store retains a partial write. K-321 does not run,
+rejects with a machine-readable code and neither store retains a partial write. Callers provide only
+the mutation ID, idempotency key, and creation time for an outbox reservation. The repository derives
+the namespace, entity identity, operation, base/local revisions, and a validated inline snapshot or
+tombstone payload from the committed entity mutation, so mismatched queue metadata cannot be
+submitted. Persisted outbox envelopes are validated before being returned. K-321 does not run,
 upload, retry, or acknowledge outbox entries.
 
 ## Recovery and unsupported behavior

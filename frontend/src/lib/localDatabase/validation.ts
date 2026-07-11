@@ -68,12 +68,20 @@ export function validateOutboxRecord(value: OutboxRecord): void {
       throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
     }
   }
-  if (!['upsert', 'tombstone', 'purge_request'].includes(value.operation)
+  const payload = value.payload as { kind?: unknown; record?: unknown; entityId?: unknown; deletedAt?: unknown; revision?: unknown } | null;
+  const payloadValid = value.payloadMode === 'inline' && value.payloadHash === null && payload !== null && (
+    payload.kind === 'entity_snapshot'
+    || payload.kind === 'tombstone' && payload.entityId === value.entityId
+      && validTimestamp(payload.deletedAt) && payload.revision === value.localRevision
+  );
+  if (!['upsert', 'tombstone'].includes(value.operation)
     || !['pending', 'processing', 'retry', 'completed', 'failed'].includes(value.status)
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
     || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0
-    || !validTimestamp(value.createdAt)) {
+    || !validTimestamp(value.createdAt) || !payloadValid
+    || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')
+    || (value.operation === 'tombstone') !== (payload.kind === 'tombstone')) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }
 }
@@ -88,6 +96,8 @@ export function validateCheckpoint(value: SyncCheckpointRecord): void {
 export function validateRestoreSession(value: RestoreSessionRecord): void {
   validateSafeIdentifier(value.sessionId, 'validate_restore_session');
   validateSafeIdentifier(value.targetGenerationId, 'validate_restore_session');
+  validateSafeIdentifier(value.expectedActiveGenerationId, 'validate_restore_session');
+  validateSafeIdentifier(value.sourceGenerationId, 'validate_restore_session');
   if (!/^[a-f0-9]{64}$/i.test(value.packageFingerprint)
     || !['preparing', 'validating', 'ready', 'committed', 'failed', 'abandoned'].includes(value.status)
     || !['pending', 'valid', 'invalid'].includes(value.validationResult)
@@ -100,10 +110,15 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
 export function validateMigrationState(value: MigrationStateRecord): void {
   validateSafeIdentifier(value.migrationId, 'validate_migration');
   validateSafeIdentifier(value.phase, 'validate_migration');
-  for (const item of [value.sourceDatabase, value.targetDatabase, value.targetGenerationId, value.lastDurableStep]) {
+  for (const item of [value.sourceDatabase, value.targetDatabase, value.targetGenerationId, value.expectedActiveGenerationId, value.lastDurableStep]) {
     validateSafeIdentifier(item, 'validate_migration');
   }
-  if (!Object.values(value.counts).every(count => Number.isSafeInteger(count) && count >= 0)
+  validateSafeIdentifier(value.sourceGenerationId, 'validate_migration');
+  if (!Number.isSafeInteger(value.sourceSchemaVersion) || value.sourceSchemaVersion < 1
+    || !Number.isSafeInteger(value.targetSchemaVersion) || value.targetSchemaVersion < 1
+    || !['pending', 'valid', 'invalid'].includes(value.verificationState)
+    || typeof value.rollbackEligibility !== 'boolean'
+    || !Object.values(value.counts).every(count => Number.isSafeInteger(count) && count >= 0)
     || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt)) {
     throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_migration');
   }
