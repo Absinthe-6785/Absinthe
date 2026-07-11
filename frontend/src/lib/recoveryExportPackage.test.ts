@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validateZipEntryNames } from '../../scripts/recovery-zip-safety.mjs';
+import { validateZipBytes, validateZipEntryNames } from '../../scripts/recovery-zip-safety.mjs';
 import JSZip from 'jszip';
 import { describe, expect, it, vi } from 'vitest';
 import type { VaultBackupManifest } from './exportVaultBackup';
@@ -371,7 +371,7 @@ describe('K-320B semantic closure', () => {
       },
     });
     expect(JSON.parse(missing.files['metadata/conflicts.json']).diagnostics.map((item: { code: string }) => item.code))
-      .toContain('missing_attachment_reference_target');
+      .toContain('attachment_reference_missing_active_note');
 
     const unresolved = await buildRecoveryExportPackage({
       exportedAt,
@@ -381,7 +381,7 @@ describe('K-320B semantic closure', () => {
       },
     });
     const unresolvedResult = await verifyRecoveryExportPackage(unresolved);
-    expect(unresolvedResult.conflictDiagnostics.map(item => item.code)).not.toContain('missing_attachment_reference_target');
+    expect(unresolvedResult.conflictDiagnostics.map(item => item.code)).not.toContain('attachment_reference_missing_active_note');
     expect(unresolvedResult.warnings.map(item => item.code)).toContain('attachment_reference_unresolved_due_to_unavailable_notes');
   });
 
@@ -469,5 +469,152 @@ describe('K-320B semantic closure', () => {
     [['folder', 'folder/file.json'], 'zip_directory_file_collision'],
   ])('rejects unsafe ZIP names before assignment: %j', (names, code) => {
     expect(() => validateZipEntryNames(names)).toThrow(code);
+  });
+});
+
+function zipOffsets(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eocd = -1;
+  for (let offset = bytes.length - 22; offset >= 0; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
+  }
+  const central = view.getUint32(eocd + 16, true);
+  const local = view.getUint32(central + 42, true);
+  return { view, eocd, central, local };
+}
+
+async function ordinaryZip(): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file('absinthe-recovery-export/manifest.json', '{}');
+  return zip.generateAsync({ type: 'uint8array', compression: 'STORE' });
+}
+
+describe('K-320C final semantic corrections', () => {
+  it('accepts only structurally valid, active, unambiguous Note attachment targets', async () => {
+    const cases = [
+      { notes: [note('n1')], expected: [] },
+      { notes: [note('n1', { deleted_at: exportedAt })], expected: ['attachment_reference_targets_tombstone'] },
+      { notes: [{ id: 'n1', deleted_at: null }], expected: ['attachment_reference_targets_malformed_note'] },
+      { notes: [note('n1'), note('n1')], expected: ['attachment_reference_targets_ambiguous_note'] },
+    ];
+    for (const item of cases) {
+      const pkg = await buildRecoveryExportPackage({ exportedAt, datasets: {
+        notes: { availability: 'present_records', records: item.notes },
+        attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: ['n1'] }] },
+      } });
+      const codes = JSON.parse(pkg.files['metadata/conflicts.json']).diagnostics.map((value: { code: string }) => value.code);
+      for (const expected of item.expected) expect(codes).toContain(expected);
+      if (item.expected.length === 0) expect(codes).toEqual([]);
+    }
+  });
+
+  it('keeps mixed attachment target diagnostics deterministic and unavailable Notes unresolved', async () => {
+    const build = (references: string[]) => buildRecoveryExportPackage({ exportedAt, datasets: {
+      notes: { availability: 'present_records', records: [note('valid'), note('dead', { deleted_at: exportedAt }), { id: 'bad', deleted_at: null }] },
+      attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: references }] },
+    } });
+    const first = await build(['missing', 'dead', 'valid', 'bad']);
+    const second = await build(['bad', 'valid', 'dead', 'missing']);
+    expect(first.files['metadata/conflicts.json']).toBe(second.files['metadata/conflicts.json']);
+    const unavailable = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      notes: { availability: 'permission_denied' },
+      attachmentReferences: { availability: 'present_records', records: [{ id: 'a1', referencedBy: ['n1'] }] },
+    } });
+    expect((await verifyRecoveryExportPackage(unavailable)).warnings.map(item => item.code))
+      .toContain('attachment_reference_unresolved_due_to_unavailable_notes');
+  });
+
+  it('uses external Inbody storage keys and a ProteinProfile singleton identity without mutating payloads', async () => {
+    const inbody = { weight: 70, smm: 31, pbf: 18 };
+    const profile = { daily_target_g: 120, weight: 70, goal: 'maintain', activity: 'moderate' };
+    const before = JSON.stringify({ inbody, profile });
+    const pkg = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      inbodyLogs: { availability: 'present_records', records: [inbody], recordSources: [{ ...source, sourceId: '2026-07-11' }] },
+      proteinProfiles: { availability: 'present_records', records: [profile], source },
+    } });
+    expect(pkg.manifest.completeness).not.toBe('invalid');
+    expect(pkg.files['metadata/conflicts.json']).not.toContain('missing_or_invalid_id');
+    expect(JSON.stringify({ inbody, profile })).toBe(before);
+
+    const missingKey = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      inbodyLogs: { availability: 'present_records', records: [inbody], source },
+    } });
+    expect(missingKey.files['metadata/conflicts.json']).toContain('missing_external_identity');
+  });
+
+  it('detects duplicate/cross-source external identities and owner conflicts', async () => {
+    const inbody = { weight: 70, smm: 31, pbf: 18 };
+    const duplicate = await buildRecoveryExportPackage({ exportedAt, datasets: {
+      inbodyLogs: { availability: 'present_records', records: [inbody, inbody], recordSources: [
+        { ...source, sourceId: '2026-07-11' }, { ...source, sourceId: '2026-07-11' },
+      ] },
+      proteinProfiles: { availability: 'present_records', records: [
+        { daily_target_g: 120, user_id: 'owner-a' }, { daily_target_g: 130, user_id: 'owner-b' },
+      ], recordSources: [source, { ...source, label: 'other.json' }] },
+    } });
+    const codes = JSON.parse(duplicate.files['metadata/conflicts.json']).diagnostics.map((value: { code: string }) => value.code);
+    expect(codes).toEqual(expect.arrayContaining(['duplicate_id_within_source', 'cross_source_record_conflict', 'conflicting_owner_ids']));
+  });
+
+  it('rejects local/central filename disagreement, unsafe local names, and malformed local headers', async () => {
+    const mismatch = await ordinaryZip();
+    const mismatchOffsets = zipOffsets(mismatch);
+    mismatch[mismatchOffsets.local + 30] ^= 1;
+    expect(() => validateZipBytes(mismatch)).toThrow('zip_local_central_name_mismatch');
+
+    const unsafe = await ordinaryZip();
+    const unsafeOffsets = zipOffsets(unsafe);
+    unsafe.set(new TextEncoder().encode('../'), unsafeOffsets.local + 30);
+    expect(() => validateZipBytes(unsafe)).toThrow('zip_local_header_unsafe_path');
+
+    const invalidOffset = await ordinaryZip();
+    const invalidOffsets = zipOffsets(invalidOffset);
+    invalidOffsets.view.setUint32(invalidOffsets.central + 42, invalidOffsets.central, true);
+    expect(() => validateZipBytes(invalidOffset)).toThrow('zip_local_header_offset_invalid');
+
+    const signature = await ordinaryZip();
+    const signatureOffsets = zipOffsets(signature);
+    signatureOffsets.view.setUint32(signatureOffsets.local, 0, true);
+    expect(() => validateZipBytes(signature)).toThrow('zip_local_header_invalid');
+
+    const truncated = await ordinaryZip();
+    const truncatedOffsets = zipOffsets(truncated);
+    truncatedOffsets.view.setUint16(truncatedOffsets.local + 26, 0xffff, true);
+    expect(() => validateZipBytes(truncated)).toThrow('zip_local_header_truncated');
+  });
+
+  it('rejects ZIP64 sentinels, extra fields, and locator signatures with one safe code', async () => {
+    for (const mutate of [
+      (bytes: Uint8Array) => { const { view, eocd } = zipOffsets(bytes); view.setUint16(eocd + 10, 0xffff, true); },
+      (bytes: Uint8Array) => { const { view, eocd } = zipOffsets(bytes); view.setUint32(eocd + 12, 0xffffffff, true); },
+      (bytes: Uint8Array) => { const { view, central } = zipOffsets(bytes); view.setUint32(central + 42, 0xffffffff, true); },
+    ]) {
+      const bytes = await ordinaryZip(); mutate(bytes);
+      expect(() => validateZipBytes(bytes)).toThrow('zip64_unsupported');
+    }
+
+    const base = await ordinaryZip();
+    const { eocd } = zipOffsets(base);
+    const locator = new Uint8Array(base.length + 20);
+    locator.set(base.subarray(0, eocd), 0);
+    new DataView(locator.buffer).setUint32(eocd, 0x07064b50, true);
+    locator.set(base.subarray(eocd), eocd + 20);
+    expect(() => validateZipBytes(locator)).toThrow('zip64_unsupported');
+
+    const extraBase = await ordinaryZip();
+    const extraOffsets = zipOffsets(extraBase);
+    const nameLength = extraOffsets.view.getUint16(extraOffsets.central + 28, true);
+    const insertion = extraOffsets.central + 46 + nameLength;
+    const extra = new Uint8Array(extraBase.length + 4);
+    extra.set(extraBase.subarray(0, insertion), 0);
+    extra.set([1, 0, 0, 0], insertion);
+    extra.set(extraBase.subarray(insertion), insertion + 4);
+    const extraView = new DataView(extra.buffer);
+    extraView.setUint16(extraOffsets.central + 30, 4, true);
+    const shiftedEocd = extraOffsets.eocd + 4;
+    extraView.setUint32(shiftedEocd + 12, extraOffsets.view.getUint32(extraOffsets.eocd + 12, true) + 4, true);
+    expect(() => validateZipBytes(extra)).toThrow('zip64_unsupported');
+
+    expect(validateZipBytes(await ordinaryZip()).length).toBeGreaterThan(0);
   });
 });

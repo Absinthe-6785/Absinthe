@@ -308,7 +308,6 @@ function diagSort(items: RecoveryDiagnostic[]): RecoveryDiagnostic[] {
 }
 
 function minimumRecordIssue(key: RecoveryDatasetKey, record: RecoveryRecord): string | null {
-  if (!safeId(record.id)) return null;
   if ('user_id' in record && typeof record.user_id !== 'string') return 'user_id';
   for (const field of ['deleted_at', 'deletedAt']) if (field in record) {
     const value = record[field];
@@ -335,6 +334,23 @@ function minimumRecordIssue(key: RecoveryDatasetKey, record: RecoveryRecord): st
   }
 }
 
+function externalSourceId(sourceRefValue: string): string | undefined {
+  const parts = sourceRefValue.split(':');
+  const value = parts.slice(2).join(':');
+  return value && value !== 'default' && safeId(value) ? value : undefined;
+}
+
+function recordIdentity(key: RecoveryDatasetKey, record: RecoveryRecord, sourceRefValue: string): string | undefined {
+  const id = safeId(record.id);
+  if (id) return id;
+  if (key === 'inbodyLogs') {
+    const sourceId = externalSourceId(sourceRefValue);
+    return sourceId ? `inbody:${sourceId}` : undefined;
+  }
+  if (key === 'proteinProfiles') return 'protein-profile:singleton';
+  return undefined;
+}
+
 function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>): RecoveryDiagnostic[] {
   const out: RecoveryDiagnostic[] = [];
   const idsByKey = new Map<RecoveryDatasetKey, Set<string>>();
@@ -346,8 +362,8 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
     const owners = new Set<string>();
     const sourceRefs = [...(dataset.activeSourceRefs ?? []), ...(dataset.tombstoneSourceRefs ?? [])];
     for (const [index, record] of all.entries()) {
-      const id = safeId(record.id);
-      if (!id) out.push({ code: 'missing_or_invalid_id', domain: key, path: key, fieldPath: 'id' });
+      const id = recordIdentity(key, record, sourceRefs[index] ?? 'source:unspecified');
+      if (!id) out.push({ code: key === 'inbodyLogs' ? 'missing_external_identity' : 'missing_or_invalid_id', domain: key, path: key, fieldPath: key === 'inbodyLogs' ? 'recordSource.sourceId' : 'id' });
       else {
         ids.add(id);
         const values = occurrences.get(id) ?? [];
@@ -355,7 +371,10 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
         occurrences.set(id, values);
       }
       const malformed = minimumRecordIssue(key, record);
-      if (malformed) out.push({ code: malformed === 'unsupported_schema_detail' ? malformed : 'malformed_record', domain: key, path: key, recordId: id, fieldPath: malformed });
+      if (malformed) out.push({
+        code: malformed === 'unsupported_schema_detail' ? malformed : 'malformed_record',
+        domain: key, path: key, ...(id ? { recordId: id } : {}), fieldPath: malformed,
+      });
       if (typeof record.user_id === 'string' && record.user_id) owners.add(record.user_id);
       for (const [field, value] of Object.entries(record)) {
         if ((field.endsWith('_at') || field.endsWith('At')) && value != null
@@ -372,9 +391,9 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
         out.push({ code: content.size === 1 ? 'cross_source_duplicate_id' : 'cross_source_record_conflict', domain: key, path: key, recordId: id, count: sources.size });
       }
     }
-    const activeIds = new Set(dataset.active.map(record => safeId(record.id)).filter(Boolean) as string[]);
-    for (const record of dataset.tombstones) {
-      const id = safeId(record.id);
+    const activeIds = new Set(dataset.active.map((record, index) => recordIdentity(key, record, dataset.activeSourceRefs?.[index] ?? 'source:unspecified')).filter(Boolean) as string[]);
+    for (const [index, record] of dataset.tombstones.entries()) {
+      const id = recordIdentity(key, record, dataset.tombstoneSourceRefs?.[index] ?? 'source:unspecified');
       if (id && activeIds.has(id)) out.push({ code: 'active_tombstone_collision', domain: key, path: key, recordId: id });
     }
     if (owners.size > 1) out.push({ code: 'conflicting_owner_ids', domain: key, path: key, count: owners.size });
@@ -415,6 +434,28 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
   }
   const inventory = idsByKey.get('attachmentInventory') ?? new Set<string>();
   const noteIds = idsByKey.get('notes') ?? new Set<string>();
+  const activeNoteIds = new Set<string>();
+  const malformedActiveNoteIds = new Set<string>();
+  const tombstoneNoteIds = new Set<string>();
+  const ambiguousNoteIds = new Set<string>();
+  if (notes?.active && notes.tombstones) {
+    const occurrences = new Map<string, number>();
+    for (const note of [...notes.active, ...notes.tombstones]) {
+      const id = safeId(note.id);
+      if (id) occurrences.set(id, (occurrences.get(id) ?? 0) + 1);
+    }
+    for (const [id, count] of occurrences) if (count > 1) ambiguousNoteIds.add(id);
+    for (const note of notes.active) {
+      const id = safeId(note.id);
+      if (!id) continue;
+      if (minimumRecordIssue('notes', note)) malformedActiveNoteIds.add(id);
+      else if (!ambiguousNoteIds.has(id)) activeNoteIds.add(id);
+    }
+    for (const note of notes.tombstones) {
+      const id = safeId(note.id);
+      if (id && !activeNoteIds.has(id)) tombstoneNoteIds.add(id);
+    }
+  }
   const inventoryData = datasets.get('attachmentInventory');
   if (inventoryData?.active) for (const record of inventoryData.active) {
     if (record.localAvailability === 'unsafe' || record.remoteAvailability === 'unsafe') {
@@ -444,8 +485,13 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
         const values = record.referencedBy.filter(item => typeof item === 'string') as string[];
         if (new Set(values).size !== values.length) out.push({ code: 'duplicate_attachment_reference', domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id });
         const notesAvailable = notes?.availability === 'present_empty' || notes?.availability === 'present_records' || notes?.availability === 'absent_confirmed';
-        if (notesAvailable) for (const target of values) if (!noteIds.has(target)) {
-          out.push({ code: 'missing_attachment_reference_target', domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id, fieldPath: 'referencedBy' });
+        if (notesAvailable) for (const target of [...new Set(values)].sort()) {
+          let code: string | null = null;
+          if (ambiguousNoteIds.has(target)) code = 'attachment_reference_targets_ambiguous_note';
+          else if (malformedActiveNoteIds.has(target)) code = 'attachment_reference_targets_malformed_note';
+          else if (tombstoneNoteIds.has(target)) code = 'attachment_reference_targets_tombstone';
+          else if (!activeNoteIds.has(target)) code = 'attachment_reference_missing_active_note';
+          if (code) out.push({ code, domain: 'attachmentReferences', path: 'attachments/references.json', recordId: id, fieldPath: 'referencedBy' });
         }
       }
       if (id && !inventory.has(id) && record.orphanCandidate === true) {

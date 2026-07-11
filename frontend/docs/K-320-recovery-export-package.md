@@ -60,7 +60,9 @@ tokens, cookies, and authorization values are removed or rejected.
 | localStorage arrays/preferences/prefixes | Read-only library adapter | Package verification | No writes or cursor changes |
 | Supplied attachment metadata | Metadata only | Supported | No blob reads or downloads |
 | Recovery package directory | Not an export source | Supported | Fixed expected paths only |
-| Recovery package ZIP | Not an export source | Supported | Duplicate, unsafe, and colliding entries rejected |
+| Standard non-ZIP64 recovery package ZIP | Not an export source | Supported | Central/local names must agree; duplicate, unsafe, and colliding entries are rejected before assignment |
+| ZIP64 | Unsupported | Unsupported | Rejected explicitly with `zip64_unsupported` |
+| Encrypted or multi-disk ZIP | Unsupported | Unsupported | Rejected explicitly; K-320 never decrypts or combines archive volumes |
 | Direct Supabase/database dump | Unsupported | Unsupported | No production connection in K-320 |
 | Browser profile or live IndexedDB crawl | Unsupported | Unsupported | No profile inspection in K-320 |
 | Production attachment blobs | Unsupported | Unsupported | Metadata references only |
@@ -70,6 +72,11 @@ tokens, cookies, and authorization values are removed or rejected.
 The CLI export boundary is limited to the documented supplied VaultBackupManifest format. This
 package is a preservation artifact, not a restore package, migration package, or canonically
 reconciled dataset.
+
+Unsupported ZIP and legacy archive variants fail closed. They are not partially parsed, assigned,
+or imported. InBody records without an intrinsic `id` require a sanitized adapter-supplied storage
+key in per-record provenance (`sourceId`); ProteinProfile is verified with a domain singleton
+identity. These external identities remain separate from the preserved source payload.
 
 ## Verification
 
