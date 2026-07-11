@@ -28,6 +28,14 @@ import {
   readNotesIndexedDbRevision,
   saveNotesToIndexedDb,
 } from '@/lib/noteIndexedDb';
+import {
+  assertCurrentOperationEpoch,
+  captureOperationEpoch,
+  isOperationEpochCurrent,
+  mayDeleteLegacyStorage,
+  mayReplacePersistedNotes,
+  recordRecoveryBlock,
+} from '@/lib/recoverySafetyPolicy';
 
 export type NotesPersistenceMode = 'indexeddb' | 'localStorage';
 
@@ -46,6 +54,14 @@ let lastIndexedDbRevision = readNotesIndexedDbRevision();
 let persistenceHydrated = false;
 
 export const NOTES_DURABILITY_BACKUP_PREFIX = 'absinthe.notes.backup.';
+
+function removeLegacyNotesKeyIfAllowed(): void {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return;
+  }
+  try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+}
 
 function backupNotesBeforeDurabilityWrite(
   reason: string,
@@ -84,6 +100,10 @@ async function resolveEmptyVaultNotes(): Promise<NoteBase[]> {
 }
 
 function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
+  if (!mayReplacePersistedNotes(notesCache, notes)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return false;
+  }
   try {
     localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
     return true;
@@ -136,11 +156,11 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
       if (!ok) throw new Error('IndexedDB migration merge failed');
       markNotesOnboardingComplete();
       markIndexedDbMigrationComplete();
-      try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+      removeLegacyNotesKeyIfAllowed();
       return { migrated: true, count: merged.length };
     }
     markIndexedDbMigrationComplete();
-    try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+    removeLegacyNotesKeyIfAllowed();
     return { migrated: false, count: 0 };
   }
 
@@ -159,7 +179,7 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
   if (!ok) throw new Error('IndexedDB migration write failed');
 
   markIndexedDbMigrationComplete();
-  try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+  removeLegacyNotesKeyIfAllowed();
   return { migrated: true, count: notes.length };
 }
 
@@ -207,7 +227,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     notesCache = resolved;
     persistenceHydrated = true;
     lastIndexedDbRevision = readNotesIndexedDbRevision();
-    try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+    removeLegacyNotesKeyIfAllowed();
     runPersistenceCleanup();
 
     return {
@@ -256,26 +276,37 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
 }
 
 export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolean> {
+  const epoch = captureOperationEpoch();
   if (!persistenceHydrated && notes.length === 0) {
     return true;
   }
-
-  notesCache = [...notes];
-
+  if (!mayReplacePersistedNotes(notesCache, notes)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return false;
+  }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
-    const ok = await saveNotesToIndexedDb(notes);
+    const ok = await saveNotesToIndexedDb(notes, () => isOperationEpochCurrent(epoch));
+    assertCurrentOperationEpoch(epoch, 'replace_persisted_notes');
     if (ok) {
-      try { localStorage.removeItem(NOTES_KEY); } catch { /**/ }
+      notesCache = [...notes];
+      removeLegacyNotesKeyIfAllowed();
       lastIndexedDbRevision = readNotesIndexedDbRevision();
       return true;
     }
     persistenceMode = 'localStorage';
   }
 
-  return saveNotesToLocalStorage(notes);
+  const ok = saveNotesToLocalStorage(notes);
+  assertCurrentOperationEpoch(epoch, 'replace_persisted_notes');
+  if (ok) notesCache = [...notes];
+  return ok;
 }
 
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return false;
+  }
   if (notesCache) {
     notesCache = notesCache.filter(n => n.id !== noteId);
   }
@@ -294,6 +325,10 @@ export async function deleteNoteFromPersistence(noteId: string): Promise<boolean
 }
 
 export async function clearNotesPersistence(): Promise<void> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return;
+  }
   notesCache = null;
   try {
     localStorage.removeItem(NOTES_KEY);
@@ -331,7 +366,10 @@ registerNotesStorageBridge(
     if (!persistenceHydrated && notes.length === 0) {
       return true;
     }
-    notesCache = [...notes];
+    if (!mayReplacePersistedNotes(notesCache, notes)) {
+      recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+      return false;
+    }
     if (persistenceMode === 'indexeddb') {
       void saveNotesAsync(notes);
       return true;

@@ -18,6 +18,7 @@ import {
   resetNotesPersistenceForTests,
   saveNotesAsync,
 } from '@/lib/notePersistence';
+import { setRecoveryModeActiveForTest } from '@/lib/recoverySafetyPolicy';
 
 function note(id: string, updatedAt: number, body = id): NoteBase {
   return {
@@ -41,6 +42,7 @@ function backupKeys(): string[] {
 
 describe('notePersistence durability guards', () => {
   beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
     localStorage.clear();
     clearNotesOnboardingMarker();
     resetNotesPersistenceForTests();

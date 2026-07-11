@@ -30,7 +30,8 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
-import { resetNotesPersistenceForTests } from '../lib/notePersistence';
+import { resetNotesPersistenceForTests, saveNotesAsync, setCachedNotes } from '../lib/notePersistence';
+import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import {
   NOTES_FOLDERS_BOOTSTRAP_KEY,
   NOTES_LAST_SYNC_KEY,
@@ -68,6 +69,7 @@ const sampleNote = (): NoteBase => ({
 });
 
 function resetStore() {
+  setRecoveryModeActiveForTest(false);
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
@@ -772,5 +774,59 @@ describe('useNotesStore K-142 notes delta sync foundation', () => {
 
     expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('100');
     expect(useNotesStore.getState().syncError).toContain('503');
+  });
+});
+
+describe('K-319 recovery freeze guards', () => {
+  beforeEach(() => {
+    resetStore();
+    setRecoveryModeActiveForTest(true);
+  });
+
+  it('blocks upload and hydration below the UI without advancing the cursor', async () => {
+    storage.set(NOTES_LAST_SYNC_KEY, '123');
+    useNotesStore.setState({ notes: [sampleNote()], syncError: null });
+
+    expect(await useNotesStore.getState().syncNoteToDB(sampleNote())).toBe(false);
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+  });
+
+  it('blocks reset, permanent deletion, and Empty Trash without changing Notes', () => {
+    const active = sampleNote();
+    const trashed = { ...sampleNote(), id: 'trashed', deletedAt: 200 };
+    useNotesStore.setState({ notes: [active, trashed], folders: [{ id: 'f1', name: 'Folder', createdAt: 1 }] });
+    const before = useNotesStore.getState().notes;
+
+    useNotesStore.getState().emptyTrash();
+    useNotesStore.getState().deleteNotePermanently('trashed');
+    useNotesStore.getState().resetAllNotes();
+
+    expect(useNotesStore.getState().notes).toEqual(before);
+    expect(useNotesStore.getState().folders).toHaveLength(1);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct partial persistence replacement and leaves storage unchanged', async () => {
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    setCachedNotes(current);
+    storage.set(NOTES_KEY, JSON.stringify(current));
+
+    expect(await saveNotesAsync([current[0]])).toBe(false);
+    expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(current);
+  });
+
+  it('rejects destructive cross-tab replacement without rebroadcast or state change', () => {
+    const current = [sampleNote()];
+    useNotesStore.setState({ notes: current });
+    const peer = [{ ...sampleNote(), body: 'peer replacement' }];
+
+    applyStorageMerge(NOTES_KEY, JSON.stringify(peer));
+
+    expect(useNotesStore.getState().notes).toEqual(current);
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 });

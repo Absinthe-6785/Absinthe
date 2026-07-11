@@ -79,6 +79,20 @@ import {
 } from '../components/views/features/knowledge/history';
 import { pruneNoteNavigationStack } from '../lib/noteNavigationStack';
 import { estimateDeletedNoteBytes } from '../lib/trashNoteStorage';
+import {
+  RECOVERY_MODE_MESSAGE,
+  RecoveryModeBlockedError,
+  assertCurrentOperationEpoch,
+  captureOperationEpoch,
+  mayApplyCrossTabMutation,
+  mayEmptyTrash,
+  mayHydrateRemote,
+  mayReset,
+  mayRestore,
+  mayUndoRestore,
+  mayUploadRemote,
+  recordRecoveryBlock,
+} from '../lib/recoverySafetyPolicy';
 
 export type { Note, NoteFolder };
 export { estimateDeletedNoteBytes };
@@ -259,6 +273,11 @@ function resolveActiveNoteAfterRemoval(
 
 export const useNotesStore = create<NotesState>((set, get) => {
   const syncNoteToDB = async (note: Note): Promise<boolean> => {
+    if (!mayUploadRemote()) {
+      recordRecoveryBlock('upload_remote');
+      set({ syncError: RECOVERY_MODE_MESSAGE });
+      return false;
+    }
     if (!isNotesCloudSyncEnabled()) {
       lastFailedNote = null;
       if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
@@ -293,6 +312,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const removeNoteFromDB = async (id: string): Promise<boolean> => {
+    if (!mayUploadRemote()) {
+      recordRecoveryBlock('upload_remote');
+      set({ syncError: RECOVERY_MODE_MESSAGE });
+      return false;
+    }
     if (!isNotesCloudSyncEnabled()) {
       if (lastFailedDeleteId === id) lastFailedDeleteId = null;
       if (!lastFailedNote) set({ syncError: null });
@@ -333,6 +357,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const syncFolderToDB = async (folder: NoteFolder) => {
+    if (!mayUploadRemote()) {
+      recordRecoveryBlock('upload_remote');
+      return;
+    }
     if (!isNotesCloudSyncEnabled()) return;
     try {
       await authFetch(`${API_URL}/api/note_folders`, {
@@ -343,6 +371,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
   };
 
   const removeFolderFromDB = async (id: string) => {
+    if (!mayUploadRemote()) {
+      recordRecoveryBlock('upload_remote');
+      return;
+    }
     if (!isNotesCloudSyncEnabled()) return;
     try { await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' }); } catch { /**/ }
   };
@@ -438,6 +470,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     importVaultRestore: (manifest, strategy) => {
+      if (!mayRestore()) {
+        recordRecoveryBlock('restore');
+        throw new RecoveryModeBlockedError('restore');
+      }
       saveVaultRestoreSnapshot(get().notes, get().folders);
       set({ vaultRestoreCanUndo: true });
       const beforeIds = new Set(get().notes.map(n => n.id));
@@ -472,6 +508,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     canUndoVaultRestore: () => hasVaultRestoreSnapshot(),
 
     undoLastVaultRestore: () => {
+      if (!mayUndoRestore()) {
+        recordRecoveryBlock('undo_restore');
+        set({ syncError: RECOVERY_MODE_MESSAGE });
+        return false;
+      }
       const snapshot = loadVaultRestoreSnapshot();
       if (!snapshot) return false;
       set({ notes: snapshot.notes, folders: snapshot.folders });
@@ -587,6 +628,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     deleteNotePermanently: (id) => {
+      if (!mayEmptyTrash()) {
+        recordRecoveryBlock('empty_trash');
+        set({ syncError: RECOVERY_MODE_MESSAGE });
+        return;
+      }
       const removedIds = new Set([id]);
       for (const removedId of removedIds) {
         clearBodySyncTimer(removedId);
@@ -615,6 +661,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     emptyTrash: () => {
+      if (!mayEmptyTrash()) {
+        recordRecoveryBlock('empty_trash');
+        set({ syncError: RECOVERY_MODE_MESSAGE });
+        return;
+      }
       const trashed = get().notes.filter(n => n.deletedAt);
       if (trashed.length === 0) return;
 
@@ -687,6 +738,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
     hydrateFromDB: async (options) => {
       await runCoalescedHydrate(async () => {
+        if (!mayHydrateRemote()) {
+          recordRecoveryBlock('hydrate_remote');
+          set({ isSyncing: false, syncError: RECOVERY_MODE_MESSAGE });
+          return;
+        }
+        const operationEpoch = captureOperationEpoch();
         if (!isNotesCloudSyncEnabled()) {
           set({ isSyncing: false, syncError: null });
           return;
@@ -715,6 +772,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           }
 
           const notesResult = await fetchNotesFromCloud(mode);
+          assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
           const raw = notesResult.rows;
           const localNotes = get().notes;
           const dbNotes: Note[] = raw.map((n: Parameters<typeof mapDbNote>[0]) => {
@@ -729,6 +787,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             expired.forEach(n => { void removeNoteFromDB(n.id); });
 
             const merged = mergeDeltaNoteRows(localNotes, dbNotes);
+            assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
             const prevActive = get().activeNoteId;
             const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
             const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
@@ -742,6 +801,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           const pushResults = await Promise.all(
             dirtyNotes.map(async note => ({ note, ok: await syncNoteToDB(note) })),
           );
+          assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
           const failedPush = pushResults.some(result => !result.ok);
           const pushedNotes = pushResults
             .filter((result): result is { note: Note; ok: true } => result.ok)
@@ -832,6 +892,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     resetAllNotes: () => {
+      if (!mayReset()) {
+        recordRecoveryBlock('reset');
+        set({ syncError: RECOVERY_MODE_MESSAGE });
+        return;
+      }
       clearAllBodySyncTimers();
       pendingBodySync.clear();
       lastFailedNote = null;
@@ -861,6 +926,10 @@ let applyingStorageMerge = false;
 
 function applyStorageMerge(key: string | null, newValue: string | null) {
   if (!key || applyingStorageMerge) return;
+  if ((isNotesIndexedDbRevisionEvent(key) || key === NOTES_KEY || key === FOLDERS_KEY) && !mayApplyCrossTabMutation()) {
+    recordRecoveryBlock('cross_tab_mutation');
+    return;
+  }
   const state = useNotesStore.getState();
 
   if (isNotesIndexedDbRevisionEvent(key)) {

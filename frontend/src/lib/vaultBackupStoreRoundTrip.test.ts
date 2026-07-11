@@ -4,6 +4,7 @@ import type { NoteBase } from '@/components/views/noteUtils';
 import { buildValidatedVaultBackupManifest } from './vaultBackupExport';
 import { buildVaultRestorePreview, parseVaultBackupJson } from './importVaultBackup';
 import { useNotesStore } from '@/store/useNotesStore';
+import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 
 function note(id: string, title: string, body: string): NoteBase {
   return {
@@ -22,6 +23,7 @@ function note(id: string, title: string, body: string): NoteBase {
 
 describe('vault backup store round-trip', () => {
   beforeEach(() => {
+    setRecoveryModeActiveForTest(false);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     useNotesStore.setState({
       notes: [

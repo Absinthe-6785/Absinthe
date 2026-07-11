@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { RECOVERY_MODE_MESSAGE, mayRestore, recordRecoveryBlock } from '../lib/recoverySafetyPolicy';
 import type { TranslationKey } from '@/lib/i18n';
 import {
   createFullRestoreSelection,
@@ -178,6 +179,11 @@ export function useVaultRestoreFlow(
   const confirmRestore = useCallback(async () => {
     if (!preview?.manifest || !selection || !fullPreview) return;
     if (selection.noteIds.size === 0 && !pipelineOptions.restoreExtensions && !pipelineOptions.restoreCloud) {
+      return;
+    }
+    if (!mayRestore()) {
+      recordRecoveryBlock('restore');
+      showToast(RECOVERY_MODE_MESSAGE, 'error');
       return;
     }
     setImporting(true);

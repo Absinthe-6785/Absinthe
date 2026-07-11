@@ -39,6 +39,7 @@ import {
 import { buildVaultSnapshot, toRestoreReadyManifest } from './vaultSnapshotBuild';
 import { clearAllVaultSnapshots, saveVaultSnapshot, type SnapshotStorageAdapter } from './vaultSnapshotStore';
 import { simulateVaultRestore } from './vaultExtensionRestoreSim';
+import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 
 function note(id: string, title = 'Note'): NoteBase {
   return {
@@ -93,6 +94,7 @@ describe('vaultRestorePipeline', () => {
   const store = new Map<string, string>();
 
   beforeEach(() => {
+    setRecoveryModeActiveForTest(false);
     store.clear();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => store.get(key) ?? null,
@@ -104,6 +106,28 @@ describe('vaultRestorePipeline', () => {
     store.set('planner-storage', JSON.stringify({ darkMode: true, language: 'ko' }));
     store.set('note-saved-views-v1', JSON.stringify([{ id: 'sv1', name: 'All', query: 'tag:math' }]));
     clearAllVaultSnapshots(makeStorage());
+  });
+
+  it('K-319 blocks the pipeline before snapshot, core, extensions, or cloud mutation', async () => {
+    setRecoveryModeActiveForTest(true);
+    const manifest = buildVaultBackupManifestV3([note('n1')], []);
+    const importCore = vi.fn();
+
+    await expect(executeVaultRestorePipeline(manifest, {
+      strategy: 'replace',
+      selection: { noteIds: new Set(['n1']), folderIds: new Set() },
+      backupBeforeRestore: true,
+      restoreCore: true,
+      restoreExtensions: true,
+      restoreCloud: true,
+    }, {
+      importCore,
+      getNotes: () => [],
+      getFolders: () => [],
+    })).rejects.toMatchObject({ code: 'RECOVERY_MODE_BLOCKED' });
+
+    expect(importCore).not.toHaveBeenCalled();
+    expect(store.has('absinthe:last-snapshot:v1')).toBe(false);
   });
 
   it('scenario A: empty vault imports v3 export with full recovery', async () => {

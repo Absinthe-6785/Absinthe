@@ -33,6 +33,9 @@ app.add_middleware(
 memory_watchdog = MemoryWatchdog()
 request_memory_watchdog = RequestMemoryWatchdog()
 
+_recovery_mode_raw = os.getenv("ABSINTHE_RECOVERY_MODE", "active").strip().lower()
+RECOVERY_MODE_ACTIVE = _recovery_mode_raw not in {"disabled"}
+
 
 @app.middleware("http")
 async def memory_watchdog_middleware(request, call_next):
@@ -159,6 +162,8 @@ async def ping():
 
 @app.delete("/api/reset")
 async def reset_all_data(user_id: str = Depends(get_current_user)):
+    if RECOVERY_MODE_ACTIVE:
+        raise HTTPException(status_code=423, detail="Data recovery mode is active")
     # /api/restore가 다루는 12개 테이블과 동일하게 맞춤.
     # 삭제 순서: 자식 테이블(logs, notes) → 부모 테이블(folders, routines, blocks) 순으로
     # FK 제약이 있는 경우를 대비해 의존 관계 역순으로 삭제.
@@ -850,6 +855,8 @@ class RestorePayload(BaseModel):
 
 @app.post("/api/restore")
 async def import_backup(payload: RestorePayload, user_id: str = Depends(get_current_user)):
+    if RECOVERY_MODE_ACTIVE:
+        raise HTTPException(status_code=423, detail="Data recovery mode is active")
     """백업 JSON을 받아 각 테이블에 upsert (기존 데이터 유지, 충돌 시 덮어쓰기)"""
     def upsert(table: str, rows: list, conflict: str = "id"):
         if not rows: return

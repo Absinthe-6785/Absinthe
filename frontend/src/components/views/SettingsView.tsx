@@ -32,6 +32,7 @@ import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
 import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
 import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
+import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -104,6 +105,11 @@ export const SettingsView = ({
   };
 
   const doResetData = async () => {
+    if (!mayReset()) {
+      recordRecoveryBlock('reset');
+      showToast(RECOVERY_MODE_MESSAGE, 'error');
+      return;
+    }
     if (!shouldUseRemoteData()) {
       resetAllNotes();
       showToast(t('resetSuccess'));

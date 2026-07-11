@@ -4,6 +4,11 @@
 import { API_URL } from './config';
 import { authFetch } from './supabase';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
+import {
+  RecoveryModeBlockedError,
+  mayHydrateRemote,
+  recordRecoveryBlock,
+} from './recoverySafetyPolicy';
 export {
   isNotesCloudSyncEnabled,
   NOTES_RUNTIME_SYNC_MODE_KEY,
@@ -54,6 +59,10 @@ export function readLastNotesSyncAt(): number | null {
 }
 
 export function writeLastNotesSyncAt(timestamp: number): void {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    return;
+  }
   try {
     localStorage.setItem(NOTES_LAST_SYNC_KEY, String(timestamp));
   } catch { /* ignore */ }
@@ -87,6 +96,10 @@ export function buildNotesFetchUrl(_mode: NotesSyncMode, lastSyncAt: number | nu
 }
 
 export async function fetchNotesFromCloud(mode?: NotesSyncMode): Promise<NotesFetchResult> {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    throw new RecoveryModeBlockedError('hydrate_remote');
+  }
   const resolved = resolveNotesSyncMode(mode);
   const lastSyncAt = readLastNotesSyncAt();
   const url = buildNotesFetchUrl(resolved, lastSyncAt);
@@ -119,6 +132,10 @@ export function markFoldersBootstrapped(): void {
 }
 
 export async function fetchFoldersFromCloud(mode?: NotesSyncMode): Promise<FoldersFetchResult> {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    throw new RecoveryModeBlockedError('hydrate_remote');
+  }
   const resolved = resolveNotesSyncMode(mode);
   if (!shouldFetchFolders(resolved)) {
     return { rows: [], skipped: true };

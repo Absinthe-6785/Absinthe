@@ -17,6 +17,7 @@ import { createLastSnapshot } from './vaultSnapshotAuto';
 import type { VaultSnapshot } from './vaultSnapshotBuild';
 import { assessSnapshotRestoreReadiness } from './vaultSnapshotValidate';
 import type { VaultPortableExtensions } from './vaultPortableExtensions';
+import { RecoveryModeBlockedError, mayRestore, recordRecoveryBlock } from './recoverySafetyPolicy';
 
 export const LAST_VAULT_EXPORT_KEY = 'absinthe:last-vault-export:v1';
 
@@ -168,6 +169,10 @@ export async function executeVaultRestorePipeline(
   options: VaultRestorePipelineOptions,
   deps: VaultRestorePipelineDeps,
 ): Promise<VaultRestorePipelineResult> {
+  if (!mayRestore()) {
+    recordRecoveryBlock('restore');
+    throw new RecoveryModeBlockedError('restore');
+  }
   let backedUp = false;
   if (options.backupBeforeRestore) {
     createLastSnapshot(deps.getNotes(), deps.getFolders());
