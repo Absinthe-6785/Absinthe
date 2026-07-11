@@ -25,6 +25,7 @@ import {
   initNotesPersistence,
   loadNotesAsync,
   saveNotesAsync,
+  saveNotesSyncResult,
   getNotesPersistenceMode,
   isNotesIndexedDbRevisionEvent,
   clearNotesPersistence,
@@ -35,7 +36,6 @@ import {
   loadNotes,
   loadFolders,
   loadActiveNoteId,
-  saveNotes,
   saveFolders,
   saveActiveNoteId,
   clearNotesStorage,
@@ -354,12 +354,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
   const persistNotes = (notes: Note[]) => {
     if (getNotesPersistenceMode() === 'localStorage') {
-      if (!saveNotes(notes)) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      const result = saveNotesSyncResult(notes);
+      if (result.status !== 'persisted') set({ syncError: LOCAL_NOTES_SAVE_ERROR });
       else scheduleAutoSnapshot(notes, get().folders);
       return;
     }
-    void saveNotesAsync(notes).then(ok => {
-      if (!ok) set({ syncError: LOCAL_NOTES_SAVE_ERROR });
+    void saveNotesAsync(notes).then(result => {
+      if (result.status !== 'persisted') set({ syncError: LOCAL_NOTES_SAVE_ERROR });
       else scheduleAutoSnapshot(notes, get().folders);
     });
   };
@@ -886,7 +887,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       };
 
       if (getNotesPersistenceMode() === 'localStorage') {
-        if (!saveNotes(get().notes)) {
+        const result = saveNotesSyncResult(get().notes);
+        if (result.status !== 'persisted') {
           set({ syncError: LOCAL_NOTES_SAVE_ERROR });
           return;
         }
@@ -894,8 +896,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         return;
       }
 
-      void saveNotesAsync(get().notes).then(notesOk => {
-        if (!notesOk) {
+      void saveNotesAsync(get().notes).then(result => {
+        if (result.status !== 'persisted') {
           set({ syncError: LOCAL_NOTES_SAVE_ERROR });
           return;
         }
@@ -1004,7 +1006,15 @@ function applyStorageMerge(key: string | null, newValue: string | null) {
       vaultStructureVersion: state.vaultStructureVersion + 1,
     });
     rebuildKnowledgeIndex(merged);
-    if (!saveNotes(merged)) useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
+    if (getNotesPersistenceMode() === 'localStorage') {
+      if (saveNotesSyncResult(merged).status !== 'persisted') {
+        useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      }
+    } else {
+      void saveNotesAsync(merged).then(result => {
+        if (result.status !== 'persisted') useNotesStore.setState({ syncError: LOCAL_NOTES_SAVE_ERROR });
+      });
+    }
     if (nextActive !== prevActive) saveActiveNoteId(nextActive);
     applyingStorageMerge = false;
     return;

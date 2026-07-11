@@ -259,16 +259,22 @@ export function migrateLegacyStorageIfNeeded(): void {
 }
 
 // ── localStorage helpers ─────────────────────────────────────────────
-type NotesSyncSave = (notes: NoteBase[]) => boolean;
+export type NotesStorageBridgeSaveResult = 'persisted' | 'pending' | 'rejected';
+type NotesSyncSave = (notes: NoteBase[]) => NotesStorageBridgeSaveResult;
 type NotesSyncLoad = () => NoteBase[];
 
 let externalSyncSave: NotesSyncSave | null = null;
 let externalSyncLoad: NotesSyncLoad | null = null;
+let lastStorageBridgeSaveResult: NotesStorageBridgeSaveResult | null = null;
 
 /** K-96B — wire IndexedDB bridge without circular imports. */
 export function registerNotesStorageBridge(load: NotesSyncLoad, save: NotesSyncSave): void {
   externalSyncLoad = load;
   externalSyncSave = save;
+}
+
+export function getLastNotesStorageBridgeSaveResult(): NotesStorageBridgeSaveResult | null {
+  return lastStorageBridgeSaveResult;
 }
 
 export function loadNotes(): NoteBase[] {
@@ -303,11 +309,16 @@ export const LOCAL_FOLDERS_SAVE_ERROR =
   'Local folder save failed — storage may be full. Free browser storage.';
 
 export function saveNotes(notes: NoteBase[]): boolean {
-  if (externalSyncSave) return externalSyncSave(notes);
+  if (externalSyncSave) {
+    lastStorageBridgeSaveResult = externalSyncSave(notes);
+    return lastStorageBridgeSaveResult === 'persisted';
+  }
   try {
     localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    lastStorageBridgeSaveResult = 'persisted';
     return true;
   } catch {
+    lastStorageBridgeSaveResult = 'rejected';
     return false;
   }
 }
@@ -357,7 +368,7 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
   return loadAsync();
 }
 
-export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolean> {
+export async function saveNotesAsync(notes: unknown) {
   const { saveNotesAsync: saveAsync } = await import('@/lib/notePersistence');
   return saveAsync(notes);
 }

@@ -7,6 +7,7 @@ import {
   loadRawNotesFromKey,
   mergeNoteArrays,
   registerNotesStorageBridge,
+  type NotesStorageBridgeSaveResult,
   type NoteBase,
 } from '@/components/views/noteUtils';
 import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
@@ -29,7 +30,6 @@ import {
   saveNotesToIndexedDb,
 } from '@/lib/noteIndexedDb';
 import {
-  assertCurrentOperationEpoch,
   captureOperationEpoch,
   isCompletePersistedNote,
   isRecoveryModeActive,
@@ -37,10 +37,17 @@ import {
   mayDeleteLegacyStorage,
   recordRecoveryBlock,
   validatePersistedNotesReplacement,
+  type PersistedNotesReplacementFailure,
   type PersistedNotesReplacementResult,
 } from '@/lib/recoverySafetyPolicy';
 
 export type NotesPersistenceMode = 'indexeddb' | 'localStorage';
+
+export type NotesPersistenceWriteResult =
+  | { status: 'persisted' }
+  | { status: 'blocked'; reason: 'recovery_mode_active' | 'stale_epoch' }
+  | { status: 'rejected'; reason: PersistedNotesReplacementFailure }
+  | { status: 'failed'; reason: 'storage_failure' | 'indexeddb_rejected' };
 
 export interface NotesPersistenceInitResult {
   notes: NoteBase[];
@@ -130,17 +137,28 @@ export function validateLocalStorageNotesReplacement(
 }
 
 function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
+  return saveNotesToLocalStorageResult(notes).status === 'persisted';
+}
+
+function saveNotesToLocalStorageResult(notes: unknown): NotesPersistenceWriteResult {
   const validation = validateLocalStorageNotesReplacement(notes);
   if (!validation.ok) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
-    return false;
+    return { status: 'rejected', reason: validation.reason };
   }
   try {
     localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-    return true;
+    return { status: 'persisted' };
   } catch {
-    return false;
+    return { status: 'failed', reason: 'storage_failure' };
   }
+}
+
+export function saveNotesSyncResult(notes: unknown): NotesPersistenceWriteResult {
+  if (persistenceMode === 'indexeddb') {
+    return { status: 'failed', reason: 'indexeddb_rejected' };
+  }
+  return saveNotesToLocalStorageResult(notes);
 }
 
 export function isNotesPersistenceHydrated(): boolean {
@@ -306,28 +324,39 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
   return notes;
 }
 
-export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolean> {
+export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
   const epoch = captureOperationEpoch();
+  if (!Array.isArray(notes)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'invalid_replacement' };
+  }
   if (!persistenceHydrated && notes.length === 0) {
-    return true;
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'empty_replacement' };
   }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
-    const ok = await saveNotesToIndexedDb(notes, () => isOperationEpochCurrent(epoch));
-    assertCurrentOperationEpoch(epoch, 'replace_persisted_notes');
+    const ok = await saveNotesToIndexedDb(notes as readonly NoteBase[], () => isOperationEpochCurrent(epoch));
+    if (!isOperationEpochCurrent(epoch)) {
+      recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
+      return { status: 'blocked', reason: 'stale_epoch' };
+    }
     if (ok) {
-      notesCache = [...notes];
+      notesCache = [...notes] as NoteBase[];
       removeLegacyNotesKeyIfAllowed();
       lastIndexedDbRevision = readNotesIndexedDbRevision();
-      return true;
+      return { status: 'persisted' };
     }
-    if (isRecoveryModeActive()) return false;
+    if (isRecoveryModeActive()) return { status: 'failed', reason: 'indexeddb_rejected' };
     persistenceMode = 'localStorage';
   }
 
-  const ok = saveNotesToLocalStorage(notes);
-  assertCurrentOperationEpoch(epoch, 'replace_persisted_notes');
-  if (ok) notesCache = [...notes];
-  return ok;
+  const result = saveNotesToLocalStorageResult(notes);
+  if (!isOperationEpochCurrent(epoch)) {
+    recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
+    return { status: 'blocked', reason: 'stale_epoch' };
+  }
+  if (result.status === 'persisted') notesCache = [...notes] as NoteBase[];
+  return result;
 }
 
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
@@ -390,14 +419,15 @@ export { INDEXEDDB_FALLBACK_ERROR, NOTES_IDB_REV_KEY };
 
 registerNotesStorageBridge(
   loadNotesSync,
-  (notes) => {
+  (notes): NotesStorageBridgeSaveResult => {
     if (!persistenceHydrated && notes.length === 0) {
-      return true;
+      recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+      return 'rejected';
     }
     if (persistenceMode === 'indexeddb') {
       void saveNotesAsync(notes);
-      return true;
+      return 'pending';
     }
-    return saveNotesToLocalStorage(notes);
+    return saveNotesToLocalStorageResult(notes).status === 'persisted' ? 'persisted' : 'rejected';
   },
 );

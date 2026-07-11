@@ -42,6 +42,11 @@ import {
   NOTES_LAST_SYNC_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
 } from '../lib/notesSyncClient';
+import {
+  flushAutoSnapshotForTests,
+  resetAutoSnapshotStateForTests,
+} from '../lib/vaultSnapshotAuto';
+import { SNAPSHOT_INDEX_KEY } from '../lib/vaultSnapshotConstants';
 const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
@@ -826,7 +831,7 @@ describe('K-319 recovery freeze guards', () => {
     setCachedNotes(current);
     storage.set(NOTES_KEY, JSON.stringify(current));
 
-    expect(await saveNotesAsync([current[0]])).toBe(false);
+    expect(await saveNotesAsync([current[0]])).toMatchObject({ status: 'rejected' });
     expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(current);
   });
 
@@ -839,14 +844,14 @@ describe('K-319 recovery freeze guards', () => {
       ok: false,
       reason: 'missing_existing_id',
     });
-    expect(await saveNotesAsync([current[0]])).toBe(false);
+    expect(await saveNotesAsync([current[0]])).toEqual({ status: 'rejected', reason: 'missing_existing_id' });
     expect(storage.get(NOTES_KEY)).toBe(original);
 
-    expect(await saveNotesAsync([current[0], current[0], current[1]])).toBe(false);
+    expect(await saveNotesAsync([current[0], current[0], current[1]])).toEqual({ status: 'rejected', reason: 'duplicate_id' });
     expect(storage.get(NOTES_KEY)).toBe(original);
 
     const malformed = [{ id: current[0].id }, current[1]] as NoteBase[];
-    expect(await saveNotesAsync(malformed)).toBe(false);
+    expect(await saveNotesAsync(malformed)).toEqual({ status: 'rejected', reason: 'malformed_note' });
     expect(storage.get(NOTES_KEY)).toBe(original);
   });
 
@@ -855,8 +860,24 @@ describe('K-319 recovery freeze guards', () => {
     storage.set(NOTES_KEY, JSON.stringify(current));
     const replacement = [...current, { ...sampleNote(), id: 'new-note' }];
 
-    expect(await saveNotesAsync(replacement)).toBe(true);
+    expect(await saveNotesAsync(replacement)).toEqual({ status: 'persisted' });
     expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(replacement);
+  });
+
+  it('K-319B suppresses autosnapshot after a rejected persistence result', async () => {
+    resetAutoSnapshotStateForTests();
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    const original = JSON.stringify(current);
+    storage.set(NOTES_KEY, original);
+    useNotesStore.setState({ notes: [current[0]], activeNoteId: current[0].id });
+
+    useNotesStore.getState().updateNote(current[0].id, { title: 'blocked partial update' });
+    await Promise.resolve();
+    await Promise.resolve();
+    flushAutoSnapshotForTests();
+
+    expect(storage.get(NOTES_KEY)).toBe(original);
+    expect(storage.has(SNAPSHOT_INDEX_KEY)).toBe(false);
   });
 
   it('K-319A drops a stale folder hydration response without state, persistence, or marker changes', async () => {

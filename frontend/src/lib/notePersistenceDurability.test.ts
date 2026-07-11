@@ -2,7 +2,11 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { NoteBase } from '@/components/views/noteUtils';
-import { NOTES_KEY } from '@/components/views/noteUtils';
+import {
+  NOTES_KEY,
+  getLastNotesStorageBridgeSaveResult,
+  saveNotes,
+} from '@/components/views/noteUtils';
 import { clearNotesOnboardingMarker } from '@/lib/notesOnboarding';
 import {
   NOTES_IDB_MIGRATION_FLAG,
@@ -56,14 +60,54 @@ describe('notePersistence durability guards', () => {
     resetNotesPersistenceForTests();
   });
 
-  it('does not write an empty notes array before persistence hydration', async () => {
+  it('K-319B rejects an empty pre-hydration write and preserves storage byte-for-byte', async () => {
     const existing = [note('existing', 10, 'keep me')];
-    localStorage.setItem(NOTES_KEY, JSON.stringify(existing));
+    const original = JSON.stringify(existing, null, 2);
+    localStorage.setItem(NOTES_KEY, original);
+    setRecoveryModeActiveForTest(true);
 
-    await expect(saveNotesAsync([])).resolves.toBe(true);
+    await expect(saveNotesAsync([])).resolves.toEqual({
+      status: 'rejected',
+      reason: 'empty_replacement',
+    });
 
-    expect(JSON.parse(localStorage.getItem(NOTES_KEY) ?? '[]')).toEqual(existing);
+    expect(localStorage.getItem(NOTES_KEY)).toBe(original);
     expect(await loadNotesFromIndexedDb()).toEqual([]);
+  });
+
+  it('K-319B rejects malformed pre-hydration writes with a structured failure', async () => {
+    const existing = [note('existing', 10, 'keep me')];
+    const original = JSON.stringify(existing);
+    localStorage.setItem(NOTES_KEY, original);
+    setRecoveryModeActiveForTest(true);
+
+    await expect(saveNotesAsync([{ id: 'malformed' }])).resolves.toEqual({
+      status: 'rejected',
+      reason: 'malformed_note',
+    });
+    expect(localStorage.getItem(NOTES_KEY)).toBe(original);
+  });
+
+  it('K-319B reports IndexedDB bridge work as pending instead of persisted', async () => {
+    const initialized = await initNotesPersistence();
+    setRecoveryModeActiveForTest(true);
+    const before = await loadNotesFromIndexedDb();
+
+    expect(saveNotes([])).toBe(false);
+    expect(getLastNotesStorageBridgeSaveResult()).toBe('pending');
+    await Promise.resolve();
+
+    expect(await loadNotesFromIndexedDb()).toEqual(before);
+  });
+
+  it('K-319B preserves the structured persisted result for a valid allowed write', async () => {
+    const current = [note('existing', 10, 'keep me')];
+    localStorage.setItem(NOTES_KEY, JSON.stringify(current));
+    setRecoveryModeActiveForTest(true);
+    const replacement = [...current, note('new', 20, 'new note')];
+
+    await expect(saveNotesAsync(replacement)).resolves.toEqual({ status: 'persisted' });
+    expect(JSON.parse(localStorage.getItem(NOTES_KEY) ?? '[]')).toEqual(replacement);
   });
 
   it('backs up localStorage notes before migrating them into IndexedDB', async () => {
