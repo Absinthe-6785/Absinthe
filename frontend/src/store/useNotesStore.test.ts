@@ -30,8 +30,13 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
-import { resetNotesPersistenceForTests, saveNotesAsync, setCachedNotes } from '../lib/notePersistence';
-import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
+import {
+  resetNotesPersistenceForTests,
+  saveNotesAsync,
+  setCachedNotes,
+  validateLocalStorageNotesReplacement,
+} from '../lib/notePersistence';
+import { activateRecoveryMode, setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import {
   NOTES_FOLDERS_BOOTSTRAP_KEY,
   NOTES_LAST_SYNC_KEY,
@@ -45,6 +50,12 @@ function okJson(data: unknown) {
 
 function failResponse(status = 500) {
   return { ok: false, status, json: async () => ({}) };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
 }
 
 function skipFolderBootstrap() {
@@ -817,6 +828,75 @@ describe('K-319 recovery freeze guards', () => {
 
     expect(await saveNotesAsync([current[0]])).toBe(false);
     expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(current);
+  });
+
+  it('K-319A rejects cache-null partial, duplicate, and malformed localStorage replacements byte-for-byte', async () => {
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    const original = JSON.stringify(current, null, 2);
+    storage.set(NOTES_KEY, original);
+
+    expect(validateLocalStorageNotesReplacement([current[0]])).toEqual({
+      ok: false,
+      reason: 'missing_existing_id',
+    });
+    expect(await saveNotesAsync([current[0]])).toBe(false);
+    expect(storage.get(NOTES_KEY)).toBe(original);
+
+    expect(await saveNotesAsync([current[0], current[0], current[1]])).toBe(false);
+    expect(storage.get(NOTES_KEY)).toBe(original);
+
+    const malformed = [{ id: current[0].id }, current[1]] as NoteBase[];
+    expect(await saveNotesAsync(malformed)).toBe(false);
+    expect(storage.get(NOTES_KEY)).toBe(original);
+  });
+
+  it('K-319A allows a complete valid superset replacement', async () => {
+    const current = [sampleNote()];
+    storage.set(NOTES_KEY, JSON.stringify(current));
+    const replacement = [...current, { ...sampleNote(), id: 'new-note' }];
+
+    expect(await saveNotesAsync(replacement)).toBe(true);
+    expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(replacement);
+  });
+
+  it('K-319A drops a stale folder hydration response without state, persistence, or marker changes', async () => {
+    setRecoveryModeActiveForTest(false);
+    const folders = [{ id: 'local-folder', name: 'Local', createdAt: 1 }];
+    const persisted = JSON.stringify(folders);
+    useNotesStore.setState({ folders, savedAt: null, syncError: null });
+    storage.set(FOLDERS_KEY, persisted);
+    const response = deferred<ReturnType<typeof okJson>>();
+    authFetchMock.mockReturnValueOnce(response.promise);
+
+    const hydration = useNotesStore.getState().hydrateFromDB();
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateRecoveryMode();
+    response.resolve(okJson([{ id: 'remote-folder', name: 'Remote', created_at: 2 }]));
+    await hydration;
+
+    expect(useNotesStore.getState().folders).toEqual(folders);
+    expect(storage.get(FOLDERS_KEY)).toBe(persisted);
+    expect(storage.has(NOTES_FOLDERS_BOOTSTRAP_KEY)).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+  });
+
+  it('K-319A reports a stale upload as blocked without clearing errors, savedAt, or cursor', async () => {
+    setRecoveryModeActiveForTest(false);
+    storage.set(NOTES_LAST_SYNC_KEY, '123');
+    useNotesStore.setState({ notes: [sampleNote()], savedAt: null, syncError: 'existing error' });
+    const response = deferred<ReturnType<typeof okJson>>();
+    authFetchMock.mockReturnValueOnce(response.promise);
+
+    const upload = useNotesStore.getState().syncNoteToDB(sampleNote());
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateRecoveryMode();
+    response.resolve(okJson({}));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
   });
 
   it('rejects destructive cross-tab replacement without rebroadcast or state change', () => {

@@ -34,12 +34,23 @@ describe('K-319 recovery safety policy', () => {
   });
 
   it('rejects empty, malformed, and partial replacement snapshots', () => {
+    const note = (id: string) => ({
+      id,
+      title: id,
+      body: '',
+      updatedAt: 1,
+      folderId: null,
+      deletedAt: null,
+    });
     const current = [{ id: 'a' }, { id: 'b' }];
     expect(mayReplacePersistedNotes(current, [])).toBe(false);
     expect(mayReplacePersistedNotes(current, null)).toBe(false);
-    expect(mayReplacePersistedNotes(current, [{ id: 'a' }])).toBe(false);
-    expect(mayReplacePersistedNotes(current, [{ id: 'a' }, { id: 'b' }])).toBe(true);
-    expect(mayReplacePersistedNotes(current, [{ id: 'a' }, { id: 'b' }, { id: 'c' }])).toBe(true);
+    expect(mayReplacePersistedNotes(current, [note('a')])).toBe(false);
+    expect(mayReplacePersistedNotes(current, [note('a'), note('b')])).toBe(true);
+    expect(mayReplacePersistedNotes(current, [note('a'), note('b'), note('c')])).toBe(true);
+    expect(mayReplacePersistedNotes(current, [note('a'), note('a'), note('b')])).toBe(false);
+    expect(mayReplacePersistedNotes(current, [{ id: 'a' }, { id: 'b' }])).toBe(false);
+    expect(mayReplacePersistedNotes(null, [note('a')])).toBe(false);
   });
 
   it('invalidates an operation captured before a safety transition', () => {

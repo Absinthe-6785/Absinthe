@@ -1,10 +1,12 @@
 import { RotateCcw, Shield, Upload } from 'lucide-react';
+import { useState } from 'react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import type { ArchiveRestoreToolsProjection } from '../../knowledge/archive';
 import { ArchiveCollapsibleSection } from './ArchiveCollapsibleSection';
 import { switchToTab } from '../../../../../lib/noteNavigation';
 import { useNotesStore } from '../../../../../store/useNotesStore';
+import { RECOVERY_MODE_MESSAGE } from '../../../../../lib/recoverySafetyPolicy';
 
 export interface ArchiveRestoreToolsSectionProps {
   restoreTools: ArchiveRestoreToolsProjection;
@@ -26,6 +28,12 @@ export function ArchiveRestoreToolsSection({
   const t = getTranslator(resolveAppLanguage(appSettings.language));
   const undoRestore = useNotesStore(s => s.undoLastVaultRestore);
   const canUndo = useNotesStore(s => s.vaultRestoreCanUndo);
+  const [undoBlockedMessage, setUndoBlockedMessage] = useState<string | null>(null);
+
+  const handleUndoRestore = () => {
+    const restored = undoRestore();
+    setUndoBlockedMessage(restored ? null : RECOVERY_MODE_MESSAGE);
+  };
 
   const protectionLabel = {
     protected: t('recoveryProtectionProtected'),
@@ -64,7 +72,7 @@ export function ArchiveRestoreToolsSection({
           {canUndo && (
             <button
               type="button"
-              onClick={() => undoRestore()}
+              onClick={handleUndoRestore}
               className="inline-flex items-center justify-center gap-2 min-h-[44px] lg:min-h-[34px] px-3 rounded-xl text-xs font-bold border"
               data-k109-restore-undo
             >
@@ -81,6 +89,11 @@ export function ArchiveRestoreToolsSection({
             {t('recoveryCenterTitle')}
           </button>
         </div>
+        {undoBlockedMessage && (
+          <p role="alert" className="text-xs font-semibold text-amber-600" data-k319-undo-restore-blocked>
+            {undoBlockedMessage}
+          </p>
+        )}
       </div>
     </ArchiveCollapsibleSection>
   );

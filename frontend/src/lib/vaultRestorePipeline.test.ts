@@ -40,6 +40,8 @@ import { buildVaultSnapshot, toRestoreReadyManifest } from './vaultSnapshotBuild
 import { clearAllVaultSnapshots, saveVaultSnapshot, type SnapshotStorageAdapter } from './vaultSnapshotStore';
 import { simulateVaultRestore } from './vaultExtensionRestoreSim';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
+import { activateRecoveryMode } from './recoverySafetyPolicy';
+import { authFetch } from './supabase';
 
 function note(id: string, title = 'Note'): NoteBase {
   return {
@@ -92,9 +94,12 @@ function makeStorage(): SnapshotStorageAdapter {
 
 describe('vaultRestorePipeline', () => {
   const store = new Map<string, string>();
+  const authFetchMock = vi.mocked(authFetch);
 
   beforeEach(() => {
     setRecoveryModeActiveForTest(false);
+    authFetchMock.mockReset();
+    authFetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) } as Response);
     store.clear();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => store.get(key) ?? null,
@@ -128,6 +133,52 @@ describe('vaultRestorePipeline', () => {
 
     expect(importCore).not.toHaveBeenCalled();
     expect(store.has('absinthe:last-snapshot:v1')).toBe(false);
+  });
+
+  it('K-319A blocks direct extension restore without changing storage', () => {
+    const manifest = buildVaultBackupManifest([note('n1')], []);
+    const before = JSON.stringify([...store.entries()]);
+    setRecoveryModeActiveForTest(true);
+
+    const result = applyVaultExtensionsRestore(manifest.extensions!);
+
+    expect(result).toMatchObject({ applied: false, blocked: true });
+    expect(JSON.stringify([...store.entries()])).toBe(before);
+  });
+
+  it('K-319A blocks direct cloud restore without sending a request', async () => {
+    setRecoveryModeActiveForTest(true);
+    const cloud = {
+      schemaVersion: 1 as const,
+      fetchedAt: '2026-06-01T00:00:00Z',
+      completeness: 'full' as const,
+      errors: [] as string[],
+      planner: { schedules: [], todos: [], routines: [], routineLogs: [], weeklySchedules: [], recipes: [], ddays: [], routineExceptions: [] },
+      health: { exerciseBlocks: [], workoutLogs: [], inbodyLogs: [], healthRoutines: [], proteinSources: [], proteinProfile: null },
+    };
+
+    await expect(applyCloudRestore(cloud)).resolves.toMatchObject({ applied: false, blocked: true });
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('K-319A does not report stale cloud restore completion as success', async () => {
+    let resolve!: (value: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>(res => { resolve = res; }));
+    const cloud = {
+      schemaVersion: 1 as const,
+      fetchedAt: '2026-06-01T00:00:00Z',
+      completeness: 'full' as const,
+      errors: [] as string[],
+      planner: { schedules: [], todos: [], routines: [], routineLogs: [], weeklySchedules: [], recipes: [], ddays: [], routineExceptions: [] },
+      health: { exerciseBlocks: [], workoutLogs: [], inbodyLogs: [], healthRoutines: [], proteinSources: [], proteinProfile: null },
+    };
+
+    const restore = applyCloudRestore(cloud);
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateRecoveryMode();
+    resolve({ ok: true, status: 200 } as Response);
+
+    await expect(restore).resolves.toMatchObject({ applied: false, blocked: true });
   });
 
   it('scenario A: empty vault imports v3 export with full recovery', async () => {

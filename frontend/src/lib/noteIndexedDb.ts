@@ -7,6 +7,7 @@ import {
 } from '@/components/views/noteUtils';
 import {
   isRecoveryModeActive,
+  mayDeleteLegacyStorage,
   mayReplacePersistedNotes,
   recordRecoveryBlock,
 } from '@/lib/recoverySafetyPolicy';
@@ -175,6 +176,10 @@ export async function saveNotesToIndexedDb(
 }
 
 export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return false;
+  }
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -194,7 +199,11 @@ export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> 
   }
 }
 
-export async function clearIndexedDbNotes(): Promise<void> {
+export async function clearIndexedDbNotes(): Promise<boolean> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return false;
+  }
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -206,6 +215,7 @@ export async function clearIndexedDbNotes(): Promise<void> {
       req.onerror = () => reject(req.error ?? new Error('IndexedDB clear failed'));
     });
     bumpNotesIndexedDbRevision();
+    return true;
   } finally {
     db.close();
   }

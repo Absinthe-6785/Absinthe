@@ -20,6 +20,7 @@ import {
   saveNotesToIndexedDb,
 } from '@/lib/noteIndexedDb';
 import { clearNotesOnboardingMarker } from '@/lib/notesOnboarding';
+import { setRecoveryModeActiveForTest } from '@/lib/recoverySafetyPolicy';
 
 describe('k97fSeedLifecycleAudit policy', () => {
   it('reads post-K-97F seed lifecycle hooks from source', () => {
@@ -36,6 +37,7 @@ describe('k97fSeedLifecycleAudit policy', () => {
 
 describe('k97f seed lifecycle scenarios', () => {
   beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
     localStorage.clear();
     clearNotesOnboardingMarker();
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);

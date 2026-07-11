@@ -6,6 +6,8 @@ import { authFetch } from './supabase';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
 import {
   RecoveryModeBlockedError,
+  assertCurrentOperationEpoch,
+  captureOperationEpoch,
   mayHydrateRemote,
   recordRecoveryBlock,
 } from './recoverySafetyPolicy';
@@ -100,14 +102,17 @@ export async function fetchNotesFromCloud(mode?: NotesSyncMode): Promise<NotesFe
     recordRecoveryBlock('hydrate_remote');
     throw new RecoveryModeBlockedError('hydrate_remote');
   }
+  const operationEpoch = captureOperationEpoch();
   const resolved = resolveNotesSyncMode(mode);
   const lastSyncAt = readLastNotesSyncAt();
   const url = buildNotesFetchUrl(resolved, lastSyncAt);
   const res = await authFetch(url);
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   if (!res.ok) {
     throw new Error(`Failed to load notes (${res.status})`);
   }
   const rows = (await res.json()) as DbNoteRow[];
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   return {
     mode: resolved,
     rows,
@@ -136,15 +141,18 @@ export async function fetchFoldersFromCloud(mode?: NotesSyncMode): Promise<Folde
     recordRecoveryBlock('hydrate_remote');
     throw new RecoveryModeBlockedError('hydrate_remote');
   }
+  const operationEpoch = captureOperationEpoch();
   const resolved = resolveNotesSyncMode(mode);
   if (!shouldFetchFolders(resolved)) {
     return { rows: [], skipped: true };
   }
   const res = await authFetch(`${API_URL}/api/note_folders`);
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   if (!res.ok) {
     throw new Error(`Failed to load folders (${res.status})`);
   }
   const rows = (await res.json()) as FoldersFetchResult['rows'];
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   markFoldersBootstrapped();
   return { rows, skipped: false };
 }

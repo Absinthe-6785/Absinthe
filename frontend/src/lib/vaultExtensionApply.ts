@@ -11,11 +11,13 @@ import { LOCAL_STORAGE_PREFIXES } from './storageInventory';
 import type { VaultPortableExtensions } from './vaultPortableExtensions';
 import { useAppStore } from '@/store/useAppStore';
 import type { AppSettings } from '@/types';
+import { mayRestore, recordRecoveryBlock } from './recoverySafetyPolicy';
 
 export interface VaultExtensionApplyResult {
   applied: boolean;
   sections: string[];
   errors: string[];
+  blocked?: true;
 }
 
 function clearPrefixedKeys(prefix: string): void {
@@ -58,6 +60,11 @@ export function applyVaultExtensionsRestore(
 ): VaultExtensionApplyResult {
   const sections: string[] = [];
   const errors: string[] = [];
+
+  if (!mayRestore()) {
+    recordRecoveryBlock('restore');
+    return { applied: false, sections, errors: ['recovery_mode_active'], blocked: true };
+  }
 
   if (!extensions) {
     return { applied: false, sections, errors: ['no_extensions'] };

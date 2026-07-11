@@ -70,6 +70,18 @@ export class RecoveryModeBlockedError extends Error {
   }
 }
 
+export type PersistedNotesReplacementFailure =
+  | 'unknown_current_state'
+  | 'invalid_replacement'
+  | 'empty_replacement'
+  | 'duplicate_id'
+  | 'malformed_note'
+  | 'missing_existing_id';
+
+export type PersistedNotesReplacementResult =
+  | { ok: true }
+  | { ok: false; reason: PersistedNotesReplacementFailure };
+
 const mayUseLegacyMutationPath = () => !recoveryModeActive;
 export const mayHydrateRemote = mayUseLegacyMutationPath;
 export const mayUploadRemote = mayUseLegacyMutationPath;
@@ -80,18 +92,45 @@ export const mayReset = mayUseLegacyMutationPath;
 export const mayApplyCrossTabMutation = mayUseLegacyMutationPath;
 export const mayDeleteLegacyStorage = mayUseLegacyMutationPath;
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+export function isCompletePersistedNote(value: unknown): value is { id: string } {
+  if (!value || typeof value !== 'object') return false;
+  const note = value as Record<string, unknown>;
+  return typeof note.id === 'string'
+    && note.id.trim().length > 0
+    && typeof note.title === 'string'
+    && typeof note.body === 'string'
+    && isFiniteNumber(note.updatedAt)
+    && (note.folderId === null || typeof note.folderId === 'string')
+    && (note.deletedAt === null || isFiniteNumber(note.deletedAt));
+}
+
+export function validatePersistedNotesReplacement<T extends { id: string }>(
+  current: readonly T[] | null,
+  replacement: unknown,
+): PersistedNotesReplacementResult {
+  if (!Array.isArray(replacement)) return { ok: false, reason: 'invalid_replacement' };
+  if (!recoveryModeActive) return { ok: true };
+  if (current === null) return { ok: false, reason: 'unknown_current_state' };
+  if (replacement.length === 0) return { ok: false, reason: 'empty_replacement' };
+  if (!replacement.every(isCompletePersistedNote)) return { ok: false, reason: 'malformed_note' };
+
+  const replacementIds = new Set(replacement.map(item => item.id));
+  if (replacementIds.size !== replacement.length) return { ok: false, reason: 'duplicate_id' };
+  if (!current.every(item => replacementIds.has(item.id))) {
+    return { ok: false, reason: 'missing_existing_id' };
+  }
+  return { ok: true };
+}
+
 export function mayReplacePersistedNotes<T extends { id: string }>(
   current: readonly T[] | null,
   replacement: unknown,
 ): boolean {
-  if (!recoveryModeActive) return Array.isArray(replacement);
-  if (!Array.isArray(replacement)) return false;
-  if (!current || current.length === 0) return replacement.length > 0;
-  if (replacement.length === 0) return false;
-  const replacementIds = new Set(replacement.map(item => (
-    item && typeof item === 'object' && 'id' in item ? String(item.id) : ''
-  )));
-  return current.every(item => replacementIds.has(item.id));
+  return validatePersistedNotesReplacement(current, replacement).ok;
 }
 
 export function assertCurrentOperationEpoch(epoch: number, operation: RecoveryOperation): void {

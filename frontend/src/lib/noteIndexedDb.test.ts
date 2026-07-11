@@ -13,6 +13,7 @@ import {
   saveNotesToIndexedDb,
 } from '@/lib/noteIndexedDb';
 import type { NoteBase } from '@/components/views/noteUtils';
+import { setRecoveryModeActiveForTest } from '@/lib/recoverySafetyPolicy';
 
 function sampleNote(id: string, body: string): NoteBase {
   return {
@@ -27,6 +28,7 @@ function sampleNote(id: string, body: string): NoteBase {
 
 describe('noteIndexedDb', () => {
   beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
     try {
       await clearIndexedDbNotes();
@@ -61,6 +63,20 @@ describe('noteIndexedDb', () => {
     expect(await deleteNoteFromIndexedDb('n-1')).toBe(true);
     const loaded = await loadNotesFromIndexedDb();
     expect(loaded.map(n => n.id)).toEqual(['n-2']);
+  });
+
+  it('K-319A blocks direct delete and clear while preserving IndexedDB records', async () => {
+    await saveNotesToIndexedDb([
+      sampleNote('n-1', 'a'),
+      sampleNote('n-2', 'b'),
+    ]);
+    setRecoveryModeActiveForTest(true);
+
+    expect(await deleteNoteFromIndexedDb('n-1')).toBe(false);
+    expect(await clearIndexedDbNotes()).toBe(false);
+
+    const loaded = await loadNotesFromIndexedDb();
+    expect(loaded.map(note => note.id).sort()).toEqual(['n-1', 'n-2']);
   });
 
   it('tracks migration marker independently', () => {

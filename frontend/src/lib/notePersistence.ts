@@ -31,10 +31,13 @@ import {
 import {
   assertCurrentOperationEpoch,
   captureOperationEpoch,
+  isCompletePersistedNote,
+  isRecoveryModeActive,
   isOperationEpochCurrent,
   mayDeleteLegacyStorage,
-  mayReplacePersistedNotes,
   recordRecoveryBlock,
+  validatePersistedNotesReplacement,
+  type PersistedNotesReplacementResult,
 } from '@/lib/recoverySafetyPolicy';
 
 export type NotesPersistenceMode = 'indexeddb' | 'localStorage';
@@ -99,8 +102,36 @@ async function resolveEmptyVaultNotes(): Promise<NoteBase[]> {
   return seeded;
 }
 
+function readCurrentLocalStorageNotes(): readonly { id: string }[] | null {
+  try {
+    const raw = localStorage.getItem(NOTES_KEY);
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const notes: Array<{ id: string }> = [];
+    const ids = new Set<string>();
+    for (const item of parsed) {
+      if (!isCompletePersistedNote(item)) return null;
+      const id = item.id.trim();
+      if (ids.has(id)) return null;
+      ids.add(id);
+      notes.push({ id });
+    }
+    return notes;
+  } catch {
+    return null;
+  }
+}
+
+export function validateLocalStorageNotesReplacement(
+  notes: unknown,
+): PersistedNotesReplacementResult {
+  return validatePersistedNotesReplacement(readCurrentLocalStorageNotes(), notes);
+}
+
 function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
-  if (!mayReplacePersistedNotes(notesCache, notes)) {
+  const validation = validateLocalStorageNotesReplacement(notes);
+  if (!validation.ok) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
     return false;
   }
@@ -280,10 +311,6 @@ export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolea
   if (!persistenceHydrated && notes.length === 0) {
     return true;
   }
-  if (!mayReplacePersistedNotes(notesCache, notes)) {
-    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
-    return false;
-  }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
     const ok = await saveNotesToIndexedDb(notes, () => isOperationEpochCurrent(epoch));
     assertCurrentOperationEpoch(epoch, 'replace_persisted_notes');
@@ -293,6 +320,7 @@ export async function saveNotesAsync(notes: readonly NoteBase[]): Promise<boolea
       lastIndexedDbRevision = readNotesIndexedDbRevision();
       return true;
     }
+    if (isRecoveryModeActive()) return false;
     persistenceMode = 'localStorage';
   }
 
@@ -365,10 +393,6 @@ registerNotesStorageBridge(
   (notes) => {
     if (!persistenceHydrated && notes.length === 0) {
       return true;
-    }
-    if (!mayReplacePersistedNotes(notesCache, notes)) {
-      recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
-      return false;
     }
     if (persistenceMode === 'indexeddb') {
       void saveNotesAsync(notes);
