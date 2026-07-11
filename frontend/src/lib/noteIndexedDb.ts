@@ -5,6 +5,12 @@ import {
   normalizeNote,
   type NoteBase,
 } from '@/components/views/noteUtils';
+import {
+  isRecoveryModeActive,
+  mayDeleteLegacyStorage,
+  mayReplacePersistedNotes,
+  recordRecoveryBlock,
+} from '@/lib/recoverySafetyPolicy';
 
 export const NOTES_IDB_NAME = 'absinthe-notes-v1';
 export const NOTES_IDB_STORE = 'notes';
@@ -124,21 +130,40 @@ export async function loadNotesFromIndexedDb(): Promise<NoteBase[]> {
   }
 }
 
-export async function saveNotesToIndexedDb(notes: readonly NoteBase[]): Promise<boolean> {
+export async function saveNotesToIndexedDb(
+  notes: readonly NoteBase[],
+  isEpochCurrent: () => boolean = () => true,
+): Promise<boolean> {
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(NOTES_IDB_STORE, 'readwrite');
       const store = tx.objectStore(NOTES_IDB_STORE);
       tx.onerror = () => reject(tx.error ?? new Error('IndexedDB write transaction failed'));
+      tx.onabort = () => reject(new Error('IndexedDB write transaction blocked'));
       tx.oncomplete = () => resolve();
 
-      const clearReq = store.clear();
-      clearReq.onerror = () => reject(clearReq.error ?? new Error('IndexedDB clear failed'));
-      clearReq.onsuccess = () => {
-        for (const note of notes) {
-          store.put(normalizeNote(note));
+      const keysReq = store.getAllKeys();
+      keysReq.onerror = () => reject(keysReq.error ?? new Error('IndexedDB key read failed'));
+      keysReq.onsuccess = () => {
+        const current = keysReq.result.map(id => ({ id: String(id) }));
+        if (!isEpochCurrent() || (isRecoveryModeActive() && !mayReplacePersistedNotes(current, notes))) {
+          recordRecoveryBlock('replace_persisted_notes', isEpochCurrent() ? 'unsafe_replacement' : 'stale_operation_epoch');
+          tx.abort();
+          return;
         }
+        const clearReq = store.clear();
+        clearReq.onerror = () => reject(clearReq.error ?? new Error('IndexedDB clear failed'));
+        clearReq.onsuccess = () => {
+          if (!isEpochCurrent()) {
+            recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
+            tx.abort();
+            return;
+          }
+          for (const note of notes) {
+            store.put(normalizeNote(note));
+          }
+        };
       };
     });
     bumpNotesIndexedDbRevision();
@@ -151,6 +176,10 @@ export async function saveNotesToIndexedDb(notes: readonly NoteBase[]): Promise<
 }
 
 export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return false;
+  }
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -170,7 +199,11 @@ export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> 
   }
 }
 
-export async function clearIndexedDbNotes(): Promise<void> {
+export async function clearIndexedDbNotes(): Promise<boolean> {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return false;
+  }
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -182,6 +215,7 @@ export async function clearIndexedDbNotes(): Promise<void> {
       req.onerror = () => reject(req.error ?? new Error('IndexedDB clear failed'));
     });
     bumpNotesIndexedDbRevision();
+    return true;
   } finally {
     db.close();
   }

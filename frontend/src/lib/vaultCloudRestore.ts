@@ -4,11 +4,25 @@
 import { authFetch } from './supabase';
 import { API_URL } from './config';
 import type { VaultBackupCloudBlock } from './vaultCloudExport';
+import {
+  captureOperationEpoch,
+  isOperationEpochCurrent,
+  mayRestore,
+  recordRecoveryBlock,
+} from './recoverySafetyPolicy';
 
 export interface VaultCloudRestoreResult {
   applied: boolean;
   completeness: VaultBackupCloudBlock['completeness'];
   errors: string[];
+  blocked?: true;
+}
+
+function blockedResult(
+  completeness: VaultBackupCloudBlock['completeness'],
+): VaultCloudRestoreResult {
+  recordRecoveryBlock('restore');
+  return { applied: false, completeness, errors: ['recovery_mode_active'], blocked: true };
 }
 
 export async function applyCloudRestore(
@@ -17,6 +31,8 @@ export async function applyCloudRestore(
   if (!cloud || cloud.completeness === 'skipped') {
     return { applied: false, completeness: 'skipped', errors: ['cloud_skipped'] };
   }
+  if (!mayRestore()) return blockedResult(cloud.completeness);
+  const operationEpoch = captureOperationEpoch();
 
   const payload = {
     notes: [],
@@ -39,6 +55,9 @@ export async function applyCloudRestore(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (!isOperationEpochCurrent(operationEpoch) || !mayRestore()) {
+      return blockedResult(cloud.completeness);
+    }
     if (!res.ok) {
       return {
         applied: false,

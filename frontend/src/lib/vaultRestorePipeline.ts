@@ -17,6 +17,13 @@ import { createLastSnapshot } from './vaultSnapshotAuto';
 import type { VaultSnapshot } from './vaultSnapshotBuild';
 import { assessSnapshotRestoreReadiness } from './vaultSnapshotValidate';
 import type { VaultPortableExtensions } from './vaultPortableExtensions';
+import {
+  RecoveryModeBlockedError,
+  assertCurrentOperationEpoch,
+  captureOperationEpoch,
+  mayRestore,
+  recordRecoveryBlock,
+} from './recoverySafetyPolicy';
 
 export const LAST_VAULT_EXPORT_KEY = 'absinthe:last-vault-export:v1';
 
@@ -168,8 +175,14 @@ export async function executeVaultRestorePipeline(
   options: VaultRestorePipelineOptions,
   deps: VaultRestorePipelineDeps,
 ): Promise<VaultRestorePipelineResult> {
+  if (!mayRestore()) {
+    recordRecoveryBlock('restore');
+    throw new RecoveryModeBlockedError('restore');
+  }
+  const operationEpoch = captureOperationEpoch();
   let backedUp = false;
   if (options.backupBeforeRestore) {
+    assertCurrentOperationEpoch(operationEpoch, 'restore');
     createLastSnapshot(deps.getNotes(), deps.getFolders());
     backedUp = true;
   }
@@ -179,16 +192,20 @@ export async function executeVaultRestorePipeline(
   let cloud: Awaited<ReturnType<typeof applyCloudRestore>> | null = null;
 
   if (options.restoreCore && options.selection.noteIds.size > 0) {
+    assertCurrentOperationEpoch(operationEpoch, 'restore');
     const filtered = filterManifestBySelection(manifest, options.selection);
     core = deps.importCore(filtered, options.strategy);
   }
 
   if (options.restoreExtensions && manifest.extensions) {
+    assertCurrentOperationEpoch(operationEpoch, 'restore');
     extensions = applyVaultExtensionsRestore(manifest.extensions);
   }
 
   if (options.restoreCloud && manifest.cloud) {
+    assertCurrentOperationEpoch(operationEpoch, 'restore');
     cloud = await applyCloudRestore(manifest.cloud);
+    assertCurrentOperationEpoch(operationEpoch, 'restore');
   }
 
   return { core, extensions, cloud, backedUp };

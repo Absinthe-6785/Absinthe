@@ -30,12 +30,23 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
-import { resetNotesPersistenceForTests } from '../lib/notePersistence';
+import {
+  resetNotesPersistenceForTests,
+  saveNotesAsync,
+  setCachedNotes,
+  validateLocalStorageNotesReplacement,
+} from '../lib/notePersistence';
+import { activateRecoveryMode, setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import {
   NOTES_FOLDERS_BOOTSTRAP_KEY,
   NOTES_LAST_SYNC_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
 } from '../lib/notesSyncClient';
+import {
+  flushAutoSnapshotForTests,
+  resetAutoSnapshotStateForTests,
+} from '../lib/vaultSnapshotAuto';
+import { SNAPSHOT_INDEX_KEY } from '../lib/vaultSnapshotConstants';
 const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
@@ -44,6 +55,12 @@ function okJson(data: unknown) {
 
 function failResponse(status = 500) {
   return { ok: false, status, json: async () => ({}) };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
 }
 
 function skipFolderBootstrap() {
@@ -68,6 +85,7 @@ const sampleNote = (): NoteBase => ({
 });
 
 function resetStore() {
+  setRecoveryModeActiveForTest(false);
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
@@ -772,5 +790,144 @@ describe('useNotesStore K-142 notes delta sync foundation', () => {
 
     expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('100');
     expect(useNotesStore.getState().syncError).toContain('503');
+  });
+});
+
+describe('K-319 recovery freeze guards', () => {
+  beforeEach(() => {
+    resetStore();
+    setRecoveryModeActiveForTest(true);
+  });
+
+  it('blocks upload and hydration below the UI without advancing the cursor', async () => {
+    storage.set(NOTES_LAST_SYNC_KEY, '123');
+    useNotesStore.setState({ notes: [sampleNote()], syncError: null });
+
+    expect(await useNotesStore.getState().syncNoteToDB(sampleNote())).toBe(false);
+    await useNotesStore.getState().hydrateFromDB();
+
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+  });
+
+  it('blocks reset, permanent deletion, and Empty Trash without changing Notes', () => {
+    const active = sampleNote();
+    const trashed = { ...sampleNote(), id: 'trashed', deletedAt: 200 };
+    useNotesStore.setState({ notes: [active, trashed], folders: [{ id: 'f1', name: 'Folder', createdAt: 1 }] });
+    const before = useNotesStore.getState().notes;
+
+    useNotesStore.getState().emptyTrash();
+    useNotesStore.getState().deleteNotePermanently('trashed');
+    useNotesStore.getState().resetAllNotes();
+
+    expect(useNotesStore.getState().notes).toEqual(before);
+    expect(useNotesStore.getState().folders).toHaveLength(1);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct partial persistence replacement and leaves storage unchanged', async () => {
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    setCachedNotes(current);
+    storage.set(NOTES_KEY, JSON.stringify(current));
+
+    expect(await saveNotesAsync([current[0]])).toMatchObject({ status: 'rejected' });
+    expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(current);
+  });
+
+  it('K-319A rejects cache-null partial, duplicate, and malformed localStorage replacements byte-for-byte', async () => {
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    const original = JSON.stringify(current, null, 2);
+    storage.set(NOTES_KEY, original);
+
+    expect(validateLocalStorageNotesReplacement([current[0]])).toEqual({
+      ok: false,
+      reason: 'missing_existing_id',
+    });
+    expect(await saveNotesAsync([current[0]])).toEqual({ status: 'rejected', reason: 'missing_existing_id' });
+    expect(storage.get(NOTES_KEY)).toBe(original);
+
+    expect(await saveNotesAsync([current[0], current[0], current[1]])).toEqual({ status: 'rejected', reason: 'duplicate_id' });
+    expect(storage.get(NOTES_KEY)).toBe(original);
+
+    const malformed = [{ id: current[0].id }, current[1]] as NoteBase[];
+    expect(await saveNotesAsync(malformed)).toEqual({ status: 'rejected', reason: 'malformed_note' });
+    expect(storage.get(NOTES_KEY)).toBe(original);
+  });
+
+  it('K-319A allows a complete valid superset replacement', async () => {
+    const current = [sampleNote()];
+    storage.set(NOTES_KEY, JSON.stringify(current));
+    const replacement = [...current, { ...sampleNote(), id: 'new-note' }];
+
+    expect(await saveNotesAsync(replacement)).toEqual({ status: 'persisted' });
+    expect(JSON.parse(storage.get(NOTES_KEY)!)).toEqual(replacement);
+  });
+
+  it('K-319B suppresses autosnapshot after a rejected persistence result', async () => {
+    resetAutoSnapshotStateForTests();
+    const current = [sampleNote(), { ...sampleNote(), id: 'unrelated' }];
+    const original = JSON.stringify(current);
+    storage.set(NOTES_KEY, original);
+    useNotesStore.setState({ notes: [current[0]], activeNoteId: current[0].id });
+
+    useNotesStore.getState().updateNote(current[0].id, { title: 'blocked partial update' });
+    await Promise.resolve();
+    await Promise.resolve();
+    flushAutoSnapshotForTests();
+
+    expect(storage.get(NOTES_KEY)).toBe(original);
+    expect(storage.has(SNAPSHOT_INDEX_KEY)).toBe(false);
+  });
+
+  it('K-319A drops a stale folder hydration response without state, persistence, or marker changes', async () => {
+    setRecoveryModeActiveForTest(false);
+    const folders = [{ id: 'local-folder', name: 'Local', createdAt: 1 }];
+    const persisted = JSON.stringify(folders);
+    useNotesStore.setState({ folders, savedAt: null, syncError: null });
+    storage.set(FOLDERS_KEY, persisted);
+    const response = deferred<ReturnType<typeof okJson>>();
+    authFetchMock.mockReturnValueOnce(response.promise);
+
+    const hydration = useNotesStore.getState().hydrateFromDB();
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateRecoveryMode();
+    response.resolve(okJson([{ id: 'remote-folder', name: 'Remote', created_at: 2 }]));
+    await hydration;
+
+    expect(useNotesStore.getState().folders).toEqual(folders);
+    expect(storage.get(FOLDERS_KEY)).toBe(persisted);
+    expect(storage.has(NOTES_FOLDERS_BOOTSTRAP_KEY)).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+  });
+
+  it('K-319A reports a stale upload as blocked without clearing errors, savedAt, or cursor', async () => {
+    setRecoveryModeActiveForTest(false);
+    storage.set(NOTES_LAST_SYNC_KEY, '123');
+    useNotesStore.setState({ notes: [sampleNote()], savedAt: null, syncError: 'existing error' });
+    const response = deferred<ReturnType<typeof okJson>>();
+    authFetchMock.mockReturnValueOnce(response.promise);
+
+    const upload = useNotesStore.getState().syncNoteToDB(sampleNote());
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateRecoveryMode();
+    response.resolve(okJson({}));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
+  });
+
+  it('rejects destructive cross-tab replacement without rebroadcast or state change', () => {
+    const current = [sampleNote()];
+    useNotesStore.setState({ notes: current });
+    const peer = [{ ...sampleNote(), body: 'peer replacement' }];
+
+    applyStorageMerge(NOTES_KEY, JSON.stringify(peer));
+
+    expect(useNotesStore.getState().notes).toEqual(current);
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 });

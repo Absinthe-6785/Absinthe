@@ -13,9 +13,11 @@ import { NOTES_KEY } from '@/components/views/noteUtils';
 import { buildLargeVaultDataset } from '@/dev/realisticUsageFixture';
 import { resetNotesPersistenceForTests } from '@/lib/notePersistence';
 import { clearIndexedDbNotes } from '@/lib/noteIndexedDb';
+import { setRecoveryModeActiveForTest } from '@/lib/recoverySafetyPolicy';
 
 describe('k96bIndexedDbAudit', () => {
   beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
     resetNotesPersistenceForTests();
     localStorage.clear();
     await clearIndexedDbNotes();

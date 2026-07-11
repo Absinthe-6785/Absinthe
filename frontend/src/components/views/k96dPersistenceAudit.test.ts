@@ -29,6 +29,7 @@ import {
   resetNotesPersistenceForTests,
   saveNotesAsync,
 } from '@/lib/notePersistence';
+import { setRecoveryModeActiveForTest } from '@/lib/recoverySafetyPolicy';
 import {
   formatK96DPersistenceAuditReport,
   inventoryPersistenceStorage,
@@ -57,6 +58,8 @@ import {
 import { validateVaultSnapshot } from '@/lib/vaultSnapshotValidate';
 import { buildVaultBackupManifest } from '@/lib/exportVaultBackup';
 
+beforeEach(() => setRecoveryModeActiveForTest(false));
+
 describe('persistenceCleanup', () => {
   let storage: SnapshotStorageAdapter;
 
@@ -64,6 +67,17 @@ describe('persistenceCleanup', () => {
     storage = makeMemoryStorage();
     resetNotesPersistenceForTests();
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
+  });
+
+  it('K-319 preserves legacy and snapshot storage while recovery mode is active', () => {
+    setRecoveryModeActiveForTest(true);
+    storage.setItem(LEGACY_NOTE_STORAGE_KEYS[0], '[{"id":"preserved"}]');
+    seedOrphanSnapshotChunk(storage, 'preserved-snapshot', 0, 'payload');
+
+    expect(cleanupLegacyStorageKeys(storage).removedKeys).toEqual([]);
+    expect(cleanupPersistenceOrphans(storage).removedKeys).toEqual([]);
+    expect(storage.getItem(LEGACY_NOTE_STORAGE_KEYS[0])).not.toBeNull();
+    expect(countOrphanSnapshotKeys(storage)).toBeGreaterThan(0);
   });
 
   it('removes legacy note keys after IndexedDB migration', () => {

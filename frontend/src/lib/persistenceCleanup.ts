@@ -24,6 +24,7 @@ import {
   saveSnapshotIndex,
   type SnapshotStorageAdapter,
 } from '@/lib/vaultSnapshotStore';
+import { mayDeleteLegacyStorage, recordRecoveryBlock } from '@/lib/recoverySafetyPolicy';
 
 /** Pre-v2 note/planner keys — safe to remove after unified migration. */
 export const LEGACY_NOTE_STORAGE_KEYS = [
@@ -251,6 +252,10 @@ export function summarizeStorageAudit(entries: readonly StorageKeyAuditEntry[]):
 export function cleanupLegacyStorageKeys(
   storage: SnapshotStorageAdapter = defaultStorage(),
 ): CleanupResult {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return { removedKeys: [], bytesReclaimed: 0 };
+  }
   const removedKeys: string[] = [];
   let bytesReclaimed = 0;
 
@@ -286,6 +291,10 @@ export function cleanupLegacyStorageKeys(
 export function cleanupPersistenceOrphans(
   storage: SnapshotStorageAdapter = defaultStorage(),
 ): CleanupResult {
+  if (!mayDeleteLegacyStorage()) {
+    recordRecoveryBlock('delete_legacy_storage');
+    return { removedKeys: [], bytesReclaimed: 0 };
+  }
   const removedKeys: string[] = [];
   let bytesReclaimed = 0;
 

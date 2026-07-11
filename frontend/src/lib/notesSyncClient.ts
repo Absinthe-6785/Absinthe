@@ -4,6 +4,13 @@
 import { API_URL } from './config';
 import { authFetch } from './supabase';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
+import {
+  RecoveryModeBlockedError,
+  assertCurrentOperationEpoch,
+  captureOperationEpoch,
+  mayHydrateRemote,
+  recordRecoveryBlock,
+} from './recoverySafetyPolicy';
 export {
   isNotesCloudSyncEnabled,
   NOTES_RUNTIME_SYNC_MODE_KEY,
@@ -54,6 +61,10 @@ export function readLastNotesSyncAt(): number | null {
 }
 
 export function writeLastNotesSyncAt(timestamp: number): void {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    return;
+  }
   try {
     localStorage.setItem(NOTES_LAST_SYNC_KEY, String(timestamp));
   } catch { /* ignore */ }
@@ -87,14 +98,21 @@ export function buildNotesFetchUrl(_mode: NotesSyncMode, lastSyncAt: number | nu
 }
 
 export async function fetchNotesFromCloud(mode?: NotesSyncMode): Promise<NotesFetchResult> {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    throw new RecoveryModeBlockedError('hydrate_remote');
+  }
+  const operationEpoch = captureOperationEpoch();
   const resolved = resolveNotesSyncMode(mode);
   const lastSyncAt = readLastNotesSyncAt();
   const url = buildNotesFetchUrl(resolved, lastSyncAt);
   const res = await authFetch(url);
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   if (!res.ok) {
     throw new Error(`Failed to load notes (${res.status})`);
   }
   const rows = (await res.json()) as DbNoteRow[];
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   return {
     mode: resolved,
     rows,
@@ -119,15 +137,22 @@ export function markFoldersBootstrapped(): void {
 }
 
 export async function fetchFoldersFromCloud(mode?: NotesSyncMode): Promise<FoldersFetchResult> {
+  if (!mayHydrateRemote()) {
+    recordRecoveryBlock('hydrate_remote');
+    throw new RecoveryModeBlockedError('hydrate_remote');
+  }
+  const operationEpoch = captureOperationEpoch();
   const resolved = resolveNotesSyncMode(mode);
   if (!shouldFetchFolders(resolved)) {
     return { rows: [], skipped: true };
   }
   const res = await authFetch(`${API_URL}/api/note_folders`);
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   if (!res.ok) {
     throw new Error(`Failed to load folders (${res.status})`);
   }
   const rows = (await res.json()) as FoldersFetchResult['rows'];
+  assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
   markFoldersBootstrapped();
   return { rows, skipped: false };
 }
