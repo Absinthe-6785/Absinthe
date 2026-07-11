@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "recovery:export": "node scripts/recovery-package-cli.mjs export",
+    "recovery:verify": "node scripts/recovery-package-cli.mjs verify",
     "audit:discovery": "node scripts/run-discovery-rediscovery-audit.mjs",
     "typecheck:editor": "tsc --noEmit -p tsconfig.editor.json",
     "typecheck:app": "tsc --noEmit -p tsconfig.app.json",
