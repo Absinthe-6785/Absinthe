@@ -123,6 +123,33 @@ event, and therefore produces the same provenance/boundary relationship as an im
 relational validation continues to reject any timestamp divergence. Remote resurrection delivery remains
 blocked by `REMOTE_RESURRECTION_UNSUPPORTED`.
 
+## Exact staged application manifest
+
+Restore activation is authorized by an immutable version-1 application manifest, not by the set of staged
+entities that happen to remain present at commit time. The manifest is stored inside the restore-session
+record and contains one canonically sorted entry per validated package entity. It binds the session, package
+and package digest, namespace, source/target generations, classification, source/target revisions, entity
+and provenance SHA-256 digests, repository-derived mutation/idempotency identity, operation, outbox
+requirement, and sequence-boundary requirement. It contains no Note payload, credential, cursor, lease,
+checkpoint, or queue state. Duplicate keys, unknown fields, non-canonical ordering, more than 5,000 entries,
+or a canonical encoded manifest larger than 4 MiB fail closed.
+The complete staged overlay is additionally bound by its entity count and a SHA-256 digest of canonically
+sorted domain/entity keys, without duplicating unrelated local entity identifiers in session metadata.
+
+Insert, replace, and resurrect entries require exactly one matching restore-owned staged entity and exactly
+one transactionally constructed outbox mutation. Replace and resurrect require the exact N -> N+1 boundary;
+insert forbids one. Skip-identical and preserve-local entries create neither a restore-owned entity nor an
+outbox mutation, while unrelated overlay entities copied from the predecessor remain distinguishable by
+their provenance. The persisted summary is recomputed from the manifest, and the exact applied entity and
+outbox sets must reconcile before activation. A missing, extra, or altered staged entity aborts activation
+as `CORRUPT_PERSISTED_RECORD`.
+
+Every resume revalidates the manifest shape, canonical SHA-256 digest, package key set, session/generation
+bindings, staged entity/provenance digests, source revision assumptions, expected mutation identities, and
+absence of unexpected target outbox rows. Corrupt staged state is not a temporary queue conflict: it is not
+repaired, regenerated, restaged, purged, or replaced automatically. The session remains inspectable and the
+predecessor remains active for a later separately reviewed recovery decision.
+
 The boundary authorizes exactly one `N -> N+1` replace/resurrect transition. It cannot authorize insert,
 `N+2`, another entity/domain/generation/package/session, or a normal local mutation. Subsequent normal K-322
 mutations continue from that one validated boundary and retain ordinary gap detection. Relationship lookups

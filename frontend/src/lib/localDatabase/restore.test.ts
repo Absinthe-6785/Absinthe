@@ -69,6 +69,11 @@ async function putRawOutbox(record: OutboxRecord): Promise<void> {
   tx.objectStore(LOCAL_DATABASE_STORES.outbox).put(record);
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
 }
+async function putRawEntity(record: Record<string, unknown>): Promise<void> {
+  const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readwrite');
+  tx.objectStore(LOCAL_DATABASE_STORES.entities).put(record);
+  await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+}
 async function mutateRawRecord(
   storeName: string, key: IDBValidKey, transform: (value: Record<string, unknown>) => Record<string, unknown> | null,
 ): Promise<void> {
@@ -881,5 +886,179 @@ describe('K-324 explicit resurrection and failure fencing', () => {
     })).rejects.toHaveProperty('code');
     await cancelledRepository.cancelRestoreSession('cancelled-control', T1);
     expect(await cancelledRepository.getRestoreSession('cancelled-control')).toMatchObject({ status: 'cancelled' });
+  });
+});
+
+describe('K-324D exact staged application manifest', () => {
+  async function stagedFixture(kind: 'insert' | 'replace' | 'resurrect') {
+    const repository = await repo();
+    if (kind !== 'insert') {
+      await repository.commitLocalMutation({
+        mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+      });
+      if (kind === 'resurrect') {
+        await repository.commitLocalMutation({
+          mutation: { mode: 'tombstone', domain: 'notes', entityId: A, record: null, expectedRevision: 1 }, now: T0,
+        });
+      }
+      await acknowledgeAll(repository, T0);
+    }
+    const sessionId = `manifest-${kind}`;
+    const value = await packageFor(repository, [note(A, 'new')], sessionId);
+    await expect(repository.restorePackageAtomically(value, {
+      sessionId, now: T1, conflictPolicy: kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: kind === 'resurrect', testOnlyFailAt: 'outbox_creation',
+    })).rejects.toHaveProperty('code');
+    const session = await repository.getRestoreSession(sessionId);
+    expect(session).toMatchObject({ status: 'committing', applicationManifest: { version: 1, entryCount: 1 } });
+    return { repository, value, session: session!, sessionId, targetGenerationId: `restore-${sessionId}`, kind };
+  }
+
+  async function expectCorruptResume(fixture: Awaited<ReturnType<typeof stagedFixture>>, expectedTargetOutboxCount = 0) {
+    await expect(fixture.repository.resumeRestoreSession(fixture.value, {
+      sessionId: fixture.sessionId, now: T2, conflictPolicy: fixture.kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: fixture.kind === 'resurrect',
+    })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect((await fixture.repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+    expect(await fixture.repository.getGeneration(fixture.targetGenerationId)).toMatchObject({ status: 'preparing' });
+    expect(await rawOutbox(fixture.repository.namespaceKey, fixture.targetGenerationId)).toHaveLength(expectedTargetOutboxCount);
+  }
+
+  it.each(['insert', 'replace', 'resurrect'] as const)('rejects a missing staged %s entity without activation', async kind => {
+    const fixture = await stagedFixture(kind);
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.repository.namespaceKey, fixture.targetGenerationId, 'notes', A], () => null);
+    await expectCorruptResume(fixture);
+  });
+
+  it.each([
+    ['payload', (entity: Record<string, unknown>) => ({ ...entity, record: note(A, 'tampered').payload })],
+    ['revision', (entity: Record<string, unknown>) => ({ ...entity, revision: 99 })],
+    ['package provenance', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), packageId: 'other-package' },
+    })],
+    ['session provenance', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), restoreSessionId: 'other-session' },
+    })],
+    ['classification provenance', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), classification: 'resurrect' },
+    })],
+    ['timestamp provenance', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), restoredAt: T2 },
+    })],
+  ] as const)('rejects altered staged %s evidence', async (_label, transform) => {
+    const fixture = await stagedFixture('replace');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.repository.namespaceKey, fixture.targetGenerationId, 'notes', A], transform);
+    await expectCorruptResume(fixture);
+  });
+
+  it.each(['current restore', 'foreign restore'] as const)('rejects an extra staged entity from the %s', async owner => {
+    const fixture = await stagedFixture('insert');
+    const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readonly');
+    const request = tx.objectStore(LOCAL_DATABASE_STORES.entities)
+      .get([fixture.repository.namespaceKey, fixture.targetGenerationId, 'notes', A]);
+    const original = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result as Record<string, unknown>); request.onerror = () => reject(request.error);
+    });
+    db.close();
+    const foreign = owner === 'foreign restore' ? {
+      source: { kind: 'recovery_package', reference: 'other-package' },
+      restoreProvenance: {
+        ...(original.restoreProvenance as object), packageId: 'other-package', restoreSessionId: 'other-session',
+      },
+    } : {};
+    await putRawEntity({ ...original, ...foreign, entityId: B, record: note(B, 'extra').payload });
+    await expectCorruptResume(fixture);
+  });
+
+  it.each([
+    ['missing manifest', (session: Record<string, unknown>) => ({ ...session, applicationManifest: null })],
+    ['manifest digest', (session: Record<string, unknown>) => ({
+      ...session, applicationManifest: { ...(session.applicationManifest as object), manifestDigest: '0'.repeat(64) },
+    })],
+    ['removed entry', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: unknown[] };
+      return { ...session, applicationManifest: { ...manifest, entries: [], entryCount: 0 } };
+    }],
+    ['extra entry', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [...manifest.entries, { ...manifest.entries[0], entityId: B }], entryCount: 2 } };
+    }],
+    ['classification', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], classification: 'replace' }] } };
+    }],
+    ['source revision', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], sourceRevision: 2 }] } };
+    }],
+    ['target revision', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], targetRevision: 3 }] } };
+    }],
+    ['entity digest', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], expectedEntityDigest: '0'.repeat(64) }] } };
+    }],
+    ['mutation identity', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], expectedMutationId: 'mut.99999999-9999-4999-8999-999999999999' }] } };
+    }],
+    ['boundary requirement', (session: Record<string, unknown>) => {
+      const manifest = session.applicationManifest as { entries: Array<Record<string, unknown>> };
+      return { ...session, applicationManifest: { ...manifest, entries: [{ ...manifest.entries[0], requiresSequenceBoundary: true }] } };
+    }],
+    ['summary', (session: Record<string, unknown>) => ({
+      ...session, summary: { inserted: 0, replaced: 0, skipped: 1, resurrected: 0, conflicts: 0 },
+    })],
+  ] as const)('rejects corrupt persisted application evidence: %s', async (_label, transform) => {
+    const fixture = await stagedFixture('insert');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions,
+      [fixture.repository.namespaceKey, fixture.sessionId], transform);
+    await expectCorruptResume(fixture);
+  });
+
+  it('rejects an unexpected target-generation mutation before activation', async () => {
+    const fixture = await stagedFixture('insert');
+    const manifest = fixture.session.applicationManifest!; const entry = manifest.entries[0];
+    const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readonly');
+    const request = tx.objectStore(LOCAL_DATABASE_STORES.entities)
+      .get([fixture.repository.namespaceKey, fixture.targetGenerationId, 'notes', A]);
+    const entity = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result as Record<string, unknown>); request.onerror = () => reject(request.error);
+    });
+    db.close();
+    await putRawOutbox({
+      namespaceKey: fixture.repository.namespaceKey, generationId: fixture.targetGenerationId,
+      mutationId: entry.expectedMutationId!, domain: 'notes', entityId: A, operation: 'upsert',
+      baseRevision: null, localRevision: 1, payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: entity.record },
+      payloadHash: null, createdAt: T1, updatedAt: T1, availableAt: T1, attemptCount: 0, status: 'pending',
+      idempotencyKey: entry.expectedIdempotencyKey!, lastAttemptAt: null, lastErrorCode: null,
+      leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null,
+      remoteMutationRef: null, supersededByMutationId: null, resurrection: null, deliveryBlockCode: null,
+      generationBoundary: null,
+    });
+    await expectCorruptResume(fixture, 1);
+  });
+
+  it('accepts a mixed insert, replace, and resurrection with exact entity/outbox reconciliation', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0 });
+    await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: B, record: note(B, 'old').payload }, now: T0 });
+    await repository.commitLocalMutation({ mutation: { mode: 'tombstone', domain: 'notes', entityId: B, record: null, expectedRevision: 1 }, now: T0 });
+    await acknowledgeAll(repository, T0);
+    const value = await packageFor(repository, [note(A, 'new'), note(B, 'reborn'), note('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'insert')], 'mixed-manifest');
+    const result = await repository.restorePackageAtomically(value, {
+      sessionId: 'mixed-manifest', conflictPolicy: 'replace', allowResurrection: true, now: T1,
+    });
+    expect(result.summary).toEqual({ inserted: 1, replaced: 1, skipped: 0, resurrected: 1, conflicts: 0 });
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    expect(await active.listEntities({ domain: 'notes' })).toHaveLength(3);
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(3);
+    expect(await active.resumeRestoreSession(value, {
+      sessionId: 'mixed-manifest', conflictPolicy: 'replace', allowResurrection: true, now: T2,
+    })).toEqual(result);
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(3);
   });
 });

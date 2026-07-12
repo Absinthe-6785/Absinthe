@@ -4,7 +4,7 @@ import { deriveOutboxIdempotencyKey, validOutboxIdempotencyKey } from './outboxI
 import { LOCAL_DATABASE_VERSION } from './types';
 import type {
   AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
-  ResurrectionProvenance, RestoreProvenance, RestoreSessionRecord, SafeSourceReference, SyncCheckpointRecord,
+  ResurrectionProvenance, RestoreApplicationManifestV1, RestoreProvenance, RestoreSessionRecord, SafeSourceReference, SyncCheckpointRecord,
 } from './types';
 
 const SAFE_CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -242,6 +242,28 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
   if (value.sourceGenerationId !== null) validateSafeIdentifier(value.sourceGenerationId, 'validate_restore_session');
   const summary = value.summary;
   const blocking = value.blockingState;
+  const applicationManifestValid = value.applicationManifest === null
+    ? ['created', 'validating'].includes(value.status)
+      || ['failed', 'cancelled'].includes(value.status) && value.targetGenerationId === null
+    : validateRestoreApplicationManifest(value.applicationManifest)
+      && !['created', 'validating'].includes(value.status)
+      && value.applicationManifest.restoreSessionId === value.sessionId
+      && value.applicationManifest.packageId === value.packageId
+      && value.applicationManifest.packageDigest === value.packageDigest
+      && value.applicationManifest.namespaceKey === value.namespaceKey
+      && value.applicationManifest.sourceGenerationId === value.sourceGenerationId
+      && value.applicationManifest.targetGenerationId === value.stagingGenerationId
+      && value.applicationManifest.entryCount === value.entityCount;
+  const manifestSummary = value.applicationManifest === null ? null : value.applicationManifest.entries.reduce((result, entry) => {
+    if (entry.classification === 'insert') result.inserted += 1;
+    else if (entry.classification === 'replace') result.replaced += 1;
+    else if (entry.classification === 'resurrect') result.resurrected += 1;
+    else if (entry.classification === 'skip_identical' || entry.classification === 'preserve_local') result.skipped += 1;
+    else result.conflicts += 1;
+    return result;
+  }, { inserted: 0, replaced: 0, skipped: 0, resurrected: 0, conflicts: 0 });
+  const manifestSummaryValid = manifestSummary === null || Object.keys(manifestSummary).every(key =>
+    manifestSummary[key as keyof typeof manifestSummary] === value.summary[key as keyof RestoreSessionRecord['summary']]);
   const blockingValid = blocking === null || blocking !== undefined
     && Object.keys(blocking).sort().join(',') === ['attemptCount', 'code', 'detectedAt'].sort().join(',')
     && blocking.code === 'RESTORE_UNSETTLED_OUTBOX_CONFLICT'
@@ -285,9 +307,61 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
     || (value.status === 'committed'
       && summary.inserted + summary.replaced + summary.skipped + summary.resurrected + summary.conflicts !== value.entityCount)
     || (value.failureCode !== null && (!SAFE_CODE.test(value.failureCode) || !failureCodes.has(value.failureCode)))
-    || !chronology || !terminalValid || !lifecycleReferencesValid || !blockingValid) {
+    || !chronology || !terminalValid || !lifecycleReferencesValid || !blockingValid
+    || !applicationManifestValid || !manifestSummaryValid) {
     throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_session');
   }
+}
+
+const RESTORE_APPLICATION_ENTRY_KEYS = [
+  'classification', 'domain', 'entityId', 'expectedEntityDigest', 'expectedIdempotencyKey', 'expectedMutationId',
+  'expectedOperation', 'expectedProvenanceDigest', 'requiresOutbox', 'requiresSequenceBoundary', 'sourceRevision', 'targetRevision',
+].sort().join(',');
+const RESTORE_APPLICATION_MANIFEST_KEYS = [
+  'entries', 'entryCount', 'manifestDigest', 'namespaceKey', 'packageDigest', 'packageId', 'restoreSessionId',
+  'sourceGenerationId', 'stagedEntityCount', 'stagedSetDigest', 'targetGenerationId', 'version',
+].sort().join(',');
+
+export function validateRestoreApplicationManifest(value: RestoreApplicationManifestV1): boolean {
+  if (!value || Object.keys(value).sort().join(',') !== RESTORE_APPLICATION_MANIFEST_KEYS
+    || value.version !== 1 || !SAFE_CODE.test(value.restoreSessionId) || !SAFE_CODE.test(value.packageId)
+    || !/^[a-f0-9]{64}$/.test(value.packageDigest) || !/^[a-f0-9]{64}$/.test(value.manifestDigest)
+    || typeof value.namespaceKey !== 'string' || value.namespaceKey.length < 1 || value.namespaceKey.length > 512
+    || !SAFE_CODE.test(value.sourceGenerationId) || !SAFE_CODE.test(value.targetGenerationId)
+    || value.sourceGenerationId === value.targetGenerationId
+    || !Number.isSafeInteger(value.stagedEntityCount) || value.stagedEntityCount < 0
+    || !/^[a-f0-9]{64}$/.test(value.stagedSetDigest)
+    || !Number.isSafeInteger(value.entryCount) || value.entryCount < 0 || value.entryCount > 5_000
+    || !Array.isArray(value.entries) || value.entries.length !== value.entryCount) return false;
+  let previousKey = '';
+  for (const entry of value.entries) {
+    if (!entry || Object.keys(entry).sort().join(',') !== RESTORE_APPLICATION_ENTRY_KEYS
+      || entry.domain !== 'notes' || typeof entry.entityId !== 'string' || entry.entityId.length < 1 || entry.entityId.length > 512
+      || !['insert', 'replace', 'resurrect', 'skip_identical', 'preserve_local', 'conflict'].includes(entry.classification)
+      || typeof entry.requiresOutbox !== 'boolean' || typeof entry.requiresSequenceBoundary !== 'boolean') return false;
+    const key = `${entry.domain}\0${entry.entityId}`;
+    if (key <= previousKey) return false;
+    previousKey = key;
+    const applied = ['insert', 'replace', 'resurrect'].includes(entry.classification);
+    const digestValid = (item: string | null): boolean => item === null || /^[a-f0-9]{64}$/.test(item);
+    if (!digestValid(entry.expectedEntityDigest) || !digestValid(entry.expectedProvenanceDigest)) return false;
+    if (applied) {
+      if (!entry.requiresOutbox || entry.expectedOperation !== 'upsert'
+        || entry.expectedEntityDigest === null || entry.expectedProvenanceDigest === null
+        || entry.expectedMutationId === null
+        || !/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.expectedMutationId)
+        || entry.expectedIdempotencyKey === null || !validOutboxIdempotencyKey(entry.expectedIdempotencyKey)) return false;
+      if (entry.classification === 'insert') {
+        if (entry.sourceRevision !== null || entry.targetRevision !== 1 || entry.requiresSequenceBoundary) return false;
+      } else if (!Number.isSafeInteger(entry.sourceRevision) || entry.sourceRevision! < 1
+        || entry.sourceRevision! >= Number.MAX_SAFE_INTEGER || entry.targetRevision !== entry.sourceRevision! + 1
+        || !entry.requiresSequenceBoundary) return false;
+    } else if (entry.requiresOutbox || entry.requiresSequenceBoundary || entry.expectedOperation !== null
+      || entry.expectedEntityDigest !== null || entry.expectedProvenanceDigest !== null
+      || entry.expectedMutationId !== null || entry.expectedIdempotencyKey !== null || entry.targetRevision !== null
+      || !Number.isSafeInteger(entry.sourceRevision) || entry.sourceRevision! < 1) return false;
+  }
+  return true;
 }
 
 export interface RestoreSequenceBoundaryGraph {

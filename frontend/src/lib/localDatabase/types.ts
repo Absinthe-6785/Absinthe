@@ -151,6 +151,35 @@ export interface SyncCheckpointRecord {
 
 export type RestoreSessionStatus = 'created' | 'validating' | 'staged' | 'committing' | 'committed' | 'failed' | 'cancelled';
 export interface RestoreSummary { inserted: number; replaced: number; skipped: number; resurrected: number; conflicts: number }
+export type RestoreApplicationClassification = 'insert' | 'replace' | 'resurrect' | 'skip_identical' | 'preserve_local' | 'conflict';
+export interface RestoreApplicationEntryV1 {
+  domain: 'notes';
+  entityId: string;
+  classification: RestoreApplicationClassification;
+  sourceRevision: number | null;
+  targetRevision: number | null;
+  expectedEntityDigest: string | null;
+  expectedProvenanceDigest: string | null;
+  requiresOutbox: boolean;
+  expectedMutationId: string | null;
+  expectedIdempotencyKey: string | null;
+  expectedOperation: 'upsert' | 'tombstone' | null;
+  requiresSequenceBoundary: boolean;
+}
+export interface RestoreApplicationManifestV1 {
+  version: 1;
+  restoreSessionId: string;
+  packageId: string;
+  packageDigest: string;
+  namespaceKey: string;
+  sourceGenerationId: string;
+  targetGenerationId: string;
+  entries: RestoreApplicationEntryV1[];
+  entryCount: number;
+  stagedEntityCount: number;
+  stagedSetDigest: string;
+  manifestDigest: string;
+}
 export interface RestoreBlockingState {
   code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT';
   detectedAt: string;
@@ -175,6 +204,7 @@ export interface RestoreSessionRecord {
   failedAt: string | null;
   failureCode: string | null;
   blockingState: RestoreBlockingState | null;
+  applicationManifest: RestoreApplicationManifestV1 | null;
   summary: RestoreSummary;
 }
 

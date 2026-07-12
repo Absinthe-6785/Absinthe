@@ -3,17 +3,19 @@ import { deriveOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_STORES } from './schema';
 import type {
   DatabaseMetaRecord, GenerationRecord, LocalDatabaseNamespace, LocalEntityEnvelope, OutboxRecord,
-  ResurrectionProvenance, RestoreClassification, RestoreProvenance, RestoreSessionRecord, RestoreSummary,
+  ResurrectionProvenance, RestoreApplicationEntryV1, RestoreApplicationManifestV1,
+  RestoreProvenance, RestoreSessionRecord, RestoreSummary,
 } from './types';
 import {
   validTimestamp, validateDatabaseMeta, validateEntityEnvelope, validateGenerationRecord,
-  validateOutboxRecord, validateRestoreSession, validateRestoreSessionGraph,
+  validateOutboxRecord, validateRestoreApplicationManifest, validateRestoreSession, validateRestoreSessionGraph,
 } from './validation';
 
 export const RESTORE_PACKAGE_PROTOCOL = 1 as const;
 export const MAX_RESTORE_ENTITIES = 5_000;
 export const MAX_RESTORE_PACKAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_RESTORE_ENTITY_BYTES = 128 * 1024;
+export const MAX_RESTORE_APPLICATION_MANIFEST_BYTES = 4 * 1024 * 1024;
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -95,6 +97,57 @@ function canonical(value: unknown): string {
 async function sha256(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+type RestoreApplicationManifestCore = Omit<RestoreApplicationManifestV1, 'manifestDigest'>;
+function applicationManifestDigestInput(value: RestoreApplicationManifestCore): unknown {
+  return ['absinthe-restore-application-v1', value.version, value.restoreSessionId, value.packageId, value.packageDigest,
+    value.namespaceKey, value.sourceGenerationId, value.targetGenerationId, value.entryCount, value.entries,
+    value.stagedEntityCount, value.stagedSetDigest];
+}
+async function applicationManifestDigest(value: RestoreApplicationManifestCore): Promise<string> {
+  return sha256(canonical(applicationManifestDigestInput(value)));
+}
+async function entityDigest(value: LocalEntityEnvelope): Promise<string> {
+  return sha256(canonical(['absinthe-restore-entity-v1', value]));
+}
+async function provenanceDigest(value: RestoreProvenance): Promise<string> {
+  return sha256(canonical(['absinthe-restore-provenance-v1', value]));
+}
+function manifestCore(value: RestoreApplicationManifestV1): RestoreApplicationManifestCore {
+  const { manifestDigest: _manifestDigest, ...core } = value;
+  return core;
+}
+async function validateManifestIntegrity(session: RestoreSessionRecord, packageValue?: RestorePackageV1): Promise<RestoreApplicationManifestV1 | null> {
+  const manifest = session.applicationManifest;
+  if (manifest === null) return null;
+  if (!validateRestoreApplicationManifest(manifest)
+    || manifest.restoreSessionId !== session.sessionId || manifest.packageId !== session.packageId
+    || manifest.packageDigest !== session.packageDigest || manifest.namespaceKey !== session.namespaceKey
+    || manifest.sourceGenerationId !== session.sourceGenerationId || manifest.targetGenerationId !== session.stagingGenerationId
+    || manifest.entryCount !== session.entityCount
+    || await applicationManifestDigest(manifestCore(manifest)) !== manifest.manifestDigest
+    || new TextEncoder().encode(canonical(manifest)).length > MAX_RESTORE_APPLICATION_MANIFEST_BYTES) {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_manifest');
+  }
+  if (packageValue) {
+    const packageKeys = [...packageValue.entities].map(entity => `${entity.domain}\0${entity.entityId}`).sort();
+    const manifestKeys = manifest.entries.map(entry => `${entry.domain}\0${entry.entityId}`);
+    if (canonical(packageKeys) !== canonical(manifestKeys)) fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_manifest');
+  }
+  return manifest;
+}
+
+function summaryFromManifest(manifest: RestoreApplicationManifestV1): RestoreSummary {
+  const summary = emptySummary();
+  for (const entry of manifest.entries) {
+    if (entry.classification === 'insert') summary.inserted += 1;
+    else if (entry.classification === 'replace') summary.replaced += 1;
+    else if (entry.classification === 'resurrect') summary.resurrected += 1;
+    else if (entry.classification === 'skip_identical' || entry.classification === 'preserve_local') summary.skipped += 1;
+    else summary.conflicts += 1;
+  }
+  return summary;
 }
 function packageDigestInput(value: RestorePackageV1): unknown {
   return [value.protocolVersion, value.packageId, value.exportedAt, value.source,
@@ -227,6 +280,7 @@ async function readSession(runtime: RestoreRuntime, sessionId: string): Promise<
     session, databaseMeta: meta, sourceGeneration: source ?? null, stagingGeneration: staging ?? null,
     targetGeneration: target ?? null, namespaceKey: runtime.namespaceKey, schemaVersion: runtime.namespace.schemaVersion,
   });
+  await validateManifestIntegrity(session);
   return session;
 }
 
@@ -252,7 +306,7 @@ async function createSession(runtime: RestoreRuntime, packageValue: RestorePacka
       expectedActiveGenerationId: meta.activeGenerationId, sourceGenerationId: meta.activeGenerationId,
       stagingGenerationId, targetGenerationId: null, status: 'created', packageDigest: digest,
       entityCount: packageValue.entities.length, createdAt: at, updatedAt: at, committedAt: null, failedAt: null,
-      failureCode: null, blockingState: null, summary: emptySummary(),
+      failureCode: null, blockingState: null, applicationManifest: null, summary: emptySummary(),
     };
     const generation: GenerationRecord = {
       namespaceKey: runtime.namespaceKey, generationId: stagingGenerationId, status: 'preparing', createdAt: at,
@@ -281,13 +335,138 @@ async function updateSession(runtime: RestoreRuntime, sessionId: string, allowed
       'sourceGenerationId', 'stagingGenerationId', 'packageDigest', 'entityCount', 'createdAt'] as const) {
       if (next[key] !== current[key]) fail('RESTORE_SESSION_CONFLICT', 'transition_restore_session');
     }
+    if (current.applicationManifest !== null
+      && canonical(next.applicationManifest) !== canonical(current.applicationManifest)) {
+      fail('CORRUPT_PERSISTED_RECORD', 'transition_restore_session');
+    }
     validateRestoreSession(next); store.put(next); await done; return next;
   } catch (error) { abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'transition_restore_session'); }
 }
 
 function sameRecord(left: unknown, right: unknown): boolean { return canonical(left) === canonical(right); }
+function entitySetCanonical(values: LocalEntityEnvelope[]): string {
+  return canonical([...values].sort((left, right) => `${left.domain}\0${left.entityId}`.localeCompare(`${right.domain}\0${right.entityId}`)));
+}
+
+interface RestoreStagePlan {
+  session: RestoreSessionRecord;
+  current: LocalEntityEnvelope[];
+  stagedEntities: LocalEntityEnvelope[];
+  manifest: RestoreApplicationManifestV1;
+  summary: RestoreSummary;
+}
+
+async function buildStagePlan(
+  runtime: RestoreRuntime, packageValue: RestorePackageV1, options: RestoreOptions, at: string,
+): Promise<RestoreStagePlan> {
+  const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+    LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.restoreSessions], 'readonly');
+  const done = transactionCompletion(tx, 'plan_restore');
+  const meta = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
+  const rawSession = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions)
+    .get(sessionKey(runtime.namespaceKey, options.sessionId)));
+  if (!meta || rawSession === undefined) fail('RESTORE_SESSION_CONFLICT');
+  validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
+  const session = persistedSession(rawSession, runtime.namespaceKey);
+  if (session.status !== 'validating' || session.applicationManifest !== null
+    || session.packageDigest !== packageValue.manifest.contentDigest || meta.activeGenerationId !== session.expectedActiveGenerationId) {
+    fail('RESTORE_SESSION_CONFLICT');
+  }
+  const generation = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.generations)
+    .get(generationKey(runtime.namespaceKey, session.stagingGenerationId))) as GenerationRecord | undefined;
+  if (!generation || generation.status !== 'preparing' || generation.validationState !== 'pending') fail('RESTORE_SESSION_CONFLICT');
+  const current = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+    .getAll(entityRange(runtime.namespaceKey, meta.activeGenerationId))) as LocalEntityEnvelope[];
+  await done;
+  try { current.forEach(validateEntityEnvelope); }
+  catch { fail('CORRUPT_PERSISTED_RECORD', 'plan_restore'); }
+
+  const target = new Map(current.map(entity => [`${entity.domain}\0${entity.entityId}`, { ...entity, generationId: session.stagingGenerationId }]));
+  const summary = emptySummary();
+  const entryDrafts: Array<{ entry: RestoreApplicationEntryV1; entity: LocalEntityEnvelope | null; provenance: RestoreProvenance | null }> = [];
+  const entities = [...packageValue.entities].sort((a, b) => `${a.domain}\0${a.entityId}`.localeCompare(`${b.domain}\0${b.entityId}`));
+  for (const incoming of entities) {
+    const local = current.find(item => item.domain === incoming.domain && item.entityId === incoming.entityId);
+    let classification: RestoreApplicationEntryV1['classification'];
+    if (incoming.sourceDeletedAt !== null) {
+      if (local?.isDeleted && sameRecord(local.record, incoming.payload)) classification = 'skip_identical';
+      else fail('RESTORE_TOMBSTONE_CONFLICT');
+    } else if (!local) classification = 'insert';
+    else if (!local.isDeleted && sameRecord(local.record, incoming.payload)) classification = 'skip_identical';
+    else if (local.isDeleted) {
+      if (!options.allowResurrection || !Number.isSafeInteger(local.revision)) fail('RESTORE_TOMBSTONE_CONFLICT');
+      classification = 'resurrect';
+    } else if ((options.conflictPolicy ?? 'fail') === 'replace') classification = 'replace';
+    else if (options.conflictPolicy === 'preserve_local') classification = 'preserve_local';
+    else fail('RESTORE_ENTITY_REVISION_CONFLICT');
+
+    if (classification === 'skip_identical' || classification === 'preserve_local') {
+      summary.skipped += 1;
+      entryDrafts.push({ entity: null, provenance: null, entry: {
+        domain: 'notes', entityId: incoming.entityId, classification, sourceRevision: local!.revision, targetRevision: null,
+        expectedEntityDigest: null, expectedProvenanceDigest: null, requiresOutbox: false,
+        expectedMutationId: null, expectedIdempotencyKey: null, expectedOperation: null, requiresSequenceBoundary: false,
+      } });
+      continue;
+    }
+    if (classification === 'insert') summary.inserted += 1;
+    else if (classification === 'replace') summary.replaced += 1;
+    else summary.resurrected += 1;
+    const mutationId = runtime.mutationIdFactory();
+    const resurrection: ResurrectionProvenance | null = classification === 'resurrect' ? {
+      restoresEntityId: incoming.entityId, sourcePackageId: packageValue.packageId,
+      sourceRestoreSessionId: options.sessionId, supersedesTombstoneRevision: local!.revision, restoredAt: at,
+    } : null;
+    const provenance: RestoreProvenance = {
+      packageId: packageValue.packageId, restoreSessionId: options.sessionId, classification,
+      sourceRevision: incoming.sourceRevision, sourceUpdatedAt: incoming.sourceUpdatedAt,
+      sourceDeletedAt: incoming.sourceDeletedAt, expectedLocalRevision: local?.revision ?? null,
+      restoredAt: at, mutationId, resurrection,
+    };
+    const next: LocalEntityEnvelope = {
+      namespaceKey: runtime.namespaceKey, generationId: session.stagingGenerationId, domain: incoming.domain,
+      entityId: incoming.entityId, record: incoming.payload, revision: local ? local.revision + 1 : 1,
+      createdAt: local?.createdAt ?? at, updatedAt: at, deletedAt: null, isDeleted: false, deletionState: 'active',
+      ownerId: runtime.namespace.userId, contentHash: null,
+      source: { kind: 'recovery_package', reference: packageValue.packageId }, restoreProvenance: provenance,
+    };
+    validateEntityEnvelope(next); target.set(`${incoming.domain}\0${incoming.entityId}`, next);
+    entryDrafts.push({ entity: next, provenance, entry: {
+      domain: 'notes', entityId: incoming.entityId, classification,
+      sourceRevision: local?.revision ?? null, targetRevision: next.revision,
+      expectedEntityDigest: null, expectedProvenanceDigest: null, requiresOutbox: true,
+      expectedMutationId: mutationId,
+      expectedIdempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: runtime.namespaceKey,
+        generationId: session.stagingGenerationId, domain: incoming.domain, entityId: incoming.entityId,
+        localRevision: next.revision, operation: 'upsert' }),
+      expectedOperation: 'upsert', requiresSequenceBoundary: classification !== 'insert',
+    } });
+  }
+  const entries = await Promise.all(entryDrafts.map(async draft => ({
+    ...draft.entry,
+    expectedEntityDigest: draft.entity ? await entityDigest(draft.entity) : null,
+    expectedProvenanceDigest: draft.provenance ? await provenanceDigest(draft.provenance) : null,
+  })));
+  const stagedEntities = [...target.values()].sort((a, b) =>
+    `${a.domain}\0${a.entityId}`.localeCompare(`${b.domain}\0${b.entityId}`));
+  const stagedKeys = stagedEntities.map(entity => `${entity.domain}\0${entity.entityId}`);
+  const core: RestoreApplicationManifestCore = {
+    version: 1, restoreSessionId: session.sessionId, packageId: session.packageId, packageDigest: session.packageDigest,
+    namespaceKey: runtime.namespaceKey, sourceGenerationId: session.sourceGenerationId!,
+    targetGenerationId: session.stagingGenerationId, entries, entryCount: entries.length,
+    stagedEntityCount: stagedEntities.length,
+    stagedSetDigest: await sha256(canonical(['absinthe-restore-staged-key-set-v1', stagedKeys])),
+  };
+  const manifest: RestoreApplicationManifestV1 = { ...core, manifestDigest: await applicationManifestDigest(core) };
+  if (!validateRestoreApplicationManifest(manifest)
+    || new TextEncoder().encode(canonical(manifest)).length > MAX_RESTORE_APPLICATION_MANIFEST_BYTES) {
+    fail('CORRUPT_PERSISTED_RECORD', 'plan_restore');
+  }
+  return { session, current, stagedEntities, manifest, summary };
+}
 
 async function stage(runtime: RestoreRuntime, packageValue: RestorePackageV1, options: RestoreOptions, at: string): Promise<RestoreSessionRecord> {
+  const plan = await buildStagePlan(runtime, packageValue, options, at);
   const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
     LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite');
   const done = transactionCompletion(tx, 'stage_restore');
@@ -299,54 +478,17 @@ async function stage(runtime: RestoreRuntime, packageValue: RestorePackageV1, op
     if (!meta || rawSession === undefined) fail('RESTORE_SESSION_CONFLICT');
     validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
     const session = persistedSession(rawSession, runtime.namespaceKey);
-    if (session.status !== 'validating' || session.packageDigest !== packageValue.manifest.contentDigest) fail('RESTORE_SESSION_CONFLICT');
+    if (canonical(session) !== canonical(plan.session) || session.status !== 'validating'
+      || session.packageDigest !== packageValue.manifest.contentDigest) fail('RESTORE_SESSION_CONFLICT');
     if (meta.activeGenerationId !== session.expectedActiveGenerationId) fail('RESTORE_ACTIVE_GENERATION_CHANGED');
     const generation = await requestResult(generationStore.get(generationKey(runtime.namespaceKey, session.stagingGenerationId))) as GenerationRecord | undefined;
-    if (!generation || generation.status !== 'preparing') fail('RESTORE_SESSION_CONFLICT');
+    if (!generation || generation.status !== 'preparing' || generation.validationState !== 'pending') fail('RESTORE_SESSION_CONFLICT');
     const sourceOutbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox)
       .getAll(outboxRange(runtime.namespaceKey, session.sourceGenerationId!))) as OutboxRecord[];
     const blocked = hasUnsettledRestoreOutbox(sourceOutbox);
     const current = await requestResult(entityStore.getAll(entityRange(runtime.namespaceKey, meta.activeGenerationId))) as LocalEntityEnvelope[];
-    current.forEach(validateEntityEnvelope);
-    const target = new Map(current.map(entity => [entity.entityId, { ...entity, generationId: session.stagingGenerationId }]));
-    const summary = emptySummary();
-    const entities = [...packageValue.entities].sort((a, b) => a.entityId.localeCompare(b.entityId));
-    for (let index = 0; index < entities.length; index += 1) {
-      const incoming = entities[index]; const local = current.find(item => item.domain === incoming.domain && item.entityId === incoming.entityId);
-      let classification: RestoreClassification; let next: LocalEntityEnvelope;
-      if (incoming.sourceDeletedAt !== null) {
-        if (local?.isDeleted && sameRecord(local.record, incoming.payload)) { classification = 'skip_identical'; summary.skipped += 1; continue; }
-        summary.conflicts += 1; fail('RESTORE_TOMBSTONE_CONFLICT');
-      }
-      if (!local) { classification = 'insert'; summary.inserted += 1; }
-      else if (!local.isDeleted && sameRecord(local.record, incoming.payload)) { summary.skipped += 1; continue; }
-      else if (local.isDeleted) {
-        if (!options.allowResurrection || !Number.isSafeInteger(local.revision)) { summary.conflicts += 1; fail('RESTORE_TOMBSTONE_CONFLICT'); }
-        classification = 'resurrect'; summary.resurrected += 1;
-      } else if ((options.conflictPolicy ?? 'fail') === 'replace') { classification = 'replace'; summary.replaced += 1; }
-      else if (options.conflictPolicy === 'preserve_local') { summary.skipped += 1; continue; }
-      else { summary.conflicts += 1; fail('RESTORE_ENTITY_REVISION_CONFLICT'); }
-      const mutationId = runtime.mutationIdFactory();
-      const resurrection: ResurrectionProvenance | null = classification === 'resurrect' ? {
-        restoresEntityId: incoming.entityId, sourcePackageId: packageValue.packageId,
-        sourceRestoreSessionId: options.sessionId, supersedesTombstoneRevision: local!.revision, restoredAt: at,
-      } : null;
-      const provenance: RestoreProvenance = {
-        packageId: packageValue.packageId, restoreSessionId: options.sessionId, classification,
-        sourceRevision: incoming.sourceRevision, sourceUpdatedAt: incoming.sourceUpdatedAt,
-        sourceDeletedAt: incoming.sourceDeletedAt, expectedLocalRevision: local?.revision ?? null,
-        restoredAt: at, mutationId, resurrection,
-      };
-      next = {
-        namespaceKey: runtime.namespaceKey, generationId: session.stagingGenerationId, domain: incoming.domain,
-        entityId: incoming.entityId, record: incoming.payload, revision: local ? local.revision + 1 : 1,
-        createdAt: local?.createdAt ?? at, updatedAt: at, deletedAt: null, isDeleted: false, deletionState: 'active',
-        ownerId: runtime.namespace.userId, contentHash: null,
-        source: { kind: 'recovery_package', reference: packageValue.packageId }, restoreProvenance: provenance,
-      };
-      validateEntityEnvelope(next); target.set(incoming.entityId, next);
-    }
-    const stagedEntities = [...target.values()].sort((a, b) => a.entityId.localeCompare(b.entityId));
+    if (entitySetCanonical(current) !== entitySetCanonical(plan.current)) fail('RESTORE_ACTIVE_GENERATION_CHANGED');
+    const stagedEntities = plan.stagedEntities;
     for (let index = 0; index < stagedEntities.length; index += 1) {
       entityStore.put(stagedEntities[index]);
       if (options.testOnlyFailAt === 'staging_first_entity' && index === 0
@@ -355,8 +497,9 @@ async function stage(runtime: RestoreRuntime, packageValue: RestorePackageV1, op
     }
     generationStore.put({ ...generation, validationState: 'valid' });
     const staged: RestoreSessionRecord = {
-      ...session, status: 'staged', targetGenerationId: session.stagingGenerationId, updatedAt: at, summary,
+      ...session, status: 'staged', targetGenerationId: session.stagingGenerationId, updatedAt: at, summary: plan.summary,
       blockingState: blocked ? { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', detectedAt: at, attemptCount: 1 } : null,
+      applicationManifest: plan.manifest,
     };
     validateRestoreSession(staged); sessionStore.put(staged);
     if (options.testOnlyFailAt === 'validation_completion') fail('RESTORE_TRANSACTION_FAILED');
@@ -383,7 +526,86 @@ function currentMatchesPlan(current: LocalEntityEnvelope[], staged: LocalEntityE
   return true;
 }
 
-async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: string): Promise<RestoreResult> {
+interface RestoreCommitEvidence {
+  manifest: RestoreApplicationManifestV1;
+  currentCanonical: string;
+  stagedCanonical: string;
+}
+
+async function prepareCommitEvidence(
+  runtime: RestoreRuntime, session: RestoreSessionRecord, packageValue: RestorePackageV1,
+): Promise<RestoreCommitEvidence> {
+  const manifest = await validateManifestIntegrity(session, packageValue);
+  if (!manifest || manifest.entries.some(entry => entry.classification === 'conflict')
+    || canonical(summaryFromManifest(manifest)) !== canonical(session.summary)) {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+  }
+  const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox], 'readonly');
+  const done = transactionCompletion(tx, 'validate_restore_application_evidence');
+  const current = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+    .getAll(entityRange(runtime.namespaceKey, manifest.sourceGenerationId))) as LocalEntityEnvelope[];
+  const staged = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+    .getAll(entityRange(runtime.namespaceKey, manifest.targetGenerationId))) as LocalEntityEnvelope[];
+  const targetOutbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox)
+    .getAll(outboxRange(runtime.namespaceKey, manifest.targetGenerationId))) as OutboxRecord[];
+  await done;
+  if (targetOutbox.length !== 0) fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+  try { current.forEach(validateEntityEnvelope); staged.forEach(validateEntityEnvelope); }
+  catch { fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence'); }
+  const currentByKey = new Map(current.map(entity => [`${entity.domain}\0${entity.entityId}`, entity]));
+  const stagedByKey = new Map(staged.map(entity => [`${entity.domain}\0${entity.entityId}`, entity]));
+  const appliedEntries = manifest.entries.filter(entry => entry.requiresOutbox);
+  const appliedKeys = new Set(appliedEntries.map(entry => `${entry.domain}\0${entry.entityId}`));
+  const stagedKeys = [...stagedByKey.keys()].sort();
+  if (stagedByKey.size !== manifest.stagedEntityCount
+    || await sha256(canonical(['absinthe-restore-staged-key-set-v1', stagedKeys])) !== manifest.stagedSetDigest) {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+  }
+  const restoreOwned = staged.filter(entity => entity.restoreProvenance?.restoreSessionId === session.sessionId
+    || entity.source?.kind === 'recovery_package' && entity.source.reference === session.packageId);
+  if (restoreOwned.length !== appliedEntries.length
+    || restoreOwned.some(entity => !appliedKeys.has(`${entity.domain}\0${entity.entityId}`))) {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+  }
+  for (const entry of manifest.entries) {
+    const key = `${entry.domain}\0${entry.entityId}`;
+    const source = currentByKey.get(key);
+    if (!entry.requiresOutbox) {
+      if (!source || entry.sourceRevision !== source.revision) fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+      continue;
+    }
+    const target = stagedByKey.get(key); const provenance = target?.restoreProvenance;
+    if (!target || !provenance || target.namespaceKey !== runtime.namespaceKey
+      || target.generationId !== manifest.targetGenerationId || target.domain !== entry.domain || target.entityId !== entry.entityId
+      || target.revision !== entry.targetRevision || provenance.restoreSessionId !== session.sessionId
+      || provenance.packageId !== session.packageId || provenance.classification !== entry.classification
+      || provenance.expectedLocalRevision !== entry.sourceRevision || provenance.mutationId !== entry.expectedMutationId
+      || target.source?.kind !== 'recovery_package' || target.source.reference !== session.packageId
+      || await entityDigest(target) !== entry.expectedEntityDigest
+      || await provenanceDigest(provenance) !== entry.expectedProvenanceDigest) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+    }
+    if (entry.classification === 'insert') {
+      if (source || entry.sourceRevision !== null || target.revision !== 1 || entry.requiresSequenceBoundary) {
+        fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+      }
+    } else if (!source || source.revision !== entry.sourceRevision || target.revision !== source.revision + 1
+      || (entry.classification === 'replace' && source.isDeleted)
+      || (entry.classification === 'resurrect' && (!source.isDeleted || provenance.resurrection === null))
+      || !entry.requiresSequenceBoundary) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+    }
+    const expectedIdempotencyKey = deriveOutboxIdempotencyKey({ namespaceKey: runtime.namespaceKey,
+      generationId: manifest.targetGenerationId, domain: entry.domain, entityId: entry.entityId,
+      localRevision: target.revision, operation: 'upsert' });
+    if (entry.expectedOperation !== 'upsert' || entry.expectedIdempotencyKey !== expectedIdempotencyKey) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+    }
+  }
+  return { manifest, currentCanonical: entitySetCanonical(current), stagedCanonical: entitySetCanonical(staged) };
+}
+
+async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: string, evidence: RestoreCommitEvidence): Promise<RestoreResult> {
   const stores = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
     LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions];
   const tx = runtime.db.transaction(stores, 'readwrite'); const done = transactionCompletion(tx, 'commit_restore');
@@ -396,6 +618,10 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
     if (!meta || rawSession === undefined) fail('RESTORE_SESSION_CONFLICT'); validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
     const session = persistedSession(rawSession, runtime.namespaceKey);
     if (session.status !== 'committing' || !session.sourceGenerationId || !session.targetGenerationId) fail('RESTORE_SESSION_CONFLICT');
+    if (canonical(session.applicationManifest) !== canonical(evidence.manifest)
+      || canonical(summaryFromManifest(evidence.manifest)) !== canonical(session.summary)) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+    }
     if (options.testOnlyFailAt === 'active_generation_reread') fail('RESTORE_TRANSACTION_FAILED');
     if (meta.activeGenerationId !== session.expectedActiveGenerationId) fail('RESTORE_ACTIVE_GENERATION_CHANGED');
     const source = await requestResult(generationStore.get(generationKey(runtime.namespaceKey, session.sourceGenerationId))) as GenerationRecord | undefined;
@@ -405,17 +631,14 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
     const staged = await requestResult(entityStore.getAll(entityRange(runtime.namespaceKey, session.targetGenerationId))) as LocalEntityEnvelope[];
     try { current.forEach(validateEntityEnvelope); staged.forEach(validateEntityEnvelope); }
     catch { fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_staging'); }
-    for (const entity of staged) {
-      const provenance = entity.restoreProvenance;
-      if (entity.source?.kind === 'recovery_package' && entity.source.reference === session.packageId
-        && (provenance?.restoreSessionId !== session.sessionId
-          || !['insert', 'replace', 'resurrect'].includes(provenance.classification))) {
-        fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_staging');
-      }
+    if (entitySetCanonical(current) !== evidence.currentCanonical || entitySetCanonical(staged) !== evidence.stagedCanonical) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
     }
     if (!currentMatchesPlan(current, staged, session.sessionId)) fail('RESTORE_ENTITY_REVISION_CONFLICT');
     if (options.testOnlyFailAt === 'entity_materialization') fail('RESTORE_TRANSACTION_FAILED');
     const inherited = await requestResult(outboxStore.getAll(outboxRange(runtime.namespaceKey, session.sourceGenerationId))) as OutboxRecord[];
+    const existingTargetOutbox = await requestResult(outboxStore.getAll(outboxRange(runtime.namespaceKey, session.targetGenerationId))) as OutboxRecord[];
+    if (existingTargetOutbox.length !== 0) fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
     if (hasUnsettledRestoreOutbox(inherited)) {
       const paused: RestoreSessionRecord = {
         ...session, status: 'staged', updatedAt: at,
@@ -428,32 +651,38 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
       await done;
       fail('RESTORE_UNSETTLED_OUTBOX_CONFLICT', 'validate_restore_outbox');
     }
-    for (const entity of staged) {
-      const provenance = entity.restoreProvenance;
-      if (provenance?.restoreSessionId !== session.sessionId || !provenance.mutationId
-        || !['insert', 'replace', 'resurrect'].includes(provenance.classification)) continue;
+    const stagedByKey = new Map(staged.map(entity => [`${entity.domain}\0${entity.entityId}`, entity]));
+    const createdOutbox: OutboxRecord[] = [];
+    for (const entry of evidence.manifest.entries.filter(value => value.requiresOutbox)) {
+      const entity = stagedByKey.get(`${entry.domain}\0${entry.entityId}`);
+      const provenance = entity?.restoreProvenance;
+      if (!entity || !provenance || !entry.expectedMutationId || !entry.expectedIdempotencyKey) {
+        fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
+      }
       const restoreEventAt = provenance.restoredAt;
       const outbox: OutboxRecord = {
-        namespaceKey: runtime.namespaceKey, generationId: session.targetGenerationId, mutationId: provenance.mutationId,
+        namespaceKey: runtime.namespaceKey, generationId: session.targetGenerationId, mutationId: entry.expectedMutationId,
         domain: entity.domain, entityId: entity.entityId, operation: 'upsert', baseRevision: provenance.expectedLocalRevision,
         localRevision: entity.revision, payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: entity.record }, payloadHash: null,
         createdAt: restoreEventAt, updatedAt: at, availableAt: at, attemptCount: 0, status: 'pending',
-        idempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: runtime.namespaceKey, generationId: session.targetGenerationId,
-          domain: entity.domain, entityId: entity.entityId, localRevision: entity.revision, operation: 'upsert' }),
+        idempotencyKey: entry.expectedIdempotencyKey,
         lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
         acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null, supersededByMutationId: null,
         resurrection: provenance.resurrection,
         deliveryBlockCode: provenance.resurrection ? 'REMOTE_RESURRECTION_UNSUPPORTED' : null,
-        generationBoundary: provenance.expectedLocalRevision === null ? null : {
+        generationBoundary: entry.requiresSequenceBoundary ? {
           kind: 'restore_generation_sequence_boundary', namespaceKey: runtime.namespaceKey,
           sourceGenerationId: session.sourceGenerationId, targetGenerationId: session.targetGenerationId,
           domain: entity.domain, entityId: entity.entityId,
-          sourceRevision: provenance.expectedLocalRevision, targetRevision: entity.revision,
+          sourceRevision: entry.sourceRevision!, targetRevision: entity.revision,
           restoreSessionId: session.sessionId, packageId: session.packageId, packageDigest: session.packageDigest,
-          classification: provenance.classification as 'replace' | 'resurrect', createdAt: restoreEventAt,
-        },
+          classification: entry.classification as 'replace' | 'resurrect', createdAt: restoreEventAt,
+        } : null,
       };
-      validateOutboxRecord(outbox); outboxStore.add(outbox);
+      validateOutboxRecord(outbox); createdOutbox.push(outbox); outboxStore.add(outbox);
+    }
+    if (createdOutbox.length !== evidence.manifest.entries.filter(entry => entry.requiresOutbox).length) {
+      fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
     }
     if (options.testOnlyFailAt === 'outbox_creation') fail('RESTORE_TRANSACTION_FAILED');
     generationStore.put({ ...source, status: 'sealed', activeNamespaceKey: undefined });
@@ -518,7 +747,10 @@ export async function restorePackageAtomically(runtime: RestoreRuntime, untruste
   }
   if (session.status === 'staged') session = await updateSession(runtime, options.sessionId, ['staged'], value => ({ ...value, status: 'committing', updatedAt: at }));
   if (session.status === 'committing') {
-    try { return await commit(runtime, options, at); }
+    try {
+      const evidence = await prepareCommitEvidence(runtime, session, packageValue);
+      return await commit(runtime, options, at, evidence);
+    }
     catch (error) {
       if (error instanceof LocalDatabaseError && [
         'RESTORE_ENTITY_REVISION_CONFLICT', 'RESTORE_ACTIVE_GENERATION_CHANGED',
