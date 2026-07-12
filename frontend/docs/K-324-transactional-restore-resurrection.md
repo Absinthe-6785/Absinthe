@@ -156,6 +156,24 @@ mutations continue from that one validated boundary and retain ordinary gap dete
 are bounded by the scoped outbox scan and deduplicated by compound session/generation/entity keys. A future
 cross-generation carry-forward protocol remains a separate reviewed non-goal.
 
+## Committed application evidence
+
+Committed status is not sufficient evidence of a successful restore. Every public terminal-session read
+revalidates the immutable application manifest against the complete target-generation entity set and the
+restore-created outbox set. The session, generation metadata, source entities, target entities, and target
+outbox records are captured in one readonly five-store IndexedDB transaction before that evidence is
+evaluated.
+
+A committed restore remains trustworthy only while its durable target entity and restore-created outbox evidence continue to match the immutable application manifest.
+
+The validator accepts mutable delivery lifecycle fields for structurally valid pending, claimed,
+retry-wait, permanent-failure, acknowledged, and superseded records. It still requires the original
+mutation identity, entity and revision binding, payload snapshot, restore boundary, and resurrection
+delivery block. Missing, additional, or altered durable evidence fails closed as
+`CORRUPT_PERSISTED_RECORD`; the read path never repairs or normalizes it.
+
+Exact retry never returns stored success solely from the committed session record.
+
 ## Atomic commit and concurrency
 
 The final IndexedDB transaction spans database metadata, generations, entities, outbox, and restore

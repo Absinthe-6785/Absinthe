@@ -1062,3 +1062,216 @@ describe('K-324D exact staged application manifest', () => {
     expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(3);
   });
 });
+
+describe('K-324E committed restore evidence validation', () => {
+  async function committedFixture(kind: 'insert' | 'replace' | 'resurrect', preserveOverlay = false) {
+    const repository = await repo();
+    if (kind !== 'insert') {
+      await repository.commitLocalMutation({
+        mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+      });
+      if (kind === 'resurrect') {
+        await repository.commitLocalMutation({
+          mutation: { mode: 'tombstone', domain: 'notes', entityId: A, record: null, expectedRevision: 1 }, now: T0,
+        });
+      }
+    }
+    if (preserveOverlay) {
+      await repository.commitLocalMutation({
+        mutation: { mode: 'create', domain: 'notes', entityId: B, record: note(B, 'preserved').payload }, now: T0,
+      });
+    }
+    await acknowledgeAll(repository, T0);
+    const sessionId = `committed-${kind}-${preserveOverlay ? 'overlay' : 'plain'}`;
+    const value = await packageFor(repository, [note(A, 'restored')], sessionId);
+    const result = await repository.restorePackageAtomically(value, {
+      sessionId, now: T1, conflictPolicy: kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: kind === 'resurrect',
+    });
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    const outbox = (await active.listOutboxMutations({ limit: 10 }))[0];
+    return { repository, active, value, result, sessionId, kind, outbox };
+  }
+
+  async function expectCommittedCorrupt(fixture: Awaited<ReturnType<typeof committedFixture>>) {
+    await expect(fixture.active.getRestoreSession(fixture.sessionId))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(fixture.active.restorePackageAtomically(fixture.value, {
+      sessionId: fixture.sessionId, now: T2, conflictPolicy: fixture.kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: fixture.kind === 'resurrect',
+    })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(fixture.active.resumeRestoreSession(fixture.value, {
+      sessionId: fixture.sessionId, now: T2, conflictPolicy: fixture.kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: fixture.kind === 'resurrect',
+    })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  }
+
+  async function expectExactRetry(fixture: Awaited<ReturnType<typeof committedFixture>>) {
+    await expect(fixture.active.restorePackageAtomically(fixture.value, {
+      sessionId: fixture.sessionId,
+      now: T2,
+      conflictPolicy: fixture.kind === 'replace' ? 'replace' : undefined,
+      allowResurrection: fixture.kind === 'resurrect',
+    })).resolves.toEqual(fixture.result);
+  }
+
+  it.each(['insert', 'replace', 'resurrect'] as const)('rejects a missing committed %s entity on every terminal path', async kind => {
+    const fixture = await committedFixture(kind);
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, 'notes', A], () => null);
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it.each([
+    ['payload', (entity: Record<string, unknown>) => ({ ...entity, record: note(A, 'tampered').payload })],
+    ['revision', (entity: Record<string, unknown>) => ({ ...entity, revision: 99 })],
+    ['provenance package', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), packageId: 'other-package' },
+    })],
+    ['provenance session', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), restoreSessionId: 'other-session' },
+    })],
+    ['provenance classification', (entity: Record<string, unknown>) => ({
+      ...entity, restoreProvenance: { ...(entity.restoreProvenance as object), classification: 'replace' },
+    })],
+  ] as const)('rejects altered committed entity %s', async (_label, transform) => {
+    const fixture = await committedFixture('insert');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, 'notes', A], transform);
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects loss of an unrelated preserved overlay entity', async () => {
+    const fixture = await committedFixture('insert', true);
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, 'notes', B], () => null);
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects alteration of an unrelated preserved overlay entity', async () => {
+    const fixture = await committedFixture('insert', true);
+    await mutateRawRecord(LOCAL_DATABASE_STORES.entities,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, 'notes', B], entity => ({
+        ...entity, record: note(B, 'altered-preserved').payload,
+      }));
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects an extra committed target entity', async () => {
+    const fixture = await committedFixture('insert');
+    const entity = await fixture.active.getEntity('notes', A);
+    await putRawEntity({ ...entity, entityId: B, record: note(B, 'extra').payload });
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects a missing committed outbox mutation', async () => {
+    const fixture = await committedFixture('insert');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.outbox,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, fixture.outbox.mutationId], () => null);
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it.each([
+    ['idempotency key', (record: Record<string, unknown>) => ({ ...record, idempotencyKey: `k322.${'0'.repeat(64)}` })],
+    ['entity', (record: Record<string, unknown>) => ({ ...record, entityId: B })],
+    ['base revision', (record: Record<string, unknown>) => ({ ...record, baseRevision: 2, localRevision: 3 })],
+    ['operation', (record: Record<string, unknown>) => ({ ...record, operation: 'tombstone' })],
+    ['missing boundary', (record: Record<string, unknown>) => ({ ...record, generationBoundary: null })],
+    ['boundary timestamp', (record: Record<string, unknown>) => ({
+      ...record, generationBoundary: { ...(record.generationBoundary as object), createdAt: T2 },
+    })],
+    ['boundary package', (record: Record<string, unknown>) => ({
+      ...record, generationBoundary: { ...(record.generationBoundary as object), packageId: 'other-package' },
+    })],
+  ] as const)('rejects altered committed outbox %s', async (_label, transform) => {
+    const fixture = await committedFixture('replace');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.outbox,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, fixture.outbox.mutationId], transform);
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects a missing resurrection delivery block', async () => {
+    const fixture = await committedFixture('resurrect');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.outbox,
+      [fixture.active.namespaceKey, fixture.result.targetGenerationId, fixture.outbox.mutationId], record => ({
+        ...record, deliveryBlockCode: null,
+      }));
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects an unexpected committed target mutation', async () => {
+    const fixture = await committedFixture('insert');
+    const mutationId = 'mut.99999999-9999-4999-8999-999999999999';
+    await putRawOutbox({
+      ...fixture.outbox,
+      mutationId,
+      entityId: B,
+      baseRevision: null,
+      localRevision: 1,
+      payload: { kind: 'entity_snapshot', record: note(B, 'unexpected').payload },
+      idempotencyKey: deriveOutboxIdempotencyKey({
+        namespaceKey: fixture.active.namespaceKey,
+        generationId: fixture.result.targetGenerationId,
+        domain: 'notes',
+        entityId: B,
+        localRevision: 1,
+        operation: 'upsert',
+      }),
+      generationBoundary: null,
+      resurrection: null,
+      deliveryBlockCode: null,
+    });
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('rejects committed summary divergence', async () => {
+    const fixture = await committedFixture('insert');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions,
+      [fixture.active.namespaceKey, fixture.sessionId], session => ({
+        ...session, summary: { inserted: 0, replaced: 0, skipped: 1, resurrected: 0, conflicts: 0 },
+      }));
+    await expectCommittedCorrupt(fixture);
+  });
+
+  it('accepts valid mutable outbox lifecycle progression without changing committed identity or summary', async () => {
+    const fixture = await committedFixture('insert');
+    await expect(fixture.active.getRestoreSession(fixture.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(fixture);
+    let [record] = await fixture.active.claimNextMutations({ workerId: 'committed-lifecycle', now: T1, leaseDurationMs: 1_000, limit: 1 });
+    await expect(fixture.active.getRestoreSession(fixture.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(fixture);
+    record = await fixture.active.releaseClaimForRetry({ mutationId: record.mutationId, workerId: 'committed-lifecycle',
+      now: T1, errorCode: 'synthetic', baseDelayMs: 1_000, maxDelayMs: 1_000 });
+    expect(record.status).toBe('retry_wait');
+    await expect(fixture.active.getRestoreSession(fixture.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(fixture);
+    [record] = await fixture.active.claimNextMutations({ workerId: 'committed-lifecycle', now: T2, leaseDurationMs: 1_000, limit: 1 });
+    record = await fixture.active.markPermanentFailure({ mutationId: record.mutationId, workerId: 'committed-lifecycle', now: T2, errorCode: 'synthetic' });
+    expect(record.status).toBe('permanent_failure');
+    await expect(fixture.active.getRestoreSession(fixture.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(fixture);
+    await fixture.active.resetPermanentFailure({ mutationId: record.mutationId, now: T2 });
+    [record] = await fixture.active.claimNextMutations({ workerId: 'committed-lifecycle', now: T2, leaseDurationMs: 1_000, limit: 1 });
+    await fixture.active.acknowledgeMutation({ mutationId: record.mutationId, workerId: 'committed-lifecycle', now: T2 });
+    await expectExactRetry(fixture);
+    await expect(fixture.active.resumeRestoreSession(fixture.value, { sessionId: fixture.sessionId, now: T2 }))
+      .resolves.toEqual(fixture.result);
+  });
+
+  it('accepts structurally valid superseded committed outbox history', async () => {
+    const insert = await committedFixture('insert');
+    await mutateRawRecord(LOCAL_DATABASE_STORES.outbox,
+      [insert.active.namespaceKey, insert.result.targetGenerationId, insert.outbox.mutationId], record => ({
+        ...record, status: 'superseded', supersededByMutationId: 'mut.99999999-9999-4999-8999-999999999999',
+    }));
+    await expect(insert.active.getRestoreSession(insert.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(insert);
+  });
+
+  it('accepts structurally valid blocked resurrection evidence', async () => {
+    const resurrect = await committedFixture('resurrect');
+    await expect(resurrect.active.getRestoreSession(resurrect.sessionId)).resolves.toMatchObject({ status: 'committed' });
+    await expectExactRetry(resurrect);
+    expect(await resurrect.active.listNextDeliverableMutations({ now: T2, limit: 10 })).toEqual([]);
+  });
+});

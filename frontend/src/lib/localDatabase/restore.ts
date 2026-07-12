@@ -8,7 +8,8 @@ import type {
 } from './types';
 import {
   validTimestamp, validateDatabaseMeta, validateEntityEnvelope, validateGenerationRecord,
-  validateOutboxRecord, validateRestoreApplicationManifest, validateRestoreSession, validateRestoreSessionGraph,
+  validateOutboxRecord, validateRestoreApplicationManifest, validateRestoreSequenceBoundaryGraph,
+  validateRestoreSession, validateRestoreSessionGraph,
 } from './validation';
 
 export const RESTORE_PACKAGE_PROTOCOL = 1 as const;
@@ -261,7 +262,8 @@ function persistedSession(value: unknown, namespaceKey: string): RestoreSessionR
 
 async function readSession(runtime: RestoreRuntime, sessionId: string): Promise<RestoreSessionRecord | null> {
   const tx = runtime.db.transaction([
-    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.restoreSessions,
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions,
   ], 'readonly');
   const done = transactionCompletion(tx, 'get_restore_session');
   const value = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions).get(sessionKey(runtime.namespaceKey, sessionId)));
@@ -274,14 +276,121 @@ async function readSession(runtime: RestoreRuntime, sessionId: string): Promise<
   const staging = await requestResult(generations.get(generationKey(runtime.namespaceKey, session.stagingGenerationId))) as GenerationRecord | undefined;
   const target = session.targetGenerationId === null ? null
     : await requestResult(generations.get(generationKey(runtime.namespaceKey, session.targetGenerationId))) as GenerationRecord | undefined;
+  const committedSourceEntities = session.status === 'committed' && session.sourceGenerationId !== null
+    ? await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+      .getAll(entityRange(runtime.namespaceKey, session.sourceGenerationId))) as LocalEntityEnvelope[] : [];
+  const committedTargetEntities = session.status === 'committed' && session.targetGenerationId !== null
+    ? await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+      .getAll(entityRange(runtime.namespaceKey, session.targetGenerationId))) as LocalEntityEnvelope[] : [];
+  const committedTargetOutbox = session.status === 'committed' && session.targetGenerationId !== null
+    ? await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox)
+      .getAll(outboxRange(runtime.namespaceKey, session.targetGenerationId))) as OutboxRecord[] : [];
   await done;
   if (!meta) fail('CORRUPT_PERSISTED_RECORD', 'get_restore_session');
   validateRestoreSessionGraph({
     session, databaseMeta: meta, sourceGeneration: source ?? null, stagingGeneration: staging ?? null,
     targetGeneration: target ?? null, namespaceKey: runtime.namespaceKey, schemaVersion: runtime.namespace.schemaVersion,
   });
-  await validateManifestIntegrity(session);
+  const manifest = await validateManifestIntegrity(session);
+  if (session.status === 'committed') {
+    await validateCommittedRestoreApplicationEvidence({
+      session, manifest, databaseMeta: meta, sourceGeneration: source ?? null, targetGeneration: target ?? null,
+      sourceEntities: committedSourceEntities, targetEntities: committedTargetEntities,
+      targetOutbox: committedTargetOutbox, namespaceKey: runtime.namespaceKey, schemaVersion: runtime.namespace.schemaVersion,
+    });
+  }
   return session;
+}
+
+interface CommittedRestoreApplicationEvidence {
+  session: RestoreSessionRecord;
+  manifest: RestoreApplicationManifestV1 | null;
+  databaseMeta: DatabaseMetaRecord;
+  sourceGeneration: GenerationRecord | null;
+  targetGeneration: GenerationRecord | null;
+  sourceEntities: LocalEntityEnvelope[];
+  targetEntities: LocalEntityEnvelope[];
+  targetOutbox: OutboxRecord[];
+  namespaceKey: string;
+  schemaVersion: number;
+}
+
+async function validateCommittedRestoreApplicationEvidence(evidence: CommittedRestoreApplicationEvidence): Promise<void> {
+  try {
+    const { session, manifest, databaseMeta, sourceGeneration, targetGeneration, sourceEntities, targetEntities,
+      targetOutbox, namespaceKey, schemaVersion } = evidence;
+    if (!manifest || session.status !== 'committed' || session.blockingState !== null
+      || !sourceGeneration || !targetGeneration || session.sourceGenerationId !== sourceGeneration.generationId
+      || session.targetGenerationId !== targetGeneration.generationId) throw new Error('committed_evidence');
+    validateRestoreSessionGraph({
+      session, databaseMeta, sourceGeneration, stagingGeneration: targetGeneration, targetGeneration,
+      namespaceKey, schemaVersion,
+    });
+    if (canonical(summaryFromManifest(manifest)) !== canonical(session.summary)
+      || manifest.entries.some(entry => entry.classification === 'conflict')) throw new Error('committed_evidence');
+    sourceEntities.forEach(validateEntityEnvelope); targetEntities.forEach(validateEntityEnvelope);
+    targetOutbox.forEach(validateOutboxRecord);
+    const targetKeys = targetEntities.map(entity => `${entity.domain}\0${entity.entityId}`).sort();
+    if (targetEntities.length !== manifest.stagedEntityCount
+      || await sha256(canonical(['absinthe-restore-staged-key-set-v1', targetKeys])) !== manifest.stagedSetDigest) {
+      throw new Error('committed_evidence');
+    }
+    const sourceByKey = new Map(sourceEntities.map(entity => [`${entity.domain}\0${entity.entityId}`, entity]));
+    const targetByKey = new Map(targetEntities.map(entity => [`${entity.domain}\0${entity.entityId}`, entity]));
+    const outboxByMutation = new Map(targetOutbox.map(record => [record.mutationId, record]));
+    const requiredEntries = manifest.entries.filter(entry => entry.requiresOutbox);
+    const appliedKeys = new Set(requiredEntries.map(entry => `${entry.domain}\0${entry.entityId}`));
+    if (targetOutbox.length !== requiredEntries.length || outboxByMutation.size !== targetOutbox.length) {
+      throw new Error('committed_evidence');
+    }
+    for (const [key, target] of targetByKey) {
+      if (appliedKeys.has(key)) continue;
+      const source = sourceByKey.get(key);
+      if (!source || canonical(target) !== canonical({ ...source, generationId: manifest.targetGenerationId })) {
+        throw new Error('committed_evidence');
+      }
+    }
+    for (const entry of manifest.entries) {
+      const key = `${entry.domain}\0${entry.entityId}`; const source = sourceByKey.get(key);
+      if (!entry.requiresOutbox) {
+        if (!source || entry.sourceRevision !== source.revision) throw new Error('committed_evidence');
+        continue;
+      }
+      const target = targetByKey.get(key); const provenance = target?.restoreProvenance;
+      const outbox = entry.expectedMutationId === null ? undefined : outboxByMutation.get(entry.expectedMutationId);
+      if (!target || !provenance || !outbox || !entry.expectedMutationId || !entry.expectedIdempotencyKey
+        || target.namespaceKey !== namespaceKey || target.generationId !== manifest.targetGenerationId
+        || target.domain !== entry.domain || target.entityId !== entry.entityId || target.revision !== entry.targetRevision
+        || provenance.restoreSessionId !== session.sessionId || provenance.packageId !== session.packageId
+        || provenance.classification !== entry.classification || provenance.expectedLocalRevision !== entry.sourceRevision
+        || provenance.mutationId !== entry.expectedMutationId
+        || target.source?.kind !== 'recovery_package' || target.source.reference !== session.packageId
+        || await entityDigest(target) !== entry.expectedEntityDigest
+        || await provenanceDigest(provenance) !== entry.expectedProvenanceDigest
+        || outbox.namespaceKey !== namespaceKey || outbox.generationId !== manifest.targetGenerationId
+        || outbox.domain !== entry.domain || outbox.entityId !== entry.entityId || outbox.operation !== entry.expectedOperation
+        || outbox.baseRevision !== entry.sourceRevision || outbox.localRevision !== entry.targetRevision
+        || outbox.idempotencyKey !== entry.expectedIdempotencyKey || outbox.payload.kind !== 'entity_snapshot'
+        || canonical(outbox.payload.record) !== canonical(target.record)) throw new Error('committed_evidence');
+      if (entry.classification === 'insert') {
+        if (source || outbox.generationBoundary != null || outbox.resurrection != null || outbox.deliveryBlockCode != null) {
+          throw new Error('committed_evidence');
+        }
+      } else {
+        if (!source || source.revision !== entry.sourceRevision || target.revision !== source.revision + 1
+          || (entry.classification === 'replace' && (source.isDeleted || outbox.resurrection != null || outbox.deliveryBlockCode != null))
+          || (entry.classification === 'resurrect' && (!source.isDeleted
+            || canonical(outbox.resurrection) !== canonical(provenance.resurrection)
+            || outbox.deliveryBlockCode !== 'REMOTE_RESURRECTION_UNSUPPORTED'))) throw new Error('committed_evidence');
+        validateRestoreSequenceBoundaryGraph({
+          outbox, session, databaseMeta, sourceGeneration, targetGeneration,
+          sourceEntity: source, targetEntity: target, namespaceKey, schemaVersion,
+        });
+      }
+    }
+  } catch {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_committed_restore_application_evidence');
+  }
 }
 
 const settledRestoreOutboxStatuses = new Set(['acknowledged', 'superseded']);
