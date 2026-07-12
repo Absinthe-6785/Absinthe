@@ -137,6 +137,8 @@ describe('K-322 atomic mutation identity and schema', () => {
       outbox.createIndex('by_namespace_generation_status', ['namespaceKey', 'generationId', 'status']);
       outbox.createIndex('by_namespace_generation_entity', ['namespaceKey', 'generationId', 'domain', 'entityId']);
       outbox.createIndex('by_idempotency_key', ['namespaceKey', 'generationId', 'idempotencyKey'], { unique: true });
+      db.createObjectStore(LOCAL_DATABASE_STORES.restoreSessions, { keyPath: ['namespaceKey', 'sessionId'] })
+        .createIndex('by_namespace_status', ['namespaceKey', 'status']);
     });
     const transaction = legacy.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.outbox], 'readwrite');
     transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta).put({
@@ -153,6 +155,11 @@ describe('K-322 atomic mutation identity and schema', () => {
     const store = upgraded.transaction(LOCAL_DATABASE_STORES.outbox).objectStore(LOCAL_DATABASE_STORES.outbox);
     expect([...store.indexNames]).toEqual(expect.arrayContaining([
       'by_namespace_generation_status_available', 'by_namespace_generation_status_lease', 'by_namespace_generation_entity_revision',
+    ]));
+    const restoreStore = upgraded.transaction(LOCAL_DATABASE_STORES.restoreSessions)
+      .objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+    expect([...restoreStore.indexNames]).toEqual(expect.arrayContaining([
+      'by_namespace_package_id', 'by_namespace_package_digest', 'by_namespace_staging_generation',
     ]));
     const request = store.get(['sentinel', 'g', 'm']);
     expect(await new Promise(resolve => { request.onsuccess = () => resolve(request.result); })).toMatchObject({ value: 'preserved' });

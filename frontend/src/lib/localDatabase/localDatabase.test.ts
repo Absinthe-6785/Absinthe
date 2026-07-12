@@ -332,15 +332,9 @@ describe('K-321 reserved store foundations', () => {
     })).rejects.toMatchObject({ code: 'NAMESPACE_MISMATCH' });
   });
 
-  it('reserves validated restore and migration state without performing either operation', async () => {
+  it('reserves validated migration state without performing migration', async () => {
     const repo = await repository();
     await repo.createGeneration('generation-2', 'test');
-    await repo.putRestoreSession({
-      namespaceKey: repo.namespaceKey, sessionId: 'restore-1', expectedActiveGenerationId: 'generation-1',
-      sourceGenerationId: 'generation-1', targetGenerationId: 'generation-2',
-      status: 'preparing', packageFingerprint: 'a'.repeat(64), validationResult: 'pending',
-      startedAt: '2026-07-11T00:00:00.000Z', committedAt: null, failureCode: null,
-    });
     await repo.putMigrationState({
       namespaceKey: repo.namespaceKey, migrationId: 'migration-1', sourceDatabase: 'legacy', sourceSchemaVersion: 1,
       targetDatabase: LOCAL_DATABASE_NAME, targetSchemaVersion: 1, sourceGenerationId: 'generation-1',
@@ -350,43 +344,9 @@ describe('K-321 reserved store foundations', () => {
     });
   });
 
-  it('rejects stale or non-preparing restore generation fences', async () => {
-    const repo = await repository();
-    await repo.createGeneration('generation-2', 'test');
-    const restore = {
-      namespaceKey: repo.namespaceKey, sessionId: 'restore-1', expectedActiveGenerationId: 'stale-generation',
-      sourceGenerationId: 'generation-1', targetGenerationId: 'generation-2', status: 'preparing' as const,
-      packageFingerprint: 'a'.repeat(64), validationResult: 'pending' as const,
-      startedAt: '2026-07-11T00:00:00.000Z', committedAt: null, failureCode: null,
-    };
-    await expect(repo.putRestoreSession(restore)).rejects.toMatchObject({ code: 'STALE_GENERATION' });
-    await expect(repo.putRestoreSession({
-      ...restore, expectedActiveGenerationId: 'generation-1', sourceGenerationId: 'missing-source',
-    })).rejects.toMatchObject({ code: 'STALE_GENERATION' });
-    await expect(repo.putRestoreSession({
-      ...restore, expectedActiveGenerationId: 'generation-1', targetGenerationId: 'missing-target',
-    })).rejects.toMatchObject({ code: 'GENERATION_NOT_FOUND' });
-    for (const status of ['sealed', 'abandoned', 'failed'] as const) {
-      const generationId = `generation-${status}`;
-      await repo.createGeneration(generationId, 'test'); await repo.setGenerationStatus(generationId, status);
-      await expect(repo.putRestoreSession({
-        ...restore, sessionId: `restore-${status}`, expectedActiveGenerationId: 'generation-1', targetGenerationId: generationId,
-      })).rejects.toMatchObject({ code: 'INVALID_GENERATION_TRANSITION' });
-      expect(await repo.getGeneration(generationId)).toMatchObject({ status });
-    }
-    await expect(repo.putRestoreSession({ ...restore, namespaceKey: 'wrong', expectedActiveGenerationId: 'generation-1' }))
-      .rejects.toMatchObject({ code: 'NAMESPACE_MISMATCH' });
-  });
-
-  it('rejects restore and migration metadata from a repository made stale by activation', async () => {
+  it('rejects migration metadata from a repository made stale by activation', async () => {
     const repo = await repository();
     await repo.createGeneration('generation-2', 'test'); await repo.activateGeneration('generation-2');
-    await expect(repo.putRestoreSession({
-      namespaceKey: repo.namespaceKey, sessionId: 'restore-stale', expectedActiveGenerationId: 'generation-1',
-      sourceGenerationId: 'generation-1', targetGenerationId: 'generation-2', status: 'preparing',
-      packageFingerprint: 'a'.repeat(64), validationResult: 'pending', startedAt: '2026-07-11T00:00:00.000Z',
-      committedAt: null, failureCode: null,
-    })).rejects.toMatchObject({ code: 'STALE_GENERATION' });
     await expect(repo.putMigrationState({
       namespaceKey: repo.namespaceKey, migrationId: 'migration-stale', sourceDatabase: 'legacy', sourceSchemaVersion: 1,
       targetDatabase: LOCAL_DATABASE_NAME, targetSchemaVersion: 1, sourceGenerationId: 'generation-1',
@@ -534,10 +494,10 @@ describe('K-321 lifecycle and static safety', () => {
   });
 
   it('contains no destructive, network, auth, legacy-storage, or production wiring paths', () => {
-    const files = ['repository.ts', 'schema.ts', 'namespace.ts', 'validation.ts', 'types.ts', 'index.ts'];
+    const files = ['repository.ts', 'restore.ts', 'schema.ts', 'namespace.ts', 'validation.ts', 'types.ts', 'index.ts'];
     const source = files.map(file => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n');
     expect(source).not.toMatch(/\.clear\s*\(/);
-    expect(source).not.toMatch(/fetch\s*\(|supabase|localStorage|deleteDatabase|restore\s*\(|migrate\s*\(/i);
+    expect(source).not.toMatch(/fetch\s*\(|supabase|localStorage|deleteDatabase|migrate\s*\(/i);
     expect(source).not.toContain('recoveryModeActive = false');
   });
 });

@@ -3,6 +3,10 @@ import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from 
 import { deriveOutboxIdempotencyKey, generateOutboxMutationId } from './outboxIdentity';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
 import {
+  cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
+  restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
+} from './restore';
+import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION, LOCAL_SCHEMA_VERSION,
   type AcknowledgeOutboxInput, type AttachmentStateRecord, type ClaimOutboxInput,
   type CommitLocalMutationInput, type CommittedLocalMutation, type DatabaseMetaRecord, type EntityListOptions,
@@ -439,6 +443,7 @@ export class LocalDatabaseRepository {
       group.sort((left, right) => left.localRevision - right.localRevision);
       const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
       if (!firstUnsettled) continue;
+      if (firstUnsettled.deliveryBlockCode) continue;
       if ((firstUnsettled.status === 'pending' || firstUnsettled.status === 'retry_wait')
         && Date.parse(firstUnsettled.availableAt) <= at) candidates.push(firstUnsettled);
       if (recoverExpiredClaims && firstUnsettled.status === 'claimed'
@@ -668,8 +673,32 @@ export class LocalDatabaseRepository {
     }
   }
 
-  putRestoreSession(value: RestoreSessionRecord): Promise<void> {
-    return this.putStagedMetadata(LOCAL_DATABASE_STORES.restoreSessions, value, validateRestoreSession, 'put_restore_session');
+  restorePackageAtomically(value: unknown, options: RestoreOptions): Promise<RestoreResult> {
+    return executeRestore({
+      db: this.db, namespace: this.namespace, namespaceKey: this.namespaceKey,
+      mutationIdFactory: this.mutationIdFactory, clock: this.clock,
+      assertOpen: operation => this.assertOpen(operation),
+    }, value, options);
+  }
+
+  resumeRestoreSession(value: unknown, options: RestoreOptions): Promise<RestoreResult> {
+    return this.restorePackageAtomically(value, options);
+  }
+
+  getRestoreSession(sessionId: string): Promise<RestoreSessionRecord | null> {
+    return readRestoreSession({
+      db: this.db, namespace: this.namespace, namespaceKey: this.namespaceKey,
+      mutationIdFactory: this.mutationIdFactory, clock: this.clock,
+      assertOpen: operation => this.assertOpen(operation),
+    }, sessionId);
+  }
+
+  cancelRestoreSession(sessionId: string, at?: string): Promise<RestoreSessionRecord> {
+    return cancelRestore({
+      db: this.db, namespace: this.namespace, namespaceKey: this.namespaceKey,
+      mutationIdFactory: this.mutationIdFactory, clock: this.clock,
+      assertOpen: operation => this.assertOpen(operation),
+    }, sessionId, at);
   }
 
   putMigrationState(value: MigrationStateRecord): Promise<void> {
