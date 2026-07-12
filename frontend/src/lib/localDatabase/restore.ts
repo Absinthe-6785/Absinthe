@@ -403,7 +403,16 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
     if (!source || source.status !== 'active' || !target || target.status !== 'preparing' || target.validationState !== 'valid') fail('RESTORE_ACTIVE_GENERATION_CHANGED');
     const current = await requestResult(entityStore.getAll(entityRange(runtime.namespaceKey, session.sourceGenerationId))) as LocalEntityEnvelope[];
     const staged = await requestResult(entityStore.getAll(entityRange(runtime.namespaceKey, session.targetGenerationId))) as LocalEntityEnvelope[];
-    current.forEach(validateEntityEnvelope); staged.forEach(validateEntityEnvelope);
+    try { current.forEach(validateEntityEnvelope); staged.forEach(validateEntityEnvelope); }
+    catch { fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_staging'); }
+    for (const entity of staged) {
+      const provenance = entity.restoreProvenance;
+      if (entity.source?.kind === 'recovery_package' && entity.source.reference === session.packageId
+        && (provenance?.restoreSessionId !== session.sessionId
+          || !['insert', 'replace', 'resurrect'].includes(provenance.classification))) {
+        fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_staging');
+      }
+    }
     if (!currentMatchesPlan(current, staged, session.sessionId)) fail('RESTORE_ENTITY_REVISION_CONFLICT');
     if (options.testOnlyFailAt === 'entity_materialization') fail('RESTORE_TRANSACTION_FAILED');
     const inherited = await requestResult(outboxStore.getAll(outboxRange(runtime.namespaceKey, session.sourceGenerationId))) as OutboxRecord[];
@@ -423,11 +432,12 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
       const provenance = entity.restoreProvenance;
       if (provenance?.restoreSessionId !== session.sessionId || !provenance.mutationId
         || !['insert', 'replace', 'resurrect'].includes(provenance.classification)) continue;
+      const restoreEventAt = provenance.restoredAt;
       const outbox: OutboxRecord = {
         namespaceKey: runtime.namespaceKey, generationId: session.targetGenerationId, mutationId: provenance.mutationId,
         domain: entity.domain, entityId: entity.entityId, operation: 'upsert', baseRevision: provenance.expectedLocalRevision,
         localRevision: entity.revision, payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: entity.record }, payloadHash: null,
-        createdAt: at, updatedAt: at, availableAt: at, attemptCount: 0, status: 'pending',
+        createdAt: restoreEventAt, updatedAt: at, availableAt: at, attemptCount: 0, status: 'pending',
         idempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: runtime.namespaceKey, generationId: session.targetGenerationId,
           domain: entity.domain, entityId: entity.entityId, localRevision: entity.revision, operation: 'upsert' }),
         lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
@@ -440,7 +450,7 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
           domain: entity.domain, entityId: entity.entityId,
           sourceRevision: provenance.expectedLocalRevision, targetRevision: entity.revision,
           restoreSessionId: session.sessionId, packageId: session.packageId, packageDigest: session.packageDigest,
-          classification: provenance.classification as 'replace' | 'resurrect', createdAt: at,
+          classification: provenance.classification as 'replace' | 'resurrect', createdAt: restoreEventAt,
         },
       };
       validateOutboxRecord(outbox); outboxStore.add(outbox);

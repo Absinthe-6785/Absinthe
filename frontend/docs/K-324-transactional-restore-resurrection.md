@@ -115,6 +115,14 @@ package ID/digest, classification, and creation time. Public outbox reads correl
 committed restore session, active generation graph, predecessor and target entities, and target restore
 provenance. Missing or copied cross-entity/package/session evidence fails as `CORRUPT_PERSISTED_RECORD`.
 
+The restore event timestamp is immutable once the target entity is staged. A replace/resurrect boundary
+derives `createdAt` from that entity's already-validated `restoreProvenance.restoredAt`; delayed queue
+resolution never substitutes the resume or commit wall-clock time. Blocking detection, session updates,
+and final commit retain their separate lifecycle timestamps. Delayed resume does not create a new restore
+event, and therefore produces the same provenance/boundary relationship as an immediate commit. Public
+relational validation continues to reject any timestamp divergence. Remote resurrection delivery remains
+blocked by `REMOTE_RESURRECTION_UNSUPPORTED`.
+
 The boundary authorizes exactly one `N -> N+1` replace/resurrect transition. It cannot authorize insert,
 `N+2`, another entity/domain/generation/package/session, or a normal local mutation. Subsequent normal K-322
 mutations continue from that one validated boundary and retain ordinary gap detection. Relationship lookups

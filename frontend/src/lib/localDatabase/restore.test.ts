@@ -14,6 +14,8 @@ const base: LocalDatabaseNamespace = {
 const T0 = '2026-07-12T00:00:00.000Z';
 const T1 = '2026-07-12T00:00:01.000Z';
 const T2 = '2026-07-12T00:00:02.000Z';
+const T3 = '2026-07-12T00:00:03.000Z';
+const T4 = '2026-07-12T00:00:04.000Z';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 let mutation = 1;
@@ -192,8 +194,11 @@ describe('K-324 overlay restore lifecycle', () => {
     const active = await repo({ ...base, generationId: result.targetGenerationId });
     expect((await active.getEntity<ReturnType<typeof note>['payload']>('notes', A))?.record.title).toBe('restored');
     expect((await active.getEntity('notes', A))?.revision).toBe(2);
+    expect((await active.getEntity('notes', A))?.restoreProvenance?.restoredAt).toBe(T1);
     expect(await active.getEntity('notes', B)).not.toBeNull();
-    expect(await active.listOutboxMutations({ limit: 20 })).toHaveLength(1);
+    const queued = await active.listOutboxMutations({ limit: 20 });
+    expect(queued).toHaveLength(1);
+    expect(queued[0].generationBoundary?.createdAt).toBe(T1);
   });
 
   it('fails divergent default policy and supports explicit preserve-local without timestamp winner selection', async () => {
@@ -301,6 +306,90 @@ describe('K-324A immutable outbox fencing', () => {
     expect(await active.getEntity('notes', B)).toMatchObject({ revision: 1 });
     expect(await active.getRestoreSession('resumable-session')).toMatchObject({ status: 'committed', blockingState: null });
     expect(await active.resumeRestoreSession(value, { sessionId: 'resumable-session', now: T2 })).toEqual(result);
+  });
+
+  it('keeps the staged restore-event time through repeated blocked replace resumes and every public transition', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+    });
+    const value = await packageFor(repository, [note(A, 'new')], 'delayed-replace-package');
+    await expect(repository.restorePackageAtomically(value, {
+      sessionId: 'delayed-replace', conflictPolicy: 'replace', now: T1,
+    })).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    await expect(repository.resumeRestoreSession(value, {
+      sessionId: 'delayed-replace', conflictPolicy: 'replace', now: T2,
+    })).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    await expect(repository.resumeRestoreSession(value, {
+      sessionId: 'delayed-replace', conflictPolicy: 'replace', now: T3,
+    })).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    expect(await repository.getRestoreSession('delayed-replace')).toMatchObject({
+      status: 'staged', blockingState: { attemptCount: 3, detectedAt: T3 },
+    });
+    await acknowledgeAll(repository, T3);
+    const result = await repository.resumeRestoreSession(value, {
+      sessionId: 'delayed-replace', conflictPolicy: 'replace', now: T4,
+    });
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    const entity = await active.getEntity('notes', A);
+    expect(entity?.restoreProvenance?.restoredAt).toBe(T1);
+    expect(await active.getRestoreSession('delayed-replace')).toMatchObject({
+      status: 'committed', committedAt: T4, blockingState: null,
+    });
+    const records = await active.listOutboxMutations({ limit: 10 });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      createdAt: T1, updatedAt: T4,
+      generationBoundary: { createdAt: T1, classification: 'replace' },
+    });
+    expect(await active.getOutboxRecord(records[0].mutationId)).toEqual(records[0]);
+    expect(await active.listNextDeliverableMutations({ now: T4, limit: 10 })).toHaveLength(1);
+    const [claimed] = await active.claimNextMutations({ workerId: 'delayed-replace', now: T4, leaseDurationMs: 1_000, limit: 1 });
+    await active.markPermanentFailure({ mutationId: claimed.mutationId, workerId: 'delayed-replace', now: T4, errorCode: 'synthetic' });
+    await active.resetPermanentFailure({ mutationId: claimed.mutationId, now: T4 });
+    const [reclaimed] = await active.claimNextMutations({ workerId: 'delayed-replace', now: T4, leaseDurationMs: 1_000, limit: 1 });
+    await expect(active.acknowledgeMutation({ mutationId: reclaimed.mutationId, workerId: 'delayed-replace', now: T4 }))
+      .resolves.toMatchObject({ status: 'acknowledged' });
+    expect(await active.resumeRestoreSession(value, {
+      sessionId: 'delayed-replace', conflictPolicy: 'replace', now: T4,
+    })).toEqual(result);
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+  });
+
+  it('keeps delayed resurrection provenance aligned while remote delivery remains blocked', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+    });
+    await repository.commitLocalMutation({
+      mutation: { mode: 'tombstone', domain: 'notes', entityId: A, record: null, expectedRevision: 1 }, now: T0,
+    });
+    await acknowledgeAll(repository, T0);
+    await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: B, record: note(B, 'queue-fence').payload }, now: T0,
+    });
+    const value = await packageFor(repository, [note(A, 'reborn')], 'delayed-resurrect-package');
+    await expect(repository.restorePackageAtomically(value, {
+      sessionId: 'delayed-resurrect', allowResurrection: true, now: T1,
+    })).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    await acknowledgeAll(repository, T2);
+    const result = await repository.resumeRestoreSession(value, {
+      sessionId: 'delayed-resurrect', allowResurrection: true, now: T2,
+    });
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    const entity = await active.getEntity('notes', A);
+    expect(entity?.restoreProvenance).toMatchObject({
+      restoredAt: T1, resurrection: { restoredAt: T1 },
+    });
+    const records = await active.listOutboxMutations({ limit: 10 });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      createdAt: T1, deliveryBlockCode: 'REMOTE_RESURRECTION_UNSUPPORTED',
+      generationBoundary: { createdAt: T1, classification: 'resurrect' },
+    });
+    expect(await active.getOutboxRecord(records[0].mutationId)).toEqual(records[0]);
+    expect(await active.listNextDeliverableMutations({ now: T2, limit: 10 })).toEqual([]);
+    expect(await active.claimNextMutations({ workerId: 'blocked-resurrection', now: T2, leaseDurationMs: 1_000, limit: 10 })).toEqual([]);
   });
 
   it('allows explicit cancellation of a blocked session and never resumes it', async () => {
@@ -424,6 +513,7 @@ describe('K-324B provenance-bound restore sequence validation', () => {
     ['wrong base revision', { sourceRevision: 2 }],
     ['wrong target revision', { targetRevision: 3 }],
     ['wrong classification', { classification: 'resurrect' }],
+    ['wrong boundary timestamp', { createdAt: T2 }],
   ])('rejects %s through public outbox reads', async (_label, corruption) => {
     const { active, record } = await boundaryFixture();
     await putRawOutbox({ ...record, generationBoundary: { ...record.generationBoundary!, ...corruption } } as OutboxRecord);
@@ -484,10 +574,59 @@ describe('K-324B provenance-bound restore sequence validation', () => {
         ...value, restoreProvenance: { ...(value.restoreProvenance as object), packageId: 'other-package' },
       }));
     }],
+    ['wrong target provenance timestamp', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, targetGenerationId, 'notes', A], value => ({
+        ...value, restoreProvenance: { ...(value.restoreProvenance as object), restoredAt: T2 },
+      }));
+    }],
+    ['missing target provenance', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, targetGenerationId, 'notes', A], value => ({
+        ...value, restoreProvenance: null,
+      }));
+    }],
+    ['malformed target provenance timestamp', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, targetGenerationId, 'notes', A], value => ({
+        ...value, restoreProvenance: { ...(value.restoreProvenance as object), restoredAt: 'not-a-time' },
+      }));
+    }],
   ] as const)('rejects relational corruption: %s', async (_label, corrupt) => {
     const { active, result, record } = await boundaryFixture();
     await corrupt(active.namespaceKey, result.targetGenerationId);
     await expect(active.getOutboxRecord(record.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects boundary/provenance timestamp divergence through every public delivery path', async () => {
+    const { active, record } = await boundaryFixture();
+    await putRawOutbox({
+      ...record, generationBoundary: { ...record.generationBoundary!, createdAt: T2 },
+    });
+    await expect(active.getOutboxRecord(record.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(active.listOutboxMutations({ limit: 10 })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(active.listNextDeliverableMutations({ now: T2, limit: 10 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(active.claimNextMutations({ workerId: 'corruption-probe', now: T2, leaseDurationMs: 1_000, limit: 1 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('fails a resumed commit closed when staged restore provenance is missing', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+    });
+    await acknowledgeAll(repository, T0);
+    const value = await packageFor(repository, [note(A, 'new')], 'missing-staged-provenance');
+    await expect(repository.restorePackageAtomically(value, {
+      sessionId: 'missing-staged-provenance', conflictPolicy: 'replace', now: T1, testOnlyFailAt: 'outbox_creation',
+    })).rejects.toHaveProperty('code');
+    await mutateRawRecord(
+      LOCAL_DATABASE_STORES.entities,
+      [repository.namespaceKey, 'restore-missing-staged-provenance', 'notes', A],
+      entity => ({ ...entity, restoreProvenance: null }),
+    );
+    await expect(repository.resumeRestoreSession(value, {
+      sessionId: 'missing-staged-provenance', conflictPolicy: 'replace', now: T2,
+    })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
   });
 
   it('rejects boundary replay to N+2 and a cross-entity copied boundary', async () => {
@@ -557,7 +696,10 @@ describe('K-324 explicit resurrection and failure fencing', () => {
     expect(entity).toMatchObject({ revision: 3, deletedAt: null, updatedAt: T1 });
     expect(entity?.restoreProvenance?.resurrection).toMatchObject({ supersedesTombstoneRevision: 2, restoredAt: T1 });
     const queued = await active.listOutboxMutations({ domain: 'notes', entityId: A, limit: 10 });
-    expect(queued.at(-1)).toMatchObject({ localRevision: 3, deliveryBlockCode: 'REMOTE_RESURRECTION_UNSUPPORTED' });
+    expect(queued.at(-1)).toMatchObject({
+      localRevision: 3, deliveryBlockCode: 'REMOTE_RESURRECTION_UNSUPPORTED',
+      generationBoundary: { createdAt: T1, classification: 'resurrect' },
+    });
     expect(await active.listNextDeliverableMutations({ now: T1, limit: 10 })).not.toContainEqual(queued.at(-1));
   });
 
