@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "vectors": [
+    {
+      "namespaceFingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+      "generationId": "generation-1",
+      "domain": "notes",
+      "entityId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "localRevision": 1,
+      "operation": "upsert",
+      "expected": "k322.4446aaa5af82a45813db7ec417312838554a635bd4c44c3cd994f3be91fb6092"
+    },
+    {
+      "namespaceFingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+      "generationId": "generation-1",
+      "domain": "notes",
+      "entityId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "localRevision": 2,
+      "operation": "tombstone",
+      "expected": "k322.176e3428d8336d8fd8763715f3752973674e4c4a92526a2e1d37c2ff526cd92d"
+    }
+  ]
+}

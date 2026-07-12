@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import os
@@ -14,6 +14,13 @@ from memory_watchdog import MemoryWatchdog
 from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
 from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter, chunk_note_payloads
 from memory_profile import MemoryProfiler
+from remote_mutation import (
+    MAX_REQUEST_BYTES,
+    RemoteMutationService,
+    RemoteMutationTransportError,
+    SupabaseRpcGateway,
+    rejected_response,
+)
 
 load_dotenv()
 
@@ -35,6 +42,8 @@ request_memory_watchdog = RequestMemoryWatchdog()
 
 _recovery_mode_raw = os.getenv("ABSINTHE_RECOVERY_MODE", "active").strip().lower()
 RECOVERY_MODE_ACTIVE = _recovery_mode_raw not in {"disabled"}
+K323_REMOTE_MUTATION_ENABLED = os.getenv("K323_REMOTE_MUTATION_ENABLED", "disabled").strip().lower() == "enabled"
+K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip()
 
 
 @app.middleware("http")
@@ -55,6 +64,7 @@ async def memory_watchdog_middleware(request, call_next):
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or None
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip() or None
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError(
@@ -67,6 +77,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+K323_SUPABASE_CLIENT: Client | None = None
 
 # ==========================================
 # 🔐 JWT 인증: Authorization 헤더에서 user_id 추출 (local verify)
@@ -87,9 +98,83 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
+
+def get_remote_mutation_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """K-323 auth dependency with a bounded, non-diagnostic failure response."""
+    try:
+        return jwt_verifier.verify_token(credentials.credentials)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
 def verify_owner(resource_user_id: str, current_user_id: str):
     if resource_user_id != current_user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _remote_mutation_validation_code(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return "INVALID_MUTATION"
+    if payload.get("protocolVersion") != 1:
+        return "INVALID_PROTOCOL_VERSION"
+    if payload.get("domain") != "notes":
+        return "UNSUPPORTED_DOMAIN"
+    return "INVALID_MUTATION"
+
+
+def get_k323_supabase_client() -> Client:
+    global K323_SUPABASE_CLIENT
+    if K323_SUPABASE_CLIENT is not None:
+        return K323_SUPABASE_CLIENT
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("k323_service_role_unavailable")
+    K323_SUPABASE_CLIENT = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return K323_SUPABASE_CLIENT
+
+
+@app.middleware("http")
+async def k323_request_size_middleware(request: Request, call_next):
+    if request.method == "POST" and request.url.path == "/api/sync/v1/mutations":
+        content_length = request.headers.get("content-length")
+        if content_length is None or not content_length.isdigit() or int(content_length) > MAX_REQUEST_BYTES:
+            response = rejected_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+            return JSONResponse(status_code=413, content=response.model_dump(by_alias=True))
+    return await call_next(request)
+
+
+@app.post("/api/sync/v1/mutations")
+async def apply_remote_mutation(
+    request: Request,
+    payload: dict,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Apply one validated K-322 mutation through one transactional PostgreSQL RPC."""
+    if not K323_REMOTE_MUTATION_ENABLED:
+        raise HTTPException(status_code=423, detail="K323_REMOTE_MUTATION_DISABLED")
+    content_length = request.headers.get("content-length")
+    if content_length is None or not content_length.isdigit() or int(content_length) > MAX_REQUEST_BYTES:
+        response = rejected_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+        return JSONResponse(status_code=413, content=response.model_dump(by_alias=True))
+    try:
+        service = RemoteMutationService(SupabaseRpcGateway(get_k323_supabase_client()), K323_PROJECT_SCOPE)
+    except Exception:
+        response = rejected_response("mut.invalid", "k322." + "0" * 64, "TRANSACTION_FAILED", retryable=True)
+        return JSONResponse(status_code=503, content=response.model_dump(by_alias=True))
+    try:
+        mutation = service.parse(payload)
+    except ValueError:
+        response = rejected_response(
+            "mut.invalid",
+            "k322." + "0" * 64,
+            _remote_mutation_validation_code(payload),
+        )
+        return JSONResponse(status_code=400, content=response.model_dump(by_alias=True))
+    try:
+        response = service.apply(mutation, user_id)
+    except RemoteMutationTransportError as error:
+        return JSONResponse(status_code=503, content=error.response.model_dump(by_alias=True))
+    if response.error_code == "IDEMPOTENCY_KEY_MISMATCH":
+        return JSONResponse(status_code=400, content=response.model_dump(by_alias=True))
+    return response.model_dump(by_alias=True)
 
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
