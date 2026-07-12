@@ -13,6 +13,7 @@ const base: LocalDatabaseNamespace = {
 };
 const T0 = '2026-07-12T00:00:00.000Z';
 const T1 = '2026-07-12T00:00:01.000Z';
+const T2 = '2026-07-12T00:00:02.000Z';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 let mutation = 1;
@@ -66,14 +67,41 @@ async function putRawOutbox(record: OutboxRecord): Promise<void> {
   tx.objectStore(LOCAL_DATABASE_STORES.outbox).put(record);
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
 }
-async function acknowledgeAll(repository: LocalDatabaseRepository): Promise<void> {
+async function mutateRawRecord(
+  storeName: string, key: IDBValidKey, transform: (value: Record<string, unknown>) => Record<string, unknown> | null,
+): Promise<void> {
+  const db = await rawDb(); const tx = db.transaction(storeName, 'readwrite'); const store = tx.objectStore(storeName);
+  const request = store.get(key);
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => {
+      const next = transform(request.result as Record<string, unknown>);
+      if (next === null) store.delete(key); else store.put(next);
+      resolve();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+}
+async function acknowledgeAll(repository: LocalDatabaseRepository, at = T1): Promise<void> {
   while (true) {
-    const claimed = await repository.claimNextMutations({ workerId: 'restore-test', now: T1, leaseDurationMs: 1_000, limit: 100 });
+    const claimed = await repository.claimNextMutations({ workerId: 'restore-test', now: at, leaseDurationMs: 1_000, limit: 100 });
     if (claimed.length === 0) return;
     for (const record of claimed) {
-      await repository.acknowledgeMutation({ mutationId: record.mutationId, workerId: 'restore-test', now: T1 });
+      await repository.acknowledgeMutation({ mutationId: record.mutationId, workerId: 'restore-test', now: at });
     }
   }
+}
+async function boundaryFixture() {
+  const source = await repo();
+  await source.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0 });
+  await acknowledgeAll(source);
+  const packageValue = await packageFor(source, [note(A, 'new')], 'boundary-package');
+  const result = await source.restorePackageAtomically(packageValue, {
+    sessionId: 'boundary-session', conflictPolicy: 'replace', now: T1,
+  });
+  const active = await repo({ ...base, generationId: result.targetGenerationId });
+  const record = (await active.listOutboxMutations({ limit: 10 }))[0];
+  return { source, active, packageValue, result, record };
 }
 
 beforeEach(async () => { mutation = 1; await removeDatabase().catch(() => undefined); });
@@ -226,6 +254,66 @@ describe('K-324A immutable outbox fencing', () => {
     expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
     expect(await repository.getOutboxRecord(committed.outbox.mutationId)).toEqual(before);
     expect(await rawOutbox(repository.namespaceKey, `restore-blocked-${String(label).replace(' ', '-')}`)).toEqual([]);
+    if (label === 'pending') await acknowledgeAll(repository);
+    if (label === 'claimed' || label === 'expired claimed') {
+      await repository.acknowledgeMutation({ mutationId: committed.outbox.mutationId, workerId: 'worker', now: T1 });
+    }
+    if (label === 'retry_wait') await acknowledgeAll(repository, T2);
+    if (label === 'permanent_failure') {
+      await repository.resetPermanentFailure({ mutationId: committed.outbox.mutationId, now: T2 });
+      await acknowledgeAll(repository, T2);
+    }
+    const resumed = await repository.resumeRestoreSession(value, {
+      sessionId: `blocked-${String(label).replace(' ', '-')}`, now: T2,
+    });
+    const active = await repo({ ...base, generationId: resumed.targetGenerationId });
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+    expect(await active.getRestoreSession(`blocked-${String(label).replace(' ', '-')}`))
+      .toMatchObject({ status: 'committed', blockingState: null });
+    const settled = (await rawOutbox(repository.namespaceKey, 'generation-1'))[0];
+    expect(settled).toMatchObject({
+      mutationId: committed.outbox.mutationId, generationId: 'generation-1', idempotencyKey: committed.outbox.idempotencyKey,
+      status: 'acknowledged',
+    });
+  });
+
+  it('keeps repeated queue conflicts on one staged session and commits once after resolution', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0 });
+    const value = await packageFor(repository, [note(B)], 'resumable-package');
+    await expect(repository.restorePackageAtomically(value, { sessionId: 'resumable-session', now: T1 }))
+      .rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    for (const expectedAttempt of [2, 3]) {
+      await expect(repository.resumeRestoreSession(value, { sessionId: 'resumable-session', now: T1 }))
+        .rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+      expect(await repository.getRestoreSession('resumable-session')).toMatchObject({
+        status: 'staged', targetGenerationId: 'restore-resumable-session',
+        blockingState: { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', attemptCount: expectedAttempt },
+      });
+      expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+      expect(await rawOutbox(repository.namespaceKey, 'restore-resumable-session')).toEqual([]);
+    }
+    await acknowledgeAll(repository);
+    const result = await repository.resumeRestoreSession(value, { sessionId: 'resumable-session', now: T2 });
+    expect(result.targetGenerationId).toBe('restore-resumable-session');
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+    expect(await active.getEntity('notes', B)).toMatchObject({ revision: 1 });
+    expect(await active.getRestoreSession('resumable-session')).toMatchObject({ status: 'committed', blockingState: null });
+    expect(await active.resumeRestoreSession(value, { sessionId: 'resumable-session', now: T2 })).toEqual(result);
+  });
+
+  it('allows explicit cancellation of a blocked session and never resumes it', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0 });
+    const value = await packageFor(repository, [note(B)], 'cancel-blocked-package');
+    await expect(repository.restorePackageAtomically(value, { sessionId: 'cancel-blocked', now: T1 }))
+      .rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    expect(await repository.cancelRestoreSession('cancel-blocked', T1)).toMatchObject({ status: 'cancelled', blockingState: null });
+    await acknowledgeAll(repository);
+    await expect(repository.resumeRestoreSession(value, { sessionId: 'cancel-blocked', now: T2 }))
+      .rejects.toMatchObject({ code: 'RESTORE_CANCELLED' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
   });
 
   it('keeps acknowledged history immutable and starts target sequencing at an explicit restore boundary', async () => {
@@ -242,7 +330,11 @@ describe('K-324A immutable outbox fencing', () => {
     const target = await active.listOutboxMutations({ limit: 10 });
     expect(target).toHaveLength(1);
     expect(target[0]).toMatchObject({ baseRevision: 1, localRevision: 2, generationBoundary: {
-      kind: 'restore', sourceGenerationId: 'generation-1', sourceRevision: 1, restoreSessionId: 'acknowledged-history',
+      kind: 'restore_generation_sequence_boundary', namespaceKey: repository.namespaceKey,
+      sourceGenerationId: 'generation-1', targetGenerationId: result.targetGenerationId,
+      domain: 'notes', entityId: A, sourceRevision: 1, targetRevision: 2,
+      restoreSessionId: 'acknowledged-history', packageId: 'acknowledged-history',
+      packageDigest: value.manifest.contentDigest, classification: 'replace', createdAt: T1,
     } });
     expect(target[0].mutationId).not.toBe(committed.outbox.mutationId);
   });
@@ -275,9 +367,17 @@ describe('K-324A immutable outbox fencing', () => {
       { sessionId: 'blocked-resurrection', allowResurrection: true, now: T1 },
     );
     const active = await repo({ ...base, generationId: resurrected.targetGenerationId });
+    const nextPackage = await packageFor(active, [note(B)], 'after-blocked-resurrection');
     await expect(active.restorePackageAtomically(
-      await packageFor(active, [note(B)], 'after-blocked-resurrection'), { sessionId: 'after-blocked-resurrection', now: T1 },
+      nextPackage, { sessionId: 'after-blocked-resurrection', now: T1 },
     )).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    const blocked = (await active.listOutboxMutations({ limit: 10 }))[0];
+    await putRawOutbox({
+      ...blocked, status: 'acknowledged', attemptCount: 1, updatedAt: T2, lastAttemptAt: T1,
+      acknowledgedAt: T2, acknowledgedBy: 'explicit-policy', availableAt: T1,
+    });
+    const resumed = await active.resumeRestoreSession(nextPackage, { sessionId: 'after-blocked-resurrection', now: T2 });
+    expect(resumed.targetGenerationId).toBe('restore-after-blocked-resurrection');
   });
 
   it('revalidates outbox state inside activation and rolls back a race without identity changes', async () => {
@@ -300,7 +400,145 @@ describe('K-324A immutable outbox fencing', () => {
     expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
     expect(await repository.getOutboxRecord(raced.mutationId)).toEqual(raced);
     expect(await rawOutbox(repository.namespaceKey, 'restore-outbox-race')).toEqual([]);
-    expect(await repository.getRestoreSession('outbox-race')).toMatchObject({ status: 'failed', failureCode: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    expect(await repository.getRestoreSession('outbox-race')).toMatchObject({
+      status: 'staged', failureCode: null,
+      blockingState: { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', attemptCount: 1, detectedAt: T1 },
+    });
+    await acknowledgeAll(repository);
+    const result = await repository.resumeRestoreSession(value, { sessionId: 'outbox-race', now: T2 });
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    expect(await active.getRestoreSession('outbox-race')).toMatchObject({ status: 'committed', blockingState: null });
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+  });
+});
+
+describe('K-324B provenance-bound restore sequence validation', () => {
+  it.each([
+    ['cross-entity boundary', { entityId: B }],
+    ['wrong domain', { domain: 'recipes' }],
+    ['wrong package', { packageId: 'other-package' }],
+    ['wrong digest', { packageDigest: '0'.repeat(64) }],
+    ['wrong session', { restoreSessionId: 'other-session' }],
+    ['wrong predecessor', { sourceGenerationId: 'other-generation' }],
+    ['wrong target', { targetGenerationId: 'other-generation' }],
+    ['wrong base revision', { sourceRevision: 2 }],
+    ['wrong target revision', { targetRevision: 3 }],
+    ['wrong classification', { classification: 'resurrect' }],
+  ])('rejects %s through public outbox reads', async (_label, corruption) => {
+    const { active, record } = await boundaryFixture();
+    await putRawOutbox({ ...record, generationBoundary: { ...record.generationBoundary!, ...corruption } } as OutboxRecord);
+    await expect(active.getOutboxRecord(record.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(active.listOutboxMutations({ limit: 10 })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['missing session', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions, [namespaceKey, 'boundary-session'], () => null);
+    }],
+    ['failed session', async (namespaceKey: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions, [namespaceKey, 'boundary-session'], value => ({
+        ...value, status: 'failed', committedAt: null, failedAt: T2, updatedAt: T2, failureCode: 'RESTORE_TRANSACTION_FAILED',
+      }));
+    }],
+    ['cancelled session', async (namespaceKey: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions, [namespaceKey, 'boundary-session'], value => ({
+        ...value, status: 'cancelled', committedAt: null, failedAt: T2, updatedAt: T2, failureCode: 'RESTORE_CANCELLED',
+      }));
+    }],
+    ['staged session', async (namespaceKey: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.restoreSessions, [namespaceKey, 'boundary-session'], value => ({
+        ...value, status: 'staged', committedAt: null,
+      }));
+    }],
+    ['missing source generation', async (namespaceKey: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.generations, [namespaceKey, 'generation-1'], () => null);
+    }],
+    ['missing target generation', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.generations, [namespaceKey, targetGenerationId], () => null);
+    }],
+    ['inactive target generation', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.generations, [namespaceKey, targetGenerationId], value => ({
+        ...value, status: 'preparing', activeNamespaceKey: undefined,
+      }));
+    }],
+    ['wrong predecessor link', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.generations, [namespaceKey, targetGenerationId], value => ({
+        ...value, predecessorGenerationId: 'other-generation',
+      }));
+    }],
+    ['target belongs to another package', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.generations, [namespaceKey, targetGenerationId], value => ({
+        ...value, safeSourceReference: { kind: 'recovery_package', reference: 'other-package' },
+      }));
+    }],
+    ['missing target entity', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, targetGenerationId, 'notes', A], () => null);
+    }],
+    ['stale predecessor entity revision', async (namespaceKey: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, 'generation-1', 'notes', A], value => ({
+        ...value, revision: 2,
+      }));
+    }],
+    ['wrong target entity provenance', async (namespaceKey: string, targetGenerationId: string) => {
+      await mutateRawRecord(LOCAL_DATABASE_STORES.entities, [namespaceKey, targetGenerationId, 'notes', A], value => ({
+        ...value, restoreProvenance: { ...(value.restoreProvenance as object), packageId: 'other-package' },
+      }));
+    }],
+  ] as const)('rejects relational corruption: %s', async (_label, corrupt) => {
+    const { active, result, record } = await boundaryFixture();
+    await corrupt(active.namespaceKey, result.targetGenerationId);
+    await expect(active.getOutboxRecord(record.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects boundary replay to N+2 and a cross-entity copied boundary', async () => {
+    const { active, record } = await boundaryFixture();
+    const replay: OutboxRecord = {
+      ...record, mutationId: 'mut.99999999-9999-4999-8999-999999999999', baseRevision: 2, localRevision: 3,
+      createdAt: T2, updatedAt: T2, availableAt: T2,
+      idempotencyKey: deriveOutboxIdempotencyKey({ ...record, localRevision: 3 }),
+      generationBoundary: { ...record.generationBoundary!, sourceRevision: 2, targetRevision: 3, createdAt: T2 },
+    };
+    await putRawOutbox(replay);
+    await expect(active.getOutboxRecord(replay.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+
+    const copied: OutboxRecord = {
+      ...record, mutationId: 'mut.88888888-8888-4888-8888-888888888888', entityId: B,
+      idempotencyKey: deriveOutboxIdempotencyKey({ ...record, entityId: B }),
+      generationBoundary: { ...record.generationBoundary!, entityId: B },
+    };
+    await putRawOutbox(copied);
+    await expect(active.getOutboxRecord(copied.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects a restore boundary attached to a normal local mutation', async () => {
+    const repository = await repo();
+    const committed = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0,
+    });
+    await putRawOutbox({
+      ...committed.outbox,
+      generationBoundary: {
+        kind: 'restore_generation_sequence_boundary', namespaceKey: repository.namespaceKey,
+        sourceGenerationId: 'source-generation', targetGenerationId: 'generation-1', domain: 'notes', entityId: A,
+        sourceRevision: 1, targetRevision: 2, restoreSessionId: 'normal-mutation', packageId: 'package',
+        packageDigest: '0'.repeat(64), classification: 'replace', createdAt: T0,
+      },
+    });
+    await expect(repository.getOutboxRecord(committed.outbox.mutationId))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('keeps normal K-322 sequencing strict after one valid restore boundary', async () => {
+    const { active } = await boundaryFixture();
+    await active.commitLocalMutation({
+      mutation: { mode: 'update', domain: 'notes', entityId: A, record: note(A, 'local-after-restore').payload, expectedRevision: 2 },
+      now: T2,
+    });
+    const records = await active.listOutboxMutations({ limit: 10 });
+    expect(records.map(record => [record.baseRevision, record.localRevision])).toEqual([[1, 2], [2, 3]]);
+    expect(records[0].generationBoundary).not.toBeNull();
+    expect(records[1].generationBoundary).toBeUndefined();
+    expect((await active.listNextDeliverableMutations({ now: T2, limit: 10 }))[0].localRevision).toBe(2);
   });
 });
 
@@ -395,6 +633,11 @@ describe('K-324 explicit resurrection and failure fencing', () => {
     ['bad digest', { packageDigest: 'bad' }],
     ['negative summary', { summary: { inserted: -1, replaced: 0, skipped: 0, resurrected: 0, conflicts: 0 } }],
     ['reversed chronology', { updatedAt: '2020-01-01T00:00:00.000Z' }],
+    ['committed with blocking state', { blockingState: { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', detectedAt: T1, attemptCount: 1 } }],
+    ['invalid blocking attempt', { blockingState: { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', detectedAt: T1, attemptCount: 0 } }],
+    ['blocking state with unknown field', {
+      blockingState: { code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', detectedAt: T1, attemptCount: 1, rawMutation: 'forbidden' },
+    }],
   ])('fails closed on persisted restore-session corruption: %s', async (_label, corruption) => {
     const repository = await repo(); const value = await packageFor(repository, [note(A)]);
     await repository.restorePackageAtomically(value, { sessionId: 'corrupt', now: T1 });

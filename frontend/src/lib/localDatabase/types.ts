@@ -90,10 +90,19 @@ export type OutboxOperation = 'upsert' | 'tombstone';
 export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'permanent_failure' | 'superseded';
 
 export interface RestoreOutboxGenerationBoundary {
-  kind: 'restore';
+  kind: 'restore_generation_sequence_boundary';
+  namespaceKey: string;
   sourceGenerationId: string;
+  targetGenerationId: string;
+  domain: string;
+  entityId: string;
   sourceRevision: number;
+  targetRevision: number;
   restoreSessionId: string;
+  packageId: string;
+  packageDigest: string;
+  classification: 'replace' | 'resurrect';
+  createdAt: string;
 }
 
 export interface OutboxRecord {
@@ -142,6 +151,11 @@ export interface SyncCheckpointRecord {
 
 export type RestoreSessionStatus = 'created' | 'validating' | 'staged' | 'committing' | 'committed' | 'failed' | 'cancelled';
 export interface RestoreSummary { inserted: number; replaced: number; skipped: number; resurrected: number; conflicts: number }
+export interface RestoreBlockingState {
+  code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT';
+  detectedAt: string;
+  attemptCount: number;
+}
 
 export interface RestoreSessionRecord {
   namespaceKey: string;
@@ -160,6 +174,7 @@ export interface RestoreSessionRecord {
   committedAt: string | null;
   failedAt: string | null;
   failureCode: string | null;
+  blockingState: RestoreBlockingState | null;
   summary: RestoreSummary;
 }
 

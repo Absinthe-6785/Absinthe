@@ -18,7 +18,8 @@ import {
 } from './types';
 import {
   validTimestamp, validateAttachmentState, validateCheckpoint, validateDatabaseMeta, validateEntityEnvelope,
-  validateGenerationRecord, validateMigrationState, validateOutboxRecord, validateRestoreSession, validateSafeSource,
+  validateGenerationRecord, validateMigrationState, validateOutboxRecord, validateRestoreSequenceBoundaryGraph,
+  validateRestoreSession, validateSafeSource,
 } from './validation';
 
 const capabilityMarker = Symbol('absinthe-local-v2-capability');
@@ -307,6 +308,7 @@ export class LocalDatabaseRepository {
         ownerId: mutation.mode === 'tombstone' || mutation.ownerId === undefined ? current?.ownerId ?? null : mutation.ownerId,
         contentHash: mutation.mode === 'tombstone' || mutation.contentHash === undefined ? current?.contentHash ?? null : mutation.contentHash,
         source: mutation.mode === 'tombstone' || mutation.source === undefined ? current?.source ?? null : mutation.source,
+        restoreProvenance: current?.restoreProvenance ?? null,
       };
       validateEntityEnvelope(envelope);
       entityStore.put(envelope);
@@ -388,15 +390,78 @@ export class LocalDatabaseRepository {
   async getOutboxRecord(mutationId: string): Promise<OutboxRecord | null> {
     this.assertOpen('get_outbox'); validateSafeIdentifier(mutationId, 'get_outbox');
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
     );
     const done = transactionCompletion(transaction, 'get_outbox');
-    await this.ensureActive(transaction);
     const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
       .get([this.namespaceKey, this.namespace.generationId, mutationId])) as OutboxRecord | undefined;
-    await done;
     if (value) this.validatePersistedOutbox(value, 'get_outbox');
+    if (value) await this.validateRestoreBoundaryGraphs(transaction, [value]);
+    await this.ensureActive(transaction);
+    await done;
     return value ?? null;
+  }
+
+  private async validateRestoreBoundaryGraphs(transaction: IDBTransaction, values: OutboxRecord[]): Promise<void> {
+    const bounded = values.filter(value => value.generationBoundary != null);
+    if (bounded.length === 0) return;
+    const metaRequest = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(this.namespaceKey);
+    const sessions = transaction.objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+    const generations = transaction.objectStore(LOCAL_DATABASE_STORES.generations);
+    const entities = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+    const sessionRequests = new Map<string, Promise<RestoreSessionRecord | undefined>>();
+    const generationRequests = new Map<string, Promise<GenerationRecord | undefined>>();
+    const entityRequests = new Map<string, Promise<LocalEntityEnvelope | undefined>>();
+    const sessionFor = (sessionId: string): Promise<RestoreSessionRecord | undefined> => {
+      let request = sessionRequests.get(sessionId);
+      if (!request) {
+        request = requestResult(sessions.get([this.namespaceKey, sessionId])) as Promise<RestoreSessionRecord | undefined>;
+        sessionRequests.set(sessionId, request);
+      }
+      return request;
+    };
+    const generationFor = (generationId: string): Promise<GenerationRecord | undefined> => {
+      let request = generationRequests.get(generationId);
+      if (!request) {
+        request = requestResult(generations.get(generationKey(this.namespaceKey, generationId))) as Promise<GenerationRecord | undefined>;
+        generationRequests.set(generationId, request);
+      }
+      return request;
+    };
+    const entityFor = (generationId: string, domain: string, entityId: string): Promise<LocalEntityEnvelope | undefined> => {
+      const cacheKey = JSON.stringify([generationId, domain, entityId]);
+      let request = entityRequests.get(cacheKey);
+      if (!request) {
+        request = requestResult(entities.get(entityKey(this.namespaceKey, generationId, domain, entityId))) as Promise<LocalEntityEnvelope | undefined>;
+        entityRequests.set(cacheKey, request);
+      }
+      return request;
+    };
+    const lookups = bounded.map(value => {
+      const boundary = value.generationBoundary!;
+      return {
+        value,
+        session: sessionFor(boundary.restoreSessionId),
+        sourceGeneration: generationFor(boundary.sourceGenerationId),
+        targetGeneration: generationFor(boundary.targetGenerationId),
+        sourceEntity: entityFor(boundary.sourceGenerationId, boundary.domain, boundary.entityId),
+        targetEntity: entityFor(boundary.targetGenerationId, boundary.domain, boundary.entityId),
+      };
+    });
+    const meta = await requestResult(metaRequest) as DatabaseMetaRecord | undefined;
+    if (!meta) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_sequence_boundary_graph');
+    for (const lookup of lookups) {
+      const [session, sourceGeneration, targetGeneration, sourceEntity, targetEntity] = await Promise.all([
+        lookup.session, lookup.sourceGeneration, lookup.targetGeneration, lookup.sourceEntity, lookup.targetEntity,
+      ]);
+      validateRestoreSequenceBoundaryGraph({
+        outbox: lookup.value, session: session as RestoreSessionRecord,
+        databaseMeta: meta, sourceGeneration: sourceGeneration ?? null, targetGeneration: targetGeneration ?? null,
+        sourceEntity: sourceEntity ?? null, targetEntity: targetEntity ?? null,
+        namespaceKey: this.namespaceKey, schemaVersion: this.namespace.schemaVersion,
+      });
+    }
   }
 
   private async readScopedOutbox(transaction: IDBTransaction, operation: string): Promise<OutboxRecord[]> {
@@ -408,6 +473,7 @@ export class LocalDatabaseRepository {
     const values = await requestResult(store.getAll(range, MAX_OUTBOX_SCAN + 1)) as OutboxRecord[];
     if (values.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', operation);
     values.forEach(value => this.validatePersistedOutbox(value, operation));
+    await this.validateRestoreBoundaryGraphs(transaction, values);
     this.validateOutboxSequences(values, operation);
     return values;
   }
@@ -422,7 +488,7 @@ export class LocalDatabaseRepository {
       group.sort((left, right) => left.localRevision - right.localRevision);
       const first = group[0];
       const validRestoreBoundary = first?.baseRevision !== null
-        && first?.generationBoundary?.kind === 'restore'
+        && first?.generationBoundary?.kind === 'restore_generation_sequence_boundary'
         && first.generationBoundary.sourceRevision === first.baseRevision
         && first.localRevision === first.baseRevision + 1;
       const validSequenceStart = first !== undefined
@@ -475,11 +541,12 @@ export class LocalDatabaseRepository {
       if (!input.entityId) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'list_outbox');
     }
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
     );
     const done = transactionCompletion(transaction, 'list_outbox');
-    await this.ensureActive(transaction);
     const values = await this.readScopedOutbox(transaction, 'list_outbox');
+    await this.ensureActive(transaction);
     await done;
     return values.filter(value => (input.status === undefined || value.status === input.status)
       && (input.domain === undefined || value.domain === input.domain && value.entityId === input.entityId))
@@ -491,11 +558,12 @@ export class LocalDatabaseRepository {
   async countOutboxByStatus(): Promise<OutboxStatusCounts> {
     this.assertOpen('count_outbox');
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
     );
     const done = transactionCompletion(transaction, 'count_outbox');
-    await this.ensureActive(transaction);
     const values = await this.readScopedOutbox(transaction, 'count_outbox');
+    await this.ensureActive(transaction);
     await done;
     const counts: Record<OutboxStatus, number> = {
       pending: 0, claimed: 0, retry_wait: 0, acknowledged: 0, permanent_failure: 0, superseded: 0,
@@ -510,11 +578,12 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'next_deliverable');
     }
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
     );
     const done = transactionCompletion(transaction, 'next_deliverable');
-    await this.ensureActive(transaction);
     const values = await this.readScopedOutbox(transaction, 'next_deliverable');
+    await this.ensureActive(transaction);
     await done;
     return this.nextDeliverable(values, input.now, false).slice(0, input.limit);
   }
@@ -528,12 +597,13 @@ export class LocalDatabaseRepository {
     }
     const leaseExpiresAt = new Date(Date.parse(timestamp) + input.leaseDurationMs).toISOString();
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readwrite',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite',
     );
     const done = transactionCompletion(transaction, 'claim_outbox');
     try {
-      await this.ensureActive(transaction);
       const values = await this.readScopedOutbox(transaction, 'claim_outbox');
+      await this.ensureActive(transaction);
       const candidates = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true).slice(0, input.limit);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const claimed = candidates.map(value => {
@@ -555,15 +625,17 @@ export class LocalDatabaseRepository {
   ): Promise<OutboxRecord> {
     this.assertOpen(operation); validateSafeIdentifier(mutationId, operation);
     const transaction = this.db.transaction(
-      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readwrite',
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite',
     );
     const done = transactionCompletion(transaction, operation);
     try {
-      await this.ensureActive(transaction);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const value = await requestResult(store.get([this.namespaceKey, this.namespace.generationId, mutationId])) as OutboxRecord | undefined;
       if (!value) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
       this.validatePersistedOutbox(value, operation);
+      await this.validateRestoreBoundaryGraphs(transaction, [value]);
+      await this.ensureActive(transaction);
       const updated = transform(value); validateOutboxRecord(updated); store.put(updated);
       await done; return updated;
     } catch (error) {

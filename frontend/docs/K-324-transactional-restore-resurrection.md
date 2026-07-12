@@ -31,6 +31,8 @@ become `failed` with bounded codes. A transient IndexedDB abort leaves `validati
 evidence that can be resumed with the exact same session/package binding. Committed exact retries
 return the stored target generation and summary without writing again. Unique indexes on package ID,
 package digest, and staging generation prevent a second session from reapplying the same package.
+`RESTORE_UNSETTLED_OUTBOX_CONFLICT` is a resumable pause, not a terminal failure: the existing session
+remains `staged`, owns the one staging generation, and is retried after queue resolution.
 Malformed persisted sessions fail as `CORRUPT_PERSISTED_RECORD`; reads never normalize them or expose
 payload/namespace values. Public reads, package/session deduplication, resume, and committed exact retry
 read metadata, source, staging, target, and session evidence together and validate their relational graph.
@@ -101,13 +103,23 @@ settlement policy is:
 
 The check runs during planning for early feedback and repeats inside the final activation transaction to
 fence a concurrent local mutation. A conflict does not acknowledge, supersede, reset, copy, delete, or
-rewrite any existing outbox record. The session becomes terminal `failed`; after queue state is explicitly
-resolved, a new restore session is required.
+rewrite any existing outbox record. The existing session remains `staged` with bounded blocking metadata:
+the code, detection timestamp, and attempt count only. Repeated blocked resumes update that metadata without
+duplicating entities, generations, or outbox records. Queue resolution permits the same session to commit;
+package uniqueness remains intact. Explicit cancellation clears blocking metadata and remains terminal.
 
 Target generations contain only mutations freshly created for applied restore entities. Insert mutations
-start at revision 1. Replace/resurrect mutations carry a locally derived restore-generation boundary proving
-their acknowledged predecessor revision, so K-322 retains strict missing-sequence detection without copying
-old receipts. A future cross-generation carry-forward protocol is a separate reviewed non-goal.
+start at revision 1. Replace/resurrect mutations carry a repository-derived restore-generation sequence
+boundary binding namespace, source/target generation, domain/entity, source/target revision, session,
+package ID/digest, classification, and creation time. Public outbox reads correlate that boundary with the
+committed restore session, active generation graph, predecessor and target entities, and target restore
+provenance. Missing or copied cross-entity/package/session evidence fails as `CORRUPT_PERSISTED_RECORD`.
+
+The boundary authorizes exactly one `N -> N+1` replace/resurrect transition. It cannot authorize insert,
+`N+2`, another entity/domain/generation/package/session, or a normal local mutation. Subsequent normal K-322
+mutations continue from that one validated boundary and retain ordinary gap detection. Relationship lookups
+are bounded by the scoped outbox scan and deduplicated by compound session/generation/entity keys. A future
+cross-generation carry-forward protocol remains a separate reviewed non-goal.
 
 ## Atomic commit and concurrency
 
@@ -136,7 +148,8 @@ resurrection blocking, unresolved-outbox conflict, transaction failure, and pers
 session metadata or error text.
 
 `resumeRestoreSession` requires the exact package ID, digest, and session ID. `validating` resumes
-staging; `staged` or `committing` revalidates and retries the atomic commit. A committed transaction
+staging; blocked `staged` sessions re-read queue state and retry the same atomic commit. If still blocked,
+the session returns to `staged` with no activation or restore outbox writes. A committed transaction
 is recognized only after re-reading and validating the committed session, active metadata pointer, sealed
 source, and active target generation. Failed/cancelled sessions cannot activate or create outbox entries. No timer,
 worker, service worker, network call, checkpoint advancement, cleanup, production import, UI wiring,

@@ -185,14 +185,31 @@ export function validateOutboxRecord(value: OutboxRecord): void {
   const resurrection = value.resurrection ?? null;
   const boundary = value.generationBoundary ?? null;
   if (resurrection !== null) validateResurrectionProvenance(resurrection);
-  const boundaryValid = boundary === null || boundary.kind === 'restore'
+  const boundaryKeys = boundary === null ? '' : Object.keys(boundary).sort().join(',');
+  const expectedBoundaryKeys = [
+    'classification', 'createdAt', 'domain', 'entityId', 'kind', 'namespaceKey', 'packageDigest', 'packageId',
+    'restoreSessionId', 'sourceGenerationId', 'sourceRevision', 'targetGenerationId', 'targetRevision',
+  ].sort().join(',');
+  const boundaryValid = boundary === null || boundaryKeys === expectedBoundaryKeys
+    && boundary.kind === 'restore_generation_sequence_boundary'
+    && boundary.namespaceKey === value.namespaceKey
     && SAFE_CODE.test(boundary.sourceGenerationId)
+    && boundary.targetGenerationId === value.generationId
+    && boundary.domain === value.domain && boundary.entityId === value.entityId
+    && typeof boundary.domain === 'string' && boundary.domain.length > 0 && boundary.domain.length <= 512 && !SENSITIVE.test(boundary.domain)
+    && typeof boundary.entityId === 'string' && boundary.entityId.length > 0 && boundary.entityId.length <= 512 && !SENSITIVE.test(boundary.entityId)
     && SAFE_CODE.test(boundary.restoreSessionId)
+    && SAFE_CODE.test(boundary.packageId) && /^[a-f0-9]{64}$/.test(boundary.packageDigest)
     && boundary.sourceGenerationId !== value.generationId
     && value.generationId === `restore-${boundary.restoreSessionId}`
     && Number.isSafeInteger(boundary.sourceRevision) && boundary.sourceRevision > 0
+    && Number.isSafeInteger(boundary.targetRevision) && boundary.targetRevision === boundary.sourceRevision + 1
+    && boundary.targetRevision === value.localRevision
+    && ['replace', 'resurrect'].includes(boundary.classification)
+    && validTimestamp(boundary.createdAt) && boundary.createdAt === value.createdAt
     && value.operation === 'upsert' && value.baseRevision === boundary.sourceRevision
-    && value.localRevision === boundary.sourceRevision + 1;
+    && value.localRevision === boundary.sourceRevision + 1
+    && (boundary.classification === 'resurrect') === (resurrection !== null);
   if (!['upsert', 'tombstone'].includes(value.operation)
     || !validOutboxIdempotencyKey(value.idempotencyKey) || value.idempotencyKey !== expectedIdempotencyKey
     || !validMutationId(value.mutationId)
@@ -224,6 +241,15 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
   validateSafeIdentifier(value.expectedActiveGenerationId, 'validate_restore_session');
   if (value.sourceGenerationId !== null) validateSafeIdentifier(value.sourceGenerationId, 'validate_restore_session');
   const summary = value.summary;
+  const blocking = value.blockingState;
+  const blockingValid = blocking === null || blocking !== undefined
+    && Object.keys(blocking).sort().join(',') === ['attemptCount', 'code', 'detectedAt'].sort().join(',')
+    && blocking.code === 'RESTORE_UNSETTLED_OUTBOX_CONFLICT'
+    && validTimestamp(blocking.detectedAt)
+    && Number.isSafeInteger(blocking.attemptCount) && blocking.attemptCount > 0
+    && ['staged', 'committing'].includes(value.status)
+    && Date.parse(blocking.detectedAt) >= Date.parse(value.createdAt)
+    && Date.parse(blocking.detectedAt) <= Date.parse(value.updatedAt);
   const chronology = validTimestamp(value.createdAt) && validTimestamp(value.updatedAt)
     && Date.parse(value.createdAt) <= Date.parse(value.updatedAt)
     && (value.committedAt === null || validTimestamp(value.committedAt) && Date.parse(value.committedAt) >= Date.parse(value.createdAt)
@@ -259,8 +285,61 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
     || (value.status === 'committed'
       && summary.inserted + summary.replaced + summary.skipped + summary.resurrected + summary.conflicts !== value.entityCount)
     || (value.failureCode !== null && (!SAFE_CODE.test(value.failureCode) || !failureCodes.has(value.failureCode)))
-    || !chronology || !terminalValid || !lifecycleReferencesValid) {
+    || !chronology || !terminalValid || !lifecycleReferencesValid || !blockingValid) {
     throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_session');
+  }
+}
+
+export interface RestoreSequenceBoundaryGraph {
+  outbox: OutboxRecord;
+  session: RestoreSessionRecord;
+  databaseMeta: DatabaseMetaRecord;
+  sourceGeneration: GenerationRecord | null;
+  targetGeneration: GenerationRecord | null;
+  sourceEntity: LocalEntityEnvelope | null;
+  targetEntity: LocalEntityEnvelope | null;
+  namespaceKey: string;
+  schemaVersion: number;
+}
+
+export function validateRestoreSequenceBoundaryGraph(graph: RestoreSequenceBoundaryGraph): void {
+  try {
+    const { outbox, session, databaseMeta, sourceGeneration, targetGeneration, sourceEntity, targetEntity,
+      namespaceKey, schemaVersion } = graph;
+    validateOutboxRecord(outbox);
+    const boundary = outbox.generationBoundary;
+    if (!boundary || !sourceGeneration || !targetGeneration || !sourceEntity || !targetEntity) throw new Error('boundary_graph');
+    validateRestoreSessionGraph({
+      session, databaseMeta, sourceGeneration, stagingGeneration: targetGeneration, targetGeneration,
+      namespaceKey, schemaVersion,
+    });
+    validateEntityEnvelope(sourceEntity); validateEntityEnvelope(targetEntity);
+    const provenance = targetEntity.restoreProvenance;
+    if (session.status !== 'committed' || session.blockingState !== null
+      || session.namespaceKey !== boundary.namespaceKey || session.sessionId !== boundary.restoreSessionId
+      || session.packageId !== boundary.packageId || session.packageDigest !== boundary.packageDigest
+      || session.sourceGenerationId !== boundary.sourceGenerationId
+      || session.targetGenerationId !== boundary.targetGenerationId
+      || sourceGeneration.generationId !== boundary.sourceGenerationId
+      || targetGeneration.generationId !== boundary.targetGenerationId
+      || targetGeneration.predecessorGenerationId !== sourceGeneration.generationId
+      || targetGeneration.safeSourceReference?.kind !== 'recovery_package'
+      || targetGeneration.safeSourceReference.reference !== boundary.packageId
+      || sourceEntity.namespaceKey !== namespaceKey || sourceEntity.generationId !== boundary.sourceGenerationId
+      || sourceEntity.domain !== boundary.domain || sourceEntity.entityId !== boundary.entityId
+      || sourceEntity.revision !== boundary.sourceRevision
+      || (boundary.classification === 'replace' && sourceEntity.isDeleted)
+      || (boundary.classification === 'resurrect' && !sourceEntity.isDeleted)
+      || targetEntity.namespaceKey !== namespaceKey || targetEntity.generationId !== boundary.targetGenerationId
+      || targetEntity.domain !== boundary.domain || targetEntity.entityId !== boundary.entityId
+      || targetEntity.revision < boundary.targetRevision
+      || !provenance || provenance.packageId !== boundary.packageId
+      || provenance.restoreSessionId !== boundary.restoreSessionId
+      || provenance.classification !== boundary.classification
+      || provenance.expectedLocalRevision !== boundary.sourceRevision
+      || provenance.mutationId !== outbox.mutationId || provenance.restoredAt !== boundary.createdAt) throw new Error('boundary_graph');
+  } catch {
+    throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_sequence_boundary_graph');
   }
 }
 
