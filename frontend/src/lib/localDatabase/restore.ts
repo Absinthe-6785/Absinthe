@@ -7,7 +7,7 @@ import type {
 } from './types';
 import {
   validTimestamp, validateDatabaseMeta, validateEntityEnvelope, validateGenerationRecord,
-  validateOutboxRecord, validateRestoreSession,
+  validateOutboxRecord, validateRestoreSession, validateRestoreSessionGraph,
 } from './validation';
 
 export const RESTORE_PACKAGE_PROTOCOL = 1 as const;
@@ -207,10 +207,36 @@ function persistedSession(value: unknown, namespaceKey: string): RestoreSessionR
 }
 
 async function readSession(runtime: RestoreRuntime, sessionId: string): Promise<RestoreSessionRecord | null> {
-  const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.restoreSessions, 'readonly');
+  const tx = runtime.db.transaction([
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.restoreSessions,
+  ], 'readonly');
   const done = transactionCompletion(tx, 'get_restore_session');
   const value = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions).get(sessionKey(runtime.namespaceKey, sessionId)));
-  await done; return value === undefined ? null : persistedSession(value, runtime.namespaceKey);
+  if (value === undefined) { await done; return null; }
+  const session = persistedSession(value, runtime.namespaceKey);
+  const meta = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
+  const generations = tx.objectStore(LOCAL_DATABASE_STORES.generations);
+  const source = session.sourceGenerationId === null ? null
+    : await requestResult(generations.get(generationKey(runtime.namespaceKey, session.sourceGenerationId))) as GenerationRecord | undefined;
+  const staging = await requestResult(generations.get(generationKey(runtime.namespaceKey, session.stagingGenerationId))) as GenerationRecord | undefined;
+  const target = session.targetGenerationId === null ? null
+    : await requestResult(generations.get(generationKey(runtime.namespaceKey, session.targetGenerationId))) as GenerationRecord | undefined;
+  await done;
+  if (!meta) fail('CORRUPT_PERSISTED_RECORD', 'get_restore_session');
+  validateRestoreSessionGraph({
+    session, databaseMeta: meta, sourceGeneration: source ?? null, stagingGeneration: staging ?? null,
+    targetGeneration: target ?? null, namespaceKey: runtime.namespaceKey, schemaVersion: runtime.namespace.schemaVersion,
+  });
+  return session;
+}
+
+const settledRestoreOutboxStatuses = new Set(['acknowledged', 'superseded']);
+function assertNoUnsettledRestoreOutbox(records: OutboxRecord[]): void {
+  try { records.forEach(validateOutboxRecord); }
+  catch { fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_outbox'); }
+  if (records.some(record => !settledRestoreOutboxStatuses.has(record.status))) {
+    fail('RESTORE_UNSETTLED_OUTBOX_CONFLICT', 'validate_restore_outbox');
+  }
 }
 
 async function createSession(runtime: RestoreRuntime, packageValue: RestorePackageV1, options: RestoreOptions, digest: string, at: string): Promise<RestoreSessionRecord> {
@@ -265,7 +291,7 @@ function sameRecord(left: unknown, right: unknown): boolean { return canonical(l
 
 async function stage(runtime: RestoreRuntime, packageValue: RestorePackageV1, options: RestoreOptions, at: string): Promise<RestoreSessionRecord> {
   const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
-    LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite');
+    LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite');
   const done = transactionCompletion(tx, 'stage_restore');
   try {
     const metaStore = tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta); const generationStore = tx.objectStore(LOCAL_DATABASE_STORES.generations);
@@ -279,6 +305,9 @@ async function stage(runtime: RestoreRuntime, packageValue: RestorePackageV1, op
     if (meta.activeGenerationId !== session.expectedActiveGenerationId) fail('RESTORE_ACTIVE_GENERATION_CHANGED');
     const generation = await requestResult(generationStore.get(generationKey(runtime.namespaceKey, session.stagingGenerationId))) as GenerationRecord | undefined;
     if (!generation || generation.status !== 'preparing') fail('RESTORE_SESSION_CONFLICT');
+    const sourceOutbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox)
+      .getAll(outboxRange(runtime.namespaceKey, session.sourceGenerationId!))) as OutboxRecord[];
+    assertNoUnsettledRestoreOutbox(sourceOutbox);
     const current = await requestResult(entityStore.getAll(entityRange(runtime.namespaceKey, meta.activeGenerationId))) as LocalEntityEnvelope[];
     current.forEach(validateEntityEnvelope);
     const target = new Map(current.map(entity => [entity.entityId, { ...entity, generationId: session.stagingGenerationId }]));
@@ -375,11 +404,7 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
     if (!currentMatchesPlan(current, staged, session.sessionId)) fail('RESTORE_ENTITY_REVISION_CONFLICT');
     if (options.testOnlyFailAt === 'entity_materialization') fail('RESTORE_TRANSACTION_FAILED');
     const inherited = await requestResult(outboxStore.getAll(outboxRange(runtime.namespaceKey, session.sourceGenerationId))) as OutboxRecord[];
-    inherited.forEach(record => {
-      validateOutboxRecord(record);
-      const copied = { ...record, generationId: session.targetGenerationId!, idempotencyKey: deriveOutboxIdempotencyKey({ ...record, generationId: session.targetGenerationId! }) };
-      validateOutboxRecord(copied); outboxStore.add(copied);
-    });
+    assertNoUnsettledRestoreOutbox(inherited);
     for (const entity of staged) {
       const provenance = entity.restoreProvenance;
       if (provenance?.restoreSessionId !== session.sessionId || !provenance.mutationId
@@ -395,6 +420,10 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
         acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null, supersededByMutationId: null,
         resurrection: provenance.resurrection,
         deliveryBlockCode: provenance.resurrection ? 'REMOTE_RESURRECTION_UNSUPPORTED' : null,
+        generationBoundary: provenance.expectedLocalRevision === null ? null : {
+          kind: 'restore', sourceGenerationId: session.sourceGenerationId,
+          sourceRevision: provenance.expectedLocalRevision, restoreSessionId: session.sessionId,
+        },
       };
       validateOutboxRecord(outbox); outboxStore.add(outbox);
     }
@@ -449,6 +478,7 @@ export async function restorePackageAtomically(runtime: RestoreRuntime, untruste
     catch (error) {
       if (error instanceof LocalDatabaseError && [
         'RESTORE_ENTITY_REVISION_CONFLICT', 'RESTORE_TOMBSTONE_CONFLICT', 'RESTORE_ACTIVE_GENERATION_CHANGED',
+        'RESTORE_UNSETTLED_OUTBOX_CONFLICT',
       ].includes(error.code)) {
         await updateSession(runtime, options.sessionId, ['validating'], value => ({
           ...value, status: 'failed', updatedAt: at, failedAt: at, failureCode: error.code,
@@ -462,7 +492,7 @@ export async function restorePackageAtomically(runtime: RestoreRuntime, untruste
     try { return await commit(runtime, options, at); }
     catch (error) {
       if (error instanceof LocalDatabaseError && [
-        'RESTORE_ENTITY_REVISION_CONFLICT', 'RESTORE_ACTIVE_GENERATION_CHANGED',
+        'RESTORE_ENTITY_REVISION_CONFLICT', 'RESTORE_ACTIVE_GENERATION_CHANGED', 'RESTORE_UNSETTLED_OUTBOX_CONFLICT',
       ].includes(error.code)) {
         await updateSession(runtime, options.sessionId, ['committing'], value => ({
           ...value, status: 'failed', updatedAt: at, failedAt: at, failureCode: error.code,
@@ -480,6 +510,7 @@ export async function getRestoreSession(runtime: RestoreRuntime, sessionId: stri
 
 export async function cancelRestoreSession(runtime: RestoreRuntime, sessionId: string, at?: string): Promise<RestoreSessionRecord> {
   runtime.assertOpen('cancel_restore_session'); const timestampValue = at ?? runtime.clock(); if (!timestamp(timestampValue)) fail('INVALID_RESTORE_PACKAGE');
+  await readSession(runtime, sessionId);
   return updateSession(runtime, sessionId, ['created', 'validating', 'staged'], value => ({
     ...value, status: 'cancelled', updatedAt: timestampValue, failureCode: 'RESTORE_CANCELLED', failedAt: timestampValue,
   }));

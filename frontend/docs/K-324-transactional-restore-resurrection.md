@@ -32,13 +32,29 @@ evidence that can be resumed with the exact same session/package binding. Commit
 return the stored target generation and summary without writing again. Unique indexes on package ID,
 package digest, and staging generation prevent a second session from reapplying the same package.
 Malformed persisted sessions fail as `CORRUPT_PERSISTED_RECORD`; reads never normalize them or expose
-payload/namespace values.
+payload/namespace values. Public reads, package/session deduplication, resume, and committed exact retry
+read metadata, source, staging, target, and session evidence together and validate their relational graph.
 
 Each session owns a new deterministic `preparing` restore generation. Validation never activates it.
 Staging creates a complete overlay target by copying the current active generation and replacing only
 planned package entities. Omitted local entities remain present; omission is never deletion authority.
 No store is cleared and no active-generation entity is overwritten during staging. Failed staging may
 leave diagnosable generation/session metadata, but active reads remain on the predecessor.
+
+The graph compatibility matrix is fail-closed:
+
+- `created`/`validating`: source is active, metadata points to source, and the restore staging generation
+  is `preparing`/`pending` with no target reference.
+- `staged`/`committing`: source remains active, metadata points to source, and staging/target is the same
+  non-active `preparing`/`valid` restore generation.
+- `committed`: source is sealed, staging/target exists and is active/valid, and metadata points to target.
+- `failed`/`cancelled`: the restore staging/target generation is never active and cannot own the metadata
+  active pointer. Early terminal sessions retain pending staging evidence; post-stage terminal sessions
+  retain valid but non-active staging evidence.
+
+Source and staging must be distinct, every claimed reference must exist in the same namespace, and the
+staging generation must be the session's restore-created generation with matching predecessor and package
+reference. Missing or incompatible evidence is corruption, not a repair or resume signal.
 
 ## Classification and revision policy
 
@@ -70,14 +86,37 @@ records. K-323 currently rejects upsert over a remote tombstone, so K-324 never 
 its tombstone protections. A later reviewed server policy must explicitly add remote resurrection.
 Tombstone history is retained; K-324 implements no physical purge.
 
+## Immutable outbox history and activation fence
+
+K-324 does not migrate unsettled outbox records across generations. Existing mutation IDs, generation IDs,
+idempotency keys, payloads, and status history remain byte-for-byte in the predecessor generation. The
+settlement policy is:
+
+- `acknowledged` and `superseded`: settled, non-deliverable history; restore may proceed and history remains
+  only in the old generation.
+- `pending`, `claimed` (including expired leases), `retry_wait`, and `permanent_failure`: unresolved; restore
+  fails with `RESTORE_UNSETTLED_OUTBOX_CONFLICT`.
+- a resurrection record carrying `REMOTE_RESURRECTION_UNSUPPORTED`: unresolved even though delivery selection
+  blocks it, so it also prevents another restore activation.
+
+The check runs during planning for early feedback and repeats inside the final activation transaction to
+fence a concurrent local mutation. A conflict does not acknowledge, supersede, reset, copy, delete, or
+rewrite any existing outbox record. The session becomes terminal `failed`; after queue state is explicitly
+resolved, a new restore session is required.
+
+Target generations contain only mutations freshly created for applied restore entities. Insert mutations
+start at revision 1. Replace/resurrect mutations carry a locally derived restore-generation boundary proving
+their acknowledged predecessor revision, so K-322 retains strict missing-sequence detection without copying
+old receipts. A future cross-generation carry-forward protocol is a separate reviewed non-goal.
+
 ## Atomic commit and concurrency
 
 The final IndexedDB transaction spans database metadata, generations, entities, outbox, and restore
 sessions. It re-reads the authoritative active generation, session digest/status, staging generation,
-the complete active entity set, entity revisions/content, and inherited outbox history. It then:
+the complete active entity set, entity revisions/content, and predecessor outbox status. It then:
 
 1. verifies staging still represents an overlay of the current active generation;
-2. preserves scoped outbox history in the target generation;
+2. rejects any unresolved predecessor outbox record without copying settled history;
 3. creates exactly one pending K-322 upsert for each inserted/replaced/resurrected entity;
 4. seals the predecessor and activates the target;
 5. updates the metadata pointer; and
@@ -93,12 +132,12 @@ local mutation after staging cannot be overwritten.
 
 Errors are bounded machine codes including protocol/package/count/digest/scope errors, session
 conflict/cancellation, active-generation and entity-revision conflicts, tombstone conflicts, remote
-resurrection blocking, transaction failure, and persisted corruption. No Note payload is placed in
+resurrection blocking, unresolved-outbox conflict, transaction failure, and persisted corruption. No Note payload is placed in
 session metadata or error text.
 
 `resumeRestoreSession` requires the exact package ID, digest, and session ID. `validating` resumes
 staging; `staged` or `committing` revalidates and retries the atomic commit. A committed transaction
-is recognized only by the consistent committed session and active target generation produced in the
-same transaction. Failed/cancelled sessions cannot activate or create outbox entries. No timer,
+is recognized only after re-reading and validating the committed session, active metadata pointer, sealed
+source, and active target generation. Failed/cancelled sessions cannot activate or create outbox entries. No timer,
 worker, service worker, network call, checkpoint advancement, cleanup, production import, UI wiring,
 legacy IndexedDB mutation, migration, or cutover is included.

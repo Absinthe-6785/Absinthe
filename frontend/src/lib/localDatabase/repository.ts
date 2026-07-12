@@ -420,11 +420,18 @@ export class LocalDatabaseRepository {
     }
     for (const group of groups.values()) {
       group.sort((left, right) => left.localRevision - right.localRevision);
-      if (group[0]?.baseRevision !== null || group[0]?.localRevision !== 1) {
+      const first = group[0];
+      const validRestoreBoundary = first?.baseRevision !== null
+        && first?.generationBoundary?.kind === 'restore'
+        && first.generationBoundary.sourceRevision === first.baseRevision
+        && first.localRevision === first.baseRevision + 1;
+      const validSequenceStart = first !== undefined
+        && (first.baseRevision === null ? first.localRevision === 1 : validRestoreBoundary);
+      if (!validSequenceStart) {
         throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
       }
       for (let index = 1; index < group.length; index += 1) {
-        if (group[index].baseRevision !== group[index - 1].localRevision) {
+        if (group[index].generationBoundary != null || group[index].baseRevision !== group[index - 1].localRevision) {
           throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
         }
       }

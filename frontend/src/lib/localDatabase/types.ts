@@ -89,6 +89,13 @@ export interface RestoreProvenance {
 export type OutboxOperation = 'upsert' | 'tombstone';
 export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'permanent_failure' | 'superseded';
 
+export interface RestoreOutboxGenerationBoundary {
+  kind: 'restore';
+  sourceGenerationId: string;
+  sourceRevision: number;
+  restoreSessionId: string;
+}
+
 export interface OutboxRecord {
   namespaceKey: string;
   generationId: string;
@@ -120,6 +127,7 @@ export interface OutboxRecord {
   supersededByMutationId: string | null;
   resurrection?: ResurrectionProvenance | null;
   deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
+  generationBoundary?: RestoreOutboxGenerationBoundary | null;
 }
 
 export interface SyncCheckpointRecord {

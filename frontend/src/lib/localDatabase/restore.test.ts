@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, closeLocalDatabase,
   computeRestorePackageDigest, computeRestoreProjectFingerprint, createDormantLocalDatabaseCapability,
-  openLocalDatabase, type LocalDatabaseNamespace, type LocalDatabaseRepository,
-  type RestoreEntityV1, type RestorePackageV1,
+  deriveOutboxIdempotencyKey, openLocalDatabase, type LocalDatabaseNamespace, type LocalDatabaseRepository,
+  type OutboxRecord, type RestoreEntityV1, type RestorePackageV1,
 } from './index';
 
 const capability = createDormantLocalDatabaseCapability('test');
@@ -50,6 +50,30 @@ async function rawDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(LOCAL_DATABASE_NAME);
     request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   });
+}
+async function rawOutbox(namespaceKey: string, generationId: string): Promise<OutboxRecord[]> {
+  const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readonly');
+  const request = tx.objectStore(LOCAL_DATABASE_STORES.outbox).getAll(
+    IDBKeyRange.bound([namespaceKey, generationId, ''], [namespaceKey, generationId, '\uffff']),
+  );
+  const records = await new Promise<OutboxRecord[]>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result as OutboxRecord[]); request.onerror = () => reject(request.error);
+  });
+  db.close(); return records;
+}
+async function putRawOutbox(record: OutboxRecord): Promise<void> {
+  const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
+  tx.objectStore(LOCAL_DATABASE_STORES.outbox).put(record);
+  await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+}
+async function acknowledgeAll(repository: LocalDatabaseRepository): Promise<void> {
+  while (true) {
+    const claimed = await repository.claimNextMutations({ workerId: 'restore-test', now: T1, leaseDurationMs: 1_000, limit: 100 });
+    if (claimed.length === 0) return;
+    for (const record of claimed) {
+      await repository.acknowledgeMutation({ mutationId: record.mutationId, workerId: 'restore-test', now: T1 });
+    }
+  }
 }
 
 beforeEach(async () => { mutation = 1; await removeDatabase().catch(() => undefined); });
@@ -133,6 +157,7 @@ describe('K-324 overlay restore lifecycle', () => {
     const repository = await repo();
     await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'local').payload }, now: T0 });
     await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: B, record: note(B, 'unrelated').payload }, now: T0 });
+    await acknowledgeAll(repository);
     const value = await packageFor(repository, [note(A, 'restored')]);
     const result = await repository.restorePackageAtomically(value, { sessionId: 'replace', conflictPolicy: 'replace', now: T1 });
     expect(result.summary.replaced).toBe(1);
@@ -140,12 +165,13 @@ describe('K-324 overlay restore lifecycle', () => {
     expect((await active.getEntity<ReturnType<typeof note>['payload']>('notes', A))?.record.title).toBe('restored');
     expect((await active.getEntity('notes', A))?.revision).toBe(2);
     expect(await active.getEntity('notes', B)).not.toBeNull();
-    expect(await active.listOutboxMutations({ limit: 20 })).toHaveLength(3);
+    expect(await active.listOutboxMutations({ limit: 20 })).toHaveLength(1);
   });
 
   it('fails divergent default policy and supports explicit preserve-local without timestamp winner selection', async () => {
     const repository = await repo();
     await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'local').payload }, now: T0 });
+    await acknowledgeAll(repository);
     const divergent = await packageFor(repository, [note(A, 'remote')]);
     await expect(repository.restorePackageAtomically(divergent, { sessionId: 'conflict' })).rejects.toMatchObject({ code: 'RESTORE_ENTITY_REVISION_CONFLICT' });
     expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
@@ -160,12 +186,121 @@ describe('K-324 overlay restore lifecycle', () => {
     const first = await repo(); const firstPackage = await packageFor(first, [note(A)], 'first-package');
     const firstResult = await first.restorePackageAtomically(firstPackage, { sessionId: 'first' });
     const active = await repo({ ...base, generationId: firstResult.targetGenerationId });
+    await acknowledgeAll(active);
     const secondPackage = await packageFor(active, [note(B)], 'second-package');
     const secondResult = await active.restorePackageAtomically(secondPackage, { sessionId: 'second' });
     const next = await repo({ ...base, generationId: secondResult.targetGenerationId });
     expect(await next.getEntity('notes', A)).not.toBeNull();
     expect(await next.getEntity('notes', B)).not.toBeNull();
-    expect(await next.listOutboxMutations({ limit: 10 })).toHaveLength(2);
+    expect(await next.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+  });
+});
+
+describe('K-324A immutable outbox fencing', () => {
+  it.each([
+    ['pending', async (_repository: LocalDatabaseRepository, _mutationId: string) => undefined],
+    ['claimed', async (repository: LocalDatabaseRepository) => {
+      await repository.claimNextMutations({ workerId: 'worker', now: T0, leaseDurationMs: 10_000, limit: 1 });
+    }],
+    ['expired claimed', async (repository: LocalDatabaseRepository) => {
+      await repository.claimNextMutations({ workerId: 'worker', now: T0, leaseDurationMs: 1, limit: 1 });
+    }],
+    ['retry_wait', async (repository: LocalDatabaseRepository, mutationId: string) => {
+      await repository.claimNextMutations({ workerId: 'worker', now: T0, leaseDurationMs: 10_000, limit: 1 });
+      await repository.releaseClaimForRetry({ mutationId, workerId: 'worker', now: T1, errorCode: 'transient', baseDelayMs: 1_000, maxDelayMs: 1_000 });
+    }],
+    ['permanent_failure', async (repository: LocalDatabaseRepository, mutationId: string) => {
+      await repository.claimNextMutations({ workerId: 'worker', now: T0, leaseDurationMs: 10_000, limit: 1 });
+      await repository.markPermanentFailure({ mutationId, workerId: 'worker', now: T1, errorCode: 'permanent' });
+    }],
+  ])('blocks restore with %s history without copying or rewriting identity', async (label, prepare) => {
+    const repository = await repo();
+    const committed = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0,
+    });
+    await prepare(repository, committed.outbox.mutationId);
+    const before = await repository.getOutboxRecord(committed.outbox.mutationId);
+    const value = await packageFor(repository, [note(B)], `blocked-${String(label).replace(' ', '-')}`);
+    await expect(repository.restorePackageAtomically(value, { sessionId: `blocked-${String(label).replace(' ', '-')}`, now: T1 }))
+      .rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+    expect(await repository.getOutboxRecord(committed.outbox.mutationId)).toEqual(before);
+    expect(await rawOutbox(repository.namespaceKey, `restore-blocked-${String(label).replace(' ', '-')}`)).toEqual([]);
+  });
+
+  it('keeps acknowledged history immutable and starts target sequencing at an explicit restore boundary', async () => {
+    const repository = await repo();
+    const committed = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0,
+    });
+    await acknowledgeAll(repository);
+    const oldHistory = await repository.getOutboxRecord(committed.outbox.mutationId);
+    const value = await packageFor(repository, [note(A, 'new')], 'acknowledged-history');
+    const result = await repository.restorePackageAtomically(value, { sessionId: 'acknowledged-history', conflictPolicy: 'replace', now: T1 });
+    expect(await rawOutbox(repository.namespaceKey, 'generation-1')).toEqual([oldHistory]);
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    const target = await active.listOutboxMutations({ limit: 10 });
+    expect(target).toHaveLength(1);
+    expect(target[0]).toMatchObject({ baseRevision: 1, localRevision: 2, generationBoundary: {
+      kind: 'restore', sourceGenerationId: 'generation-1', sourceRevision: 1, restoreSessionId: 'acknowledged-history',
+    } });
+    expect(target[0].mutationId).not.toBe(committed.outbox.mutationId);
+  });
+
+  it('leaves superseded history in the source generation without copying or redelivery', async () => {
+    const repository = await repo();
+    const committed = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0,
+    });
+    const superseded: OutboxRecord = {
+      ...committed.outbox, status: 'superseded', supersededByMutationId: 'mut.11111111-1111-4111-8111-111111111111',
+    };
+    await putRawOutbox(superseded);
+    const result = await repository.restorePackageAtomically(
+      await packageFor(repository, [note(B)], 'superseded-history'), { sessionId: 'superseded-history', now: T1 },
+    );
+    expect(await rawOutbox(repository.namespaceKey, 'generation-1')).toEqual([superseded]);
+    const active = await repo({ ...base, generationId: result.targetGenerationId });
+    expect(await active.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+    expect(await active.listNextDeliverableMutations({ now: T1, limit: 10 })).toHaveLength(1);
+  });
+
+  it('treats a blocked resurrection mutation as unresolved and blocks the next restore', async () => {
+    const repository = await repo();
+    await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A).payload }, now: T0 });
+    await repository.commitLocalMutation({ mutation: { mode: 'tombstone', domain: 'notes', entityId: A, record: null, expectedRevision: 1 }, now: T0 });
+    await acknowledgeAll(repository);
+    const resurrected = await repository.restorePackageAtomically(
+      await packageFor(repository, [note(A, 'reborn')], 'blocked-resurrection'),
+      { sessionId: 'blocked-resurrection', allowResurrection: true, now: T1 },
+    );
+    const active = await repo({ ...base, generationId: resurrected.targetGenerationId });
+    await expect(active.restorePackageAtomically(
+      await packageFor(active, [note(B)], 'after-blocked-resurrection'), { sessionId: 'after-blocked-resurrection', now: T1 },
+    )).rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+  });
+
+  it('revalidates outbox state inside activation and rolls back a race without identity changes', async () => {
+    const repository = await repo(); const value = await packageFor(repository, [note(A)], 'outbox-race');
+    await expect(repository.restorePackageAtomically(value, { sessionId: 'outbox-race', testOnlyFailAt: 'outbox_creation', now: T1 }))
+      .rejects.toHaveProperty('code');
+    const raced: OutboxRecord = {
+      namespaceKey: repository.namespaceKey, generationId: 'generation-1', mutationId: 'mut.22222222-2222-4222-8222-222222222222',
+      domain: 'notes', entityId: 'race-only', operation: 'upsert', baseRevision: null, localRevision: 1,
+      payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: { synthetic: true } }, payloadHash: null,
+      createdAt: T1, updatedAt: T1, availableAt: T1, attemptCount: 0, status: 'pending',
+      idempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: repository.namespaceKey, generationId: 'generation-1',
+        domain: 'notes', entityId: 'race-only', localRevision: 1, operation: 'upsert' }),
+      lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
+      acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null, supersededByMutationId: null,
+    };
+    await putRawOutbox(raced);
+    await expect(repository.resumeRestoreSession(value, { sessionId: 'outbox-race', now: T1 }))
+      .rejects.toMatchObject({ code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+    expect(await repository.getOutboxRecord(raced.mutationId)).toEqual(raced);
+    expect(await rawOutbox(repository.namespaceKey, 'restore-outbox-race')).toEqual([]);
+    expect(await repository.getRestoreSession('outbox-race')).toMatchObject({ status: 'failed', failureCode: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT' });
   });
 });
 
@@ -174,6 +309,7 @@ describe('K-324 explicit resurrection and failure fencing', () => {
     const repository = await repo();
     await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0 });
     await repository.commitLocalMutation({ mutation: { mode: 'tombstone', domain: 'notes', entityId: A, record: null, expectedRevision: 1 }, now: T0 });
+    await acknowledgeAll(repository);
     const value = await packageFor(repository, [note(A, 'reborn')]);
     await expect(repository.restorePackageAtomically(value, { sessionId: 'blocked' })).rejects.toMatchObject({ code: 'RESTORE_TOMBSTONE_CONFLICT' });
     const other = await packageFor(repository, [note(A, 'reborn')], 'resurrection-package');
@@ -267,5 +403,98 @@ describe('K-324 explicit resurrection and failure fencing', () => {
     tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions).put({ ...persisted, ...corruption });
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
     await expect(repository.getRestoreSession('corrupt')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('fails closed on every required malformed restore-generation graph through public reads', async () => {
+    const cases = [
+      'missing-target', 'missing-staging', 'target-not-active', 'metadata-mismatch', 'source-equals-staging',
+      'missing-source', 'staging-other-namespace', 'target-other-namespace', 'incompatible-target-status',
+      'failed-active-target', 'cancelled-active-target',
+    ] as const;
+    for (let index = 0; index < cases.length; index += 1) {
+      const kind = cases[index];
+      const namespace = { ...base, userId: `graph-user-${index}` };
+      const repository = await repo(namespace); const value = await packageFor(repository, [note(A)], `graph-package-${index}`);
+      const result = await repository.restorePackageAtomically(value, { sessionId: `graph-session-${index}`, now: T1 });
+      const persisted = await repository.getRestoreSession(`graph-session-${index}`);
+      const db = await rawDb();
+      const tx = db.transaction([
+        LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.restoreSessions,
+      ], 'readwrite');
+      const generations = tx.objectStore(LOCAL_DATABASE_STORES.generations);
+      const sessions = tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+      const targetKey = [repository.namespaceKey, result.targetGenerationId];
+      const sourceKey = [repository.namespaceKey, 'generation-1'];
+      const targetRequest = generations.get(targetKey);
+      const sourceRequest = generations.get(sourceKey);
+      const metaRequest = tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(repository.namespaceKey);
+      await Promise.all([
+        new Promise<void>((resolve, reject) => { targetRequest.onsuccess = () => resolve(); targetRequest.onerror = () => reject(targetRequest.error); }),
+        new Promise<void>((resolve, reject) => { sourceRequest.onsuccess = () => resolve(); sourceRequest.onerror = () => reject(sourceRequest.error); }),
+        new Promise<void>((resolve, reject) => { metaRequest.onsuccess = () => resolve(); metaRequest.onerror = () => reject(metaRequest.error); }),
+      ]);
+      const target = targetRequest.result; const source = sourceRequest.result; const meta = metaRequest.result;
+      if (kind === 'missing-target' || kind === 'missing-staging') generations.delete(targetKey);
+      if (kind === 'target-not-active' || kind === 'incompatible-target-status') {
+        generations.put({ ...target, status: 'preparing', activeNamespaceKey: undefined });
+      }
+      if (kind === 'metadata-mismatch') tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).put({ ...meta, activeGenerationId: 'generation-1' });
+      if (kind === 'source-equals-staging') sessions.put({ ...persisted, sourceGenerationId: result.targetGenerationId });
+      if (kind === 'missing-source') generations.delete(sourceKey);
+      if (kind === 'staging-other-namespace' || kind === 'target-other-namespace') {
+        generations.delete(targetKey);
+        const otherNamespace = `other-namespace-${index}`;
+        generations.put({ ...target, namespaceKey: otherNamespace, activeNamespaceKey: otherNamespace });
+      }
+      if (kind === 'failed-active-target') sessions.put({
+        ...persisted, status: 'failed', committedAt: null, failedAt: T1, failureCode: 'RESTORE_TRANSACTION_FAILED',
+      });
+      if (kind === 'cancelled-active-target') sessions.put({
+        ...persisted, status: 'cancelled', committedAt: null, failedAt: T1, failureCode: 'RESTORE_CANCELLED',
+      });
+      await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+      await expect(repository.getRestoreSession(`graph-session-${index}`))
+        .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      expect(source).toBeDefined();
+    }
+  });
+
+  it.each(['restorePackageAtomically', 'resumeRestoreSession'] as const)(
+    'revalidates a corrupt committed graph before terminal success through %s', async method => {
+      const repository = await repo(); const value = await packageFor(repository, [note(A)], `corrupt-retry-${method}`);
+      const result = await repository.restorePackageAtomically(value, { sessionId: `corrupt-retry-${method}`, now: T1 });
+      const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.generations, 'readwrite');
+      tx.objectStore(LOCAL_DATABASE_STORES.generations).delete([repository.namespaceKey, result.targetGenerationId]);
+      await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+      await expect(repository[method](value, { sessionId: `corrupt-retry-${method}`, now: T1 }))
+        .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    },
+  );
+
+  it('accepts a valid staged graph and preserves valid failed and cancelled controls', async () => {
+    const stagedRepository = await repo(); const stagedPackage = await packageFor(stagedRepository, [note(A)], 'staged-control');
+    await expect(stagedRepository.restorePackageAtomically(stagedPackage, {
+      sessionId: 'staged-control', testOnlyFailAt: 'outbox_creation', now: T1,
+    })).rejects.toHaveProperty('code');
+    const committing = await stagedRepository.getRestoreSession('staged-control');
+    const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.restoreSessions, 'readwrite');
+    tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions).put({ ...committing, status: 'staged' });
+    await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+    expect(await stagedRepository.getRestoreSession('staged-control')).toMatchObject({ status: 'staged' });
+
+    const failedRepository = await repo({ ...base, userId: 'failed-control' });
+    const failedPackage = await packageFor(failedRepository, [note(A)], 'failed-control');
+    await expect(failedRepository.restorePackageAtomically(
+      { ...failedPackage, manifest: { ...failedPackage.manifest, entityCount: 2 } }, { sessionId: 'failed-control', now: T1 },
+    )).rejects.toHaveProperty('code');
+    expect(await failedRepository.getRestoreSession('failed-control')).toMatchObject({ status: 'failed' });
+
+    const cancelledRepository = await repo({ ...base, userId: 'cancelled-control' });
+    const cancelledPackage = await packageFor(cancelledRepository, [note(A)], 'cancelled-control');
+    await expect(cancelledRepository.restorePackageAtomically(cancelledPackage, {
+      sessionId: 'cancelled-control', testOnlyFailAt: 'validation_completion', now: T1,
+    })).rejects.toHaveProperty('code');
+    await cancelledRepository.cancelRestoreSession('cancelled-control', T1);
+    expect(await cancelledRepository.getRestoreSession('cancelled-control')).toMatchObject({ status: 'cancelled' });
   });
 });

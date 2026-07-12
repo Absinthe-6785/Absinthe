@@ -183,7 +183,16 @@ export function validateOutboxRecord(value: OutboxRecord): void {
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
   const resurrection = value.resurrection ?? null;
+  const boundary = value.generationBoundary ?? null;
   if (resurrection !== null) validateResurrectionProvenance(resurrection);
+  const boundaryValid = boundary === null || boundary.kind === 'restore'
+    && SAFE_CODE.test(boundary.sourceGenerationId)
+    && SAFE_CODE.test(boundary.restoreSessionId)
+    && boundary.sourceGenerationId !== value.generationId
+    && value.generationId === `restore-${boundary.restoreSessionId}`
+    && Number.isSafeInteger(boundary.sourceRevision) && boundary.sourceRevision > 0
+    && value.operation === 'upsert' && value.baseRevision === boundary.sourceRevision
+    && value.localRevision === boundary.sourceRevision + 1;
   if (!['upsert', 'tombstone'].includes(value.operation)
     || !validOutboxIdempotencyKey(value.idempotencyKey) || value.idempotencyKey !== expectedIdempotencyKey
     || !validMutationId(value.mutationId)
@@ -195,7 +204,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
-    || (resurrection !== null && value.operation !== 'upsert')) {
+    || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }
 }
@@ -240,7 +249,7 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
     'RESTORE_PAYLOAD_TOO_LARGE', 'RESTORE_NAMESPACE_MISMATCH', 'RESTORE_PROJECT_MISMATCH',
     'RESTORE_SESSION_CONFLICT', 'RESTORE_CANCELLED', 'RESTORE_ACTIVE_GENERATION_CHANGED',
     'RESTORE_ENTITY_REVISION_CONFLICT', 'RESTORE_TOMBSTONE_CONFLICT',
-    'REMOTE_RESURRECTION_UNSUPPORTED', 'RESTORE_TRANSACTION_FAILED',
+    'REMOTE_RESURRECTION_UNSUPPORTED', 'RESTORE_UNSETTLED_OUTBOX_CONFLICT', 'RESTORE_TRANSACTION_FAILED',
   ]);
   if (value.protocolVersion !== 1 || !/^[a-f0-9]{64}$/.test(value.packageDigest)
     || !['created', 'validating', 'staged', 'committing', 'committed', 'failed', 'cancelled'].includes(value.status)
@@ -252,6 +261,62 @@ export function validateRestoreSession(value: RestoreSessionRecord): void {
     || (value.failureCode !== null && (!SAFE_CODE.test(value.failureCode) || !failureCodes.has(value.failureCode)))
     || !chronology || !terminalValid || !lifecycleReferencesValid) {
     throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_session');
+  }
+}
+
+export interface RestoreSessionGraph {
+  session: RestoreSessionRecord;
+  databaseMeta: DatabaseMetaRecord;
+  sourceGeneration: GenerationRecord | null;
+  stagingGeneration: GenerationRecord | null;
+  targetGeneration: GenerationRecord | null;
+  namespaceKey: string;
+  schemaVersion: number;
+}
+
+export function validateRestoreSessionGraph(graph: RestoreSessionGraph): void {
+  try {
+    const { session, databaseMeta, sourceGeneration, stagingGeneration, targetGeneration, namespaceKey, schemaVersion } = graph;
+    validateRestoreSession(session);
+    validateDatabaseMeta(databaseMeta, namespaceKey, schemaVersion);
+    if (session.namespaceKey !== namespaceKey || session.sourceGenerationId === null
+      || session.stagingGenerationId !== `restore-${session.sessionId}`
+      || session.sourceGenerationId === session.stagingGenerationId
+      || session.sourceGenerationId === session.targetGenerationId
+      || !sourceGeneration || sourceGeneration.generationId !== session.sourceGenerationId
+      || !stagingGeneration || stagingGeneration.generationId !== session.stagingGenerationId) throw new Error('restore_graph');
+    validateGenerationRecord(sourceGeneration, namespaceKey, schemaVersion);
+    validateGenerationRecord(stagingGeneration, namespaceKey, schemaVersion);
+    if (stagingGeneration.creationReason !== 'restore'
+      || stagingGeneration.predecessorGenerationId !== session.sourceGenerationId
+      || stagingGeneration.safeSourceReference?.kind !== 'recovery_package'
+      || stagingGeneration.safeSourceReference.reference !== session.packageId) throw new Error('restore_graph');
+
+    const targetExpected = session.targetGenerationId !== null;
+    if (targetExpected !== (targetGeneration !== null)) throw new Error('restore_graph');
+    if (targetGeneration) {
+      validateGenerationRecord(targetGeneration, namespaceKey, schemaVersion);
+      if (targetGeneration.generationId !== session.targetGenerationId
+        || targetGeneration.generationId !== stagingGeneration.generationId) throw new Error('restore_graph');
+    }
+
+    if (session.status === 'created' || session.status === 'validating') {
+      if (session.targetGenerationId !== null || stagingGeneration.status !== 'preparing'
+        || stagingGeneration.validationState !== 'pending'
+        || sourceGeneration.status !== 'active' || databaseMeta.activeGenerationId !== sourceGeneration.generationId) throw new Error('restore_graph');
+    } else if (session.status === 'staged' || session.status === 'committing') {
+      if (!targetGeneration || stagingGeneration.status !== 'preparing' || stagingGeneration.validationState !== 'valid'
+        || sourceGeneration.status !== 'active' || databaseMeta.activeGenerationId !== sourceGeneration.generationId) throw new Error('restore_graph');
+    } else if (session.status === 'committed') {
+      if (!targetGeneration || targetGeneration.status !== 'active' || targetGeneration.validationState !== 'valid'
+        || databaseMeta.activeGenerationId !== targetGeneration.generationId || sourceGeneration.status !== 'sealed') throw new Error('restore_graph');
+    } else {
+      if (stagingGeneration.status === 'active' || databaseMeta.activeGenerationId === stagingGeneration.generationId
+        || session.targetGenerationId !== null && stagingGeneration.validationState !== 'valid'
+        || session.targetGenerationId === null && stagingGeneration.validationState !== 'pending') throw new Error('restore_graph');
+    }
+  } catch {
+    throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_restore_session_graph');
   }
 }
 
