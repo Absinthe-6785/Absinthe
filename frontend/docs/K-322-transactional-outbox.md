@@ -99,6 +99,14 @@ status-specific required and forbidden field, timestamps, scheduling, attempts, 
 acknowledgement, failure, and supersession metadata. Corruption is never normalized or skipped and is
 reported as `CORRUPT_PERSISTED_RECORD` without payload or raw namespace values.
 
+Persisted chronology is also fail-closed. `createdAt` cannot follow `updatedAt`; zero attempts require
+`lastAttemptAt` to be null, while a positive attempt count requires
+`createdAt <= lastAttemptAt <= updatedAt`. Claimed records require lease expiry at or after the last
+attempt. Acknowledged records additionally require
+`lastAttemptAt <= acknowledgedAt <= updatedAt`. A pending record may retain a positive attempt count
+and last-attempt timestamp after explicit permanent-failure reset. Invalid chronology is rejected on
+both individual and scoped queue reads without repair, reordering, or normalization.
+
 The capability gate remains mandatory. K-322 has no production imports, network calls, Supabase or
 auth dependency, timers, worker loop, service-worker registration, legacy database/localStorage
 mutation, restore/import, checkpoint advancement, recovery-mode bypass, UI, or remote conflict logic.

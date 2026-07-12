@@ -14,6 +14,36 @@ export function validTimestamp(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value));
 }
 
+function validOutboxChronology(value: OutboxRecord): boolean {
+  if (!validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || !validTimestamp(value.availableAt)
+    || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0) return false;
+  const createdAt = Date.parse(value.createdAt);
+  const updatedAt = Date.parse(value.updatedAt);
+  if (createdAt > updatedAt || Date.parse(value.availableAt) < createdAt) return false;
+
+  if (value.attemptCount === 0) {
+    if (value.lastAttemptAt !== null) return false;
+  } else {
+    if (!validTimestamp(value.lastAttemptAt)) return false;
+    const lastAttemptAt = Date.parse(value.lastAttemptAt);
+    if (lastAttemptAt < createdAt || lastAttemptAt > updatedAt) return false;
+  }
+
+  if (value.leaseExpiresAt !== null && !validTimestamp(value.leaseExpiresAt)) return false;
+  if (value.acknowledgedAt !== null && !validTimestamp(value.acknowledgedAt)) return false;
+  if (value.status === 'claimed') {
+    if (value.attemptCount < 1 || !validTimestamp(value.lastAttemptAt) || !validTimestamp(value.leaseExpiresAt)
+      || Date.parse(value.leaseExpiresAt) < Date.parse(value.lastAttemptAt)) return false;
+  }
+  if (value.status === 'acknowledged') {
+    if (value.attemptCount < 1 || !validTimestamp(value.lastAttemptAt) || !validTimestamp(value.acknowledgedAt)) return false;
+    const lastAttemptAt = Date.parse(value.lastAttemptAt);
+    const acknowledgedAt = Date.parse(value.acknowledgedAt);
+    if (acknowledgedAt < createdAt || acknowledgedAt < lastAttemptAt || acknowledgedAt > updatedAt) return false;
+  }
+  return true;
+}
+
 export function validateDatabaseMeta(value: DatabaseMetaRecord, namespaceKey: string, schemaVersion: number): void {
   if (!value || value.namespaceKey !== namespaceKey || value.namespaceFingerprint !== namespaceKey
     || value.databaseFormatVersion !== LOCAL_DATABASE_VERSION || value.schemaVersion !== schemaVersion
@@ -100,7 +130,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
       ? value.leaseOwner !== null && SAFE_CODE.test(value.leaseOwner) && validTimestamp(value.leaseExpiresAt)
         && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1 && value.acknowledgedAt === null && value.acknowledgedBy === null
         && value.supersededByMutationId === null && value.lastErrorCode === null && value.remoteMutationRef === null
-        && Date.parse(value.leaseExpiresAt) > Date.parse(value.lastAttemptAt)
+        && Date.parse(value.leaseExpiresAt) >= Date.parse(value.lastAttemptAt)
       : value.status === 'retry_wait'
         ? noLease && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1
           && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
@@ -127,13 +157,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || !validMutationId(value.mutationId)
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
-    || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0
-    || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || !validTimestamp(value.availableAt)
-    || Date.parse(value.updatedAt) < Date.parse(value.createdAt)
-    || Date.parse(value.availableAt) < Date.parse(value.createdAt)
-    || (value.lastAttemptAt !== null && !validTimestamp(value.lastAttemptAt))
-    || (value.lastAttemptAt !== null && Date.parse(value.updatedAt) < Date.parse(value.lastAttemptAt))
-    || (value.leaseExpiresAt !== null && !validTimestamp(value.leaseExpiresAt))
+    || !validOutboxChronology(value)
     || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
     || !payloadValid || !revisionsValid || !statusValid
     || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')

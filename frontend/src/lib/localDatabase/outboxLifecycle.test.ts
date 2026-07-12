@@ -279,6 +279,73 @@ describe('K-322 persisted validation and conservative scope', () => {
     await expect(repository.listOutboxMutations({ limit: 10 })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
+  it.each([
+    ['zero attempts with timestamp', { attemptCount: 0, lastAttemptAt: T1 }],
+    ['positive attempts without timestamp', { attemptCount: 1, lastAttemptAt: null }],
+    ['last attempt before creation', { attemptCount: 1, lastAttemptAt: T0 }],
+    ['last attempt after update', { attemptCount: 1, lastAttemptAt: T2 }],
+    ['acknowledgement before last attempt', {
+      status: 'acknowledged', attemptCount: 1, lastAttemptAt: T1,
+      acknowledgedAt: T0, acknowledgedBy: 'worker-a',
+    }],
+    ['acknowledgement after update', {
+      status: 'acknowledged', attemptCount: 1, lastAttemptAt: T1,
+      acknowledgedAt: T2, acknowledgedBy: 'worker-a',
+    }],
+    ['acknowledgement before creation', {
+      status: 'acknowledged', attemptCount: 1, lastAttemptAt: T0,
+      acknowledgedAt: T0, acknowledgedBy: 'worker-a',
+    }],
+    ['claimed lease before last attempt', {
+      status: 'claimed', attemptCount: 1, lastAttemptAt: T1,
+      leaseOwner: 'worker-a', leaseExpiresAt: T0,
+    }],
+    ['negative attempt count', { attemptCount: -1 }],
+    ['unsafe attempt count', { attemptCount: Number.MAX_SAFE_INTEGER + 1 }],
+  ])('fails closed on persisted chronology corruption: %s', async (_label, corruption) => {
+    const repository = await repo();
+    const committed = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: T1,
+    });
+    await overwrite({ ...committed.outbox, ...corruption } as OutboxRecord);
+    await expect(repository.getOutboxRecord(committed.outbox.mutationId))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repository.listOutboxMutations({ limit: 10 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('accepts repository-generated chronology across every implemented lifecycle state', async () => {
+    const repository = await repo();
+    const first = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: T0,
+    });
+    expect(await repository.getOutboxRecord(first.outbox.mutationId)).toMatchObject({
+      status: 'pending', attemptCount: 0, lastAttemptAt: null,
+    });
+    expect((await repository.claimNextMutations({
+      workerId: 'worker-a', now: T0, leaseDurationMs: 1_000, limit: 1,
+    }))[0]).toMatchObject({ status: 'claimed', attemptCount: 1, lastAttemptAt: T0 });
+    expect(await repository.releaseClaimForRetry({
+      mutationId: first.outbox.mutationId, workerId: 'worker-a', now: T1,
+      errorCode: 'transient', baseDelayMs: 1_000, maxDelayMs: 1_000,
+    })).toMatchObject({ status: 'retry_wait', attemptCount: 1, lastAttemptAt: T0, availableAt: T2 });
+    await repository.claimNextMutations({ workerId: 'worker-a', now: T2, leaseDurationMs: 1_000, limit: 1 });
+    expect(await repository.acknowledgeMutation({
+      mutationId: first.outbox.mutationId, workerId: 'worker-a', now: T2,
+    })).toMatchObject({ status: 'acknowledged', attemptCount: 2, lastAttemptAt: T2, acknowledgedAt: T2 });
+
+    const second = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n2', record: {} }, now: T2,
+    });
+    await repository.claimNextMutations({ workerId: 'worker-b', now: T2, leaseDurationMs: 1_000, limit: 1 });
+    expect(await repository.markPermanentFailure({
+      mutationId: second.outbox.mutationId, workerId: 'worker-b', now: T2, errorCode: 'invalid_remote',
+    })).toMatchObject({ status: 'permanent_failure', attemptCount: 1, lastAttemptAt: T2 });
+    expect(await repository.resetPermanentFailure({ mutationId: second.outbox.mutationId, now: T2 }))
+      .toMatchObject({ status: 'pending', attemptCount: 1, lastAttemptAt: T2 });
+    expect(await repository.listOutboxMutations({ limit: 10 })).toHaveLength(2);
+  });
+
   it('detects missing per-entity revision sequences and has no compaction or deletion API', async () => {
     const repository = await repo();
     const committed = await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: T0 });
