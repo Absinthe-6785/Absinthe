@@ -10,9 +10,10 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
   store.createIndex(name, keyPath, options);
 }
 
-export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number): void {
-  if (oldVersion !== 0) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
+  if (oldVersion !== 0 && oldVersion !== 1) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
+  if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
   index(meta, 'by_schema_version', 'schemaVersion');
 
@@ -44,6 +45,23 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number): 
   const attachments = db.createObjectStore(LOCAL_DATABASE_STORES.attachmentState, { keyPath: ['namespaceKey', 'generationId', 'attachmentId'] });
   index(attachments, 'by_namespace_generation_sync', ['namespaceKey', 'generationId', 'syncState']);
   index(attachments, 'by_namespace_generation_updated', ['namespaceKey', 'generationId', 'updatedAt']);
+  }
+
+  const outbox = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+  index(outbox, 'by_namespace_generation_status_available', ['namespaceKey', 'generationId', 'status', 'availableAt']);
+  index(outbox, 'by_namespace_generation_status_lease', ['namespaceKey', 'generationId', 'status', 'leaseExpiresAt']);
+  index(outbox, 'by_namespace_generation_entity_revision', ['namespaceKey', 'generationId', 'domain', 'entityId', 'localRevision'], { unique: true });
+
+  if (oldVersion === 1) {
+    const metadata = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
+    const request = metadata.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      cursor.update({ ...cursor.value, databaseFormatVersion: LOCAL_DATABASE_VERSION });
+      cursor.continue();
+    };
+  }
 }
 
 export function assertLocalDatabaseVersion(db: IDBDatabase): void {
