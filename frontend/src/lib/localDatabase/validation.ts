@@ -3,7 +3,7 @@ import { validateSafeIdentifier } from './namespace';
 import { deriveOutboxIdempotencyKey, validOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_VERSION } from './types';
 import type {
-  AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
+  AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LegacyMigrationProvenance, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
   ResurrectionProvenance, RestoreApplicationManifestV1, RestoreProvenance, RestoreSessionRecord, SafeSourceReference, SyncCheckpointRecord,
 } from './types';
 
@@ -69,7 +69,7 @@ export function validateGenerationRecord(value: GenerationRecord, namespaceKey: 
 
 export function validateSafeSource(source: SafeSourceReference | null | undefined): void {
   if (source == null) return;
-  if (!['local', 'remote', 'backup', 'snapshot', 'recovery_package', 'test'].includes(source.kind)
+  if (!['local', 'remote', 'backup', 'snapshot', 'recovery_package', 'legacy_migration', 'test'].includes(source.kind)
     || !SAFE_CODE.test(source.reference) || SENSITIVE.test(source.reference)) {
     throw new LocalDatabaseError('INVALID_ENTITY', 'validate_source');
   }
@@ -93,6 +93,18 @@ export function validateEntityEnvelope(value: LocalEntityEnvelope): void {
   }
   validateSafeSource(value.source);
   if (value.restoreProvenance !== undefined && value.restoreProvenance !== null) validateRestoreProvenance(value.restoreProvenance);
+  if (value.migrationProvenance !== undefined && value.migrationProvenance !== null) {
+    validateLegacyMigrationProvenance(value.migrationProvenance);
+  }
+}
+
+export function validateLegacyMigrationProvenance(value: LegacyMigrationProvenance): void {
+  if (!value || value.conversionVersion !== 1 || !SAFE_CODE.test(value.sourceAdapter)
+    || value.sourceSchemaVersion !== null && (!Number.isSafeInteger(value.sourceSchemaVersion) || value.sourceSchemaVersion < 0)
+    || !SAFE_CODE.test(value.migrationSessionId) || !/^[a-f0-9]{64}$/.test(value.sourceSnapshotDigest)
+    || !validTimestamp(value.migratedAt) || !/^[a-f0-9]{64}$/.test(value.legacyKeyDigest)) {
+    throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_legacy_migration_provenance');
+  }
 }
 
 export function validateResurrectionProvenance(value: ResurrectionProvenance): void {

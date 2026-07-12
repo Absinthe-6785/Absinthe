@@ -3,6 +3,15 @@ import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from 
 import { deriveOutboxIdempotencyKey, generateOutboxMutationId } from './outboxIdentity';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
 import {
+  cancelLegacyNotesMigration as cancelLegacyMigration,
+  captureLegacyNotesMigration as captureLegacyMigration,
+  getLegacyNotesMigrationSession as readLegacyMigration,
+  resumeLegacyNotesMigration as resumeLegacyMigration,
+  verifyLegacyNotesMigration as verifyLegacyMigration,
+  type LegacyMigrationResultV1, type LegacyNotesMigrationOptions, type LegacyNotesMigrationSessionV1,
+  type LegacyNotesMigrationRuntime, type LegacyNotesSourceAdapter,
+} from './legacyNotesMigration';
+import {
   cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
   restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
 } from './restore';
@@ -82,6 +91,13 @@ export class LocalDatabaseRepository {
   private assertOpen(operation: string): void {
     if (this.state.stale) throw new LocalDatabaseError('STALE_CONNECTION', operation);
     if (this.state.closed) throw new LocalDatabaseError('DATABASE_CLOSED', operation);
+  }
+
+  private legacyMigrationRuntime(): LegacyNotesMigrationRuntime {
+    return {
+      db: this.db, namespace: this.namespace, namespaceKey: this.namespaceKey, clock: this.clock,
+      assertOpen: operation => this.assertOpen(operation),
+    };
   }
 
   close(): void {
@@ -778,6 +794,32 @@ export class LocalDatabaseRepository {
       mutationIdFactory: this.mutationIdFactory, clock: this.clock,
       assertOpen: operation => this.assertOpen(operation),
     }, sessionId, at);
+  }
+
+  captureLegacyNotesMigration(
+    adapter: LegacyNotesSourceAdapter, options: LegacyNotesMigrationOptions,
+  ): Promise<LegacyNotesMigrationSessionV1> {
+    return captureLegacyMigration(this.legacyMigrationRuntime(), adapter, options);
+  }
+
+  resumeLegacyNotesMigration(
+    adapter: LegacyNotesSourceAdapter, migrationId: string, at?: string,
+  ): Promise<LegacyNotesMigrationSessionV1 | LegacyMigrationResultV1> {
+    return resumeLegacyMigration(this.legacyMigrationRuntime(), adapter, migrationId, at);
+  }
+
+  verifyLegacyNotesMigration(
+    adapter: LegacyNotesSourceAdapter, migrationId: string, at?: string,
+  ): Promise<LegacyMigrationResultV1> {
+    return verifyLegacyMigration(this.legacyMigrationRuntime(), adapter, migrationId, at);
+  }
+
+  getLegacyNotesMigrationSession(migrationId: string): Promise<LegacyNotesMigrationSessionV1 | null> {
+    return readLegacyMigration(this.legacyMigrationRuntime(), migrationId);
+  }
+
+  cancelLegacyNotesMigration(migrationId: string, at?: string): Promise<LegacyNotesMigrationSessionV1> {
+    return cancelLegacyMigration(this.legacyMigrationRuntime(), migrationId, at);
   }
 
   putMigrationState(value: MigrationStateRecord): Promise<void> {
