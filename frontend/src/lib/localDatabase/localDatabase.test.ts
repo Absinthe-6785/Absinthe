@@ -5,8 +5,7 @@ import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
   attachmentEntityIdentity, closeLocalDatabase, createDormantLocalDatabaseCapability,
   idEntityIdentity, openLocalDatabase, ownerDateEntityIdentity, singletonEntityIdentity,
-  type EntityMutationTransactionInput, type LocalDatabaseNamespace,
-  type LocalDatabaseRepository,
+  type LocalDatabaseNamespace, type LocalDatabaseRepository,
 } from './index';
 
 const capability = createDormantLocalDatabaseCapability('test');
@@ -30,8 +29,9 @@ function rawOpen(name: string, version?: number, upgrade?: (db: IDBDatabase) => 
   });
 }
 
-async function repository(namespace: LocalDatabaseNamespace = baseNamespace, initialize = true): Promise<LocalDatabaseRepository> {
-  const value = await openLocalDatabase(namespace, { capability }); repositories.push(value);
+async function repository(namespace: LocalDatabaseNamespace = baseNamespace, initialize = true,
+  options: { mutationIdFactory?: () => string; clock?: () => string } = {}): Promise<LocalDatabaseRepository> {
+  const value = await openLocalDatabase(namespace, { capability, ...options }); repositories.push(value);
   if (initialize) await value.initializeNamespace();
   return value;
 }
@@ -53,11 +53,8 @@ async function overwriteOutbox(
   db.close();
 }
 
-function outbox(mutationId: string, entityId = 'entity-1'): EntityMutationTransactionInput['outbox'] {
-  return {
-    mutationId, createdAt: '2026-07-11T00:00:00.000Z', idempotencyKey: `idem-${mutationId}-${entityId}`,
-  };
-}
+const mutationNow = '2026-07-11T00:00:00.000Z';
+const fixedMutationId = 'mut.00000000-0000-4000-8000-000000000001';
 
 beforeEach(async () => { await deleteDatabase().catch(() => undefined); });
 afterEach(async () => {
@@ -80,7 +77,7 @@ describe('K-321 isolated schema and dormant boundary', () => {
     expect([...transaction.objectStore(LOCAL_DATABASE_STORES.outbox).indexNames]).toContain('by_namespace_generation_status');
     db.close();
     const metadata = await repo.readDatabaseMetadata();
-    expect(metadata).toMatchObject({ activeGenerationId: 'generation-1', databaseFormatVersion: 1, recoveryCompatible: true });
+    expect(metadata).toMatchObject({ activeGenerationId: 'generation-1', databaseFormatVersion: LOCAL_DATABASE_VERSION, recoveryCompatible: true });
     repo.close();
     const reopened = await repository(baseNamespace, false);
     expect((await reopened.readDatabaseMetadata()).createdAt).toBe(metadata.createdAt);
@@ -195,11 +192,13 @@ describe('K-321 entity, revision, and tombstone model', () => {
     await repo.createEntity({ domain: 'notes', entityId: 'n1', record: { value: 1 } });
     await expect(repo.createEntity({ domain: 'notes', entityId: 'n1', record: { value: 2 } }))
       .rejects.toMatchObject({ code: 'ENTITY_ALREADY_EXISTS' });
-    await expect(repo.runEntityMutationTransaction({
+    await expect(repo.commitLocalMutation({
       mutation: { mode: 'update', domain: 'notes', entityId: 'n1', record: { value: 2 } } as never,
+      now: mutationNow,
     })).rejects.toMatchObject({ code: 'EXPECTED_REVISION_REQUIRED' });
-    await expect(repo.runEntityMutationTransaction({
+    await expect(repo.commitLocalMutation({
       mutation: { mode: 'tombstone', domain: 'notes', entityId: 'n1', record: null } as never,
+      now: mutationNow,
     })).rejects.toMatchObject({ code: 'EXPECTED_REVISION_REQUIRED' });
     expect((await repo.getEntity<{ value: number }>('notes', 'n1'))?.record.value).toBe(1);
   });
@@ -228,14 +227,14 @@ describe('K-321 atomic entity and outbox transaction', () => {
   it('commits entity and outbox together only after transaction completion', async () => {
     const repo = await repository();
     let resolved = false;
-    const promise = repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: { body: 'synthetic' } }, outbox: outbox('mutation-1'),
+    const promise = repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: { body: 'synthetic' } }, now: mutationNow,
     }).then(value => { resolved = true; return value; });
     expect(resolved).toBe(false);
     const value = await promise;
-    expect(value.revision).toBe(1);
+    expect(value.entity.revision).toBe(1);
     expect(await repo.getEntity('notes', 'entity-1')).not.toBeNull();
-    expect(await repo.getOutboxRecord('mutation-1')).toMatchObject({
+    expect(await repo.getOutboxRecord(value.outbox.mutationId)).toMatchObject({
       domain: 'notes', entityId: 'entity-1', operation: 'upsert', baseRevision: null, localRevision: 1,
       payloadMode: 'inline', payloadHash: null, payload: { kind: 'entity_snapshot', record: { body: 'synthetic' } },
       attemptCount: 0, status: 'pending', lastErrorCode: null,
@@ -244,32 +243,32 @@ describe('K-321 atomic entity and outbox transaction', () => {
 
   it.each(['before_entity', 'before_outbox', 'after_writes'] as const)('rolls both stores back on %s abort', async testOnlyAbortAt => {
     const repo = await repository();
-    await expect(repo.runEntityMutationTransaction({
+    await expect(repo.commitLocalMutation({
       mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: { body: 'synthetic' } },
-      outbox: outbox('mutation-1'), testOnlyAbortAt,
+      now: mutationNow, testOnlyAbortAt,
     })).rejects.toHaveProperty('code');
     expect(await repo.getEntity('notes', 'entity-1')).toBeNull();
-    expect(await repo.getOutboxRecord('mutation-1')).toBeNull();
+    expect(await repo.listOutboxMutations({ limit: 10 })).toEqual([]);
   });
 
-  it('rolls back both records on invalid outbox, stale revision, and stale generation', async () => {
+  it('rolls back both records on invalid input, stale revision, and stale generation', async () => {
     const repo = await repository();
-    await expect(repo.runEntityMutationTransaction({
+    await expect(repo.commitLocalMutation({
       mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: {} },
-      outbox: { ...outbox('mutation-1'), idempotencyKey: 'Bearer secret' },
-    })).rejects.toMatchObject({ code: 'INVALID_OUTBOX' });
+      now: 'not-a-time',
+    })).rejects.toMatchObject({ code: 'INVALID_ENTITY' });
     expect(await repo.getEntity('notes', 'entity-1')).toBeNull();
 
     await repo.createEntity({ domain: 'notes', entityId: 'entity-1', record: { value: 1 } });
-    await expect(repo.runEntityMutationTransaction({
-      mutation: { mode: 'update', domain: 'notes', entityId: 'entity-1', record: { value: 2 }, expectedRevision: 0 }, outbox: outbox('mutation-2'),
+    await expect(repo.commitLocalMutation({
+      mutation: { mode: 'update', domain: 'notes', entityId: 'entity-1', record: { value: 2 }, expectedRevision: 0 }, now: mutationNow,
     })).rejects.toMatchObject({ code: 'STALE_REVISION' });
-    expect(await repo.getOutboxRecord('mutation-2')).toBeNull();
+    expect(await repo.listOutboxMutations({ limit: 10 })).toHaveLength(1);
     expect((await repo.getEntity<{ value: number }>('notes', 'entity-1'))?.record.value).toBe(1);
 
     await repo.createGeneration('generation-2', 'test'); await repo.activateGeneration('generation-2');
-    await expect(repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'stale', record: {} }, outbox: outbox('mutation-3', 'stale'),
+    await expect(repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'stale', record: {} }, now: mutationNow,
     })).rejects.toMatchObject({ code: 'STALE_GENERATION' });
   });
 
@@ -277,12 +276,12 @@ describe('K-321 atomic entity and outbox transaction', () => {
     const repo = await repository();
     await repo.createEntity({ domain: 'notes', entityId: 'entity-1', record: { body: 'synthetic' } });
     await repo.updateEntity({ domain: 'notes', entityId: 'entity-1', record: { body: 'updated' }, expectedRevision: 1 });
-    await repo.runEntityMutationTransaction({
+    const committed = await repo.commitLocalMutation({
       mutation: { mode: 'tombstone', domain: 'notes', entityId: 'entity-1', record: null, expectedRevision: 2,
         timestamp: '2026-07-11T02:00:00.000Z' },
-      outbox: outbox('mutation-tombstone'),
+      now: '2026-07-11T02:00:00.000Z',
     });
-    expect(await repo.getOutboxRecord('mutation-tombstone')).toMatchObject({
+    expect(await repo.getOutboxRecord(committed.outbox.mutationId)).toMatchObject({
       domain: 'notes', entityId: 'entity-1', operation: 'tombstone', baseRevision: 2, localRevision: 3,
       payload: { kind: 'tombstone', entityId: 'entity-1', deletedAt: '2026-07-11T02:00:00.000Z', revision: 3 },
     });
@@ -291,25 +290,25 @@ describe('K-321 atomic entity and outbox transaction', () => {
   it('derives update outbox revisions and post-mutation payload', async () => {
     const repo = await repository();
     await repo.createEntity({ domain: 'notes', entityId: 'entity-1', record: { value: 1 } });
-    const entity = await repo.runEntityMutationTransaction({
+    const committed = await repo.commitLocalMutation({
       mutation: { mode: 'update', domain: 'notes', entityId: 'entity-1', record: { value: 2 }, expectedRevision: 1 },
-      outbox: outbox('mutation-update'),
+      now: mutationNow,
     });
-    expect(await repo.getOutboxRecord('mutation-update')).toMatchObject({
-      domain: entity.domain, entityId: entity.entityId, operation: 'upsert', baseRevision: 1,
-      localRevision: entity.revision, payload: { kind: 'entity_snapshot', record: { value: 2 } },
+    expect(await repo.getOutboxRecord(committed.outbox.mutationId)).toMatchObject({
+      domain: committed.entity.domain, entityId: committed.entity.entityId, operation: 'upsert', baseRevision: 1,
+      localRevision: committed.entity.revision, payload: { kind: 'entity_snapshot', record: { value: 2 } },
     });
   });
 
-  it('rolls back the entity when a duplicate outbox idempotency key conflicts', async () => {
-    const repo = await repository();
-    const firstOutbox = outbox('mutation-1')!;
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: {} }, outbox: firstOutbox,
+  it('rolls back the entity when a duplicate mutation identity conflicts', async () => {
+    const fixedId = () => 'mut.00000000-0000-4000-8000-000000000001';
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: fixedId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'entity-1', record: {} }, now: mutationNow,
     });
-    await expect(repo.runEntityMutationTransaction({
+    await expect(repo.commitLocalMutation({
       mutation: { mode: 'create', domain: 'notes', entityId: 'entity-2', record: {} },
-      outbox: { ...outbox('mutation-2', 'entity-2')!, idempotencyKey: firstOutbox.idempotencyKey },
+      now: mutationNow,
     })).rejects.toHaveProperty('code');
     expect(await repo.getEntity('notes', 'entity-2')).toBeNull();
   });
@@ -421,9 +420,9 @@ describe('K-321 lifecycle and static safety', () => {
   });
 
   it('fails closed when persisted entity or outbox envelopes are corrupt', async () => {
-    const repo = await repository();
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: { value: 1 } }, outbox: outbox('mutation-1', 'n1'),
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: () => fixedMutationId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: { value: 1 } }, now: mutationNow,
     });
     const db = await rawOpen(LOCAL_DATABASE_NAME);
     const entityTx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readwrite');
@@ -441,14 +440,14 @@ describe('K-321 lifecycle and static safety', () => {
 
     const outboxTx = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
     const outboxStore = outboxTx.objectStore(LOCAL_DATABASE_STORES.outbox);
-    const outboxRequest = outboxStore.get([repo.namespaceKey, 'generation-1', 'mutation-1']);
+    const outboxRequest = outboxStore.get([repo.namespaceKey, 'generation-1', fixedMutationId]);
     await new Promise<void>((resolve, reject) => {
       outboxRequest.onsuccess = () => { outboxStore.put({ ...outboxRequest.result, payload: { kind: 'tombstone' } }); resolve(); };
       outboxRequest.onerror = () => reject(outboxRequest.error);
     });
     await new Promise<void>((resolve, reject) => { outboxTx.oncomplete = () => resolve(); outboxTx.onerror = () => reject(outboxTx.error); });
     db.close();
-    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repo.getOutboxRecord(fixedMutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it.each([
@@ -470,16 +469,16 @@ describe('K-321 lifecycle and static safety', () => {
     ['operation', { operation: 'purge_request' }],
     ['revision', { localRevision: 0 }],
   ])('rejects malformed persisted outbox %s', async (_label, corruption) => {
-    const repo = await repository();
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: () => fixedMutationId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: mutationNow,
     });
-    const queued = await repo.getOutboxRecord('mutation-1');
+    const queued = await repo.getOutboxRecord(fixedMutationId);
     const db = await rawOpen(LOCAL_DATABASE_NAME);
     const tx = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
     tx.objectStore(LOCAL_DATABASE_STORES.outbox).put({ ...queued, ...corruption });
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
-    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repo.getOutboxRecord(fixedMutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it.each([
@@ -492,29 +491,29 @@ describe('K-321 lifecycle and static safety', () => {
     ['unsafe local', { baseRevision: 1, localRevision: Number.MAX_SAFE_INTEGER + 1 }],
     ['overflow', { baseRevision: Number.MAX_SAFE_INTEGER, localRevision: Number.MAX_SAFE_INTEGER }],
   ])('rejects persisted outbox revision relationship: %s', async (_label, corruption) => {
-    const repo = await repository();
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: () => fixedMutationId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: mutationNow,
     });
-    await overwriteOutbox(repo, 'mutation-1', queued => ({ ...queued, ...corruption }));
-    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await overwriteOutbox(repo, fixedMutationId, queued => ({ ...queued, ...corruption }));
+    await expect(repo.getOutboxRecord(fixedMutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it.each([
     ['null tombstone base', { baseRevision: null, localRevision: 1 }],
     ['skipped tombstone revision', { baseRevision: 2, localRevision: 4 }],
   ])('rejects persisted tombstone revision relationship: %s', async (_label, revisions) => {
-    const repo = await repository();
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: () => fixedMutationId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: mutationNow,
     });
-    await overwriteOutbox(repo, 'mutation-1', queued => ({
+    await overwriteOutbox(repo, fixedMutationId, queued => ({
       ...queued, ...revisions, operation: 'tombstone',
       payload: {
         kind: 'tombstone', entityId: 'n1', deletedAt: '2026-07-12T00:00:00.000Z', revision: revisions.localRevision,
       },
     }));
-    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repo.getOutboxRecord(fixedMutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it.each([
@@ -526,12 +525,12 @@ describe('K-321 lifecycle and static safety', () => {
     }],
     ['contradictory hash', { payloadHash: 'a'.repeat(64) }],
   ])('rejects incomplete persisted outbox payload contract: %s', async (_label, corruption) => {
-    const repo = await repository();
-    await repo.runEntityMutationTransaction({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, outbox: outbox('mutation-1', 'n1'),
+    const repo = await repository(baseNamespace, true, { mutationIdFactory: () => fixedMutationId });
+    await repo.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: mutationNow,
     });
-    await overwriteOutbox(repo, 'mutation-1', queued => ({ ...queued, ...corruption }));
-    await expect(repo.getOutboxRecord('mutation-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await overwriteOutbox(repo, fixedMutationId, queued => ({ ...queued, ...corruption }));
+    await expect(repo.getOutboxRecord(fixedMutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it('contains no destructive, network, auth, legacy-storage, or production wiring paths', () => {

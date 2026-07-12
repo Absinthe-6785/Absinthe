@@ -1,13 +1,16 @@
 import { LocalDatabaseError, localDatabaseError } from './errors';
 import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from './namespace';
+import { deriveOutboxIdempotencyKey, generateOutboxMutationId } from './outboxIdentity';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION, LOCAL_SCHEMA_VERSION,
-  type AttachmentStateRecord, type DatabaseMetaRecord, type EntityListOptions,
-  type EntityCreateInput, type EntityMutationTransactionInput, type EntityUpdateInput, type GenerationReason,
+  type AcknowledgeOutboxInput, type AttachmentStateRecord, type ClaimOutboxInput,
+  type CommitLocalMutationInput, type CommittedLocalMutation, type DatabaseMetaRecord, type EntityListOptions,
+  type EntityCreateInput, type EntityUpdateInput, type FailOutboxInput, type GenerationReason,
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
-  type RestoreSessionRecord, type SafeSourceReference, type SyncCheckpointRecord,
+  type OutboxListInput, type OutboxStatus, type OutboxStatusCounts, type ResetOutboxInput,
+  type RestoreSessionRecord, type RetryOutboxInput, type SafeSourceReference, type SyncCheckpointRecord,
 } from './types';
 import {
   validTimestamp, validateAttachmentState, validateCheckpoint, validateDatabaseMeta, validateEntityEnvelope,
@@ -55,15 +58,20 @@ function entityKey(namespaceKey: string, generationId: string, domain: string, e
 }
 
 interface ConnectionState { closed: boolean; stale: boolean }
+const MAX_OUTBOX_SCAN = 10_000;
 
 export class LocalDatabaseRepository {
   readonly namespace: LocalDatabaseNamespace;
   readonly namespaceKey: string;
   private readonly db: IDBDatabase;
   private readonly state: ConnectionState;
+  private readonly mutationIdFactory: () => string;
+  private readonly clock: () => string;
 
-  constructor(db: IDBDatabase, namespace: LocalDatabaseNamespace, namespaceKey: string, state: ConnectionState) {
+  constructor(db: IDBDatabase, namespace: LocalDatabaseNamespace, namespaceKey: string, state: ConnectionState,
+    mutationIdFactory: () => string, clock: () => string) {
     this.db = db; this.namespace = Object.freeze({ ...namespace }); this.namespaceKey = namespaceKey; this.state = state;
+    this.mutationIdFactory = mutationIdFactory; this.clock = clock;
   }
 
   private assertOpen(operation: string): void {
@@ -235,40 +243,56 @@ export class LocalDatabaseRepository {
     }
   }
 
-  async runEntityMutationTransaction<T>(input: EntityMutationTransactionInput<T>): Promise<LocalEntityEnvelope<T>> {
-    this.assertOpen('entity_mutation');
+  async commitLocalMutation<T>(input: CommitLocalMutationInput<T>): Promise<CommittedLocalMutation<T>> {
+    this.assertOpen('commit_local_mutation');
     const { mutation } = input;
     if (!['create', 'update', 'tombstone'].includes(mutation.mode)) {
-      throw new LocalDatabaseError('INVALID_ENTITY', 'entity_mutation');
+      throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
-    validateSafeIdentifier(mutation.domain, 'entity_mutation');
+    validateSafeIdentifier(mutation.domain, 'commit_local_mutation');
     if (typeof mutation.entityId !== 'string' || mutation.entityId.length === 0 || mutation.entityId.length > 512) {
-      throw new LocalDatabaseError('INVALID_ENTITY', 'entity_mutation');
+      throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
     if (mutation.mode !== 'tombstone') validateSafeSource(mutation.source);
-    const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities];
-    if (input.outbox) stores.push(LOCAL_DATABASE_STORES.outbox);
+    const timestamp = now(input.now);
+    const operation = mutation.mode === 'tombstone' ? 'tombstone' : 'upsert';
+    if (mutation.mode !== 'create' && mutation.expectedRevision === undefined) {
+      throw new LocalDatabaseError('EXPECTED_REVISION_REQUIRED', 'commit_local_mutation');
+    }
+    const proposedRevision = mutation.mode === 'create' ? 1 : mutation.expectedRevision + 1;
+    if (!Number.isSafeInteger(proposedRevision) || proposedRevision < 1) {
+      throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
+    }
+    const mutationId = this.mutationIdFactory();
+    if (!/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mutationId)) {
+      throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+    }
+    const idempotencyKey = deriveOutboxIdempotencyKey({
+      namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+      domain: mutation.domain, entityId: mutation.entityId, localRevision: proposedRevision, operation,
+    });
+    const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox];
     const transaction = this.db.transaction(stores, 'readwrite');
-    const done = transactionCompletion(transaction, 'entity_mutation');
+    const done = transactionCompletion(transaction, 'commit_local_mutation');
     try {
       await this.ensureActive(transaction);
-      if (input.testOnlyAbortAt === 'before_entity') throw new LocalDatabaseError('INVALID_ENTITY', 'entity_mutation');
+      if (input.testOnlyAbortAt === 'before_entity') throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
       const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
       const key = entityKey(this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId);
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
-      if (current) this.validatePersistedEntity(current, 'entity_mutation');
+      if (current) this.validatePersistedEntity(current, 'commit_local_mutation');
       const actualRevision = current?.revision ?? 0;
       if (mutation.mode === 'create') {
-        if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'entity_mutation');
-        if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'entity_mutation');
+        if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'commit_local_mutation');
+        if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
       } else {
-        if (mutation.expectedRevision === undefined) throw new LocalDatabaseError('EXPECTED_REVISION_REQUIRED', 'entity_mutation');
-        if (!current) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'entity_mutation');
-        if (current.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'entity_mutation');
-        if (mutation.expectedRevision !== actualRevision) throw new LocalDatabaseError('STALE_REVISION', 'entity_mutation');
+        if (mutation.expectedRevision === undefined) throw new LocalDatabaseError('EXPECTED_REVISION_REQUIRED', 'commit_local_mutation');
+        if (!current) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'commit_local_mutation');
+        if (current.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'commit_local_mutation');
+        if (mutation.expectedRevision !== actualRevision) throw new LocalDatabaseError('STALE_REVISION', 'commit_local_mutation');
       }
       const isTombstone = mutation.mode === 'tombstone';
-      const timestamp = now(mutation.timestamp);
       const envelope: LocalEntityEnvelope<T> = {
         namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
         domain: mutation.domain, entityId: mutation.entityId,
@@ -282,43 +306,45 @@ export class LocalDatabaseRepository {
       };
       validateEntityEnvelope(envelope);
       entityStore.put(envelope);
-      if (input.testOnlyAbortAt === 'before_outbox') throw new LocalDatabaseError('INVALID_OUTBOX', 'entity_mutation');
-      if (input.outbox) {
-        const outbox: OutboxRecord = {
-          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
-          domain: mutation.domain, entityId: mutation.entityId,
-          mutationId: input.outbox.mutationId, idempotencyKey: input.outbox.idempotencyKey,
-          operation: isTombstone ? 'tombstone' : 'upsert',
-          baseRevision: actualRevision || null, localRevision: envelope.revision,
-          payloadMode: 'inline', payloadHash: null,
-          payload: isTombstone
-            ? { kind: 'tombstone', entityId: mutation.entityId, deletedAt: envelope.deletedAt!, revision: envelope.revision }
-            : { kind: 'entity_snapshot', record: envelope.record },
-          createdAt: input.outbox.createdAt, attemptCount: 0, status: 'pending', lastErrorCode: null,
-        };
-        validateOutboxRecord(outbox);
-        transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
-      }
+      if (envelope.revision !== proposedRevision) throw new LocalDatabaseError('STALE_REVISION', 'commit_local_mutation');
+      if (input.testOnlyAbortAt === 'before_outbox') throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+      const outbox: OutboxRecord = {
+        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+        domain: mutation.domain, entityId: mutation.entityId, mutationId, idempotencyKey, operation,
+        baseRevision: actualRevision || null, localRevision: envelope.revision,
+        payloadMode: 'inline', payloadHash: null,
+        payload: isTombstone
+          ? { kind: 'tombstone', entityId: mutation.entityId, deletedAt: envelope.deletedAt!, revision: envelope.revision }
+          : { kind: 'entity_snapshot', record: envelope.record },
+        createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
+        attemptCount: 0, status: 'pending', lastAttemptAt: null, lastErrorCode: null,
+        leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
+        supersededByMutationId: null,
+      };
+      validateOutboxRecord(outbox);
+      transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
       if (input.testOnlyAbortAt === 'after_writes') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', 'entity_mutation');
       }
       await done;
-      return envelope;
+      return { entity: envelope, outbox };
     } catch (error) {
-      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'entity_mutation');
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'commit_local_mutation');
     }
   }
 
-  createEntity<T>(mutation: Omit<EntityCreateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
-    return this.runEntityMutationTransaction({ mutation: { ...mutation, mode: 'create' } });
+  async createEntity<T>(mutation: Omit<EntityCreateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
+    return (await this.commitLocalMutation({ mutation: { ...mutation, mode: 'create' }, now: mutation.timestamp ?? this.clock() })).entity;
   }
 
-  updateEntity<T>(mutation: Omit<EntityUpdateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
-    return this.runEntityMutationTransaction({ mutation: { ...mutation, mode: 'update' } });
+  async updateEntity<T>(mutation: Omit<EntityUpdateInput<T>, 'mode'>): Promise<LocalEntityEnvelope<T>> {
+    return (await this.commitLocalMutation({ mutation: { ...mutation, mode: 'update' }, now: mutation.timestamp ?? this.clock() })).entity;
   }
 
   async tombstoneEntity(domain: string, entityId: string, expectedRevision: number, timestamp?: string): Promise<LocalEntityEnvelope> {
-    return this.runEntityMutationTransaction({ mutation: { domain, entityId, record: null, mode: 'tombstone', expectedRevision, timestamp } });
+    return (await this.commitLocalMutation({
+      mutation: { domain, entityId, record: null, mode: 'tombstone', expectedRevision, timestamp }, now: timestamp ?? this.clock(),
+    })).entity;
   }
 
   async getEntity<T>(domain: string, entityId: string): Promise<LocalEntityEnvelope<T> | null> {
@@ -357,13 +383,236 @@ export class LocalDatabaseRepository {
 
   async getOutboxRecord(mutationId: string): Promise<OutboxRecord | null> {
     this.assertOpen('get_outbox'); validateSafeIdentifier(mutationId, 'get_outbox');
-    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.outbox, 'readonly');
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+    );
     const done = transactionCompletion(transaction, 'get_outbox');
+    await this.ensureActive(transaction);
     const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
       .get([this.namespaceKey, this.namespace.generationId, mutationId])) as OutboxRecord | undefined;
     await done;
     if (value) this.validatePersistedOutbox(value, 'get_outbox');
     return value ?? null;
+  }
+
+  private async readScopedOutbox(transaction: IDBTransaction, operation: string): Promise<OutboxRecord[]> {
+    const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+    const range = IDBKeyRange.bound(
+      [this.namespaceKey, this.namespace.generationId, ''],
+      [this.namespaceKey, this.namespace.generationId, '\uffff'],
+    );
+    const values = await requestResult(store.getAll(range, MAX_OUTBOX_SCAN + 1)) as OutboxRecord[];
+    if (values.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', operation);
+    values.forEach(value => this.validatePersistedOutbox(value, operation));
+    this.validateOutboxSequences(values, operation);
+    return values;
+  }
+
+  private validateOutboxSequences(values: OutboxRecord[], operation: string): void {
+    const groups = new Map<string, OutboxRecord[]>();
+    for (const value of values) {
+      const key = JSON.stringify([value.domain, value.entityId]);
+      const group = groups.get(key) ?? []; group.push(value); groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      group.sort((left, right) => left.localRevision - right.localRevision);
+      if (group[0]?.baseRevision !== null || group[0]?.localRevision !== 1) {
+        throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+      for (let index = 1; index < group.length; index += 1) {
+        if (group[index].baseRevision !== group[index - 1].localRevision) {
+          throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+        }
+      }
+    }
+  }
+
+  private nextDeliverable(values: OutboxRecord[], timestamp: string, recoverExpiredClaims: boolean): OutboxRecord[] {
+    const at = Date.parse(now(timestamp));
+    const groups = new Map<string, OutboxRecord[]>();
+    for (const value of values) {
+      const key = JSON.stringify([value.domain, value.entityId]);
+      const group = groups.get(key) ?? []; group.push(value); groups.set(key, group);
+    }
+    const candidates: OutboxRecord[] = [];
+    for (const group of groups.values()) {
+      group.sort((left, right) => left.localRevision - right.localRevision);
+      const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
+      if (!firstUnsettled) continue;
+      if ((firstUnsettled.status === 'pending' || firstUnsettled.status === 'retry_wait')
+        && Date.parse(firstUnsettled.availableAt) <= at) candidates.push(firstUnsettled);
+      if (recoverExpiredClaims && firstUnsettled.status === 'claimed'
+        && firstUnsettled.leaseExpiresAt !== null && Date.parse(firstUnsettled.leaseExpiresAt) <= at) candidates.push(firstUnsettled);
+    }
+    return candidates.sort((left, right) =>
+      left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
+      || left.localRevision - right.localRevision);
+  }
+
+  async listOutboxMutations(input: OutboxListInput): Promise<OutboxRecord[]> {
+    this.assertOpen('list_outbox');
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 500
+      || (input.domain === undefined) !== (input.entityId === undefined)) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'list_outbox');
+    }
+    if (input.status !== undefined && !['pending', 'claimed', 'retry_wait', 'acknowledged', 'permanent_failure', 'superseded'].includes(input.status)) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'list_outbox');
+    }
+    if (input.domain !== undefined) {
+      validateSafeIdentifier(input.domain, 'list_outbox');
+      if (!input.entityId) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'list_outbox');
+    }
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+    );
+    const done = transactionCompletion(transaction, 'list_outbox');
+    await this.ensureActive(transaction);
+    const values = await this.readScopedOutbox(transaction, 'list_outbox');
+    await done;
+    return values.filter(value => (input.status === undefined || value.status === input.status)
+      && (input.domain === undefined || value.domain === input.domain && value.entityId === input.entityId))
+      .sort((left, right) => left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
+        || left.localRevision - right.localRevision || left.mutationId.localeCompare(right.mutationId))
+      .slice(0, input.limit);
+  }
+
+  async countOutboxByStatus(): Promise<OutboxStatusCounts> {
+    this.assertOpen('count_outbox');
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+    );
+    const done = transactionCompletion(transaction, 'count_outbox');
+    await this.ensureActive(transaction);
+    const values = await this.readScopedOutbox(transaction, 'count_outbox');
+    await done;
+    const counts: Record<OutboxStatus, number> = {
+      pending: 0, claimed: 0, retry_wait: 0, acknowledged: 0, permanent_failure: 0, superseded: 0,
+    };
+    for (const value of values) counts[value.status] += 1;
+    return Object.freeze(counts);
+  }
+
+  async listNextDeliverableMutations(input: { now: string; limit: number }): Promise<OutboxRecord[]> {
+    this.assertOpen('next_deliverable');
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'next_deliverable');
+    }
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readonly',
+    );
+    const done = transactionCompletion(transaction, 'next_deliverable');
+    await this.ensureActive(transaction);
+    const values = await this.readScopedOutbox(transaction, 'next_deliverable');
+    await done;
+    return this.nextDeliverable(values, input.now, false).slice(0, input.limit);
+  }
+
+  async claimNextMutations(input: ClaimOutboxInput): Promise<OutboxRecord[]> {
+    this.assertOpen('claim_outbox'); validateSafeIdentifier(input.workerId, 'claim_outbox');
+    const timestamp = now(input.now);
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100
+      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'claim_outbox');
+    }
+    const leaseExpiresAt = new Date(Date.parse(timestamp) + input.leaseDurationMs).toISOString();
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readwrite',
+    );
+    const done = transactionCompletion(transaction, 'claim_outbox');
+    try {
+      await this.ensureActive(transaction);
+      const values = await this.readScopedOutbox(transaction, 'claim_outbox');
+      const candidates = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true).slice(0, input.limit);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const claimed = candidates.map(value => {
+        if (!Number.isSafeInteger(value.attemptCount + 1)) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');
+        const updated: OutboxRecord = {
+          ...value, status: 'claimed', updatedAt: timestamp, attemptCount: value.attemptCount + 1,
+          lastAttemptAt: timestamp, lastErrorCode: null, leaseOwner: input.workerId, leaseExpiresAt,
+        };
+        validateOutboxRecord(updated); store.put(updated); return updated;
+      });
+      await done; return claimed;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'claim_outbox');
+    }
+  }
+
+  private async transitionOutbox(
+    mutationId: string, operation: string, transform: (value: OutboxRecord) => OutboxRecord,
+  ): Promise<OutboxRecord> {
+    this.assertOpen(operation); validateSafeIdentifier(mutationId, operation);
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox], 'readwrite',
+    );
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const value = await requestResult(store.get([this.namespaceKey, this.namespace.generationId, mutationId])) as OutboxRecord | undefined;
+      if (!value) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
+      this.validatePersistedOutbox(value, operation);
+      const updated = transform(value); validateOutboxRecord(updated); store.put(updated);
+      await done; return updated;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  releaseClaimForRetry(input: RetryOutboxInput): Promise<OutboxRecord> {
+    validateSafeIdentifier(input.workerId, 'retry_outbox'); validateSafeIdentifier(input.errorCode, 'retry_outbox');
+    const timestamp = now(input.now);
+    if (!Number.isSafeInteger(input.baseDelayMs) || !Number.isSafeInteger(input.maxDelayMs)
+      || input.baseDelayMs < 1 || input.maxDelayMs < input.baseDelayMs || input.maxDelayMs > 2_592_000_000) {
+      return Promise.reject(new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'retry_outbox'));
+    }
+    return this.transitionOutbox(input.mutationId, 'retry_outbox', value => {
+      if (value.status !== 'claimed') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'retry_outbox');
+      if (value.leaseOwner !== input.workerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'retry_outbox');
+      const exponent = Math.min(value.attemptCount - 1, 52);
+      const delay = Math.min(input.maxDelayMs, input.baseDelayMs * (2 ** exponent));
+      const availableAt = new Date(Date.parse(timestamp) + delay).toISOString();
+      return { ...value, status: 'retry_wait', updatedAt: timestamp, availableAt, lastErrorCode: input.errorCode,
+        leaseOwner: null, leaseExpiresAt: null };
+    });
+  }
+
+  acknowledgeMutation(input: AcknowledgeOutboxInput): Promise<OutboxRecord> {
+    validateSafeIdentifier(input.workerId, 'acknowledge_outbox'); const timestamp = now(input.now);
+    if (input.remoteMutationRef !== undefined && input.remoteMutationRef !== null) {
+      validateSafeIdentifier(input.remoteMutationRef, 'acknowledge_outbox');
+    }
+    const remoteMutationRef = input.remoteMutationRef ?? null;
+    return this.transitionOutbox(input.mutationId, 'acknowledge_outbox', value => {
+      if (value.status === 'acknowledged') {
+        if (value.acknowledgedAt === timestamp && value.acknowledgedBy === input.workerId
+          && value.remoteMutationRef === remoteMutationRef) return value;
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox');
+      }
+      if (value.status !== 'claimed') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox');
+      if (value.leaseOwner !== input.workerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'acknowledge_outbox');
+      return { ...value, status: 'acknowledged', updatedAt: timestamp, acknowledgedAt: timestamp,
+        acknowledgedBy: input.workerId, remoteMutationRef, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null };
+    });
+  }
+
+  markPermanentFailure(input: FailOutboxInput): Promise<OutboxRecord> {
+    validateSafeIdentifier(input.workerId, 'fail_outbox'); validateSafeIdentifier(input.errorCode, 'fail_outbox');
+    const timestamp = now(input.now);
+    return this.transitionOutbox(input.mutationId, 'fail_outbox', value => {
+      if (value.status !== 'claimed') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'fail_outbox');
+      if (value.leaseOwner !== input.workerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'fail_outbox');
+      return { ...value, status: 'permanent_failure', updatedAt: timestamp, lastErrorCode: input.errorCode,
+        leaseOwner: null, leaseExpiresAt: null };
+    });
+  }
+
+  resetPermanentFailure(input: ResetOutboxInput): Promise<OutboxRecord> {
+    const timestamp = now(input.now);
+    return this.transitionOutbox(input.mutationId, 'reset_outbox', value => {
+      if (value.status !== 'permanent_failure') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'reset_outbox');
+      return { ...value, status: 'pending', updatedAt: timestamp, availableAt: timestamp, lastErrorCode: null };
+    });
   }
 
   private async putGenerationReserved<T>(storeName: string, value: T, validate: (record: T) => void): Promise<void> {
@@ -433,7 +682,12 @@ export class LocalDatabaseRepository {
 
 export async function openLocalDatabase(
   namespace: LocalDatabaseNamespace,
-  options: { capability: LocalDatabaseCapability; indexedDBFactory?: IDBFactory },
+  options: {
+    capability: LocalDatabaseCapability;
+    indexedDBFactory?: IDBFactory;
+    mutationIdFactory?: () => string;
+    clock?: () => string;
+  },
 ): Promise<LocalDatabaseRepository> {
   if (options?.capability?.marker !== capabilityMarker) throw new LocalDatabaseError('CAPABILITY_REQUIRED', 'open_database');
   validateNamespace(namespace);
@@ -444,7 +698,7 @@ export async function openLocalDatabase(
     const request = factory.open(LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION);
     let settled = false;
     request.onupgradeneeded = event => {
-      try { createLocalDatabaseSchema(request.result, event.oldVersion); }
+      try { createLocalDatabaseSchema(request.result, event.oldVersion, request.transaction!); }
       catch { request.transaction?.abort(); }
     };
     request.onblocked = () => {
@@ -459,7 +713,11 @@ export async function openLocalDatabase(
         assertLocalDatabaseVersion(request.result);
         const state: ConnectionState = { closed: false, stale: false };
         request.result.onversionchange = () => { state.stale = true; request.result.close(); };
-        settled = true; resolve(new LocalDatabaseRepository(request.result, namespace, fingerprint, state));
+        settled = true; resolve(new LocalDatabaseRepository(
+          request.result, namespace, fingerprint, state,
+          options.mutationIdFactory ?? generateOutboxMutationId,
+          options.clock ?? (() => new Date().toISOString()),
+        ));
       } catch (error) { request.result.close(); settled = true; reject(localDatabaseError(error, 'open_database')); }
     };
   });

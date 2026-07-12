@@ -1,5 +1,7 @@
 import { LocalDatabaseError } from './errors';
 import { validateSafeIdentifier } from './namespace';
+import { deriveOutboxIdempotencyKey, validOutboxIdempotencyKey } from './outboxIdentity';
+import { LOCAL_DATABASE_VERSION } from './types';
 import type {
   AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
   RestoreSessionRecord, SafeSourceReference, SyncCheckpointRecord,
@@ -12,9 +14,39 @@ export function validTimestamp(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value));
 }
 
+function validOutboxChronology(value: OutboxRecord): boolean {
+  if (!validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || !validTimestamp(value.availableAt)
+    || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0) return false;
+  const createdAt = Date.parse(value.createdAt);
+  const updatedAt = Date.parse(value.updatedAt);
+  if (createdAt > updatedAt || Date.parse(value.availableAt) < createdAt) return false;
+
+  if (value.attemptCount === 0) {
+    if (value.lastAttemptAt !== null) return false;
+  } else {
+    if (!validTimestamp(value.lastAttemptAt)) return false;
+    const lastAttemptAt = Date.parse(value.lastAttemptAt);
+    if (lastAttemptAt < createdAt || lastAttemptAt > updatedAt) return false;
+  }
+
+  if (value.leaseExpiresAt !== null && !validTimestamp(value.leaseExpiresAt)) return false;
+  if (value.acknowledgedAt !== null && !validTimestamp(value.acknowledgedAt)) return false;
+  if (value.status === 'claimed') {
+    if (value.attemptCount < 1 || !validTimestamp(value.lastAttemptAt) || !validTimestamp(value.leaseExpiresAt)
+      || Date.parse(value.leaseExpiresAt) < Date.parse(value.lastAttemptAt)) return false;
+  }
+  if (value.status === 'acknowledged') {
+    if (value.attemptCount < 1 || !validTimestamp(value.lastAttemptAt) || !validTimestamp(value.acknowledgedAt)) return false;
+    const lastAttemptAt = Date.parse(value.lastAttemptAt);
+    const acknowledgedAt = Date.parse(value.acknowledgedAt);
+    if (acknowledgedAt < createdAt || acknowledgedAt < lastAttemptAt || acknowledgedAt > updatedAt) return false;
+  }
+  return true;
+}
+
 export function validateDatabaseMeta(value: DatabaseMetaRecord, namespaceKey: string, schemaVersion: number): void {
   if (!value || value.namespaceKey !== namespaceKey || value.namespaceFingerprint !== namespaceKey
-    || value.databaseFormatVersion !== 1 || value.schemaVersion !== schemaVersion
+    || value.databaseFormatVersion !== LOCAL_DATABASE_VERSION || value.schemaVersion !== schemaVersion
     || value.minimumCompatibleSchemaVersion !== 1 || value.recoveryCompatible !== true
     || !SAFE_CODE.test(value.activeGenerationId) || !validTimestamp(value.createdAt)
     || (value.migrationStatePointer !== null && !SAFE_CODE.test(value.migrationStatePointer))) {
@@ -63,7 +95,7 @@ export function validateEntityEnvelope(value: LocalEntityEnvelope): void {
 }
 
 export function validateOutboxRecord(value: OutboxRecord): void {
-  for (const item of [value.mutationId, value.domain, value.entityId, value.idempotencyKey]) {
+  for (const item of [value.mutationId, value.domain, value.entityId]) {
     if (typeof item !== 'string' || item.length === 0 || item.length > 512 || SENSITIVE.test(item)) {
       throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
     }
@@ -86,12 +118,48 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     : Number.isSafeInteger(value.baseRevision) && value.baseRevision > 0
       && value.baseRevision < Number.MAX_SAFE_INTEGER
       && value.localRevision === value.baseRevision + 1;
+  const noLease = value.leaseOwner === null && value.leaseExpiresAt === null;
+  const safeOptional = (item: string | null): boolean => item === null || SAFE_CODE.test(item);
+  const validMutationId = (item: unknown): item is string => typeof item === 'string'
+    && /^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
+  const statusValid = value.status === 'pending'
+    ? noLease && value.acknowledgedAt === null && value.acknowledgedBy === null && value.supersededByMutationId === null
+      && value.lastErrorCode === null && value.remoteMutationRef === null
+      && Date.parse(value.availableAt) >= Date.parse(value.updatedAt)
+    : value.status === 'claimed'
+      ? value.leaseOwner !== null && SAFE_CODE.test(value.leaseOwner) && validTimestamp(value.leaseExpiresAt)
+        && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1 && value.acknowledgedAt === null && value.acknowledgedBy === null
+        && value.supersededByMutationId === null && value.lastErrorCode === null && value.remoteMutationRef === null
+        && Date.parse(value.leaseExpiresAt) >= Date.parse(value.lastAttemptAt)
+      : value.status === 'retry_wait'
+        ? noLease && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1
+          && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
+          && value.acknowledgedAt === null && value.acknowledgedBy === null && value.supersededByMutationId === null && value.remoteMutationRef === null
+          && Date.parse(value.availableAt) >= Date.parse(value.updatedAt)
+        : value.status === 'acknowledged'
+          ? noLease && validTimestamp(value.acknowledgedAt) && value.acknowledgedBy !== null
+            && SAFE_CODE.test(value.acknowledgedBy) && value.supersededByMutationId === null
+            && value.lastErrorCode === null && safeOptional(value.remoteMutationRef)
+            && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1
+            && Date.parse(value.acknowledgedAt) >= Date.parse(value.lastAttemptAt)
+          : value.status === 'permanent_failure'
+            ? noLease && value.attemptCount >= 1 && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
+              && validTimestamp(value.lastAttemptAt) && value.acknowledgedAt === null && value.acknowledgedBy === null
+              && value.supersededByMutationId === null && value.remoteMutationRef === null
+            : value.status === 'superseded'
+              ? noLease && validMutationId(value.supersededByMutationId) && value.supersededByMutationId !== value.mutationId
+                && value.acknowledgedAt === null && value.acknowledgedBy === null
+                && value.remoteMutationRef === null && value.lastErrorCode === null
+              : false;
+  const expectedIdempotencyKey = deriveOutboxIdempotencyKey(value);
   if (!['upsert', 'tombstone'].includes(value.operation)
-    || !['pending', 'processing', 'retry', 'completed', 'failed'].includes(value.status)
+    || !validOutboxIdempotencyKey(value.idempotencyKey) || value.idempotencyKey !== expectedIdempotencyKey
+    || !validMutationId(value.mutationId)
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
-    || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0
-    || !validTimestamp(value.createdAt) || !payloadValid || !revisionsValid
+    || !validOutboxChronology(value)
+    || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
+    || !payloadValid || !revisionsValid || !statusValid
     || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone')) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
