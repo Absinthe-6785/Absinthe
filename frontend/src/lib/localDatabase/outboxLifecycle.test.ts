@@ -137,6 +137,8 @@ describe('K-322 atomic mutation identity and schema', () => {
       outbox.createIndex('by_namespace_generation_status', ['namespaceKey', 'generationId', 'status']);
       outbox.createIndex('by_namespace_generation_entity', ['namespaceKey', 'generationId', 'domain', 'entityId']);
       outbox.createIndex('by_idempotency_key', ['namespaceKey', 'generationId', 'idempotencyKey'], { unique: true });
+      db.createObjectStore(LOCAL_DATABASE_STORES.restoreSessions, { keyPath: ['namespaceKey', 'sessionId'] })
+        .createIndex('by_namespace_status', ['namespaceKey', 'status']);
     });
     const transaction = legacy.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.outbox], 'readwrite');
     transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta).put({
@@ -154,10 +156,102 @@ describe('K-322 atomic mutation identity and schema', () => {
     expect([...store.indexNames]).toEqual(expect.arrayContaining([
       'by_namespace_generation_status_available', 'by_namespace_generation_status_lease', 'by_namespace_generation_entity_revision',
     ]));
+    const restoreStore = upgraded.transaction(LOCAL_DATABASE_STORES.restoreSessions)
+      .objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+    expect([...restoreStore.indexNames]).toEqual(expect.arrayContaining([
+      'by_namespace_package_id', 'by_namespace_package_digest', 'by_namespace_staging_generation',
+    ]));
     const request = store.get(['sentinel', 'g', 'm']);
     expect(await new Promise(resolve => { request.onsuccess = () => resolve(request.result); })).toMatchObject({ value: 'preserved' });
     upgraded.close();
     expect((await upgradedRepository.readDatabaseMetadata()).databaseFormatVersion).toBe(LOCAL_DATABASE_VERSION);
+  });
+
+  it('upgrades a populated v2 database to v3 without rewriting entities, tombstones, outbox identity, or metadata scope', async () => {
+    const fingerprint = await namespaceFingerprint(namespace);
+    const legacy = await rawOpen(2, db => {
+      const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
+      meta.createIndex('by_schema_version', 'schemaVersion');
+      const generations = db.createObjectStore(LOCAL_DATABASE_STORES.generations, { keyPath: ['namespaceKey', 'generationId'] });
+      generations.createIndex('by_namespace_status', ['namespaceKey', 'status']);
+      generations.createIndex('by_namespace_created', ['namespaceKey', 'createdAt']);
+      generations.createIndex('one_active_per_namespace', 'activeNamespaceKey', { unique: true });
+      const entities = db.createObjectStore(LOCAL_DATABASE_STORES.entities, { keyPath: ['namespaceKey', 'generationId', 'domain', 'entityId'] });
+      entities.createIndex('by_namespace_generation_domain', ['namespaceKey', 'generationId', 'domain']);
+      entities.createIndex('by_namespace_generation_owner', ['namespaceKey', 'generationId', 'ownerId']);
+      entities.createIndex('by_namespace_generation_deleted', ['namespaceKey', 'generationId', 'deletionState']);
+      entities.createIndex('by_namespace_generation_updated', ['namespaceKey', 'generationId', 'updatedAt']);
+      const outbox = db.createObjectStore(LOCAL_DATABASE_STORES.outbox, { keyPath: ['namespaceKey', 'generationId', 'mutationId'] });
+      outbox.createIndex('by_namespace_generation_status', ['namespaceKey', 'generationId', 'status']);
+      outbox.createIndex('by_namespace_generation_entity', ['namespaceKey', 'generationId', 'domain', 'entityId']);
+      outbox.createIndex('by_idempotency_key', ['namespaceKey', 'generationId', 'idempotencyKey'], { unique: true });
+      outbox.createIndex('by_namespace_generation_status_available', ['namespaceKey', 'generationId', 'status', 'availableAt']);
+      outbox.createIndex('by_namespace_generation_status_lease', ['namespaceKey', 'generationId', 'status', 'leaseExpiresAt']);
+      outbox.createIndex('by_namespace_generation_entity_revision', ['namespaceKey', 'generationId', 'domain', 'entityId', 'localRevision'], { unique: true });
+      db.createObjectStore(LOCAL_DATABASE_STORES.syncCheckpoints, { keyPath: ['namespaceKey', 'generationId', 'provider', 'stream'] })
+        .createIndex('by_namespace_generation_provider', ['namespaceKey', 'generationId', 'provider']);
+      db.createObjectStore(LOCAL_DATABASE_STORES.restoreSessions, { keyPath: ['namespaceKey', 'sessionId'] })
+        .createIndex('by_namespace_status', ['namespaceKey', 'status']);
+      db.createObjectStore(LOCAL_DATABASE_STORES.migrationState, { keyPath: ['namespaceKey', 'migrationId'] })
+        .createIndex('by_namespace_phase', ['namespaceKey', 'phase']);
+      const attachments = db.createObjectStore(LOCAL_DATABASE_STORES.attachmentState, { keyPath: ['namespaceKey', 'generationId', 'attachmentId'] });
+      attachments.createIndex('by_namespace_generation_sync', ['namespaceKey', 'generationId', 'syncState']);
+      attachments.createIndex('by_namespace_generation_updated', ['namespaceKey', 'generationId', 'updatedAt']);
+    });
+    const pendingId = 'mut.33333333-3333-4333-8333-333333333333';
+    const acknowledgedId = 'mut.44444444-4444-4444-8444-444444444444';
+    const pending: OutboxRecord = {
+      namespaceKey: fingerprint, generationId: 'generation-1', mutationId: pendingId, domain: 'notes', entityId: 'pending-note',
+      operation: 'upsert', baseRevision: null, localRevision: 1, payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: { value: 1 } },
+      payloadHash: null, createdAt: T0, updatedAt: T0, availableAt: T0, attemptCount: 0, status: 'pending',
+      idempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: fingerprint, generationId: 'generation-1', domain: 'notes', entityId: 'pending-note', localRevision: 1, operation: 'upsert' }),
+      lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null,
+      acknowledgedBy: null, remoteMutationRef: null, supersededByMutationId: null,
+    };
+    const acknowledged: OutboxRecord = {
+      ...pending, mutationId: acknowledgedId, entityId: 'acknowledged-note', status: 'acknowledged', attemptCount: 1,
+      updatedAt: T1, lastAttemptAt: T0, acknowledgedAt: T1, acknowledgedBy: 'worker',
+      idempotencyKey: deriveOutboxIdempotencyKey({ namespaceKey: fingerprint, generationId: 'generation-1', domain: 'notes', entityId: 'acknowledged-note', localRevision: 1, operation: 'upsert' }),
+    };
+    const live = {
+      namespaceKey: fingerprint, generationId: 'generation-1', domain: 'notes', entityId: 'pending-note', record: { value: 1 },
+      revision: 1, createdAt: T0, updatedAt: T0, deletedAt: null, isDeleted: false, deletionState: 'active',
+      ownerId: null, contentHash: null, source: null,
+    };
+    const tombstone = {
+      ...live, entityId: 'deleted-note', record: { value: 2 }, deletedAt: T1, updatedAt: T1, isDeleted: true, deletionState: 'deleted',
+    };
+    const transaction = legacy.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox,
+    ], 'readwrite');
+    transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta).put({
+      namespaceKey: fingerprint, databaseFormatVersion: 2, namespaceFingerprint: fingerprint, activeGenerationId: 'generation-1',
+      createdAt: T0, minimumCompatibleSchemaVersion: 1, recoveryCompatible: true, migrationStatePointer: null, schemaVersion: 1,
+    });
+    transaction.objectStore(LOCAL_DATABASE_STORES.generations).put({
+      namespaceKey: fingerprint, generationId: 'generation-1', status: 'active', createdAt: T0, activatedAt: T0,
+      predecessorGenerationId: null, creationReason: 'initial', schemaVersion: 1, validationState: 'valid',
+      safeSourceReference: { kind: 'local', reference: 'initial' }, activeNamespaceKey: fingerprint,
+    });
+    transaction.objectStore(LOCAL_DATABASE_STORES.entities).put(live);
+    transaction.objectStore(LOCAL_DATABASE_STORES.entities).put(tombstone);
+    transaction.objectStore(LOCAL_DATABASE_STORES.outbox).put(pending);
+    transaction.objectStore(LOCAL_DATABASE_STORES.outbox).put(acknowledged);
+    await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
+    legacy.close();
+
+    const upgradedRepository = await openLocalDatabase(namespace, { capability, mutationIdFactory: mutationId, clock: () => T0 });
+    openRepositories.push(upgradedRepository);
+    expect((await upgradedRepository.readDatabaseMetadata()).databaseFormatVersion).toBe(3);
+    expect(await upgradedRepository.getEntity('notes', 'pending-note')).toEqual(live);
+    expect(await upgradedRepository.getEntity('notes', 'deleted-note')).toEqual(tombstone);
+    expect(await upgradedRepository.listOutboxMutations({ limit: 10 })).toEqual([acknowledged, pending]);
+    const upgraded = await rawOpen();
+    const restore = upgraded.transaction(LOCAL_DATABASE_STORES.restoreSessions).objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+    expect([...restore.indexNames]).toEqual(expect.arrayContaining([
+      'by_namespace_package_id', 'by_namespace_package_digest', 'by_namespace_staging_generation',
+    ]));
+    upgraded.close();
   });
 });
 

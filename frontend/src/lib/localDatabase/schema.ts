@@ -11,7 +11,7 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
 }
 
 export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
-  if (oldVersion !== 0 && oldVersion !== 1) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+  if (![0, 1, 2].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
   if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -47,12 +47,21 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, t
   index(attachments, 'by_namespace_generation_updated', ['namespaceKey', 'generationId', 'updatedAt']);
   }
 
-  const outbox = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
-  index(outbox, 'by_namespace_generation_status_available', ['namespaceKey', 'generationId', 'status', 'availableAt']);
-  index(outbox, 'by_namespace_generation_status_lease', ['namespaceKey', 'generationId', 'status', 'leaseExpiresAt']);
-  index(outbox, 'by_namespace_generation_entity_revision', ['namespaceKey', 'generationId', 'domain', 'entityId', 'localRevision'], { unique: true });
+  if (oldVersion < 2) {
+    const outbox = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+    index(outbox, 'by_namespace_generation_status_available', ['namespaceKey', 'generationId', 'status', 'availableAt']);
+    index(outbox, 'by_namespace_generation_status_lease', ['namespaceKey', 'generationId', 'status', 'leaseExpiresAt']);
+    index(outbox, 'by_namespace_generation_entity_revision', ['namespaceKey', 'generationId', 'domain', 'entityId', 'localRevision'], { unique: true });
+  }
 
-  if (oldVersion === 1) {
+  if (oldVersion < 3) {
+    const restore = transaction.objectStore(LOCAL_DATABASE_STORES.restoreSessions);
+    index(restore, 'by_namespace_package_id', ['namespaceKey', 'packageId'], { unique: true });
+    index(restore, 'by_namespace_package_digest', ['namespaceKey', 'packageDigest'], { unique: true });
+    index(restore, 'by_namespace_staging_generation', ['namespaceKey', 'stagingGenerationId'], { unique: true });
+  }
+
+  if (oldVersion === 1 || oldVersion === 2) {
     const metadata = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
     const request = metadata.openCursor();
     request.onsuccess = () => {

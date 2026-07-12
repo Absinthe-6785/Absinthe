@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = 'absinthe-local-v2';
-export const LOCAL_DATABASE_VERSION = 2;
+export const LOCAL_DATABASE_VERSION = 3;
 export const LOCAL_SCHEMA_VERSION = 1;
 
 export type LocalDatabaseNamespace = Readonly<{
@@ -60,10 +60,50 @@ export interface LocalEntityEnvelope<T = unknown> {
   ownerId: string | null;
   contentHash: string | null;
   source: SafeSourceReference | null;
+  restoreProvenance?: RestoreProvenance | null;
+}
+
+export type RestoreClassification = 'insert' | 'replace' | 'skip_identical' | 'conflict' | 'resurrect' | 'preserve_local';
+
+export interface ResurrectionProvenance {
+  restoresEntityId: string;
+  sourcePackageId: string;
+  sourceRestoreSessionId: string;
+  supersedesTombstoneRevision: number | null;
+  restoredAt: string;
+}
+
+export interface RestoreProvenance {
+  packageId: string;
+  restoreSessionId: string;
+  classification: RestoreClassification;
+  sourceRevision: number | null;
+  sourceUpdatedAt: string | null;
+  sourceDeletedAt: string | null;
+  expectedLocalRevision: number | null;
+  restoredAt: string;
+  mutationId: string | null;
+  resurrection: ResurrectionProvenance | null;
 }
 
 export type OutboxOperation = 'upsert' | 'tombstone';
 export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'permanent_failure' | 'superseded';
+
+export interface RestoreOutboxGenerationBoundary {
+  kind: 'restore_generation_sequence_boundary';
+  namespaceKey: string;
+  sourceGenerationId: string;
+  targetGenerationId: string;
+  domain: string;
+  entityId: string;
+  sourceRevision: number;
+  targetRevision: number;
+  restoreSessionId: string;
+  packageId: string;
+  packageDigest: string;
+  classification: 'replace' | 'resurrect';
+  createdAt: string;
+}
 
 export interface OutboxRecord {
   namespaceKey: string;
@@ -94,6 +134,9 @@ export interface OutboxRecord {
   acknowledgedBy: string | null;
   remoteMutationRef: string | null;
   supersededByMutationId: string | null;
+  resurrection?: ResurrectionProvenance | null;
+  deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
+  generationBoundary?: RestoreOutboxGenerationBoundary | null;
 }
 
 export interface SyncCheckpointRecord {
@@ -106,18 +149,63 @@ export interface SyncCheckpointRecord {
   updatedAt: string;
 }
 
+export type RestoreSessionStatus = 'created' | 'validating' | 'staged' | 'committing' | 'committed' | 'failed' | 'cancelled';
+export interface RestoreSummary { inserted: number; replaced: number; skipped: number; resurrected: number; conflicts: number }
+export type RestoreApplicationClassification = 'insert' | 'replace' | 'resurrect' | 'skip_identical' | 'preserve_local' | 'conflict';
+export interface RestoreApplicationEntryV1 {
+  domain: 'notes';
+  entityId: string;
+  classification: RestoreApplicationClassification;
+  sourceRevision: number | null;
+  targetRevision: number | null;
+  expectedEntityDigest: string | null;
+  expectedProvenanceDigest: string | null;
+  requiresOutbox: boolean;
+  expectedMutationId: string | null;
+  expectedIdempotencyKey: string | null;
+  expectedOperation: 'upsert' | 'tombstone' | null;
+  requiresSequenceBoundary: boolean;
+}
+export interface RestoreApplicationManifestV1 {
+  version: 1;
+  restoreSessionId: string;
+  packageId: string;
+  packageDigest: string;
+  namespaceKey: string;
+  sourceGenerationId: string;
+  targetGenerationId: string;
+  entries: RestoreApplicationEntryV1[];
+  entryCount: number;
+  stagedEntityCount: number;
+  stagedSetDigest: string;
+  manifestDigest: string;
+}
+export interface RestoreBlockingState {
+  code: 'RESTORE_UNSETTLED_OUTBOX_CONFLICT';
+  detectedAt: string;
+  attemptCount: number;
+}
+
 export interface RestoreSessionRecord {
   namespaceKey: string;
   sessionId: string;
+  packageId: string;
+  protocolVersion: 1;
   expectedActiveGenerationId: string;
-  sourceGenerationId: string;
-  targetGenerationId: string;
-  status: 'preparing' | 'validating' | 'ready' | 'committed' | 'failed' | 'abandoned';
-  packageFingerprint: string;
-  validationResult: ValidationState;
-  startedAt: string;
+  sourceGenerationId: string | null;
+  stagingGenerationId: string;
+  targetGenerationId: string | null;
+  status: RestoreSessionStatus;
+  packageDigest: string;
+  entityCount: number;
+  createdAt: string;
+  updatedAt: string;
   committedAt: string | null;
+  failedAt: string | null;
   failureCode: string | null;
+  blockingState: RestoreBlockingState | null;
+  applicationManifest: RestoreApplicationManifestV1 | null;
+  summary: RestoreSummary;
 }
 
 export interface MigrationStateRecord {
