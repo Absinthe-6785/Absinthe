@@ -56,6 +56,13 @@ never pass or receive storage IDs: logical IDs beginning with the reserved prefi
 double-prefixed values, fail as `INVALID_LEGACY_MIGRATION` before any durable write or lookup. Ordinary
 colon-containing logical IDs remain supported. A malformed persisted prefix or storage/logical relationship
 is persisted-state corruption and continues to fail as `CORRUPT_PERSISTED_RECORD`.
+K-325 uses one locale-independent canonical string comparator everywhere ordering contributes to persisted
+state or a digest: case-sensitive JavaScript UTF-16 code-unit lexicographic order (`<` / `>`), with no case
+folding, trimming, or Unicode normalization. Manifest generation and validation share the same domain/entity
+tuple comparator; canonical object keys and attachment-reference sets use the same string comparator.
+Snapshot and aggregate digest results are therefore independent of host locale and source enumeration order,
+while case-distinct and Unicode-distinct identifiers remain distinct. Noncanonical persisted manifests still
+fail closed, and this Draft implementation adds no compatibility reader, reordering repair, or auto-migration.
 The lifecycle is `capturing -> staged -> verifying -> verified`, with terminal `cancelled` and `failed`
 states. The session contains bounded source identity, counts, digests, target generation identity, manifest,
 result counts, timestamps, and bounded failure codes—never Note payloads, auth state, tokens, cursors, or

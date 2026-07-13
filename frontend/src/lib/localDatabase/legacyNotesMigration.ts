@@ -139,8 +139,21 @@ interface MigrationPlan {
 function fail(code: LocalDatabaseErrorCode, operation = 'legacy_notes_migration'): never {
   throw new LocalDatabaseError(code, operation);
 }
+function compareCanonicalStrings(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function compareManifestEntries(
+  left: Pick<LegacyMigrationManifestEntryV1, 'domain' | 'entityId'>,
+  right: Pick<LegacyMigrationManifestEntryV1, 'domain' | 'entityId'>,
+): number {
+  const domainOrder = compareCanonicalStrings(left.domain, right.domain);
+  return domainOrder !== 0 ? domainOrder : compareCanonicalStrings(left.entityId, right.entityId);
+}
 function exactKeys(value: object, expected: readonly string[]): boolean {
-  return Object.keys(value).sort().join(',') === [...expected].sort().join(',');
+  return Object.keys(value).sort(compareCanonicalStrings).join(',')
+    === [...expected].sort(compareCanonicalStrings).join(',');
 }
 function canonical(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
@@ -150,7 +163,7 @@ function canonical(value: unknown): string {
   }
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.keys(value as object).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`;
+    return `{${Object.keys(value as object).sort(compareCanonicalStrings).map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`;
   }
   fail('INVALID_LEGACY_MIGRATION', 'canonical_legacy_note');
 }
@@ -264,7 +277,7 @@ function supportedLegacyNote(value: unknown): SupportedLegacyNote {
 function attachmentReferences(body: string): string[] {
   const found = new Set<string>();
   for (const match of body.matchAll(/attachment:\/\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/g)) found.add(match[1]);
-  return [...found].sort();
+  return [...found].sort(compareCanonicalStrings);
 }
 function entityDigest(entity: LocalEntityEnvelope): string {
   return sha256Hex(canonical(['absinthe-legacy-target-entity-v1', entity]));
@@ -312,7 +325,10 @@ async function buildPlan(
       deletedAt: note.deletedAt === null ? null : millisToIso(note.deletedAt, 'legacy_deleted_at'),
     });
   }
-  sourceDrafts.sort((left, right) => `notes\0${left.entityId}`.localeCompare(`notes\0${right.entityId}`));
+  sourceDrafts.sort((left, right) => compareManifestEntries(
+    { domain: 'notes', entityId: left.entityId },
+    { domain: 'notes', entityId: right.entityId },
+  ));
   const snapshotDigest = sha256Hex(canonical(['absinthe-legacy-notes-snapshot-v1', runtime.namespaceKey,
     adapter.adapter, adapter.schemaVersion, adapter.sourceInstanceId,
     sourceDrafts.map(item => [item.legacyKeyDigest, item.entityId, item.classification, item.sourceRecordDigest, item.attachmentReferenceDigest]) ]));
@@ -365,21 +381,21 @@ function validateManifestShape(value: LegacyMigrationManifestV1): void {
     || value.sourceSchemaVersion !== null && (!Number.isSafeInteger(value.sourceSchemaVersion) || value.sourceSchemaVersion < 0)
     || !Number.isSafeInteger(value.entryCount) || value.entryCount < 0 || value.entryCount > MAX_LEGACY_MIGRATION_ENTRIES
     || !Array.isArray(value.entries) || value.entries.length !== value.entryCount) fail('CORRUPT_PERSISTED_RECORD', 'legacy_manifest');
-  let previous = '';
+  let previous: LegacyMigrationManifestEntryV1 | undefined;
   const legacyKeys = new Set<string>();
   for (const entry of value.entries) {
     const entryKeys = ['domain', 'legacyKeyDigest', 'entityId', 'classification', 'sourceRevision', 'targetRevision',
       'sourceRecordDigest', 'targetEntityDigest', 'attachmentReferenceDigest', 'createdAt', 'updatedAt', 'deletedAt'];
-    const key = entry ? `notes\0${entry.entityId}` : '';
     if (!entry || !exactKeys(entry, entryKeys) || entry.domain !== 'notes' || typeof entry.entityId !== 'string'
-      || entry.entityId.length < 1 || entry.entityId.length > 512 || key <= previous || legacyKeys.has(entry.legacyKeyDigest)
+      || entry.entityId.length < 1 || entry.entityId.length > 512
+      || previous !== undefined && compareManifestEntries(previous, entry) >= 0 || legacyKeys.has(entry.legacyKeyDigest)
       || !HASH.test(entry.legacyKeyDigest) || !['live', 'tombstone'].includes(entry.classification)
       || entry.sourceRevision !== null || entry.targetRevision !== 1 || !HASH.test(entry.sourceRecordDigest)
       || !HASH.test(entry.targetEntityDigest) || entry.attachmentReferenceDigest !== null && !HASH.test(entry.attachmentReferenceDigest)
       || !validTimestamp(entry.createdAt) || !validTimestamp(entry.updatedAt)
       || entry.deletedAt !== null && !validTimestamp(entry.deletedAt)
       || (entry.classification === 'live') !== (entry.deletedAt === null)) fail('CORRUPT_PERSISTED_RECORD', 'legacy_manifest_entry');
-    previous = key; legacyKeys.add(entry.legacyKeyDigest);
+    previous = entry; legacyKeys.add(entry.legacyKeyDigest);
   }
 }
 function validateManifestIntegrity(manifest: LegacyMigrationManifestV1): void {

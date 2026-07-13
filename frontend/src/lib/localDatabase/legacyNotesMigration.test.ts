@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LEGACY_NOTES_INDEXED_DB_NAME, LEGACY_NOTES_INDEXED_DB_STORE, LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES,
   closeLocalDatabase, createDormantLocalDatabaseCapability, createLegacyNotesIndexedDbAdapter,
@@ -18,6 +18,7 @@ const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const repositories: LocalDatabaseRepository[] = [];
 const toLegacyNotesMigrationStorageId = (migrationSessionId: string) => `k325:legacy-notes:${migrationSessionId}`;
+const compareCanonicalStrings = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
 
 function deleteDatabase(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -141,6 +142,53 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     });
     const session = await repository.getLegacyNotesMigrationSession('mixed');
     expect(session?.manifest.entries[0].attachmentReferenceDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('uses one canonical order for case-distinct and Unicode IDs through verification', async () => {
+    const ids = [
+      'a', 'B', 'A', 'b', '0', '9', '-', '_', ':', '가', 'é', 'e\u0301', '\uffff', '😀',
+      'shared-prefix-a', 'shared-prefix-A',
+    ];
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey,
+      ids.map((id, index) => [`legacy-key-${index}`, note(id)])), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'canonical-unicode', now: T0 });
+    expect(captured.manifest.entries.map(entry => entry.entityId)).toEqual([...ids].sort(compareCanonicalStrings));
+    expect(new Set(captured.manifest.entries.map(entry => entry.entityId)).size).toBe(ids.length);
+    await expect(repository.resumeLegacyNotesMigration(source, 'canonical-unicode', T1)).resolves.toMatchObject({ status: 'staged' });
+    await expect(repository.verifyLegacyNotesMigration(source, 'canonical-unicode', T1))
+      .resolves.toMatchObject({ entryCount: ids.length, liveCount: ids.length, tombstoneCount: 0 });
+  });
+
+  it('produces identical manifests and digests for bounded source permutations', async () => {
+    const records = [
+      ['key-a', note('a')], ['key-B', note('B')], ['key-korean', note('가')],
+      ['key-composed', note('é')], ['key-decomposed', note('e\u0301')], ['key-emoji', note('😀')],
+    ] as Array<[string, unknown]>;
+    let repository = await repo();
+    let source = adapter(bound(repository.namespaceKey, records), repository.namespaceKey);
+    const original = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'permutation', now: T0 });
+    closeLocalDatabase(repository); await deleteDatabase(LOCAL_DATABASE_NAME);
+    repository = await repo();
+    source = adapter(bound(repository.namespaceKey, [...records].reverse()), repository.namespaceKey);
+    const reversed = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'permutation', now: T0 });
+    expect(reversed.source.snapshotDigest).toBe(original.source.snapshotDigest);
+    expect(reversed.manifest.manifestDigest).toBe(original.manifest.manifestDigest);
+    expect(reversed.manifest.targetStateDigest).toBe(original.manifest.targetStateDigest);
+    expect(reversed.manifest.entries).toEqual(original.manifest.entries);
+  });
+
+  it('does not call localeCompare while capturing or verifying', async () => {
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(() => {
+      throw new Error('locale-sensitive comparison used');
+    });
+    try {
+      const repository = await repo();
+      const source = adapter(bound(repository.namespaceKey, [['lower', note('a')], ['upper', note('B')]]), repository.namespaceKey);
+      await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'no-locale', now: T0 });
+      await repository.resumeLegacyNotesMigration(source, 'no-locale', T1);
+      await expect(repository.verifyLegacyNotesMigration(source, 'no-locale', T1)).resolves.toMatchObject({ entryCount: 2 });
+    } finally { localeCompare.mockRestore(); }
   });
 
   it('reads the actual legacy IndexedDB store in one readonly snapshot without changing it', async () => {
@@ -529,6 +577,25 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     const [entity] = (await getAllRaw(LOCAL_DATABASE_STORES.entities)).filter(value => value.generationId === fixture.staged.target.generationId);
     await putRaw(LOCAL_DATABASE_STORES.entities, { ...entity, entityId: B, record: note(B) });
     await expect(fixture.repository.getLegacyNotesMigrationSession('verified'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['locale-style reorder', (entries: any[]) => [...entries].reverse()],
+    ['duplicate entry', (entries: any[]) => [entries[0], entries[0]]],
+    ['missing entry', (entries: any[]) => entries.slice(0, 1)],
+  ])('rejects noncanonical persisted manifest entries: %s', async (_label, transform) => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [['upper', note('B')], ['lower', note('a')]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'manifest-order', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'manifest-order', T1);
+    await repository.verifyLegacyNotesMigration(source, 'manifest-order', T1);
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState,
+      [repository.namespaceKey, toLegacyNotesMigrationStorageId('manifest-order')], value => ({
+        ...value,
+        manifest: { ...value.manifest, entries: transform(value.manifest.entries) },
+      }));
+    await expect(repository.getLegacyNotesMigrationSession('manifest-order'))
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
