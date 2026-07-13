@@ -29,6 +29,11 @@ import {
   markIndexedDbMigrationComplete,
   saveNotesToIndexedDb,
 } from '@/lib/noteIndexedDb';
+import { mayWriteLegacyNotes } from '@/lib/recoverySafetyPolicy';
+
+function assertLegacyNotesWritable(): void {
+  if (!mayWriteLegacyNotes()) throw new Error('Post-cutover legacy writes are blocked');
+}
 
 export interface K97fSeedPolicySnapshot {
   notesLengthSeedRemoved: boolean;
@@ -87,6 +92,7 @@ export function simulatePreHydrationSyncLoad(): number {
 export async function simulateRefreshWithExistingVault(
   notes: readonly NoteBase[],
 ): Promise<K97fSeedLifecycleRow> {
+  assertLegacyNotesWritable();
   resetNotesPersistenceForTests();
   clearNotesOnboardingMarker();
   localStorage.removeItem(NOTES_KEY);
@@ -111,6 +117,7 @@ export async function simulateRefreshWithExistingVault(
 
 /** Empty vault after user deleted all notes — must not recreate welcome. */
 export async function simulateEmptyVaultAfterDeletion(): Promise<K97fSeedLifecycleRow> {
+  assertLegacyNotesWritable();
   resetNotesPersistenceForTests();
   markNotesOnboardingComplete();
   localStorage.removeItem(NOTES_KEY);
@@ -132,6 +139,7 @@ export async function simulateEmptyVaultAfterDeletion(): Promise<K97fSeedLifecyc
 
 /** First-time user — marker absent, empty storage → single welcome note. */
 export async function simulateFirstTimeOnboarding(): Promise<K97fSeedLifecycleRow> {
+  assertLegacyNotesWritable();
   resetNotesPersistenceForTests();
   clearNotesOnboardingMarker();
   localStorage.removeItem(NOTES_KEY);
@@ -159,6 +167,7 @@ export async function simulateHydrationRaceProtection(): Promise<{
   welcomeCount: number;
   passed: boolean;
 }> {
+  assertLegacyNotesWritable();
   resetNotesPersistenceForTests();
   clearNotesOnboardingMarker();
   localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);

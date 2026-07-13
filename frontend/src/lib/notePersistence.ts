@@ -35,6 +35,7 @@ import {
   isRecoveryModeActive,
   isOperationEpochCurrent,
   mayDeleteLegacyStorage,
+  mayWriteLegacyNotes,
   recordRecoveryBlock,
   validatePersistedNotesReplacement,
   type PersistedNotesReplacementFailure,
@@ -65,8 +66,12 @@ let persistenceHydrated = false;
 
 export const NOTES_DURABILITY_BACKUP_PREFIX = 'absinthe.notes.backup.';
 
+function runLegacyPersistenceCleanupIfWritable(): void {
+  if (mayWriteLegacyNotes()) runPersistenceCleanup();
+}
+
 function removeLegacyNotesKeyIfAllowed(): void {
-  if (!mayDeleteLegacyStorage()) {
+  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return;
   }
@@ -77,6 +82,7 @@ function backupNotesBeforeDurabilityWrite(
   reason: string,
   notes: readonly NoteBase[],
 ): string | null {
+  if (!mayWriteLegacyNotes()) return null;
   if (notes.length === 0) return null;
   try {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -141,6 +147,7 @@ function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
 }
 
 function saveNotesToLocalStorageResult(notes: unknown): NotesPersistenceWriteResult {
+  if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
   const validation = validateLocalStorageNotesReplacement(notes);
   if (!validation.ok) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
@@ -190,6 +197,7 @@ export function loadNotesSync(): NoteBase[] {
 }
 
 export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated: boolean; count: number }> {
+  if (!mayWriteLegacyNotes()) throw new Error('Post-cutover legacy writes are blocked');
   if (isIndexedDbMigrationComplete()) {
     return { migrated: false, count: 0 };
   }
@@ -244,7 +252,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     }
     notesCache = notes;
     persistenceHydrated = true;
-    runPersistenceCleanup();
+    runLegacyPersistenceCleanupIfWritable();
     return {
       notes,
       mode: 'localStorage',
@@ -277,7 +285,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     persistenceHydrated = true;
     lastIndexedDbRevision = readNotesIndexedDbRevision();
     removeLegacyNotesKeyIfAllowed();
-    runPersistenceCleanup();
+    runLegacyPersistenceCleanupIfWritable();
 
     return {
       notes: resolved,
@@ -295,7 +303,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     }
     notesCache = notes;
     persistenceHydrated = true;
-    runPersistenceCleanup();
+    runLegacyPersistenceCleanupIfWritable();
     return {
       notes,
       mode: 'localStorage',
@@ -326,6 +334,7 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
 
 export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
   const epoch = captureOperationEpoch();
+  if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
   if (!Array.isArray(notes)) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
     return { status: 'rejected', reason: 'invalid_replacement' };
@@ -360,7 +369,7 @@ export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWr
 }
 
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
-  if (!mayDeleteLegacyStorage()) {
+  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
   }
@@ -382,7 +391,7 @@ export async function deleteNoteFromPersistence(noteId: string): Promise<boolean
 }
 
 export async function clearNotesPersistence(): Promise<void> {
-  if (!mayDeleteLegacyStorage()) {
+  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return;
   }

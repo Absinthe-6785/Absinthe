@@ -92,6 +92,7 @@ import {
   mayRestore,
   mayUndoRestore,
   mayUploadRemote,
+  mayWriteLegacyNotes,
   recordRecoveryBlock,
 } from '../lib/recoverySafetyPolicy';
 
@@ -962,7 +963,8 @@ let applyingStorageMerge = false;
 
 function applyStorageMerge(key: string | null, newValue: string | null) {
   if (!key || applyingStorageMerge) return;
-  if ((isNotesIndexedDbRevisionEvent(key) || key === NOTES_KEY || key === FOLDERS_KEY) && !mayApplyCrossTabMutation()) {
+  if ((isNotesIndexedDbRevisionEvent(key) || key === NOTES_KEY || key === FOLDERS_KEY)
+    && (!mayApplyCrossTabMutation() || !mayWriteLegacyNotes())) {
     recordRecoveryBlock('cross_tab_mutation');
     return;
   }
@@ -972,7 +974,7 @@ function applyStorageMerge(key: string | null, newValue: string | null) {
     const operationEpoch = captureOperationEpoch();
     applyingStorageMerge = true;
     void loadNotesAsync().then(merged => {
-      if (!isOperationEpochCurrent(operationEpoch) || !mayApplyCrossTabMutation()) {
+      if (!isOperationEpochCurrent(operationEpoch) || !mayApplyCrossTabMutation() || !mayWriteLegacyNotes()) {
         recordRecoveryBlock('cross_tab_mutation', 'stale_operation_epoch');
         applyingStorageMerge = false;
         return;

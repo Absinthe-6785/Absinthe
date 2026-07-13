@@ -1,0 +1,525 @@
+import 'fake-indexeddb/auto';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  K326_LEGACY_WRITE_FENCE_KEY,
+  captureOperationEpoch,
+  clearLegacyNotesCutoverFenceForTest,
+  isRecoveryModeActive,
+  isOperationEpochCurrent,
+  mayReset,
+  mayRestore,
+  mayUploadRemote,
+  readLegacyNotesCutoverFence,
+} from '../recoverySafetyPolicy';
+import {
+  NOTES_IDB_MIGRATION_FLAG, NOTES_IDB_REV_KEY, bumpNotesIndexedDbRevision,
+  loadNotesFromIndexedDb, markIndexedDbMigrationComplete, saveNotesToIndexedDb,
+} from '../noteIndexedDb';
+import { NOTES_SEEDED_KEY, clearNotesOnboardingMarker, markNotesOnboardingComplete } from '../notesOnboarding';
+import {
+  ACTIVE_KEY, FOLDERS_KEY, NOTES_KEY, clearNotesStorage, saveActiveNoteId, saveFolders, saveNotes,
+} from '../../components/views/noteUtils';
+import {
+  LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, closeLocalDatabase, createDormantLocalDatabaseCapability,
+  legacyNotesAuthorityReference, openLocalDatabase,
+  type CutoverFailurePoint, type LegacyNotesMigrationSessionV1, type LegacyNotesSourceAdapter,
+  type LegacyNotesSourceAuthorityRecordV1, type LegacyNotesSourceRecord,
+  type LocalDatabaseNamespace, type LocalDatabaseRepository,
+} from './index';
+
+const capability = createDormantLocalDatabaseCapability('test');
+const base: LocalDatabaseNamespace = {
+  userId: 'user-a', projectRef: 'project-a', deviceId: 'device-a', generationId: 'generation-1', schemaVersion: 1,
+};
+const T0 = '2026-07-13T00:00:00.000Z';
+const T1 = '2026-07-13T00:00:01.000Z';
+const T2 = '2026-07-13T00:00:02.000Z';
+const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const repositories: LocalDatabaseRepository[] = [];
+const authorities = new Map<string, LegacyNotesSourceAuthorityRecordV1>();
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: key => values.get(key) ?? null,
+    key: index => [...values.keys()][index] ?? null,
+    removeItem: key => { values.delete(key); },
+    setItem: (key, value) => { values.set(key, String(value)); },
+  };
+}
+
+function deleteDatabase(name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('blocked'));
+  });
+}
+
+async function repository(namespace = base): Promise<LocalDatabaseRepository> {
+  const value = await openLocalDatabase(namespace, { capability, clock: () => T2 });
+  repositories.push(value); await value.initializeNamespace();
+  const authority = await value.registerLegacyNotesSourceAuthority({
+    authorityId: `synthetic-${value.namespaceKey.slice(0, 16)}`,
+    sourceType: 'indexeddb', sourceInstanceId: 'synthetic.notes.v1',
+    sourceIdentityId: `synthetic-${value.namespaceKey.slice(0, 16)}`,
+    ownershipMode: 'authenticated', now: T0,
+  });
+  authorities.set(value.namespaceKey, authority);
+  return value;
+}
+
+function note(id = A): Record<string, unknown> {
+  return {
+    id, title: 'synthetic', body: 'attachment://asset-1', createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_001_000, folderId: null, deletedAt: null, starred: false,
+    properties: { safe: 'value' }, relations: { links: [] },
+  };
+}
+
+interface MutableAdapter extends LegacyNotesSourceAdapter {
+  records: LegacyNotesSourceRecord[];
+  captures: number;
+}
+
+function sourceAdapter(repositoryValue: LocalDatabaseRepository, records = [note()]): MutableAdapter {
+  const authority = authorities.get(repositoryValue.namespaceKey);
+  if (!authority) throw new Error('authority missing');
+  const source: MutableAdapter = {
+    ...legacyNotesAuthorityReference(authority), adapter: 'synthetic_legacy_notes', schemaVersion: 1,
+    records: records.map((value, index) => ({
+      legacyKey: `legacy-${index}`, value, ownership: { kind: 'bound', namespaceKey: repositoryValue.namespaceKey },
+    })),
+    captures: 0,
+    async capture() { source.captures += 1; return { capturedAt: T0, records: source.records }; },
+  };
+  return source;
+}
+
+async function prepareVerified(repositoryValue: LocalDatabaseRepository, source: MutableAdapter, migrationId = 'verified'): Promise<void> {
+  await repositoryValue.captureLegacyNotesMigration(source, { migrationSessionId: migrationId, now: T0 });
+  await repositoryValue.resumeLegacyNotesMigration(source, migrationId, T1);
+  await repositoryValue.verifyLegacyNotesMigration(source, migrationId, T1);
+}
+
+async function plan(repositoryValue: LocalDatabaseRepository, source: MutableAdapter, cutoverId = 'cutover-1', migrationId = 'verified') {
+  const authorization = repositoryValue.createLocalFirstCutoverAuthorization(cutoverId, migrationId, 'test');
+  const session = await repositoryValue.planLocalFirstCutover(source, {
+    cutoverSessionId: cutoverId, migrationSessionId: migrationId, authorization, now: T1,
+  });
+  return { authorization, session };
+}
+
+async function rawDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+}
+
+async function rawStoreValues(storeName: string): Promise<any[]> {
+  const db = await rawDatabase(); const tx = db.transaction(storeName, 'readonly');
+  const request = tx.objectStore(storeName).getAll();
+  const values = await new Promise<any[]>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  db.close(); return values;
+}
+
+async function mutateRaw(storeName: string, key: IDBValidKey, transform: (value: any) => any): Promise<void> {
+  const db = await rawDatabase(); const tx = db.transaction(storeName, 'readwrite'); const store = tx.objectStore(storeName);
+  const request = store.get(key);
+  request.onsuccess = () => store.put(transform(request.result));
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); tx.onerror = () => undefined;
+  });
+  db.close();
+}
+
+async function putRaw(storeName: string, value: unknown): Promise<void> {
+  const db = await rawDatabase(); const tx = db.transaction(storeName, 'readwrite');
+  tx.objectStore(storeName).put(value);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); tx.onerror = () => undefined;
+  });
+  db.close();
+}
+
+async function deleteRaw(storeName: string, key: IDBValidKey): Promise<void> {
+  const db = await rawDatabase(); const tx = db.transaction(storeName, 'readwrite');
+  tx.objectStore(storeName).delete(key);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); tx.onerror = () => undefined;
+  });
+  db.close();
+}
+
+function sourceFiles(root: string): string[] {
+  const files: string[] = [];
+  for (const name of readdirSync(root)) {
+    const path = join(root, name); const stats = statSync(path);
+    if (stats.isDirectory()) files.push(...sourceFiles(path));
+    else if (/\.(ts|tsx)$/.test(name) && !name.endsWith('.test.ts') && !name.endsWith('.test.tsx')) files.push(path);
+  }
+  return files;
+}
+
+beforeEach(async () => {
+  vi.stubGlobal('localStorage', memoryStorage());
+  authorities.clear(); repositories.splice(0).forEach(closeLocalDatabase);
+  await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
+  clearLegacyNotesCutoverFenceForTest();
+});
+
+afterEach(async () => {
+  repositories.splice(0).forEach(closeLocalDatabase);
+  await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
+  vi.unstubAllGlobals();
+});
+
+describe('K-326 local-first cutover foundation', () => {
+  it('atomically activates and confirms one exact verified K-325 generation', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization, session } = await plan(repo, source);
+    expect(session).toMatchObject({ status: 'planned', plan: { targetEntryCount: 1, expectedRuntimeStorageMode: 'legacy' } });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy', activeGenerationId: 'generation-1' });
+
+    const result = await repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 });
+    expect(result).toMatchObject({ status: 'confirmed', mode: 'local_first', activeGenerationId: 'migration-verified', entityCount: 1 });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'migration-verified' });
+    expect(await repo.getGeneration('generation-1')).toMatchObject({ status: 'sealed' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({
+      status: 'active', predecessorGenerationId: 'generation-1', activeNamespaceKey: repo.namespaceKey,
+    });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({
+      mode: 'local_first', activeGenerationId: 'migration-verified', cutoverSessionId: 'cutover-1',
+    });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'confirmed' });
+    expect(readLegacyNotesCutoverFence()).toMatchObject({ phase: 'confirmed', namespaceKey: repo.namespaceKey });
+    expect(isRecoveryModeActive()).toBe(true);
+    expect([mayRestore(), mayReset(), mayUploadRemote()]).toEqual([false, false, false]);
+    expect(await rawStoreValues(LOCAL_DATABASE_STORES.outbox)).toEqual([]);
+    expect(await rawStoreValues(LOCAL_DATABASE_STORES.syncCheckpoints)).toEqual([]);
+  });
+
+  it('rejects a staged but not verified K-325 session without creating K-326 state', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo);
+    await repo.captureLegacyNotesMigration(source, { migrationSessionId: 'staged', now: T0 });
+    await repo.resumeLegacyNotesMigration(source, 'staged', T1);
+    const authorization = repo.createLocalFirstCutoverAuthorization('cutover-staged', 'staged', 'test');
+    await expect(repo.planLocalFirstCutover(source, {
+      cutoverSessionId: 'cutover-staged', migrationSessionId: 'staged', authorization, now: T1,
+    })).rejects.toMatchObject({ code: 'MIGRATION_SESSION_CONFLICT' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-staged')).toBeNull();
+  });
+
+  it('requires an exact namespace/session/generation-scoped recovery authorization', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const wrong = repo.createLocalFirstCutoverAuthorization('other-cutover', 'verified', 'test');
+    await expect(repo.planLocalFirstCutover(source, {
+      cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization: wrong, now: T1,
+    })).rejects.toMatchObject({ code: 'CUTOVER_RECOVERY_AUTHORIZATION_REQUIRED' });
+  });
+
+  it('rejects missing authority and mismatched root binding evidence', async () => {
+    for (const mutate of ['missing', 'mismatched'] as const) {
+      repositories.splice(0).forEach(closeLocalDatabase);
+      await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
+      authorities.clear();
+      const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+      const authorization = repo.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+      if (mutate === 'missing') {
+        await deleteRaw(LOCAL_DATABASE_STORES.migrationState, [
+          'k325:legacy-source-authority:v1', `authority:${source.authorityId}`,
+        ]);
+        await expect(repo.planLocalFirstCutover(source, {
+          cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization, now: T1,
+        })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      } else {
+        const forged = { ...source, externalRootDigest: 'b'.repeat(64) } as LegacyNotesSourceAdapter;
+        await expect(repo.planLocalFirstCutover(forged, {
+          cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization, now: T1,
+        })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      }
+      expect(await repo.getLocalFirstCutoverSession('cutover-1')).toBeNull();
+    }
+  });
+
+  it('revalidates source authority between planning and activation', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.revokeLegacyNotesSourceAuthority(source.authorityId, T2);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_REVOKED' });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+      status: 'failed', failure: { code: 'LEGACY_SOURCE_AUTHORITY_REVOKED' },
+    });
+  });
+
+  it('detects a source change between preflight and activation without activating', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+    source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+      ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'failed' });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+  });
+
+  it.each<CutoverFailurePoint>([
+    'before_activation_transaction', 'pointer_write', 'mode_write', 'session_transition', 'transaction_completion',
+  ])('rolls back every activation write at %s', async failurePoint => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2, testOnlyFailAt: failurePoint,
+    })).rejects.toMatchObject({ code: expect.stringMatching(/TRANSACTION/) });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+    expect(await repo.getGeneration('generation-1')).toMatchObject({ status: 'active' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy', activeGenerationId: 'generation-1' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'activating' });
+  });
+
+  it('resumes confirmation after a crash immediately following activation commit', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2, testOnlyFailAt: 'after_activation_commit',
+    })).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'activated' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'local_first' });
+    repo.close();
+    const restarted = await repository({ ...base, generationId: 'migration-verified' });
+    const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+    await expect(restarted.resumeLocalFirstCutover(source, 'cutover-1', {
+      authorization: restartedAuthorization, now: T2,
+    }))
+      .resolves.toMatchObject({ status: 'confirmed' });
+  });
+
+  it('makes repeated plan, activation, and confirmation idempotent', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const first = await plan(repo, source);
+    const second = await repo.planLocalFirstCutover(source, {
+      cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization: first.authorization, now: T2,
+    });
+    expect(second.plan.planDigest).toBe(first.session.plan.planDigest);
+    const activated = await repo.activateLocalFirstCutover(source, 'cutover-1', { authorization: first.authorization, now: T2 });
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization: first.authorization, now: T2 }))
+      .resolves.toEqual(activated);
+    await expect(repo.confirmLocalFirstCutover(source, 'cutover-1', first.authorization, T2)).resolves.toEqual(activated);
+    expect((await rawStoreValues(LOCAL_DATABASE_STORES.generations)).filter(value => value.status === 'active')).toHaveLength(1);
+  });
+
+  it('allows cancellation only before activation and preserves all evidence', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+    const beforeEntities = await rawStoreValues(LOCAL_DATABASE_STORES.entities);
+    const cancelled = await repo.cancelLocalFirstCutover('cutover-1', authorization, T2);
+    expect(cancelled).toMatchObject({ status: 'cancelled', failure: { code: 'CUTOVER_CANCELLED' } });
+    expect(await rawStoreValues(LOCAL_DATABASE_STORES.entities)).toEqual(beforeEntities);
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+    await expect(repo.resumeLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'CUTOVER_CANCELLED' });
+  });
+
+  it('blocks post-cutover and stale-epoch legacy IndexedDB writes', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const originalLocalStorage = JSON.stringify([note()]);
+    localStorage.setItem(NOTES_KEY, originalLocalStorage);
+    localStorage.setItem(FOLDERS_KEY, '[{"id":"folder-original","name":"Original"}]');
+    localStorage.setItem(ACTIVE_KEY, 'original-active');
+    localStorage.setItem(NOTES_IDB_MIGRATION_FLAG, 'original-migration-state');
+    localStorage.setItem(NOTES_IDB_REV_KEY, '7');
+    localStorage.setItem(NOTES_SEEDED_KEY, '1');
+    await expect(saveNotesToIndexedDb([note() as any])).resolves.toBe(true);
+    const originalIndexedDb = await loadNotesFromIndexedDb();
+    const staleEpoch = captureOperationEpoch();
+    await repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 });
+    expect(isOperationEpochCurrent(staleEpoch)).toBe(false);
+    await expect(saveNotesToIndexedDb([note() as any], () => isOperationEpochCurrent(staleEpoch))).resolves.toBe(false);
+    expect(await loadNotesFromIndexedDb()).toEqual(originalIndexedDb);
+    expect(saveNotes([{ ...note(), title: 'changed' } as any])).toBe(false);
+    expect(saveFolders([])).toBe(false);
+    saveActiveNoteId('changed-active');
+    markIndexedDbMigrationComplete();
+    bumpNotesIndexedDbRevision();
+    clearNotesOnboardingMarker();
+    markNotesOnboardingComplete();
+    clearNotesStorage();
+    expect(localStorage.getItem(NOTES_KEY)).toBe(originalLocalStorage);
+    expect(localStorage.getItem(FOLDERS_KEY)).toBe('[{"id":"folder-original","name":"Original"}]');
+    expect(localStorage.getItem(ACTIVE_KEY)).toBe('original-active');
+    expect(localStorage.getItem(NOTES_IDB_MIGRATION_FLAG)).toBe('original-migration-state');
+    expect(localStorage.getItem(NOTES_IDB_REV_KEY)).toBe('8');
+    expect(localStorage.getItem(NOTES_SEEDED_KEY)).toBe('1');
+    expect(localStorage.getItem(K326_LEGACY_WRITE_FENCE_KEY)).not.toBeNull();
+  });
+
+  it('fails closed when the cross-tab cutover fence record is malformed', async () => {
+    localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, '{malformed');
+    await expect(saveNotesToIndexedDb([note() as any])).resolves.toBe(false);
+    expect(readLegacyNotesCutoverFence()).toBe('corrupt');
+  });
+
+  it('rejects malformed durable cutover session evidence without normalization', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    await plan(repo, source);
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => ({
+      ...value, unknown: 'payload-free-but-invalid',
+    }));
+    await expect(repo.getLocalFirstCutoverSession('cutover-1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    const [raw] = (await rawStoreValues(LOCAL_DATABASE_STORES.migrationState))
+      .filter(value => value.migrationId === 'k326:cutover:cutover-1');
+    expect(raw.unknown).toBe('payload-free-but-invalid');
+  });
+
+  it('rejects missing target generation, target mutation, and malformed manifest evidence', async () => {
+    const cases: Array<(repo: LocalDatabaseRepository) => Promise<void>> = [
+      async repo => deleteRaw(LOCAL_DATABASE_STORES.generations, [repo.namespaceKey, 'migration-verified']),
+      async repo => mutateRaw(LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A], value => ({
+        ...value, record: { ...value.record, title: 'tampered' },
+      })),
+      async repo => mutateRaw(LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'], value => ({
+        ...value, manifest: { ...value.manifest, unknown: true },
+      })),
+    ];
+    for (const corrupt of cases) {
+      repositories.splice(0).forEach(closeLocalDatabase);
+      await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
+      authorities.clear();
+      const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+      const authorization = repo.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+      await corrupt(repo);
+      await expect(repo.planLocalFirstCutover(source, {
+        cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization, now: T1,
+      })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    }
+  });
+
+  it('rejects any target outbox or checkpoint evidence', async () => {
+    for (const storeName of [LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints]) {
+      repositories.splice(0).forEach(closeLocalDatabase);
+      await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
+      authorities.clear();
+      const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+      if (storeName === LOCAL_DATABASE_STORES.outbox) {
+        await putRaw(storeName, { namespaceKey: repo.namespaceKey, generationId: 'migration-verified', mutationId: 'unexpected' });
+      } else {
+        await putRaw(storeName, { namespaceKey: repo.namespaceKey, generationId: 'migration-verified', provider: 'unexpected', stream: 'notes' });
+      }
+      const authorization = repo.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+      await expect(repo.planLocalFirstCutover(source, {
+        cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization, now: T1,
+      })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    }
+  });
+
+  it('serializes duplicate concurrent activation to one exact winner and one idempotent observer', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const results = await Promise.all([
+      repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }),
+      repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }),
+    ]);
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]).toMatchObject({ status: 'confirmed', activeGenerationId: 'migration-verified' });
+    expect((await rawStoreValues(LOCAL_DATABASE_STORES.generations)).filter(value => value.status === 'active')).toHaveLength(1);
+  });
+
+  it('rejects a competing cutover session for the same namespace', async () => {
+    const repo = await repository(); const firstSource = sourceAdapter(repo); await prepareVerified(repo, firstSource, 'verified-one');
+    await plan(repo, firstSource, 'cutover-one', 'verified-one');
+    const secondSource = sourceAdapter(repo, [note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')]);
+    await prepareVerified(repo, secondSource, 'verified-two');
+    const authorization = repo.createLocalFirstCutoverAuthorization('cutover-two', 'verified-two', 'test');
+    await expect(repo.planLocalFirstCutover(secondSource, {
+      cutoverSessionId: 'cutover-two', migrationSessionId: 'verified-two', authorization, now: T1,
+    })).rejects.toMatchObject({ code: 'CUTOVER_SESSION_CONFLICT' });
+  });
+
+  it('rejects an active restore session and an unexpected predecessor change', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+    await putRaw(LOCAL_DATABASE_STORES.restoreSessions, {
+      namespaceKey: repo.namespaceKey, sessionId: 'restore-race', packageId: 'package-race', protocolVersion: 1,
+      expectedActiveGenerationId: 'generation-1', sourceGenerationId: 'generation-1',
+      stagingGenerationId: 'restore-restore-race', targetGenerationId: null, status: 'created',
+      packageDigest: 'a'.repeat(64), entityCount: 0, createdAt: T0, updatedAt: T0, committedAt: null,
+      failedAt: null, failureCode: null, blockingState: null, applicationManifest: null,
+      summary: { inserted: 0, replaced: 0, skipped: 0, resurrected: 0, conflicts: 0 },
+    });
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'CUTOVER_SESSION_CONFLICT' });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+  });
+
+  it('does not permit cancellation after activation commit', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2, testOnlyFailAt: 'after_activation_commit',
+    })).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    await expect(repo.cancelLocalFirstCutover('cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'CUTOVER_ALREADY_ACTIVATED' });
+  });
+
+  it('keeps activated state diagnosable when post-activation source confirmation fails', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2, testOnlyFailAt: 'after_activation_commit',
+    })).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+      ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
+    await expect(repo.confirmLocalFirstCutover(source, 'cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'activated' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'local_first' });
+  });
+
+  it('preserves unrelated migration records and never creates outbox/checkpoint/network state', async () => {
+    const repo = await repository();
+    const unrelated = {
+      namespaceKey: repo.namespaceKey, migrationId: 'unrelated', sourceDatabase: 'legacy', sourceSchemaVersion: 1,
+      targetDatabase: LOCAL_DATABASE_NAME, targetSchemaVersion: 1, sourceGenerationId: 'generation-1',
+      expectedActiveGenerationId: 'generation-1', targetGenerationId: 'future-generation', phase: 'planned',
+      lastDurableStep: 'none', counts: {}, verificationState: 'pending', rollbackEligibility: true,
+      createdAt: T0, updatedAt: T0,
+    };
+    await putRaw(LOCAL_DATABASE_STORES.migrationState, unrelated);
+    const source = sourceAdapter(repo); await prepareVerified(repo, source); const { authorization } = await plan(repo, source);
+    await repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 });
+    expect((await rawStoreValues(LOCAL_DATABASE_STORES.migrationState)).find(value => value.migrationId === 'unrelated'))
+      .toEqual(unrelated);
+    expect(await rawStoreValues(LOCAL_DATABASE_STORES.outbox)).toEqual([]);
+    expect(await rawStoreValues(LOCAL_DATABASE_STORES.syncCheckpoints)).toEqual([]);
+  });
+
+  it('has no production caller, startup, UI, worker, service-worker, or network reachability', () => {
+    const root = join(process.cwd(), 'src');
+    const allowed = new Set([
+      join(root, 'lib', 'localDatabase', 'localFirstCutover.ts'),
+      join(root, 'lib', 'localDatabase', 'repository.ts'),
+      join(root, 'lib', 'localDatabase', 'index.ts'),
+    ]);
+    const entrypointPattern = /\.(?:plan|preflight|activate|resume|confirm|cancel)LocalFirstCutover\s*\(/;
+    const reachable = sourceFiles(root).filter(path => !allowed.has(path))
+      .filter(path => entrypointPattern.test(readFileSync(path, 'utf8')));
+    expect(reachable).toEqual([]);
+    const implementation = readFileSync(join(root, 'lib', 'localDatabase', 'localFirstCutover.ts'), 'utf8');
+    expect(implementation).not.toMatch(/fetch\s*\(|supabase|serviceWorker|BroadcastChannel|setInterval|setTimeout/);
+  });
+});

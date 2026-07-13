@@ -20,6 +20,21 @@ import {
   type LegacyNotesMigrationRuntime, type LegacyNotesSourceAdapter,
 } from './legacyNotesMigration';
 import {
+  activateLocalFirstCutover as activateCutover,
+  cancelLocalFirstCutover as cancelCutover,
+  confirmLocalFirstCutover as confirmCutover,
+  createLocalFirstCutoverAuthorization as createCutoverAuthorization,
+  getLocalFirstCutoverSession as readCutoverSession,
+  getLocalFirstRuntimeMode as readCutoverRuntimeMode,
+  planLocalFirstCutover as planCutover,
+  preflightLocalFirstCutover as preflightCutover,
+  resumeLocalFirstCutover as resumeCutover,
+  type ActivateLocalFirstCutoverOptions, type LocalFirstCutoverResult,
+  type LocalFirstCutoverSessionV1, type LocalFirstRuntimeModeRecordV1,
+  type PlanLocalFirstCutoverOptions,
+} from './localFirstCutover';
+import type { RecoveryCutoverAuthorization } from '../recoverySafetyPolicy';
+import {
   cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
   restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
 } from './restore';
@@ -850,6 +865,58 @@ export class LocalDatabaseRepository {
     authorityId: string, at?: string,
   ): Promise<LegacyNotesSourceAuthorityRecordV1> {
     return revokeLegacySourceAuthority(this.legacyMigrationRuntime(), authorityId, at);
+  }
+
+  createLocalFirstCutoverAuthorization(
+    cutoverSessionId: string, migrationSessionId: string, purpose: 'test' | 'developer',
+  ): RecoveryCutoverAuthorization {
+    return createCutoverAuthorization(this.legacyMigrationRuntime(), cutoverSessionId, migrationSessionId, purpose);
+  }
+
+  planLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, options: PlanLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return planCutover(this.legacyMigrationRuntime(), adapter, options);
+  }
+
+  preflightLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string,
+    authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return preflightCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, authorization, at);
+  }
+
+  activateLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string, options: ActivateLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverResult> {
+    return activateCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, options);
+  }
+
+  resumeLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string, options: ActivateLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverResult> {
+    return resumeCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, options);
+  }
+
+  confirmLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string,
+    authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverResult> {
+    return confirmCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, authorization, at);
+  }
+
+  cancelLocalFirstCutover(
+    cutoverSessionId: string, authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return cancelCutover(this.legacyMigrationRuntime(), cutoverSessionId, authorization, at);
+  }
+
+  getLocalFirstCutoverSession(cutoverSessionId: string): Promise<LocalFirstCutoverSessionV1 | null> {
+    return readCutoverSession(this.legacyMigrationRuntime(), cutoverSessionId);
+  }
+
+  getLocalFirstRuntimeMode(): Promise<LocalFirstRuntimeModeRecordV1 | null> {
+    return readCutoverRuntimeMode(this.legacyMigrationRuntime());
   }
 
   putMigrationState(value: MigrationStateRecord): Promise<void> {

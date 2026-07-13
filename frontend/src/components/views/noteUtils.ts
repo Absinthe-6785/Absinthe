@@ -24,6 +24,7 @@ import {
   sanitizeStringRecordForSync,
   stripRawBlobData,
 } from '../../lib/blobPayloadBoundary';
+import { mayWriteLegacyNotes } from '../../lib/recoverySafetyPolicy';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
@@ -218,6 +219,7 @@ export { defaultSeedNotes };
 
 /** noteview + planner legacy → notes-v2 일회 마이그레이션 */
 export function migrateLegacyStorageIfNeeded(): void {
+  if (!mayWriteLegacyNotes()) return;
   if (localStorage.getItem(MIGRATION_FLAG)) return;
   if (localStorage.getItem(NOTES_KEY)) {
     localStorage.setItem(MIGRATION_FLAG, '1');
@@ -309,6 +311,10 @@ export const LOCAL_FOLDERS_SAVE_ERROR =
   'Local folder save failed — storage may be full. Free browser storage.';
 
 export function saveNotes(notes: NoteBase[]): boolean {
+  if (!mayWriteLegacyNotes()) {
+    lastStorageBridgeSaveResult = 'rejected';
+    return false;
+  }
   if (externalSyncSave) {
     lastStorageBridgeSaveResult = externalSyncSave(notes);
     return lastStorageBridgeSaveResult === 'persisted';
@@ -324,6 +330,7 @@ export function saveNotes(notes: NoteBase[]): boolean {
 }
 
 export function saveFolders(folders: NoteFolderBase[]): boolean {
+  if (!mayWriteLegacyNotes()) return false;
   try {
     localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
     return true;
@@ -333,11 +340,13 @@ export function saveFolders(folders: NoteFolderBase[]): boolean {
 }
 
 export function saveActiveNoteId(id: string | null): void {
+  if (!mayWriteLegacyNotes()) return;
   try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
 }
 
 /** Settings Reset 등 — notes localStorage 전부 제거 */
 export function clearNotesStorage(): void {
+  if (!mayWriteLegacyNotes()) return;
   try {
     localStorage.removeItem(NOTES_KEY);
     localStorage.removeItem(FOLDERS_KEY);
@@ -356,6 +365,7 @@ export async function clearNotesStorageAsync(): Promise<void> {
 /** Settings reset — explicit welcome note creation (marks onboarding complete). */
 export function createDefaultWelcomeNotes(): NoteBase[] {
   const notes = defaultSeedNotes();
+  if (!mayWriteLegacyNotes()) return notes;
   markNotesOnboardingComplete();
   saveNotes(notes);
   saveActiveNoteId(notes[0]?.id ?? null);

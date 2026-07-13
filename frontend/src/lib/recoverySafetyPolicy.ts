@@ -10,7 +10,9 @@ export type RecoveryOperation =
   | 'reset'
   | 'cross_tab_mutation'
   | 'replace_persisted_notes'
-  | 'delete_legacy_storage';
+  | 'delete_legacy_storage'
+  | 'k326_cutover_activation'
+  | 'post_cutover_legacy_write';
 
 export interface RecoveryBlockDiagnostic {
   operation: RecoveryOperation;
@@ -23,6 +25,145 @@ export interface RecoveryBlockDiagnostic {
 let safetyEpoch = 1;
 let recoveryModeActive = true;
 const logged = new Set<string>();
+
+export const K326_LEGACY_WRITE_FENCE_KEY = 'absinthe:k326:legacy-write-fence';
+const CUTOVER_CAPABILITY = Symbol('k326-cutover-recovery-authorization');
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const HASH = /^[a-f0-9]{64}$/;
+
+export interface RecoveryCutoverAuthorization {
+  readonly marker: symbol;
+  readonly namespaceKey: string;
+  readonly cutoverSessionId: string;
+  readonly targetGenerationId: string;
+  readonly purpose: 'test' | 'developer';
+}
+
+export interface LegacyNotesCutoverFence {
+  version: 1;
+  namespaceKey: string;
+  cutoverSessionId: string;
+  targetGenerationId: string;
+  phase: 'activating' | 'activated' | 'confirmed';
+}
+
+function validFence(value: unknown): value is LegacyNotesCutoverFence {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).sort().join(',') === 'cutoverSessionId,namespaceKey,phase,targetGenerationId,version'
+    && record.version === 1 && typeof record.namespaceKey === 'string' && HASH.test(record.namespaceKey)
+    && typeof record.cutoverSessionId === 'string' && SAFE_ID.test(record.cutoverSessionId)
+    && typeof record.targetGenerationId === 'string' && SAFE_ID.test(record.targetGenerationId)
+    && ['activating', 'activated', 'confirmed'].includes(record.phase as string);
+}
+
+function readFenceRaw(): LegacyNotesCutoverFence | 'corrupt' | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(K326_LEGACY_WRITE_FENCE_KEY);
+    if (raw === null) return null;
+    const value: unknown = JSON.parse(raw);
+    return validFence(value) ? value : 'corrupt';
+  } catch {
+    return 'corrupt';
+  }
+}
+
+export function createRecoveryCutoverAuthorization(input: {
+  namespaceKey: string;
+  cutoverSessionId: string;
+  targetGenerationId: string;
+  purpose: 'test' | 'developer';
+}): RecoveryCutoverAuthorization {
+  if (!HASH.test(input.namespaceKey) || !SAFE_ID.test(input.cutoverSessionId) || !SAFE_ID.test(input.targetGenerationId)) {
+    throw new RecoveryModeBlockedError('k326_cutover_activation');
+  }
+  return Object.freeze({ marker: CUTOVER_CAPABILITY, ...input });
+}
+
+function assertCutoverAuthorization(
+  authorization: RecoveryCutoverAuthorization,
+  expected: Pick<LegacyNotesCutoverFence, 'namespaceKey' | 'cutoverSessionId' | 'targetGenerationId'>,
+): void {
+  if (authorization?.marker !== CUTOVER_CAPABILITY
+    || authorization.namespaceKey !== expected.namespaceKey
+    || authorization.cutoverSessionId !== expected.cutoverSessionId
+    || authorization.targetGenerationId !== expected.targetGenerationId) {
+    throw new RecoveryModeBlockedError('k326_cutover_activation');
+  }
+}
+
+export function validateRecoveryCutoverAuthorization(
+  authorization: RecoveryCutoverAuthorization,
+  expected: Pick<LegacyNotesCutoverFence, 'namespaceKey' | 'cutoverSessionId' | 'targetGenerationId'>,
+): void {
+  assertCutoverAuthorization(authorization, expected);
+}
+
+export function beginLegacyNotesCutoverFence(
+  authorization: RecoveryCutoverAuthorization,
+): LegacyNotesCutoverFence {
+  const next: LegacyNotesCutoverFence = {
+    version: 1,
+    namespaceKey: authorization.namespaceKey,
+    cutoverSessionId: authorization.cutoverSessionId,
+    targetGenerationId: authorization.targetGenerationId,
+    phase: 'activating',
+  };
+  assertCutoverAuthorization(authorization, next);
+  const existing = readFenceRaw();
+  if (existing === 'corrupt' || existing !== null && (
+    existing.namespaceKey !== next.namespaceKey
+    || existing.cutoverSessionId !== next.cutoverSessionId
+    || existing.targetGenerationId !== next.targetGenerationId
+  )) throw new RecoveryModeBlockedError('k326_cutover_activation');
+  activateRecoveryMode();
+  try { localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, JSON.stringify(existing ?? next)); }
+  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
+  return existing ?? next;
+}
+
+export function advanceLegacyNotesCutoverFence(
+  authorization: RecoveryCutoverAuthorization,
+  phase: 'activated' | 'confirmed',
+): LegacyNotesCutoverFence {
+  const existing = readFenceRaw();
+  if (existing === null || existing === 'corrupt') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  assertCutoverAuthorization(authorization, existing);
+  if (phase === 'activated' && !['activating', 'activated'].includes(existing.phase)
+    || phase === 'confirmed' && !['activating', 'activated', 'confirmed'].includes(existing.phase)) {
+    throw new RecoveryModeBlockedError('k326_cutover_activation');
+  }
+  const next = { ...existing, phase } as LegacyNotesCutoverFence;
+  try { localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, JSON.stringify(next)); }
+  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
+  return next;
+}
+
+export function cancelLegacyNotesCutoverFence(authorization: RecoveryCutoverAuthorization): void {
+  const existing = readFenceRaw();
+  if (existing === null) return;
+  if (existing === 'corrupt') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  assertCutoverAuthorization(authorization, existing);
+  if (existing.phase !== 'activating') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  try { localStorage.removeItem(K326_LEGACY_WRITE_FENCE_KEY); }
+  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
+  activateRecoveryMode();
+}
+
+export function readLegacyNotesCutoverFence(): LegacyNotesCutoverFence | 'corrupt' | null {
+  return readFenceRaw();
+}
+
+export function isLegacyNotesWriteBlockedByCutover(): boolean {
+  return readFenceRaw() !== null;
+}
+
+export function mayWriteLegacyNotes(): boolean {
+  if (!isLegacyNotesWriteBlockedByCutover()) return true;
+  recordRecoveryBlock('post_cutover_legacy_write');
+  return false;
+}
 
 // Incident builds are intentionally fail-closed. Disabling this requires a code change.
 export function isRecoveryModeActive(): boolean {
@@ -82,7 +223,7 @@ export type PersistedNotesReplacementResult =
   | { ok: true }
   | { ok: false; reason: PersistedNotesReplacementFailure };
 
-const mayUseLegacyMutationPath = () => !recoveryModeActive;
+const mayUseLegacyMutationPath = () => !recoveryModeActive && !isLegacyNotesWriteBlockedByCutover();
 export const mayHydrateRemote = mayUseLegacyMutationPath;
 export const mayUploadRemote = mayUseLegacyMutationPath;
 export const mayRestore = mayUseLegacyMutationPath;
@@ -140,6 +281,13 @@ export function assertCurrentOperationEpoch(epoch: number, operation: RecoveryOp
 }
 
 export function resetRecoverySafetyDiagnosticsForTest(): void {
+  logged.clear();
+}
+
+export function clearLegacyNotesCutoverFenceForTest(): void {
+  if (import.meta.env.MODE !== 'test') throw new Error('Cutover fence can only be cleared by test code');
+  try { localStorage.removeItem(K326_LEGACY_WRITE_FENCE_KEY); } catch { /**/ }
+  activateRecoveryMode();
   logged.clear();
 }
 

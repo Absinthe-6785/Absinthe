@@ -1,6 +1,8 @@
 /**
  * K-97F — Onboarding marker: welcome notes only on first vault setup, never on empty vault.
  */
+import { mayWriteLegacyNotes } from './recoverySafetyPolicy';
+
 export const NOTES_SEEDED_KEY = 'notes-seeded-v1';
 
 export function isNotesOnboardingComplete(): boolean {
@@ -12,12 +14,14 @@ export function isNotesOnboardingComplete(): boolean {
 }
 
 export function markNotesOnboardingComplete(): void {
+  if (!mayWriteLegacyNotes()) return;
   try {
     localStorage.setItem(NOTES_SEEDED_KEY, '1');
   } catch { /**/ }
 }
 
 export function clearNotesOnboardingMarker(): void {
+  if (!mayWriteLegacyNotes()) return;
   try {
     localStorage.removeItem(NOTES_SEEDED_KEY);
   } catch { /**/ }
