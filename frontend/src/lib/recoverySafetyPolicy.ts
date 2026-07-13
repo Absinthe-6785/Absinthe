@@ -41,6 +41,7 @@ export interface RecoveryCutoverAuthorization {
 
 export interface LegacyNotesCutoverFence {
   version: 1;
+  createdEpoch: number;
   namespaceKey: string;
   cutoverSessionId: string;
   targetGenerationId: string;
@@ -50,8 +51,9 @@ export interface LegacyNotesCutoverFence {
 function validFence(value: unknown): value is LegacyNotesCutoverFence {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return Object.keys(record).sort().join(',') === 'cutoverSessionId,namespaceKey,phase,targetGenerationId,version'
-    && record.version === 1 && typeof record.namespaceKey === 'string' && HASH.test(record.namespaceKey)
+  return Object.keys(record).sort().join(',') === 'createdEpoch,cutoverSessionId,namespaceKey,phase,targetGenerationId,version'
+    && record.version === 1 && Number.isSafeInteger(record.createdEpoch) && (record.createdEpoch as number) > 0
+    && typeof record.namespaceKey === 'string' && HASH.test(record.namespaceKey)
     && typeof record.cutoverSessionId === 'string' && SAFE_ID.test(record.cutoverSessionId)
     && typeof record.targetGenerationId === 'string' && SAFE_ID.test(record.targetGenerationId)
     && ['activating', 'activated', 'confirmed'].includes(record.phase as string);
@@ -103,8 +105,10 @@ export function validateRecoveryCutoverAuthorization(
 export function beginLegacyNotesCutoverFence(
   authorization: RecoveryCutoverAuthorization,
 ): LegacyNotesCutoverFence {
+  const createdEpoch = activateRecoveryMode();
   const next: LegacyNotesCutoverFence = {
     version: 1,
+    createdEpoch,
     namespaceKey: authorization.namespaceKey,
     cutoverSessionId: authorization.cutoverSessionId,
     targetGenerationId: authorization.targetGenerationId,
@@ -117,7 +121,6 @@ export function beginLegacyNotesCutoverFence(
     || existing.cutoverSessionId !== next.cutoverSessionId
     || existing.targetGenerationId !== next.targetGenerationId
   )) throw new RecoveryModeBlockedError('k326_cutover_activation');
-  activateRecoveryMode();
   try { localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, JSON.stringify(existing ?? next)); }
   catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
   return existing ?? next;

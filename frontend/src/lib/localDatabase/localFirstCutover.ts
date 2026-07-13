@@ -3,6 +3,7 @@ import {
   beginLegacyNotesCutoverFence,
   cancelLegacyNotesCutoverFence,
   createRecoveryCutoverAuthorization,
+  readLegacyNotesCutoverFence,
   validateRecoveryCutoverAuthorization,
   type RecoveryCutoverAuthorization,
 } from '../recoverySafetyPolicy';
@@ -17,20 +18,32 @@ import {
   type VerifiedLegacyNotesCutoverEvidence,
 } from './legacyNotesMigration';
 import { sha256Hex } from './outboxIdentity';
+import { transitionActiveGenerationInTransaction } from './activeGenerationTransition';
+import {
+  buildLocalFirstRuntimeModeRecord,
+  localFirstRuntimeModeKey,
+  publicLocalFirstRuntimeMode,
+  validatePersistedLocalFirstRuntimeMode,
+  type LocalFirstRuntimeMode,
+  type LocalFirstRuntimeModeRecordV1,
+  type PersistedLocalFirstRuntimeModeRecordV1,
+} from './runtimeMode';
 import { LOCAL_DATABASE_STORES } from './schema';
 import type { DatabaseMetaRecord, GenerationRecord, RestoreSessionRecord } from './types';
 import { validTimestamp, validateDatabaseMeta, validateGenerationRecord, validateRestoreSession } from './validation';
 
 const CUTOVER_STORAGE_PREFIX = 'k326:cutover:';
-const RUNTIME_MODE_STORAGE_ID = 'k326:runtime-mode';
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
-const ACTIVE_CUTOVER_STATUSES = new Set<LocalFirstCutoverStatus>(['planned', 'preflight', 'activating', 'activated']);
+const ACTIVE_CUTOVER_STATUSES = new Set<LocalFirstCutoverStatus>([
+  'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_releasing', 'activated',
+]);
 const ACTIVE_RESTORE_STATUSES = new Set(['created', 'validating', 'staged', 'committing']);
 
 export type LocalFirstCutoverStatus =
-  | 'planned' | 'preflight' | 'activating' | 'activated' | 'confirmed' | 'failed' | 'cancelled';
-export type LocalFirstRuntimeMode = 'legacy' | 'local_first';
+  | 'planned' | 'preflight' | 'activating' | 'failed_precommit_fenced' | 'failed_precommit_releasing'
+  | 'activated' | 'confirmed' | 'failed' | 'cancelled';
+export type { LocalFirstRuntimeMode, LocalFirstRuntimeModeRecordV1 } from './runtimeMode';
 export type LocalFirstCutoverFailureCode =
   | 'MIGRATION_SOURCE_CHANGED'
   | 'LEGACY_SOURCE_AUTHORITY_REQUIRED'
@@ -86,23 +99,6 @@ interface PersistedLocalFirstCutoverSessionV1 extends LocalFirstCutoverSessionV1
   migrationId: string;
 }
 
-export interface LocalFirstRuntimeModeRecordV1 {
-  kind: 'local_first_runtime_mode_v1';
-  version: 1;
-  namespaceKey: string;
-  mode: LocalFirstRuntimeMode;
-  activeGenerationId: string;
-  cutoverSessionId: string | null;
-  targetGenerationId: string | null;
-  updatedAt: string;
-  activatedAt: string | null;
-  recordDigest: string;
-}
-
-interface PersistedLocalFirstRuntimeModeRecordV1 extends LocalFirstRuntimeModeRecordV1 {
-  migrationId: typeof RUNTIME_MODE_STORAGE_ID;
-}
-
 export type CutoverFailurePoint =
   | 'before_activation_transaction'
   | 'pointer_write'
@@ -110,6 +106,7 @@ export type CutoverFailurePoint =
   | 'session_transition'
   | 'transaction_completion'
   | 'after_activation_commit';
+export type FailedPrecommitFenceRecoveryFailurePoint = 'after_fence_release';
 
 export interface PlanLocalFirstCutoverOptions {
   cutoverSessionId: string;
@@ -199,7 +196,7 @@ function cutoverKey(namespaceKey: string, cutoverSessionId: string): [string, st
 }
 
 function modeKey(namespaceKey: string): [string, string] {
-  return [namespaceKey, RUNTIME_MODE_STORAGE_ID];
+  return localFirstRuntimeModeKey(namespaceKey);
 }
 
 const POST_ACTIVATION_CHECKS = Object.freeze([
@@ -297,12 +294,14 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
       && Date.parse(record.updatedAt) >= Date.parse(record.confirmedAt));
   const attemptValid = ['planned', 'preflight'].includes(record.status)
     ? record.attempt === 0
-    : ['activating', 'activated', 'confirmed'].includes(record.status)
+    : ['activating', 'failed_precommit_fenced', 'failed_precommit_releasing', 'activated', 'confirmed'].includes(record.status)
       ? record.attempt > 0
       : true;
   const lifecycleValid = ['planned', 'preflight', 'activating'].includes(record.status)
     ? record.activatedAt === null && record.confirmedAt === null && record.failure === null
-    : record.status === 'activated'
+    : ['failed_precommit_fenced', 'failed_precommit_releasing'].includes(record.status)
+      ? record.activatedAt === null && record.confirmedAt === null && record.failure !== null
+      : record.status === 'activated'
       ? record.activatedAt !== null && record.confirmedAt === null && record.failure === null
       : record.status === 'confirmed'
         ? record.activatedAt !== null && record.confirmedAt !== null && record.failure === null
@@ -313,7 +312,10 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
     || record.namespaceKey !== runtime.namespaceKey || !SAFE_ID.test(record.cutoverSessionId)
     || record.cutoverSessionId.length > 96 || record.cutoverSessionId.startsWith('k326:')
     || record.migrationId !== cutoverStorageId(record.cutoverSessionId)
-    || plan.migrationSessionId.length === 0 || !['planned', 'preflight', 'activating', 'activated', 'confirmed', 'failed', 'cancelled'].includes(record.status)
+    || plan.migrationSessionId.length === 0 || ![
+      'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_releasing',
+      'activated', 'confirmed', 'failed', 'cancelled',
+    ].includes(record.status)
     || !Number.isSafeInteger(record.attempt) || record.attempt < 0 || !attemptValid
     || !failureValid || !chronologyValid || !lifecycleValid) {
     fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_session');
@@ -326,40 +328,16 @@ function toPersistedSession(value: LocalFirstCutoverSessionV1): PersistedLocalFi
   return { ...value, migrationId: cutoverStorageId(value.cutoverSessionId) };
 }
 
-function modeCore(value: Omit<PersistedLocalFirstRuntimeModeRecordV1, 'recordDigest'>): unknown[] {
-  return ['absinthe-local-first-runtime-mode-v1', value];
-}
-
 function buildModeRecord(input: Omit<PersistedLocalFirstRuntimeModeRecordV1, 'kind' | 'version' | 'migrationId' | 'recordDigest'>): PersistedLocalFirstRuntimeModeRecordV1 {
-  const core: Omit<PersistedLocalFirstRuntimeModeRecordV1, 'recordDigest'> = {
-    kind: 'local_first_runtime_mode_v1', version: 1, migrationId: RUNTIME_MODE_STORAGE_ID, ...input,
-  };
-  return { ...core, recordDigest: sha256Hex(canonical(modeCore(core))) };
+  return buildLocalFirstRuntimeModeRecord(input);
 }
 
 function persistedMode(value: unknown, runtime: LocalFirstCutoverRuntime): PersistedLocalFirstRuntimeModeRecordV1 {
-  const keys = ['kind', 'version', 'namespaceKey', 'migrationId', 'mode', 'activeGenerationId', 'cutoverSessionId',
-    'targetGenerationId', 'updatedAt', 'activatedAt', 'recordDigest'];
-  if (!exactKeys(value, keys)) fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_runtime_mode');
-  const record = value as unknown as PersistedLocalFirstRuntimeModeRecordV1;
-  const { recordDigest, ...core } = record;
-  const bindingValid = record.mode === 'legacy'
-    ? record.cutoverSessionId === null && record.targetGenerationId === null && record.activatedAt === null
-    : record.mode === 'local_first' && SAFE_ID.test(record.cutoverSessionId ?? '')
-      && record.targetGenerationId === record.activeGenerationId && validTimestamp(record.activatedAt);
-  if (record.kind !== 'local_first_runtime_mode_v1' || record.version !== 1
-    || record.namespaceKey !== runtime.namespaceKey || record.migrationId !== RUNTIME_MODE_STORAGE_ID
-    || !['legacy', 'local_first'].includes(record.mode) || !SAFE_ID.test(record.activeGenerationId)
-    || !validTimestamp(record.updatedAt) || !HASH.test(record.recordDigest) || !bindingValid
-    || recordDigest !== sha256Hex(canonical(modeCore(core)))) {
-    fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_runtime_mode');
-  }
-  return record;
+  return validatePersistedLocalFirstRuntimeMode(value, runtime.namespaceKey);
 }
 
 function publicMode(value: PersistedLocalFirstRuntimeModeRecordV1): LocalFirstRuntimeModeRecordV1 {
-  const { migrationId: _storageId, ...record } = value;
-  return record;
+  return publicLocalFirstRuntimeMode(value);
 }
 
 function assertAuthorization(
@@ -463,7 +441,8 @@ export async function planLocalFirstCutover(
       fail('CUTOVER_SESSION_CONFLICT', 'cutover_plan_mismatch');
     }
     assertAuthorization(runtime, options.cutoverSessionId, previouslyPersisted.plan.targetGenerationId, options.authorization);
-    if (['activated', 'confirmed', 'failed', 'cancelled'].includes(previouslyPersisted.status)) return previouslyPersisted;
+    if (['activated', 'confirmed', 'failed_precommit_fenced', 'failed_precommit_releasing', 'failed', 'cancelled']
+      .includes(previouslyPersisted.status)) return previouslyPersisted;
   }
   await validateLegacyNotesSourceUnchangedForCutover(runtime, adapter, options.migrationSessionId);
   const evidence = await readVerifiedLegacyNotesCutoverEvidence(runtime, options.migrationSessionId, 'inactive');
@@ -530,6 +509,9 @@ export async function preflightLocalFirstCutover(
   const before = await readSession(runtime, cutoverSessionId);
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'preflight_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
+  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(before.status)) {
+    fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'preflight_cutover_status');
+  }
   if (['failed', 'cancelled'].includes(before.status)) fail(before.status === 'cancelled' ? 'CUTOVER_CANCELLED' : 'CUTOVER_SESSION_CONFLICT');
   if (['activated', 'confirmed'].includes(before.status)) return before;
   await verifyLegacyNotesMigration(runtime, adapter, before.plan.migrationSessionId, at);
@@ -592,6 +574,7 @@ async function markFailedIfSafe(
   cutoverSessionId: string,
   code: LocalFirstCutoverFailureCode,
   at: string,
+  fencePresent = false,
 ): Promise<void> {
   const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
   const done = transactionCompletion(tx, 'fail_local_first_cutover');
@@ -602,10 +585,158 @@ async function markFailedIfSafe(
     const current = persistedSession(raw, runtime);
     if (!['planned', 'preflight', 'activating'].includes(current.status)) { await done; return; }
     const next: LocalFirstCutoverSessionV1 = {
-      ...current, status: 'failed', updatedAt: at, failure: { code, context: 'activation_preflight' },
+      ...current,
+      status: fencePresent ? 'failed_precommit_fenced' : 'failed',
+      updatedAt: at,
+      failure: { code, context: fencePresent ? 'precommit_fence_cleanup' : 'activation_preflight' },
     };
     persistedSession(toPersistedSession(next), runtime); store.put(toPersistedSession(next)); await done;
   } catch { abortQuietly(tx); await done.catch(() => undefined); }
+}
+
+function outboxRange(namespaceKey: string, generationId: string): IDBKeyRange {
+  return IDBKeyRange.bound([namespaceKey, generationId, ''], [namespaceKey, generationId, '\uffff']);
+}
+
+function checkpointRange(namespaceKey: string, generationId: string): IDBKeyRange {
+  return IDBKeyRange.bound([namespaceKey, generationId, '', ''], [namespaceKey, generationId, '\uffff', '\uffff']);
+}
+
+async function validateFailedPrecommitRecoveryGraph(
+  runtime: LocalFirstCutoverRuntime,
+  cutoverSessionId: string,
+  transaction: IDBTransaction,
+): Promise<LocalFirstCutoverSessionV1> {
+  const migrationStore = transaction.objectStore(LOCAL_DATABASE_STORES.migrationState);
+  const raw = await requestResult(migrationStore.get(cutoverKey(runtime.namespaceKey, cutoverSessionId)));
+  const modeRaw = await requestResult(migrationStore.get(modeKey(runtime.namespaceKey)));
+  const meta = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta)
+    .get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
+  if (raw === undefined || modeRaw === undefined || !meta) {
+    fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_graph');
+  }
+  const session = persistedSession(raw, runtime);
+  const mode = persistedMode(modeRaw, runtime);
+  try { validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion); }
+  catch { fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_graph'); }
+  if (!['failed_precommit_fenced', 'failed_precommit_releasing'].includes(session.status)
+    || mode.mode !== 'legacy'
+    || mode.activeGenerationId !== session.plan.expectedPredecessorGenerationId
+    || meta.activeGenerationId !== session.plan.expectedPredecessorGenerationId) {
+    fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'recover_precommit_fence_graph');
+  }
+  const target = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.generations).get([
+    runtime.namespaceKey, session.plan.targetGenerationId,
+  ])) as GenerationRecord | undefined;
+  if (!target) fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_target');
+  try { validateGenerationRecord(target, runtime.namespaceKey, runtime.namespace.schemaVersion); }
+  catch { fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_target'); }
+  if (target.status !== 'preparing' || target.activeNamespaceKey !== undefined) {
+    fail('CUTOVER_ALREADY_ACTIVATED', 'recover_precommit_fence_target');
+  }
+  const targetOutbox = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
+    .getAll(outboxRange(runtime.namespaceKey, session.plan.targetGenerationId))) as unknown[];
+  const targetCheckpoints = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.syncCheckpoints)
+    .getAll(checkpointRange(runtime.namespaceKey, session.plan.targetGenerationId))) as unknown[];
+  if (targetOutbox.length !== 0 || targetCheckpoints.length !== 0) {
+    fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'recover_precommit_fence_queue_state');
+  }
+  assertNoActiveRestore(
+    await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.restoreSessions).getAll()) as unknown[],
+    runtime.namespaceKey,
+  );
+  assertNoCompetingCutover(
+    await requestResult(migrationStore.getAll()) as unknown[], runtime, cutoverSessionId,
+  );
+  return session;
+}
+
+export async function recoverFailedPrecommitCutoverFence(
+  runtime: LocalFirstCutoverRuntime,
+  cutoverSessionId: string,
+  authorization: RecoveryCutoverAuthorization,
+  atValue?: string,
+  testOnlyFailAt?: FailedPrecommitFenceRecoveryFailurePoint,
+): Promise<LocalFirstCutoverSessionV1> {
+  runtime.assertOpen('recover_failed_precommit_cutover_fence');
+  const at = timestamp(atValue ?? runtime.clock());
+  const before = await readSession(runtime, cutoverSessionId);
+  if (!before) fail('CUTOVER_SESSION_CONFLICT', 'recover_precommit_fence_session');
+  assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
+  if (before.status === 'failed') return before;
+  if (!['failed_precommit_fenced', 'failed_precommit_releasing'].includes(before.status)) {
+    fail(['activated', 'confirmed'].includes(before.status) ? 'CUTOVER_ALREADY_ACTIVATED'
+      : 'CUTOVER_FENCE_RECOVERY_REQUIRED', 'recover_precommit_fence_status');
+  }
+
+  const stores = [
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.outbox,
+    LOCAL_DATABASE_STORES.syncCheckpoints, LOCAL_DATABASE_STORES.migrationState, LOCAL_DATABASE_STORES.restoreSessions,
+  ];
+  const validationTx = runtime.db.transaction(stores, 'readonly');
+  const validationDone = transactionCompletion(validationTx, 'recover_precommit_fence_validate');
+  try {
+    await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, validationTx);
+    await validationDone;
+  } catch (error) {
+    abortQuietly(validationTx); await validationDone.catch(() => undefined);
+    throw localDatabaseError(error, 'recover_precommit_fence_validate');
+  }
+
+  const fence = readLegacyNotesCutoverFence();
+  if (fence === 'corrupt') fail('CUTOVER_FENCE_IDENTITY_MISMATCH', 'recover_precommit_fence_identity');
+  if (before.status === 'failed_precommit_fenced' && fence === null) {
+    fail('CUTOVER_FENCE_IDENTITY_MISMATCH', 'recover_precommit_fence_identity');
+  }
+  if (fence !== null && (fence.phase !== 'activating' || fence.namespaceKey !== runtime.namespaceKey
+    || fence.cutoverSessionId !== cutoverSessionId || fence.targetGenerationId !== before.plan.targetGenerationId)) {
+    fail('CUTOVER_FENCE_IDENTITY_MISMATCH', 'recover_precommit_fence_identity');
+  }
+  if (before.status === 'failed_precommit_fenced') {
+    const releaseTx = runtime.db.transaction(stores, 'readwrite');
+    const releaseDone = transactionCompletion(releaseTx, 'recover_precommit_fence_releasing');
+    try {
+      const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, releaseTx);
+      const releasing: LocalFirstCutoverSessionV1 = {
+        ...current, status: 'failed_precommit_releasing', updatedAt: at,
+      };
+      persistedSession(toPersistedSession(releasing), runtime);
+      releaseTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(releasing));
+      await releaseDone;
+    } catch (error) {
+      abortQuietly(releaseTx); await releaseDone.catch(() => undefined);
+      throw localDatabaseError(error, 'recover_precommit_fence_releasing');
+    }
+  }
+  if (fence !== null) {
+    try { cancelLegacyNotesCutoverFence(authorization); }
+    catch { fail('CUTOVER_FENCE_CLEANUP_FAILED', 'recover_precommit_fence_cleanup'); }
+  }
+  if (testOnlyFailAt === 'after_fence_release') {
+    fail('TRANSACTION_FAILED', 'recover_precommit_fence_after_release');
+  }
+
+  const terminalTx = runtime.db.transaction(stores, 'readwrite');
+  const terminalDone = transactionCompletion(terminalTx, 'recover_precommit_fence_terminal');
+  try {
+    const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, terminalTx);
+    if (readLegacyNotesCutoverFence() !== null) {
+      fail('CUTOVER_FENCE_CLEANUP_FAILED', 'recover_precommit_fence_terminal');
+    }
+    const failed: LocalFirstCutoverSessionV1 = {
+      ...current, status: 'failed', updatedAt: at,
+      failure: { code: current.failure?.code ?? 'CUTOVER_PRECONDITION_FAILED', context: 'precommit_fence_released' },
+    };
+    persistedSession(toPersistedSession(failed), runtime);
+    terminalTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(failed));
+    await terminalDone;
+    return failed;
+  } catch (error) {
+    abortQuietly(terminalTx); await terminalDone.catch(() => undefined);
+    const latest = await readSession(runtime, cutoverSessionId);
+    if (latest?.status === 'failed' && readLegacyNotesCutoverFence() === null) return latest;
+    throw localDatabaseError(error, 'recover_precommit_fence_terminal');
+  }
 }
 
 function cutoverResult(session: LocalFirstCutoverSessionV1): LocalFirstCutoverResult {
@@ -718,8 +849,10 @@ export async function activateLocalFirstCutover(
     const code = error instanceof LocalDatabaseError ? error.code : 'CUTOVER_PRECONDITION_FAILED';
     if (['MIGRATION_SOURCE_CHANGED', 'LEGACY_SOURCE_AUTHORITY_REQUIRED', 'LEGACY_SOURCE_AUTHORITY_REVOKED',
       'LEGACY_SOURCE_IDENTITY_MISMATCH'].includes(code)) {
-      await markFailedIfSafe(runtime, cutoverSessionId, code as LocalFirstCutoverFailureCode, at);
-      try { cancelLegacyNotesCutoverFence(options.authorization); } catch { /** remain fail-closed */ }
+      await markFailedIfSafe(runtime, cutoverSessionId, code as LocalFirstCutoverFailureCode, at, true);
+      try {
+        await recoverFailedPrecommitCutoverFence(runtime, cutoverSessionId, options.authorization, at);
+      } catch { /** durable failed-precommit phase remains retryable and fail-closed */ }
     }
     throw error;
   }
@@ -736,14 +869,10 @@ export async function activateLocalFirstCutover(
   const done = transactionCompletion(tx, 'activate_local_first_cutover');
   let activated: LocalFirstCutoverSessionV1;
   try {
-    const metaStore = tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
-    const generationStore = tx.objectStore(LOCAL_DATABASE_STORES.generations);
     const migrationStore = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
     const raw = await requestResult(migrationStore.get(cutoverKey(runtime.namespaceKey, cutoverSessionId)));
-    const modeRaw = await requestResult(migrationStore.get(modeKey(runtime.namespaceKey)));
-    const meta = await requestResult(metaStore.get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
-    if (raw === undefined || modeRaw === undefined || !meta) fail('CORRUPT_PERSISTED_RECORD', 'activate_cutover_graph');
-    const current = persistedSession(raw, runtime); const mode = persistedMode(modeRaw, runtime);
+    if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'activate_cutover_graph');
+    const current = persistedSession(raw, runtime);
     if (current.status !== 'activating' || canonical(current.plan) !== canonical(session.plan)) {
       fail('CUTOVER_SESSION_CONFLICT', 'activate_cutover_session');
     }
@@ -754,39 +883,32 @@ export async function activateLocalFirstCutover(
     assertNoActiveRestore(await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.restoreSessions).getAll()) as unknown[], runtime.namespaceKey);
     const allMigrationValues = await requestResult(migrationStore.getAll()) as unknown[];
     assertNoCompetingCutover(allMigrationValues, runtime, cutoverSessionId);
-    if (mode.mode !== 'legacy' || mode.activeGenerationId !== current.plan.expectedPredecessorGenerationId
-      || meta.activeGenerationId !== current.plan.expectedPredecessorGenerationId) {
-      fail('CUTOVER_PRECONDITION_FAILED', 'activate_cutover_mode_or_predecessor');
-    }
-    const predecessor = await requestResult(generationStore.get([
-      runtime.namespaceKey, current.plan.expectedPredecessorGenerationId,
-    ])) as GenerationRecord | undefined;
-    const target = await requestResult(generationStore.get([
-      runtime.namespaceKey, current.plan.targetGenerationId,
-    ])) as GenerationRecord | undefined;
-    try {
-      if (!predecessor || !target) throw new Error('missing');
-      validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
-      validateGenerationRecord(predecessor, runtime.namespaceKey, runtime.namespace.schemaVersion);
-      validateGenerationRecord(target, runtime.namespaceKey, runtime.namespace.schemaVersion);
-    } catch { fail('CORRUPT_PERSISTED_RECORD', 'activate_cutover_generation'); }
-    if (!predecessor || predecessor.status !== 'active' || !target || target.status !== 'preparing'
-      || target.predecessorGenerationId !== null || target.creationReason !== 'migration'
-      || target.safeSourceReference?.kind !== 'legacy_migration'
-      || target.safeSourceReference.reference !== current.plan.migrationSessionId) {
-      fail('CUTOVER_PRECONDITION_FAILED', 'activate_cutover_generation');
-    }
-    generationStore.put({ ...predecessor, status: 'sealed', activeNamespaceKey: undefined });
-    generationStore.put({ ...target, status: 'active', predecessorGenerationId: predecessor.generationId,
-      activatedAt: at, activeNamespaceKey: runtime.namespaceKey });
-    metaStore.put({ ...meta, activeGenerationId: target.generationId });
-    if (options.testOnlyFailAt === 'pointer_write') fail('TRANSACTION_FAILED', 'cutover_pointer_write');
     const localFirstMode = buildModeRecord({
-      namespaceKey: runtime.namespaceKey, mode: 'local_first', activeGenerationId: target.generationId,
-      cutoverSessionId, targetGenerationId: target.generationId, updatedAt: at, activatedAt: at,
+      namespaceKey: runtime.namespaceKey, mode: 'local_first', activeGenerationId: current.plan.targetGenerationId,
+      cutoverSessionId, targetGenerationId: current.plan.targetGenerationId, updatedAt: at, activatedAt: at,
     });
-    migrationStore.put(localFirstMode);
-    if (options.testOnlyFailAt === 'mode_write') fail('TRANSACTION_FAILED', 'cutover_mode_write');
+    await transitionActiveGenerationInTransaction({
+      transaction: tx,
+      runtime,
+      kind: 'cutover',
+      expectedActiveGenerationId: current.plan.expectedPredecessorGenerationId,
+      targetGenerationId: current.plan.targetGenerationId,
+      activatedAt: at,
+      nextCutoverMode: localFirstMode,
+      validateRecords: (_predecessor, target) => {
+        if (target.predecessorGenerationId !== null || target.creationReason !== 'migration'
+          || target.safeSourceReference?.kind !== 'legacy_migration'
+          || target.safeSourceReference.reference !== current.plan.migrationSessionId) {
+          fail('CUTOVER_PRECONDITION_FAILED', 'activate_cutover_generation');
+        }
+      },
+      afterPointerWrite: () => {
+        if (options.testOnlyFailAt === 'pointer_write') fail('TRANSACTION_FAILED', 'cutover_pointer_write');
+      },
+      afterModeWrite: () => {
+        if (options.testOnlyFailAt === 'mode_write') fail('TRANSACTION_FAILED', 'cutover_mode_write');
+      },
+    });
     activated = { ...current, status: 'activated', updatedAt: at, activatedAt: at, confirmedAt: null, failure: null };
     persistedSession(toPersistedSession(activated), runtime); migrationStore.put(toPersistedSession(activated));
     if (options.testOnlyFailAt === 'session_transition') fail('TRANSACTION_FAILED', 'cutover_session_transition');
@@ -817,6 +939,9 @@ export async function resumeLocalFirstCutover(
   const session = await readSession(runtime, cutoverSessionId);
   if (!session) fail('CUTOVER_SESSION_CONFLICT', 'resume_cutover_session');
   if (session.status === 'cancelled') fail('CUTOVER_CANCELLED', 'resume_cutover_status');
+  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(session.status)) {
+    fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'resume_cutover_status');
+  }
   if (session.status === 'failed') fail('CUTOVER_SESSION_CONFLICT', 'resume_cutover_status');
   return activateLocalFirstCutover(runtime, adapter, cutoverSessionId, options);
 }
@@ -833,6 +958,9 @@ export async function cancelLocalFirstCutover(
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'cancel_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
   if (['activated', 'confirmed'].includes(before.status)) fail('CUTOVER_ALREADY_ACTIVATED', 'cancel_cutover_status');
+  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(before.status)) {
+    return recoverFailedPrecommitCutoverFence(runtime, cutoverSessionId, authorization, at);
+  }
   if (before.status === 'failed') fail('CUTOVER_SESSION_CONFLICT', 'cancel_cutover_status');
 
   const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.migrationState], 'readwrite');
@@ -876,15 +1004,32 @@ export async function getLocalFirstRuntimeMode(
   runtime: LocalFirstCutoverRuntime,
 ): Promise<LocalFirstRuntimeModeRecordV1 | null> {
   runtime.assertOpen('get_local_first_runtime_mode');
-  const tx = runtime.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.migrationState], 'readonly');
+  const tx = runtime.db.transaction([
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.migrationState,
+  ], 'readonly');
   const done = transactionCompletion(tx, 'get_local_first_runtime_mode');
   const raw = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.migrationState).get(modeKey(runtime.namespaceKey)));
   const meta = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
+  const active = meta ? await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.generations).get([
+    runtime.namespaceKey, meta.activeGenerationId,
+  ])) as GenerationRecord | undefined : undefined;
   await done;
   if (!meta) fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode');
   try { validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion); }
   catch { fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode'); }
-  if (raw === undefined) return null;
+  try {
+    if (!active) throw new Error('missing');
+    validateGenerationRecord(active, runtime.namespaceKey, runtime.namespace.schemaVersion);
+  } catch { fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode'); }
+  if (active.status !== 'active' || active.activeNamespaceKey !== runtime.namespaceKey) {
+    fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode');
+  }
+  if (raw === undefined) {
+    if (active.creationReason === 'migration' && active.safeSourceReference?.kind === 'legacy_migration') {
+      fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode');
+    }
+    return null;
+  }
   const mode = persistedMode(raw, runtime);
   if (mode.activeGenerationId !== meta.activeGenerationId) fail('CORRUPT_PERSISTED_RECORD', 'get_cutover_runtime_mode');
   return publicMode(mode);

@@ -6,6 +6,7 @@ import {
   deriveOutboxIdempotencyKey, openLocalDatabase, type LocalDatabaseNamespace, type LocalDatabaseRepository,
   type OutboxRecord, type RestoreEntityV1, type RestorePackageV1,
 } from './index';
+import { buildLocalFirstRuntimeModeRecord, localFirstRuntimeModeKey } from './runtimeMode';
 
 const capability = createDormantLocalDatabaseCapability('test');
 const base: LocalDatabaseNamespace = {
@@ -73,6 +74,32 @@ async function putRawEntity(record: Record<string, unknown>): Promise<void> {
   const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readwrite');
   tx.objectStore(LOCAL_DATABASE_STORES.entities).put(record);
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+}
+async function putLocalFirstMode(repository: LocalDatabaseRepository): Promise<void> {
+  const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
+  tx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(buildLocalFirstRuntimeModeRecord({
+    namespaceKey: repository.namespaceKey,
+    mode: 'local_first',
+    activeGenerationId: repository.namespace.generationId,
+    cutoverSessionId: 'cutover-1',
+    targetGenerationId: repository.namespace.generationId,
+    updatedAt: T0,
+    activatedAt: T0,
+  }));
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); tx.onerror = () => undefined;
+  });
+  db.close();
+}
+
+async function rawLocalFirstMode(namespaceKey: string): Promise<Record<string, unknown> | undefined> {
+  const db = await rawDb(); const tx = db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readonly');
+  const request = tx.objectStore(LOCAL_DATABASE_STORES.migrationState).get(localFirstRuntimeModeKey(namespaceKey));
+  const value = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result as Record<string, unknown> | undefined);
+    request.onerror = () => reject(request.error);
+  });
+  db.close(); return value;
 }
 async function mutateRawRecord(
   storeName: string, key: IDBValidKey, transform: (value: Record<string, unknown>) => Record<string, unknown> | null,
@@ -687,6 +714,42 @@ describe('K-324B provenance-bound restore sequence validation', () => {
 });
 
 describe('K-324 explicit resurrection and failure fencing', () => {
+  it('atomically advances the local-first runtime mode with a restore generation and session', async () => {
+    const repository = await repo(); await putLocalFirstMode(repository);
+    const value = await packageFor(repository, [note(A)], 'local-first-restore-package');
+    const result = await repository.restorePackageAtomically(value, {
+      sessionId: 'local-first-restore', now: T1,
+    });
+    expect(await repository.readDatabaseMetadata()).toMatchObject({ activeGenerationId: result.targetGenerationId });
+    expect(await repository.getLocalFirstRuntimeMode()).toMatchObject({
+      mode: 'local_first',
+      activeGenerationId: result.targetGenerationId,
+      cutoverSessionId: 'cutover-1',
+      targetGenerationId: 'generation-1',
+    });
+    expect(await repository.getRestoreSession('local-first-restore')).toMatchObject({ status: 'committed' });
+    expect(await repository.getGeneration('generation-1')).toMatchObject({ status: 'sealed' });
+    expect(await repository.getGeneration(result.targetGenerationId)).toMatchObject({ status: 'active' });
+  });
+
+  it.each(['generation_activation', 'runtime_mode_update', 'session_committed_update'] as const)(
+    'rolls back local-first pointer, mode, generation, and restore session on %s', async testOnlyFailAt => {
+      const repository = await repo(); await putLocalFirstMode(repository);
+      const value = await packageFor(repository, [note(A)], `local-first-${testOnlyFailAt}`);
+      await expect(repository.restorePackageAtomically(value, {
+        sessionId: `local-first-${testOnlyFailAt}`, testOnlyFailAt, now: T1,
+      })).rejects.toHaveProperty('code');
+      expect(await repository.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+      expect(await repository.getLocalFirstRuntimeMode()).toMatchObject({
+        mode: 'local_first', activeGenerationId: 'generation-1',
+      });
+      expect(await rawLocalFirstMode(repository.namespaceKey)).toMatchObject({ activeGenerationId: 'generation-1' });
+      expect(await repository.getGeneration('generation-1')).toMatchObject({ status: 'active' });
+      expect(await repository.getRestoreSession(`local-first-${testOnlyFailAt}`))
+        .not.toMatchObject({ status: 'committed' });
+    },
+  );
+
   it('resurrects only explicitly, increments tombstone revision, persists provenance, and blocks remote delivery', async () => {
     const repository = await repo();
     await repository.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: A, record: note(A, 'old').payload }, now: T0 });

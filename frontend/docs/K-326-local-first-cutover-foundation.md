@@ -33,7 +33,9 @@ The lifecycle is:
 
 `planned -> preflight -> activating -> activated -> confirmed`
 
-`failed` and `cancelled` are terminal. Planning is deterministic and an exact retry returns the same plan.
+Failures after a durable fence but before activation enter `failed_precommit_fenced`. Only an exact,
+graph-validated fence release changes that state to terminal `failed`; failures before the fence enter `failed`
+directly, and `cancelled` is terminal. Planning is deterministic and an exact retry returns the same plan.
 Repeated preflight is read-only after the durable preflight boundary. An `activating` session resumes the same
 transaction. A crash after activation commit leaves `activated`; resume performs confirmation. Confirmed retry
 revalidates the source, mode, pointer, generation graph, entities, manifest digest, outbox, and checkpoints.
@@ -71,14 +73,27 @@ activated session and performs idempotent confirmation. Competing sessions, gene
 activation, predecessor changes, source changes, and authority revocation lose deterministically without
 rewriting evidence.
 
+All active-generation pointer changes pass through one low-level mode-aware transition. Initial namespace
+bootstrap creates no K-326 mode record. Generic `activateGeneration()` keeps its pre-K-326 behavior only while
+no runtime-mode record exists. Once planning owns `legacy` mode or cutover establishes `local_first`, generic
+activation fails with `ACTIVE_GENERATION_TRANSITION_REQUIRES_PROTOCOL`; it never creates, advances, or repairs
+runtime mode.
+
+A K-324 restore after cutover uses the same transition inside its existing restore transaction. It validates
+pointer/mode equality, seals the predecessor, activates the exact restore target, advances the active pointer
+and `local_first.activeGenerationId`, then commits the restore session atomically. The original cutover target
+and session remain historical evidence. Restore with no mode preserves pre-K-326 behavior; restore while an
+explicit `legacy` cutover mode exists is rejected. Existing pointer/mode divergence fails as corruption without
+repair or fallback.
+
 ## Legacy-write freeze
 
 K-326 extends the K-319 recovery boundary with a session-, namespace-, and generation-bound operator
 authorization. It never disables recovery mode or permits restore, reset, delete, cleanup, hydration, upload,
 or another guarded operation. The authorization can affect only its exact cutover.
 
-Before the activation transaction, K-326 writes the strict `absinthe:k326:legacy-write-fence` marker and
-advances the K-319 safety epoch. The marker is restrictive metadata only; it never claims that activation
+Before the activation transaction, K-326 advances the K-319 safety epoch and writes it into the strict
+`absinthe:k326:legacy-write-fence` marker. The marker is restrictive metadata only; it never claims that activation
 succeeded. Every legacy Notes replacement/removal path consults it, including IndexedDB save/delete/clear,
 localStorage replacement/removal, persistence migration, and the synchronous Notes storage bridge. IndexedDB
 replacement rechecks the marker before clear and before each put, fencing stale in-process operations. Because
@@ -86,10 +101,21 @@ localStorage is shared by same-origin tabs, other tabs observe the marker synchr
 writes. A malformed marker also blocks writes.
 
 If the process stops before activation, the `activating` marker intentionally remains fail-closed until the
-same explicit session is resumed or safely cancelled. Cancellation before activation may remove its own marker;
-activated or confirmed sessions cannot be cancelled. After commit the marker advances to `activated` and then
-`confirmed`, and legacy writes remain blocked. The legacy source is never deleted, rewritten, repaired, or
-marked migrated by K-326.
+same explicit session is resumed or safely cancelled. A final source/authority failure after fencing records
+`failed_precommit_fenced`. Recovery proves that mode remains `legacy`, the pointer remains the planned
+predecessor, the migration target remains inactive, target outbox/checkpoints are empty, no restore is active,
+and no competing cutover superseded the session. It then removes only the exact namespace/session/target
+`activating` fence and records terminal `failed`.
+
+Fence storage and local-v2 cannot share one transaction, so recovery is an explicit idempotent two-phase
+protocol. After exact fence identity is established, the durable state advances to
+`failed_precommit_releasing`; cleanup failure leaves that state retryable. A crash after fence removal but before
+the terminal write is also retryable after reload. A missing fence is accepted only from this releasing state,
+not from `failed_precommit_fenced`. Wrong-session, wrong-namespace, malformed, activated, or
+confirmed fences are never removed. The K-319 epoch only advances, so release never makes pre-fence work current.
+Cancellation before activation may invoke the same proof. Activated or confirmed sessions cannot be cancelled
+or unfenced. After commit the marker advances to `activated` and then `confirmed`, and legacy writes remain
+blocked. The legacy source is never deleted, rewritten, repaired, or marked migrated by K-326.
 
 The old vault is not user-namespaced. The durable K-325 source-root authority identifies that physical/logical
 vault, so the fence applies to that bound vault rather than guessing an account from legacy rows.
@@ -102,9 +128,10 @@ digest, and zero target outbox/checkpoint rows. It then changes only `activated 
 the activated graph diagnosable; it does not silently revert, repair target entities, select another generation,
 or mutate the source.
 
-Planning, preflight, and an uncommitted activating session may be cancelled. Cancellation retains the session,
-plan, K-325 manifest, target generation, target entities, authority evidence, and source. Activated and confirmed
-sessions cannot become cancelled.
+Planning, preflight, and an uncommitted activating session may be cancelled. A
+`failed_precommit_fenced` cancellation request uses the exact recovery proof and ends as terminal `failed`,
+retaining its failure evidence. Cancellation retains the session, plan, K-325 manifest, target generation,
+target entities, authority evidence, and source. Activated and confirmed sessions cannot become cancelled.
 
 K-326 implements no automated rollback. Legacy data remains preserved as recovery evidence, but reverting after
 activation requires a later separately reviewed protocol that proves no local-first mutation, outbox activity,
@@ -136,8 +163,8 @@ No real-browser IndexedDB, multi-tab browser, production Supabase, or real incid
 ## Residual risks
 
 - Legacy source and `absinthe-local-v2` remain separate databases. The persisted write fence is deliberately
-  established before final source recapture and activation; an interrupted attempt may remain availability-
-  blocking until explicit resume/cancellation.
+  established before final source recapture and activation; an interrupted attempt remains availability-blocking
+  until exact-session resume/cancellation or `failed_precommit_fenced` recovery completes.
 - The opaque K-325 source root cannot cryptographically prove that an operator supplied the intended physical
   browser vault.
 - Cross-tab behavior is source-proven through same-origin localStorage fencing and synthetic tests, not a real
