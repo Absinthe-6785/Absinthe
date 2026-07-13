@@ -21,16 +21,48 @@ function capturedAt(clock: (() => string) | undefined): string {
   return value;
 }
 function openExistingLegacyDatabase(factory: IDBFactory): Promise<IDBDatabase> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (typeof factory.databases !== 'function') return reject(new LocalDatabaseError('LEGACY_SOURCE_UNAVAILABLE', 'list_legacy_databases'));
-      const databases = await factory.databases();
-      if (!databases.some(item => item.name === LEGACY_NOTES_INDEXED_DB_NAME)) return reject(new LocalDatabaseError('LEGACY_SOURCE_UNAVAILABLE', 'open_legacy_database'));
-      const request = factory.open(LEGACY_NOTES_INDEXED_DB_NAME);
-      request.onupgradeneeded = () => { request.transaction?.abort(); };
-      request.onerror = () => reject(request.error ?? new LocalDatabaseError('LEGACY_SOURCE_UNAVAILABLE', 'open_legacy_database'));
-      request.onsuccess = () => resolve(request.result);
-    } catch (error) { reject(error); }
+  return new Promise((resolve, reject) => {
+    let state: 'pending' | 'resolved' | 'rejected' = 'pending';
+    const closedLateDatabases = new WeakSet<IDBDatabase>();
+    const unavailable = (operation: 'list_legacy_databases' | 'open_legacy_database') =>
+      new LocalDatabaseError('LEGACY_SOURCE_UNAVAILABLE', operation);
+    const rejectOnce = (operation: 'list_legacy_databases' | 'open_legacy_database'): boolean => {
+      if (state !== 'pending') return false;
+      state = 'rejected'; reject(unavailable(operation)); return true;
+    };
+    const closeLateDatabase = (database: IDBDatabase): void => {
+      if (closedLateDatabases.has(database)) return;
+      closedLateDatabases.add(database);
+      try { database.close(); } catch { /* bounded cleanup */ }
+    };
+    const resolveOnce = (database: IDBDatabase): boolean => {
+      if (state === 'rejected') { closeLateDatabase(database); return false; }
+      if (state === 'resolved') return false;
+      state = 'resolved'; resolve(database); return true;
+    };
+
+    void (async () => {
+      try {
+        if (typeof factory.databases !== 'function') { rejectOnce('list_legacy_databases'); return; }
+        const databases = await factory.databases();
+        if (!databases.some(item => item.name === LEGACY_NOTES_INDEXED_DB_NAME)) {
+          rejectOnce('open_legacy_database'); return;
+        }
+        const request = factory.open(LEGACY_NOTES_INDEXED_DB_NAME);
+        request.onupgradeneeded = () => {
+          try { request.transaction?.abort(); } catch { /* bounded abort */ }
+          rejectOnce('open_legacy_database');
+        };
+        request.onblocked = () => { rejectOnce('open_legacy_database'); };
+        request.onerror = () => { rejectOnce('open_legacy_database'); };
+        request.onsuccess = () => {
+          let database: IDBDatabase;
+          try { database = request.result; }
+          catch { rejectOnce('open_legacy_database'); return; }
+          resolveOnce(database);
+        };
+      } catch { rejectOnce('open_legacy_database'); }
+    })();
   });
 }
 

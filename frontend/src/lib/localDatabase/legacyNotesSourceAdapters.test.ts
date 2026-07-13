@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LEGACY_NOTES_AUTHORITY_NAMESPACE, LEGACY_NOTES_INDEXED_DB_NAME, LEGACY_NOTES_INDEXED_DB_STORE,
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, closeLocalDatabase, createDormantLocalDatabaseCapability,
@@ -140,6 +140,60 @@ async function targetRows(storeName: string): Promise<any[]> {
   }); db.close(); return rows;
 }
 
+function controllableOpenFactory(options: { abortThrows?: boolean; closeThrows?: boolean; transactionAvailable?: boolean } = {}) {
+  let opened!: () => void;
+  const openedPromise = new Promise<void>(resolve => { opened = resolve; });
+  const abort = vi.fn(() => { if (options.abortThrows) throw new Error('PRIVATE_ABORT_MARKER'); });
+  const close = vi.fn(() => { if (options.closeThrows) throw new Error('PRIVATE_CLOSE_MARKER'); });
+  const keysRequest: Partial<IDBRequest<IDBValidKey[]>> = {};
+  const valuesRequest: Partial<IDBRequest<unknown[]>> = {};
+  const transaction: Partial<IDBTransaction> = {
+    abort,
+    objectStore: vi.fn(() => ({
+      getAllKeys: () => keysRequest as IDBRequest<IDBValidKey[]>,
+      getAll: () => valuesRequest as IDBRequest<unknown[]>,
+    }) as unknown as IDBObjectStore),
+  };
+  const database = {
+    version: 1,
+    objectStoreNames: { contains: (name: string) => name === LEGACY_NOTES_INDEXED_DB_STORE },
+    transaction: vi.fn(() => {
+      expect(close).not.toHaveBeenCalled();
+      queueMicrotask(() => {
+        Object.defineProperty(keysRequest, 'result', { value: [], configurable: true });
+        Object.defineProperty(valuesRequest, 'result', { value: [], configurable: true });
+        keysRequest.onsuccess?.(new Event('success'));
+        valuesRequest.onsuccess?.(new Event('success'));
+        setTimeout(() => transaction.oncomplete?.(new Event('complete')), 0);
+      });
+      return transaction as IDBTransaction;
+    }),
+    close,
+  } as unknown as IDBDatabase;
+  const request: Partial<IDBOpenDBRequest> = {};
+  Object.defineProperty(request, 'result', { get: () => database });
+  Object.defineProperty(request, 'error', { get: () => { throw new Error('PRIVATE_OPEN_ERROR_MARKER'); } });
+  Object.defineProperty(request, 'transaction', {
+    get: () => options.transactionAvailable === false ? null : transaction,
+  });
+  const factory = {
+    databases: async () => [{ name: LEGACY_NOTES_INDEXED_DB_NAME, version: 1 }],
+    open: () => { opened(); return request as IDBOpenDBRequest; },
+  } as unknown as IDBFactory;
+  const dispatch = (event: 'blocked' | 'error' | 'upgradeneeded' | 'success') => {
+    const handler = request[`on${event}`] as ((event: Event) => unknown) | null | undefined;
+    handler?.(new Event(event));
+  };
+  return { factory, opened: openedPromise, dispatch, abort, close, database };
+}
+
+async function controlledSource(repository: LocalDatabaseRepository, id: string, factory: IDBFactory) {
+  const bound = await authority(repository, {
+    authorityId: `request-${id}`, sourceIdentityId: `request-root-${id}`,
+  });
+  return createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB: factory, clock: () => T0 });
+}
+
 beforeEach(async () => {
   repositories.splice(0).forEach(closeLocalDatabase);
   await deleteDatabase(indexedDB as IDBFactory, LOCAL_DATABASE_NAME).catch(() => undefined);
@@ -149,6 +203,207 @@ afterEach(async () => {
   repositories.splice(0).forEach(closeLocalDatabase);
   await deleteDatabase(indexedDB as IDBFactory, LOCAL_DATABASE_NAME).catch(() => undefined);
   await deleteDatabase(indexedDB as IDBFactory, LEGACY_NOTES_INDEXED_DB_NAME).catch(() => undefined);
+});
+
+describe('K-325H bounded legacy IndexedDB open requests', () => {
+  it.each(['blocked', 'error', 'upgradeneeded'] as const)(
+    '%s rejects promptly with one bounded source-unavailable outcome', async event => {
+      const repository = await repo(); const harness = controllableOpenFactory();
+      const source = await controlledSource(repository, `bounded-${event}`, harness.factory);
+      const pending = source.capture(); await harness.opened; harness.dispatch(event);
+      const failure = await pending.then(() => null, value => value as Error & { code?: string; operation?: string });
+      expect(failure).toMatchObject({
+        name: 'LocalDatabaseError', code: 'LEGACY_SOURCE_UNAVAILABLE', operation: 'open_legacy_database',
+        message: 'LEGACY_SOURCE_UNAVAILABLE:open_legacy_database',
+      });
+      expect(failure).not.toHaveProperty('cause');
+      expect(failure?.message).not.toMatch(/PRIVATE_|blocked|request/i);
+      expect(harness.abort).toHaveBeenCalledTimes(event === 'upgradeneeded' ? 1 : 0);
+    },
+  );
+
+  it.each(['blocked', 'error', 'upgradeneeded'] as const)(
+    '%s followed by late success rejects once and closes the late database once', async first => {
+      const repository = await repo(); const harness = controllableOpenFactory();
+      const source = await controlledSource(repository, `late-${first}`, harness.factory);
+      let settlements = 0;
+      const pending = source.capture().then(
+        value => { settlements += 1; return value; },
+        error => { settlements += 1; throw error; },
+      );
+      await harness.opened; harness.dispatch(first);
+      await expect(pending).rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
+      harness.dispatch('success'); harness.dispatch('success');
+      expect(settlements).toBe(1); expect(harness.close).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    ['blocked-error', ['blocked', 'error']],
+    ['error-blocked', ['error', 'blocked']],
+    ['duplicate-blocked', ['blocked', 'blocked']],
+    ['duplicate-error', ['error', 'error']],
+  ] as const)('%s ignores duplicate or racing rejection events', async (_label, events) => {
+    const repository = await repo(); const harness = controllableOpenFactory();
+    const source = await controlledSource(repository, _label, harness.factory);
+    let settlements = 0;
+    const pending = source.capture().then(
+      () => { settlements += 1; },
+      () => { settlements += 1; },
+    );
+    await harness.opened; for (const event of events) harness.dispatch(event);
+    await pending;
+    expect(settlements).toBe(1); expect(harness.close).not.toHaveBeenCalled();
+  });
+
+  it('blocked followed synchronously by success rejects and closes without a second settlement', async () => {
+    const repository = await repo(); const harness = controllableOpenFactory();
+    const source = await controlledSource(repository, 'blocked-sync-success', harness.factory);
+    let settlements = 0;
+    const pending = source.capture().then(
+      () => { settlements += 1; },
+      error => { settlements += 1; throw error; },
+    );
+    await harness.opened; harness.dispatch('blocked'); harness.dispatch('success');
+    await expect(pending).rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
+    expect(settlements).toBe(1); expect(harness.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['success-only', []],
+    ['duplicate-success', ['success']],
+    ['success-blocked', ['blocked']],
+    ['success-error', ['error']],
+  ] as const)('%s transfers ownership once and leaves capture responsible for one close', async (_label, later) => {
+    const repository = await repo(); const harness = controllableOpenFactory();
+    const source = await controlledSource(repository, _label, harness.factory);
+    const pending = source.capture(); await harness.opened; harness.dispatch('success');
+    for (const event of later) harness.dispatch(event as 'blocked' | 'error' | 'success');
+    await expect(pending).resolves.toMatchObject({ records: [] });
+    expect(harness.database.transaction).toHaveBeenCalledTimes(1);
+    expect(harness.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['upgrade-without-transaction', { transactionAvailable: false }],
+    ['upgrade-abort-throws', { abortThrows: true }],
+  ] as const)('%s remains bounded and closes a late result', async (_label, options) => {
+    const repository = await repo(); const harness = controllableOpenFactory(options);
+    const source = await controlledSource(repository, _label, harness.factory);
+    const pending = source.capture(); await harness.opened; harness.dispatch('upgradeneeded');
+    await expect(pending).rejects.toMatchObject({
+      code: 'LEGACY_SOURCE_UNAVAILABLE', operation: 'open_legacy_database',
+    });
+    harness.dispatch('success'); expect(harness.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('late-close failure cannot replace or expose the primary blocked outcome', async () => {
+    const repository = await repo(); const harness = controllableOpenFactory({ closeThrows: true });
+    const source = await controlledSource(repository, 'close-throws', harness.factory);
+    const pending = source.capture(); await harness.opened; harness.dispatch('blocked');
+    await expect(pending).rejects.toMatchObject({
+      message: 'LEGACY_SOURCE_UNAVAILABLE:open_legacy_database',
+    });
+    expect(() => harness.dispatch('success')).not.toThrow();
+    harness.dispatch('success'); expect(harness.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocked capture leaves all migration and target evidence unchanged', async () => {
+    const repository = await repo(); const harness = controllableOpenFactory();
+    const source = await controlledSource(repository, 'zero-side-effects', harness.factory);
+    const before = {
+      migration: await migrationRows(), generations: await targetRows(LOCAL_DATABASE_STORES.generations),
+      entities: await targetRows(LOCAL_DATABASE_STORES.entities), outbox: await targetRows(LOCAL_DATABASE_STORES.outbox),
+      checkpoints: await targetRows(LOCAL_DATABASE_STORES.syncCheckpoints),
+      active: (await repository.readDatabaseMetadata()).activeGenerationId,
+    };
+    const pending = repository.captureLegacyNotesMigration(source, { migrationSessionId: 'blocked-capture', now: T0 });
+    await harness.opened; harness.dispatch('blocked');
+    await expect(pending).rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
+    expect({
+      migration: await migrationRows(), generations: await targetRows(LOCAL_DATABASE_STORES.generations),
+      entities: await targetRows(LOCAL_DATABASE_STORES.entities), outbox: await targetRows(LOCAL_DATABASE_STORES.outbox),
+      checkpoints: await targetRows(LOCAL_DATABASE_STORES.syncCheckpoints),
+      active: (await repository.readDatabaseMetadata()).activeGenerationId,
+    }).toEqual(before);
+  });
+
+  it('blocked verification recapture remains unavailable and cannot verify an empty source', async () => {
+    const factory = indexedDB as IDBFactory; await seed(factory);
+    const repository = await repo(); const bound = await authority(repository, {
+      authorityId: 'blocked-verification', sourceIdentityId: 'blocked-verification-root',
+    });
+    let blocked = false;
+    const dynamicFactory = {
+      databases: factory.databases.bind(factory),
+      open: (name: string) => {
+        if (!blocked) return factory.open(name);
+        const request: Partial<IDBOpenDBRequest> = {};
+        queueMicrotask(() => request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent));
+        return request as IDBOpenDBRequest;
+      },
+    } as unknown as IDBFactory;
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB: dynamicFactory, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'blocked-verification', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'blocked-verification', T1);
+    blocked = true;
+    await expect(repository.verifyLegacyNotesMigration(source, 'blocked-verification', T1)).rejects.toMatchObject({
+      code: 'LEGACY_SOURCE_UNAVAILABLE', operation: 'open_legacy_database',
+    });
+    await expect(repository.getLegacyNotesMigrationSession('blocked-verification')).resolves.toMatchObject({
+      status: 'verifying', result: null, source: { entryCount: 1 },
+    });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it('verified retry rereads the source and rejects a blocked open without changing verified evidence', async () => {
+    const factory = indexedDB as IDBFactory; await seed(factory);
+    const repository = await repo(); const bound = await authority(repository, {
+      authorityId: 'blocked-retry', sourceIdentityId: 'blocked-retry-root',
+    });
+    let blocked = false;
+    const dynamicFactory = {
+      databases: factory.databases.bind(factory),
+      open: (name: string) => {
+        if (!blocked) return factory.open(name);
+        const request: Partial<IDBOpenDBRequest> = {};
+        queueMicrotask(() => request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent));
+        return request as IDBOpenDBRequest;
+      },
+    } as unknown as IDBFactory;
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB: dynamicFactory, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'blocked-retry', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'blocked-retry', T1);
+    await repository.verifyLegacyNotesMigration(source, 'blocked-retry', T1);
+    const before = await repository.getLegacyNotesMigrationSession('blocked-retry');
+    blocked = true;
+    await expect(repository.resumeLegacyNotesMigration(source, 'blocked-retry', T1)).rejects.toMatchObject({
+      code: 'LEGACY_SOURCE_UNAVAILABLE', operation: 'open_legacy_database',
+    });
+    expect(await repository.getLegacyNotesMigrationSession('blocked-retry')).toEqual(before);
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it('aborts a discovery/deletion upgrade race without leaving a persistent empty database', async () => {
+    const factory = indexedDB as IDBFactory; await seed(factory);
+    const repository = await repo(); const bound = await authority(repository, {
+      authorityId: 'discovery-race', sourceIdentityId: 'discovery-race-root',
+    });
+    const raced = {
+      databases: async () => {
+        const listed = await factory.databases();
+        await deleteDatabase(factory, LEGACY_NOTES_INDEXED_DB_NAME);
+        return listed;
+      },
+      open: factory.open.bind(factory),
+    } as unknown as IDBFactory;
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB: raced, clock: () => T0 });
+    await expect(source.capture()).rejects.toMatchObject({
+      code: 'LEGACY_SOURCE_UNAVAILABLE', operation: 'open_legacy_database',
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect((await factory.databases()).some(item => item.name === LEGACY_NOTES_INDEXED_DB_NAME)).toBe(false);
+  });
 });
 
 describe('K-325E durable legacy source authority', () => {

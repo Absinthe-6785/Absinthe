@@ -18,6 +18,13 @@ that authority. An existing empty IndexedDB store or an existing
 localStorage key containing `[]` can represent an authoritative empty vault; an absent database/store/key is
 `LEGACY_SOURCE_UNAVAILABLE`, not an empty snapshot.
 
+Legacy IndexedDB discovery and open use a one-settlement request boundary. A blocked open, browser open
+error, or unexpected upgrade rejects immediately as the bounded
+`LEGACY_SOURCE_UNAVAILABLE:open_legacy_database` outcome; an unexpected upgrade transaction is aborted.
+If a database handle arrives after an earlier rejection, it is closed without changing the primary outcome.
+A successful open transfers handle ownership to the readonly capture, which closes it in `finally`. These
+paths do not retry, select localStorage automatically, create migration evidence, or mutate the legacy source.
+
 Supported records are the current `NoteBase` shape: `id`, `title`, `body`, optional `createdAt` and
 `lastOpenedAt`, `updatedAt`, `folderId`, `deletedAt`, optional `starred`, string properties, and string-array
 relations. The older supported variant lacks `createdAt`; conversion deterministically uses `updatedAt` as
