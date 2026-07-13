@@ -15,7 +15,7 @@ const SHA256_CONSTANTS = [
 
 function rotateRight(value: number, bits: number): number { return value >>> bits | value << 32 - bits; }
 
-function sha256(value: string): string {
+export function sha256Hex(value: string): string {
   const source = new TextEncoder().encode(value);
   const paddedLength = Math.ceil((source.length + 9) / 64) * 64;
   const bytes = new Uint8Array(paddedLength); bytes.set(source); bytes[source.length] = 0x80;
@@ -63,7 +63,7 @@ export function deriveOutboxIdempotencyKey(input: {
     'absinthe-outbox-v1', input.namespaceKey, input.generationId, input.domain,
     input.entityId, input.localRevision, input.operation,
   ]);
-  return `${IDEMPOTENCY_PREFIX}${sha256(encoded)}`;
+  return `${IDEMPOTENCY_PREFIX}${sha256Hex(encoded)}`;
 }
 
 export function validOutboxIdempotencyKey(value: unknown): value is string {

@@ -1,5 +1,8 @@
 export * from './errors';
 export * from './namespace';
+export * from './legacyNotesMigration';
+export * from './legacyNotesAuthority';
+export * from './legacyNotesSourceAdapters';
 export * from './outboxIdentity';
 export * from './repository';
 export {

@@ -15,7 +15,7 @@ export type GenerationReason = 'initial' | 'migration' | 'restore' | 'recovery' 
 export type ValidationState = 'pending' | 'valid' | 'invalid';
 
 export type SafeSourceReference = Readonly<{
-  kind: 'local' | 'remote' | 'backup' | 'snapshot' | 'recovery_package' | 'test';
+  kind: 'local' | 'remote' | 'backup' | 'snapshot' | 'recovery_package' | 'legacy_migration' | 'test';
   reference: string;
 }>;
 
@@ -61,6 +61,17 @@ export interface LocalEntityEnvelope<T = unknown> {
   contentHash: string | null;
   source: SafeSourceReference | null;
   restoreProvenance?: RestoreProvenance | null;
+  migrationProvenance?: LegacyMigrationProvenance | null;
+}
+
+export interface LegacyMigrationProvenance {
+  conversionVersion: 1;
+  sourceAdapter: string;
+  sourceSchemaVersion: number | null;
+  migrationSessionId: string;
+  sourceSnapshotDigest: string;
+  migratedAt: string;
+  legacyKeyDigest: string;
 }
 
 export type RestoreClassification = 'insert' | 'replace' | 'skip_identical' | 'conflict' | 'resurrect' | 'preserve_local';

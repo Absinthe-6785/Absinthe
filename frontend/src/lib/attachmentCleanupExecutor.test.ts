@@ -107,6 +107,26 @@ function idFor(report: AttachmentCleanupReviewReport, type: string): string {
   return attachmentCleanupCandidateId(report.candidates[index], index);
 }
 
+async function executeMetadataCandidate(input: {
+  reviewNotes?: EmbeddedAttachmentMigrationNote[];
+  currentNotes?: EmbeddedAttachmentMigrationNote[];
+  attachmentId?: string;
+}) {
+  const attachmentId = input.attachmentId ?? 'asset';
+  const record = metadata({ id: attachmentId });
+  const report = await review({ notes: input.reviewNotes ?? [], attachments: [record], blobs: [] });
+  const repository = memoryRepository([record]);
+  const result = await executeAttachmentCleanup({
+    reviewReport: report,
+    confirmationToken: createAttachmentCleanupConfirmationToken(report),
+    selectedCandidateIds: [idFor(report, 'unreferencedAttachmentMetadata')],
+    notes: input.currentNotes ?? input.reviewNotes ?? [],
+    repository,
+    blobAdapter: memoryBlobAdapter([]),
+  });
+  return { report, repository, result };
+}
+
 describe('attachment cleanup executor foundation', () => {
   it('hashes review reports and refuses to run without confirmation token', async () => {
     const report = await review({ blobs: [{ localBlobKey: 'local/orphan', size: 5 }] });
@@ -257,6 +277,133 @@ describe('attachment cleanup executor foundation', () => {
 
     expect(result.skippedCandidateCount).toBe(1);
     expect(repository.deleteAttachmentMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no reference', 'plain text'],
+    ['embedded prefix', 'notattachment://asset'],
+    ['leading ASCII continuation', 'xattachment://asset'],
+    ['hyphenated embedded prefix', 'pre-attachment://asset'],
+    ['URL path embedding', 'https://example.com/attachment://asset'],
+    ['percent-encoded slash', 'attachment://asset%2F1'],
+    ['percent-encoded space', 'attachment://asset%201'],
+    ['trailing percent', 'attachment://asset%'],
+    ['malformed percent escape', 'attachment://asset%ZZ'],
+    ['path continuation', 'attachment://asset/child'],
+    ['trailing query delimiter', 'attachment://asset?'],
+    ['query continuation', 'attachment://asset?query'],
+    ['query plus Unicode', 'attachment://asset?\uB6F7'],
+    ['fragment continuation', 'attachment://asset#fragment'],
+    ['Unicode continuation', 'attachment://asset\uD55C'],
+    ['zero-width joiner continuation', 'attachment://asset\u200d'],
+    ['zero-width space continuation', 'attachment://asset\u200b'],
+    ['different complete ID', 'attachment://assetx'],
+    ['dot belongs to a different complete ID', 'attachment://asset.'],
+    ['colon belongs to a different complete ID', 'attachment://asset:'],
+  ])('keeps review and execution aligned for %s', async (_label, body) => {
+    const notes = [{ id: 'n1', body }];
+    const { report, repository, result } = await executeMetadataCandidate({ reviewNotes: notes });
+
+    expect(report.candidates.some(candidate => candidate.type === 'unreferencedAttachmentMetadata'
+      && candidate.attachmentId === 'asset')).toBe(true);
+    expect(result.deletedAttachmentMetadataCount).toBe(1);
+    expect(result.skippedCandidateCount).toBe(0);
+    expect(repository.records.has('asset')).toBe(false);
+  });
+
+  it.each([
+    ['plain reference', 'attachment://asset'],
+    ['parentheses', '(attachment://asset)'],
+    ['brackets', '[attachment://asset]'],
+    ['quotes', '"attachment://asset"'],
+    ['comma boundary', 'attachment://asset,'],
+    ['newline boundary', 'attachment://asset\n'],
+    ['duplicate reference', 'attachment://asset attachment://asset'],
+  ])('fresh revalidation blocks deletion for a valid %s', async (_label, body) => {
+    const { repository, result } = await executeMetadataCandidate({
+      reviewNotes: [],
+      currentNotes: [{ id: 'n1', body }],
+    });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(0);
+    expect(result.skippedCandidateCount).toBe(1);
+    expect(repository.records.has('asset')).toBe(true);
+  });
+
+  it('keeps exact case-sensitive IDs distinct through review and execution', async () => {
+    const lower = metadata({ id: 'asset' });
+    const upper = metadata({ id: 'Asset' });
+    const notes = [{ id: 'n1', body: 'attachment://Asset' }];
+    const report = await review({ notes, attachments: [lower, upper], blobs: [] });
+    const repository = memoryRepository([lower, upper]);
+    const result = await executeAttachmentCleanup({
+      reviewReport: report,
+      confirmationToken: createAttachmentCleanupConfirmationToken(report),
+      selectedCandidateIds: [idFor(report, 'unreferencedAttachmentMetadata')],
+      notes,
+      repository,
+      blobAdapter: memoryBlobAdapter([]),
+    });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(1);
+    expect(repository.records.has('asset')).toBe(false);
+    expect(repository.records.has('Asset')).toBe(true);
+  });
+
+  it('aggregates multiple current notes once and honors any complete valid reference', async () => {
+    const { repository, result } = await executeMetadataCandidate({
+      reviewNotes: [],
+      currentNotes: [
+        { id: 'n1', body: 'attachment://asset%2F1' },
+        { id: 'n2', content: 'attachment://asset' },
+      ],
+    });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(0);
+    expect(result.skippedCandidateCount).toBe(1);
+    expect(repository.records.has('asset')).toBe(true);
+  });
+
+  it('does not let multiple malformed current pseudo-references block cleanup', async () => {
+    const notes = [
+      { id: 'n1', body: 'attachment://asset%2F1 attachment://asset/child' },
+      { id: 'n2', content: 'notattachment://asset attachment://asset\u200b' },
+    ];
+    const { repository, result } = await executeMetadataCandidate({ reviewNotes: notes });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(1);
+    expect(repository.records.has('asset')).toBe(false);
+  });
+
+  it('does not let a malformed pseudo-reference added after review block fresh cleanup revalidation', async () => {
+    const { repository, result } = await executeMetadataCandidate({
+      reviewNotes: [],
+      currentNotes: [{ id: 'n1', body: 'attachment://asset%2F1' }],
+    });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(1);
+    expect(result.skippedCandidateCount).toBe(0);
+    expect(repository.records.has('asset')).toBe(false);
+  });
+
+  it('retains the source-review selection requirement if a valid reference is later removed', async () => {
+    const record = metadata({ id: 'asset' });
+    const report = await review({ notes: [{ id: 'n1', body: 'attachment://asset' }], attachments: [record], blobs: [] });
+    const repository = memoryRepository([record]);
+    expect(report.candidates.some(candidate => candidate.type === 'unreferencedAttachmentMetadata')).toBe(false);
+
+    const result = await executeAttachmentCleanup({
+      reviewReport: report,
+      confirmationToken: createAttachmentCleanupConfirmationToken(report),
+      selectedCandidateIds: ['unreferencedAttachmentMetadata|asset|||||0'],
+      notes: [],
+      repository,
+      blobAdapter: memoryBlobAdapter([]),
+    });
+
+    expect(result.deletedAttachmentMetadataCount).toBe(0);
+    expect(result.blockedCandidateCount).toBe(1);
+    expect(repository.records.has('asset')).toBe(true);
   });
 
   it('reports partial failures and continues safely', async () => {
