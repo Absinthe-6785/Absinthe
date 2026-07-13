@@ -1,3 +1,4 @@
+import { findAttachmentReferencesInText } from '../attachmentRepository';
 import { LocalDatabaseError, localDatabaseError, type LocalDatabaseErrorCode } from './errors';
 import {
   inspectLegacyNotesSourceAuthorityInStore, resolveLegacyNotesSourceAuthority,
@@ -398,9 +399,7 @@ function supportedLegacyNote(value: unknown): SupportedLegacyNote {
   return note;
 }
 function attachmentReferences(body: string): string[] {
-  const found = new Set<string>();
-  for (const match of body.matchAll(/attachment:\/\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/g)) found.add(match[1]);
-  return [...found].sort(compareCanonicalStrings);
+  return findAttachmentReferencesInText(body).sort(compareCanonicalStrings);
 }
 function entityDigest(entity: LocalEntityEnvelope): string {
   return sha256Hex(canonical(['absinthe-legacy-target-entity-v1', entity]));
@@ -666,8 +665,13 @@ async function validateDurableTarget(
   if (!meta || !generation || rawSession === undefined) fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph');
   const current = persistedSession(rawSession, runtime.namespaceKey);
   if (canonical(current) !== canonical(session)) fail('CORRUPT_PERSISTED_RECORD', 'legacy_session_changed');
-  validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
-  validateGenerationRecord(generation, runtime.namespaceKey, runtime.namespace.schemaVersion);
+  try {
+    validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
+    validateGenerationRecord(generation, runtime.namespaceKey, runtime.namespace.schemaVersion);
+    entities.forEach(validateEntityEnvelope);
+  } catch {
+    fail('CORRUPT_PERSISTED_RECORD', 'validate_persisted_legacy_target');
+  }
   if (meta.activeGenerationId !== session.expectedActiveGenerationId || meta.activeGenerationId === session.target.generationId
     || generation.status !== 'preparing' || generation.validationState !== 'valid' || generation.activeNamespaceKey !== undefined
     || generation.predecessorGenerationId !== null || generation.creationReason !== 'migration'
@@ -676,7 +680,6 @@ async function validateDurableTarget(
     || generation.safeSourceReference.reference !== session.migrationId || outbox.length !== 0 || checkpoints.length !== 0) {
     fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph');
   }
-  entities.forEach(validateEntityEnvelope);
   const byId = new Map(entities.map(entity => [entity.entityId, entity]));
   if (entities.length !== session.manifest.entryCount || byId.size !== entities.length) {
     fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_set');
@@ -873,6 +876,9 @@ export async function verifyLegacyNotesMigration(
     fail('MIGRATION_SESSION_CONFLICT', 'verify_legacy_notes_migration');
   }
   if (session.status !== 'verified') {
+    // Reject malformed durable target evidence without advancing the lifecycle.
+    // The target is validated again inside the double-capture fence below.
+    await validateDurableTarget(runtime, session);
     const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite'); const done = transactionCompletion(tx, 'begin_legacy_verification');
     try {
       const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);

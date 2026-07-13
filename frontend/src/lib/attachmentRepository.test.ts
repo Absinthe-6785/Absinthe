@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentMarkdownImage,
   attachmentReference,
+  findAttachmentReferencesInText,
   isAttachmentMetadataLightweight,
   isAttachmentReference,
   noteBodyContainsRawBlob,
@@ -20,6 +21,35 @@ describe('attachment repository boundary', () => {
 
   it('formats markdown image references through attachment ids', () => {
     expect(attachmentMarkdownImage('att-abc', 'scan] copy')).toBe('![scan\\] copy](attachment://att-abc)');
+  });
+
+  it('finds only complete canonical attachment references in text', () => {
+    expect(findAttachmentReferencesInText([
+      'attachment://asset-1',
+      '(attachment://abc)',
+      '[attachment://ABC]',
+      'attachment://asset_1,',
+      'attachment://asset-1',
+    ].join(' '))).toEqual(['asset-1', 'abc', 'ABC', 'asset_1']);
+
+    expect(findAttachmentReferencesInText([
+      'notattachment://asset-1', 'xattachment://asset-1', 'pre-attachment://asset-1',
+      'myattachment://asset-1', 'https://example.com/attachment://asset-1',
+      'attachment://asset%2F1', 'attachment://asset%201', 'attachment://asset/child',
+      'attachment://asset\\child', 'attachment://asset?query', 'attachment://asset#fragment',
+      'attachment://asset%', 'attachment://asset%ZZ',
+      'attachment:\\/\\/asset-1', 'attachment%3A%2F%2Fasset-1', 'ATTACHMENT://asset-1',
+    ].join(' '))).toEqual([]);
+  });
+
+  it('applies deterministic case-sensitive Unicode and zero-width token boundaries', () => {
+    expect(findAttachmentReferencesInText([
+      'attachment://asset-1', 'attachment://Asset-1', 'attachment://asset-1',
+      '\uD55Cattachment://blocked-before', 'attachment://blocked-after\uD55C',
+      '\u200battachment://blocked-zero-before', 'attachment://blocked-zero-after\u200b',
+      '\uFF08attachment://fullwidth\uFF09', '\u{1F600}attachment://emoji\u{1F600}',
+      '\nattachment://newline\n', 'attachment://colon:',
+    ].join(' '))).toEqual(['asset-1', 'Asset-1', 'fullwidth', 'emoji', 'newline', 'colon:']);
   });
 
   it('rejects raw blob data as attachment identity', () => {

@@ -89,6 +89,15 @@ async function mutateRaw(storeName: string, key: IDBValidKey, transform: (value:
   });
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); db.close();
 }
+async function replaceRaw(storeName: string, key: IDBValidKey, transform: (value: any) => any): Promise<void> {
+  const db = await newDb(); const tx = db.transaction(storeName, 'readwrite'); const store = tx.objectStore(storeName);
+  const request = store.get(key);
+  await new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => { store.delete(key); store.put(transform(request.result)); resolve(); };
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); db.close();
+}
 async function putRaw(storeName: string, value: unknown): Promise<void> {
   const db = await newDb(); const tx = db.transaction(storeName, 'readwrite'); tx.objectStore(storeName).put(value);
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); db.close();
@@ -191,6 +200,62 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     });
     const session = await repository.getLegacyNotesMigrationSession('mixed');
     expect(session?.manifest.entries[0].attachmentReferenceDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('binds only canonical whole attachment references through verification and verified retry', async () => {
+    const repository = await repo();
+    const body = [
+      'attachment://asset-1', '(attachment://Asset_2)', 'attachment://asset-1',
+      'notattachment://phantom', 'attachment://truncated%2Fchild', 'attachment://truncated/child',
+      'attachment://truncated?query', 'attachment://truncated#fragment', 'attachment%3A%2F%2Fencoded',
+      'attachment:\\/\\/escaped', '\uD55Cattachment://unicode-before', 'attachment://unicode-after\uD55C',
+    ].join(' ');
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A, { body })]]), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'whole-attachments', now: T0 });
+    expect(captured.manifest.entries[0].attachmentReferenceDigest).toMatch(/^[a-f0-9]{64}$/);
+    const staged = await repository.resumeLegacyNotesMigration(source, 'whole-attachments', T1) as LegacyNotesMigrationSessionV1;
+    const verified = await repository.verifyLegacyNotesMigration(source, 'whole-attachments', T1);
+    await expect(repository.resumeLegacyNotesMigration(source, 'whole-attachments', T1)).resolves.toEqual(verified);
+    const [entity] = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(value => value.generationId === staged.target.generationId);
+    expect(entity.record.body).toBe(body);
+
+    const validOnlyBody = '(attachment://Asset_2) attachment://asset-1';
+    source.records = bound(repository.namespaceKey, [[A, note(A, { body: validOnlyBody })]]);
+    const validOnly = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'valid-attachments', now: T0 });
+    expect(validOnly.manifest.entries[0].attachmentReferenceDigest)
+      .toBe(captured.manifest.entries[0].attachmentReferenceDigest);
+    expect(validOnly.manifest.entries[0].sourceRecordDigest).not.toBe(captured.manifest.entries[0].sourceRecordDigest);
+    expect(validOnly.manifest.entries[0].targetEntityDigest).not.toBe(captured.manifest.entries[0].targetEntityDigest);
+    expect(validOnly.source.snapshotDigest).not.toBe(captured.source.snapshotDigest);
+  });
+
+  it('separates full-body binding from canonical attachment-reference-set binding', async () => {
+    const repository = await repo(); const source = adapter([], repository.namespaceKey);
+    const capture = async (migrationSessionId: string, body: string) => {
+      source.records = bound(repository.namespaceKey, [[A, note(A, { body })]]);
+      const result = await repository.captureLegacyNotesMigration(source, { migrationSessionId, now: T0 });
+      await repository.cancelLegacyNotesMigration(migrationSessionId, T1);
+      return result;
+    };
+    const ordered = await capture('digest-ordered', 'attachment://asset-1 attachment://Asset_2');
+    const reorderedDuplicate = await capture(
+      'digest-reordered', 'attachment://Asset_2 attachment://asset-1 attachment://asset-1',
+    );
+    const changedReference = await capture('digest-changed', 'attachment://asset-2 attachment://Asset_2');
+    const malformedA = await capture('digest-malform-a', 'notattachment://asset-1 attachment://asset%2F1');
+    const malformedB = await capture('digest-malform-b', 'xattachment://asset-2 attachment://asset%201');
+    expect(reorderedDuplicate.manifest.entries[0].attachmentReferenceDigest)
+      .toBe(ordered.manifest.entries[0].attachmentReferenceDigest);
+    expect(reorderedDuplicate.manifest.entries[0].sourceRecordDigest)
+      .not.toBe(ordered.manifest.entries[0].sourceRecordDigest);
+    expect(changedReference.manifest.entries[0].attachmentReferenceDigest)
+      .not.toBe(ordered.manifest.entries[0].attachmentReferenceDigest);
+    expect(malformedA.manifest.entries[0].attachmentReferenceDigest).toBeNull();
+    expect(malformedB.manifest.entries[0].attachmentReferenceDigest).toBeNull();
+    expect(malformedB.manifest.entries[0].sourceRecordDigest)
+      .not.toBe(malformedA.manifest.entries[0].sourceRecordDigest);
+    expect(malformedB.source.snapshotDigest).not.toBe(malformedA.source.snapshotDigest);
   });
 
   it('preserves special, ordinary, case-distinct, and Unicode metadata keys through the full lifecycle', async () => {
@@ -1037,5 +1102,106 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     }));
     await expect(fixture.repository.getLegacyNotesMigrationSession('verified'))
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it.each([
+    ['missing revision', (value: any) => { const next = { ...value }; delete next.revision; return next; }, false, true],
+    ['malformed revision', (value: any) => ({ ...value, revision: 0 }), false, true],
+    ['malformed owner', (value: any) => ({ ...value, ownerId: 'https://private.example' }), false, true],
+    ['malformed content digest', (value: any) => ({ ...value, contentHash: 'bad' }), false, true],
+    ['malformed source', (value: any) => ({ ...value, source: { kind: 'legacy_migration', reference: 'https://private.example' } }), false, true],
+    ['malformed provenance', (value: any) => ({ ...value, migrationProvenance: { ...value.migrationProvenance, sourceSnapshotDigest: 'bad' } }), false, true],
+    ['malformed created timestamp', (value: any) => ({ ...value, createdAt: 'bad' }), false, true],
+    ['malformed updated timestamp', (value: any) => ({ ...value, updatedAt: 'bad' }), false, true],
+    ['malformed deleted timestamp', (value: any) => ({ ...value, deletedAt: 'bad', isDeleted: true, deletionState: 'deleted' }), false, true],
+    ['wrong live/tombstone class', (value: any) => ({ ...value, isDeleted: true, deletionState: 'deleted' }), false, true],
+    ['malformed domain', (value: any) => ({ ...value, domain: '' }), true, true],
+    ['whitespace entity id', (value: any) => ({ ...value, entityId: ' ' }), true, false],
+    ['malformed namespace', (value: any) => ({ ...value, namespaceKey: 'wrong-namespace' }), true, false],
+    ['malformed generation id', (value: any) => ({ ...value, generationId: 'wrong-generation' }), true, false],
+    ['wrong discriminator', (value: any) => ({ ...value, kind: 'wrong' }), false, false],
+    ['wrong version', (value: any) => ({ ...value, version: 2 }), false, false],
+    ['unknown field', (value: any) => ({ ...value, unknown: 'bounded' }), false, false],
+    ['malformed properties', (value: any) => ({ ...value, record: { ...value.record, properties: 42 } }), false, false],
+    ['malformed relations', (value: any) => ({ ...value, record: { ...value.record, relations: 42 } }), false, false],
+    ['altered malformed attachment text', (value: any) => ({ ...value, record: { ...value.record, body: 'attachment://asset%2F1' } }), false, false],
+    ['null record', (value: any) => ({ ...value, record: null }), false, false],
+    ['array record', (value: any) => ({ ...value, record: [] }), false, false],
+    ['primitive record', (value: any) => ({ ...value, record: 42 }), false, false],
+  ] as const)(
+    'normalizes durable target corruption without repair: %s',
+    async (_label, transform, changesKey, validatorFailure) => {
+      const fixture = await verifiedFixture();
+      const key: IDBValidKey = [fixture.repository.namespaceKey, fixture.staged.target.generationId, 'notes', A];
+      if (changesKey) await replaceRaw(LOCAL_DATABASE_STORES.entities, key, transform);
+      else await mutateRaw(LOCAL_DATABASE_STORES.entities, key, transform);
+      const before = await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw));
+      const readFailure = await fixture.repository.getLegacyNotesMigrationSession('verified')
+        .then(() => null, error => error as Error & { code?: string; operation?: string });
+      expect(readFailure).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      if (validatorFailure) {
+        expect(readFailure).toMatchObject({
+          operation: 'validate_persisted_legacy_target',
+          message: 'CORRUPT_PERSISTED_RECORD:validate_persisted_legacy_target',
+        });
+        expect(readFailure?.message).not.toContain('private.example');
+        expect(readFailure?.stack).not.toContain('private.example');
+      }
+      const retryFailure = await fixture.repository.resumeLegacyNotesMigration(fixture.source, 'verified', T1)
+        .then(() => null, error => error as Error & { code?: string; operation?: string });
+      expect(retryFailure).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      if (validatorFailure) expect(retryFailure).toMatchObject({ operation: 'validate_persisted_legacy_target' });
+      expect(await fixture.repository.getLegacyNotesMigrationSessionForAdministration('verified'))
+        .toMatchObject({ lifecycleState: 'verified', continuationAllowed: true });
+      expect(await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw))).toEqual(before);
+    },
+  );
+
+  it.each([
+    ['database metadata', LOCAL_DATABASE_STORES.databaseMeta, (repository: LocalDatabaseRepository) => repository.namespaceKey,
+      (value: any) => ({ ...value, databaseFormatVersion: 99 })],
+    ['target generation', LOCAL_DATABASE_STORES.generations,
+      (repository: LocalDatabaseRepository) => [repository.namespaceKey, 'migration-verified'],
+      (value: any) => ({ ...value, status: 'unknown' })],
+  ] as const)('normalizes malformed persisted %s at the K-325 target boundary', async (_label, storeName, key, transform) => {
+    const fixture = await verifiedFixture();
+    await mutateRaw(storeName, key(fixture.repository), transform);
+    const before = await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw));
+    await expect(fixture.repository.getLegacyNotesMigrationSession('verified')).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', operation: 'validate_persisted_legacy_target',
+    });
+    expect(await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw))).toEqual(before);
+  });
+
+  it('rejects malformed staged target evidence before any verification lifecycle rewrite and after restart', async () => {
+    let repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'staged-corruption', now: T0 });
+    const staged = await repository.resumeLegacyNotesMigration(source, 'staged-corruption', T1) as LegacyNotesMigrationSessionV1;
+    const key: IDBValidKey = [repository.namespaceKey, staged.target.generationId, 'notes', A];
+    await mutateRaw(LOCAL_DATABASE_STORES.entities, key, value => ({ ...value, revision: 0 }));
+    const before = await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw));
+    await expect(repository.verifyLegacyNotesMigration(source, 'staged-corruption', T1)).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', operation: 'validate_persisted_legacy_target',
+    });
+    expect(await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw))).toEqual(before);
+    const rawSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'staged-corruption');
+    expect(rawSession).toMatchObject({ status: 'staged', result: null });
+
+    closeLocalDatabase(repository); repository = await repo();
+    await expect(repository.resumeLegacyNotesMigration(source, 'staged-corruption', T1)).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', operation: 'validate_persisted_legacy_target',
+    });
+    expect(await Promise.all(Object.values(LOCAL_DATABASE_STORES).map(getAllRaw))).toEqual(before);
+  });
+
+  it('keeps caller input validation distinct from durable target corruption', async () => {
+    const repository = await repo();
+    await expect(repository.createEntity({ domain: 'notes', entityId: 'https://unsafe.example', record: {} }))
+      .rejects.toMatchObject({ code: 'INVALID_ENTITY' });
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'k325:legacy-notes:invalid', now: T0 }))
+      .rejects.toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
   });
 });

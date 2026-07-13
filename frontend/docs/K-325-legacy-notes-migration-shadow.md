@@ -79,6 +79,17 @@ The following are deliberately outside this migration:
 - attachment metadata and blob databases. `attachment://` identifiers embedded in Note bodies remain in the
   preserved body and receive a reference-set digest, but K-325 does not copy attachment blobs or metadata.
 
+Attachment reference extraction reuses the application's canonical, case-sensitive whole-reference parser.
+The parser accepts only complete `attachment://` tokens whose IDs satisfy the application attachment-ID
+grammar. It de-duplicates recognized IDs without locale-sensitive ordering; K-325 then applies its canonical
+comparator before hashing the set. Embedded schemes, URL-path substrings, valid-looking prefixes of malformed
+percent-encoded/path/query/fragment tokens, encoded or escaped schemes, and identifiers truncated at Unicode
+or zero-width continuations are not attachment references. They remain ordinary, byte-preserved body text.
+The full source-record and target-entity digests independently bind that complete body, so changing any such
+text is still detected even when the recognized reference set remains empty. A syntactically valid reference
+does not require local metadata or a blob to exist: K-325 reads neither store and never claims either asset was
+migrated, repaired, uploaded, or verified.
+
 ## Namespace and ownership policy
 
 Legacy Note records have no user ID, project ref, or workspace owner field. The migration therefore never
@@ -194,6 +205,13 @@ frozen, this is double-read fencing rather than a cross-database transaction.
 Verified retries recapture the source and revalidate all durable target evidence before returning the stored
 result. Missing, extra, malformed, or altered session, manifest, generation, entity, result, outbox, or
 checkpoint evidence maps to `CORRUPT_PERSISTED_RECORD`; no repair, regeneration, cleanup, or activation runs.
+Database metadata, target generation, and entity-envelope validators are wrapped only at this K-325 durable
+target-read boundary. Their input-oriented validation failures and unexpected exceptions are normalized to
+the bounded `CORRUPT_PERSISTED_RECORD:validate_persisted_legacy_target` result without retaining a cause,
+payload, field value, or original exception message. New caller-provided entities and malformed public
+migration requests keep their existing `INVALID_ENTITY` or `INVALID_LEGACY_MIGRATION` semantics; K-325 does
+not globally remap validation errors. Staged target evidence is preflight-validated before the lifecycle is
+advanced to `verifying`, so corruption cannot rewrite the session or trigger repair, cleanup, or activation.
 
 Continuation and administration are separate contracts. Capture, resume, stage, verification, and verified
 retry require a live, valid, non-revoked authority/root pair. The bounded administrative view reads only a

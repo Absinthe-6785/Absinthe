@@ -151,6 +151,15 @@ describe('attachment cleanup review foundation', () => {
     ]);
   });
 
+  it('uses whole-reference boundaries for cleanup evidence', () => {
+    expect(findAttachmentReferencesInText([
+      'notattachment://att-1',
+      'attachment://att%2F1',
+      'attachment://att/child',
+      '![valid](attachment://att-2)',
+    ].join(' '))).toEqual(['att-2']);
+  });
+
   it('reports referenced attachments as keep-only information', async () => {
     const report = await buildAttachmentCleanupReview({
       notes: [{ id: 'n1', body: '![scan](attachment://att-1)' }],

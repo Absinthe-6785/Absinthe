@@ -2,6 +2,7 @@ import { createLocalAttachmentMetadataRepository } from './attachmentMetadataInd
 import { createLocalAttachmentBlobAdapter } from './attachmentBlobIndexedDb';
 import {
   ATTACHMENT_REFERENCE_PREFIX,
+  findAttachmentReferencesInText as findCanonicalAttachmentReferencesInText,
   type AttachmentBlobInventoryRecord,
   type AttachmentBlobRecord,
   type AttachmentMetadata,
@@ -83,8 +84,6 @@ export interface AttachmentCleanupReviewInput {
   now?: () => string;
 }
 
-const ATTACHMENT_REFERENCE_PATTERN = /\battachment:\/\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})/g;
-
 function defaultNow(): string {
   return new Date().toISOString();
 }
@@ -102,14 +101,7 @@ function noteAttachmentIds(note: EmbeddedAttachmentMigrationNote): string[] {
 }
 
 export function findAttachmentReferencesInText(text: string): string[] {
-  const ids = new Set<string>();
-  ATTACHMENT_REFERENCE_PATTERN.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = ATTACHMENT_REFERENCE_PATTERN.exec(text)) !== null) {
-    const id = match[1];
-    if (id && !id.startsWith('data:')) ids.add(id);
-  }
-  return [...ids];
+  return findCanonicalAttachmentReferencesInText(text);
 }
 
 export function findAttachmentReferencesInNotes(

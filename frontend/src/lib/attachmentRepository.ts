@@ -114,10 +114,48 @@ export interface AttachmentRepository {
 }
 
 const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const ATTACHMENT_ID_CHARACTER_PATTERN = /^[A-Za-z0-9._:-]$/;
+const UNICODE_IDENTIFIER_CONTINUATION_PATTERN = /^[\p{L}\p{N}\p{M}]$/u;
+const ZERO_WIDTH_CHARACTER_PATTERN = /^[\u200B-\u200D\u2060\uFEFF]$/u;
 
 export function isAttachmentReference(value: string): boolean {
   if (!value.startsWith(ATTACHMENT_REFERENCE_PREFIX)) return false;
   return ATTACHMENT_ID_PATTERN.test(value.slice(ATTACHMENT_REFERENCE_PREFIX.length));
+}
+
+function preventsWholeAttachmentReferenceBoundary(value: string | undefined): boolean {
+  return value !== undefined && (
+    ATTACHMENT_ID_CHARACTER_PATTERN.test(value)
+    || UNICODE_IDENTIFIER_CONTINUATION_PATTERN.test(value)
+    || ZERO_WIDTH_CHARACTER_PATTERN.test(value)
+    || ['/', '\\', '%', '?', '#'].includes(value)
+  );
+}
+
+/**
+ * Finds complete, case-sensitive attachment references embedded in text.
+ *
+ * The returned IDs preserve first-seen order and are de-duplicated. A valid
+ * reference must be bounded as a whole token; valid-looking prefixes of a
+ * longer identifier, URL, encoded token, path, query, or fragment are ignored.
+ */
+export function findAttachmentReferencesInText(text: string): string[] {
+  const ids = new Set<string>();
+  let searchFrom = 0;
+  while (searchFrom < text.length) {
+    const referenceStart = text.indexOf(ATTACHMENT_REFERENCE_PREFIX, searchFrom);
+    if (referenceStart < 0) break;
+    searchFrom = referenceStart + ATTACHMENT_REFERENCE_PREFIX.length;
+    const previous = referenceStart === 0 ? undefined : text[referenceStart - 1];
+    if (preventsWholeAttachmentReferenceBoundary(previous)) continue;
+
+    let idEnd = searchFrom;
+    while (idEnd < text.length && ATTACHMENT_ID_CHARACTER_PATTERN.test(text[idEnd])) idEnd += 1;
+    const id = text.slice(searchFrom, idEnd);
+    if (!ATTACHMENT_ID_PATTERN.test(id) || preventsWholeAttachmentReferenceBoundary(text[idEnd])) continue;
+    ids.add(id);
+  }
+  return [...ids];
 }
 
 export function attachmentReference(id: string): string {
