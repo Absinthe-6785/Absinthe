@@ -17,6 +17,7 @@ const T1 = '2026-07-12T00:00:01.000Z';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const repositories: LocalDatabaseRepository[] = [];
+const toLegacyNotesMigrationStorageId = (migrationSessionId: string) => `k325:legacy-notes:${migrationSessionId}`;
 
 function deleteDatabase(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -81,6 +82,15 @@ async function seedLegacyIndexedDb(values: unknown[]): Promise<void> {
   const tx = db.transaction(LEGACY_NOTES_INDEXED_DB_STORE, 'readwrite');
   for (const value of values) tx.objectStore(LEGACY_NOTES_INDEXED_DB_STORE).put(value);
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); }); db.close();
+}
+function ordinaryMigrationRecord(namespaceKey: string, migrationId: string) {
+  return {
+    namespaceKey, migrationId, sourceDatabase: 'legacy', sourceSchemaVersion: 1,
+    targetDatabase: LOCAL_DATABASE_NAME, targetSchemaVersion: 1, sourceGenerationId: 'generation-1',
+    expectedActiveGenerationId: 'generation-1', targetGenerationId: 'generation-2', phase: 'planned',
+    lastDurableStep: 'none', counts: {}, verificationState: 'pending' as const, rollbackEligibility: true,
+    createdAt: T0, updatedAt: T0,
+  };
 }
 
 beforeEach(async () => {
@@ -163,6 +173,78 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     const source = createLegacyNotesIndexedDbAdapter({ namespaceKey: repository.namespaceKey, ownershipMode: 'authenticated', indexedDB });
     await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'missing-idb', now: T0 }))
       .rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
+  });
+
+  it('coexists with an ordinary migration record using the same logical id', async () => {
+    const repository = await repo(); await repository.createGeneration('generation-2', 'test');
+    const ordinary = ordinaryMigrationRecord(repository.namespaceKey, 'shared-id');
+    await repository.putMigrationState(ordinary);
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'shared-id', now: T0 });
+    expect(captured.migrationId).toBe('shared-id');
+    const rows = await getAllRaw(LOCAL_DATABASE_STORES.migrationState);
+    expect(rows).toContainEqual(ordinary);
+    expect(rows).toContainEqual(expect.objectContaining({
+      kind: 'legacy_notes_migration_v1', migrationId: toLegacyNotesMigrationStorageId('shared-id'),
+      migrationSessionId: 'shared-id',
+    }));
+  });
+
+  it('allows an ordinary migration record after a K-325 record with the same logical id', async () => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'reverse-id', now: T0 });
+    await repository.createGeneration('generation-2', 'test');
+    const ordinary = ordinaryMigrationRecord(repository.namespaceKey, 'reverse-id');
+    await expect(repository.putMigrationState(ordinary)).resolves.toBeUndefined();
+    expect(await repository.getLegacyNotesMigrationSession('reverse-id')).toMatchObject({ migrationId: 'reverse-id' });
+    expect(await getAllRaw(LOCAL_DATABASE_STORES.migrationState)).toContainEqual(ordinary);
+  });
+
+  it('keeps same-id K-325 and ordinary records independent across namespaces', async () => {
+    const left = await repo(); const right = await repo({ ...base, userId: 'user-b' });
+    await left.createGeneration('generation-2', 'test'); await right.createGeneration('generation-2', 'test');
+    await left.putMigrationState(ordinaryMigrationRecord(left.namespaceKey, 'cross-namespace'));
+    await right.putMigrationState(ordinaryMigrationRecord(right.namespaceKey, 'cross-namespace'));
+    const leftSource = adapter(bound(left.namespaceKey, [[A, note(A)]]), left.namespaceKey);
+    const rightSource = adapter(bound(right.namespaceKey, [[B, note(B)]]), right.namespaceKey);
+    await expect(left.captureLegacyNotesMigration(leftSource, { migrationSessionId: 'cross-namespace', now: T0 })).resolves.toBeDefined();
+    await expect(right.captureLegacyNotesMigration(rightSource, { migrationSessionId: 'cross-namespace', now: T0 })).resolves.toBeDefined();
+  });
+
+  it('ignores and preserves malformed unrelated rows during K-325 scans', async () => {
+    const repository = await repo();
+    const unrelated = { namespaceKey: repository.namespaceKey, migrationId: 'unrelated-malformed', kind: 'another_migration_v1', opaque: true };
+    await putRaw(LOCAL_DATABASE_STORES.migrationState, unrelated);
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'safe-session', now: T0 })).resolves.toBeDefined();
+    expect(await getAllRaw(LOCAL_DATABASE_STORES.migrationState)).toContainEqual(unrelated);
+  });
+
+  it.each([
+    ['unprefixed key', (raw: any) => ({ ...raw, migrationId: raw.migrationSessionId })],
+    ['wrong prefix', (raw: any) => ({ ...raw, migrationId: `other:${raw.migrationSessionId}` })],
+    ['mismatched logical id', (raw: any) => ({ ...raw, migrationSessionId: 'different-id' })],
+    ['wrong version', (raw: any) => ({ ...raw, version: 2 })],
+  ])('rejects corrupted K-325 storage identity: %s', async (_label, corrupt) => {
+    const repository = await repo(); const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'corrupt-id', now: T0 });
+    const rows = await getAllRaw(LOCAL_DATABASE_STORES.migrationState);
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState,
+      [repository.namespaceKey, toLegacyNotesMigrationStorageId('corrupt-id')], () => null);
+    await putRaw(LOCAL_DATABASE_STORES.migrationState, corrupt(rows.find(row => row.kind === 'legacy_notes_migration_v1')));
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'new-id', now: T0 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects a wrong discriminator occupying the reserved K-325 key', async () => {
+    const repository = await repo();
+    await putRaw(LOCAL_DATABASE_STORES.migrationState, {
+      namespaceKey: repository.namespaceKey, migrationId: toLegacyNotesMigrationStorageId('occupied'), kind: 'wrong_type',
+    });
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'occupied', now: T0 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 
   it.each([
@@ -324,17 +406,17 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
       }));
     }],
     ['manifest digest mismatch', async (fixture: Awaited<ReturnType<typeof verifiedFixture>>) => {
-      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, 'verified'], value => ({
+      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')], value => ({
         ...value, manifest: { ...value.manifest, manifestDigest: '0'.repeat(64) },
       }));
     }],
     ['missing manifest', async (fixture: Awaited<ReturnType<typeof verifiedFixture>>) => {
-      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, 'verified'], value => ({
+      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')], value => ({
         ...value, manifest: null,
       }));
     }],
     ['stored result mismatch', async (fixture: Awaited<ReturnType<typeof verifiedFixture>>) => {
-      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, 'verified'], value => ({
+      await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')], value => ({
         ...value, result: { ...value.result, liveCount: 0, tombstoneCount: 1 },
       }));
     }],

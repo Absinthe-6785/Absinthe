@@ -44,6 +44,13 @@ placed in diagnostics.
 ## Session and inactive generation
 
 Strict version-1 sessions are stored in the existing `migration_state` store, avoiding a database upgrade.
+K-325 does not share its persisted migration-state identifier space with unrelated migration record types.
+The public logical session ID remains unchanged, while the stored compound key uses the deterministic
+`k325:legacy-notes:<logical-session-id>` identifier. Persisted records bind that storage ID to a separate
+logical session field plus the strict `legacy_notes_migration_v1` discriminator and version. All direct
+lookups derive the prefixed key internally, and namespace scans parse only that discriminator. A malformed
+prefix, mismatched storage/logical ID, discriminator, or version fails closed; unrelated rows with the same
+logical ID coexist without being rewritten, deleted, or reclassified.
 The lifecycle is `capturing -> staged -> verifying -> verified`, with terminal `cancelled` and `failed`
 states. The session contains bounded source identity, counts, digests, target generation identity, manifest,
 result counts, timestamps, and bounded failure codes—never Note payloads, auth state, tokens, cursors, or

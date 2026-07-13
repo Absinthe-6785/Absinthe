@@ -16,6 +16,7 @@ const MAX_LEGACY_MIGRATION_SESSIONS_PER_NAMESPACE = 256;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const ACTIVE_STATUSES = new Set(['capturing', 'staged', 'verifying']);
+const LEGACY_NOTES_MIGRATION_STORAGE_PREFIX = 'k325:legacy-notes:';
 
 export type LegacyNotesOwnershipEvidence =
   | { kind: 'bound'; namespaceKey: string }
@@ -108,6 +109,11 @@ export interface LegacyNotesMigrationSessionV1 {
   verifiedAt: string | null;
 }
 
+interface PersistedLegacyNotesMigrationSessionV1 extends Omit<LegacyNotesMigrationSessionV1, 'migrationId'> {
+  migrationId: string;
+  migrationSessionId: string;
+}
+
 export interface LegacyNotesMigrationOptions { migrationSessionId: string; now?: string }
 export interface LegacyNotesMigrationRuntime {
   db: IDBDatabase;
@@ -162,7 +168,13 @@ function transactionCompletion(transaction: IDBTransaction, operation: string): 
   });
 }
 function abortQuietly(transaction: IDBTransaction): void { try { transaction.abort(); } catch { /* inactive */ } }
-function sessionKey(namespaceKey: string, migrationId: string): [string, string] { return [namespaceKey, migrationId]; }
+function toLegacyNotesMigrationStorageId(migrationSessionId: string): string {
+  if (!SAFE_ID.test(migrationSessionId)) fail('INVALID_LEGACY_MIGRATION', 'migration_session_id');
+  return `${LEGACY_NOTES_MIGRATION_STORAGE_PREFIX}${migrationSessionId}`;
+}
+function sessionKey(namespaceKey: string, migrationSessionId: string): [string, string] {
+  return [namespaceKey, toLegacyNotesMigrationStorageId(migrationSessionId)];
+}
 function generationKey(namespaceKey: string, generationId: string): [string, string] { return [namespaceKey, generationId]; }
 function namespaceMigrationRange(namespaceKey: string): IDBKeyRange {
   return IDBKeyRange.bound([namespaceKey, ''], [namespaceKey, '\uffff']);
@@ -385,27 +397,29 @@ function validateResult(result: LegacyMigrationResultV1, session: LegacyNotesMig
 }
 function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigrationSessionV1 {
   try {
-  const session = value as LegacyNotesMigrationSessionV1;
-  const keys = ['kind', 'version', 'migrationId', 'namespaceKey', 'expectedActiveGenerationId', 'source', 'target',
+  const session = value as PersistedLegacyNotesMigrationSessionV1;
+  const keys = ['kind', 'version', 'migrationId', 'migrationSessionId', 'namespaceKey', 'expectedActiveGenerationId', 'source', 'target',
     'status', 'manifest', 'result', 'failure', 'createdAt', 'updatedAt', 'verifiedAt'];
   const sourceKeys = ['adapter', 'schemaVersion', 'sourceInstanceId', 'ownershipMode', 'capturedAt', 'snapshotDigest', 'entryCount'];
   const targetKeys = ['generationId', 'databaseVersion'];
   const failureValid = session?.failure === null || session?.failure && exactKeys(session.failure, ['code'])
     && ['MIGRATION_SOURCE_CHANGED', 'MIGRATION_CANCELLED', 'CORRUPT_PERSISTED_RECORD'].includes(session.failure.code);
   if (!session || !exactKeys(session, keys) || session.kind !== 'legacy_notes_migration_v1' || session.version !== 1
-    || !SAFE_ID.test(session.migrationId) || session.namespaceKey !== namespaceKey || !SAFE_ID.test(session.expectedActiveGenerationId)
+    || !SAFE_ID.test(session.migrationSessionId)
+    || session.migrationId !== toLegacyNotesMigrationStorageId(session.migrationSessionId)
+    || session.namespaceKey !== namespaceKey || !SAFE_ID.test(session.expectedActiveGenerationId)
     || !session.source || !exactKeys(session.source, sourceKeys) || !SAFE_ID.test(session.source.adapter)
     || !SAFE_ID.test(session.source.sourceInstanceId) || !['authenticated', 'local_only'].includes(session.source.ownershipMode)
     || session.source.schemaVersion !== null && (!Number.isSafeInteger(session.source.schemaVersion) || session.source.schemaVersion < 0)
     || !validTimestamp(session.source.capturedAt) || !HASH.test(session.source.snapshotDigest)
     || !Number.isSafeInteger(session.source.entryCount) || session.source.entryCount < 0
     || !session.target || !exactKeys(session.target, targetKeys) || !SAFE_ID.test(session.target.generationId)
-    || session.target.generationId !== `migration-${session.migrationId}`
+    || session.target.generationId !== `migration-${session.migrationSessionId}`
     || session.target.databaseVersion !== LOCAL_DATABASE_VERSION
     || !['capturing', 'staged', 'verifying', 'verified', 'cancelled', 'failed'].includes(session.status)
     || !failureValid || !validTimestamp(session.createdAt) || !validTimestamp(session.updatedAt)
     || Date.parse(session.updatedAt) < Date.parse(session.createdAt)
-    || session.manifest.migrationSessionId !== session.migrationId || session.manifest.namespaceKey !== namespaceKey
+    || session.manifest.migrationSessionId !== session.migrationSessionId || session.manifest.namespaceKey !== namespaceKey
     || session.manifest.sourceAdapter !== session.source.adapter || session.manifest.sourceSchemaVersion !== session.source.schemaVersion
     || session.manifest.sourceInstanceId !== session.source.sourceInstanceId
     || session.manifest.sourceSnapshotDigest !== session.source.snapshotDigest
@@ -419,10 +433,19 @@ function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigr
   }
   validateManifestIntegrity(session.manifest);
   if (session.result) validateResult(session.result, session);
-  return session;
+  const { migrationId: _storageId, migrationSessionId, ...rest } = session;
+  return { ...rest, migrationId: migrationSessionId };
   } catch {
     fail('CORRUPT_PERSISTED_RECORD', 'legacy_migration_session');
   }
+}
+
+function toPersistedSession(session: LegacyNotesMigrationSessionV1): PersistedLegacyNotesMigrationSessionV1 {
+  return {
+    ...session,
+    migrationId: toLegacyNotesMigrationStorageId(session.migrationId),
+    migrationSessionId: session.migrationId,
+  };
 }
 
 async function readSessionRecord(runtime: LegacyNotesMigrationRuntime, migrationId: string): Promise<LegacyNotesMigrationSessionV1 | null> {
@@ -513,12 +536,14 @@ export async function captureLegacyNotesMigration(
     validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
     const all = await requestResult(store.getAll(namespaceMigrationRange(runtime.namespaceKey))) as unknown[];
-    if (all.length > MAX_LEGACY_MIGRATION_SESSIONS_PER_NAMESPACE) {
-      fail('MIGRATION_SESSION_CONFLICT', 'capture_legacy_notes_migration');
-    }
     const sessions: LegacyNotesMigrationSessionV1[] = [];
     for (const value of all) {
       if ((value as { kind?: unknown })?.kind === 'legacy_notes_migration_v1') sessions.push(persistedSession(value, runtime.namespaceKey));
+    }
+    const persistedId = toLegacyNotesMigrationStorageId(options.migrationSessionId);
+    const occupiedStorageKey = all.find(value => (value as { migrationId?: unknown })?.migrationId === persistedId);
+    if (occupiedStorageKey && (occupiedStorageKey as { kind?: unknown }).kind !== 'legacy_notes_migration_v1') {
+      fail('CORRUPT_PERSISTED_RECORD', 'capture_legacy_notes_migration');
     }
     const sameId = sessions.find(session => session.migrationId === options.migrationSessionId);
     if (sameId) {
@@ -532,6 +557,9 @@ export async function captureLegacyNotesMigration(
       && session.status !== 'cancelled' && session.status !== 'failed');
     if (identical) { await done; return identical; }
     if (sessions.some(session => ACTIVE_STATUSES.has(session.status))) fail('MIGRATION_SESSION_CONFLICT', 'capture_legacy_notes_migration');
+    if (sessions.length >= MAX_LEGACY_MIGRATION_SESSIONS_PER_NAMESPACE) {
+      fail('MIGRATION_SESSION_CONFLICT', 'capture_legacy_notes_migration');
+    }
     const session: LegacyNotesMigrationSessionV1 = {
       kind: 'legacy_notes_migration_v1', version: 1, migrationId: options.migrationSessionId,
       namespaceKey: runtime.namespaceKey, expectedActiveGenerationId: meta.activeGenerationId,
@@ -544,7 +572,7 @@ export async function captureLegacyNotesMigration(
       status: 'capturing', manifest: plan.manifest, result: null, failure: null,
       createdAt: at, updatedAt: at, verifiedAt: null,
     };
-    persistedSession(session, runtime.namespaceKey); store.add(session); await done; return session;
+    persistedSession(toPersistedSession(session), runtime.namespaceKey); store.add(toPersistedSession(session)); await done; return session;
   } catch (error) {
     abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'capture_legacy_notes_migration');
   }
@@ -601,7 +629,7 @@ async function stageLegacyNotesMigration(
     const entities = tx.objectStore(LOCAL_DATABASE_STORES.entities);
     for (const entity of plan.entities) entities.add(entity);
     const staged: LegacyNotesMigrationSessionV1 = { ...session, status: 'staged', updatedAt: session.createdAt };
-    persistedSession(staged, runtime.namespaceKey); store.put(staged); await done; return staged;
+    persistedSession(toPersistedSession(staged), runtime.namespaceKey); store.put(toPersistedSession(staged)); await done; return staged;
   } catch (error) {
     abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'stage_legacy_notes_migration');
   }
@@ -618,7 +646,7 @@ async function markSourceChanged(runtime: LegacyNotesMigrationRuntime, session: 
     const failed: LegacyNotesMigrationSessionV1 = {
       ...current, status: 'failed', result: null, failure: { code: 'MIGRATION_SOURCE_CHANGED' }, updatedAt: at, verifiedAt: null,
     };
-    persistedSession(failed, runtime.namespaceKey); store.put(failed); await done;
+    persistedSession(toPersistedSession(failed), runtime.namespaceKey); store.put(toPersistedSession(failed)); await done;
   } catch (error) { abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'fail_legacy_migration'); }
 }
 
@@ -645,7 +673,7 @@ export async function verifyLegacyNotesMigration(
       const current = persistedSession(raw, runtime.namespaceKey);
       if (!['staged', 'verifying'].includes(current.status)) fail('MIGRATION_SESSION_CONFLICT', 'begin_legacy_verification');
       session = { ...current, status: 'verifying', updatedAt: verifiedAt };
-      persistedSession(session, runtime.namespaceKey); store.put(session); await done;
+      persistedSession(toPersistedSession(session), runtime.namespaceKey); store.put(toPersistedSession(session)); await done;
     } catch (error) { abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'begin_legacy_verification'); }
   }
   const before = await buildPlan(runtime, adapter, session.migrationId, session.target.generationId, session.createdAt);
@@ -681,7 +709,7 @@ export async function verifyLegacyNotesMigration(
     const completed: LegacyNotesMigrationSessionV1 = {
       ...current, status: 'verified', result, failure: null, updatedAt: verifiedAt, verifiedAt: result.verifiedAt,
     };
-    persistedSession(completed, runtime.namespaceKey); store.put(completed); await done; return result;
+    persistedSession(toPersistedSession(completed), runtime.namespaceKey); store.put(toPersistedSession(completed)); await done; return result;
   } catch (error) { abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'complete_legacy_verification'); }
 }
 
@@ -731,6 +759,6 @@ export async function cancelLegacyNotesMigration(
       ...current, status: 'cancelled', result: null, failure: { code: 'MIGRATION_CANCELLED' },
       updatedAt: cancelledAt, verifiedAt: null,
     };
-    persistedSession(cancelled, runtime.namespaceKey); store.put(cancelled); await done; return cancelled;
+    persistedSession(toPersistedSession(cancelled), runtime.namespaceKey); store.put(toPersistedSession(cancelled)); await done; return cancelled;
   } catch (error) { abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, 'cancel_legacy_notes_migration'); }
 }
