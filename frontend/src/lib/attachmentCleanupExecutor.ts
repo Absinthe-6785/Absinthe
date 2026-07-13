@@ -3,10 +3,11 @@ import {
   type AttachmentCleanupReviewCandidate,
   type AttachmentCleanupReviewReport,
 } from './attachmentCleanupReview';
-import type {
-  AttachmentMetadata,
-  AttachmentRepository,
-  BlobStorageAdapter,
+import {
+  findAttachmentReferencesInText,
+  type AttachmentMetadata,
+  type AttachmentRepository,
+  type BlobStorageAdapter,
 } from './attachmentRepository';
 import type { EmbeddedAttachmentMigrationNote } from './embeddedAttachmentMigration';
 
@@ -166,9 +167,14 @@ function addResult(report: AttachmentCleanupExecutorReport, result: AttachmentCl
   }
 }
 
-function noteReferencesAttachment(notes: readonly EmbeddedAttachmentMigrationNote[], attachmentId: string): boolean {
-  const pattern = new RegExp(`\\battachment://${attachmentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
-  return notes.some(note => pattern.test(note.body ?? '') || pattern.test(note.content ?? ''));
+function currentAttachmentReferenceSet(notes: readonly EmbeddedAttachmentMigrationNote[]): ReadonlySet<string> {
+  const references = new Set<string>();
+  for (const note of notes) {
+    for (const text of [note.body ?? '', note.content ?? '']) {
+      for (const attachmentId of findAttachmentReferencesInText(text)) references.add(attachmentId);
+    }
+  }
+  return references;
 }
 
 async function deleteBlobCandidate(input: {
@@ -242,7 +248,7 @@ async function deleteMetadataCandidate(input: {
   candidateId: string;
   candidate: EligibleCleanupCandidate;
   report: AttachmentCleanupExecutorReport;
-  notes: readonly EmbeddedAttachmentMigrationNote[];
+  currentAttachmentReferences: ReadonlySet<string>;
   repository: AttachmentRepository;
 }): Promise<void> {
   const attachmentId = input.candidate.attachmentId;
@@ -256,7 +262,7 @@ async function deleteMetadataCandidate(input: {
     return;
   }
 
-  if (noteReferencesAttachment(input.notes, attachmentId)) {
+  if (input.currentAttachmentReferences.has(attachmentId)) {
     addResult(input.report, {
       candidateId: input.candidateId,
       candidateType: input.candidate.type,
@@ -354,6 +360,7 @@ export async function executeAttachmentCleanup(
   });
   const currentCandidates = candidateMaps(currentReview);
   const currentAttachments = await input.repository.listAttachments();
+  const currentAttachmentReferences = currentAttachmentReferenceSet(input.notes);
 
   for (const candidateId of input.selectedCandidateIds) {
     const candidate = originalCandidates.get(candidateId);
@@ -408,7 +415,7 @@ export async function executeAttachmentCleanup(
         candidateId,
         candidate,
         report,
-        notes: input.notes,
+        currentAttachmentReferences,
         repository: input.repository,
       });
     }

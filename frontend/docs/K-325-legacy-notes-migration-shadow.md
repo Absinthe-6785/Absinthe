@@ -85,6 +85,9 @@ grammar. It de-duplicates recognized IDs without locale-sensitive ordering; K-32
 comparator before hashing the set. Embedded schemes, URL-path substrings, valid-looking prefixes of malformed
 percent-encoded/path/query/fragment tokens, encoded or escaped schemes, and identifiers truncated at Unicode
 or zero-width continuations are not attachment references. They remain ordinary, byte-preserved body text.
+Cleanup review and cleanup execution use this same parser. Execution still rebuilds the review from the
+current Note input and independently aggregates its current recognized references before any selected
+metadata deletion, but it does not reinterpret bodies with a second regex or accept a truncated prefix.
 The full source-record and target-entity digests independently bind that complete body, so changing any such
 text is still detected even when the recognized reference set remains empty. A syntactically valid reference
 does not require local metadata or a blob to exist: K-325 reads neither store and never claims either asset was
