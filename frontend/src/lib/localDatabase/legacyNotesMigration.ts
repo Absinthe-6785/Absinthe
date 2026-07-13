@@ -226,24 +226,24 @@ function validateAdapter(runtime: LegacyNotesMigrationRuntime, adapter: LegacyNo
 function stringRecord(value: unknown, operation: string): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', operation);
-  const result: Record<string, string> = {};
+  const entries: Array<[string, string]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (!key.trim() || typeof item !== 'string') fail('INVALID_LEGACY_MIGRATION', operation);
-    result[key] = item;
+    entries.push([key, item]);
   }
-  return Object.keys(result).length > 0 ? result : undefined;
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 function relationsRecord(value: unknown): Record<string, string[]> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', 'legacy_relations');
-  const result: Record<string, string[]> = {};
+  const entries: Array<[string, string[]]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (!key.trim() || !Array.isArray(item) || item.some(candidate => typeof candidate !== 'string')) {
       fail('INVALID_LEGACY_MIGRATION', 'legacy_relations');
     }
-    result[key] = [...item];
+    entries.push([key, [...item]]);
   }
-  return Object.keys(result).length > 0 ? result : undefined;
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 function supportedLegacyNote(value: unknown): SupportedLegacyNote {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', 'legacy_note_shape');

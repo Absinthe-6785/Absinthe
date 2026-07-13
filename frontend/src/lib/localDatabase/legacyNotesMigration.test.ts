@@ -37,6 +37,19 @@ function note(id: string, overrides: Record<string, unknown> = {}): Record<strin
     properties: { tags: 'safe' }, relations: { links: [A] }, ...overrides,
   };
 }
+function ownEnumerableRecord<T>(entries: Array<[string, T]>): Record<string, T> {
+  const result: Record<string, T> = {};
+  for (const [key, value] of entries) {
+    Object.defineProperty(result, key, { value, enumerable: true, writable: true, configurable: true });
+  }
+  return result;
+}
+function expectOwnDataProperty<T>(record: Record<string, T>, key: string, value: T): void {
+  expect(Object.prototype.hasOwnProperty.call(record, key)).toBe(true);
+  expect(Object.getOwnPropertyDescriptor(record, key)).toMatchObject({
+    value, enumerable: true, writable: true, configurable: true,
+  });
+}
 interface MutableAdapter extends LegacyNotesSourceAdapter { records: LegacyNotesSourceRecord[]; captures: number }
 function adapter(records: LegacyNotesSourceRecord[], namespaceKey: string, mode: 'authenticated' | 'local_only' = 'authenticated'): MutableAdapter {
   const value: MutableAdapter = {
@@ -142,6 +155,144 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     });
     const session = await repository.getLegacyNotesMigrationSession('mixed');
     expect(session?.manifest.entries[0].attachmentReferenceDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('preserves special, ordinary, case-distinct, and Unicode metadata keys through the full lifecycle', async () => {
+    const properties = ownEnumerableRecord([
+      ['__proto__', 'property-proto'], ['constructor', 'property-constructor'], ['prototype', 'property-prototype'],
+      ['ordinary', 'ordinary-value'], ['7', 'numeric-value'], ['punctuation:key', 'punctuation-value'],
+      ['Case', 'upper-value'], ['case', 'lower-value'], ['한글', 'korean-value'],
+      ['é', 'composed-value'], ['e\u0301', 'decomposed-value'],
+    ]);
+    const relations = ownEnumerableRecord([
+      ['__proto__', [A]], ['constructor', [B, A]], ['prototype', []], ['ordinary', [A, B]],
+      ['한글', ['관련']], ['é', ['composed']], ['e\u0301', ['decomposed']],
+    ]);
+    const objectPrototypeBefore = Object.getOwnPropertyNames(Object.prototype);
+    const arrayPrototypeBefore = Object.getOwnPropertyNames(Array.prototype);
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A, { properties, relations })]]), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'special-metadata', now: T0 });
+    expect(captured.source.entryCount).toBe(1);
+    const staged = await repository.resumeLegacyNotesMigration(source, 'special-metadata', T1) as LegacyNotesMigrationSessionV1;
+    const [persisted] = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(entity => entity.generationId === staged.target.generationId);
+    expect(Object.getPrototypeOf(persisted.record.properties)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(persisted.record.relations)).toBe(Object.prototype);
+    expect(Object.keys(persisted.record.properties).sort(compareCanonicalStrings))
+      .toEqual(Object.keys(properties).sort(compareCanonicalStrings));
+    expect(Object.keys(persisted.record.relations).sort(compareCanonicalStrings))
+      .toEqual(Object.keys(relations).sort(compareCanonicalStrings));
+    for (const [key, value] of Object.entries(properties)) expectOwnDataProperty(persisted.record.properties, key, value);
+    for (const [key, value] of Object.entries(relations)) expectOwnDataProperty(persisted.record.relations, key, value);
+    expect(Object.getOwnPropertyNames(Object.prototype)).toEqual(objectPrototypeBefore);
+    expect(Object.getOwnPropertyNames(Array.prototype)).toEqual(arrayPrototypeBefore);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(([] as unknown as Record<string, unknown>).polluted).toBeUndefined();
+    const verified = await repository.verifyLegacyNotesMigration(source, 'special-metadata', T1);
+    await expect(repository.resumeLegacyNotesMigration(source, 'special-metadata', T1)).resolves.toEqual(verified);
+  });
+
+  it('binds special metadata keys and values into source, manifest, and target digests', async () => {
+    const repository = await repo();
+    const firstProperties = ownEnumerableRecord([['__proto__', 'first'], ['ordinary', 'same']]);
+    const firstRelations = ownEnumerableRecord([['__proto__', [A]], ['ordinary', [B]]]);
+    const firstSource = adapter(bound(repository.namespaceKey, [[A, note(A, {
+      properties: firstProperties, relations: firstRelations,
+    })]]), repository.namespaceKey);
+    const first = await repository.captureLegacyNotesMigration(firstSource, { migrationSessionId: 'special-digest-a', now: T0 });
+    await repository.cancelLegacyNotesMigration('special-digest-a', T1);
+    const secondProperties = ownEnumerableRecord([['__proto__', 'second'], ['ordinary', 'same']]);
+    const secondRelations = ownEnumerableRecord([['__proto__', [A, B]], ['ordinary', [B]]]);
+    const secondSource = adapter(bound(repository.namespaceKey, [[A, note(A, {
+      properties: secondProperties, relations: secondRelations,
+    })]]), repository.namespaceKey);
+    const second = await repository.captureLegacyNotesMigration(secondSource, { migrationSessionId: 'special-digest-b', now: T0 });
+    expect(second.source.snapshotDigest).not.toBe(first.source.snapshotDigest);
+    expect(second.manifest.entries[0].sourceRecordDigest).not.toBe(first.manifest.entries[0].sourceRecordDigest);
+    expect(second.manifest.entries[0].targetEntityDigest).not.toBe(first.manifest.entries[0].targetEntityDigest);
+    expect(second.manifest.targetStateDigest).not.toBe(first.manifest.targetStateDigest);
+    expect(second.manifest.manifestDigest).not.toBe(first.manifest.manifestDigest);
+  });
+
+  it.each([
+    ['remove properties.__proto__', (record: any) => {
+      record.properties = Object.fromEntries(Object.entries(record.properties).filter(([key]) => key !== '__proto__'));
+    }],
+    ['change properties.__proto__', (record: any) => {
+      record.properties = Object.fromEntries(Object.entries(record.properties).map(([key, value]) =>
+        [key, key === '__proto__' ? 'changed' : value]));
+    }],
+    ['remove relations.__proto__', (record: any) => {
+      record.relations = Object.fromEntries(Object.entries(record.relations).filter(([key]) => key !== '__proto__'));
+    }],
+    ['change relations.__proto__', (record: any) => {
+      record.relations = Object.fromEntries(Object.entries(record.relations).map(([key, value]) =>
+        [key, key === '__proto__' ? [B] : value]));
+    }],
+    ['convert properties.__proto__ to an inherited property', (record: any) => {
+      const inherited = ownEnumerableRecord([['__proto__', 'preserved']]);
+      const replacement = Object.create(inherited) as Record<string, string>;
+      Object.defineProperty(replacement, 'ordinary', {
+        value: record.properties.ordinary, enumerable: true, writable: true, configurable: true,
+      });
+      record.properties = replacement;
+    }],
+  ] as const)('rejects verified target tampering that would %s', async (_label, tamper) => {
+    const repository = await repo();
+    const properties = ownEnumerableRecord([['__proto__', 'preserved'], ['ordinary', 'safe']]);
+    const relations = ownEnumerableRecord([['__proto__', [A]], ['ordinary', [B]]]);
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A, { properties, relations })]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'special-tamper', now: T0 });
+    const staged = await repository.resumeLegacyNotesMigration(source, 'special-tamper', T1) as LegacyNotesMigrationSessionV1;
+    await repository.verifyLegacyNotesMigration(source, 'special-tamper', T1);
+    await mutateRaw(LOCAL_DATABASE_STORES.entities,
+      [repository.namespaceKey, staged.target.generationId, 'notes', A], value => {
+        const record = { ...value.record }; tamper(record); return { ...value, record };
+      });
+    await expect(repository.resumeLegacyNotesMigration(source, 'special-tamper', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it('rejects special metadata tampering after staging and before initial verification', async () => {
+    const repository = await repo();
+    const properties = ownEnumerableRecord([['__proto__', 'preserved']]);
+    const relations = ownEnumerableRecord([['__proto__', [A]]]);
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A, { properties, relations })]]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'special-staged-tamper', now: T0 });
+    const staged = await repository.resumeLegacyNotesMigration(source, 'special-staged-tamper', T1) as LegacyNotesMigrationSessionV1;
+    await mutateRaw(LOCAL_DATABASE_STORES.entities,
+      [repository.namespaceKey, staged.target.generationId, 'notes', A], value => ({
+        ...value,
+        record: {
+          ...value.record,
+          properties: Object.fromEntries(Object.entries(value.record.properties).map(([key, item]) =>
+            [key, key === '__proto__' ? 'changed-before-verify' : item])),
+        },
+      }));
+    await expect(repository.verifyLegacyNotesMigration(source, 'special-staged-tamper', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it.each([
+    ['invalid properties', { properties: ownEnumerableRecord([['__proto__', { unsafe: true }]]) }],
+    ['invalid relations', { relations: ownEnumerableRecord([['__proto__', ['valid', 42]]]) }],
+    ['sparse relations', { relations: ownEnumerableRecord([['__proto__', new Array(1)]]) }],
+  ])('rejects the whole snapshot for %s without partial durable state', async (_label, overrides) => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [
+      [A, note(A)], [B, note(B, overrides)],
+    ]), repository.namespaceKey);
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'invalid-special', now: T0 }))
+      .rejects.toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .filter(row => row.kind === 'legacy_notes_migration_v1')).toEqual([]);
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.generations))
+      .filter(row => row.creationReason === 'migration')).toEqual([]);
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(row => row.generationId.startsWith('migration-'))).toEqual([]);
   });
 
   it('uses one canonical order for case-distinct and Unicode IDs through verification', async () => {

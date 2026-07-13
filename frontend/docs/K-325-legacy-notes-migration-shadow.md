@@ -23,6 +23,16 @@ relations. The older supported variant lacks `createdAt`; conversion determinist
 its creation time. A numeric non-null `deletedAt` is a tombstone. Unknown fields and malformed values fail
 closed instead of being silently discarded.
 
+Validated property and relation names are preserved as exact enumerable own data properties. Construction
+uses `Object.fromEntries` rather than assignment through an untrusted key, so `__proto__`, `constructor`, and
+`prototype` remain ordinary own keys without replacing or mutating an object prototype. Ordinary,
+case-distinct, numeric-looking, punctuation, and Unicode keys receive the same lossless treatment; no key is
+trimmed, normalized, inherited, or silently omitted. Empty metadata objects retain the existing absent-field
+normalization, while any malformed metadata value rejects the complete source snapshot. Special metadata
+keys and values participate in the normalized source record, snapshot and source-record digests, manifest,
+staged target entity and target-state digest, exact verification, and verified retry. K-325 performs no
+compatibility repair or key-dropping fallback.
+
 The following are deliberately outside this migration:
 
 - folder and active-note localStorage keys;
