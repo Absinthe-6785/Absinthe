@@ -51,6 +51,11 @@ logical session field plus the strict `legacy_notes_migration_v1` discriminator 
 lookups derive the prefixed key internally, and namespace scans parse only that discriminator. A malformed
 prefix, mismatched storage/logical ID, discriminator, or version fails closed; unrelated rows with the same
 logical ID coexist without being rewritten, deleted, or reclassified.
+The `k325:legacy-notes:` prefix is reserved exclusively for internal persisted storage IDs. Public callers
+never pass or receive storage IDs: logical IDs beginning with the reserved prefix, including prefix-only and
+double-prefixed values, fail as `INVALID_LEGACY_MIGRATION` before any durable write or lookup. Ordinary
+colon-containing logical IDs remain supported. A malformed persisted prefix or storage/logical relationship
+is persisted-state corruption and continues to fail as `CORRUPT_PERSISTED_RECORD`.
 The lifecycle is `capturing -> staged -> verifying -> verified`, with terminal `cancelled` and `failed`
 states. The session contains bounded source identity, counts, digests, target generation identity, manifest,
 result counts, timestamps, and bounded failure codes—never Note payloads, auth state, tokens, cursors, or

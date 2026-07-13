@@ -168,9 +168,14 @@ function transactionCompletion(transaction: IDBTransaction, operation: string): 
   });
 }
 function abortQuietly(transaction: IDBTransaction): void { try { transaction.abort(); } catch { /* inactive */ } }
+function validateLegacyMigrationLogicalId(value: unknown): string {
+  if (typeof value !== 'string' || !SAFE_ID.test(value) || value.startsWith(LEGACY_NOTES_MIGRATION_STORAGE_PREFIX)) {
+    fail('INVALID_LEGACY_MIGRATION', 'migration_session_id');
+  }
+  return value;
+}
 function toLegacyNotesMigrationStorageId(migrationSessionId: string): string {
-  if (!SAFE_ID.test(migrationSessionId)) fail('INVALID_LEGACY_MIGRATION', 'migration_session_id');
-  return `${LEGACY_NOTES_MIGRATION_STORAGE_PREFIX}${migrationSessionId}`;
+  return `${LEGACY_NOTES_MIGRATION_STORAGE_PREFIX}${validateLegacyMigrationLogicalId(migrationSessionId)}`;
 }
 function sessionKey(namespaceKey: string, migrationSessionId: string): [string, string] {
   return [namespaceKey, toLegacyNotesMigrationStorageId(migrationSessionId)];
@@ -523,7 +528,7 @@ export async function captureLegacyNotesMigration(
   runtime: LegacyNotesMigrationRuntime, adapter: LegacyNotesSourceAdapter, options: LegacyNotesMigrationOptions,
 ): Promise<LegacyNotesMigrationSessionV1> {
   runtime.assertOpen('capture_legacy_notes_migration'); validateAdapter(runtime, adapter);
-  if (!SAFE_ID.test(options.migrationSessionId)) fail('INVALID_LEGACY_MIGRATION', 'migration_session_id');
+  validateLegacyMigrationLogicalId(options.migrationSessionId);
   const at = timestamp(options.now ?? runtime.clock(), 'capture_legacy_notes_migration');
   const targetGenerationId = `migration-${options.migrationSessionId}`;
   if (!SAFE_ID.test(targetGenerationId)) fail('INVALID_LEGACY_MIGRATION', 'migration_generation_id');
@@ -654,6 +659,7 @@ export async function verifyLegacyNotesMigration(
   runtime: LegacyNotesMigrationRuntime, adapter: LegacyNotesSourceAdapter, migrationId: string, at?: string,
 ): Promise<LegacyMigrationResultV1> {
   runtime.assertOpen('verify_legacy_notes_migration'); validateAdapter(runtime, adapter);
+  validateLegacyMigrationLogicalId(migrationId);
   const verifiedAt = timestamp(at ?? runtime.clock(), 'verify_legacy_notes_migration');
   let session = await readSessionRecord(runtime, migrationId);
   if (!session) fail('MIGRATION_SESSION_CONFLICT', 'verify_legacy_notes_migration');
@@ -716,7 +722,7 @@ export async function verifyLegacyNotesMigration(
 export async function resumeLegacyNotesMigration(
   runtime: LegacyNotesMigrationRuntime, adapter: LegacyNotesSourceAdapter, migrationId: string, at?: string,
 ): Promise<LegacyNotesMigrationSessionV1 | LegacyMigrationResultV1> {
-  runtime.assertOpen('resume_legacy_notes_migration');
+  runtime.assertOpen('resume_legacy_notes_migration'); validateLegacyMigrationLogicalId(migrationId);
   let session = await readSessionRecord(runtime, migrationId);
   if (!session) fail('MIGRATION_SESSION_CONFLICT', 'resume_legacy_notes_migration');
   if (session.status === 'capturing') return stageLegacyNotesMigration(runtime, adapter, session);
@@ -727,7 +733,7 @@ export async function getLegacyNotesMigrationSession(
   runtime: LegacyNotesMigrationRuntime, migrationId: string,
 ): Promise<LegacyNotesMigrationSessionV1 | null> {
   runtime.assertOpen('get_legacy_notes_migration');
-  if (!SAFE_ID.test(migrationId)) fail('INVALID_LEGACY_MIGRATION', 'get_legacy_notes_migration');
+  validateLegacyMigrationLogicalId(migrationId);
   const session = await readSessionRecord(runtime, migrationId);
   if (session && ['staged', 'verifying', 'verified'].includes(session.status)) {
     const durable = await validateDurableTarget(runtime, session);
@@ -743,7 +749,8 @@ export async function getLegacyNotesMigrationSession(
 export async function cancelLegacyNotesMigration(
   runtime: LegacyNotesMigrationRuntime, migrationId: string, at?: string,
 ): Promise<LegacyNotesMigrationSessionV1> {
-  runtime.assertOpen('cancel_legacy_notes_migration'); const cancelledAt = timestamp(at ?? runtime.clock(), 'cancel_legacy_notes_migration');
+  runtime.assertOpen('cancel_legacy_notes_migration'); validateLegacyMigrationLogicalId(migrationId);
+  const cancelledAt = timestamp(at ?? runtime.clock(), 'cancel_legacy_notes_migration');
   const session = await getLegacyNotesMigrationSession(runtime, migrationId);
   if (!session) fail('MIGRATION_SESSION_CONFLICT', 'cancel_legacy_notes_migration');
   if (session.status === 'cancelled') return session;

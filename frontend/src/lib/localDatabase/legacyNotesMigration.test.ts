@@ -248,6 +248,102 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
   });
 
   it.each([
+    'k325:legacy-notes:public-id',
+    'k325:legacy-notes:',
+    'k325:legacy-notes:k325:legacy-notes:public-id',
+  ])('rejects reserved public logical id %s without durable side effects', async migrationSessionId => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const stores = [
+      LOCAL_DATABASE_STORES.migrationState, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+      LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints,
+    ];
+    const before = await Promise.all(stores.map(getAllRaw));
+    await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId, now: T0 }))
+      .rejects.toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
+    const after = await Promise.all(stores.map(getAllRaw));
+    expect(after).toEqual(before);
+    expect(after[0].some(row => String(row.migrationId).includes('k325:legacy-notes:k325:legacy-notes:'))).toBe(false);
+  });
+
+  it.each(['get', 'resume', 'verify', 'cancel'] as const)(
+    'rejects a reserved public logical id before %s lookup or transition', async operation => {
+      const repository = await repo();
+      const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+      const reserved = 'k325:legacy-notes:public-id';
+      const action = operation === 'get'
+        ? repository.getLegacyNotesMigrationSession(reserved)
+        : operation === 'resume'
+          ? repository.resumeLegacyNotesMigration(source, reserved, T1)
+          : operation === 'verify'
+            ? repository.verifyLegacyNotesMigration(source, reserved, T1)
+            : repository.cancelLegacyNotesMigration(reserved, T1);
+      await expect(action).rejects.toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
+      expect(await getAllRaw(LOCAL_DATABASE_STORES.migrationState)).toEqual([]);
+    },
+  );
+
+  it.each([
+    'public-id', 'public:id', 'k325', 'legacy-notes', 'legacy-notes:public-id',
+    'K325:legacy-notes:public-id', 'xk325:legacy-notes:public-id',
+  ])('preserves valid public logical id %s', async (migrationSessionId, index) => {
+    const repository = await repo({ ...base, userId: `valid-user-${index}` });
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId, now: T0 });
+    expect(captured.migrationId).toBe(migrationSessionId);
+    const rows = await getAllRaw(LOCAL_DATABASE_STORES.migrationState);
+    expect(rows).toContainEqual(expect.objectContaining({
+      namespaceKey: repository.namespaceKey,
+      migrationId: toLegacyNotesMigrationStorageId(migrationSessionId),
+      migrationSessionId,
+    }));
+  });
+
+  it('keeps concurrent exact capture idempotent and bounded', async () => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const [left, right] = await Promise.all([
+      repository.captureLegacyNotesMigration(source, { migrationSessionId: 'concurrent-same', now: T0 }),
+      repository.captureLegacyNotesMigration(source, { migrationSessionId: 'concurrent-same', now: T0 }),
+    ]);
+    expect(left).toEqual(right);
+    const rows = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .filter(row => row.kind === 'legacy_notes_migration_v1' && row.namespaceKey === repository.namespaceKey);
+    expect(rows).toHaveLength(1);
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.generations)).filter(row => row.creationReason === 'migration')).toEqual([]);
+  });
+
+  it('keeps competing valid captures to one nonterminal session', async () => {
+    const repository = await repo();
+    const left = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const right = adapter(bound(repository.namespaceKey, [[B, note(B)]]), repository.namespaceKey);
+    const results = await Promise.allSettled([
+      repository.captureLegacyNotesMigration(left, { migrationSessionId: 'concurrent-left', now: T0 }),
+      repository.captureLegacyNotesMigration(right, { migrationSessionId: 'concurrent-right', now: T0 }),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect((results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason)
+      .toMatchObject({ code: 'MIGRATION_SESSION_CONFLICT' });
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.migrationState)).filter(row => row.kind === 'legacy_notes_migration_v1')).toHaveLength(1);
+  });
+
+  it('rejects reserved capture concurrently without blocking a valid capture', async () => {
+    const repository = await repo();
+    const source = adapter(bound(repository.namespaceKey, [[A, note(A)]]), repository.namespaceKey);
+    const [invalid, valid] = await Promise.allSettled([
+      repository.captureLegacyNotesMigration(source, { migrationSessionId: 'k325:legacy-notes:invalid', now: T0 }),
+      repository.captureLegacyNotesMigration(source, { migrationSessionId: 'concurrent-valid', now: T0 }),
+    ]);
+    expect(invalid.status).toBe('rejected');
+    expect((invalid as PromiseRejectedResult).reason).toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
+    expect(valid).toMatchObject({ status: 'fulfilled', value: { migrationId: 'concurrent-valid' } });
+    const rows = await getAllRaw(LOCAL_DATABASE_STORES.migrationState);
+    expect(rows.filter(row => row.kind === 'legacy_notes_migration_v1')).toHaveLength(1);
+    expect(rows.some(row => String(row.migrationId).includes('k325:legacy-notes:k325:legacy-notes:'))).toBe(false);
+  });
+
+  it.each([
     ['foreign ownership', (namespaceKey: string) => [{ legacyKey: A, value: note(A), ownership: { kind: 'foreign' as const } }]],
     ['ambiguous ownership', (namespaceKey: string) => [{ legacyKey: A, value: note(A), ownership: { kind: 'ambiguous' as const } }]],
     ['wrong bound namespace', (namespaceKey: string) => [{ legacyKey: A, value: note(A), ownership: { kind: 'bound' as const, namespaceKey: `${namespaceKey}x` } }]],
