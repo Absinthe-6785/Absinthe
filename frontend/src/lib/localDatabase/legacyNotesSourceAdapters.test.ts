@@ -72,11 +72,46 @@ async function rawAuthorityMutation(
   });
   const tx = db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
   const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
-  const key: [string, string] = [LEGACY_NOTES_AUTHORITY_NAMESPACE, `source:${record.sourceIdentityDigest}`];
+  const key: [string, string] = [LEGACY_NOTES_AUTHORITY_NAMESPACE, `authority:${record.authorityId}`];
   const get = store.get(key);
   get.onsuccess = () => {
     const next = transform(get.result); if (next === null) store.delete(key); else store.put(next);
   };
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+async function rawRootMutation(
+  record: LegacyNotesSourceAuthorityRecordV1, transform: (value: any) => any | null,
+): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  const tx = db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
+  const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+  const key: [string, string] = [LEGACY_NOTES_AUTHORITY_NAMESPACE, `root:${record.externalRootDigest}`];
+  const get = store.get(key);
+  get.onsuccess = () => {
+    const next = transform(get.result); if (next === null) store.delete(key); else store.put(next);
+  };
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+async function rawSessionMutation(
+  namespaceKey: string, migrationId: string, transform: (value: any) => any,
+): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  const tx = db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite');
+  const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+  const request = store.get([namespaceKey, `k325:legacy-notes:${migrationId}`]);
+  request.onsuccess = () => store.put(transform(request.result));
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
   });
@@ -147,7 +182,7 @@ describe('K-325E durable legacy source authority', () => {
     await expect(authority(repository, { authorityId: 'different-authority' }))
       .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_CONFLICT' });
     await expect(authority(repository, { sourceIdentityId: 'different-physical-source' }))
-      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+      .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_CONFLICT' });
     expect((await migrationRows()).filter(row => row.kind === 'legacy_notes_source_authority_v1')).toHaveLength(1);
   });
 
@@ -271,7 +306,7 @@ describe('K-325E durable legacy source authority', () => {
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
     await rawAuthorityMutation(bound, () => null);
     await expect(repository.resumeLegacyNotesMigration(source, 'authority-evidence', T1))
-      .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_REQUIRED' });
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
     expect((await targetRows(LOCAL_DATABASE_STORES.generations))
       .filter(row => row.generationId === 'migration-authority-evidence')).toEqual([]);
   });
@@ -307,7 +342,7 @@ describe('K-325E durable legacy source authority', () => {
     const entitiesBefore = await targetRows(LOCAL_DATABASE_STORES.entities);
     await rawAuthorityMutation(bound, () => null);
     await expect(repository.verifyLegacyNotesMigration(source, 'missing-staged', T1))
-      .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_REQUIRED' });
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
     expect(await targetRows(LOCAL_DATABASE_STORES.entities)).toEqual(entitiesBefore);
   });
 
@@ -344,6 +379,94 @@ describe('K-325E durable legacy source authority', () => {
       .filter(row => row.generationId === 'migration-authority-owner');
     expect(entity.ownerId).toBe(bound.userId);
     expect(entity.namespaceKey).toBe(bound.boundNamespaceKey);
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+    expect(await targetRows(LOCAL_DATABASE_STORES.outbox)).toEqual([]);
+    expect(await targetRows(LOCAL_DATABASE_STORES.syncCheckpoints)).toEqual([]);
+  });
+
+  it('keeps revoked sessions inspectable and cancellable without reauthorizing continuation', async () => {
+    await seed(indexedDB as IDBFactory); const repository = await repo(); const bound = await authority(repository);
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-revoked', now: T0 });
+    await repository.revokeLegacyNotesSourceAuthority(bound.authorityId, T1);
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-revoked')).resolves.toMatchObject({
+      lifecycleState: 'capturing', authorityStatus: 'revoked', continuationAllowed: false,
+    });
+    await expect(repository.resumeLegacyNotesMigration(source, 'admin-revoked', T1))
+      .rejects.toMatchObject({ code: 'LEGACY_SOURCE_AUTHORITY_REVOKED' });
+    await expect(repository.cancelLegacyNotesMigration('admin-revoked', T1)).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(repository.cancelLegacyNotesMigration('admin-revoked', T1)).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-revoked')).resolves.toMatchObject({
+      lifecycleState: 'cancelled', authorityStatus: 'revoked', continuationAllowed: false,
+    });
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it('keeps missing-authority staged evidence inspectable and cancellable without reconstruction', async () => {
+    await seed(indexedDB as IDBFactory); const repository = await repo(); const bound = await authority(repository);
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-missing', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'admin-missing', T1);
+    const entitiesBefore = await targetRows(LOCAL_DATABASE_STORES.entities);
+    await rawAuthorityMutation(bound, () => null);
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-missing')).resolves.toMatchObject({
+      lifecycleState: 'staged', authorityStatus: 'missing', continuationAllowed: false,
+    });
+    await expect(repository.cancelLegacyNotesMigration('admin-missing', T1)).resolves.toMatchObject({ status: 'cancelled' });
+    expect(await targetRows(LOCAL_DATABASE_STORES.entities)).toEqual(entitiesBefore);
+    expect((await migrationRows()).filter(row => row.kind === 'legacy_notes_source_authority_v1')).toEqual([]);
+    expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+  });
+
+  it('reports corrupt root evidence boundedly for administration while keeping cancellation available', async () => {
+    await seed(indexedDB as IDBFactory); const repository = await repo(); const bound = await authority(repository);
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-corrupt-root', now: T0 });
+    await rawRootMutation(bound, value => ({ ...value, sourceType: 'localstorage' }));
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-corrupt-root')).resolves.toMatchObject({
+      authorityStatus: 'corrupt', continuationAllowed: false,
+    });
+    await expect(repository.resumeLegacyNotesMigration(source, 'admin-corrupt-root', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repository.cancelLegacyNotesMigration('admin-corrupt-root', T1)).resolves.toMatchObject({ status: 'cancelled' });
+  });
+
+  it('keeps administration namespace-scoped after authority loss', async () => {
+    await seed(indexedDB as IDBFactory); const left = await repo(); const right = await repo({ ...base, userId: 'user-b' });
+    const bound = await authority(left); const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await left.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-namespace', now: T0 });
+    await rawAuthorityMutation(bound, () => null);
+    await expect(right.getLegacyNotesMigrationSessionForAdministration('admin-namespace'))
+      .rejects.toMatchObject({ code: 'MIGRATION_SESSION_CONFLICT' });
+    await expect(right.cancelLegacyNotesMigration('admin-namespace', T1))
+      .rejects.toMatchObject({ code: 'MIGRATION_SESSION_CONFLICT' });
+    await expect(left.cancelLegacyNotesMigration('admin-namespace', T1)).resolves.toMatchObject({ status: 'cancelled' });
+  });
+
+  it('rejects corrupt session evidence for both administration and cancellation', async () => {
+    await seed(indexedDB as IDBFactory); const repository = await repo(); const bound = await authority(repository);
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-corrupt-session', now: T0 });
+    await rawSessionMutation(repository.namespaceKey, 'admin-corrupt-session', value => ({ ...value, status: 'unknown' }));
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-corrupt-session'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repository.cancelLegacyNotesMigration('admin-corrupt-session', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('serializes cancellation with resume and repeated cancellation without target cleanup', async () => {
+    await seed(indexedDB as IDBFactory); const repository = await repo(); const bound = await authority(repository);
+    const source = createLegacyNotesIndexedDbAdapter({ authority: bound, indexedDB, clock: () => T0 });
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'admin-cancel-race', now: T0 });
+    const results = await Promise.allSettled([
+      repository.resumeLegacyNotesMigration(source, 'admin-cancel-race', T1),
+      repository.cancelLegacyNotesMigration('admin-cancel-race', T1),
+      repository.cancelLegacyNotesMigration('admin-cancel-race', T1),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).not.toHaveLength(0);
+    await expect(repository.getLegacyNotesMigrationSessionForAdministration('admin-cancel-race')).resolves.toMatchObject({
+      lifecycleState: 'cancelled', continuationAllowed: false,
+    });
     expect((await repository.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
     expect(await targetRows(LOCAL_DATABASE_STORES.outbox)).toEqual([]);
     expect(await targetRows(LOCAL_DATABASE_STORES.syncCheckpoints)).toEqual([]);

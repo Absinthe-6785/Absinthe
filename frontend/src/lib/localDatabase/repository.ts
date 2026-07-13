@@ -11,10 +11,12 @@ import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_S
 import {
   cancelLegacyNotesMigration as cancelLegacyMigration,
   captureLegacyNotesMigration as captureLegacyMigration,
+  getLegacyNotesMigrationSessionForAdministration as readLegacyMigrationForAdministration,
   getLegacyNotesMigrationSession as readLegacyMigration,
   resumeLegacyNotesMigration as resumeLegacyMigration,
   verifyLegacyNotesMigration as verifyLegacyMigration,
-  type LegacyMigrationResultV1, type LegacyNotesMigrationOptions, type LegacyNotesMigrationSessionV1,
+  type LegacyMigrationResultV1, type LegacyNotesMigrationAdministrativeView,
+  type LegacyNotesMigrationOptions, type LegacyNotesMigrationSessionV1,
   type LegacyNotesMigrationRuntime, type LegacyNotesSourceAdapter,
 } from './legacyNotesMigration';
 import {
@@ -822,6 +824,12 @@ export class LocalDatabaseRepository {
 
   getLegacyNotesMigrationSession(migrationId: string): Promise<LegacyNotesMigrationSessionV1 | null> {
     return readLegacyMigration(this.legacyMigrationRuntime(), migrationId);
+  }
+
+  getLegacyNotesMigrationSessionForAdministration(
+    migrationId: string,
+  ): Promise<LegacyNotesMigrationAdministrativeView> {
+    return readLegacyMigrationForAdministration(this.legacyMigrationRuntime(), migrationId);
   }
 
   cancelLegacyNotesMigration(migrationId: string, at?: string): Promise<LegacyNotesMigrationSessionV1> {

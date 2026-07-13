@@ -51,32 +51,37 @@ dormant explicit API must persist a strict `legacy_notes_source_authority_v1` re
 `migration_state` store. Registration does not read Notes, create a migration session or generation, stage
 data, or activate anything.
 
-The authority record contains a strict version/discriminator, operator-supplied authority ID, source type and
-descriptor, opaque source-identity digest, exact namespace fingerprint, user/project/device/schema binding,
-authenticated or local-only scope, explicit-operator method, timestamps, revocation state, and an authority
-digest. It contains no Note payload, token, auth claim, cursor, or migration-session dependency. Immutable
-binding fields cannot be rewritten. Revocation only sets `revokedAt` and recomputes the authority digest; it
-does not remove source or target evidence.
+Registration stores two mutually linked strict records under the reserved global authority namespace. A
+`legacy_notes_source_root_binding_v1` record is keyed as `root:<externalRootDigest>`; the root digest is a
+domain-separated SHA-256 digest of the bounded, operator-issued opaque root alone. Source type, descriptor,
+namespace, authority ID, and ownership do not affect that global exclusivity key. A separate domain-separated
+`sourceBindingDigest` covers the root digest plus exact source type and descriptor/instance. Type or descriptor
+changes therefore alter the full binding evidence but cannot create a second root-level exclusivity domain.
 
-Authority records live under a reserved global key namespace and are keyed by source-identity digest. One
-readwrite transaction scans and validates that global authority namespace before adding a claim. IndexedDB
-serializes competing claims on the store, so at most one namespace can bind a source identity; an identical
-same-namespace claim reuses the canonical record, while cross-user, cross-project, cross-device, altered-ID,
-or conflicting claims fail closed. Malformed records fail as persisted corruption.
+The strict `legacy_notes_source_authority_v1` record is keyed as `authority:<authorityId>` and binds the root
+digest, root-binding version/digest, full source-binding digest, exact namespace fingerprint,
+user/project/device/schema, authenticated or local-only scope, explicit-operator method, timestamps,
+revocation state, and authority digest. The root and authority records point to each other and must agree on
+every binding field. Both are created with `add` in one `migration_state` readwrite transaction after a global
+scan; either both commit or neither does. An exact repeated claim returns the canonical record. Reusing a root
+with another type, descriptor, namespace, owner, project, device, schema, ownership mode, or authority ID is a
+bounded conflict. Orphans, duplicate keys, malformed records, and broken mutual references are corruption and
+are never repaired.
 
-Source identity uses an externally issued opaque identity root together with source type and descriptor. The
-digest is not a hash of current Note payloads, so identical rows do not establish source continuity. The
-binding artifact identifies the physical/logical vault chosen by the operator; K-325 does not and cannot
-cryptographically prove that a supplied browser storage handle is that vault. Replacing or recreating a
-source therefore requires an explicit new authority identity, and an existing session cannot continue with
-that replacement merely because payloads match. No identity marker is written into legacy storage.
+Neither record contains the opaque root, Note payload, token, auth claim, cursor, or migration-session data.
+The digests are not hashes of current Note payloads, so identical rows do not establish source continuity.
+The operator-issued root asserts which physical/logical vault is being bound; K-325 cannot cryptographically
+prove that a supplied browser storage handle is that vault. Replacing or recreating a source requires an
+explicit new root, and an existing session cannot continue merely because payloads match. No identity marker
+is written into legacy storage. Revocation changes only `revokedAt` and the authority digest; the immutable
+root binding remains intact and no source or target evidence is removed.
 
 Adapters consume a validated authority record and derive namespace and ownership scope only from it. They
 cannot accept a caller namespace or synthesize bound evidence from current runtime auth. IndexedDB authority
 cannot be used for localStorage or vice versa, and the declared source descriptor must match the adapter.
-The persisted authority is revalidated during capture, the atomic capture commit, staging, source-change
-failure handling, verification, final verified commit, session reads, cancellation, and verified retry.
-Missing, revoked, malformed, replaced, or namespace-mismatched authority fails before target writes or
+The persisted authority and root binding are revalidated during capture, atomic capture commit, staging,
+source-change failure handling, verification, final verified commit, continuation session reads, and verified
+retry. Missing, revoked, malformed, replaced, or namespace-mismatched evidence fails before target writes or
 verification success. Target `ownerId` comes from the validated authority and must match the K-321 namespace.
 
 Per-record foreign, ambiguous, missing, or differently bound evidence also fails closed. The whole legacy
@@ -86,8 +91,9 @@ errors or diagnostics.
 ## Session and inactive generation
 
 Strict version-1 sessions are stored in the existing `migration_state` store, avoiding a database upgrade.
-Each session and manifest bind authority ID/version/digest, source type, source instance and source-identity
-digest. Draft-only sessions lacking these fields fail closed; there is no compatibility inference or repair.
+Each session and manifest bind authority ID/version/digest, external-root digest, root-binding version/digest,
+full source-binding digest, source type, and source instance. Draft-only sessions lacking these fields fail
+closed; there is no compatibility inference or repair.
 K-325 does not share its persisted migration-state identifier space with unrelated migration record types.
 The public logical session ID remains unchanged, while the stored compound key uses the deterministic
 `k325:legacy-notes:<logical-session-id>` identifier. Persisted records bind that storage ID to a separate
@@ -153,8 +159,19 @@ Verified retries recapture the source and revalidate all durable target evidence
 result. Missing, extra, malformed, or altered session, manifest, generation, entity, result, outbox, or
 checkpoint evidence maps to `CORRUPT_PERSISTED_RECORD`; no repair, regeneration, cleanup, or activation runs.
 
-Cancellation is allowed only before verification. It preserves any inactive staged evidence and never writes
-the legacy store. Failed or cancelled sessions do not retry automatically.
+Continuation and administration are separate contracts. Capture, resume, stage, verification, and verified
+retry require a live, valid, non-revoked authority/root pair. The bounded administrative view reads only a
+strict session and reports its ID, lifecycle state, namespace fingerprint, authority ID and bounded status
+(`valid`, `revoked`, `missing`, `corrupt`, or `mismatched`), target generation ID, timestamps, failure code, and
+whether continuation is allowed. It never reads the legacy source or returns manifest/Note contents.
+
+Cancellation is namespace-scoped administrative terminalization and is allowed from `capturing`, `staged`, or
+`verifying` even when authority evidence is missing, revoked, mismatched, or corrupt. It atomically changes
+only the strict session status to `cancelled`; it does not rewrite its captured authority digest, repair root or
+authority evidence, delete the manifest/generation/entities, access legacy storage, activate the target, or
+write outbox/checkpoint state. Repeated cancellation is idempotent. Verified and failed sessions cannot be
+cancelled. A corrupt session or another namespace cannot be inspected or cancelled. Failed or cancelled
+sessions do not retry automatically.
 
 ## Dormancy and limitations
 
