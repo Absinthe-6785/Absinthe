@@ -1,4 +1,7 @@
 import { LocalDatabaseError } from './errors';
+import {
+  legacyNotesAuthorityReference, type LegacyNotesSourceAuthorityRecordV1,
+} from './legacyNotesAuthority';
 import type { LegacyNotesSourceAdapter, LegacyNotesSourceCapture, LegacyNotesSourceRecord } from './legacyNotesMigration';
 
 export const LEGACY_NOTES_INDEXED_DB_NAME = 'absinthe-notes-v1';
@@ -7,8 +10,7 @@ export const LEGACY_NOTES_INDEXED_DB_VERSION = 1;
 export const LEGACY_NOTES_LOCAL_STORAGE_KEY = 'notes-v2';
 
 export interface LegacyNotesAdapterOptions {
-  namespaceKey: string;
-  ownershipMode: 'authenticated' | 'local_only';
+  authority: LegacyNotesSourceAuthorityRecordV1;
   clock?: () => string;
 }
 
@@ -36,10 +38,13 @@ export function createLegacyNotesIndexedDbAdapter(
   options: LegacyNotesAdapterOptions & { indexedDB?: IDBFactory },
 ): LegacyNotesSourceAdapter {
   const factory = options.indexedDB ?? globalThis.indexedDB;
+  const authority = legacyNotesAuthorityReference(options.authority);
+  if (authority.sourceType !== 'indexeddb' || authority.sourceInstanceId !== 'absinthe-notes-v1.notes.v1') {
+    throw new LocalDatabaseError('LEGACY_SOURCE_IDENTITY_MISMATCH', 'create_legacy_notes_indexeddb_adapter');
+  }
   return Object.freeze({
+    ...authority,
     adapter: 'absinthe_notes_indexeddb_v1', schemaVersion: LEGACY_NOTES_INDEXED_DB_VERSION,
-    sourceInstanceId: 'absinthe-notes-v1.notes.v1', namespaceKey: options.namespaceKey,
-    ownershipMode: options.ownershipMode,
     async capture(): Promise<LegacyNotesSourceCapture> {
       if (!factory) unavailable();
       const db = await openExistingLegacyDatabase(factory);
@@ -61,7 +66,7 @@ export function createLegacyNotesIndexedDbAdapter(
         });
         if (keys.length !== values.length) throw new LocalDatabaseError('INVALID_LEGACY_MIGRATION', 'capture_legacy_notes_source');
         const records: LegacyNotesSourceRecord[] = values.map((value, index) => ({
-          legacyKey: String(keys[index]), value, ownership: { kind: 'bound', namespaceKey: options.namespaceKey },
+          legacyKey: String(keys[index]), value, ownership: { kind: 'bound', namespaceKey: authority.namespaceKey },
         }));
         return { capturedAt: capturedAt(options.clock), records };
       } finally { db.close(); }
@@ -72,10 +77,13 @@ export function createLegacyNotesIndexedDbAdapter(
 export function createLegacyNotesLocalStorageAdapter(
   options: LegacyNotesAdapterOptions & { source: Pick<Storage, 'getItem'> },
 ): LegacyNotesSourceAdapter {
+  const authority = legacyNotesAuthorityReference(options.authority);
+  if (authority.sourceType !== 'localstorage' || authority.sourceInstanceId !== 'localStorage.notes-v2') {
+    throw new LocalDatabaseError('LEGACY_SOURCE_IDENTITY_MISMATCH', 'create_legacy_notes_localstorage_adapter');
+  }
   return Object.freeze({
+    ...authority,
     adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
-    sourceInstanceId: 'localStorage.notes-v2', namespaceKey: options.namespaceKey,
-    ownershipMode: options.ownershipMode,
     async capture(): Promise<LegacyNotesSourceCapture> {
       let raw: string | null;
       try { raw = options.source.getItem(LEGACY_NOTES_LOCAL_STORAGE_KEY); }
@@ -87,7 +95,7 @@ export function createLegacyNotesLocalStorageAdapter(
       const records: LegacyNotesSourceRecord[] = values.map((value, index) => ({
         legacyKey: value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string'
           ? (value as { id: string }).id : `invalid-${index}`,
-        value, ownership: { kind: 'bound', namespaceKey: options.namespaceKey },
+        value, ownership: { kind: 'bound', namespaceKey: authority.namespaceKey },
       }));
       return { capturedAt: capturedAt(options.clock), records };
     },

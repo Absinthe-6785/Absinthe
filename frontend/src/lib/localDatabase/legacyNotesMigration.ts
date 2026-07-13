@@ -1,4 +1,8 @@
 import { LocalDatabaseError, localDatabaseError, type LocalDatabaseErrorCode } from './errors';
+import {
+  resolveLegacyNotesSourceAuthority, validateLegacyNotesSourceAuthorityInStore, type LegacyNotesAuthorityReference,
+  type LegacyNotesSourceAuthorityRecordV1, type LegacyNotesSourceType,
+} from './legacyNotesAuthority';
 import { LOCAL_DATABASE_STORES } from './schema';
 import { sha256Hex } from './outboxIdentity';
 import {
@@ -34,12 +38,9 @@ export interface LegacyNotesSourceCapture {
   records: LegacyNotesSourceRecord[];
 }
 
-export interface LegacyNotesSourceAdapter {
+export interface LegacyNotesSourceAdapter extends LegacyNotesAuthorityReference {
   readonly adapter: string;
   readonly schemaVersion: number | null;
-  readonly sourceInstanceId: string;
-  readonly namespaceKey: string;
-  readonly ownershipMode: 'authenticated' | 'local_only';
   capture(): Promise<LegacyNotesSourceCapture>;
 }
 
@@ -66,6 +67,11 @@ export interface LegacyMigrationManifestV1 {
   sourceAdapter: string;
   sourceSchemaVersion: number | null;
   sourceInstanceId: string;
+  sourceType: LegacyNotesSourceType;
+  sourceIdentityDigest: string;
+  authorityId: string;
+  authorityVersion: 1;
+  authorityDigest: string;
   sourceSnapshotDigest: string;
   targetGenerationId: string;
   entryCount: number;
@@ -94,6 +100,11 @@ export interface LegacyNotesMigrationSessionV1 {
     adapter: string;
     schemaVersion: number | null;
     sourceInstanceId: string;
+    sourceType: LegacyNotesSourceType;
+    sourceIdentityDigest: string;
+    authorityId: string;
+    authorityVersion: 1;
+    authorityDigest: string;
     ownershipMode: 'authenticated' | 'local_only';
     capturedAt: string;
     snapshotDigest: string;
@@ -131,6 +142,7 @@ interface SupportedLegacyNote {
 
 interface MigrationPlan {
   capture: LegacyNotesSourceCapture;
+  authority: LegacyNotesSourceAuthorityRecordV1;
   snapshotDigest: string;
   manifest: LegacyMigrationManifestV1;
   entities: LocalEntityEnvelope<SupportedLegacyNote>[];
@@ -218,9 +230,20 @@ function millisToIso(value: number, operation: string): string {
 function validateAdapter(runtime: LegacyNotesMigrationRuntime, adapter: LegacyNotesSourceAdapter): void {
   if (!adapter || !SAFE_ID.test(adapter.adapter) || !SAFE_ID.test(adapter.sourceInstanceId)
     || adapter.namespaceKey !== runtime.namespaceKey || !['authenticated', 'local_only'].includes(adapter.ownershipMode)
+    || !['indexeddb', 'localstorage'].includes(adapter.sourceType) || !HASH.test(adapter.sourceIdentityDigest)
+    || !SAFE_ID.test(adapter.authorityId) || adapter.authorityVersion !== 1 || !HASH.test(adapter.authorityDigest)
     || adapter.schemaVersion !== null && (!Number.isSafeInteger(adapter.schemaVersion) || adapter.schemaVersion < 0)) {
-    fail('NAMESPACE_MISMATCH', 'validate_legacy_adapter');
+    fail('LEGACY_SOURCE_AUTHORITY_REQUIRED', 'validate_legacy_adapter');
   }
+}
+
+function sessionAuthorityReference(session: LegacyNotesMigrationSessionV1): LegacyNotesAuthorityReference {
+  return {
+    authorityId: session.source.authorityId, authorityVersion: session.source.authorityVersion,
+    authorityDigest: session.source.authorityDigest, sourceType: session.source.sourceType,
+    sourceInstanceId: session.source.sourceInstanceId, sourceIdentityDigest: session.source.sourceIdentityDigest,
+    namespaceKey: session.namespaceKey, ownershipMode: session.source.ownershipMode,
+  };
 }
 
 function stringRecord(value: unknown, operation: string): Record<string, string> | undefined {
@@ -291,6 +314,7 @@ async function buildPlan(
   targetGenerationId: string, migratedAt: string,
 ): Promise<MigrationPlan> {
   validateAdapter(runtime, adapter);
+  const authority = await resolveLegacyNotesSourceAuthority(runtime, adapter);
   let capture: LegacyNotesSourceCapture;
   try { capture = await adapter.capture(); }
   catch (error) {
@@ -330,13 +354,14 @@ async function buildPlan(
     { domain: 'notes', entityId: right.entityId },
   ));
   const snapshotDigest = sha256Hex(canonical(['absinthe-legacy-notes-snapshot-v1', runtime.namespaceKey,
-    adapter.adapter, adapter.schemaVersion, adapter.sourceInstanceId,
+    adapter.adapter, adapter.schemaVersion, adapter.sourceInstanceId, adapter.sourceType,
+    adapter.sourceIdentityDigest, adapter.authorityId, adapter.authorityDigest,
     sourceDrafts.map(item => [item.legacyKeyDigest, item.entityId, item.classification, item.sourceRecordDigest, item.attachmentReferenceDigest]) ]));
   const entities: LocalEntityEnvelope<SupportedLegacyNote>[] = sourceDrafts.map(item => ({
     namespaceKey: runtime.namespaceKey, generationId: targetGenerationId, domain: 'notes', entityId: item.entityId,
     record: item.note, revision: 1, createdAt: item.createdAt, updatedAt: item.updatedAt, deletedAt: item.deletedAt,
     isDeleted: item.deletedAt !== null, deletionState: item.deletedAt === null ? 'active' : 'deleted',
-    ownerId: runtime.namespace.userId, contentHash: item.sourceRecordDigest,
+    ownerId: authority.userId, contentHash: item.sourceRecordDigest,
     source: { kind: 'legacy_migration', reference: migrationId }, restoreProvenance: null,
     migrationProvenance: {
       conversionVersion: 1, sourceAdapter: adapter.adapter, sourceSchemaVersion: adapter.schemaVersion,
@@ -361,21 +386,27 @@ async function buildPlan(
   const core = {
     version: 1 as const, conversionVersion: 1 as const, migrationSessionId: migrationId,
     namespaceKey: runtime.namespaceKey, sourceAdapter: adapter.adapter, sourceSchemaVersion: adapter.schemaVersion,
-    sourceInstanceId: adapter.sourceInstanceId, sourceSnapshotDigest: snapshotDigest, targetGenerationId,
+    sourceInstanceId: adapter.sourceInstanceId, sourceType: adapter.sourceType,
+    sourceIdentityDigest: adapter.sourceIdentityDigest, authorityId: adapter.authorityId,
+    authorityVersion: adapter.authorityVersion, authorityDigest: adapter.authorityDigest,
+    sourceSnapshotDigest: snapshotDigest, targetGenerationId,
     entryCount: entries.length, entries, targetStateDigest,
   };
   const manifest: LegacyMigrationManifestV1 = { ...core, manifestDigest: sha256Hex(canonical(['absinthe-legacy-manifest-v1', core])) };
   if (new TextEncoder().encode(canonical(manifest)).length > MAX_LEGACY_MIGRATION_MANIFEST_BYTES) {
     fail('INVALID_LEGACY_MIGRATION', 'legacy_manifest_size');
   }
-  return { capture, snapshotDigest, manifest, entities };
+  return { capture, authority, snapshotDigest, manifest, entities };
 }
 
 function validateManifestShape(value: LegacyMigrationManifestV1): void {
   const keys = ['version', 'conversionVersion', 'migrationSessionId', 'namespaceKey', 'sourceAdapter', 'sourceSchemaVersion',
-    'sourceInstanceId', 'sourceSnapshotDigest', 'targetGenerationId', 'entryCount', 'entries', 'targetStateDigest', 'manifestDigest'];
+    'sourceInstanceId', 'sourceType', 'sourceIdentityDigest', 'authorityId', 'authorityVersion', 'authorityDigest',
+    'sourceSnapshotDigest', 'targetGenerationId', 'entryCount', 'entries', 'targetStateDigest', 'manifestDigest'];
   if (!value || !exactKeys(value, keys) || value.version !== 1 || value.conversionVersion !== 1
     || !SAFE_ID.test(value.migrationSessionId) || !SAFE_ID.test(value.sourceAdapter) || !SAFE_ID.test(value.sourceInstanceId)
+    || !['indexeddb', 'localstorage'].includes(value.sourceType) || !HASH.test(value.sourceIdentityDigest)
+    || !SAFE_ID.test(value.authorityId) || value.authorityVersion !== 1 || !HASH.test(value.authorityDigest)
     || !HASH.test(value.namespaceKey) || !HASH.test(value.sourceSnapshotDigest) || !SAFE_ID.test(value.targetGenerationId)
     || !HASH.test(value.targetStateDigest) || !HASH.test(value.manifestDigest)
     || value.sourceSchemaVersion !== null && (!Number.isSafeInteger(value.sourceSchemaVersion) || value.sourceSchemaVersion < 0)
@@ -421,7 +452,8 @@ function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigr
   const session = value as PersistedLegacyNotesMigrationSessionV1;
   const keys = ['kind', 'version', 'migrationId', 'migrationSessionId', 'namespaceKey', 'expectedActiveGenerationId', 'source', 'target',
     'status', 'manifest', 'result', 'failure', 'createdAt', 'updatedAt', 'verifiedAt'];
-  const sourceKeys = ['adapter', 'schemaVersion', 'sourceInstanceId', 'ownershipMode', 'capturedAt', 'snapshotDigest', 'entryCount'];
+  const sourceKeys = ['adapter', 'schemaVersion', 'sourceInstanceId', 'sourceType', 'sourceIdentityDigest',
+    'authorityId', 'authorityVersion', 'authorityDigest', 'ownershipMode', 'capturedAt', 'snapshotDigest', 'entryCount'];
   const targetKeys = ['generationId', 'databaseVersion'];
   const failureValid = session?.failure === null || session?.failure && exactKeys(session.failure, ['code'])
     && ['MIGRATION_SOURCE_CHANGED', 'MIGRATION_CANCELLED', 'CORRUPT_PERSISTED_RECORD'].includes(session.failure.code);
@@ -431,6 +463,8 @@ function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigr
     || session.namespaceKey !== namespaceKey || !SAFE_ID.test(session.expectedActiveGenerationId)
     || !session.source || !exactKeys(session.source, sourceKeys) || !SAFE_ID.test(session.source.adapter)
     || !SAFE_ID.test(session.source.sourceInstanceId) || !['authenticated', 'local_only'].includes(session.source.ownershipMode)
+    || !['indexeddb', 'localstorage'].includes(session.source.sourceType) || !HASH.test(session.source.sourceIdentityDigest)
+    || !SAFE_ID.test(session.source.authorityId) || session.source.authorityVersion !== 1 || !HASH.test(session.source.authorityDigest)
     || session.source.schemaVersion !== null && (!Number.isSafeInteger(session.source.schemaVersion) || session.source.schemaVersion < 0)
     || !validTimestamp(session.source.capturedAt) || !HASH.test(session.source.snapshotDigest)
     || !Number.isSafeInteger(session.source.entryCount) || session.source.entryCount < 0
@@ -443,6 +477,11 @@ function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigr
     || session.manifest.migrationSessionId !== session.migrationSessionId || session.manifest.namespaceKey !== namespaceKey
     || session.manifest.sourceAdapter !== session.source.adapter || session.manifest.sourceSchemaVersion !== session.source.schemaVersion
     || session.manifest.sourceInstanceId !== session.source.sourceInstanceId
+    || session.manifest.sourceType !== session.source.sourceType
+    || session.manifest.sourceIdentityDigest !== session.source.sourceIdentityDigest
+    || session.manifest.authorityId !== session.source.authorityId
+    || session.manifest.authorityVersion !== session.source.authorityVersion
+    || session.manifest.authorityDigest !== session.source.authorityDigest
     || session.manifest.sourceSnapshotDigest !== session.source.snapshotDigest
     || session.manifest.targetGenerationId !== session.target.generationId || session.manifest.entryCount !== session.source.entryCount
     || (session.status === 'verified') !== (session.result !== null)
@@ -485,6 +524,9 @@ async function validateDurableTarget(
     LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints, LOCAL_DATABASE_STORES.migrationState,
   ], 'readonly');
   const done = transactionCompletion(tx, 'verify_legacy_migration_target');
+  const authority = await validateLegacyNotesSourceAuthorityInStore(
+    runtime, tx.objectStore(LOCAL_DATABASE_STORES.migrationState), sessionAuthorityReference(session),
+  );
   const meta = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
   const generation = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.generations)
     .get(generationKey(runtime.namespaceKey, session.target.generationId))) as GenerationRecord | undefined;
@@ -524,7 +566,7 @@ async function validateDurableTarget(
       || entity.updatedAt !== entry.updatedAt || entity.deletedAt !== entry.deletedAt
       || entity.isDeleted !== (entry.classification === 'tombstone')
       || entity.deletionState !== (entry.classification === 'tombstone' ? 'deleted' : 'active')
-      || entity.ownerId !== runtime.namespace.userId || entity.contentHash !== entry.sourceRecordDigest
+      || entity.ownerId !== authority.userId || entity.contentHash !== entry.sourceRecordDigest
       || entity.source?.kind !== 'legacy_migration' || entity.source.reference !== session.migrationId
       || !provenance || provenance.conversionVersion !== 1 || provenance.sourceAdapter !== session.source.adapter
       || provenance.sourceSchemaVersion !== session.source.schemaVersion || provenance.migrationSessionId !== session.migrationId
@@ -556,6 +598,7 @@ export async function captureLegacyNotesMigration(
     if (!meta) fail('MALFORMED_METADATA', 'capture_legacy_notes_migration');
     validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+    await validateLegacyNotesSourceAuthorityInStore(runtime, store, adapter);
     const all = await requestResult(store.getAll(namespaceMigrationRange(runtime.namespaceKey))) as unknown[];
     const sessions: LegacyNotesMigrationSessionV1[] = [];
     for (const value of all) {
@@ -586,7 +629,9 @@ export async function captureLegacyNotesMigration(
       namespaceKey: runtime.namespaceKey, expectedActiveGenerationId: meta.activeGenerationId,
       source: {
         adapter: adapter.adapter, schemaVersion: adapter.schemaVersion, sourceInstanceId: adapter.sourceInstanceId,
-        ownershipMode: adapter.ownershipMode, capturedAt: plan.capture.capturedAt,
+        sourceType: adapter.sourceType, sourceIdentityDigest: adapter.sourceIdentityDigest,
+        authorityId: adapter.authorityId, authorityVersion: adapter.authorityVersion,
+        authorityDigest: adapter.authorityDigest, ownershipMode: adapter.ownershipMode, capturedAt: plan.capture.capturedAt,
         snapshotDigest: plan.snapshotDigest, entryCount: plan.manifest.entryCount,
       },
       target: { generationId: targetGenerationId, databaseVersion: LOCAL_DATABASE_VERSION },
@@ -603,7 +648,10 @@ async function stageLegacyNotesMigration(
   runtime: LegacyNotesMigrationRuntime, adapter: LegacyNotesSourceAdapter, session: LegacyNotesMigrationSessionV1,
 ): Promise<LegacyNotesMigrationSessionV1> {
   if (adapter.adapter !== session.source.adapter || adapter.schemaVersion !== session.source.schemaVersion
-    || adapter.sourceInstanceId !== session.source.sourceInstanceId || adapter.ownershipMode !== session.source.ownershipMode) {
+    || adapter.sourceInstanceId !== session.source.sourceInstanceId || adapter.sourceType !== session.source.sourceType
+    || adapter.sourceIdentityDigest !== session.source.sourceIdentityDigest || adapter.authorityId !== session.source.authorityId
+    || adapter.authorityVersion !== session.source.authorityVersion || adapter.authorityDigest !== session.source.authorityDigest
+    || adapter.ownershipMode !== session.source.ownershipMode) {
     fail('MIGRATION_SESSION_CONFLICT', 'stage_legacy_notes_migration');
   }
   const plan = await buildPlan(runtime, adapter, session.migrationId, session.target.generationId, session.createdAt);
@@ -619,6 +667,7 @@ async function stageLegacyNotesMigration(
   try {
     const meta = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta).get(runtime.namespaceKey)) as DatabaseMetaRecord | undefined;
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+    await validateLegacyNotesSourceAuthorityInStore(runtime, store, sessionAuthorityReference(session));
     const raw = await requestResult(store.get(sessionKey(runtime.namespaceKey, session.migrationId)));
     if (!meta || raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'stage_legacy_notes_migration');
     validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion);
@@ -660,6 +709,7 @@ async function markSourceChanged(runtime: LegacyNotesMigrationRuntime, session: 
   const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite'); const done = transactionCompletion(tx, 'fail_legacy_migration');
   try {
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+    await validateLegacyNotesSourceAuthorityInStore(runtime, store, sessionAuthorityReference(session));
     const raw = await requestResult(store.get(sessionKey(runtime.namespaceKey, session.migrationId)));
     if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'fail_legacy_migration');
     const current = persistedSession(raw, runtime.namespaceKey);
@@ -679,17 +729,21 @@ export async function verifyLegacyNotesMigration(
   const verifiedAt = timestamp(at ?? runtime.clock(), 'verify_legacy_notes_migration');
   let session = await readSessionRecord(runtime, migrationId);
   if (!session) fail('MIGRATION_SESSION_CONFLICT', 'verify_legacy_notes_migration');
+  await resolveLegacyNotesSourceAuthority(runtime, sessionAuthorityReference(session));
   if (session.status === 'cancelled') fail('MIGRATION_CANCELLED', 'verify_legacy_notes_migration');
   if (session.status === 'failed') fail(session.failure?.code === 'MIGRATION_SOURCE_CHANGED'
     ? 'MIGRATION_SOURCE_CHANGED' : 'CORRUPT_PERSISTED_RECORD', 'verify_legacy_notes_migration');
   if (session.status === 'capturing') fail('MIGRATION_SESSION_CONFLICT', 'verify_legacy_notes_migration');
-  if (session.source.adapter !== adapter.adapter || session.source.sourceInstanceId !== adapter.sourceInstanceId) {
+  if (session.source.adapter !== adapter.adapter || session.source.sourceInstanceId !== adapter.sourceInstanceId
+    || session.source.sourceType !== adapter.sourceType || session.source.sourceIdentityDigest !== adapter.sourceIdentityDigest
+    || session.source.authorityId !== adapter.authorityId || session.source.authorityDigest !== adapter.authorityDigest) {
     fail('MIGRATION_SESSION_CONFLICT', 'verify_legacy_notes_migration');
   }
   if (session.status !== 'verified') {
     const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite'); const done = transactionCompletion(tx, 'begin_legacy_verification');
     try {
       const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+      await validateLegacyNotesSourceAuthorityInStore(runtime, store, sessionAuthorityReference(session));
       const raw = await requestResult(store.get(sessionKey(runtime.namespaceKey, migrationId)));
       if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'begin_legacy_verification');
       const current = persistedSession(raw, runtime.namespaceKey);
@@ -722,6 +776,7 @@ export async function verifyLegacyNotesMigration(
   const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite'); const done = transactionCompletion(tx, 'complete_legacy_verification');
   try {
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+    await validateLegacyNotesSourceAuthorityInStore(runtime, store, sessionAuthorityReference(session));
     const raw = await requestResult(store.get(sessionKey(runtime.namespaceKey, migrationId)));
     if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'complete_legacy_verification');
     const current = persistedSession(raw, runtime.namespaceKey);
@@ -751,6 +806,7 @@ export async function getLegacyNotesMigrationSession(
   runtime.assertOpen('get_legacy_notes_migration');
   validateLegacyMigrationLogicalId(migrationId);
   const session = await readSessionRecord(runtime, migrationId);
+  if (session) await resolveLegacyNotesSourceAuthority(runtime, sessionAuthorityReference(session));
   if (session && ['staged', 'verifying', 'verified'].includes(session.status)) {
     const durable = await validateDurableTarget(runtime, session);
     if (session.result && (session.result.liveCount !== durable.liveCount
@@ -774,6 +830,7 @@ export async function cancelLegacyNotesMigration(
   const tx = runtime.db.transaction(LOCAL_DATABASE_STORES.migrationState, 'readwrite'); const done = transactionCompletion(tx, 'cancel_legacy_notes_migration');
   try {
     const store = tx.objectStore(LOCAL_DATABASE_STORES.migrationState);
+    await validateLegacyNotesSourceAuthorityInStore(runtime, store, sessionAuthorityReference(session));
     const raw = await requestResult(store.get(sessionKey(runtime.namespaceKey, migrationId)));
     if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'cancel_legacy_notes_migration');
     const current = persistedSession(raw, runtime.namespaceKey);

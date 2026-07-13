@@ -11,9 +11,10 @@ with key path `id`. The current fallback is the single localStorage key `notes-v
 keys and records in one readonly transaction. The localStorage adapter captures one atomic `getItem` value;
 it does not claim a transaction across unrelated keys.
 
-The adapters are deliberately explicit and do not merge these alternative authorities. Before capture, the
-developer caller must establish which path currently powers the vault (IndexedDB primary or confirmed
-localStorage fallback) and select only that adapter. An existing empty IndexedDB store or an existing
+The adapters are deliberately explicit and do not merge these alternative sources. Before capture, the
+developer/operator must establish which path currently powers the vault (IndexedDB primary or confirmed
+localStorage fallback), register an explicit durable source authority, and select only the adapter consuming
+that authority. An existing empty IndexedDB store or an existing
 localStorage key containing `[]` can represent an authoritative empty vault; an absent database/store/key is
 `LEGACY_SOURCE_UNAVAILABLE`, not an empty snapshot.
 
@@ -45,15 +46,48 @@ The following are deliberately outside this migration:
 ## Namespace and ownership policy
 
 Legacy Note records have no user ID, project ref, or workspace owner field. The migration therefore never
-assigns ownership from the current login. An adapter must carry a separately established namespace
-fingerprint and declare either authenticated or local-only vault scope. That fingerprint must exactly match
-the K-321 namespace. Per-record foreign, ambiguous, missing, or differently bound evidence fails closed.
-The whole legacy store is treated as one vault only under that explicit adapter binding; raw user IDs are not
-placed in diagnostics.
+assigns ownership from the current login or from adapter options. Before an adapter can be constructed, a
+dormant explicit API must persist a strict `legacy_notes_source_authority_v1` record in the existing
+`migration_state` store. Registration does not read Notes, create a migration session or generation, stage
+data, or activate anything.
+
+The authority record contains a strict version/discriminator, operator-supplied authority ID, source type and
+descriptor, opaque source-identity digest, exact namespace fingerprint, user/project/device/schema binding,
+authenticated or local-only scope, explicit-operator method, timestamps, revocation state, and an authority
+digest. It contains no Note payload, token, auth claim, cursor, or migration-session dependency. Immutable
+binding fields cannot be rewritten. Revocation only sets `revokedAt` and recomputes the authority digest; it
+does not remove source or target evidence.
+
+Authority records live under a reserved global key namespace and are keyed by source-identity digest. One
+readwrite transaction scans and validates that global authority namespace before adding a claim. IndexedDB
+serializes competing claims on the store, so at most one namespace can bind a source identity; an identical
+same-namespace claim reuses the canonical record, while cross-user, cross-project, cross-device, altered-ID,
+or conflicting claims fail closed. Malformed records fail as persisted corruption.
+
+Source identity uses an externally issued opaque identity root together with source type and descriptor. The
+digest is not a hash of current Note payloads, so identical rows do not establish source continuity. The
+binding artifact identifies the physical/logical vault chosen by the operator; K-325 does not and cannot
+cryptographically prove that a supplied browser storage handle is that vault. Replacing or recreating a
+source therefore requires an explicit new authority identity, and an existing session cannot continue with
+that replacement merely because payloads match. No identity marker is written into legacy storage.
+
+Adapters consume a validated authority record and derive namespace and ownership scope only from it. They
+cannot accept a caller namespace or synthesize bound evidence from current runtime auth. IndexedDB authority
+cannot be used for localStorage or vice versa, and the declared source descriptor must match the adapter.
+The persisted authority is revalidated during capture, the atomic capture commit, staging, source-change
+failure handling, verification, final verified commit, session reads, cancellation, and verified retry.
+Missing, revoked, malformed, replaced, or namespace-mismatched authority fails before target writes or
+verification success. Target `ownerId` comes from the validated authority and must match the K-321 namespace.
+
+Per-record foreign, ambiguous, missing, or differently bound evidence also fails closed. The whole legacy
+store is treated as one vault only under the explicit durable binding; raw identifiers are not placed in
+errors or diagnostics.
 
 ## Session and inactive generation
 
 Strict version-1 sessions are stored in the existing `migration_state` store, avoiding a database upgrade.
+Each session and manifest bind authority ID/version/digest, source type, source instance and source-identity
+digest. Draft-only sessions lacking these fields fail closed; there is no compatibility inference or repair.
 K-325 does not share its persisted migration-state identifier space with unrelated migration record types.
 The public logical session ID remains unchanged, while the stored compound key uses the deterministic
 `k325:legacy-notes:<logical-session-id>` identifier. Persisted records bind that storage ID to a separate

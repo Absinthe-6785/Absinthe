@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LEGACY_NOTES_INDEXED_DB_NAME, LEGACY_NOTES_INDEXED_DB_STORE, LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES,
   closeLocalDatabase, createDormantLocalDatabaseCapability, createLegacyNotesIndexedDbAdapter,
-  createLegacyNotesLocalStorageAdapter, openLocalDatabase,
+  createLegacyNotesLocalStorageAdapter, legacyNotesAuthorityReference, openLocalDatabase,
+  type LegacyNotesSourceAuthorityRecordV1,
   type LegacyNotesMigrationSessionV1, type LegacyNotesSourceAdapter, type LegacyNotesSourceRecord,
   type LocalDatabaseNamespace, type LocalDatabaseRepository,
 } from './index';
@@ -17,6 +18,7 @@ const T1 = '2026-07-12T00:00:01.000Z';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const repositories: LocalDatabaseRepository[] = [];
+const authorities = new Map<string, LegacyNotesSourceAuthorityRecordV1>();
 const toLegacyNotesMigrationStorageId = (migrationSessionId: string) => `k325:legacy-notes:${migrationSessionId}`;
 const compareCanonicalStrings = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
 
@@ -28,7 +30,14 @@ function deleteDatabase(name: string): Promise<void> {
 }
 async function repo(namespace = base): Promise<LocalDatabaseRepository> {
   const repository = await openLocalDatabase(namespace, { capability, clock: () => T1 });
-  repositories.push(repository); await repository.initializeNamespace(); return repository;
+  repositories.push(repository); await repository.initializeNamespace();
+  const authority = await repository.registerLegacyNotesSourceAuthority({
+    authorityId: `synthetic-${repository.namespaceKey.slice(0, 16)}`,
+    sourceType: 'indexeddb', sourceInstanceId: 'synthetic.notes.v1',
+    sourceIdentityId: `synthetic-${repository.namespaceKey.slice(0, 16)}`,
+    ownershipMode: 'authenticated', now: T0,
+  });
+  authorities.set(repository.namespaceKey, authority); return repository;
 }
 function note(id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -51,10 +60,13 @@ function expectOwnDataProperty<T>(record: Record<string, T>, key: string, value:
   });
 }
 interface MutableAdapter extends LegacyNotesSourceAdapter { records: LegacyNotesSourceRecord[]; captures: number }
-function adapter(records: LegacyNotesSourceRecord[], namespaceKey: string, mode: 'authenticated' | 'local_only' = 'authenticated'): MutableAdapter {
+function adapter(records: LegacyNotesSourceRecord[], namespaceKey: string): MutableAdapter {
+  const authority = authorities.get(namespaceKey);
+  if (!authority) throw new Error('test authority missing');
   const value: MutableAdapter = {
+    ...legacyNotesAuthorityReference(authority),
     adapter: 'synthetic_legacy_notes', schemaVersion: 1, sourceInstanceId: 'synthetic.notes.v1', namespaceKey,
-    ownershipMode: mode, records, captures: 0,
+    records, captures: 0,
     async capture() { value.captures += 1; return { capturedAt: T0, records: value.records }; },
   };
   return value;
@@ -108,6 +120,7 @@ function ordinaryMigrationRecord(namespaceKey: string, migrationId: string) {
 }
 
 beforeEach(async () => {
+  authorities.clear();
   repositories.splice(0).forEach(closeLocalDatabase);
   await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
   await deleteDatabase(LEGACY_NOTES_INDEXED_DB_NAME).catch(() => undefined);
@@ -120,7 +133,7 @@ afterEach(async () => {
 
 describe('K-325 legacy Notes migration and shadow verification', () => {
   it('verifies an empty authoritative legacy store without activating the target', async () => {
-    const repository = await repo(); const source = adapter([], repository.namespaceKey, 'local_only');
+    const repository = await repo(); const source = adapter([], repository.namespaceKey);
     const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'empty', now: T0 });
     expect(captured.status).toBe('capturing');
     const staged = await repository.resumeLegacyNotesMigration(source, 'empty', T1) as LegacyNotesMigrationSessionV1;
@@ -345,7 +358,11 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
   it('reads the actual legacy IndexedDB store in one readonly snapshot without changing it', async () => {
     await seedLegacyIndexedDb([note(A), note(B)]);
     const repository = await repo();
-    const source = createLegacyNotesIndexedDbAdapter({ namespaceKey: repository.namespaceKey, ownershipMode: 'authenticated', indexedDB, clock: () => T0 });
+    const authority = await repository.registerLegacyNotesSourceAuthority({
+      authorityId: 'actual-idb-authority', sourceType: 'indexeddb', sourceInstanceId: 'absinthe-notes-v1.notes.v1',
+      sourceIdentityId: 'actual-idb-source', ownershipMode: 'authenticated', now: T0,
+    });
+    const source = createLegacyNotesIndexedDbAdapter({ authority, indexedDB, clock: () => T0 });
     const before = await source.capture();
     await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'actual-idb', now: T0 });
     const after = await source.capture();
@@ -355,13 +372,17 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
 
   it('supports the explicit localStorage fallback and distinguishes missing from an authoritative empty array', async () => {
     const repository = await repo();
+    const authority = await repository.registerLegacyNotesSourceAuthority({
+      authorityId: 'actual-local-authority', sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+      sourceIdentityId: 'actual-local-source', ownershipMode: 'local_only', now: T0,
+    });
     const missing = createLegacyNotesLocalStorageAdapter({
-      namespaceKey: repository.namespaceKey, ownershipMode: 'local_only', source: { getItem: () => null }, clock: () => T0,
+      authority, source: { getItem: () => null }, clock: () => T0,
     });
     await expect(repository.captureLegacyNotesMigration(missing, { migrationSessionId: 'missing', now: T0 }))
       .rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
     const empty = createLegacyNotesLocalStorageAdapter({
-      namespaceKey: repository.namespaceKey, ownershipMode: 'local_only', source: { getItem: () => '[]' }, clock: () => T0,
+      authority, source: { getItem: () => '[]' }, clock: () => T0,
     });
     await expect(repository.captureLegacyNotesMigration(empty, { migrationSessionId: 'empty-local', now: T0 }))
       .resolves.toMatchObject({ source: { entryCount: 0, ownershipMode: 'local_only' } });
@@ -369,7 +390,11 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
 
   it('fails closed when the real legacy IndexedDB database is missing', async () => {
     const repository = await repo();
-    const source = createLegacyNotesIndexedDbAdapter({ namespaceKey: repository.namespaceKey, ownershipMode: 'authenticated', indexedDB });
+    const authority = await repository.registerLegacyNotesSourceAuthority({
+      authorityId: 'missing-idb-authority', sourceType: 'indexeddb', sourceInstanceId: 'absinthe-notes-v1.notes.v1',
+      sourceIdentityId: 'missing-idb-source', ownershipMode: 'authenticated', now: T0,
+    });
+    const source = createLegacyNotesIndexedDbAdapter({ authority, indexedDB });
     await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'missing-idb', now: T0 }))
       .rejects.toMatchObject({ code: 'LEGACY_SOURCE_UNAVAILABLE' });
   });
@@ -478,7 +503,8 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
             ? repository.verifyLegacyNotesMigration(source, reserved, T1)
             : repository.cancelLegacyNotesMigration(reserved, T1);
       await expect(action).rejects.toMatchObject({ code: 'INVALID_LEGACY_MIGRATION' });
-      expect(await getAllRaw(LOCAL_DATABASE_STORES.migrationState)).toEqual([]);
+      expect((await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+        .filter(row => row.kind === 'legacy_notes_migration_v1')).toEqual([]);
     },
   );
 

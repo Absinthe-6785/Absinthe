@@ -1,4 +1,10 @@
 import { LocalDatabaseError, localDatabaseError } from './errors';
+import {
+  getLegacyNotesSourceAuthority as readLegacySourceAuthority,
+  registerLegacyNotesSourceAuthority as registerLegacySourceAuthority,
+  revokeLegacyNotesSourceAuthority as revokeLegacySourceAuthority,
+  type LegacyNotesSourceAuthorityRecordV1, type RegisterLegacyNotesSourceAuthorityInput,
+} from './legacyNotesAuthority';
 import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from './namespace';
 import { deriveOutboxIdempotencyKey, generateOutboxMutationId } from './outboxIdentity';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
@@ -820,6 +826,22 @@ export class LocalDatabaseRepository {
 
   cancelLegacyNotesMigration(migrationId: string, at?: string): Promise<LegacyNotesMigrationSessionV1> {
     return cancelLegacyMigration(this.legacyMigrationRuntime(), migrationId, at);
+  }
+
+  registerLegacyNotesSourceAuthority(
+    input: RegisterLegacyNotesSourceAuthorityInput,
+  ): Promise<LegacyNotesSourceAuthorityRecordV1> {
+    return registerLegacySourceAuthority(this.legacyMigrationRuntime(), input);
+  }
+
+  getLegacyNotesSourceAuthority(authorityId: string): Promise<LegacyNotesSourceAuthorityRecordV1 | null> {
+    return readLegacySourceAuthority(this.legacyMigrationRuntime(), authorityId);
+  }
+
+  revokeLegacyNotesSourceAuthority(
+    authorityId: string, at?: string,
+  ): Promise<LegacyNotesSourceAuthorityRecordV1> {
+    return revokeLegacySourceAuthority(this.legacyMigrationRuntime(), authorityId, at);
   }
 
   putMigrationState(value: MigrationStateRecord): Promise<void> {
