@@ -24,7 +24,21 @@ relations. The older supported variant lacks `createdAt`; conversion determinist
 its creation time. A numeric non-null `deletedAt` is a tombstone. Unknown fields and malformed values fail
 closed instead of being silently discarded.
 
-Validated property and relation names are preserved as exact enumerable own data properties. Construction
+K-325G validates this shape exclusively through own property descriptors before reading source values.
+`id`, `title`, `body`, `updatedAt`, `folderId`, and `deletedAt` are required own data properties. `createdAt`,
+`lastOpenedAt`, `starred`, `properties`, and `relations` are optional, but when present they must also be own
+data properties. A prototype-only optional value is absent; a prototype-only required value cannot satisfy
+the schema. Null-prototype and custom-prototype containers are allowed when their own fields satisfy the
+same strict contract, while inherited values never enter normalization, digests, manifests, or target rows.
+Unknown own string keys, symbol keys, and accessor descriptors are rejected. Accessors are rejected from
+their descriptors without invoking getters or setters.
+
+Identifiers must be nonempty and contain at least one ECMAScript non-whitespace code point (`/\S/u`). A
+nonblank accepted ID, including leading/trailing whitespace or Unicode-distinct spelling, is preserved
+byte-for-byte; validation never trims or rewrites it. The supported no-`createdAt` variant remains the only
+missing-field compatibility form, and it deterministically reuses the validated `updatedAt` value.
+
+Validated property and relation names and values are preserved exactly as normalized own data properties. Construction
 uses `Object.fromEntries` rather than assignment through an untrusted key, so `__proto__`, `constructor`, and
 `prototype` remain ordinary own keys without replacing or mutating an object prototype. Ordinary,
 case-distinct, numeric-looking, punctuation, and Unicode keys receive the same lossless treatment; no key is
@@ -33,6 +47,21 @@ normalization, while any malformed metadata value rejects the complete source sn
 keys and values participate in the normalized source record, snapshot and source-record digests, manifest,
 staged target entity and target-state digest, exact verification, and verified retry. K-325 performs no
 compatibility repair or key-dropping fallback.
+
+Nested `properties` and `relations` containers use the same own-descriptor boundary. Arbitrary own string
+metadata keys, including `__proto__`, `constructor`, `prototype`, case-distinct keys, and Unicode-distinct
+keys, are preserved without assignment through prototype setters. Inherited keys are ignored, symbol keys
+and accessors are rejected, and non-enumerable own data keys are preserved as normalized own data. Relation
+arrays must be real dense arrays whose `length` and every index are own data properties; sparse arrays,
+prototype-provided indices, accessor indices, malformed elements, and proxy/descriptor failures reject the
+whole snapshot. Duplicate relation values retain the existing source semantics.
+
+All source-controlled shape inspection, descriptor lookup, nested validation, normalization, and plan/digest
+construction run behind a bounded validation boundary before a migration session is written. One malformed
+row rejects the complete snapshot: no session, manifest, generation, entity, outbox, checkpoint, or active
+pointer change is committed. Unexpected proxy, descriptor, validation, or canonicalization exceptions map
+to the generic `INVALID_LEGACY_MIGRATION:validate_legacy_source` error. Original exception objects, messages,
+stacks, property names, and source payloads are neither returned nor persisted.
 
 The following are deliberately outside this migration:
 

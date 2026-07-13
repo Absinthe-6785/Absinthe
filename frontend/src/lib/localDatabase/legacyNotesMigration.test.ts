@@ -99,6 +99,29 @@ async function getAllRaw(storeName: string): Promise<any[]> {
     request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   }); db.close(); return values;
 }
+async function migrationSafetySnapshot(repository: LocalDatabaseRepository) {
+  return {
+    migrationState: await getAllRaw(LOCAL_DATABASE_STORES.migrationState),
+    generations: await getAllRaw(LOCAL_DATABASE_STORES.generations),
+    entities: await getAllRaw(LOCAL_DATABASE_STORES.entities),
+    outbox: await getAllRaw(LOCAL_DATABASE_STORES.outbox),
+    checkpoints: await getAllRaw(LOCAL_DATABASE_STORES.syncCheckpoints),
+    activeGenerationId: (await repository.readDatabaseMetadata()).activeGenerationId,
+  };
+}
+async function expectMalformedCaptureWithoutWrites(
+  repository: LocalDatabaseRepository,
+  records: LegacyNotesSourceRecord[],
+  migrationSessionId: string,
+): Promise<Error & { code?: string }> {
+  const before = await migrationSafetySnapshot(repository);
+  const source = adapter(records, repository.namespaceKey);
+  const failure = await repository.captureLegacyNotesMigration(source, { migrationSessionId, now: T0 })
+    .then(() => null, error => error as Error & { code?: string });
+  expect(failure).toMatchObject({ name: 'LocalDatabaseError', code: 'INVALID_LEGACY_MIGRATION' });
+  expect(await migrationSafetySnapshot(repository)).toEqual(before);
+  return failure!;
+}
 async function seedLegacyIndexedDb(values: unknown[]): Promise<void> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(LEGACY_NOTES_INDEXED_DB_NAME, 1);
@@ -581,6 +604,224 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     const repository = await repo(); const source = adapter(records(repository.namespaceKey), repository.namespaceKey);
     await expect(repository.captureLegacyNotesMigration(source, { migrationSessionId: 'invalid', now: T0 })).rejects.toHaveProperty('code');
     expect((await getAllRaw(LOCAL_DATABASE_STORES.generations)).filter(generation => generation.creationReason === 'migration')).toEqual([]);
+  });
+
+  it('rejects records whose mandatory fields are inherited without durable migration evidence', async () => {
+    const repository = await repo();
+    const allInherited = Object.create(note(A)) as Record<string, unknown>;
+    await expectMalformedCaptureWithoutWrites(
+      repository, bound(repository.namespaceKey, [[A, allInherited]]), 'all-inherited',
+    );
+
+    const titleInherited = note(A); const prototype = { title: titleInherited.title };
+    delete titleInherited.title; Object.setPrototypeOf(titleInherited, prototype);
+    await expectMalformedCaptureWithoutWrites(
+      repository, bound(repository.namespaceKey, [[A, titleInherited]]), 'title-inherited',
+    );
+  });
+
+  it.each(['id', 'title', 'body', 'updatedAt', 'folderId', 'deletedAt'])(
+    'requires mandatory field %s as an own data property', async field => {
+      const repository = await repo(); const missing = note(A); const value = missing[field]; delete missing[field];
+      await expectMalformedCaptureWithoutWrites(repository,
+        bound(repository.namespaceKey, [[A, missing]]), `missing-${field}`);
+      const inherited = note(A); const inheritedValue = inherited[field]; delete inherited[field];
+      Object.setPrototypeOf(inherited, { [field]: inheritedValue ?? value });
+      await expectMalformedCaptureWithoutWrites(repository,
+        bound(repository.namespaceKey, [[A, inherited]]), `required-inherited-${field}`);
+    },
+  );
+
+  it('treats inherited optional fields as absent and accepts valid own fields on null/custom prototypes', async () => {
+    const repository = await repo();
+    const inheritedOptional = note(A);
+    delete inheritedOptional.createdAt; delete inheritedOptional.starred;
+    delete inheritedOptional.properties; delete inheritedOptional.relations;
+    Object.setPrototypeOf(inheritedOptional, {
+      createdAt: 1, lastOpenedAt: 2, starred: true,
+      properties: { inherited: 'private' }, relations: { inherited: [B] },
+    });
+    const nullPrototype = Object.assign(Object.create(null), note(B));
+    const customPrototype = Object.assign(Object.create({ ignored: 'prototype-only' }), note('custom-prototype'));
+    const source = adapter(bound(repository.namespaceKey, [
+      [A, inheritedOptional], [B, nullPrototype], ['custom-prototype', customPrototype],
+    ]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'safe-prototypes', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'safe-prototypes', T1);
+    const entities = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(entity => entity.generationId === 'migration-safe-prototypes');
+    const inheritedTarget = entities.find(entity => entity.entityId === A).record;
+    expect(inheritedTarget).toMatchObject({ id: A, createdAt: inheritedOptional.updatedAt, starred: false });
+    expect(inheritedTarget).not.toHaveProperty('properties');
+    expect(inheritedTarget).not.toHaveProperty('relations');
+    expect(entities.map(entity => entity.entityId)).toEqual(expect.arrayContaining([A, B, 'custom-prototype']));
+  });
+
+  it.each(['id', 'title', 'body', 'createdAt', 'lastOpenedAt', 'updatedAt', 'folderId', 'deletedAt', 'starred', 'properties', 'relations'])(
+    'rejects own accessor field %s without invoking it or exposing its private marker', async field => {
+      const repository = await repo(); const record = note(A); const marker = `PRIVATE_${field}_SHOULD_NOT_ESCAPE`;
+      const getter = vi.fn(() => { throw new Error(marker); });
+      Object.defineProperty(record, field, { enumerable: true, configurable: true, get: getter });
+      const failure = await expectMalformedCaptureWithoutWrites(
+        repository, bound(repository.namespaceKey, [[A, record]]), `accessor-${field}`,
+      );
+      expect(getter).not.toHaveBeenCalled();
+      expect(failure.message).toBe('INVALID_LEGACY_MIGRATION:validate_legacy_source');
+      expect(failure.message).not.toContain(marker); expect(failure.stack).not.toContain(marker);
+      expect(JSON.stringify(await getAllRaw(LOCAL_DATABASE_STORES.migrationState))).not.toContain(marker);
+    },
+  );
+
+  it('rejects setter-only and getter/setter optional fields without invocation', async () => {
+    const repository = await repo();
+    for (const [label, descriptor] of [
+      ['setter-only', { set: vi.fn() }],
+      ['getter-setter', { get: vi.fn(() => true), set: vi.fn() }],
+    ] as const) {
+      const record = note(A);
+      Object.defineProperty(record, 'starred', { ...descriptor, enumerable: true, configurable: true });
+      await expectMalformedCaptureWithoutWrites(
+        repository, bound(repository.namespaceKey, [[A, record]]), label,
+      );
+      if ('get' in descriptor) expect(descriptor.get).not.toHaveBeenCalled();
+      expect(descriptor.set).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['', ' ', '   ', '\t', '\n', ' \t\r\n ', '\u00a0', '\u2003'])(
+    'rejects blank legacy Note id %j without trimming or durable writes', async id => {
+      const repository = await repo();
+      await expectMalformedCaptureWithoutWrites(
+        repository, bound(repository.namespaceKey, [['blank-id', note(id)]]), `blank-${Buffer.from(id).toString('hex') || 'empty'}`,
+      );
+    },
+  );
+
+  it('preserves accepted identifiers byte-for-byte, including surrounding and zero-width characters', async () => {
+    const repository = await repo(); const ids = [' a ', 'a', 'A', '\uD55C\uAE00', 'e\u0301', '\u200b'];
+    const source = adapter(bound(repository.namespaceKey,
+      ids.map((id, index) => [`valid-id-${index}`, note(id)])), repository.namespaceKey);
+    const captured = await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'valid-identifiers', now: T0 });
+    expect(captured.manifest.entries.map(entry => entry.entityId)).toEqual([...ids].sort(compareCanonicalStrings));
+    await repository.resumeLegacyNotesMigration(source, 'valid-identifiers', T1);
+    const persistedIds = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(entity => entity.generationId === 'migration-valid-identifiers').map(entity => entity.entityId);
+    expect(persistedIds).toEqual(expect.arrayContaining(ids));
+  });
+
+  it('rejects symbol and unknown non-enumerable top-level fields', async () => {
+    const repository = await repo();
+    const symbolRecord = note(A); Object.defineProperty(symbolRecord, Symbol('private'), { value: 'hidden' });
+    await expectMalformedCaptureWithoutWrites(
+      repository, bound(repository.namespaceKey, [[A, symbolRecord]]), 'symbol-field',
+    );
+    const hiddenUnknown = note(A); Object.defineProperty(hiddenUnknown, 'hiddenUnknown', { value: 'hidden' });
+    await expectMalformedCaptureWithoutWrites(
+      repository, bound(repository.namespaceKey, [[A, hiddenUnknown]]), 'hidden-unknown',
+    );
+  });
+
+  it('validates metadata and relation containers through own data descriptors', async () => {
+    const repository = await repo();
+    const properties = Object.assign(Object.create({ inherited: 'private' }), { own: 'safe' });
+    Object.defineProperty(properties, '__proto__', {
+      value: 'preserved', enumerable: false, writable: true, configurable: true,
+    });
+    const relations = Object.assign(Object.create({ inherited: [B] }), { own: [A] });
+    const nullProperties = Object.assign(Object.create(null), { nullOwn: 'safe' });
+    const nullRelations = Object.assign(Object.create(null), { nullOwn: [B] });
+    const source = adapter(bound(repository.namespaceKey, [
+      [A, note(A, { properties, relations })],
+      [B, note(B, { properties: nullProperties, relations: nullRelations })],
+    ]), repository.namespaceKey);
+    await repository.captureLegacyNotesMigration(source, { migrationSessionId: 'nested-own-data', now: T0 });
+    await repository.resumeLegacyNotesMigration(source, 'nested-own-data', T1);
+    const [entity] = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .filter(item => item.generationId === 'migration-nested-own-data');
+    expect(entity.record.properties).toEqual({ own: 'safe', ['__proto__']: 'preserved' });
+    expect(entity.record.relations).toEqual({ own: [A] });
+    const nullEntity = (await getAllRaw(LOCAL_DATABASE_STORES.entities))
+      .find(item => item.generationId === 'migration-nested-own-data' && item.entityId === B);
+    expect(nullEntity.record.properties).toEqual({ nullOwn: 'safe' });
+    expect(nullEntity.record.relations).toEqual({ nullOwn: [B] });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it.each([
+    ['properties', 'getter'], ['properties', 'setter'], ['relations', 'getter'], ['relations', 'setter'],
+  ] as const)(
+    'rejects nested %s %s accessors without invoking them', async (field, mode) => {
+      const repository = await repo(); const nested: Record<string, unknown> = {};
+      const getter = vi.fn(() => { throw new Error('PRIVATE_NESTED_MARKER'); }); const setter = vi.fn();
+      Object.defineProperty(nested, 'private-key', {
+        enumerable: true, configurable: true,
+        ...(mode === 'getter' ? { get: getter } : { set: setter }),
+      });
+      await expectMalformedCaptureWithoutWrites(
+        repository, bound(repository.namespaceKey, [[A, note(A, { [field]: nested })]]), `nested-${field}-${mode}`,
+      );
+      expect(getter).not.toHaveBeenCalled(); expect(setter).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects sparse, inherited, and accessor-backed relation array elements', async () => {
+    const repository = await repo();
+    const sparse = new Array(1);
+    await expectMalformedCaptureWithoutWrites(repository,
+      bound(repository.namespaceKey, [[A, note(A, { relations: { links: sparse } })]]), 'sparse-relation');
+    const inherited = new Array(1); Object.setPrototypeOf(inherited, Object.assign([], { 0: A }));
+    await expectMalformedCaptureWithoutWrites(repository,
+      bound(repository.namespaceKey, [[A, note(A, { relations: { links: inherited } })]]), 'inherited-relation-index');
+    const accessor = [A]; const getter = vi.fn(() => A);
+    Object.defineProperty(accessor, '0', { enumerable: true, configurable: true, get: getter });
+    await expectMalformedCaptureWithoutWrites(repository,
+      bound(repository.namespaceKey, [[A, note(A, { relations: { links: accessor } })]]), 'accessor-relation-index');
+    expect(getter).not.toHaveBeenCalled();
+    const setterOnly = [A]; const setter = vi.fn();
+    Object.defineProperty(setterOnly, '0', { enumerable: true, configurable: true, set: setter });
+    await expectMalformedCaptureWithoutWrites(repository,
+      bound(repository.namespaceKey, [[A, note(A, { relations: { links: setterOnly } })]]), 'setter-relation-index');
+    expect(setter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['properties', 'ownKeys'], ['properties', 'descriptor'], ['relations', 'ownKeys'], ['relations', 'descriptor'],
+  ] as const)('bounds nested %s proxy %s failures', async (field, trap) => {
+    const repository = await repo(); const target = field === 'properties' ? { safe: 'value' } : { safe: [A] };
+    const nested = new Proxy(target, trap === 'ownKeys' ? {
+      ownKeys: () => { throw new Error('PRIVATE_NESTED_PROXY'); },
+    } : {
+      getOwnPropertyDescriptor: () => { throw new Error('PRIVATE_NESTED_PROXY'); },
+    });
+    const failure = await expectMalformedCaptureWithoutWrites(repository,
+      bound(repository.namespaceKey, [[A, note(A, { [field]: nested })]]), `nested-proxy-${field}-${trap}`);
+    expect(failure.message).not.toContain('PRIVATE_'); expect(failure.stack).not.toContain('PRIVATE_');
+  });
+
+  it.each([
+    ['ownKeys', (target: Record<string, unknown>) => new Proxy(target, {
+      ownKeys: () => { throw new Error('PRIVATE_OWN_KEYS_MARKER'); },
+    })],
+    ['descriptor', (target: Record<string, unknown>) => new Proxy(target, {
+      getOwnPropertyDescriptor: () => { throw new Error('PRIVATE_DESCRIPTOR_MARKER'); },
+    })],
+  ] as const)('bounds proxy %s failures without exposing causes or writing evidence', async (label, wrap) => {
+    const repository = await repo(); const record = wrap(note(A));
+    const failure = await expectMalformedCaptureWithoutWrites(
+      repository, bound(repository.namespaceKey, [[A, record]]), `proxy-${label}`,
+    );
+    expect(failure.message).toBe('INVALID_LEGACY_MIGRATION:validate_legacy_source');
+    expect(failure.message).not.toContain('PRIVATE_'); expect(failure.stack).not.toContain('PRIVATE_');
+  });
+
+  it('rejects the complete valid-malformed-valid snapshot before any migration evidence is written', async () => {
+    const repository = await repo(); const malformed = note(B);
+    Object.defineProperty(malformed, 'body', {
+      enumerable: true, configurable: true, get: () => { throw new Error('PRIVATE_PARTIAL_MARKER'); },
+    });
+    await expectMalformedCaptureWithoutWrites(repository, bound(repository.namespaceKey, [
+      ['valid-a', note(A)], ['malformed-b', malformed], ['valid-c', note('valid-c')],
+    ]), 'whole-snapshot');
   });
 
   it('resumes safely across both capture/stage and stage/verify restarts', async () => {

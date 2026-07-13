@@ -162,12 +162,16 @@ interface SupportedLegacyNote {
 }
 
 interface MigrationPlan {
-  capture: LegacyNotesSourceCapture;
+  capturedAt: string;
   authority: LegacyNotesSourceAuthorityRecordV1;
   snapshotDigest: string;
   manifest: LegacyMigrationManifestV1;
   entities: LocalEntityEnvelope<SupportedLegacyNote>[];
 }
+
+type OwnDataFieldResult =
+  | { kind: 'absent' }
+  | { kind: 'data'; value: unknown };
 
 function fail(code: LocalDatabaseErrorCode, operation = 'legacy_notes_migration'): never {
   throw new LocalDatabaseError(code, operation);
@@ -187,6 +191,64 @@ function compareManifestEntries(
 function exactKeys(value: object, expected: readonly string[]): boolean {
   return Object.keys(value).sort(compareCanonicalStrings).join(',')
     === [...expected].sort(compareCanonicalStrings).join(',');
+}
+function invalidLegacySource(): never {
+  fail('INVALID_LEGACY_MIGRATION', 'validate_legacy_source');
+}
+function sourceValidationBoundary<T>(action: () => T): T {
+  try { return action(); }
+  catch (error) {
+    if (error instanceof LocalDatabaseError) throw error;
+    return invalidLegacySource();
+  }
+}
+function safeOwnKeys(value: object): PropertyKey[] {
+  try { return Reflect.ownKeys(value); }
+  catch { return invalidLegacySource(); }
+}
+function readOwnDataField(record: object, key: PropertyKey): OwnDataFieldResult {
+  let descriptor: PropertyDescriptor | undefined;
+  try { descriptor = Object.getOwnPropertyDescriptor(record, key); }
+  catch { return invalidLegacySource(); }
+  if (descriptor === undefined) return { kind: 'absent' };
+  if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) return invalidLegacySource();
+  return { kind: 'data', value: descriptor.value };
+}
+function ownDataFields(value: unknown, allowed: ReadonlySet<string>): Map<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalidLegacySource();
+  const fields = new Map<string, unknown>();
+  for (const key of safeOwnKeys(value)) {
+    if (typeof key !== 'string' || !allowed.has(key)) return invalidLegacySource();
+    const field = readOwnDataField(value, key);
+    if (field.kind !== 'data') return invalidLegacySource();
+    fields.set(key, field.value);
+  }
+  return fields;
+}
+function requiredOwnField(fields: ReadonlyMap<string, unknown>, key: string): unknown {
+  if (!fields.has(key)) return invalidLegacySource();
+  return fields.get(key);
+}
+function safeSourceArray(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return invalidLegacySource();
+  const lengthField = readOwnDataField(value, 'length');
+  if (lengthField.kind !== 'data' || !Number.isSafeInteger(lengthField.value)
+    || (lengthField.value as number) < 0 || (lengthField.value as number) > MAX_LEGACY_NOTE_BYTES) {
+    return invalidLegacySource();
+  }
+  const length = lengthField.value as number;
+  const expectedKeys = new Set<string>(['length']);
+  for (let index = 0; index < length; index += 1) expectedKeys.add(String(index));
+  const keys = safeOwnKeys(value);
+  if (keys.length !== expectedKeys.size
+    || keys.some(key => typeof key !== 'string' || !expectedKeys.has(key))) return invalidLegacySource();
+  const result: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const field = readOwnDataField(value, String(index));
+    if (field.kind !== 'data') return invalidLegacySource();
+    result.push(field.value);
+  }
+  return result;
 }
 function canonical(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
@@ -272,52 +334,64 @@ function sessionAuthorityReference(session: LegacyNotesMigrationSessionV1): Lega
   };
 }
 
-function stringRecord(value: unknown, operation: string): Record<string, string> | undefined {
+function stringRecord(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', operation);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalidLegacySource();
   const entries: Array<[string, string]> = [];
-  for (const [key, item] of Object.entries(value)) {
-    if (!key.trim() || typeof item !== 'string') fail('INVALID_LEGACY_MIGRATION', operation);
-    entries.push([key, item]);
+  for (const key of safeOwnKeys(value)) {
+    if (typeof key !== 'string' || !key.trim()) return invalidLegacySource();
+    const field = readOwnDataField(value, key);
+    if (field.kind !== 'data' || typeof field.value !== 'string') return invalidLegacySource();
+    entries.push([key, field.value]);
   }
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 function relationsRecord(value: unknown): Record<string, string[]> | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', 'legacy_relations');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalidLegacySource();
   const entries: Array<[string, string[]]> = [];
-  for (const [key, item] of Object.entries(value)) {
-    if (!key.trim() || !Array.isArray(item) || item.some(candidate => typeof candidate !== 'string')) {
-      fail('INVALID_LEGACY_MIGRATION', 'legacy_relations');
-    }
-    entries.push([key, [...item]]);
+  for (const key of safeOwnKeys(value)) {
+    if (typeof key !== 'string' || !key.trim()) return invalidLegacySource();
+    const field = readOwnDataField(value, key);
+    if (field.kind !== 'data') return invalidLegacySource();
+    const items = safeSourceArray(field.value);
+    if (items.some(candidate => typeof candidate !== 'string')) return invalidLegacySource();
+    entries.push([key, items as string[]]);
   }
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 function supportedLegacyNote(value: unknown): SupportedLegacyNote {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_LEGACY_MIGRATION', 'legacy_note_shape');
-  const record = value as Record<string, unknown>;
-  const allowed = ['id', 'title', 'body', 'createdAt', 'lastOpenedAt', 'updatedAt', 'folderId', 'deletedAt', 'starred', 'properties', 'relations'];
-  if (Object.keys(record).some(key => !allowed.includes(key)) || typeof record.id !== 'string' || record.id.length < 1
-    || record.id.length > 512 || typeof record.title !== 'string' || typeof record.body !== 'string'
-    || !Number.isSafeInteger(record.updatedAt) || (record.updatedAt as number) < 0
-    || record.createdAt !== undefined && (!Number.isSafeInteger(record.createdAt) || (record.createdAt as number) < 0)
-    || record.lastOpenedAt !== undefined && (!Number.isSafeInteger(record.lastOpenedAt) || (record.lastOpenedAt as number) < 0)
-    || record.folderId !== null && typeof record.folderId !== 'string'
-    || record.deletedAt !== null && (!Number.isSafeInteger(record.deletedAt) || (record.deletedAt as number) < 0)
-    || record.starred !== undefined && typeof record.starred !== 'boolean') {
-    fail('INVALID_LEGACY_MIGRATION', 'legacy_note_shape');
+  const allowed = new Set(['id', 'title', 'body', 'createdAt', 'lastOpenedAt', 'updatedAt', 'folderId', 'deletedAt', 'starred', 'properties', 'relations']);
+  const fields = ownDataFields(value, allowed);
+  const id = requiredOwnField(fields, 'id');
+  const title = requiredOwnField(fields, 'title');
+  const body = requiredOwnField(fields, 'body');
+  const updatedAt = requiredOwnField(fields, 'updatedAt');
+  const folderId = requiredOwnField(fields, 'folderId');
+  const deletedAt = requiredOwnField(fields, 'deletedAt');
+  const createdAt = fields.get('createdAt');
+  const lastOpenedAt = fields.get('lastOpenedAt');
+  const starred = fields.get('starred');
+  if (typeof id !== 'string' || id.length < 1 || !/\S/u.test(id) || id.length > 512
+    || typeof title !== 'string' || typeof body !== 'string'
+    || !Number.isSafeInteger(updatedAt) || (updatedAt as number) < 0
+    || createdAt !== undefined && (!Number.isSafeInteger(createdAt) || (createdAt as number) < 0)
+    || lastOpenedAt !== undefined && (!Number.isSafeInteger(lastOpenedAt) || (lastOpenedAt as number) < 0)
+    || folderId !== null && typeof folderId !== 'string'
+    || deletedAt !== null && (!Number.isSafeInteger(deletedAt) || (deletedAt as number) < 0)
+    || starred !== undefined && typeof starred !== 'boolean') {
+    return invalidLegacySource();
   }
   const note: SupportedLegacyNote = {
-    id: record.id, title: record.title, body: record.body,
-    createdAt: (record.createdAt as number | undefined) ?? record.updatedAt as number,
-    updatedAt: record.updatedAt as number, folderId: record.folderId as string | null,
-    deletedAt: record.deletedAt as number | null, starred: (record.starred as boolean | undefined) ?? false,
+    id, title, body,
+    createdAt: (createdAt as number | undefined) ?? updatedAt as number,
+    updatedAt: updatedAt as number, folderId: folderId as string | null,
+    deletedAt: deletedAt as number | null, starred: (starred as boolean | undefined) ?? false,
   };
   if (note.createdAt > note.updatedAt) fail('INVALID_LEGACY_MIGRATION', 'legacy_note_chronology');
-  if (record.lastOpenedAt !== undefined) note.lastOpenedAt = record.lastOpenedAt as number;
-  const properties = stringRecord(record.properties, 'legacy_properties'); if (properties) note.properties = properties;
-  const relations = relationsRecord(record.relations); if (relations) note.relations = relations;
+  if (lastOpenedAt !== undefined) note.lastOpenedAt = lastOpenedAt as number;
+  const properties = stringRecord(fields.get('properties')); if (properties) note.properties = properties;
+  const relations = relationsRecord(fields.get('relations')); if (relations) note.relations = relations;
   if (new TextEncoder().encode(canonical(note)).length > MAX_LEGACY_NOTE_BYTES) {
     fail('INVALID_LEGACY_MIGRATION', 'legacy_note_size');
   }
@@ -347,25 +421,33 @@ async function buildPlan(
     if (error instanceof LocalDatabaseError) throw error;
     fail('LEGACY_SOURCE_UNAVAILABLE', 'capture_legacy_notes');
   }
-  if (!capture || !validTimestamp(capture.capturedAt) || !Array.isArray(capture.records)
-    || capture.records.length > MAX_LEGACY_MIGRATION_ENTRIES) fail('INVALID_LEGACY_MIGRATION', 'capture_legacy_notes');
+  return sourceValidationBoundary(() => {
+  const captureFields = ownDataFields(capture, new Set(['capturedAt', 'records']));
+  const captureTime = requiredOwnField(captureFields, 'capturedAt');
+  const records = safeSourceArray(requiredOwnField(captureFields, 'records'));
+  if (typeof captureTime !== 'string' || !validTimestamp(captureTime)
+    || records.length > MAX_LEGACY_MIGRATION_ENTRIES) return invalidLegacySource();
   const keys = new Set<string>(); const entityIds = new Set<string>();
   const sourceDrafts: Array<{
     legacyKeyDigest: string; entityId: string; classification: 'live' | 'tombstone'; note: SupportedLegacyNote;
     sourceRecordDigest: string; attachmentReferenceDigest: string | null; createdAt: string; updatedAt: string; deletedAt: string | null;
   }> = [];
-  for (const raw of capture.records) {
-    if (!raw || typeof raw.legacyKey !== 'string' || raw.legacyKey.length < 1 || raw.legacyKey.length > 512
-      || !raw.ownership || typeof raw.ownership !== 'object'
-      || keys.has(raw.legacyKey)) fail('INVALID_LEGACY_MIGRATION', 'legacy_key');
-    keys.add(raw.legacyKey);
-    if (raw.ownership.kind !== 'bound' || raw.ownership.namespaceKey !== runtime.namespaceKey) {
+  for (const raw of records) {
+    const recordFields = ownDataFields(raw, new Set(['legacyKey', 'value', 'ownership']));
+    const legacyKey = requiredOwnField(recordFields, 'legacyKey');
+    const ownership = requiredOwnField(recordFields, 'ownership');
+    if (typeof legacyKey !== 'string' || legacyKey.length < 1 || legacyKey.length > 512
+      || keys.has(legacyKey)) return invalidLegacySource();
+    keys.add(legacyKey);
+    const ownershipFields = ownDataFields(ownership, new Set(['kind', 'namespaceKey']));
+    const ownershipKind = requiredOwnField(ownershipFields, 'kind');
+    if (ownershipKind !== 'bound' || requiredOwnField(ownershipFields, 'namespaceKey') !== runtime.namespaceKey) {
       fail('NAMESPACE_MISMATCH', 'legacy_ownership');
     }
-    const note = supportedLegacyNote(raw.value);
+    const note = supportedLegacyNote(requiredOwnField(recordFields, 'value'));
     if (entityIds.has(note.id)) fail('INVALID_LEGACY_MIGRATION', 'duplicate_legacy_entity');
     entityIds.add(note.id);
-    const legacyKeyDigest = sha256Hex(canonical(['absinthe-legacy-key-v1', raw.legacyKey]));
+    const legacyKeyDigest = sha256Hex(canonical(['absinthe-legacy-key-v1', legacyKey]));
     const refs = attachmentReferences(note.body);
     sourceDrafts.push({
       legacyKeyDigest, entityId: note.id, classification: note.deletedAt === null ? 'live' : 'tombstone', note,
@@ -425,7 +507,8 @@ async function buildPlan(
   if (new TextEncoder().encode(canonical(manifest)).length > MAX_LEGACY_MIGRATION_MANIFEST_BYTES) {
     fail('INVALID_LEGACY_MIGRATION', 'legacy_manifest_size');
   }
-  return { capture, authority, snapshotDigest, manifest, entities };
+  return { capturedAt: captureTime, authority, snapshotDigest, manifest, entities };
+  });
 }
 
 function validateManifestShape(value: LegacyMigrationManifestV1): void {
@@ -674,7 +757,7 @@ export async function captureLegacyNotesMigration(
         sourceIdentityDigest: adapter.sourceIdentityDigest, sourceBindingDigest: adapter.sourceBindingDigest,
         rootBindingVersion: adapter.rootBindingVersion, rootBindingDigest: adapter.rootBindingDigest,
         authorityId: adapter.authorityId, authorityVersion: adapter.authorityVersion,
-        authorityDigest: adapter.authorityDigest, ownershipMode: adapter.ownershipMode, capturedAt: plan.capture.capturedAt,
+        authorityDigest: adapter.authorityDigest, ownershipMode: adapter.ownershipMode, capturedAt: plan.capturedAt,
         snapshotDigest: plan.snapshotDigest, entryCount: plan.manifest.entryCount,
       },
       target: { generationId: targetGenerationId, databaseVersion: LOCAL_DATABASE_VERSION },
