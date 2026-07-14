@@ -25,16 +25,17 @@ records, tombstones, outbox history, checkpoints, restore sessions, migration se
 attachment metadata are untouched.
 
 Cutover sessions use the reserved storage key `k326:cutover:<logical-id>`. Public logical IDs beginning with
-`k326:` are rejected. The strict `local_first_cutover_session_v2` record contains a payload-free immutable plan,
+`k326:` are rejected. The strict `local_first_cutover_session_v3` record contains a payload-free immutable plan,
 bounded lifecycle evidence, and no Note title, body, metadata, attachment content, token, browser exception,
 stack, or arbitrary message.
 
-Version 2 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
+Version 3 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
 K-319 safety epoch captured for that installation, namespace, cutover session, target generation, and plan
-digest. Durable fence evidence distinguishes `installing`, `installed`, `releasing`, `released`, and `committed`.
+digest. Durable fence evidence distinguishes `installing`, `installed`, `releasing`, `released`, and `committed`,
+and separately records whether the physical vault is `clear`, blocked by another artifact, or indeterminate.
 The original identity remains stored after release; a separately observed late identity is bound before it can
-be removed. Draft-only version-1 session/fence shapes are rejected as corruption rather than assigned synthetic
-identity.
+be removed. Draft-only version-1/version-2 session and shared-fence shapes are rejected rather than assigned
+synthetic identity.
 
 The lifecycle is:
 
@@ -100,18 +101,22 @@ authorization. It never disables recovery mode or permits restore, reset, delete
 or another guarded operation. The authorization can affect only its exact cutover.
 
 Before the activation transaction, K-326 creates a unique fence nonce, advances the K-319 safety epoch, and
-first persists that exact instance as `installing`. It then installs the strict version-2
-`absinthe:k326:legacy-write-fence` marker using read/write/read-back validation. A second durable transaction
-revalidates the session, plan, legacy runtime mode, predecessor pointer, inactive target, and exact physical
-identity before recording `installed` and allowing source recapture to continue. A delayed installer whose
-durable state changed removes only its exact still-activating instance when that is independently safe; a
-different or malformed read-back fails closed without being overwritten. The marker is restrictive metadata
-only; it never claims that activation succeeded. Every legacy Notes replacement/removal path consults it,
+first persists that exact instance as `installing`. The mutable K-326A/B shared key was unsafe because localStorage
+cannot atomically compare and mutate one slot. K-326C instead derives an opaque SHA-256 key under the reserved
+`absinthe:k326:legacy-fence:v3:` prefix from a fixed canonical encoding of the complete identity and schema
+version. Each instance therefore owns a different immutable physical key; its strict payload-free value is bound
+back to the key digest. Installation double-scans all reserved artifacts, writes only the candidate's exact key,
+reads it back, and double-scans again. A second durable transaction revalidates the session, plan, legacy runtime
+mode, predecessor pointer, inactive target, and exact physical identity before recording `installed` and allowing
+source recapture to continue. A competing, malformed, unsupported, multiple, unreadable, or changing artifact
+set stops activation without overwriting or deleting another key. The marker is restrictive metadata only; it
+never claims that activation succeeded. Every legacy Notes replacement/removal path consults the complete scan,
 including IndexedDB save/delete/clear,
 localStorage replacement/removal, persistence migration, and the synchronous Notes storage bridge. IndexedDB
 replacement rechecks the marker before clear and before each put, fencing stale in-process operations. Because
-localStorage is shared by same-origin tabs, other tabs observe the marker synchronously and reject legacy
-writes. A malformed marker also blocks writes.
+localStorage is shared by same-origin tabs, other tabs observe reserved artifacts synchronously and reject legacy
+writes. Writes are allowed only when two bounded scans observe the same empty reserved set. Any valid, foreign,
+multiple, malformed, unsupported legacy shared-key, changing, or unreadable artifact set blocks writes.
 
 If the process stops before activation, the `activating` marker intentionally remains fail-closed until the
 same explicit session is resumed or safely cancelled. A final source/authority failure after fencing records
@@ -122,18 +127,19 @@ and no competing cutover superseded the session. It then removes only the exact 
 
 Fence storage and local-v2 cannot share one transaction, so recovery is an explicit idempotent two-phase
 protocol. After exact fence identity is established, the durable state advances to
-`failed_precommit_releasing`; cleanup removes only that nonce/epoch instance and immediately reads storage back.
-Terminal `failed` is written only after absence is observed. Cleanup failure leaves the releasing state
-retryable, and a crash after removal but before the terminal write resumes after reload. A missing fence is
-accepted only from this releasing state, not from `failed_precommit_fenced`.
+`failed_precommit_releasing`; cleanup derives and removes only that identity's exact key and immediately reads
+that key back. It then double-scans the complete prefix. Releasing A while B remains records A as released but
+the physical vault as blocked; it is not global recovery success and B remains untouched. Terminal `failed` is
+written only after a stable empty scan proves global clearance. Cleanup failure or scan ambiguity leaves the
+releasing state retryable, and a crash after removal but before the terminal write resumes after reload.
 
-Terminal `failed` recovery always reads and classifies the physical fence before returning. An absent fence is
+Terminal `failed` recovery always scans and classifies all physical fence artifacts before returning. An empty set is
 idempotent only after mode, pointer, inactive target, zero queue state, restore conflict, and competing-cutover
 checks independently prove no activation commit. An exact historical fence or a newer same-session instance is
-first bound as the observed late identity, then removed with exact compare/read-back verification. Foreign,
-malformed, activated, confirmed, or unbound fences are never removed. If another fence appears during removal,
-recovery fails closed and retains diagnosable releasing evidence. The K-319 epoch only advances, so release never
-makes pre-fence work current.
+first bound as the observed late identity, then removed through its dedicated key. Foreign, malformed,
+unsupported, activated, confirmed, or unbound artifacts are never removed. If another key appears while A is
+removed, it remains present, the complete scan reports the vault blocked, and durable evidence distinguishes A's
+release from global clearance. The K-319 epoch only advances, so release never makes pre-fence work current.
 Cancellation before activation may invoke the same proof. Activated or confirmed sessions cannot be cancelled
 or unfenced. After commit the marker advances to `activated` and then `confirmed`, and legacy writes remain
 blocked. The legacy source is never deleted, rewritten, repaired, or marked migrated by K-326.
@@ -176,10 +182,11 @@ test/developer cutover authorization. No production store, startup path, hydrati
 timer, worker, service worker, environment flag, Supabase adapter, K-323 runner, or import-time side effect calls
 it. Production continues using the legacy read path until a later reviewed rollout task.
 
-Permanent tests use fake-indexeddb, a deterministic localStorage double, synthetic Notes, and failure injection.
+Permanent tests use fake-indexeddb, a deterministic enumerable localStorage double, synthetic Notes, and failure injection.
 They cover exact activation, rollback of every activation write boundary, restart, cancellation, corruption,
 source and authority races, competing sessions, restore conflicts, exact fence nonce/epoch validation,
-read-back conflicts, late same-session reappearance, foreign/malformed fences, reload recovery, legacy-write
+read-back conflicts, late same-session reappearance, foreign/malformed/multiple/unsupported artifacts,
+read/set and read/remove cross-tab races, bounded changing-set detection, reload recovery, legacy-write
 fencing, and static dormancy.
 No real-browser IndexedDB, multi-tab browser, production Supabase, or real incident data was exercised in K-326.
 
@@ -191,6 +198,7 @@ No real-browser IndexedDB, multi-tab browser, production Supabase, or real incid
 - The opaque K-325 source root cannot cryptographically prove that an operator supplied the intended physical
   browser vault.
 - Cross-tab behavior is source-proven through same-origin localStorage fencing and synthetic tests, not a real
-  multi-tab browser run.
+  multi-tab browser run. Enumeration is not an atomic browser snapshot; the bounded double-scan detects a change
+  during its observation window and fails closed, while every protected write performs a fresh scan.
 - Production local-first hydration, remote bootstrap, attachment asset migration, and rollback remain explicit
   future rollout requirements rather than hidden K-326 behavior.
