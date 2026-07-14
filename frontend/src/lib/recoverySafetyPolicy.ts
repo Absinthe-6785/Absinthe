@@ -104,6 +104,11 @@ export interface LegacyFenceSettlementResult {
   scanStatus: LegacyFenceScanStatus;
 }
 
+export interface LegacyNotesCutoverSettlementArtifact {
+  readonly key: string;
+  readonly raw: string;
+}
+
 export type LegacyCutoverFenceErrorCode =
   | 'FENCE_MALFORMED'
   | 'FENCE_INSTANCE_MISMATCH'
@@ -186,6 +191,16 @@ function buildSettlement(identity: LegacyCutoverFenceIdentity): LegacyNotesCutov
     storageDigest: settlementKey.slice(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX.length),
     fenceStorageDigest: fenceKey.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
     ...identity, outcome: 'precommit_settled',
+  });
+}
+
+/** Pure canonical serialization only. Physical settlement mutation is repository-private. */
+export function buildLegacyNotesCutoverSettlementArtifact(
+  identity: LegacyCutoverFenceIdentity,
+): LegacyNotesCutoverSettlementArtifact {
+  return Object.freeze({
+    key: deriveLegacyNotesCutoverFenceSettlementKey(identity),
+    raw: JSON.stringify(buildSettlement(identity)),
   });
 }
 
@@ -447,62 +462,16 @@ export function advanceLegacyNotesCutoverFence(
   return existing;
 }
 
-export function settleLegacyNotesCutoverFence(
-  authorization: RecoveryCutoverAuthorization,
-  identity: LegacyCutoverFenceIdentity,
-): LegacyFenceSettlementResult {
-  if (!isLegacyCutoverFenceIdentity(identity)) throw new LegacyCutoverFenceError('FENCE_MALFORMED');
-  assertCutoverAuthorization(authorization, identity);
-  const before = scanLegacyNotesCutoverFences();
-  if (!['active', 'multiple_active', 'operationally_clear'].includes(before.status)) throw scanError(before.status);
-  const ownFence = before.fences.find(fence => sameLegacyCutoverFenceIdentity(fence, identity));
-  if (!ownFence) throw new LegacyCutoverFenceError('FENCE_NOT_SETTLED');
-  const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
-  const expectedFenceRaw = JSON.stringify(buildFence(identity));
-  let currentFenceRaw: string | null;
-  try { currentFenceRaw = localStorage.getItem(fenceKey); }
-  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
-  if (currentFenceRaw !== expectedFenceRaw) throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED');
-  const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
-  const settlement = buildSettlement(identity);
-  const expectedRaw = JSON.stringify(settlement);
-  let currentRaw: string | null;
-  try { currentRaw = localStorage.getItem(settlementKey); }
-  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
-  if (currentRaw !== null) {
-    let current: unknown;
-    try { current = JSON.parse(currentRaw); } catch { throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_MALFORMED'); }
-    if (!validSettlementRaw(current, settlementKey, currentRaw) || currentRaw !== expectedRaw) {
-      throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_CONFLICT');
-    }
-  } else {
-    try { localStorage.setItem(settlementKey, expectedRaw); }
-    catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
-  }
-  let readBack: string | null;
-  try { readBack = localStorage.getItem(settlementKey); }
-  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
-  if (readBack !== expectedRaw) throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_CONFLICT');
-  const scan = scanLegacyNotesCutoverFences();
-  const ownSettled = scan.settledFences.some(fence => sameLegacyCutoverFenceIdentity(fence, identity));
-  if (!ownSettled) throw scan.status === 'malformed'
-    ? new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED') : scanError(scan.status);
-  activateRecoveryMode();
-  return {
-    ownFenceSettled: true,
-    vaultState: scan.status === 'operationally_clear' ? 'operationally_clear'
-      : ['active', 'multiple_active'].includes(scan.status) ? 'blocked_by_other_active' : 'indeterminate',
-    scanStatus: scan.status,
-  };
-}
-
 export function readLegacyNotesCutoverFence(): LegacyNotesCutoverFence | 'corrupt' | null {
   const scan = scanLegacyNotesCutoverFences();
   return scan.status === 'operationally_clear' ? null : scan.status === 'active' ? scan.activeFences[0] : 'corrupt';
 }
 
 export function isLegacyNotesWriteBlockedByCutover(): boolean {
-  return scanLegacyNotesCutoverFences().status !== 'operationally_clear';
+  const scan = scanLegacyNotesCutoverFences();
+  // Structural settlement is not durable runtime authorization. Once K-326 evidence exists,
+  // the synchronous legacy writer remains fail-closed until a later reviewed runtime cutover protocol.
+  return scan.status !== 'operationally_clear' || scan.fences.length !== 0 || scan.settlements.length !== 0;
 }
 
 export function mayWriteLegacyNotes(): boolean {

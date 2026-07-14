@@ -1,12 +1,15 @@
 import {
+  K326_LEGACY_WRITE_FENCE_PREFIX,
   advanceLegacyNotesCutoverFence,
+  activateRecoveryMode,
   beginLegacyNotesCutoverFence,
+  buildLegacyNotesCutoverSettlementArtifact,
   createLegacyNotesCutoverFenceIdentity,
   createRecoveryCutoverAuthorization,
+  deriveLegacyNotesCutoverFenceKey,
   isLegacyCutoverFenceIdentity,
   readLegacyNotesCutoverFence,
   scanLegacyNotesCutoverFences,
-  settleLegacyNotesCutoverFence,
   sameLegacyCutoverFenceIdentity,
   validateRecoveryCutoverAuthorization,
   LegacyCutoverFenceError,
@@ -154,6 +157,82 @@ export interface LocalFirstCutoverResult {
 }
 
 export interface LocalFirstCutoverRuntime extends LegacyNotesMigrationRuntime {}
+
+const PRECOMMIT_SETTLEMENT_AUTHORITY = Symbol('k326_precommit_settlement_authority');
+
+interface PrecommitSettlementAuthority {
+  readonly marker: typeof PRECOMMIT_SETTLEMENT_AUTHORITY;
+}
+
+interface PrecommitSettlementBinding {
+  namespaceKey: string;
+  cutoverSessionId: string;
+  planDigest: string;
+  attempt: number;
+  sessionUpdatedAt: string;
+  targetGenerationId: string;
+  expectedPredecessorGenerationId: string;
+  fenceIdentity: LegacyCutoverFenceIdentity;
+  fenceStorageDigest: string;
+  purpose: 'precommit_settlement';
+  expectedRuntimeMode: 'legacy';
+}
+
+const precommitSettlementAuthorities = new WeakMap<object, PrecommitSettlementBinding>();
+const consumedPrecommitSettlementAuthorities = new WeakSet<object>();
+
+function issuePrecommitSettlementAuthority(session: LocalFirstCutoverSessionV1): PrecommitSettlementAuthority {
+  if (session.status !== 'failed_precommit_settling' || session.fence?.phase !== 'settlement_pending'
+    || session.activatedAt !== null || session.confirmedAt !== null) {
+    fail('CUTOVER_SETTLEMENT_POST_ACTIVATION_FORBIDDEN', 'issue_precommit_settlement_authority');
+  }
+  const authority = Object.freeze({ marker: PRECOMMIT_SETTLEMENT_AUTHORITY });
+  precommitSettlementAuthorities.set(authority, Object.freeze({
+    namespaceKey: session.namespaceKey,
+    cutoverSessionId: session.cutoverSessionId,
+    planDigest: session.plan.planDigest,
+    attempt: session.attempt,
+    sessionUpdatedAt: session.updatedAt,
+    targetGenerationId: session.plan.targetGenerationId,
+    expectedPredecessorGenerationId: session.plan.expectedPredecessorGenerationId,
+    fenceIdentity: Object.freeze({ ...session.fence.identity }),
+    fenceStorageDigest: deriveLegacyNotesCutoverFenceKey(session.fence.identity)
+      .slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
+    purpose: 'precommit_settlement',
+    expectedRuntimeMode: 'legacy',
+  }));
+  return authority;
+}
+
+function consumePrecommitSettlementAuthority(
+  authority: PrecommitSettlementAuthority,
+  session: LocalFirstCutoverSessionV1,
+): void {
+  if (!authority || typeof authority !== 'object'
+    || authority.marker !== PRECOMMIT_SETTLEMENT_AUTHORITY) {
+    fail('CUTOVER_SETTLEMENT_AUTHORITY_REQUIRED', 'consume_precommit_settlement_authority');
+  }
+  const binding = precommitSettlementAuthorities.get(authority as object);
+  if (!binding) fail(
+    consumedPrecommitSettlementAuthorities.has(authority as object)
+      ? 'CUTOVER_SETTLEMENT_AUTHORITY_CONSUMED' : 'CUTOVER_SETTLEMENT_AUTHORITY_INVALID',
+    'consume_precommit_settlement_authority',
+  );
+  precommitSettlementAuthorities.delete(authority as object);
+  consumedPrecommitSettlementAuthorities.add(authority as object);
+  const identity = session.fence?.identity;
+  if (!identity || binding.purpose !== 'precommit_settlement' || binding.expectedRuntimeMode !== 'legacy'
+    || binding.namespaceKey !== session.namespaceKey || binding.cutoverSessionId !== session.cutoverSessionId
+    || binding.planDigest !== session.plan.planDigest || binding.attempt !== session.attempt
+    || binding.sessionUpdatedAt !== session.updatedAt
+    || binding.targetGenerationId !== session.plan.targetGenerationId
+    || binding.expectedPredecessorGenerationId !== session.plan.expectedPredecessorGenerationId
+    || binding.fenceStorageDigest !== deriveLegacyNotesCutoverFenceKey(identity)
+      .slice(K326_LEGACY_WRITE_FENCE_PREFIX.length)
+    || !sameLegacyCutoverFenceIdentity(binding.fenceIdentity, identity)) {
+    fail('CUTOVER_SETTLEMENT_AUTHORITY_SCOPE_MISMATCH', 'consume_precommit_settlement_authority');
+  }
+}
 
 function fail(code: LocalDatabaseErrorCode, operation = 'local_first_cutover'): never {
   throw new LocalDatabaseError(code, operation);
@@ -691,6 +770,59 @@ function failForFenceScan(scan: LegacyFenceScanResult, operation: string): never
   mapFenceError(error, operation);
 }
 
+function appendPrecommitSettlement(
+  authority: PrecommitSettlementAuthority,
+  session: LocalFirstCutoverSessionV1,
+): LegacyFenceSettlementResult {
+  consumePrecommitSettlementAuthority(authority, session);
+  const identity = session.fence?.identity;
+  if (!identity || session.status !== 'failed_precommit_settling'
+    || session.fence?.phase !== 'settlement_pending') {
+    fail('CUTOVER_SETTLEMENT_POST_ACTIVATION_FORBIDDEN', 'append_precommit_settlement');
+  }
+  const before = scanLegacyNotesCutoverFences();
+  if (!['active', 'multiple_active', 'operationally_clear'].includes(before.status)) {
+    failForFenceScan(before, 'append_precommit_settlement_scan');
+  }
+  const ownFence = before.fences.find(fence => sameLegacyCutoverFenceIdentity(fence, identity));
+  if (!ownFence) fail('CUTOVER_FENCE_NOT_SETTLED', 'append_precommit_settlement_identity');
+  const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
+  let currentFenceRaw: string | null;
+  try { currentFenceRaw = localStorage.getItem(fenceKey); }
+  catch { fail('CUTOVER_FENCE_RECOVERY_INCOMPLETE', 'append_precommit_settlement_fence_read'); }
+  if (currentFenceRaw !== JSON.stringify(ownFence)) {
+    fail('CUTOVER_FENCE_ARTIFACT_MALFORMED', 'append_precommit_settlement_fence_read');
+  }
+  const settlement = buildLegacyNotesCutoverSettlementArtifact(identity);
+  let currentSettlementRaw: string | null;
+  try { currentSettlementRaw = localStorage.getItem(settlement.key); }
+  catch { fail('CUTOVER_FENCE_RECOVERY_INCOMPLETE', 'append_precommit_settlement_read'); }
+  if (currentSettlementRaw !== null && currentSettlementRaw !== settlement.raw) {
+    fail('CUTOVER_FENCE_SETTLEMENT_CONFLICT', 'append_precommit_settlement_existing');
+  }
+  if (currentSettlementRaw === null) {
+    try { localStorage.setItem(settlement.key, settlement.raw); }
+    catch { fail('CUTOVER_FENCE_RECOVERY_INCOMPLETE', 'append_precommit_settlement_write'); }
+  }
+  let readBack: string | null;
+  try { readBack = localStorage.getItem(settlement.key); }
+  catch { fail('CUTOVER_FENCE_RECOVERY_INCOMPLETE', 'append_precommit_settlement_readback'); }
+  if (readBack !== settlement.raw) {
+    fail('CUTOVER_FENCE_SETTLEMENT_CONFLICT', 'append_precommit_settlement_readback');
+  }
+  const scan = scanLegacyNotesCutoverFences();
+  if (!scan.settledFences.some(fence => sameLegacyCutoverFenceIdentity(fence, identity))) {
+    failForFenceScan(scan, 'append_precommit_settlement_confirmation');
+  }
+  activateRecoveryMode();
+  return {
+    ownFenceSettled: true,
+    vaultState: scan.status === 'operationally_clear' ? 'operationally_clear'
+      : ['active', 'multiple_active'].includes(scan.status) ? 'blocked_by_other_active' : 'indeterminate',
+    scanStatus: scan.status,
+  };
+}
+
 async function installCutoverFence(
   runtime: LocalFirstCutoverRuntime,
   cutoverSessionId: string,
@@ -937,12 +1069,19 @@ export async function recoverFailedPrecommitCutoverFence(
       if (current.status !== 'failed_precommit_settling' || current.fence?.phase !== 'settlement_pending') {
         fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_settled');
       }
-      let settlementResult: LegacyFenceSettlementResult;
-      try { settlementResult = settleLegacyNotesCutoverFence(authorization, current.fence.identity); }
-      catch (error) { mapFenceError(error, 'recover_precommit_fence_settlement'); }
+      const settlementAuthority = issuePrecommitSettlementAuthority(current);
+      const settlementResult = appendPrecommitSettlement(settlementAuthority, current);
+      const revalidated = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, settledTx);
+      if (revalidated.status !== 'failed_precommit_settling'
+        || revalidated.fence?.phase !== 'settlement_pending'
+        || revalidated.attempt !== current.attempt || revalidated.updatedAt !== current.updatedAt
+        || revalidated.plan.planDigest !== current.plan.planDigest
+        || !sameLegacyCutoverFenceIdentity(revalidated.fence.identity, current.fence.identity)) {
+        fail('CUTOVER_SETTLEMENT_GRAPH_CHANGED', 'recover_precommit_fence_settlement_revalidate');
+      }
       const settled: LocalFirstCutoverSessionV1 = {
-        ...current, updatedAt: at,
-        fence: { ...current.fence, phase: 'settled', vaultState: settlementResult.vaultState, settledAt: at },
+        ...revalidated, updatedAt: at,
+        fence: { ...revalidated.fence, phase: 'settled', vaultState: settlementResult.vaultState, settledAt: at },
       };
       persistedSession(toPersistedSession(settled), runtime);
       settledTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(settled));

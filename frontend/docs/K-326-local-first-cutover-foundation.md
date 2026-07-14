@@ -135,6 +135,38 @@ read-back checked and followed by a full stable scan before durable `settled` fi
 write, after the write, or before durable finalization retries the same canonical settlement value. No normal
 recovery path deletes or overwrites fence/settlement evidence, and K-326D performs no garbage collection.
 
+K-326E makes that settlement mutation repository-mediated. `recoverySafetyPolicy` exposes only a pure canonical
+artifact builder; it has no exported physical settlement writer. Generic cutover authorization can enter the
+repository recovery operation, but cannot append settlement evidence. After the repository has re-read and
+validated the exact `failed_precommit_settling` graph in its serialized `migration_state` read/write transaction,
+`localFirstCutover` mints a private one-shot authority. The authority is an object branded by a module-private
+symbol and registered by identity in a private `WeakMap`; no authority type, issuer, registry, or physical writer
+is exported.
+
+The private binding covers namespace, cutover session, plan digest, attempt, durable session timestamp, target,
+expected predecessor, exact fence identity and storage digest, expected `legacy` mode, and the single
+`precommit_settlement` purpose. It is consumed before the first physical mutation. Plain objects, copied fields,
+JSON, another process/repository instance, another session/target/fence, or replay cannot create a registry entry.
+A storage failure consumes the authority; retry requires a fresh durable graph proof and a newly minted authority.
+Capabilities are never persisted, returned, logged, or passed to UI/application services.
+
+Settlement and activation for an exact session serialize through the same IndexedDB read/write store transaction.
+The allowed graph requires coherent legacy mode and predecessor pointer, an inactive exact verified target, zero
+target outbox/checkpoint state, no active restore or competing cutover, unchanged source/authority/manifest
+evidence, an uncommitted session, `settlement_pending`, and the exact valid v4 fence. Immediately after append and
+read-back, the repository revalidates the complete no-commit graph in that same transaction before recording
+durable `settled`; a changed graph fails closed without deleting the append-only evidence. Activated, confirmed,
+committed, local-first, restored, divergent, malformed, or ambiguous graphs cannot mint or complete settlement
+authority.
+
+Physical `operationally_clear` remains only a structural storage classification. It is not semantic authorization
+to write legacy Notes. The synchronous legacy guard cannot safely query IndexedDB runtime mode, so it deliberately
+remains fail-closed whenever any K-326 fence or settlement history exists, including a structurally all-settled
+history. This is a conservative availability limitation: an explicit future protocol may combine an asynchronously
+validated durable `legacy` mode capability with the physical scan. It ensures a forged or manually copied
+post-commit settlement can never override `local_first` mode or revive legacy writes. With no K-326 artifact,
+pre-cutover production behavior remains unchanged.
+
 Terminal `failed` recovery always reconstructs the exact v4 fence/settlement relation from storage. The original
 fence remains present, so observing it after restart is the normal settled-own state rather than reappearance or
 foreign ownership. A second nonce/epoch is a separate fence requiring its own settlement. Orphan settlements,
@@ -189,7 +221,8 @@ They cover exact activation, rollback of every activation write boundary, restar
 source and authority races, competing sessions, restore conflicts, exact fence nonce/epoch validation,
 canonical fence/settlement binding, same-key mutation, orphan and conflicting evidence, historical settled pairs,
 multiple active fences, unsupported delete-based artifacts, bounded changing-set detection, reload recovery,
-legacy-write fencing, append-only operation history, and static dormancy.
+legacy-write fencing, append-only operation history, private settlement API reachability, post-commit settlement
+bypass denial, post-append mutation, one-shot/restart settlement recovery, and static dormancy.
 No real-browser IndexedDB, multi-tab browser, production Supabase, or real incident data was exercised in K-326.
 
 ## Residual risks
@@ -204,5 +237,9 @@ No real-browser IndexedDB, multi-tab browser, production Supabase, or real incid
 - Cross-tab behavior is source-proven through same-origin localStorage fencing and synthetic tests, not a real
   multi-tab browser run. Enumeration is not an atomic browser snapshot; the bounded double-scan detects a change
   during its observation window and fails closed, while every protected write performs a fresh scan.
+- Process-local settlement authority assumes the private module instance and JavaScript object identity remain the
+  authority boundary. Restart intentionally loses every authority and performs a fresh durable graph validation.
+- Structural all-settled history remains availability-blocking to synchronous legacy writers because they cannot
+  atomically consult the IndexedDB runtime graph. No reviewed durable legacy-mode permit exists in K-326E.
 - Production local-first hydration, remote bootstrap, attachment asset migration, and rollback remain explicit
   future rollout requirements rather than hidden K-326 behavior.

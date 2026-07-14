@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as recoverySafetyPolicy from './recoverySafetyPolicy';
 import {
   K326_LEGACY_WRITE_FENCE_KEY,
   K326_LEGACY_WRITE_FENCE_PREFIX,
-  K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX,
   RECOVERY_MODE_MESSAGE,
   LegacyCutoverFenceError,
   RecoveryModeBlockedError,
   activateRecoveryMode,
   assertCurrentOperationEpoch,
   beginLegacyNotesCutoverFence,
+  buildLegacyNotesCutoverSettlementArtifact,
   captureOperationEpoch,
   clearLegacyNotesCutoverFenceForTest,
   createLegacyNotesCutoverFenceIdentity,
@@ -31,7 +32,6 @@ import {
   recordRecoveryBlock,
   readLegacyNotesCutoverFence,
   scanLegacyNotesCutoverFences,
-  settleLegacyNotesCutoverFence,
   resetRecoverySafetyDiagnosticsForTest,
   setRecoveryModeActiveForTest,
 } from './recoverySafetyPolicy';
@@ -58,17 +58,13 @@ function physicalFence(identity: ReturnType<typeof createLegacyNotesCutoverFence
 }
 
 function physicalSettlement(identity: ReturnType<typeof createLegacyNotesCutoverFenceIdentity>) {
-  const key = deriveLegacyNotesCutoverFenceSettlementKey(identity);
-  const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
-  return {
-    key,
-    value: {
-      kind: 'legacy_notes_cutover_fence_settlement_v4', version: 4,
-      storageDigest: key.slice(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX.length),
-      fenceStorageDigest: fenceKey.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
-      ...identity, outcome: 'precommit_settled',
-    },
-  } as const;
+  const artifact = buildLegacyNotesCutoverSettlementArtifact(identity);
+  return { key: artifact.key, value: JSON.parse(artifact.raw) } as const;
+}
+
+function writePhysicalSettlement(identity: ReturnType<typeof createLegacyNotesCutoverFenceIdentity>): void {
+  const artifact = buildLegacyNotesCutoverSettlementArtifact(identity);
+  localStorage.setItem(artifact.key, artifact.raw);
 }
 
 describe('K-319 recovery safety policy', () => {
@@ -143,10 +139,12 @@ describe('K-319 recovery safety policy', () => {
     expect(() => beginLegacyNotesCutoverFence(authorization, second)).toThrow(LegacyCutoverFenceError);
     expect(readLegacyNotesCutoverFence()).toMatchObject(first);
     const fenceKey = deriveLegacyNotesCutoverFenceKey(first);
-    settleLegacyNotesCutoverFence(authorization, first);
+    expect('settleLegacyNotesCutoverFence' in recoverySafetyPolicy).toBe(false);
+    writePhysicalSettlement(first);
     expect(readLegacyNotesCutoverFence()).toBeNull();
     expect(localStorage.getItem(fenceKey)).not.toBeNull();
     expect(localStorage.getItem(deriveLegacyNotesCutoverFenceSettlementKey(first))).not.toBeNull();
+    expect(mayWriteLegacyNotes()).toBe(false);
   });
 
   it('rejects changed epochs, unknown fields, malformed nonces, and inherited identity properties', () => {
@@ -155,8 +153,8 @@ describe('K-319 recovery safety policy', () => {
     });
     const identity = createLegacyNotesCutoverFenceIdentity(authorization);
     beginLegacyNotesCutoverFence(authorization, identity);
-    expect(() => settleLegacyNotesCutoverFence(authorization, { ...identity, fenceEpoch: identity.fenceEpoch + 1 }))
-      .toThrow(LegacyCutoverFenceError);
+    expect(buildLegacyNotesCutoverSettlementArtifact({ ...identity, fenceEpoch: identity.fenceEpoch + 1 }).key)
+      .not.toBe(deriveLegacyNotesCutoverFenceSettlementKey(identity));
     expect(readLegacyNotesCutoverFence()).toMatchObject(identity);
     const artifact = physicalFence(identity);
     localStorage.setItem(artifact.key, JSON.stringify({ ...artifact.value, unknown: true }));
@@ -197,7 +195,7 @@ describe('K-319 recovery safety policy', () => {
     const aKey = deriveLegacyNotesCutoverFenceKey(a);
     localStorage.setItem(aKey, '{malformed');
     const remove = vi.spyOn(localStorage, 'removeItem');
-    expect(() => settleLegacyNotesCutoverFence(authorization, a)).toThrow(LegacyCutoverFenceError);
+    expect('settleLegacyNotesCutoverFence' in recoverySafetyPolicy).toBe(false);
     expect(localStorage.getItem(aKey)).toBe('{malformed');
     expect(localStorage.getItem(deriveLegacyNotesCutoverFenceSettlementKey(a))).toBeNull();
     expect(remove).not.toHaveBeenCalled();
@@ -261,13 +259,14 @@ describe('K-319 recovery safety policy', () => {
     });
     const a = createLegacyNotesCutoverFenceIdentity(authorization);
     beginLegacyNotesCutoverFence(authorization, a);
-    settleLegacyNotesCutoverFence(authorization, a);
+    writePhysicalSettlement(a);
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'operationally_clear', settledFences: [expect.objectContaining(a)] });
     const b = { ...a, fenceNonce: '7'.repeat(32), fenceEpoch: a.fenceEpoch + 1 };
     beginLegacyNotesCutoverFence(authorization, b);
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active', activeFences: [expect.objectContaining(b)] });
-    settleLegacyNotesCutoverFence(authorization, b);
+    writePhysicalSettlement(b);
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'operationally_clear' });
+    expect(mayWriteLegacyNotes()).toBe(false);
     expect(localStorage.getItem(deriveLegacyNotesCutoverFenceKey(a))).not.toBeNull();
     expect(localStorage.getItem(deriveLegacyNotesCutoverFenceKey(b))).not.toBeNull();
   });
@@ -284,7 +283,7 @@ describe('K-319 recovery safety policy', () => {
     localStorage.setItem(deriveLegacyNotesCutoverFenceKey(identity), JSON.stringify(physicalFence(identity).value));
     localStorage.setItem(settlement.key, '{malformed');
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'malformed' });
-    expect(() => settleLegacyNotesCutoverFence(authorization, identity)).toThrow(LegacyCutoverFenceError);
+    expect('settleLegacyNotesCutoverFence' in recoverySafetyPolicy).toBe(false);
     expect(localStorage.getItem(settlement.key)).toBe('{malformed');
   });
 
@@ -306,19 +305,14 @@ describe('K-319 recovery safety policy', () => {
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'malformed' });
   });
 
-  it('never repairs a settlement mutated before read-back and keeps the vault blocked', () => {
+  it('never treats a mutated settlement as structurally valid or repairs it', () => {
     const authorization = createRecoveryCutoverAuthorization({
       namespaceKey: '9'.repeat(64), cutoverSessionId: 'cutover-a', targetGenerationId: 'generation-a', purpose: 'test',
     });
     const identity = createLegacyNotesCutoverFenceIdentity(authorization);
     beginLegacyNotesCutoverFence(authorization, identity);
     const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
-    const set = localStorage.setItem.bind(localStorage);
-    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
-      set(key, value);
-      if (key === settlementKey) set(key, '{changed-after-write');
-    });
-    expect(() => settleLegacyNotesCutoverFence(authorization, identity)).toThrow(LegacyCutoverFenceError);
+    localStorage.setItem(settlementKey, '{changed-after-write');
     expect(localStorage.getItem(settlementKey)).toBe('{changed-after-write');
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'malformed' });
     expect(mayWriteLegacyNotes()).toBe(false);
@@ -330,14 +324,32 @@ describe('K-319 recovery safety policy', () => {
     });
     const identity = createLegacyNotesCutoverFenceIdentity(authorization);
     beginLegacyNotesCutoverFence(authorization, identity);
-    settleLegacyNotesCutoverFence(authorization, identity);
+    writePhysicalSettlement(identity);
     const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
     const raw = localStorage.getItem(settlementKey);
-    const set = vi.spyOn(localStorage, 'setItem');
-    expect(settleLegacyNotesCutoverFence(authorization, identity))
-      .toMatchObject({ ownFenceSettled: true, vaultState: 'operationally_clear' });
-    expect(set).not.toHaveBeenCalled();
+    const retry = buildLegacyNotesCutoverSettlementArtifact(identity);
+    expect(retry.raw).toBe(raw);
+    expect(retry.key).toBe(settlementKey);
     expect(localStorage.getItem(settlementKey)).toBe(raw);
+  });
+
+  it('exposes settlement bytes as a pure builder but no generic-authority mutation API', () => {
+    const authorization = createRecoveryCutoverAuthorization({
+      namespaceKey: 'b'.repeat(64), cutoverSessionId: 'cutover-pure-builder',
+      targetGenerationId: 'generation-a', purpose: 'test',
+    });
+    const identity = createLegacyNotesCutoverFenceIdentity(authorization);
+    beginLegacyNotesCutoverFence(authorization, identity);
+    const before = localStorage.length;
+    const artifact = buildLegacyNotesCutoverSettlementArtifact(identity);
+    expect(artifact).toMatchObject({
+      key: deriveLegacyNotesCutoverFenceSettlementKey(identity),
+      raw: expect.stringContaining('legacy_notes_cutover_fence_settlement_v4'),
+    });
+    expect(localStorage.length).toBe(before);
+    expect((recoverySafetyPolicy as Record<string, unknown>).settleLegacyNotesCutoverFence).toBeUndefined();
+    expect((recoverySafetyPolicy as Record<string, unknown>).issuePrecommitSettlementAuthority).toBeUndefined();
+    expect((recoverySafetyPolicy as Record<string, unknown>).appendPrecommitSettlement).toBeUndefined();
   });
 
   it('rejects delete-based v3 evidence without deleting or converting it', () => {
