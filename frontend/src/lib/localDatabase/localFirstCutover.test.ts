@@ -6,10 +6,12 @@ import * as recoverySafetyPolicy from '../recoverySafetyPolicy';
 import {
   K326_LEGACY_WRITE_FENCE_PREFIX,
   K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX,
+  beginLegacyNotesCutoverFence,
   captureOperationEpoch,
   clearLegacyNotesCutoverFenceForTest,
   buildLegacyNotesCutoverSettlementArtifact,
   createRecoveryCutoverAuthorization,
+  createLegacyNotesCutoverFenceIdentity,
   deriveLegacyNotesCutoverFenceKey,
   deriveLegacyNotesCutoverFenceSettlementKey,
   isRecoveryModeActive,
@@ -269,6 +271,169 @@ afterEach(async () => {
 });
 
 describe('K-326 local-first cutover foundation', () => {
+  it('permanently documents the raw localStorage guard/write race that K-326G refuses to trust', () => {
+    const tabBEpoch = captureOperationEpoch();
+    const authorization = createRecoveryCutoverAuthorization({
+      namespaceKey: 'a'.repeat(64), cutoverSessionId: 'cross-tab-race',
+      targetGenerationId: 'migration-cross-tab-race', purpose: 'test',
+    });
+    const identity = createLegacyNotesCutoverFenceIdentity(authorization);
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY) beginLegacyNotesCutoverFence(authorization, identity);
+      originalSetItem(key, value);
+    });
+
+    expect(saveNotes([])).toBe(true);
+    expect(localStorage.getItem(NOTES_KEY)).toBe('[]');
+    expect(scanLegacyNotesCutoverFences().status).toBe('active');
+    expect(mayWriteLegacyNotes()).toBe(false);
+    expect(isOperationEpochCurrent(tabBEpoch)).toBe(false);
+  });
+
+  it.each([
+    ['localStorage', {
+      adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
+      sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+    }],
+    ['legacy IndexedDB', {
+      adapter: 'absinthe_notes_indexeddb_v1', schemaVersion: 1,
+      sourceType: 'indexeddb', sourceInstanceId: 'absinthe-notes-v1.notes.v1',
+    }],
+    ['mixed', {
+      adapter: 'absinthe_notes_indexeddb_v1', schemaVersion: 1,
+      sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+    }],
+    ['unknown', {
+      adapter: 'unknown_legacy_notes', schemaVersion: null,
+      sourceType: 'indexeddb', sourceInstanceId: 'unknown.notes',
+    }],
+  ] as const)('rejects %s source identity before any K-326 durable transition', async (_label, identity) => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    Object.assign(source, identity);
+    const authorization = repo.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+    const epoch = captureOperationEpoch();
+
+    await expect(repo.planLocalFirstCutover(source, {
+      cutoverSessionId: 'cutover-1', migrationSessionId: 'verified', authorization, now: T1,
+    })).rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toBeNull();
+    expect(await repo.getLocalFirstRuntimeMode()).toBeNull();
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+    expect(scanLegacyNotesCutoverFences().activeFences).toHaveLength(0);
+    expect(isOperationEpochCurrent(epoch)).toBe(true);
+  });
+
+  it('revalidates source safety during preflight without installing a fence', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    Object.assign(source, {
+      adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
+      sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+    });
+    const epoch = captureOperationEpoch();
+
+    await expect(repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'planned', fence: null });
+    expect(scanLegacyNotesCutoverFences().activeFences).toHaveLength(0);
+    expect(isOperationEpochCurrent(epoch)).toBe(true);
+  });
+
+  it('fails closed with append-only fence evidence when safety changes after fence installation', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2,
+      testOnlyBeforePostFenceSourceSafety: () => Object.assign(source, {
+        adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
+        sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+      }),
+    })).rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+      status: 'failed_precommit_fenced',
+      failure: { code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' },
+      fence: { phase: 'installed' },
+    });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy', activeGenerationId: 'generation-1' });
+    await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(scanLegacyNotesCutoverFences().settledFences).toHaveLength(0);
+  });
+
+  it('revalidates source safety at the final activation boundary and preserves the inactive graph', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2,
+      testOnlyBeforeActivationTransactionSourceSafety: () => Object.assign(source, {
+        adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
+        sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+      }),
+    })).rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+      status: 'failed_precommit_fenced', failure: { code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' },
+    });
+    expect(await repo.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy', activeGenerationId: 'generation-1' });
+  });
+
+  it('does not confirm an activated graph through a now-unsafe source adapter', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', {
+      authorization, now: T2, testOnlyFailAt: 'after_activation_commit',
+    })).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    Object.assign(source, {
+      adapter: 'absinthe_notes_localstorage_v2', schemaVersion: 2,
+      sourceType: 'localstorage', sourceInstanceId: 'localStorage.notes-v2',
+    });
+
+    await expect(repo.confirmLocalFirstCutover(source, 'cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'activated', confirmedAt: null });
+  });
+
+  it('fails closed on a pre-K-326G cutover session discriminator without synthesizing safety', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    await plan(repo, source);
+    await mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'],
+      value => ({ ...value, kind: 'local_first_cutover_session_v4', version: 4 }),
+    );
+
+    await expect(repo.getLocalFirstCutoverSession('cutover-1'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+    expect(scanLegacyNotesCutoverFences().activeFences).toHaveLength(0);
+  });
+
+  it('rejects a re-digested persisted plan that falsely labels an unknown backend safe', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    await plan(repo, source);
+    await mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => {
+        const { planDigest: _oldDigest, ...oldCore } = value.plan;
+        const core = { ...oldCore, sourceAdapter: 'unknown_but_claimed_safe' };
+        return {
+          ...value,
+          plan: { ...core, planDigest: sha256Hex(canonical(['absinthe-local-first-cutover-plan-v2', core])) },
+        };
+      },
+    );
+
+    await expect(repo.getLocalFirstCutoverSession('cutover-1'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+  });
+
   it('atomically activates and confirms one exact verified K-325 generation', async () => {
     const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
     const { authorization, session } = await plan(repo, source);
@@ -625,7 +790,7 @@ describe('K-326 local-first cutover foundation', () => {
       LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => {
         const { planDigest: _oldDigest, ...oldCore } = value.plan;
         const core = { ...oldCore, targetEntryCount: 2 };
-        const planDigest = sha256Hex(canonical(['absinthe-local-first-cutover-plan-v1', core]));
+        const planDigest = sha256Hex(canonical(['absinthe-local-first-cutover-plan-v2', core]));
         return { ...value, plan: { ...core, planDigest }, fence: { ...value.fence, planDigest } };
       },
     );

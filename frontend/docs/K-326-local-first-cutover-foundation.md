@@ -17,6 +17,34 @@ and contain zero outbox and checkpoint rows. The predecessor must still be the m
 Active restore sessions, competing cutovers, missing or revoked authority, altered source, malformed persisted
 evidence, and changed active pointers fail closed.
 
+K-326G also requires an explicit, deterministic source-backend and mutation-safety classification. The current
+legacy localStorage writer checks K-319 and then performs `setItem`/`removeItem` as a separate operation; another
+tab can install a fence between those steps. The K-319 epoch is process-local and cannot close that cross-tab
+gap. The legacy IndexedDB writer is likewise in a different database from the K-326 activation transaction and
+has no repository-wide cross-context exclusion protocol. Therefore both production legacy backends, mixed or
+unknown identities, malformed identities, and multiple/unproven writer configurations are unsupported for
+K-326 cutover. Only the isolated synthetic adapter used by permanent tests is currently classified safe. This
+is a deliberate availability restriction, not a warning or authorization override. A future production cutover
+requires a separately reviewed read-only source handoff or complete cross-context exclusion protocol.
+
+The K-326G mutation inventory is intentionally broader than the reproduced call site:
+
+| Surface | Backend | Guard/write relationship | K-325 relevance |
+| --- | --- | --- | --- |
+| Notes snapshot replace/remove and persistence fallback/migration | localStorage `notes-v2` | synchronous check then separate mutation | migration-critical payload |
+| Legacy Notes save/delete/clear | IndexedDB `absinthe-notes-v1/notes` | repeated checks, but separate DB transaction from K-326 | migration-critical payload |
+| `folderId`, properties, relations, timestamps, tombstones | inside each Note record | follows the owning Notes backend | migration-critical payload/manifest evidence |
+| Folder list and active Note key | localStorage | synchronous check then separate mutation | excluded UI/navigation state |
+| Onboarding marker | localStorage | synchronous check then separate mutation | excluded UI state |
+| IndexedDB revision and migration markers | localStorage | synchronous check then separate mutation | excluded operational metadata |
+| Cleanup and whole-snapshot helpers | both legacy backends/localStorage metadata | guarded calls still have check/use separation | can remove migration-critical Notes |
+| Cross-tab storage-event application and stale async persistence | in-memory state feeding legacy writers | eventual guarded writer, no atomic shared lock | can reach a migration-critical writer |
+| Developer/audit seed and cleanup utilities | legacy localStorage/IndexedDB | explicit development paths, no shared cutover lock | can mutate the same source |
+
+Separate folder, active-Note, onboarding, revision, and migration-marker values are not inputs to the K-325
+canonical Notes manifest. Their presence does not make an otherwise unsafe source safe; the Note payload itself,
+including embedded folder and relationship metadata, is sufficient to require rejection.
+
 ## Durable records and lifecycle
 
 K-326 intentionally reuses the existing `migration_state` store, so the database remains
@@ -25,11 +53,19 @@ records, tombstones, outbox history, checkpoints, restore sessions, migration se
 attachment metadata are untouched.
 
 Cutover sessions use the reserved storage key `k326:cutover:<logical-id>`. Public logical IDs beginning with
-`k326:` are rejected. The strict `local_first_cutover_session_v4` record contains a payload-free immutable plan,
+`k326:` are rejected. The strict `local_first_cutover_session_v5` record contains a payload-free immutable plan,
 bounded lifecycle evidence, and no Note title, body, metadata, attachment content, token, browser exception,
 stack, or arbitrary message.
 
-Version 4 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
+Session version 5 contains a strict `local_first_cutover_plan_v2`. The plan digest binds the exact K-325 adapter,
+schema version, source type, source instance, classified backend, and mutation-safety result. Current state is
+reclassified at planning, preflight, immediately before fence installation, after fence installation, before
+the activation transaction, confirmation, and recovery graph validation. Version-4 sessions and version-1
+plans have no source-safety evidence and fail as corrupt persisted records; no safe default or silent upgrade is
+synthesized. Old dormant test records may be deleted only by an explicit test-environment reset, never repaired
+as production evidence.
+
+Physical fence version 4 binds one exact instance through a 128-bit random hexadecimal nonce, the monotonic
 K-319 safety epoch captured for that installation, namespace, cutover session, target generation, and plan
 digest. Durable fence evidence distinguishes `installing`, `installed`, `settlement_pending`, `settled`, and
 `committed`. It separately records whether the exact own fence is active or settled and whether the complete
@@ -115,9 +151,11 @@ conflicting, unsupported, unreadable, or changing evidence does. The marker is r
 never claims activation succeeded. Every legacy Notes replacement/removal path consults the complete scan,
 including IndexedDB save/delete/clear,
 localStorage replacement/removal, persistence migration, and the synchronous Notes storage bridge. IndexedDB
-replacement rechecks the marker before clear and before each put, fencing stale in-process operations. Because
-localStorage is shared by same-origin tabs, other tabs observe reserved artifacts synchronously and reject legacy
-writes. Operational clearance no longer means an empty physical set. It requires every discovered supported
+replacement rechecks the marker before clear and before each put, fencing stale in-process operations. However,
+the localStorage guard and subsequent source mutation are not one atomic browser operation. A writer that already
+passed its guard can still finish after another tab installs the artifact. K-326 does not treat the artifact as
+proof of atomic source freezing and refuses every current production legacy source before relying on that
+property. Operational clearance no longer means an empty physical set. It requires every discovered supported
 fence to have its one exact canonical settlement, with no active fence, malformed fence/settlement, orphan,
 conflict, unsupported older artifact, changing scan, or unreadable storage.
 
@@ -130,6 +168,13 @@ over the current migration session, authority/root records, manifest, and exact 
 requires that evidence to match the immutable K-326 plan. It then records durable `settlement_pending`, appends
 the exact settlement marker, validates its read-back and the complete stable pair scan, and records terminal
 `failed` only after repeating the complete K-325 and plan validation.
+
+If mutation safety becomes unsupported after an isolated safe preflight but after fence installation, the
+session remains `failed_precommit_fenced` with append-only physical evidence. Recovery refuses settlement with
+`CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE`; it does not use settlement to assert that the source was immutable.
+Before fence installation the same bounded error leaves no session transition, fence, epoch advance, activation,
+or settlement requirement. Generic cutover, developer/test, activation, and settlement authorization cannot
+override this predicate.
 
 Fence storage and local-v2 cannot share one atomic transaction, so recovery is an explicit idempotent protocol.
 The IndexedDB no-commit proof covers legacy mode, predecessor pointer, inactive target, exact K-325 session and
@@ -193,7 +238,9 @@ vault, so the fence applies to that bound vault rather than guessing an account 
 
 ## Confirmation, cancellation, and rollback
 
-Confirmation recaptures the unchanged legacy source and uses one read/write IndexedDB transaction to verify the
+Confirmation first reclassifies the current source and rejects an unsupported or changed backend. It therefore
+never accepts a mutable localStorage source read as commit evidence. For the isolated safe fixture it recaptures
+the unchanged source and uses one read/write IndexedDB transaction to verify the
 active pointer, `local_first` mode, active migration generation, sealed predecessor, exact entity count and
 digest, and zero target outbox/checkpoint rows. It then changes only `activated -> confirmed`. Failure leaves
 the activated graph diagnosable; it does not silently revert, repair target entities, select another generation,
@@ -232,21 +279,25 @@ source and authority races, competing sessions, restore conflicts, exact fence n
 canonical fence/settlement binding, same-key mutation, orphan and conflicting evidence, historical settled pairs,
 multiple active fences, unsupported delete-based artifacts, bounded changing-set detection, reload recovery,
 legacy-write fencing, append-only operation history, private settlement API reachability, post-commit settlement
-bypass denial, post-append mutation, one-shot/restart settlement recovery, and static dormancy.
+bypass denial, post-append mutation, one-shot/restart settlement recovery, and static dormancy. K-326G permanently
+reproduces the raw guard/fence/`setItem` interleaving, verifies that the write can still complete, and separately
+proves localStorage, legacy IndexedDB, mixed, and unknown sources are rejected before K-326 durable state changes.
+It also covers preflight, post-fence, confirmation, recovery, and historical-session fail-closed behavior.
 No real-browser IndexedDB, multi-tab browser, production Supabase, or real incident data was exercised in K-326.
 
 ## Residual risks
 
-- Legacy source and `absinthe-local-v2` remain separate databases. The persisted write fence is deliberately
-  established before final source recapture and activation; an interrupted attempt remains availability-blocking
-  until exact-session resume/cancellation or `failed_precommit_fenced` settlement completes.
+- Legacy source and `absinthe-local-v2` remain separate databases and cannot participate in one atomic
+  transaction. Current production legacy sources are consequently unavailable for K-326 cutover. An interrupted
+  isolated-fixture attempt remains availability-blocking until exact-session resume/cancellation or, when source
+  safety is still proven, `failed_precommit_fenced` settlement completes.
 - Append-only v4 fence and settlement artifacts accumulate. K-326D intentionally includes no cleanup, compaction,
   or garbage collection.
 - The opaque K-325 source root cannot cryptographically prove that an operator supplied the intended physical
   browser vault.
-- Cross-tab behavior is source-proven through same-origin localStorage fencing and synthetic tests, not a real
-  multi-tab browser run. Enumeration is not an atomic browser snapshot; the bounded double-scan detects a change
-  during its observation window and fails closed, while every protected write performs a fresh scan.
+- Ordinary legacy localStorage writes retain the pre-existing cross-tab check/use race outside K-326. K-326G
+  intentionally does not change or roll back those writes; it refuses to use that backend for cutover. There is
+  no real multi-tab browser evidence or production-safe cross-context exclusion protocol.
 - Process-local settlement authority assumes the private module instance and JavaScript object identity remain the
   authority boundary. Restart intentionally loses every authority and performs a fresh durable graph validation.
 - Structural all-settled history remains availability-blocking to synchronous legacy writers because they cannot

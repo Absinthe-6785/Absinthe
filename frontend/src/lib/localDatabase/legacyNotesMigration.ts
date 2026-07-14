@@ -170,6 +170,80 @@ export interface VerifiedLegacyNotesCutoverEvidence {
   externalRootDigest: string;
   rootBindingDigest: string;
   sourceBindingDigest: string;
+  sourceAdapter: string;
+  sourceSchemaVersion: number | null;
+  sourceType: LegacyNotesSourceType;
+  sourceInstanceId: string;
+}
+
+export type LegacyNotesCutoverSourceBackend =
+  | 'legacy_indexeddb'
+  | 'legacy_localstorage'
+  | 'isolated_test'
+  | 'mixed'
+  | 'unknown';
+
+export type LegacyNotesCutoverMutationSafety =
+  | 'isolated_test_fixture'
+  | 'uncoordinated_legacy_writers'
+  | 'unproven';
+
+export interface LegacyNotesCutoverSourceSafety {
+  backend: LegacyNotesCutoverSourceBackend;
+  mutationSafety: LegacyNotesCutoverMutationSafety;
+  crossContextSafe: boolean;
+}
+
+type LegacyNotesCutoverSourceIdentity = Pick<
+  LegacyNotesSourceAdapter,
+  'adapter' | 'schemaVersion' | 'sourceType' | 'sourceInstanceId'
+>;
+
+/**
+ * K-326 may only rely on adapters whose mutation isolation is proven by construction.
+ * The production legacy IndexedDB and localStorage writers both check a separate
+ * localStorage fence, so neither check/write sequence is cross-context atomic.
+ */
+export function classifyLegacyNotesCutoverSource(
+  source: LegacyNotesCutoverSourceIdentity,
+): LegacyNotesCutoverSourceSafety {
+  const indexedDbIdentity = source.adapter === 'absinthe_notes_indexeddb_v1'
+    && source.schemaVersion === 1
+    && source.sourceType === 'indexeddb'
+    && source.sourceInstanceId === 'absinthe-notes-v1.notes.v1';
+  const localStorageIdentity = source.adapter === 'absinthe_notes_localstorage_v2'
+    && source.schemaVersion === 2
+    && source.sourceType === 'localstorage'
+    && source.sourceInstanceId === 'localStorage.notes-v2';
+  const knownAdapterWithConflictingBackend = (
+    source.adapter === 'absinthe_notes_indexeddb_v1'
+    || source.adapter === 'absinthe_notes_localstorage_v2'
+  ) && !indexedDbIdentity && !localStorageIdentity;
+  const isolatedTestIdentity = import.meta.env.MODE === 'test'
+    && source.adapter === 'synthetic_legacy_notes'
+    && source.schemaVersion === 1
+    && source.sourceType === 'indexeddb'
+    && source.sourceInstanceId === 'synthetic.notes.v1';
+
+  if (isolatedTestIdentity) {
+    return Object.freeze({
+      backend: 'isolated_test', mutationSafety: 'isolated_test_fixture', crossContextSafe: true,
+    });
+  }
+  if (indexedDbIdentity) {
+    return Object.freeze({
+      backend: 'legacy_indexeddb', mutationSafety: 'uncoordinated_legacy_writers', crossContextSafe: false,
+    });
+  }
+  if (localStorageIdentity) {
+    return Object.freeze({
+      backend: 'legacy_localstorage', mutationSafety: 'uncoordinated_legacy_writers', crossContextSafe: false,
+    });
+  }
+  if (knownAdapterWithConflictingBackend) {
+    return Object.freeze({ backend: 'mixed', mutationSafety: 'unproven', crossContextSafe: false });
+  }
+  return Object.freeze({ backend: 'unknown', mutationSafety: 'unproven', crossContextSafe: false });
 }
 
 export type LegacyNotesCutoverTargetState = 'inactive' | 'active';
@@ -789,6 +863,10 @@ export async function validateVerifiedLegacyNotesCutoverEvidenceInTransaction(
     externalRootDigest: session.source.externalRootDigest,
     rootBindingDigest: session.source.rootBindingDigest,
     sourceBindingDigest: session.source.sourceBindingDigest,
+    sourceAdapter: session.source.adapter,
+    sourceSchemaVersion: session.source.schemaVersion,
+    sourceType: session.source.sourceType,
+    sourceInstanceId: session.source.sourceInstanceId,
   });
 }
 
@@ -836,6 +914,10 @@ export async function validateLegacyNotesSourceUnchangedForCutover(
     externalRootDigest: session.source.externalRootDigest,
     rootBindingDigest: session.source.rootBindingDigest,
     sourceBindingDigest: session.source.sourceBindingDigest,
+    sourceAdapter: session.source.adapter,
+    sourceSchemaVersion: session.source.schemaVersion,
+    sourceType: session.source.sourceType,
+    sourceInstanceId: session.source.sourceInstanceId,
   });
 }
 

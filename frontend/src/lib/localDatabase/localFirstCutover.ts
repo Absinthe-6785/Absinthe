@@ -20,11 +20,15 @@ import {
 } from '../recoverySafetyPolicy';
 import { LocalDatabaseError, localDatabaseError, type LocalDatabaseErrorCode } from './errors';
 import {
+  classifyLegacyNotesCutoverSource,
   readVerifiedLegacyNotesCutoverEvidence,
   validateLegacyNotesSourceUnchangedForCutover,
   validateVerifiedLegacyNotesCutoverEvidenceInTransaction,
   verifyLegacyNotesMigration,
   type LegacyNotesMigrationRuntime,
+  type LegacyNotesCutoverMutationSafety,
+  type LegacyNotesCutoverSourceBackend,
+  type LegacyNotesCutoverSourceSafety,
   type LegacyNotesSourceAdapter,
   type VerifiedLegacyNotesCutoverEvidence,
 } from './legacyNotesMigration';
@@ -60,12 +64,13 @@ export type LocalFirstCutoverFailureCode =
   | 'LEGACY_SOURCE_AUTHORITY_REQUIRED'
   | 'LEGACY_SOURCE_AUTHORITY_REVOKED'
   | 'LEGACY_SOURCE_IDENTITY_MISMATCH'
+  | 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE'
   | 'CUTOVER_PRECONDITION_FAILED'
   | 'CUTOVER_CANCELLED';
 
 export interface LocalFirstCutoverPlanV1 {
-  kind: 'local_first_cutover_plan_v1';
-  version: 1;
+  kind: 'local_first_cutover_plan_v2';
+  version: 2;
   namespaceKey: string;
   schemaVersion: number;
   userId: string;
@@ -80,6 +85,12 @@ export interface LocalFirstCutoverPlanV1 {
   externalRootDigest: string;
   rootBindingDigest: string;
   sourceBindingDigest: string;
+  sourceAdapter: string;
+  sourceSchemaVersion: number | null;
+  sourceType: 'indexeddb' | 'localstorage';
+  sourceInstanceId: string;
+  sourceBackend: LegacyNotesCutoverSourceBackend;
+  sourceMutationSafety: LegacyNotesCutoverMutationSafety;
   sourceSnapshotDigest: string;
   targetManifestDigest: string;
   targetStateDigest: string;
@@ -92,8 +103,8 @@ export interface LocalFirstCutoverPlanV1 {
 }
 
 export interface LocalFirstCutoverSessionV1 {
-  kind: 'local_first_cutover_session_v4';
-  version: 4;
+  kind: 'local_first_cutover_session_v5';
+  version: 5;
   namespaceKey: string;
   cutoverSessionId: string;
   plan: LocalFirstCutoverPlanV1;
@@ -145,6 +156,8 @@ export interface ActivateLocalFirstCutoverOptions {
   authorization: RecoveryCutoverAuthorization;
   now?: string;
   testOnlyFailAt?: CutoverFailurePoint;
+  testOnlyBeforePostFenceSourceSafety?: () => void;
+  testOnlyBeforeActivationTransactionSourceSafety?: () => void;
 }
 
 export interface LocalFirstCutoverResult {
@@ -340,7 +353,7 @@ const PROHIBITED_SIDE_EFFECTS = Object.freeze([
 ]);
 
 function planCore(value: Omit<LocalFirstCutoverPlanV1, 'planDigest'>): unknown[] {
-  return ['absinthe-local-first-cutover-plan-v1', value];
+  return ['absinthe-local-first-cutover-plan-v2', value];
 }
 
 function validatePlan(value: unknown, runtime: LocalFirstCutoverRuntime): LocalFirstCutoverPlanV1 {
@@ -348,18 +361,32 @@ function validatePlan(value: unknown, runtime: LocalFirstCutoverRuntime): LocalF
     'kind', 'version', 'namespaceKey', 'schemaVersion', 'userId', 'projectRef', 'deviceId', 'migrationSessionId',
     'expectedPredecessorGenerationId', 'targetGenerationId', 'authorityId', 'authorityVersion', 'authorityDigest',
     'externalRootDigest', 'rootBindingDigest', 'sourceBindingDigest', 'sourceSnapshotDigest', 'targetManifestDigest',
+    'sourceAdapter', 'sourceSchemaVersion', 'sourceType', 'sourceInstanceId', 'sourceBackend',
+    'sourceMutationSafety',
     'targetStateDigest', 'targetEntryCount', 'expectedRuntimeStorageMode', 'targetRuntimeStorageMode',
     'postActivationChecks', 'prohibitedSideEffects', 'planDigest',
   ];
   if (!exactKeys(value, keys)) fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_plan');
   const plan = value as unknown as LocalFirstCutoverPlanV1;
   const { planDigest, ...core } = plan;
-  if (plan.kind !== 'local_first_cutover_plan_v1' || plan.version !== 1
+  const classifiedSource = classifyLegacyNotesCutoverSource({
+    adapter: plan.sourceAdapter,
+    schemaVersion: plan.sourceSchemaVersion,
+    sourceType: plan.sourceType,
+    sourceInstanceId: plan.sourceInstanceId,
+  });
+  if (plan.kind !== 'local_first_cutover_plan_v2' || plan.version !== 2
     || plan.namespaceKey !== runtime.namespaceKey || plan.schemaVersion !== runtime.namespace.schemaVersion
     || plan.userId !== runtime.namespace.userId || plan.projectRef !== runtime.namespace.projectRef
     || plan.deviceId !== runtime.namespace.deviceId || !SAFE_ID.test(plan.migrationSessionId)
     || !SAFE_ID.test(plan.expectedPredecessorGenerationId) || !SAFE_ID.test(plan.targetGenerationId)
     || !SAFE_ID.test(plan.authorityId) || plan.authorityVersion !== 1
+    || !SAFE_ID.test(plan.sourceAdapter) || !SAFE_ID.test(plan.sourceInstanceId)
+    || plan.sourceType !== 'indexeddb'
+    || plan.sourceBackend !== 'isolated_test' || plan.sourceMutationSafety !== 'isolated_test_fixture'
+    || plan.sourceSchemaVersion !== 1
+    || !classifiedSource.crossContextSafe || classifiedSource.backend !== plan.sourceBackend
+    || classifiedSource.mutationSafety !== plan.sourceMutationSafety
     || ![plan.authorityDigest, plan.externalRootDigest, plan.rootBindingDigest, plan.sourceBindingDigest,
       plan.sourceSnapshotDigest, plan.targetManifestDigest, plan.targetStateDigest, plan.planDigest].every(item => HASH.test(item))
     || !Number.isSafeInteger(plan.targetEntryCount) || plan.targetEntryCount < 0 || plan.targetEntryCount > 5_000
@@ -373,8 +400,9 @@ function validatePlan(value: unknown, runtime: LocalFirstCutoverRuntime): LocalF
 }
 
 function buildPlan(runtime: LocalFirstCutoverRuntime, evidence: VerifiedLegacyNotesCutoverEvidence): LocalFirstCutoverPlanV1 {
+  const safety = assertCrossContextSafeSource(evidenceSourceIdentity(evidence), 'build_cutover_plan');
   const core: Omit<LocalFirstCutoverPlanV1, 'planDigest'> = {
-    kind: 'local_first_cutover_plan_v1', version: 1, namespaceKey: runtime.namespaceKey,
+    kind: 'local_first_cutover_plan_v2', version: 2, namespaceKey: runtime.namespaceKey,
     schemaVersion: runtime.namespace.schemaVersion, userId: runtime.namespace.userId,
     projectRef: runtime.namespace.projectRef, deviceId: runtime.namespace.deviceId,
     migrationSessionId: evidence.migrationSessionId,
@@ -383,6 +411,9 @@ function buildPlan(runtime: LocalFirstCutoverRuntime, evidence: VerifiedLegacyNo
     authorityId: evidence.authorityId, authorityVersion: evidence.authorityVersion,
     authorityDigest: evidence.authorityDigest, externalRootDigest: evidence.externalRootDigest,
     rootBindingDigest: evidence.rootBindingDigest, sourceBindingDigest: evidence.sourceBindingDigest,
+    sourceAdapter: evidence.sourceAdapter, sourceSchemaVersion: evidence.sourceSchemaVersion,
+    sourceType: evidence.sourceType, sourceInstanceId: evidence.sourceInstanceId,
+    sourceBackend: safety.backend, sourceMutationSafety: safety.mutationSafety,
     sourceSnapshotDigest: evidence.sourceSnapshotDigest, targetManifestDigest: evidence.manifestDigest,
     targetStateDigest: evidence.targetStateDigest, targetEntryCount: evidence.entryCount,
     expectedRuntimeStorageMode: 'legacy', targetRuntimeStorageMode: 'local_first',
@@ -440,7 +471,8 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
   const fence = record.fence === null ? null : validateFenceEvidence(record.fence, record);
   const failureValid = record.failure === null || exactKeys(record.failure, ['code', 'context'])
     && ['MIGRATION_SOURCE_CHANGED', 'LEGACY_SOURCE_AUTHORITY_REQUIRED', 'LEGACY_SOURCE_AUTHORITY_REVOKED',
-      'LEGACY_SOURCE_IDENTITY_MISMATCH', 'CUTOVER_PRECONDITION_FAILED', 'CUTOVER_CANCELLED'].includes(record.failure.code)
+      'LEGACY_SOURCE_IDENTITY_MISMATCH', 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE',
+      'CUTOVER_PRECONDITION_FAILED', 'CUTOVER_CANCELLED'].includes(record.failure.code)
     && SAFE_ID.test(record.failure.context);
   const chronologyValid = validTimestamp(record.createdAt) && validTimestamp(record.updatedAt)
     && Date.parse(record.updatedAt) >= Date.parse(record.createdAt)
@@ -474,7 +506,7 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
             && fence === null
           : record.status === 'failed' && record.activatedAt === null && record.confirmedAt === null
             && record.failure !== null && (fence === null || fence.phase === 'settled');
-  if (record.kind !== 'local_first_cutover_session_v4' || record.version !== 4
+  if (record.kind !== 'local_first_cutover_session_v5' || record.version !== 5
     || record.namespaceKey !== runtime.namespaceKey || !SAFE_ID.test(record.cutoverSessionId)
     || record.cutoverSessionId.length > 96 || record.cutoverSessionId.startsWith('k326:')
     || record.migrationId !== cutoverStorageId(record.cutoverSessionId)
@@ -519,7 +551,44 @@ function assertAuthorization(
   }
 }
 
+type CutoverSourceIdentity = Pick<
+  LegacyNotesSourceAdapter,
+  'adapter' | 'schemaVersion' | 'sourceType' | 'sourceInstanceId'
+>;
+
+function evidenceSourceIdentity(evidence: VerifiedLegacyNotesCutoverEvidence): CutoverSourceIdentity {
+  return {
+    adapter: evidence.sourceAdapter,
+    schemaVersion: evidence.sourceSchemaVersion,
+    sourceType: evidence.sourceType,
+    sourceInstanceId: evidence.sourceInstanceId,
+  };
+}
+
+function assertCrossContextSafeSource(
+  source: CutoverSourceIdentity,
+  operation: string,
+): LegacyNotesCutoverSourceSafety {
+  const safety = classifyLegacyNotesCutoverSource(source);
+  if (!safety.crossContextSafe) fail('CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE', operation);
+  return safety;
+}
+
+function assertSourceSafetyMatchesPlan(
+  safety: LegacyNotesCutoverSourceSafety,
+  source: CutoverSourceIdentity,
+  plan: LocalFirstCutoverPlanV1,
+  operation: string,
+): void {
+  if (source.adapter !== plan.sourceAdapter || source.schemaVersion !== plan.sourceSchemaVersion
+    || source.sourceType !== plan.sourceType || source.sourceInstanceId !== plan.sourceInstanceId
+    || safety.backend !== plan.sourceBackend || safety.mutationSafety !== plan.sourceMutationSafety) {
+    fail('CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE', operation);
+  }
+}
+
 function assertEvidenceMatchesPlan(evidence: VerifiedLegacyNotesCutoverEvidence, plan: LocalFirstCutoverPlanV1): void {
+  const safety = assertCrossContextSafeSource(evidenceSourceIdentity(evidence), 'match_cutover_source_safety');
   if (evidence.migrationSessionId !== plan.migrationSessionId
     || evidence.expectedActiveGenerationId !== plan.expectedPredecessorGenerationId
     || evidence.targetGenerationId !== plan.targetGenerationId || evidence.entryCount !== plan.targetEntryCount
@@ -527,7 +596,10 @@ function assertEvidenceMatchesPlan(evidence: VerifiedLegacyNotesCutoverEvidence,
     || evidence.sourceSnapshotDigest !== plan.sourceSnapshotDigest || evidence.authorityId !== plan.authorityId
     || evidence.authorityVersion !== plan.authorityVersion || evidence.authorityDigest !== plan.authorityDigest
     || evidence.externalRootDigest !== plan.externalRootDigest || evidence.rootBindingDigest !== plan.rootBindingDigest
-    || evidence.sourceBindingDigest !== plan.sourceBindingDigest) {
+    || evidence.sourceBindingDigest !== plan.sourceBindingDigest
+    || evidence.sourceAdapter !== plan.sourceAdapter || evidence.sourceSchemaVersion !== plan.sourceSchemaVersion
+    || evidence.sourceType !== plan.sourceType || evidence.sourceInstanceId !== plan.sourceInstanceId
+    || safety.backend !== plan.sourceBackend || safety.mutationSafety !== plan.sourceMutationSafety) {
     fail('CUTOVER_PRECONDITION_FAILED', 'match_cutover_evidence');
   }
 }
@@ -555,7 +627,7 @@ function cutoverSessionsFromValues(
     const record = value as { kind?: unknown; migrationId?: unknown; namespaceKey?: unknown } | null;
     if (record?.namespaceKey !== runtime.namespaceKey) continue;
     const reserved = typeof record?.migrationId === 'string' && record.migrationId.startsWith(CUTOVER_STORAGE_PREFIX);
-    if (record?.kind !== 'local_first_cutover_session_v4' && !reserved) continue;
+    if (record?.kind !== 'local_first_cutover_session_v5' && !reserved) continue;
     sessions.push(persistedSession(value, runtime));
   }
   return sessions;
@@ -603,10 +675,17 @@ export async function planLocalFirstCutover(
   options: PlanLocalFirstCutoverOptions,
 ): Promise<LocalFirstCutoverSessionV1> {
   runtime.assertOpen('plan_local_first_cutover');
+  assertCrossContextSafeSource(adapter, 'plan_cutover_source_safety');
   validateLogicalCutoverId(options.cutoverSessionId);
   const at = timestamp(options.now ?? runtime.clock());
   const previouslyPersisted = await readSession(runtime, options.cutoverSessionId);
   if (previouslyPersisted) {
+    assertSourceSafetyMatchesPlan(
+      assertCrossContextSafeSource(adapter, 'plan_cutover_source_revalidation'),
+      adapter,
+      previouslyPersisted.plan,
+      'plan_cutover_source_revalidation',
+    );
     if (previouslyPersisted.plan.migrationSessionId !== options.migrationSessionId) {
       fail('CUTOVER_SESSION_CONFLICT', 'cutover_plan_mismatch');
     }
@@ -617,6 +696,12 @@ export async function planLocalFirstCutover(
   await validateLegacyNotesSourceUnchangedForCutover(runtime, adapter, options.migrationSessionId);
   const evidence = await readVerifiedLegacyNotesCutoverEvidence(runtime, options.migrationSessionId, 'inactive');
   const plan = buildPlan(runtime, evidence);
+  assertSourceSafetyMatchesPlan(
+    assertCrossContextSafeSource(adapter, 'plan_cutover_source_revalidation'),
+    adapter,
+    plan,
+    'plan_cutover_source_revalidation',
+  );
   assertAuthorization(runtime, options.cutoverSessionId, plan.targetGenerationId, options.authorization);
 
   const tx = runtime.db.transaction([
@@ -656,7 +741,7 @@ export async function planLocalFirstCutover(
       await done; return existing;
     }
     const session: LocalFirstCutoverSessionV1 = {
-      kind: 'local_first_cutover_session_v4', version: 4, namespaceKey: runtime.namespaceKey,
+      kind: 'local_first_cutover_session_v5', version: 5, namespaceKey: runtime.namespaceKey,
       cutoverSessionId: options.cutoverSessionId, plan, status: 'planned', attempt: 0,
       createdAt: at, updatedAt: at, activatedAt: null, confirmedAt: null, failure: null, fence: null,
     };
@@ -675,10 +760,12 @@ export async function preflightLocalFirstCutover(
   atValue?: string,
 ): Promise<LocalFirstCutoverSessionV1> {
   runtime.assertOpen('preflight_local_first_cutover');
+  const currentSafety = assertCrossContextSafeSource(adapter, 'preflight_cutover_source_safety');
   const at = timestamp(atValue ?? runtime.clock());
   const before = await readSession(runtime, cutoverSessionId);
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'preflight_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
+  assertSourceSafetyMatchesPlan(currentSafety, adapter, before.plan, 'preflight_cutover_source_safety');
   if (['failed_precommit_fenced', 'failed_precommit_settling'].includes(before.status)) {
     fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'preflight_cutover_status');
   }
@@ -687,6 +774,12 @@ export async function preflightLocalFirstCutover(
   await verifyLegacyNotesMigration(runtime, adapter, before.plan.migrationSessionId, at);
   const evidence = await readVerifiedLegacyNotesCutoverEvidence(runtime, before.plan.migrationSessionId, 'inactive');
   assertEvidenceMatchesPlan(evidence, before.plan);
+  assertSourceSafetyMatchesPlan(
+    assertCrossContextSafeSource(adapter, 'preflight_cutover_source_revalidation'),
+    adapter,
+    before.plan,
+    'preflight_cutover_source_revalidation',
+  );
 
   const tx = runtime.db.transaction([
     LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.migrationState, LOCAL_DATABASE_STORES.restoreSessions,
@@ -991,6 +1084,9 @@ async function validateFailedPrecommitRecoveryGraph(
     fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_graph');
   }
   const session = persistedSession(raw, runtime);
+  if (session.failure?.code === 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE') {
+    fail('CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE', 'recover_precommit_fence_source_safety');
+  }
   const mode = persistedMode(modeRaw, runtime);
   try { validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion); }
   catch { fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_graph'); }
@@ -1216,10 +1312,12 @@ export async function confirmLocalFirstCutover(
   atValue?: string,
 ): Promise<LocalFirstCutoverResult> {
   runtime.assertOpen('confirm_local_first_cutover');
+  const currentSafety = assertCrossContextSafeSource(adapter, 'confirm_cutover_source_safety');
   const at = timestamp(atValue ?? runtime.clock());
   const before = await readSession(runtime, cutoverSessionId);
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'confirm_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
+  assertSourceSafetyMatchesPlan(currentSafety, adapter, before.plan, 'confirm_cutover_source_safety');
   if (!['activated', 'confirmed'].includes(before.status)) fail('CUTOVER_CONFIRMATION_FAILED', 'confirm_cutover_status');
   if (before.fence?.phase !== 'committed') fail('CORRUPT_PERSISTED_RECORD', 'confirm_cutover_fence');
   const physicalFence = readLegacyNotesCutoverFence();
@@ -1229,6 +1327,12 @@ export async function confirmLocalFirstCutover(
   }
   const sourceEvidence = await validateLegacyNotesSourceUnchangedForCutover(runtime, adapter, before.plan.migrationSessionId);
   assertEvidenceMatchesPlan(sourceEvidence, before.plan);
+  assertSourceSafetyMatchesPlan(
+    assertCrossContextSafeSource(adapter, 'confirm_cutover_source_revalidation'),
+    adapter,
+    before.plan,
+    'confirm_cutover_source_revalidation',
+  );
 
   const stores = [
     LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
@@ -1272,10 +1376,12 @@ export async function activateLocalFirstCutover(
   options: ActivateLocalFirstCutoverOptions,
 ): Promise<LocalFirstCutoverResult> {
   runtime.assertOpen('activate_local_first_cutover');
+  let currentSafety = assertCrossContextSafeSource(adapter, 'activate_cutover_source_safety');
   const at = timestamp(options.now ?? runtime.clock());
   let session = await readSession(runtime, cutoverSessionId);
   if (!session) fail('CUTOVER_SESSION_CONFLICT', 'activate_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, session.plan.targetGenerationId, options.authorization);
+  assertSourceSafetyMatchesPlan(currentSafety, adapter, session.plan, 'activate_cutover_source_safety');
   if (session.status === 'confirmed' || session.status === 'activated') {
     return confirmLocalFirstCutover(runtime, adapter, cutoverSessionId, options.authorization, at);
   }
@@ -1294,12 +1400,20 @@ export async function activateLocalFirstCutover(
   if (session.status === 'preflight') session = await transitionToActivating(runtime, cutoverSessionId, at);
   if (session.status === 'cancelled') fail('CUTOVER_CANCELLED', 'activate_cutover_status');
   if (session.status !== 'activating') fail('CUTOVER_SESSION_CONFLICT', 'activate_cutover_status');
+  currentSafety = assertCrossContextSafeSource(adapter, 'pre_fence_cutover_source_safety');
+  assertSourceSafetyMatchesPlan(currentSafety, adapter, session.plan, 'pre_fence_cutover_source_safety');
   session = await installCutoverFence(runtime, cutoverSessionId, options.authorization, at);
 
   try {
+    options.testOnlyBeforePostFenceSourceSafety?.();
+    currentSafety = assertCrossContextSafeSource(adapter, 'post_fence_cutover_source_safety');
+    assertSourceSafetyMatchesPlan(currentSafety, adapter, session.plan, 'post_fence_cutover_source_safety');
     await verifyLegacyNotesMigration(runtime, adapter, session.plan.migrationSessionId, at);
     const currentSource = await readVerifiedLegacyNotesCutoverEvidence(runtime, session.plan.migrationSessionId, 'inactive');
     assertEvidenceMatchesPlan(currentSource, session.plan);
+    options.testOnlyBeforeActivationTransactionSourceSafety?.();
+    currentSafety = assertCrossContextSafeSource(adapter, 'precommit_cutover_source_safety');
+    assertSourceSafetyMatchesPlan(currentSafety, adapter, session.plan, 'precommit_cutover_source_safety');
   } catch (error) {
     const latest = await readSession(runtime, cutoverSessionId);
     if (latest && ['activated', 'confirmed'].includes(latest.status)) {
@@ -1307,11 +1421,13 @@ export async function activateLocalFirstCutover(
     }
     const code = error instanceof LocalDatabaseError ? error.code : 'CUTOVER_PRECONDITION_FAILED';
     if (['MIGRATION_SOURCE_CHANGED', 'LEGACY_SOURCE_AUTHORITY_REQUIRED', 'LEGACY_SOURCE_AUTHORITY_REVOKED',
-      'LEGACY_SOURCE_IDENTITY_MISMATCH'].includes(code)) {
+      'LEGACY_SOURCE_IDENTITY_MISMATCH', 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE'].includes(code)) {
       await markFailedIfSafe(runtime, cutoverSessionId, code as LocalFirstCutoverFailureCode, at, true);
-      try {
-        await recoverFailedPrecommitCutoverFence(runtime, cutoverSessionId, options.authorization, at);
-      } catch { /** durable failed-precommit phase remains retryable and fail-closed */ }
+      if (code !== 'CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE') {
+        try {
+          await recoverFailedPrecommitCutoverFence(runtime, cutoverSessionId, options.authorization, at);
+        } catch { /** durable failed-precommit phase remains retryable and fail-closed */ }
+      }
     }
     throw error;
   }
