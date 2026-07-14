@@ -9,6 +9,7 @@ import {
   isRecoveryModeActive,
   mayDeleteLegacyStorage,
   mayReplacePersistedNotes,
+  mayWriteLegacyNotes,
   recordRecoveryBlock,
 } from '@/lib/recoverySafetyPolicy';
 
@@ -63,6 +64,7 @@ export function isIndexedDbMigrationComplete(): boolean {
 }
 
 export function markIndexedDbMigrationComplete(): void {
+  if (!mayWriteLegacyNotes()) return;
   try {
     localStorage.setItem(NOTES_IDB_MIGRATION_FLAG, '1');
   } catch {
@@ -71,6 +73,7 @@ export function markIndexedDbMigrationComplete(): void {
 }
 
 export function bumpNotesIndexedDbRevision(): void {
+  if (!mayWriteLegacyNotes()) return;
   try {
     const prev = Number.parseInt(localStorage.getItem(NOTES_IDB_REV_KEY) ?? '0', 10);
     localStorage.setItem(NOTES_IDB_REV_KEY, String(Number.isFinite(prev) ? prev + 1 : 1));
@@ -134,6 +137,7 @@ export async function saveNotesToIndexedDb(
   notes: readonly NoteBase[],
   isEpochCurrent: () => boolean = () => true,
 ): Promise<boolean> {
+  if (!mayWriteLegacyNotes()) return false;
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -147,7 +151,7 @@ export async function saveNotesToIndexedDb(
       keysReq.onerror = () => reject(keysReq.error ?? new Error('IndexedDB key read failed'));
       keysReq.onsuccess = () => {
         const current = keysReq.result.map(id => ({ id: String(id) }));
-        if (!isEpochCurrent() || (isRecoveryModeActive() && !mayReplacePersistedNotes(current, notes))) {
+        if (!mayWriteLegacyNotes() || !isEpochCurrent() || (isRecoveryModeActive() && !mayReplacePersistedNotes(current, notes))) {
           recordRecoveryBlock('replace_persisted_notes', isEpochCurrent() ? 'unsafe_replacement' : 'stale_operation_epoch');
           tx.abort();
           return;
@@ -155,12 +159,17 @@ export async function saveNotesToIndexedDb(
         const clearReq = store.clear();
         clearReq.onerror = () => reject(clearReq.error ?? new Error('IndexedDB clear failed'));
         clearReq.onsuccess = () => {
-          if (!isEpochCurrent()) {
+          if (!mayWriteLegacyNotes() || !isEpochCurrent()) {
             recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
             tx.abort();
             return;
           }
           for (const note of notes) {
+            if (!mayWriteLegacyNotes() || !isEpochCurrent()) {
+              recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
+              tx.abort();
+              return;
+            }
             store.put(normalizeNote(note));
           }
         };
@@ -176,7 +185,7 @@ export async function saveNotesToIndexedDb(
 }
 
 export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> {
-  if (!mayDeleteLegacyStorage()) {
+  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
   }
@@ -200,7 +209,7 @@ export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> 
 }
 
 export async function clearIndexedDbNotes(): Promise<boolean> {
-  if (!mayDeleteLegacyStorage()) {
+  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
   }

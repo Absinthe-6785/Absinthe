@@ -1,4 +1,5 @@
 import { LocalDatabaseError, localDatabaseError } from './errors';
+import { transitionActiveGenerationInTransaction } from './activeGenerationTransition';
 import {
   getLegacyNotesSourceAuthority as readLegacySourceAuthority,
   registerLegacyNotesSourceAuthority as registerLegacySourceAuthority,
@@ -19,6 +20,22 @@ import {
   type LegacyNotesMigrationOptions, type LegacyNotesMigrationSessionV1,
   type LegacyNotesMigrationRuntime, type LegacyNotesSourceAdapter,
 } from './legacyNotesMigration';
+import {
+  activateLocalFirstCutover as activateCutover,
+  cancelLocalFirstCutover as cancelCutover,
+  confirmLocalFirstCutover as confirmCutover,
+  createLocalFirstCutoverAuthorization as createCutoverAuthorization,
+  getLocalFirstCutoverSession as readCutoverSession,
+  getLocalFirstRuntimeMode as readCutoverRuntimeMode,
+  planLocalFirstCutover as planCutover,
+  preflightLocalFirstCutover as preflightCutover,
+  recoverFailedPrecommitCutoverFence as recoverCutoverFence,
+  resumeLocalFirstCutover as resumeCutover,
+  type ActivateLocalFirstCutoverOptions, type LocalFirstCutoverResult,
+  type LocalFirstCutoverSessionV1, type LocalFirstRuntimeModeRecordV1,
+  type FailedPrecommitFenceRecoveryFailurePoint, type PlanLocalFirstCutoverOptions,
+} from './localFirstCutover';
+import type { RecoveryCutoverAuthorization } from '../recoverySafetyPolicy';
 import {
   cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
   restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
@@ -214,32 +231,21 @@ export class LocalDatabaseRepository {
 
   async activateGeneration(generationId: string): Promise<GenerationRecord> {
     this.assertOpen('activate_generation'); validateSafeIdentifier(generationId, 'activate_generation');
-    const transaction = this.db.transaction([LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations], 'readwrite');
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.migrationState,
+    ], 'readwrite');
     const done = transactionCompletion(transaction, 'activate_generation');
     try {
-      const metaStore = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
-      const generations = transaction.objectStore(LOCAL_DATABASE_STORES.generations);
-      const meta = await requestResult(metaStore.get(this.namespaceKey)) as DatabaseMetaRecord | undefined;
-      const target = await requestResult(generations.get(generationKey(this.namespaceKey, generationId))) as GenerationRecord | undefined;
-      if (!meta) throw new LocalDatabaseError('MALFORMED_METADATA', 'activate_generation');
-      validateDatabaseMeta(meta, this.namespaceKey, this.namespace.schemaVersion);
-      if (meta.activeGenerationId !== this.namespace.generationId) throw new LocalDatabaseError('STALE_GENERATION', 'activate_generation');
-      if (!target) throw new LocalDatabaseError('GENERATION_NOT_FOUND', 'activate_generation');
-      validateGenerationRecord(target, this.namespaceKey, this.namespace.schemaVersion);
-      if (target.status !== 'preparing' || target.validationState === 'invalid') {
-        throw new LocalDatabaseError('INVALID_GENERATION_TRANSITION', 'activate_generation');
-      }
-      const previous = await requestResult(generations.get(generationKey(this.namespaceKey, meta.activeGenerationId))) as GenerationRecord | undefined;
-      if (!previous || previous.status !== 'active') throw new LocalDatabaseError('MALFORMED_METADATA', 'activate_generation');
-      validateGenerationRecord(previous, this.namespaceKey, this.namespace.schemaVersion);
       const timestamp = now();
-      generations.put({ ...previous, status: 'sealed', activeNamespaceKey: undefined });
-      const active: GenerationRecord = {
-        ...target, status: 'active', activatedAt: timestamp, predecessorGenerationId: previous.generationId,
-        validationState: 'valid', activeNamespaceKey: this.namespaceKey,
-      };
-      generations.put(active); metaStore.put({ ...meta, activeGenerationId: generationId });
-      await done; return active;
+      const result = await transitionActiveGenerationInTransaction({
+        transaction,
+        runtime: { namespaceKey: this.namespaceKey, namespace: this.namespace },
+        kind: 'generic',
+        expectedActiveGenerationId: this.namespace.generationId,
+        targetGenerationId: generationId,
+        activatedAt: timestamp,
+      });
+      await done; return result.active;
     } catch (error) { abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'activate_generation'); }
   }
 
@@ -850,6 +856,65 @@ export class LocalDatabaseRepository {
     authorityId: string, at?: string,
   ): Promise<LegacyNotesSourceAuthorityRecordV1> {
     return revokeLegacySourceAuthority(this.legacyMigrationRuntime(), authorityId, at);
+  }
+
+  createLocalFirstCutoverAuthorization(
+    cutoverSessionId: string, migrationSessionId: string, purpose: 'test' | 'developer',
+  ): RecoveryCutoverAuthorization {
+    return createCutoverAuthorization(this.legacyMigrationRuntime(), cutoverSessionId, migrationSessionId, purpose);
+  }
+
+  planLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, options: PlanLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return planCutover(this.legacyMigrationRuntime(), adapter, options);
+  }
+
+  preflightLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string,
+    authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return preflightCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, authorization, at);
+  }
+
+  activateLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string, options: ActivateLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverResult> {
+    return activateCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, options);
+  }
+
+  resumeLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string, options: ActivateLocalFirstCutoverOptions,
+  ): Promise<LocalFirstCutoverResult> {
+    return resumeCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, options);
+  }
+
+  confirmLocalFirstCutover(
+    adapter: LegacyNotesSourceAdapter, cutoverSessionId: string,
+    authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverResult> {
+    return confirmCutover(this.legacyMigrationRuntime(), adapter, cutoverSessionId, authorization, at);
+  }
+
+  cancelLocalFirstCutover(
+    cutoverSessionId: string, authorization: RecoveryCutoverAuthorization, at?: string,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return cancelCutover(this.legacyMigrationRuntime(), cutoverSessionId, authorization, at);
+  }
+
+  recoverFailedPrecommitCutoverFence(
+    cutoverSessionId: string, authorization: RecoveryCutoverAuthorization, at?: string,
+    testOnlyFailAt?: FailedPrecommitFenceRecoveryFailurePoint,
+  ): Promise<LocalFirstCutoverSessionV1> {
+    return recoverCutoverFence(this.legacyMigrationRuntime(), cutoverSessionId, authorization, at, testOnlyFailAt);
+  }
+
+  getLocalFirstCutoverSession(cutoverSessionId: string): Promise<LocalFirstCutoverSessionV1 | null> {
+    return readCutoverSession(this.legacyMigrationRuntime(), cutoverSessionId);
+  }
+
+  getLocalFirstRuntimeMode(): Promise<LocalFirstRuntimeModeRecordV1 | null> {
+    return readCutoverRuntimeMode(this.legacyMigrationRuntime());
   }
 
   putMigrationState(value: MigrationStateRecord): Promise<void> {

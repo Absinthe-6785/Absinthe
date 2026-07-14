@@ -12,6 +12,7 @@ import {
   initNotesPersistence,
   resetNotesPersistenceForTests,
 } from '@/lib/notePersistence';
+import { mayWriteLegacyNotes } from '@/lib/recoverySafetyPolicy';
 
 export const K96B_NOTE_COUNTS = [100, 300, 1000, 3000] as const;
 export type K96BNoteCount = (typeof K96B_NOTE_COUNTS)[number];
@@ -35,6 +36,7 @@ export function measureLocalStorageBytes(key: string): number {
 }
 
 export function seedLegacyLocalStorageNotes(notes: readonly NoteBase[]): number {
+  if (!mayWriteLegacyNotes()) throw new Error('Post-cutover legacy writes are blocked');
   const json = JSON.stringify(notes);
   localStorage.setItem(NOTES_KEY, json);
   localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
@@ -42,6 +44,7 @@ export function seedLegacyLocalStorageNotes(notes: readonly NoteBase[]): number 
 }
 
 export async function runK96BStorageAuditRow(noteCount: number): Promise<K96BStorageAuditRow> {
+  if (!mayWriteLegacyNotes()) throw new Error('Post-cutover legacy writes are blocked');
   resetNotesPersistenceForTests();
   localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
   await saveNotesToIndexedDb([]);

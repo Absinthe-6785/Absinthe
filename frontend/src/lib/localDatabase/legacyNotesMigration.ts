@@ -156,6 +156,98 @@ export interface LegacyNotesMigrationRuntime {
   assertOpen: (operation: string) => void;
 }
 
+export interface VerifiedLegacyNotesCutoverEvidence {
+  migrationSessionId: string;
+  expectedActiveGenerationId: string;
+  targetGenerationId: string;
+  entryCount: number;
+  manifestDigest: string;
+  targetStateDigest: string;
+  sourceSnapshotDigest: string;
+  authorityId: string;
+  authorityVersion: 1;
+  authorityDigest: string;
+  externalRootDigest: string;
+  rootBindingDigest: string;
+  sourceBindingDigest: string;
+  sourceAdapter: string;
+  sourceSchemaVersion: number | null;
+  sourceType: LegacyNotesSourceType;
+  sourceInstanceId: string;
+}
+
+export type LegacyNotesCutoverSourceBackend =
+  | 'legacy_indexeddb'
+  | 'legacy_localstorage'
+  | 'isolated_test'
+  | 'mixed'
+  | 'unknown';
+
+export type LegacyNotesCutoverMutationSafety =
+  | 'isolated_test_fixture'
+  | 'uncoordinated_legacy_writers'
+  | 'unproven';
+
+export interface LegacyNotesCutoverSourceSafety {
+  backend: LegacyNotesCutoverSourceBackend;
+  mutationSafety: LegacyNotesCutoverMutationSafety;
+  crossContextSafe: boolean;
+}
+
+type LegacyNotesCutoverSourceIdentity = Pick<
+  LegacyNotesSourceAdapter,
+  'adapter' | 'schemaVersion' | 'sourceType' | 'sourceInstanceId'
+>;
+
+/**
+ * K-326 may only rely on adapters whose mutation isolation is proven by construction.
+ * The production legacy IndexedDB and localStorage writers both check a separate
+ * localStorage fence, so neither check/write sequence is cross-context atomic.
+ */
+export function classifyLegacyNotesCutoverSource(
+  source: LegacyNotesCutoverSourceIdentity,
+): LegacyNotesCutoverSourceSafety {
+  const indexedDbIdentity = source.adapter === 'absinthe_notes_indexeddb_v1'
+    && source.schemaVersion === 1
+    && source.sourceType === 'indexeddb'
+    && source.sourceInstanceId === 'absinthe-notes-v1.notes.v1';
+  const localStorageIdentity = source.adapter === 'absinthe_notes_localstorage_v2'
+    && source.schemaVersion === 2
+    && source.sourceType === 'localstorage'
+    && source.sourceInstanceId === 'localStorage.notes-v2';
+  const knownAdapterWithConflictingBackend = (
+    source.adapter === 'absinthe_notes_indexeddb_v1'
+    || source.adapter === 'absinthe_notes_localstorage_v2'
+  ) && !indexedDbIdentity && !localStorageIdentity;
+  const isolatedTestIdentity = import.meta.env.MODE === 'test'
+    && source.adapter === 'synthetic_legacy_notes'
+    && source.schemaVersion === 1
+    && source.sourceType === 'indexeddb'
+    && source.sourceInstanceId === 'synthetic.notes.v1';
+
+  if (isolatedTestIdentity) {
+    return Object.freeze({
+      backend: 'isolated_test', mutationSafety: 'isolated_test_fixture', crossContextSafe: true,
+    });
+  }
+  if (indexedDbIdentity) {
+    return Object.freeze({
+      backend: 'legacy_indexeddb', mutationSafety: 'uncoordinated_legacy_writers', crossContextSafe: false,
+    });
+  }
+  if (localStorageIdentity) {
+    return Object.freeze({
+      backend: 'legacy_localstorage', mutationSafety: 'uncoordinated_legacy_writers', crossContextSafe: false,
+    });
+  }
+  if (knownAdapterWithConflictingBackend) {
+    return Object.freeze({ backend: 'mixed', mutationSafety: 'unproven', crossContextSafe: false });
+  }
+  return Object.freeze({ backend: 'unknown', mutationSafety: 'unproven', crossContextSafe: false });
+}
+
+export type LegacyNotesCutoverTargetState = 'inactive' | 'active';
+
 interface SupportedLegacyNote {
   id: string; title: string; body: string; createdAt: number; lastOpenedAt?: number;
   updatedAt: number; folderId: string | null; deletedAt: number | null; starred: boolean;
@@ -639,14 +731,12 @@ async function readSessionRecord(runtime: LegacyNotesMigrationRuntime, migration
   return value === undefined ? null : persistedSession(value, runtime.namespaceKey);
 }
 
-async function validateDurableTarget(
-  runtime: LegacyNotesMigrationRuntime, session: LegacyNotesMigrationSessionV1,
+async function validateDurableTargetInTransaction(
+  runtime: LegacyNotesMigrationRuntime,
+  session: LegacyNotesMigrationSessionV1,
+  tx: IDBTransaction,
+  targetState: LegacyNotesCutoverTargetState,
 ): Promise<{ targetStateDigest: string; liveCount: number; tombstoneCount: number }> {
-  const tx = runtime.db.transaction([
-    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
-    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints, LOCAL_DATABASE_STORES.migrationState,
-  ], 'readonly');
-  const done = transactionCompletion(tx, 'verify_legacy_migration_target');
   const authority = await validateLegacyNotesSourceAuthorityInStore(
     runtime, tx.objectStore(LOCAL_DATABASE_STORES.migrationState), sessionAuthorityReference(session),
   );
@@ -661,7 +751,6 @@ async function validateDurableTarget(
     .getAll(checkpointRange(runtime.namespaceKey, session.target.generationId))) as SyncCheckpointRecord[];
   const rawSession = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.migrationState)
     .get(sessionKey(runtime.namespaceKey, session.migrationId)));
-  await done;
   if (!meta || !generation || rawSession === undefined) fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph');
   const current = persistedSession(rawSession, runtime.namespaceKey);
   if (canonical(current) !== canonical(session)) fail('CORRUPT_PERSISTED_RECORD', 'legacy_session_changed');
@@ -672,13 +761,29 @@ async function validateDurableTarget(
   } catch {
     fail('CORRUPT_PERSISTED_RECORD', 'validate_persisted_legacy_target');
   }
-  if (meta.activeGenerationId !== session.expectedActiveGenerationId || meta.activeGenerationId === session.target.generationId
-    || generation.status !== 'preparing' || generation.validationState !== 'valid' || generation.activeNamespaceKey !== undefined
-    || generation.predecessorGenerationId !== null || generation.creationReason !== 'migration'
-    || generation.createdAt !== session.createdAt || generation.activatedAt !== null
+  const inactiveGraph = meta.activeGenerationId === session.expectedActiveGenerationId
+    && meta.activeGenerationId !== session.target.generationId
+    && generation.status === 'preparing' && generation.activeNamespaceKey === undefined
+    && generation.predecessorGenerationId === null && generation.activatedAt === null;
+  const activeGraph = meta.activeGenerationId === session.target.generationId
+    && generation.status === 'active' && generation.activeNamespaceKey === runtime.namespaceKey
+    && generation.predecessorGenerationId === session.expectedActiveGenerationId
+    && validTimestamp(generation.activatedAt);
+  if ((targetState === 'inactive' ? !inactiveGraph : !activeGraph)
+    || generation.validationState !== 'valid' || generation.creationReason !== 'migration'
+    || generation.createdAt !== session.createdAt
     || generation.safeSourceReference?.kind !== 'legacy_migration'
     || generation.safeSourceReference.reference !== session.migrationId || outbox.length !== 0 || checkpoints.length !== 0) {
     fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph');
+  }
+  if (targetState === 'active') {
+    const predecessor = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.generations)
+      .get(generationKey(runtime.namespaceKey, session.expectedActiveGenerationId))) as GenerationRecord | undefined;
+    try { if (!predecessor) throw new Error('missing'); validateGenerationRecord(predecessor, runtime.namespaceKey, runtime.namespace.schemaVersion); }
+    catch { fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph'); }
+    if (predecessor.status !== 'sealed' || predecessor.activeNamespaceKey !== undefined) {
+      fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_graph');
+    }
   }
   const byId = new Map(entities.map(entity => [entity.entityId, entity]));
   if (entities.length !== session.manifest.entryCount || byId.size !== entities.length) {
@@ -707,6 +812,113 @@ async function validateDurableTarget(
   const targetStateDigest = sha256Hex(canonical(['absinthe-legacy-target-state-v1', targetDigests]));
   if (targetStateDigest !== session.manifest.targetStateDigest) fail('CORRUPT_PERSISTED_RECORD', 'legacy_target_digest');
   return { targetStateDigest, liveCount, tombstoneCount };
+}
+
+async function validateDurableTarget(
+  runtime: LegacyNotesMigrationRuntime, session: LegacyNotesMigrationSessionV1,
+): Promise<{ targetStateDigest: string; liveCount: number; tombstoneCount: number }> {
+  const tx = runtime.db.transaction([
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints, LOCAL_DATABASE_STORES.migrationState,
+  ], 'readonly');
+  const done = transactionCompletion(tx, 'verify_legacy_migration_target');
+  const result = await validateDurableTargetInTransaction(runtime, session, tx, 'inactive');
+  await done;
+  return result;
+}
+
+export async function validateVerifiedLegacyNotesCutoverEvidenceInTransaction(
+  runtime: LegacyNotesMigrationRuntime,
+  tx: IDBTransaction,
+  migrationSessionId: string,
+  targetState: LegacyNotesCutoverTargetState,
+): Promise<VerifiedLegacyNotesCutoverEvidence> {
+  validateLegacyMigrationLogicalId(migrationSessionId);
+  const raw = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.migrationState)
+    .get(sessionKey(runtime.namespaceKey, migrationSessionId)));
+  if (raw === undefined) fail('CORRUPT_PERSISTED_RECORD', 'cutover_legacy_session');
+  const session = persistedSession(raw, runtime.namespaceKey);
+  if (session.status !== 'verified' || session.result === null) {
+    fail('MIGRATION_SESSION_CONFLICT', 'cutover_legacy_session');
+  }
+  const durable = await validateDurableTargetInTransaction(runtime, session, tx, targetState);
+  validateResult(session.result, session);
+  if (session.result.entryCount !== session.manifest.entryCount
+    || session.result.liveCount !== durable.liveCount
+    || session.result.tombstoneCount !== durable.tombstoneCount
+    || session.result.targetStateDigest !== durable.targetStateDigest) {
+    fail('CORRUPT_PERSISTED_RECORD', 'cutover_legacy_result');
+  }
+  return Object.freeze({
+    migrationSessionId: session.migrationId,
+    expectedActiveGenerationId: session.expectedActiveGenerationId,
+    targetGenerationId: session.target.generationId,
+    entryCount: session.manifest.entryCount,
+    manifestDigest: session.manifest.manifestDigest,
+    targetStateDigest: session.manifest.targetStateDigest,
+    sourceSnapshotDigest: session.source.snapshotDigest,
+    authorityId: session.source.authorityId,
+    authorityVersion: session.source.authorityVersion,
+    authorityDigest: session.source.authorityDigest,
+    externalRootDigest: session.source.externalRootDigest,
+    rootBindingDigest: session.source.rootBindingDigest,
+    sourceBindingDigest: session.source.sourceBindingDigest,
+    sourceAdapter: session.source.adapter,
+    sourceSchemaVersion: session.source.schemaVersion,
+    sourceType: session.source.sourceType,
+    sourceInstanceId: session.source.sourceInstanceId,
+  });
+}
+
+export async function readVerifiedLegacyNotesCutoverEvidence(
+  runtime: LegacyNotesMigrationRuntime,
+  migrationSessionId: string,
+  targetState: LegacyNotesCutoverTargetState = 'inactive',
+): Promise<VerifiedLegacyNotesCutoverEvidence> {
+  const tx = runtime.db.transaction([
+    LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.syncCheckpoints, LOCAL_DATABASE_STORES.migrationState,
+  ], 'readonly');
+  const done = transactionCompletion(tx, 'read_cutover_legacy_evidence');
+  const evidence = await validateVerifiedLegacyNotesCutoverEvidenceInTransaction(runtime, tx, migrationSessionId, targetState);
+  await done;
+  return evidence;
+}
+
+export async function validateLegacyNotesSourceUnchangedForCutover(
+  runtime: LegacyNotesMigrationRuntime,
+  adapter: LegacyNotesSourceAdapter,
+  migrationSessionId: string,
+): Promise<VerifiedLegacyNotesCutoverEvidence> {
+  runtime.assertOpen('validate_cutover_legacy_source');
+  validateAdapter(runtime, adapter);
+  const session = await readSessionRecord(runtime, migrationSessionId);
+  if (!session || session.status !== 'verified' || session.result === null) {
+    fail('MIGRATION_SESSION_CONFLICT', 'validate_cutover_legacy_source');
+  }
+  const plan = await buildPlan(runtime, adapter, session.migrationId, session.target.generationId, session.createdAt);
+  if (plan.snapshotDigest !== session.source.snapshotDigest || canonical(plan.manifest) !== canonical(session.manifest)) {
+    fail('MIGRATION_SOURCE_CHANGED', 'validate_cutover_legacy_source');
+  }
+  return Object.freeze({
+    migrationSessionId: session.migrationId,
+    expectedActiveGenerationId: session.expectedActiveGenerationId,
+    targetGenerationId: session.target.generationId,
+    entryCount: session.manifest.entryCount,
+    manifestDigest: session.manifest.manifestDigest,
+    targetStateDigest: session.manifest.targetStateDigest,
+    sourceSnapshotDigest: session.source.snapshotDigest,
+    authorityId: session.source.authorityId,
+    authorityVersion: session.source.authorityVersion,
+    authorityDigest: session.source.authorityDigest,
+    externalRootDigest: session.source.externalRootDigest,
+    rootBindingDigest: session.source.rootBindingDigest,
+    sourceBindingDigest: session.source.sourceBindingDigest,
+    sourceAdapter: session.source.adapter,
+    sourceSchemaVersion: session.source.schemaVersion,
+    sourceType: session.source.sourceType,
+    sourceInstanceId: session.source.sourceInstanceId,
+  });
 }
 
 export async function captureLegacyNotesMigration(

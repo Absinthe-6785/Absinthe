@@ -1,4 +1,5 @@
 import { LocalDatabaseError, localDatabaseError, type LocalDatabaseErrorCode } from './errors';
+import { transitionActiveGenerationInTransaction } from './activeGenerationTransition';
 import { deriveOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_STORES } from './schema';
 import type {
@@ -41,7 +42,8 @@ export interface RestorePackageV1 {
 export type RestoreFailurePoint =
   | 'session_creation' | 'validation_completion' | 'staging_first_entity' | 'staging_middle_entity'
   | 'staging_final_entity' | 'active_generation_reread' | 'entity_materialization'
-  | 'outbox_creation' | 'generation_activation' | 'session_committed_update' | 'transaction_completion';
+  | 'outbox_creation' | 'generation_activation' | 'runtime_mode_update'
+  | 'session_committed_update' | 'transaction_completion';
 export interface RestoreOptions {
   sessionId: string;
   conflictPolicy?: 'fail' | 'replace' | 'preserve_local';
@@ -716,7 +718,7 @@ async function prepareCommitEvidence(
 
 async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: string, evidence: RestoreCommitEvidence): Promise<RestoreResult> {
   const stores = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
-    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions];
+    LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions, LOCAL_DATABASE_STORES.migrationState];
   const tx = runtime.db.transaction(stores, 'readwrite'); const done = transactionCompletion(tx, 'commit_restore');
   try {
     const metaStore = tx.objectStore(LOCAL_DATABASE_STORES.databaseMeta); const generationStore = tx.objectStore(LOCAL_DATABASE_STORES.generations);
@@ -794,10 +796,26 @@ async function commit(runtime: RestoreRuntime, options: RestoreOptions, at: stri
       fail('CORRUPT_PERSISTED_RECORD', 'validate_restore_application_evidence');
     }
     if (options.testOnlyFailAt === 'outbox_creation') fail('RESTORE_TRANSACTION_FAILED');
-    generationStore.put({ ...source, status: 'sealed', activeNamespaceKey: undefined });
-    generationStore.put({ ...target, status: 'active', activatedAt: at, activeNamespaceKey: runtime.namespaceKey });
-    metaStore.put({ ...meta, activeGenerationId: session.targetGenerationId });
-    if (options.testOnlyFailAt === 'generation_activation') fail('RESTORE_TRANSACTION_FAILED');
+    await transitionActiveGenerationInTransaction({
+      transaction: tx,
+      runtime,
+      kind: 'restore',
+      expectedActiveGenerationId: session.expectedActiveGenerationId,
+      targetGenerationId: session.targetGenerationId,
+      activatedAt: at,
+      validateRecords: (currentSource, currentTarget) => {
+        if (currentSource.generationId !== source.generationId || currentTarget.generationId !== target.generationId
+          || currentTarget.creationReason !== 'restore') {
+          fail('RESTORE_ACTIVE_GENERATION_CHANGED');
+        }
+      },
+      afterPointerWrite: () => {
+        if (options.testOnlyFailAt === 'generation_activation') fail('RESTORE_TRANSACTION_FAILED');
+      },
+      afterModeWrite: () => {
+        if (options.testOnlyFailAt === 'runtime_mode_update') fail('RESTORE_TRANSACTION_FAILED');
+      },
+    });
     const committed: RestoreSessionRecord = {
       ...session, status: 'committed', updatedAt: at, committedAt: at, blockingState: null, summary: session.summary,
     };
