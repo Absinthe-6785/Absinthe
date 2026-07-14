@@ -39,6 +39,7 @@ import {
   type LocalDatabaseNamespace, type LocalDatabaseRepository, type RestorePackageV1,
 } from './index';
 import { buildLocalFirstRuntimeModeRecord } from './runtimeMode';
+import { sha256Hex } from './outboxIdentity';
 
 const capability = createDormantLocalDatabaseCapability('test');
 const base: LocalDatabaseNamespace = {
@@ -48,6 +49,7 @@ const T0 = '2026-07-13T00:00:00.000Z';
 const T1 = '2026-07-13T00:00:01.000Z';
 const T2 = '2026-07-13T00:00:02.000Z';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const repositories: LocalDatabaseRepository[] = [];
 const authorities = new Map<string, LegacyNotesSourceAuthorityRecordV1>();
 
@@ -102,6 +104,13 @@ async function repository(namespace = base): Promise<LocalDatabaseRepository> {
   return value;
 }
 
+async function reopenRepository(namespace = base): Promise<LocalDatabaseRepository> {
+  const value = await openLocalDatabase(namespace, { capability, clock: () => T2 });
+  repositories.push(value);
+  await value.initializeNamespace();
+  return value;
+}
+
 function note(id = A): Record<string, unknown> {
   return {
     id, title: 'synthetic', body: 'attachment://asset-1', createdAt: 1_700_000_000_000,
@@ -141,6 +150,55 @@ async function plan(repositoryValue: LocalDatabaseRepository, source: MutableAda
     cutoverSessionId: cutoverId, migrationSessionId: migrationId, authorization, now: T1,
   });
   return { authorization, session };
+}
+
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+}
+
+async function enterSettlementPending(
+  repositoryValue: LocalDatabaseRepository,
+  source: MutableAdapter,
+  authorization: ReturnType<LocalDatabaseRepository['createLocalFirstCutoverAuthorization']>,
+): Promise<string> {
+  await repositoryValue.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+  source.records = [{ legacyKey: 'changed', value: note(B),
+    ownership: { kind: 'bound', namespaceKey: repositoryValue.namespaceKey } }];
+  const originalSet = localStorage.setItem.bind(localStorage);
+  const defer = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+    if (key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) throw new Error('defer settlement');
+    originalSet(key, value);
+  });
+  await expect(repositoryValue.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+    .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
+  defer.mockRestore();
+  const pending = await repositoryValue.getLocalFirstCutoverSession('cutover-1');
+  expect(pending).toMatchObject({
+    status: 'failed_precommit_settling', fence: { phase: 'settlement_pending' },
+  });
+  return deriveLegacyNotesCutoverFenceSettlementKey(pending!.fence!.identity);
+}
+
+async function expectSettlementRecoveryBlocked(
+  repositoryValue: LocalDatabaseRepository,
+  authorization: ReturnType<LocalDatabaseRepository['createLocalFirstCutoverAuthorization']>,
+  settlementKey: string,
+  code: string = 'CORRUPT_PERSISTED_RECORD',
+): Promise<void> {
+  await expect(repositoryValue.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
+    .rejects.toMatchObject({ code });
+  expect(localStorage.getItem(settlementKey)).toBeNull();
+  expect(await repositoryValue.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+    status: 'failed_precommit_settling', fence: { phase: 'settlement_pending' },
+  });
+  expect(await repositoryValue.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+  expect(await repositoryValue.getLocalFirstRuntimeMode()).toMatchObject({
+    mode: 'legacy', activeGenerationId: 'generation-1',
+  });
+  expect(mayWriteLegacyNotes()).toBe(false);
 }
 
 async function rawDatabase(): Promise<IDBDatabase> {
@@ -441,7 +499,7 @@ describe('K-326 local-first cutover foundation', () => {
     cleanup.mockRestore();
     repo.close();
 
-    const restarted = await repository();
+    const restarted = await reopenRepository();
     const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
     await expect(restarted.recoverFailedPrecommitCutoverFence(
       'cutover-1', restartedAuthorization, T2, 'after_fence_settlement',
@@ -459,6 +517,175 @@ describe('K-326 local-first cutover foundation', () => {
       .resolves.toMatchObject({ status: 'failed' });
     expect(await restarted.readDatabaseMetadata()).toMatchObject({ activeGenerationId: 'generation-1' });
     expect(await restarted.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+  });
+
+  it.each([
+    ['payload', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A],
+      value => ({ ...value, record: { ...value.record, title: 'tampered-after-verification' } }),
+    )],
+    ['content digest', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A],
+      value => ({ ...value, contentHash: '0'.repeat(64) }),
+    )],
+    ['owner binding', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A],
+      value => ({ ...value, ownerId: 'other-owner' }),
+    )],
+    ['generation binding', async (repo: LocalDatabaseRepository) => {
+      const existing = (await rawStoreValues(LOCAL_DATABASE_STORES.entities))
+        .find(value => value.generationId === 'migration-verified' && value.entityId === A);
+      await deleteRaw(LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A]);
+      await putRaw(LOCAL_DATABASE_STORES.entities, { ...existing, generationId: 'other-generation' });
+    }],
+    ['missing entity', async (repo: LocalDatabaseRepository) => deleteRaw(
+      LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A],
+    )],
+    ['unmanifested extra entity', async (repo: LocalDatabaseRepository) => {
+      const existing = (await rawStoreValues(LOCAL_DATABASE_STORES.entities))
+        .find(value => value.generationId === 'migration-verified' && value.entityId === A);
+      await putRaw(LOCAL_DATABASE_STORES.entities, {
+        ...existing, entityId: B, record: { ...existing.record, id: B },
+      });
+    }],
+  ] as const)('blocks settlement before capability mint when verified target has %s mutation', async (_label, corrupt) => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await corrupt(repo);
+    await expectSettlementRecoveryBlocked(repo, authorization, settlementKey);
+  });
+
+  it.each([
+    ['manifest', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'],
+      value => ({ ...value, manifest: { ...value.manifest, unknown: true } }),
+    )],
+    ['migration lifecycle', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'],
+      value => ({ ...value, status: 'staged' }),
+    )],
+    ['verification result', async (repo: LocalDatabaseRepository) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'],
+      value => ({ ...value, result: { ...value.result, targetStateDigest: '0'.repeat(64) } }),
+    )],
+  ] as const)('blocks settlement for mutated K-325 %s evidence', async (_label, corrupt) => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await corrupt(repo);
+    await expectSettlementRecoveryBlocked(repo, authorization, settlementKey);
+  });
+
+  it.each([
+    ['removed', async (repo: LocalDatabaseRepository, source: MutableAdapter) => deleteRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `authority:${source.authorityId}`],
+    ), 'CORRUPT_PERSISTED_RECORD'],
+    ['revoked', async (repo: LocalDatabaseRepository, source: MutableAdapter) => {
+      await repo.revokeLegacyNotesSourceAuthority(source.authorityId, T2);
+    }, 'LEGACY_SOURCE_AUTHORITY_REVOKED'],
+    ['malformed', async (_repo: LocalDatabaseRepository, source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `authority:${source.authorityId}`],
+      value => ({ ...value, unknown: true }),
+    ), 'CORRUPT_PERSISTED_RECORD'],
+    ['digest-mismatched', async (_repo: LocalDatabaseRepository, source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `authority:${source.authorityId}`],
+      value => ({ ...value, authorityDigest: '0'.repeat(64) }),
+    ), 'CORRUPT_PERSISTED_RECORD'],
+    ['source-identity-mismatched', async (_repo: LocalDatabaseRepository, source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `authority:${source.authorityId}`],
+      value => ({ ...value, sourceInstanceId: 'different-source' }),
+    ), 'CORRUPT_PERSISTED_RECORD'],
+    ['root-binding-missing', async (_repo: LocalDatabaseRepository, source: MutableAdapter) => deleteRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `root:${source.externalRootDigest}`],
+    ), 'CORRUPT_PERSISTED_RECORD'],
+    ['namespace-mismatched', async (_repo: LocalDatabaseRepository, source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState,
+      ['k325:legacy-source-authority:v1', `authority:${source.authorityId}`],
+      value => ({ ...value, userId: 'other-user' }),
+    ), 'CORRUPT_PERSISTED_RECORD'],
+  ] as const)('blocks settlement when K-325 source authority is %s', async (_label, corrupt, code) => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await corrupt(repo, source);
+    await expectSettlementRecoveryBlocked(repo, authorization, settlementKey, code);
+  });
+
+  it('rejects a validly encoded K-326 plan that no longer matches current K-325 evidence', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => {
+        const { planDigest: _oldDigest, ...oldCore } = value.plan;
+        const core = { ...oldCore, targetEntryCount: 2 };
+        const planDigest = sha256Hex(canonical(['absinthe-local-first-cutover-plan-v1', core]));
+        return { ...value, plan: { ...core, planDigest }, fence: { ...value.fence, planDigest } };
+      },
+    );
+    await expectSettlementRecoveryBlocked(repo, authorization, settlementKey, 'CUTOVER_PRECONDITION_FAILED');
+  });
+
+  it.each([
+    ['target entity', async (repo: LocalDatabaseRepository, _source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.entities, [repo.namespaceKey, 'migration-verified', 'notes', A],
+      value => ({ ...value, record: { ...value.record, title: 'corrupt-after-physical-append' } }),
+    )],
+    ['manifest', async (repo: LocalDatabaseRepository, _source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'],
+      value => ({ ...value, manifest: { ...value.manifest, unknown: true } }),
+    )],
+    ['migration session', async (repo: LocalDatabaseRepository, _source: MutableAdapter) => mutateRaw(
+      LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k325:legacy-notes:verified'],
+      value => ({ ...value, status: 'staged' }),
+    )],
+    ['authority revocation', async (repo: LocalDatabaseRepository, source: MutableAdapter) => {
+      await repo.revokeLegacyNotesSourceAuthority(source.authorityId, T2);
+    }],
+  ] as const)('preserves physical settlement but blocks durable finalization after post-append %s mutation', async (_label, corrupt) => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await expect(repo.recoverFailedPrecommitCutoverFence(
+      'cutover-1', authorization, T2, 'after_physical_settlement_append',
+    )).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
+    expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+      status: 'failed_precommit_settling', fence: { phase: 'settlement_pending' },
+    });
+    await corrupt(repo, source);
+    repo.close();
+    const restarted = await reopenRepository();
+    const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+    await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
+      .rejects.toMatchObject({ code: expect.stringMatching(/^(CORRUPT_PERSISTED_RECORD|LEGACY_SOURCE_AUTHORITY_REVOKED)$/) });
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
+    expect(await restarted.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
+      status: 'failed_precommit_settling', fence: { phase: 'settlement_pending' },
+    });
+    expect(mayWriteLegacyNotes()).toBe(false);
+  });
+
+  it('finalizes an existing exact settlement after restart only when K-325 evidence remains unchanged', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    const settlementKey = await enterSettlementPending(repo, source, authorization);
+    await expect(repo.recoverFailedPrecommitCutoverFence(
+      'cutover-1', authorization, T2, 'after_physical_settlement_append',
+    )).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
+    repo.close();
+    const restarted = await reopenRepository();
+    const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+    await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
+      .resolves.toMatchObject({ status: 'failed', fence: { phase: 'settled' } });
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
   });
 
   it('rejects failed-precommit fence recovery for the wrong session and after activation commit', async () => {

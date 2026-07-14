@@ -125,15 +125,21 @@ If the process stops before activation, the `activating` marker intentionally re
 same explicit session is resumed or safely cancelled. A final source/authority failure after fencing records
 `failed_precommit_fenced`. Recovery proves that mode remains `legacy`, the pointer remains the planned
 predecessor, the migration target remains inactive, target outbox/checkpoints are empty, no restore is active,
-and no competing cutover superseded the session. It then records durable `settlement_pending`, appends the exact
-settlement marker, validates its read-back and the complete stable pair scan, and records terminal `failed`.
+and no competing cutover superseded the session. K-326F also runs the complete K-325 verified-evidence validator
+over the current migration session, authority/root records, manifest, and exact inactive target entity set, then
+requires that evidence to match the immutable K-326 plan. It then records durable `settlement_pending`, appends
+the exact settlement marker, validates its read-back and the complete stable pair scan, and records terminal
+`failed` only after repeating the complete K-325 and plan validation.
 
 Fence storage and local-v2 cannot share one atomic transaction, so recovery is an explicit idempotent protocol.
-The IndexedDB no-commit proof covers legacy mode, predecessor pointer, inactive target, empty target queues,
-restore exclusion, and competing cutovers before the deterministic settlement write. The physical write is
-read-back checked and followed by a full stable scan before durable `settled` finalization. A crash before the
-write, after the write, or before durable finalization retries the same canonical settlement value. No normal
-recovery path deletes or overwrites fence/settlement evidence, and K-326D performs no garbage collection.
+The IndexedDB no-commit proof covers legacy mode, predecessor pointer, inactive target, exact K-325 session and
+manifest, exact target entities and digests, source authority/root/binding evidence, empty target queues, restore
+exclusion, and competing cutovers before the deterministic settlement write. Its transaction includes metadata,
+generations, entities, outbox, checkpoints, migration state, and restore sessions. The physical write is read-back
+checked and followed by a full stable scan before durable `settled` finalization. A crash before the write, after
+the write, or before durable finalization retries the same canonical settlement value, but an existing exact
+settlement never substitutes for current K-325 evidence validation. No normal recovery path deletes or overwrites
+fence/settlement evidence, and K-326D performs no garbage collection.
 
 K-326E makes that settlement mutation repository-mediated. `recoverySafetyPolicy` exposes only a pure canonical
 artifact builder; it has no exported physical settlement writer. Generic cutover authorization can enter the
@@ -144,20 +150,24 @@ symbol and registered by identity in a private `WeakMap`; no authority type, iss
 is exported.
 
 The private binding covers namespace, cutover session, plan digest, attempt, durable session timestamp, target,
-expected predecessor, exact fence identity and storage digest, expected `legacy` mode, and the single
-`precommit_settlement` purpose. It is consumed before the first physical mutation. Plain objects, copied fields,
-JSON, another process/repository instance, another session/target/fence, or replay cannot create a registry entry.
-A storage failure consumes the authority; retry requires a fresh durable graph proof and a newly minted authority.
-Capabilities are never persisted, returned, logged, or passed to UI/application services.
+expected predecessor, exact fence identity and storage digest, a canonical fingerprint of the freshly validated
+K-325 evidence, expected `legacy` mode, and the single `precommit_settlement` purpose. The exact physical fence
+and any existing settlement are checked before minting, and the authority is consumed before the first physical
+mutation. Plain objects, copied fields, JSON, another process/repository instance, another
+session/target/fence/evidence graph, or replay cannot create a registry entry. A storage failure consumes the
+authority; retry requires a fresh durable graph proof and a newly minted authority. Capabilities are never
+persisted, returned, logged, or passed to UI/application services.
 
 Settlement and activation for an exact session serialize through the same IndexedDB read/write store transaction.
 The allowed graph requires coherent legacy mode and predecessor pointer, an inactive exact verified target, zero
-target outbox/checkpoint state, no active restore or competing cutover, unchanged source/authority/manifest
-evidence, an uncommitted session, `settlement_pending`, and the exact valid v4 fence. Immediately after append and
-read-back, the repository revalidates the complete no-commit graph in that same transaction before recording
-durable `settled`; a changed graph fails closed without deleting the append-only evidence. Activated, confirmed,
-committed, local-first, restored, divergent, malformed, or ambiguous graphs cannot mint or complete settlement
-authority.
+target outbox/checkpoint state, no active restore or competing cutover, unchanged K-325 session,
+source/authority/root/binding/manifest evidence, the exact target entity set and digests, an uncommitted session,
+`settlement_pending`, and the exact valid v4 fence. Immediately after append and read-back, the repository re-runs
+the shared K-325 validator, reasserts the K-326 plan binding, and revalidates the complete no-commit graph in that
+same transaction before recording durable `settled`; a changed graph fails closed without deleting the append-only
+evidence. On restart, a corrupt target, manifest, session, or authority continues to block finalization even when
+the exact settlement already exists. There is no repair or rollback. Activated, confirmed, committed, local-first,
+restored, divergent, malformed, or ambiguous graphs cannot mint or complete settlement authority.
 
 Physical `operationally_clear` remains only a structural storage classification. It is not semantic authorization
 to write legacy Notes. The synchronous legacy guard cannot safely query IndexedDB runtime mode, so it deliberately
