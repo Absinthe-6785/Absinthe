@@ -39,24 +39,73 @@ export interface RecoveryCutoverAuthorization {
   readonly purpose: 'test' | 'developer';
 }
 
-export interface LegacyNotesCutoverFence {
-  version: 1;
-  createdEpoch: number;
+export interface LegacyCutoverFenceIdentity {
   namespaceKey: string;
   cutoverSessionId: string;
   targetGenerationId: string;
+  fenceNonce: string;
+  fenceEpoch: number;
+}
+
+export interface LegacyNotesCutoverFence {
+  version: 2;
+  namespaceKey: string;
+  cutoverSessionId: string;
+  targetGenerationId: string;
+  fenceNonce: string;
+  fenceEpoch: number;
   phase: 'activating' | 'activated' | 'confirmed';
 }
 
-function validFence(value: unknown): value is LegacyNotesCutoverFence {
+export type LegacyCutoverFenceErrorCode =
+  | 'FENCE_MALFORMED'
+  | 'FENCE_INSTANCE_MISMATCH'
+  | 'FENCE_OWNERSHIP_CONFLICT'
+  | 'FENCE_READBACK_MISMATCH'
+  | 'FENCE_RECOVERY_INCOMPLETE';
+
+export class LegacyCutoverFenceError extends Error {
+  constructor(readonly code: LegacyCutoverFenceErrorCode) {
+    super(code);
+    this.name = 'LegacyCutoverFenceError';
+  }
+}
+
+const NONCE = /^[a-f0-9]{32}$/;
+
+function exactOwnDataKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return Object.keys(record).sort().join(',') === 'createdEpoch,cutoverSessionId,namespaceKey,phase,targetGenerationId,version'
-    && record.version === 1 && Number.isSafeInteger(record.createdEpoch) && (record.createdEpoch as number) > 0
-    && typeof record.namespaceKey === 'string' && HASH.test(record.namespaceKey)
-    && typeof record.cutoverSessionId === 'string' && SAFE_ID.test(record.cutoverSessionId)
-    && typeof record.targetGenerationId === 'string' && SAFE_ID.test(record.targetGenerationId)
-    && ['activating', 'activated', 'confirmed'].includes(record.phase as string);
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.some(key => typeof key !== 'string')
+    || (keys as string[]).sort().join(',') !== [...expected].sort().join(',')) return false;
+  return keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return Boolean(descriptor && 'value' in descriptor && descriptor.enumerable);
+  });
+}
+
+export function isLegacyCutoverFenceIdentity(value: unknown): value is LegacyCutoverFenceIdentity {
+  const keys = ['namespaceKey', 'cutoverSessionId', 'targetGenerationId', 'fenceNonce', 'fenceEpoch'];
+  if (!exactOwnDataKeys(value, keys)) return false;
+  const record = value as unknown as LegacyCutoverFenceIdentity;
+  return HASH.test(record.namespaceKey) && SAFE_ID.test(record.cutoverSessionId)
+    && SAFE_ID.test(record.targetGenerationId) && NONCE.test(record.fenceNonce)
+    && Number.isSafeInteger(record.fenceEpoch) && record.fenceEpoch > 0;
+}
+
+function validFence(value: unknown): value is LegacyNotesCutoverFence {
+  const keys = ['version', 'namespaceKey', 'cutoverSessionId', 'targetGenerationId', 'fenceNonce', 'fenceEpoch', 'phase'];
+  if (!exactOwnDataKeys(value, keys)) return false;
+  const record = value as unknown as LegacyNotesCutoverFence;
+  return record.version === 2 && isLegacyCutoverFenceIdentity({
+    namespaceKey: record.namespaceKey,
+    cutoverSessionId: record.cutoverSessionId,
+    targetGenerationId: record.targetGenerationId,
+    fenceNonce: record.fenceNonce,
+    fenceEpoch: record.fenceEpoch,
+  }) && ['activating', 'activated', 'confirmed'].includes(record.phase);
 }
 
 function readFenceRaw(): LegacyNotesCutoverFence | 'corrupt' | null {
@@ -102,55 +151,116 @@ export function validateRecoveryCutoverAuthorization(
   assertCutoverAuthorization(authorization, expected);
 }
 
-export function beginLegacyNotesCutoverFence(
+function randomFenceNonce(): string {
+  try {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  } catch {
+    throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH');
+  }
+}
+
+export function createLegacyNotesCutoverFenceIdentity(
   authorization: RecoveryCutoverAuthorization,
-): LegacyNotesCutoverFence {
-  const createdEpoch = activateRecoveryMode();
-  const next: LegacyNotesCutoverFence = {
-    version: 1,
-    createdEpoch,
+): LegacyCutoverFenceIdentity {
+  const identity: LegacyCutoverFenceIdentity = {
     namespaceKey: authorization.namespaceKey,
     cutoverSessionId: authorization.cutoverSessionId,
     targetGenerationId: authorization.targetGenerationId,
+    fenceNonce: randomFenceNonce(),
+    fenceEpoch: activateRecoveryMode(),
+  };
+  assertCutoverAuthorization(authorization, identity);
+  if (!isLegacyCutoverFenceIdentity(identity)) throw new LegacyCutoverFenceError('FENCE_MALFORMED');
+  return Object.freeze(identity);
+}
+
+export function sameLegacyCutoverFenceIdentity(
+  left: LegacyCutoverFenceIdentity,
+  right: LegacyCutoverFenceIdentity,
+): boolean {
+  return left.namespaceKey === right.namespaceKey && left.cutoverSessionId === right.cutoverSessionId
+    && left.targetGenerationId === right.targetGenerationId && left.fenceNonce === right.fenceNonce
+    && left.fenceEpoch === right.fenceEpoch;
+}
+
+export function beginLegacyNotesCutoverFence(
+  authorization: RecoveryCutoverAuthorization,
+  identity: LegacyCutoverFenceIdentity,
+): LegacyNotesCutoverFence {
+  if (!isLegacyCutoverFenceIdentity(identity)) throw new LegacyCutoverFenceError('FENCE_MALFORMED');
+  const next: LegacyNotesCutoverFence = {
+    version: 2,
+    ...identity,
     phase: 'activating',
   };
   assertCutoverAuthorization(authorization, next);
   const existing = readFenceRaw();
-  if (existing === 'corrupt' || existing !== null && (
-    existing.namespaceKey !== next.namespaceKey
-    || existing.cutoverSessionId !== next.cutoverSessionId
-    || existing.targetGenerationId !== next.targetGenerationId
-  )) throw new RecoveryModeBlockedError('k326_cutover_activation');
+  if (existing === 'corrupt') throw new LegacyCutoverFenceError('FENCE_MALFORMED');
+  if (existing !== null && !sameLegacyCutoverFenceIdentity(existing, next)) {
+    throw new LegacyCutoverFenceError('FENCE_OWNERSHIP_CONFLICT');
+  }
+  if (existing !== null && existing.phase !== 'activating') {
+    throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
+  }
   try { localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, JSON.stringify(existing ?? next)); }
-  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
-  return existing ?? next;
+  catch { throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH'); }
+  const readBack = readFenceRaw();
+  if (readBack === null || readBack === 'corrupt' || readBack.phase !== 'activating'
+    || !sameLegacyCutoverFenceIdentity(readBack, next)) {
+    throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH');
+  }
+  return readBack;
 }
 
 export function advanceLegacyNotesCutoverFence(
   authorization: RecoveryCutoverAuthorization,
+  identity: LegacyCutoverFenceIdentity,
   phase: 'activated' | 'confirmed',
 ): LegacyNotesCutoverFence {
   const existing = readFenceRaw();
-  if (existing === null || existing === 'corrupt') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  if (existing === null) throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE');
+  if (existing === 'corrupt') throw new LegacyCutoverFenceError('FENCE_MALFORMED');
   assertCutoverAuthorization(authorization, existing);
+  if (!sameLegacyCutoverFenceIdentity(existing, identity)) {
+    throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
+  }
   if (phase === 'activated' && !['activating', 'activated'].includes(existing.phase)
     || phase === 'confirmed' && !['activating', 'activated', 'confirmed'].includes(existing.phase)) {
-    throw new RecoveryModeBlockedError('k326_cutover_activation');
+    throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
   }
   const next = { ...existing, phase } as LegacyNotesCutoverFence;
   try { localStorage.setItem(K326_LEGACY_WRITE_FENCE_KEY, JSON.stringify(next)); }
-  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
-  return next;
+  catch { throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH'); }
+  const readBack = readFenceRaw();
+  if (readBack === null || readBack === 'corrupt' || readBack.phase !== phase
+    || !sameLegacyCutoverFenceIdentity(readBack, identity)) {
+    throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH');
+  }
+  return readBack;
 }
 
-export function cancelLegacyNotesCutoverFence(authorization: RecoveryCutoverAuthorization): void {
+export function cancelLegacyNotesCutoverFence(
+  authorization: RecoveryCutoverAuthorization,
+  identity: LegacyCutoverFenceIdentity,
+): void {
   const existing = readFenceRaw();
   if (existing === null) return;
-  if (existing === 'corrupt') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  if (existing === 'corrupt') throw new LegacyCutoverFenceError('FENCE_MALFORMED');
   assertCutoverAuthorization(authorization, existing);
-  if (existing.phase !== 'activating') throw new RecoveryModeBlockedError('k326_cutover_activation');
+  if (!sameLegacyCutoverFenceIdentity(existing, identity)) {
+    throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
+  }
+  if (existing.phase !== 'activating') throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
   try { localStorage.removeItem(K326_LEGACY_WRITE_FENCE_KEY); }
-  catch { throw new RecoveryModeBlockedError('k326_cutover_activation'); }
+  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
+  const readBack = readFenceRaw();
+  if (readBack !== null) {
+    throw new LegacyCutoverFenceError(readBack === 'corrupt' ? 'FENCE_MALFORMED'
+      : sameLegacyCutoverFenceIdentity(readBack, identity) ? 'FENCE_RECOVERY_INCOMPLETE'
+        : 'FENCE_OWNERSHIP_CONFLICT');
+  }
   activateRecoveryMode();
 }
 

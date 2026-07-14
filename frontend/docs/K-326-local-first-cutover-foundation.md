@@ -25,9 +25,16 @@ records, tombstones, outbox history, checkpoints, restore sessions, migration se
 attachment metadata are untouched.
 
 Cutover sessions use the reserved storage key `k326:cutover:<logical-id>`. Public logical IDs beginning with
-`k326:` are rejected. The strict `local_first_cutover_session_v1` record contains a payload-free immutable plan,
+`k326:` are rejected. The strict `local_first_cutover_session_v2` record contains a payload-free immutable plan,
 bounded lifecycle evidence, and no Note title, body, metadata, attachment content, token, browser exception,
 stack, or arbitrary message.
+
+Version 2 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
+K-319 safety epoch captured for that installation, namespace, cutover session, target generation, and plan
+digest. Durable fence evidence distinguishes `installing`, `installed`, `releasing`, `released`, and `committed`.
+The original identity remains stored after release; a separately observed late identity is bound before it can
+be removed. Draft-only version-1 session/fence shapes are rejected as corruption rather than assigned synthetic
+identity.
 
 The lifecycle is:
 
@@ -92,9 +99,15 @@ K-326 extends the K-319 recovery boundary with a session-, namespace-, and gener
 authorization. It never disables recovery mode or permits restore, reset, delete, cleanup, hydration, upload,
 or another guarded operation. The authorization can affect only its exact cutover.
 
-Before the activation transaction, K-326 advances the K-319 safety epoch and writes it into the strict
-`absinthe:k326:legacy-write-fence` marker. The marker is restrictive metadata only; it never claims that activation
-succeeded. Every legacy Notes replacement/removal path consults it, including IndexedDB save/delete/clear,
+Before the activation transaction, K-326 creates a unique fence nonce, advances the K-319 safety epoch, and
+first persists that exact instance as `installing`. It then installs the strict version-2
+`absinthe:k326:legacy-write-fence` marker using read/write/read-back validation. A second durable transaction
+revalidates the session, plan, legacy runtime mode, predecessor pointer, inactive target, and exact physical
+identity before recording `installed` and allowing source recapture to continue. A delayed installer whose
+durable state changed removes only its exact still-activating instance when that is independently safe; a
+different or malformed read-back fails closed without being overwritten. The marker is restrictive metadata
+only; it never claims that activation succeeded. Every legacy Notes replacement/removal path consults it,
+including IndexedDB save/delete/clear,
 localStorage replacement/removal, persistence migration, and the synchronous Notes storage bridge. IndexedDB
 replacement rechecks the marker before clear and before each put, fencing stale in-process operations. Because
 localStorage is shared by same-origin tabs, other tabs observe the marker synchronously and reject legacy
@@ -109,10 +122,18 @@ and no competing cutover superseded the session. It then removes only the exact 
 
 Fence storage and local-v2 cannot share one transaction, so recovery is an explicit idempotent two-phase
 protocol. After exact fence identity is established, the durable state advances to
-`failed_precommit_releasing`; cleanup failure leaves that state retryable. A crash after fence removal but before
-the terminal write is also retryable after reload. A missing fence is accepted only from this releasing state,
-not from `failed_precommit_fenced`. Wrong-session, wrong-namespace, malformed, activated, or
-confirmed fences are never removed. The K-319 epoch only advances, so release never makes pre-fence work current.
+`failed_precommit_releasing`; cleanup removes only that nonce/epoch instance and immediately reads storage back.
+Terminal `failed` is written only after absence is observed. Cleanup failure leaves the releasing state
+retryable, and a crash after removal but before the terminal write resumes after reload. A missing fence is
+accepted only from this releasing state, not from `failed_precommit_fenced`.
+
+Terminal `failed` recovery always reads and classifies the physical fence before returning. An absent fence is
+idempotent only after mode, pointer, inactive target, zero queue state, restore conflict, and competing-cutover
+checks independently prove no activation commit. An exact historical fence or a newer same-session instance is
+first bound as the observed late identity, then removed with exact compare/read-back verification. Foreign,
+malformed, activated, confirmed, or unbound fences are never removed. If another fence appears during removal,
+recovery fails closed and retains diagnosable releasing evidence. The K-319 epoch only advances, so release never
+makes pre-fence work current.
 Cancellation before activation may invoke the same proof. Activated or confirmed sessions cannot be cancelled
 or unfenced. After commit the marker advances to `activated` and then `confirmed`, and legacy writes remain
 blocked. The legacy source is never deleted, rewritten, repaired, or marked migrated by K-326.
@@ -157,7 +178,9 @@ it. Production continues using the legacy read path until a later reviewed rollo
 
 Permanent tests use fake-indexeddb, a deterministic localStorage double, synthetic Notes, and failure injection.
 They cover exact activation, rollback of every activation write boundary, restart, cancellation, corruption,
-source and authority races, competing sessions, restore conflicts, legacy-write fencing, and static dormancy.
+source and authority races, competing sessions, restore conflicts, exact fence nonce/epoch validation,
+read-back conflicts, late same-session reappearance, foreign/malformed fences, reload recovery, legacy-write
+fencing, and static dormancy.
 No real-browser IndexedDB, multi-tab browser, production Supabase, or real incident data was exercised in K-326.
 
 ## Residual risks
