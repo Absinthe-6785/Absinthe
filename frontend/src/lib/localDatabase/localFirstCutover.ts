@@ -1,16 +1,16 @@
 import {
   advanceLegacyNotesCutoverFence,
   beginLegacyNotesCutoverFence,
-  cancelLegacyNotesCutoverFence,
   createLegacyNotesCutoverFenceIdentity,
   createRecoveryCutoverAuthorization,
   isLegacyCutoverFenceIdentity,
   readLegacyNotesCutoverFence,
   scanLegacyNotesCutoverFences,
+  settleLegacyNotesCutoverFence,
   sameLegacyCutoverFenceIdentity,
   validateRecoveryCutoverAuthorization,
   LegacyCutoverFenceError,
-  type LegacyFenceReleaseResult,
+  type LegacyFenceSettlementResult,
   type LegacyFenceScanResult,
   type LegacyCutoverFenceIdentity,
   type RecoveryCutoverAuthorization,
@@ -44,12 +44,12 @@ const CUTOVER_STORAGE_PREFIX = 'k326:cutover:';
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const ACTIVE_CUTOVER_STATUSES = new Set<LocalFirstCutoverStatus>([
-  'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_releasing', 'activated',
+  'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_settling', 'activated',
 ]);
 const ACTIVE_RESTORE_STATUSES = new Set(['created', 'validating', 'staged', 'committing']);
 
 export type LocalFirstCutoverStatus =
-  | 'planned' | 'preflight' | 'activating' | 'failed_precommit_fenced' | 'failed_precommit_releasing'
+  | 'planned' | 'preflight' | 'activating' | 'failed_precommit_fenced' | 'failed_precommit_settling'
   | 'activated' | 'confirmed' | 'failed' | 'cancelled';
 export type { LocalFirstRuntimeMode, LocalFirstRuntimeModeRecordV1 } from './runtimeMode';
 export type LocalFirstCutoverFailureCode =
@@ -89,8 +89,8 @@ export interface LocalFirstCutoverPlanV1 {
 }
 
 export interface LocalFirstCutoverSessionV1 {
-  kind: 'local_first_cutover_session_v3';
-  version: 3;
+  kind: 'local_first_cutover_session_v4';
+  version: 4;
   namespaceKey: string;
   cutoverSessionId: string;
   plan: LocalFirstCutoverPlanV1;
@@ -101,19 +101,19 @@ export interface LocalFirstCutoverSessionV1 {
   activatedAt: string | null;
   confirmedAt: string | null;
   failure: { code: LocalFirstCutoverFailureCode; context: string } | null;
-  fence: LocalFirstCutoverFenceEvidenceV2 | null;
+  fence: LocalFirstCutoverFenceEvidenceV3 | null;
 }
 
-export interface LocalFirstCutoverFenceEvidenceV2 {
-  kind: 'local_first_cutover_fence_evidence_v2';
-  version: 2;
+export interface LocalFirstCutoverFenceEvidenceV3 {
+  kind: 'local_first_cutover_fence_evidence_v3';
+  version: 3;
   identity: LegacyCutoverFenceIdentity;
-  lateIdentity: LegacyCutoverFenceIdentity | null;
   planDigest: string;
-  phase: 'installing' | 'installed' | 'releasing' | 'released' | 'committed';
-  vaultState: 'indeterminate' | 'blocked_by_own' | 'blocked_by_other' | 'clear';
+  phase: 'installing' | 'installed' | 'settlement_pending' | 'settled' | 'committed';
+  vaultState: 'indeterminate' | 'blocked_by_own_active' | 'blocked_by_other_active'
+    | 'blocked_by_malformed' | 'blocked_by_conflict' | 'operationally_clear';
   installedAt: string | null;
-  releasedAt: string | null;
+  settledAt: string | null;
 }
 
 interface PersistedLocalFirstCutoverSessionV1 extends LocalFirstCutoverSessionV1 {
@@ -127,7 +127,7 @@ export type CutoverFailurePoint =
   | 'session_transition'
   | 'transaction_completion'
   | 'after_activation_commit';
-export type FailedPrecommitFenceRecoveryFailurePoint = 'after_fence_release';
+export type FailedPrecommitFenceRecoveryFailurePoint = 'after_fence_settlement';
 
 export interface PlanLocalFirstCutoverOptions {
   cutoverSessionId: string;
@@ -313,34 +313,32 @@ function sessionKeys(): string[] {
 function validateFenceEvidence(
   value: unknown,
   record: Pick<LocalFirstCutoverSessionV1, 'namespaceKey' | 'cutoverSessionId' | 'plan'>,
-): LocalFirstCutoverFenceEvidenceV2 {
-  const keys = ['kind', 'version', 'identity', 'lateIdentity', 'planDigest', 'phase', 'vaultState',
-    'installedAt', 'releasedAt'];
+): LocalFirstCutoverFenceEvidenceV3 {
+  const keys = ['kind', 'version', 'identity', 'planDigest', 'phase', 'vaultState', 'installedAt', 'settledAt'];
   if (!exactOwnDataKeys(value, keys)) fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_fence_evidence');
-  const evidence = value as unknown as LocalFirstCutoverFenceEvidenceV2;
-  if (!isLegacyCutoverFenceIdentity(evidence.identity)
-    || evidence.lateIdentity !== null && !isLegacyCutoverFenceIdentity(evidence.lateIdentity)) {
+  const evidence = value as unknown as LocalFirstCutoverFenceEvidenceV3;
+  if (!isLegacyCutoverFenceIdentity(evidence.identity)) {
     fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_fence_evidence');
   }
   const identityMatches = (identity: LegacyCutoverFenceIdentity): boolean => identity.namespaceKey === record.namespaceKey
     && identity.cutoverSessionId === record.cutoverSessionId
     && identity.targetGenerationId === record.plan.targetGenerationId;
   const timestampsValid = evidence.phase === 'installing'
-    ? evidence.installedAt === null && evidence.releasedAt === null
-    : evidence.phase === 'released'
+    ? evidence.installedAt === null && evidence.settledAt === null
+    : evidence.phase === 'settled'
       ? evidence.installedAt !== null && validTimestamp(evidence.installedAt)
-        && evidence.releasedAt !== null && validTimestamp(evidence.releasedAt)
-        && Date.parse(evidence.releasedAt) >= Date.parse(evidence.installedAt)
-      : evidence.installedAt !== null && validTimestamp(evidence.installedAt) && evidence.releasedAt === null;
+        && evidence.settledAt !== null && validTimestamp(evidence.settledAt)
+        && Date.parse(evidence.settledAt) >= Date.parse(evidence.installedAt)
+      : evidence.installedAt !== null && validTimestamp(evidence.installedAt) && evidence.settledAt === null;
   const vaultStateValid = evidence.phase === 'installing' ? evidence.vaultState === 'indeterminate'
-    : evidence.phase === 'installed' || evidence.phase === 'committed' ? evidence.vaultState === 'blocked_by_own'
-      : evidence.phase === 'releasing' ? ['blocked_by_own', 'indeterminate'].includes(evidence.vaultState)
-        : ['clear', 'blocked_by_other', 'indeterminate'].includes(evidence.vaultState);
-  if (evidence.kind !== 'local_first_cutover_fence_evidence_v2' || evidence.version !== 2
+    : evidence.phase === 'installed' || evidence.phase === 'committed' ? evidence.vaultState === 'blocked_by_own_active'
+      : evidence.phase === 'settlement_pending' ? ['blocked_by_own_active', 'indeterminate'].includes(evidence.vaultState)
+        : ['operationally_clear', 'blocked_by_other_active', 'blocked_by_malformed',
+          'blocked_by_conflict', 'indeterminate'].includes(evidence.vaultState);
+  if (evidence.kind !== 'local_first_cutover_fence_evidence_v3' || evidence.version !== 3
     || evidence.planDigest !== record.plan.planDigest || !HASH.test(evidence.planDigest)
-    || !['installing', 'installed', 'releasing', 'released', 'committed'].includes(evidence.phase)
-    || !identityMatches(evidence.identity) || evidence.lateIdentity !== null && !identityMatches(evidence.lateIdentity)
-    || evidence.lateIdentity !== null && !['releasing', 'released'].includes(evidence.phase)
+    || !['installing', 'installed', 'settlement_pending', 'settled', 'committed'].includes(evidence.phase)
+    || !identityMatches(evidence.identity)
     || !timestampsValid || !vaultStateValid) {
     fail('CORRUPT_PERSISTED_RECORD', 'validate_cutover_fence_evidence');
   }
@@ -367,7 +365,7 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
       && Date.parse(record.updatedAt) >= Date.parse(record.confirmedAt));
   const attemptValid = ['planned', 'preflight'].includes(record.status)
     ? record.attempt === 0
-    : ['activating', 'failed_precommit_fenced', 'failed_precommit_releasing', 'activated', 'confirmed'].includes(record.status)
+    : ['activating', 'failed_precommit_fenced', 'failed_precommit_settling', 'activated', 'confirmed'].includes(record.status)
       ? record.attempt > 0
       : true;
   const lifecycleValid = ['planned', 'preflight'].includes(record.status)
@@ -375,10 +373,10 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
     : record.status === 'activating'
       ? record.activatedAt === null && record.confirmedAt === null && record.failure === null
         && (fence === null || ['installing', 'installed'].includes(fence.phase))
-    : ['failed_precommit_fenced', 'failed_precommit_releasing'].includes(record.status)
+    : ['failed_precommit_fenced', 'failed_precommit_settling'].includes(record.status)
       ? record.activatedAt === null && record.confirmedAt === null && record.failure !== null && fence !== null
         && (record.status === 'failed_precommit_fenced' ? fence.phase === 'installed'
-          : ['releasing', 'released'].includes(fence.phase))
+          : ['settlement_pending', 'settled'].includes(fence.phase))
       : record.status === 'activated'
       ? record.activatedAt !== null && record.confirmedAt === null && record.failure === null && fence?.phase === 'committed'
       : record.status === 'confirmed'
@@ -387,13 +385,13 @@ function persistedSession(value: unknown, runtime: LocalFirstCutoverRuntime): Lo
           ? record.activatedAt === null && record.confirmedAt === null && record.failure?.code === 'CUTOVER_CANCELLED'
             && fence === null
           : record.status === 'failed' && record.activatedAt === null && record.confirmedAt === null
-            && record.failure !== null && (fence === null || fence.phase === 'released' && fence.vaultState === 'clear');
-  if (record.kind !== 'local_first_cutover_session_v3' || record.version !== 3
+            && record.failure !== null && (fence === null || fence.phase === 'settled');
+  if (record.kind !== 'local_first_cutover_session_v4' || record.version !== 4
     || record.namespaceKey !== runtime.namespaceKey || !SAFE_ID.test(record.cutoverSessionId)
     || record.cutoverSessionId.length > 96 || record.cutoverSessionId.startsWith('k326:')
     || record.migrationId !== cutoverStorageId(record.cutoverSessionId)
     || plan.migrationSessionId.length === 0 || ![
-      'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_releasing',
+      'planned', 'preflight', 'activating', 'failed_precommit_fenced', 'failed_precommit_settling',
       'activated', 'confirmed', 'failed', 'cancelled',
     ].includes(record.status)
     || !Number.isSafeInteger(record.attempt) || record.attempt < 0 || !attemptValid
@@ -465,7 +463,7 @@ function cutoverSessionsFromValues(
     const record = value as { kind?: unknown; migrationId?: unknown; namespaceKey?: unknown } | null;
     if (record?.namespaceKey !== runtime.namespaceKey) continue;
     const reserved = typeof record?.migrationId === 'string' && record.migrationId.startsWith(CUTOVER_STORAGE_PREFIX);
-    if (record?.kind !== 'local_first_cutover_session_v3' && !reserved) continue;
+    if (record?.kind !== 'local_first_cutover_session_v4' && !reserved) continue;
     sessions.push(persistedSession(value, runtime));
   }
   return sessions;
@@ -521,7 +519,7 @@ export async function planLocalFirstCutover(
       fail('CUTOVER_SESSION_CONFLICT', 'cutover_plan_mismatch');
     }
     assertAuthorization(runtime, options.cutoverSessionId, previouslyPersisted.plan.targetGenerationId, options.authorization);
-    if (['activated', 'confirmed', 'failed_precommit_fenced', 'failed_precommit_releasing', 'failed', 'cancelled']
+    if (['activated', 'confirmed', 'failed_precommit_fenced', 'failed_precommit_settling', 'failed', 'cancelled']
       .includes(previouslyPersisted.status)) return previouslyPersisted;
   }
   await validateLegacyNotesSourceUnchangedForCutover(runtime, adapter, options.migrationSessionId);
@@ -566,7 +564,7 @@ export async function planLocalFirstCutover(
       await done; return existing;
     }
     const session: LocalFirstCutoverSessionV1 = {
-      kind: 'local_first_cutover_session_v3', version: 3, namespaceKey: runtime.namespaceKey,
+      kind: 'local_first_cutover_session_v4', version: 4, namespaceKey: runtime.namespaceKey,
       cutoverSessionId: options.cutoverSessionId, plan, status: 'planned', attempt: 0,
       createdAt: at, updatedAt: at, activatedAt: null, confirmedAt: null, failure: null, fence: null,
     };
@@ -589,7 +587,7 @@ export async function preflightLocalFirstCutover(
   const before = await readSession(runtime, cutoverSessionId);
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'preflight_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
-  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(before.status)) {
+  if (['failed_precommit_fenced', 'failed_precommit_settling'].includes(before.status)) {
     fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'preflight_cutover_status');
   }
   if (['failed', 'cancelled'].includes(before.status)) fail(before.status === 'cancelled' ? 'CUTOVER_CANCELLED' : 'CUTOVER_SESSION_CONFLICT');
@@ -652,18 +650,11 @@ async function transitionToActivating(
 function fenceEvidence(
   session: LocalFirstCutoverSessionV1,
   identity: LegacyCutoverFenceIdentity,
-): LocalFirstCutoverFenceEvidenceV2 {
+): LocalFirstCutoverFenceEvidenceV3 {
   return {
-    kind: 'local_first_cutover_fence_evidence_v2', version: 2, identity, lateIdentity: null,
+    kind: 'local_first_cutover_fence_evidence_v3', version: 3, identity,
     planDigest: session.plan.planDigest, phase: 'installing', vaultState: 'indeterminate',
-    installedAt: null, releasedAt: null,
-  };
-}
-
-function physicalFenceIdentity(value: LegacyCutoverFenceIdentity): LegacyCutoverFenceIdentity {
-  return {
-    namespaceKey: value.namespaceKey, cutoverSessionId: value.cutoverSessionId,
-    targetGenerationId: value.targetGenerationId, fenceNonce: value.fenceNonce, fenceEpoch: value.fenceEpoch,
+    installedAt: null, settledAt: null,
   };
 }
 
@@ -675,8 +666,12 @@ function mapFenceError(error: unknown, operation: string): never {
           : error.code === 'FOREIGN_FENCE_PRESENT' ? 'CUTOVER_FOREIGN_FENCE_PRESENT'
             : error.code === 'FENCE_ARTIFACT_MALFORMED' || error.code === 'FENCE_MALFORMED'
               ? 'CUTOVER_FENCE_ARTIFACT_MALFORMED'
+              : error.code === 'FENCE_SETTLEMENT_MALFORMED' ? 'CUTOVER_FENCE_SETTLEMENT_MALFORMED'
+                : error.code === 'FENCE_SETTLEMENT_CONFLICT' ? 'CUTOVER_FENCE_SETTLEMENT_CONFLICT'
+                  : error.code === 'FENCE_SETTLEMENT_ORPHANED' ? 'CUTOVER_FENCE_SETTLEMENT_ORPHANED'
+                    : error.code === 'FENCE_NOT_SETTLED' ? 'CUTOVER_FENCE_NOT_SETTLED'
               : error.code === 'UNSUPPORTED_SHARED_FENCE' ? 'CUTOVER_UNSUPPORTED_SHARED_FENCE'
-                : error.code === 'FENCE_VAULT_NOT_CLEAR' ? 'CUTOVER_FENCE_VAULT_NOT_CLEAR'
+                : error.code === 'FENCE_OPERATIONALLY_BLOCKED' ? 'CUTOVER_FENCE_OPERATIONALLY_BLOCKED'
                   : error.code === 'FENCE_RECOVERY_INCOMPLETE' || error.code === 'FENCE_READBACK_MISMATCH'
                     ? 'CUTOVER_FENCE_RECOVERY_INCOMPLETE' : 'CUTOVER_FENCE_INSTANCE_MISMATCH';
     fail(code, operation);
@@ -686,23 +681,14 @@ function mapFenceError(error: unknown, operation: string): never {
 
 function failForFenceScan(scan: LegacyFenceScanResult, operation: string): never {
   const error = scan.status === 'changed' ? new LegacyCutoverFenceError('FENCE_SET_CHANGED')
-    : scan.status === 'multiple' ? new LegacyCutoverFenceError('MULTIPLE_FENCES_PRESENT')
+    : scan.status === 'multiple_active' ? new LegacyCutoverFenceError('MULTIPLE_FENCES_PRESENT')
       : scan.status === 'unsupported' ? new LegacyCutoverFenceError('UNSUPPORTED_SHARED_FENCE')
         : scan.status === 'malformed' ? new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED')
-          : scan.status === 'valid' ? new LegacyCutoverFenceError('FOREIGN_FENCE_PRESENT')
+          : scan.status === 'orphaned' ? new LegacyCutoverFenceError('FENCE_SETTLEMENT_ORPHANED')
+            : scan.status === 'conflicting' ? new LegacyCutoverFenceError('FENCE_SETTLEMENT_CONFLICT')
+          : scan.status === 'active' ? new LegacyCutoverFenceError('FOREIGN_FENCE_PRESENT')
             : new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE');
   mapFenceError(error, operation);
-}
-
-function scopedFenceCandidates(
-  scan: LegacyFenceScanResult,
-  runtime: LocalFirstCutoverRuntime,
-  session: LocalFirstCutoverSessionV1,
-): LegacyCutoverFenceIdentity[] {
-  if (!['valid', 'multiple'].includes(scan.status)) failForFenceScan(scan, 'classify_cutover_fence_set');
-  return scan.fences.filter(fence => fence.namespaceKey === runtime.namespaceKey
-    && fence.cutoverSessionId === session.cutoverSessionId
-    && fence.targetGenerationId === session.plan.targetGenerationId);
 }
 
 async function installCutoverFence(
@@ -768,17 +754,13 @@ async function installCutoverFence(
     }
     const installed = current.fence.phase === 'installed' ? current : {
       ...current, updatedAt: at,
-      fence: { ...current.fence, phase: 'installed' as const, vaultState: 'blocked_by_own' as const, installedAt: at },
+      fence: { ...current.fence, phase: 'installed' as const, vaultState: 'blocked_by_own_active' as const, installedAt: at },
     };
     persistedSession(toPersistedSession(installed), runtime); store.put(toPersistedSession(installed));
     await confirmDone; return installed;
   } catch (error) {
     abortQuietly(confirmTx); await confirmDone.catch(() => undefined);
-    const physical = readLegacyNotesCutoverFence();
-    if (physical !== null && physical !== 'corrupt'
-      && sameLegacyCutoverFenceIdentity(physical, identity)) {
-      try { cancelLegacyNotesCutoverFence(authorization, identity); } catch { /** remain fail closed */ }
-    }
+    // Append-only physical evidence remains fail-closed for explicit retry/cancellation.
     throw localDatabaseError(error, 'confirm_cutover_fence');
   }
 }
@@ -834,7 +816,7 @@ async function validateFailedPrecommitRecoveryGraph(
   const mode = persistedMode(modeRaw, runtime);
   try { validateDatabaseMeta(meta, runtime.namespaceKey, runtime.namespace.schemaVersion); }
   catch { fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_graph'); }
-  if (!['failed_precommit_fenced', 'failed_precommit_releasing', 'failed'].includes(session.status)
+  if (!['failed_precommit_fenced', 'failed_precommit_settling', 'failed'].includes(session.status)
     || session.status !== 'failed' && session.fence === null
     || mode.mode !== 'legacy'
     || mode.activeGenerationId !== session.plan.expectedPredecessorGenerationId
@@ -879,14 +861,12 @@ export async function recoverFailedPrecommitCutoverFence(
   const before = await readSession(runtime, cutoverSessionId);
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'recover_precommit_fence_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
-  const initialScan = scanLegacyNotesCutoverFences();
   if (['activated', 'confirmed'].includes(before.status)) {
     fail('CUTOVER_ALREADY_ACTIVATED', 'recover_precommit_fence_status');
   }
-  if (!['failed_precommit_fenced', 'failed_precommit_releasing', 'failed'].includes(before.status)
+  if (!['failed_precommit_fenced', 'failed_precommit_settling', 'failed'].includes(before.status)
     || before.status !== 'failed' && before.fence === null) {
-    fail(['activated', 'confirmed'].includes(before.status) ? 'CUTOVER_ALREADY_ACTIVATED'
-      : 'CUTOVER_FENCE_RECOVERY_REQUIRED', 'recover_precommit_fence_status');
+    fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'recover_precommit_fence_status');
   }
 
   const stores = [
@@ -903,126 +883,109 @@ export async function recoverFailedPrecommitCutoverFence(
     abortQuietly(validationTx); await validationDone.catch(() => undefined);
     throw localDatabaseError(error, 'recover_precommit_fence_validate');
   }
-  if (validatedSession.status === 'failed' && initialScan.status === 'clear') return validatedSession;
-  if (validatedSession.status === 'failed' && validatedSession.fence === null) {
-    fail('CUTOVER_FENCE_INSTANCE_MISMATCH', 'recover_precommit_fence_history');
-  }
-  if (validatedSession.status === 'failed_precommit_releasing'
-    && validatedSession.fence?.phase === 'released' && initialScan.status !== 'clear') {
-    if (!['valid', 'multiple'].includes(initialScan.status)) {
-      failForFenceScan(initialScan, 'recover_precommit_fence_vault_scan');
-    }
-    fail('CUTOVER_FENCE_VAULT_NOT_CLEAR', 'recover_precommit_fence_vault_scan');
-  }
-  if (!['clear', 'valid', 'multiple'].includes(initialScan.status)) {
+  if (validatedSession.status === 'failed' && validatedSession.fence === null) return validatedSession;
+  const initialScan = scanLegacyNotesCutoverFences();
+  if (!['active', 'multiple_active', 'operationally_clear'].includes(initialScan.status)) {
     failForFenceScan(initialScan, 'recover_precommit_fence_identity');
   }
-  if (before.status === 'failed_precommit_fenced' && initialScan.status === 'clear') {
-    fail('CUTOVER_FENCE_IDENTITY_MISMATCH', 'recover_precommit_fence_identity');
+  const evidence = validatedSession.fence;
+  if (!evidence) fail('CUTOVER_FENCE_INSTANCE_MISMATCH', 'recover_precommit_fence_history');
+  const ownSettled = initialScan.settledFences.some(item => sameLegacyCutoverFenceIdentity(item, evidence.identity));
+  if (validatedSession.status === 'failed') {
+    if (evidence.phase !== 'settled' || !ownSettled) {
+      fail('CUTOVER_FENCE_SETTLEMENT_CONFLICT', 'recover_precommit_fence_terminal_evidence');
+    }
+    return validatedSession;
   }
-  if (before.status === 'failed_precommit_fenced' || before.status === 'failed') {
-    const releaseTx = runtime.db.transaction(stores, 'readwrite');
-    const releaseDone = transactionCompletion(releaseTx, 'recover_precommit_fence_releasing');
+
+  if (validatedSession.status === 'failed_precommit_fenced') {
+    const ownActive = initialScan.activeFences.some(item => sameLegacyCutoverFenceIdentity(item, evidence.identity));
+    if (!ownActive) fail('CUTOVER_FENCE_IDENTITY_MISMATCH', 'recover_precommit_fence_identity');
+    const intentTx = runtime.db.transaction(stores, 'readwrite');
+    const intentDone = transactionCompletion(intentTx, 'recover_precommit_fence_settlement_intent');
     try {
-      const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, releaseTx);
+      const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, intentTx);
+      if (current.status !== 'failed_precommit_fenced' || current.fence?.phase !== 'installed') {
+        fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_settlement_intent');
+      }
       const currentScan = scanLegacyNotesCutoverFences();
-      if (!['valid', 'multiple'].includes(currentScan.status)) {
-        failForFenceScan(currentScan, 'recover_precommit_fence_releasing');
+      if (!currentScan.activeFences.some(item => sameLegacyCutoverFenceIdentity(item, current.fence!.identity))) {
+        failForFenceScan(currentScan, 'recover_precommit_fence_settlement_intent');
       }
-      const candidates = scopedFenceCandidates(currentScan, runtime, current);
-      const observed = current.status === 'failed'
-        ? candidates.length === 1 ? candidates[0] : null
-        : currentScan.fences.find(item => sameLegacyCutoverFenceIdentity(item, current.fence!.identity)) ?? null;
-      if (observed === null) {
-        fail(candidates.length > 1 ? 'CUTOVER_MULTIPLE_FENCES_PRESENT' : 'CUTOVER_FENCE_OWNERSHIP_CONFLICT',
-          'recover_precommit_fence_releasing');
-      }
-      const releasing: LocalFirstCutoverSessionV1 = {
-        ...current, status: 'failed_precommit_releasing', updatedAt: at,
-        fence: {
-          ...current.fence!, phase: 'releasing', vaultState: 'blocked_by_own', releasedAt: null,
-          lateIdentity: current.status === 'failed' ? physicalFenceIdentity(observed) : current.fence!.lateIdentity,
-        },
+      const pending: LocalFirstCutoverSessionV1 = {
+        ...current, status: 'failed_precommit_settling', updatedAt: at,
+        fence: { ...current.fence, phase: 'settlement_pending', vaultState: 'blocked_by_own_active' },
       };
-      persistedSession(toPersistedSession(releasing), runtime);
-      releaseTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(releasing));
-      await releaseDone;
+      persistedSession(toPersistedSession(pending), runtime);
+      intentTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(pending));
+      await intentDone;
     } catch (error) {
-      abortQuietly(releaseTx); await releaseDone.catch(() => undefined);
-      throw localDatabaseError(error, 'recover_precommit_fence_releasing');
+      abortQuietly(intentTx); await intentDone.catch(() => undefined);
+      throw localDatabaseError(error, 'recover_precommit_fence_settlement_intent');
     }
   }
-  const releasingSession = await readSession(runtime, cutoverSessionId);
-  if (!releasingSession || releasingSession.status !== 'failed_precommit_releasing' || releasingSession.fence === null) {
-    fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_releasing');
+
+  let settling = await readSession(runtime, cutoverSessionId);
+  if (!settling || settling.status !== 'failed_precommit_settling' || !settling.fence) {
+    fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_settling');
   }
-  if (releasingSession.fence.phase === 'releasing') {
-    const removalIdentity = releasingSession.fence.lateIdentity ?? releasingSession.fence.identity;
-    let releaseResult: LegacyFenceReleaseResult;
-    try { releaseResult = cancelLegacyNotesCutoverFence(authorization, removalIdentity); }
-    catch (error) { mapFenceError(error, 'recover_precommit_fence_cleanup'); }
-    const releaseTx = runtime.db.transaction(stores, 'readwrite');
-    const releaseDone = transactionCompletion(releaseTx, 'recover_precommit_fence_own_released');
+  if (settling.fence.phase === 'settlement_pending') {
+    const settledTx = runtime.db.transaction(stores, 'readwrite');
+    const settledDone = transactionCompletion(settledTx, 'recover_precommit_fence_settled');
     try {
-      const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, releaseTx);
-      if (current.status !== 'failed_precommit_releasing' || current.fence === null
-        || !['releasing', 'released'].includes(current.fence.phase)) {
-        fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_own_released');
+      const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, settledTx);
+      if (current.status !== 'failed_precommit_settling' || current.fence?.phase !== 'settlement_pending') {
+        fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_settled');
       }
-      if (current.fence.phase === 'releasing') {
-        const releasedSession: LocalFirstCutoverSessionV1 = {
-          ...current, updatedAt: at,
-          fence: { ...current.fence, phase: 'released', vaultState: releaseResult.vaultState, releasedAt: at },
-        };
-        persistedSession(toPersistedSession(releasedSession), runtime);
-        releaseTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(releasedSession));
-      }
-      await releaseDone;
+      let settlementResult: LegacyFenceSettlementResult;
+      try { settlementResult = settleLegacyNotesCutoverFence(authorization, current.fence.identity); }
+      catch (error) { mapFenceError(error, 'recover_precommit_fence_settlement'); }
+      const settled: LocalFirstCutoverSessionV1 = {
+        ...current, updatedAt: at,
+        fence: { ...current.fence, phase: 'settled', vaultState: settlementResult.vaultState, settledAt: at },
+      };
+      persistedSession(toPersistedSession(settled), runtime);
+      settledTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(settled));
+      await settledDone;
     } catch (error) {
-      abortQuietly(releaseTx); await releaseDone.catch(() => undefined);
-      throw localDatabaseError(error, 'recover_precommit_fence_own_released');
+      abortQuietly(settledTx); await settledDone.catch(() => undefined);
+      throw localDatabaseError(error, 'recover_precommit_fence_settled');
     }
-    if (testOnlyFailAt === 'after_fence_release') {
-      fail('TRANSACTION_FAILED', 'recover_precommit_fence_after_release');
+    if (testOnlyFailAt === 'after_fence_settlement') {
+      fail('TRANSACTION_FAILED', 'recover_precommit_fence_after_settlement');
     }
-    if (releaseResult.vaultState !== 'clear') {
-      if (!['valid', 'multiple'].includes(releaseResult.scanStatus)) {
-        failForFenceScan({ status: releaseResult.scanStatus, fences: [] }, 'recover_precommit_fence_vault_scan');
-      }
-      fail('CUTOVER_FENCE_VAULT_NOT_CLEAR', 'recover_precommit_fence_vault_scan');
-    }
+    settling = await readSession(runtime, cutoverSessionId);
   }
-  const clearScan = scanLegacyNotesCutoverFences();
-  if (clearScan.status !== 'clear') {
-    if (!['valid', 'multiple'].includes(clearScan.status)) {
-      failForFenceScan(clearScan, 'recover_precommit_fence_absence');
-    }
-    fail('CUTOVER_FENCE_VAULT_NOT_CLEAR', 'recover_precommit_fence_absence');
+  if (!settling?.fence || settling.fence.phase !== 'settled') {
+    fail('CORRUPT_PERSISTED_RECORD', 'recover_precommit_fence_settled');
   }
 
   const terminalTx = runtime.db.transaction(stores, 'readwrite');
   const terminalDone = transactionCompletion(terminalTx, 'recover_precommit_fence_terminal');
   try {
     const current = await validateFailedPrecommitRecoveryGraph(runtime, cutoverSessionId, terminalTx);
-    if (scanLegacyNotesCutoverFences().status !== 'clear') {
-      fail('CUTOVER_FENCE_CLEANUP_FAILED', 'recover_precommit_fence_terminal');
+    const physical = scanLegacyNotesCutoverFences();
+    if (!current.fence || current.fence.phase !== 'settled'
+      || !physical.settledFences.some(item => sameLegacyCutoverFenceIdentity(item, current.fence!.identity))) {
+      fail('CUTOVER_FENCE_SETTLEMENT_CONFLICT', 'recover_precommit_fence_terminal');
     }
+    const vaultState = physical.status === 'operationally_clear' ? 'operationally_clear'
+      : ['active', 'multiple_active'].includes(physical.status) ? 'blocked_by_other_active'
+        : physical.status === 'malformed' ? 'blocked_by_malformed'
+          : ['orphaned', 'conflicting'].includes(physical.status) ? 'blocked_by_conflict' : 'indeterminate';
     const failed: LocalFirstCutoverSessionV1 = {
       ...current, status: 'failed', updatedAt: at,
-      failure: { code: current.failure?.code ?? 'CUTOVER_PRECONDITION_FAILED', context: 'precommit_fence_released' },
-      fence: { ...current.fence!, phase: 'released', vaultState: 'clear', releasedAt: at },
+      failure: { code: current.failure?.code ?? 'CUTOVER_PRECONDITION_FAILED', context: 'precommit_fence_settled' },
+      fence: { ...current.fence, vaultState },
     };
     persistedSession(toPersistedSession(failed), runtime);
     terminalTx.objectStore(LOCAL_DATABASE_STORES.migrationState).put(toPersistedSession(failed));
     await terminalDone;
-    if (scanLegacyNotesCutoverFences().status !== 'clear') {
-      fail('CUTOVER_FENCE_REAPPEARED', 'recover_precommit_fence_terminal');
-    }
     return failed;
   } catch (error) {
     abortQuietly(terminalTx); await terminalDone.catch(() => undefined);
     const latest = await readSession(runtime, cutoverSessionId);
-    if (latest?.status === 'failed' && scanLegacyNotesCutoverFences().status === 'clear') return latest;
+    if (latest?.status === 'failed' && latest.fence?.phase === 'settled') return latest;
     throw localDatabaseError(error, 'recover_precommit_fence_terminal');
   }
 }
@@ -1202,7 +1165,7 @@ export async function activateLocalFirstCutover(
       },
     });
     activated = { ...current, status: 'activated', updatedAt: at, activatedAt: at, confirmedAt: null, failure: null,
-      fence: { ...current.fence, phase: 'committed', vaultState: 'blocked_by_own' } };
+      fence: { ...current.fence, phase: 'committed', vaultState: 'blocked_by_own_active' } };
     persistedSession(toPersistedSession(activated), runtime); migrationStore.put(toPersistedSession(activated));
     if (options.testOnlyFailAt === 'session_transition') fail('TRANSACTION_FAILED', 'cutover_session_transition');
     if (options.testOnlyFailAt === 'transaction_completion') {
@@ -1232,7 +1195,7 @@ export async function resumeLocalFirstCutover(
   const session = await readSession(runtime, cutoverSessionId);
   if (!session) fail('CUTOVER_SESSION_CONFLICT', 'resume_cutover_session');
   if (session.status === 'cancelled') fail('CUTOVER_CANCELLED', 'resume_cutover_status');
-  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(session.status)) {
+  if (['failed_precommit_fenced', 'failed_precommit_settling'].includes(session.status)) {
     fail('CUTOVER_FENCE_RECOVERY_REQUIRED', 'resume_cutover_status');
   }
   if (session.status === 'failed') fail('CUTOVER_SESSION_CONFLICT', 'resume_cutover_status');
@@ -1251,7 +1214,7 @@ export async function cancelLocalFirstCutover(
   if (!before) fail('CUTOVER_SESSION_CONFLICT', 'cancel_cutover_session');
   assertAuthorization(runtime, cutoverSessionId, before.plan.targetGenerationId, authorization);
   if (['activated', 'confirmed'].includes(before.status)) fail('CUTOVER_ALREADY_ACTIVATED', 'cancel_cutover_status');
-  if (['failed_precommit_fenced', 'failed_precommit_releasing'].includes(before.status)) {
+  if (['failed_precommit_fenced', 'failed_precommit_settling'].includes(before.status)) {
     return recoverFailedPrecommitCutoverFence(runtime, cutoverSessionId, authorization, at);
   }
   if (before.status === 'activating' && before.fence !== null) {

@@ -25,24 +25,24 @@ records, tombstones, outbox history, checkpoints, restore sessions, migration se
 attachment metadata are untouched.
 
 Cutover sessions use the reserved storage key `k326:cutover:<logical-id>`. Public logical IDs beginning with
-`k326:` are rejected. The strict `local_first_cutover_session_v3` record contains a payload-free immutable plan,
+`k326:` are rejected. The strict `local_first_cutover_session_v4` record contains a payload-free immutable plan,
 bounded lifecycle evidence, and no Note title, body, metadata, attachment content, token, browser exception,
 stack, or arbitrary message.
 
-Version 3 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
+Version 4 binds one exact physical fence instance through a 128-bit random hexadecimal nonce, the monotonic
 K-319 safety epoch captured for that installation, namespace, cutover session, target generation, and plan
-digest. Durable fence evidence distinguishes `installing`, `installed`, `releasing`, `released`, and `committed`,
-and separately records whether the physical vault is `clear`, blocked by another artifact, or indeterminate.
-The original identity remains stored after release; a separately observed late identity is bound before it can
-be removed. Draft-only version-1/version-2 session and shared-fence shapes are rejected rather than assigned
-synthetic identity.
+digest. Durable fence evidence distinguishes `installing`, `installed`, `settlement_pending`, `settled`, and
+`committed`. It separately records whether the exact own fence is active or settled and whether the complete
+vault is operationally clear, blocked by another active fence, malformed/conflicting, or indeterminate.
+Version-1, version-2, and delete-based version-3 session/fence shapes are rejected rather than synthesized or
+treated as settled.
 
 The lifecycle is:
 
 `planned -> preflight -> activating -> activated -> confirmed`
 
 Failures after a durable fence but before activation enter `failed_precommit_fenced`. Only an exact,
-graph-validated fence release changes that state to terminal `failed`; failures before the fence enter `failed`
+graph-validated settlement changes that state to terminal `failed`; failures before the fence enter `failed`
 directly, and `cancelled` is terminal. Planning is deterministic and an exact retry returns the same plan.
 Repeated preflight is read-only after the durable preflight boundary. An `activating` session resumes the same
 transaction. A crash after activation commit leaves `activated`; resume performs confirmation. Confirmed retry
@@ -101,48 +101,50 @@ authorization. It never disables recovery mode or permits restore, reset, delete
 or another guarded operation. The authorization can affect only its exact cutover.
 
 Before the activation transaction, K-326 creates a unique fence nonce, advances the K-319 safety epoch, and
-first persists that exact instance as `installing`. The mutable K-326A/B shared key was unsafe because localStorage
-cannot atomically compare and mutate one slot. K-326C instead derives an opaque SHA-256 key under the reserved
-`absinthe:k326:legacy-fence:v3:` prefix from a fixed canonical encoding of the complete identity and schema
-version. Each instance therefore owns a different immutable physical key; its strict payload-free value is bound
-back to the key digest. Installation double-scans all reserved artifacts, writes only the candidate's exact key,
-reads it back, and double-scans again. A second durable transaction revalidates the session, plan, legacy runtime
-mode, predecessor pointer, inactive target, and exact physical identity before recording `installed` and allowing
-source recapture to continue. A competing, malformed, unsupported, multiple, unreadable, or changing artifact
-set stops activation without overwriting or deleting another key. The marker is restrictive metadata only; it
-never claims that activation succeeded. Every legacy Notes replacement/removal path consults the complete scan,
+first persists that exact instance as `installing`. The K-326A/B shared key and K-326C exact-key compare/delete
+protocol were both unsafe because localStorage cannot atomically compare and mutate a slot. K-326D uses two
+append-only artifact classes: an exact fence under `absinthe:k326:legacy-fence:v4:` and an exact settlement under
+`absinthe:k326:legacy-fence-settlement:v4:`. Both keys use the same fixed, locale-independent identity encoding
+and SHA-256 suffix. Both strict canonical values bind back to their storage key and the settlement also binds the
+exact fence digest. Field reordering, changed raw bytes, moved values, unknown fields, and inherited/accessor
+properties are malformed evidence.
+
+Installation double-scans all reserved artifacts, writes only a new exact fence key, reads it back, and scans
+again. Historical v4 fence/settlement pairs do not block a new unique attempt; any active, malformed, orphaned,
+conflicting, unsupported, unreadable, or changing evidence does. The marker is restrictive metadata only and
+never claims activation succeeded. Every legacy Notes replacement/removal path consults the complete scan,
 including IndexedDB save/delete/clear,
 localStorage replacement/removal, persistence migration, and the synchronous Notes storage bridge. IndexedDB
 replacement rechecks the marker before clear and before each put, fencing stale in-process operations. Because
 localStorage is shared by same-origin tabs, other tabs observe reserved artifacts synchronously and reject legacy
-writes. Writes are allowed only when two bounded scans observe the same empty reserved set. Any valid, foreign,
-multiple, malformed, unsupported legacy shared-key, changing, or unreadable artifact set blocks writes.
+writes. Operational clearance no longer means an empty physical set. It requires every discovered supported
+fence to have its one exact canonical settlement, with no active fence, malformed fence/settlement, orphan,
+conflict, unsupported older artifact, changing scan, or unreadable storage.
 
 If the process stops before activation, the `activating` marker intentionally remains fail-closed until the
 same explicit session is resumed or safely cancelled. A final source/authority failure after fencing records
 `failed_precommit_fenced`. Recovery proves that mode remains `legacy`, the pointer remains the planned
 predecessor, the migration target remains inactive, target outbox/checkpoints are empty, no restore is active,
-and no competing cutover superseded the session. It then removes only the exact namespace/session/target
-`activating` fence and records terminal `failed`.
+and no competing cutover superseded the session. It then records durable `settlement_pending`, appends the exact
+settlement marker, validates its read-back and the complete stable pair scan, and records terminal `failed`.
 
-Fence storage and local-v2 cannot share one transaction, so recovery is an explicit idempotent two-phase
-protocol. After exact fence identity is established, the durable state advances to
-`failed_precommit_releasing`; cleanup derives and removes only that identity's exact key and immediately reads
-that key back. It then double-scans the complete prefix. Releasing A while B remains records A as released but
-the physical vault as blocked; it is not global recovery success and B remains untouched. Terminal `failed` is
-written only after a stable empty scan proves global clearance. Cleanup failure or scan ambiguity leaves the
-releasing state retryable, and a crash after removal but before the terminal write resumes after reload.
+Fence storage and local-v2 cannot share one atomic transaction, so recovery is an explicit idempotent protocol.
+The IndexedDB no-commit proof covers legacy mode, predecessor pointer, inactive target, empty target queues,
+restore exclusion, and competing cutovers before the deterministic settlement write. The physical write is
+read-back checked and followed by a full stable scan before durable `settled` finalization. A crash before the
+write, after the write, or before durable finalization retries the same canonical settlement value. No normal
+recovery path deletes or overwrites fence/settlement evidence, and K-326D performs no garbage collection.
 
-Terminal `failed` recovery always scans and classifies all physical fence artifacts before returning. An empty set is
-idempotent only after mode, pointer, inactive target, zero queue state, restore conflict, and competing-cutover
-checks independently prove no activation commit. An exact historical fence or a newer same-session instance is
-first bound as the observed late identity, then removed through its dedicated key. Foreign, malformed,
-unsupported, activated, confirmed, or unbound artifacts are never removed. If another key appears while A is
-removed, it remains present, the complete scan reports the vault blocked, and durable evidence distinguishes A's
-release from global clearance. The K-319 epoch only advances, so release never makes pre-fence work current.
+Terminal `failed` recovery always reconstructs the exact v4 fence/settlement relation from storage. The original
+fence remains present, so observing it after restart is the normal settled-own state rather than reappearance or
+foreign ownership. A second nonce/epoch is a separate fence requiring its own settlement. Orphan settlements,
+mutated values, unsupported v1/v2/v3 evidence, and foreign active fences remain fail-closed and are never repaired
+or deleted. The K-319 epoch only advances, so settlement never makes pre-fence work current.
 Cancellation before activation may invoke the same proof. Activated or confirmed sessions cannot be cancelled
-or unfenced. After commit the marker advances to `activated` and then `confirmed`, and legacy writes remain
-blocked. The legacy source is never deleted, rewritten, repaired, or marked migrated by K-326.
+or settled as precommit failure. Successful activation retains its active fence without a settlement; local-first
+runtime mode independently keeps legacy writes blocked. A settlement observed with committed activation is an
+impossible fail-closed graph, never a rollback signal. The legacy source is never deleted, rewritten, repaired,
+or marked migrated by K-326.
 
 The old vault is not user-namespaced. The durable K-325 source-root authority identifies that physical/logical
 vault, so the fence applies to that bound vault rather than guessing an account from legacy rows.
@@ -185,16 +187,18 @@ it. Production continues using the legacy read path until a later reviewed rollo
 Permanent tests use fake-indexeddb, a deterministic enumerable localStorage double, synthetic Notes, and failure injection.
 They cover exact activation, rollback of every activation write boundary, restart, cancellation, corruption,
 source and authority races, competing sessions, restore conflicts, exact fence nonce/epoch validation,
-read-back conflicts, late same-session reappearance, foreign/malformed/multiple/unsupported artifacts,
-read/set and read/remove cross-tab races, bounded changing-set detection, reload recovery, legacy-write
-fencing, and static dormancy.
+canonical fence/settlement binding, same-key mutation, orphan and conflicting evidence, historical settled pairs,
+multiple active fences, unsupported delete-based artifacts, bounded changing-set detection, reload recovery,
+legacy-write fencing, append-only operation history, and static dormancy.
 No real-browser IndexedDB, multi-tab browser, production Supabase, or real incident data was exercised in K-326.
 
 ## Residual risks
 
 - Legacy source and `absinthe-local-v2` remain separate databases. The persisted write fence is deliberately
   established before final source recapture and activation; an interrupted attempt remains availability-blocking
-  until exact-session resume/cancellation or `failed_precommit_fenced` recovery completes.
+  until exact-session resume/cancellation or `failed_precommit_fenced` settlement completes.
+- Append-only v4 fence and settlement artifacts accumulate. K-326D intentionally includes no cleanup, compaction,
+  or garbage collection.
 - The opaque K-325 source root cannot cryptographically prove that an operator supplied the intended physical
   browser vault.
 - Cross-tab behavior is source-proven through same-origin localStorage fencing and synthetic tests, not a real

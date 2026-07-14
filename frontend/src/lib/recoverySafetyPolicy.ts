@@ -30,7 +30,11 @@ const logged = new Set<string>();
 
 /** Unsupported K-326A/B shared slot. Its presence always fails closed. */
 export const K326_LEGACY_WRITE_FENCE_KEY = 'absinthe:k326:legacy-write-fence';
-export const K326_LEGACY_WRITE_FENCE_PREFIX = 'absinthe:k326:legacy-fence:v3:';
+const K326_LEGACY_WRITE_FENCE_V3_PREFIX = 'absinthe:k326:legacy-fence:v3:';
+export const K326_LEGACY_WRITE_FENCE_PREFIX = 'absinthe:k326:legacy-fence:v4:';
+export const K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX = 'absinthe:k326:legacy-fence-settlement:v4:';
+const K326_LEGACY_FENCE_RESERVED_PREFIX = 'absinthe:k326:legacy-fence:';
+const K326_LEGACY_SETTLEMENT_RESERVED_PREFIX = 'absinthe:k326:legacy-fence-settlement:';
 const CUTOVER_CAPABILITY = Symbol('k326-cutover-recovery-authorization');
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -52,22 +56,36 @@ export interface LegacyCutoverFenceIdentity {
 }
 
 export interface LegacyNotesCutoverFence {
-  kind: 'legacy_notes_cutover_fence_v3';
-  version: 3;
+  kind: 'legacy_notes_cutover_fence_v4';
+  version: 4;
   storageDigest: string;
   namespaceKey: string;
   cutoverSessionId: string;
   targetGenerationId: string;
   fenceNonce: string;
   fenceEpoch: number;
-  state: 'fenced';
+}
+
+export interface LegacyNotesCutoverFenceSettlement {
+  kind: 'legacy_notes_cutover_fence_settlement_v4';
+  version: 4;
+  storageDigest: string;
+  fenceStorageDigest: string;
+  namespaceKey: string;
+  cutoverSessionId: string;
+  targetGenerationId: string;
+  fenceNonce: string;
+  fenceEpoch: number;
+  outcome: 'precommit_settled';
 }
 
 export type LegacyFenceScanStatus =
-  | 'clear'
-  | 'valid'
-  | 'multiple'
+  | 'operationally_clear'
+  | 'active'
+  | 'multiple_active'
   | 'malformed'
+  | 'orphaned'
+  | 'conflicting'
   | 'unsupported'
   | 'changed'
   | 'unreadable';
@@ -75,11 +93,14 @@ export type LegacyFenceScanStatus =
 export interface LegacyFenceScanResult {
   status: LegacyFenceScanStatus;
   fences: readonly LegacyNotesCutoverFence[];
+  settlements: readonly LegacyNotesCutoverFenceSettlement[];
+  activeFences: readonly LegacyNotesCutoverFence[];
+  settledFences: readonly LegacyNotesCutoverFence[];
 }
 
-export interface LegacyFenceReleaseResult {
-  ownFenceReleased: true;
-  vaultState: 'clear' | 'blocked_by_other' | 'indeterminate';
+export interface LegacyFenceSettlementResult {
+  ownFenceSettled: true;
+  vaultState: 'operationally_clear' | 'blocked_by_other_active' | 'indeterminate';
   scanStatus: LegacyFenceScanStatus;
 }
 
@@ -93,7 +114,11 @@ export type LegacyCutoverFenceErrorCode =
   | 'MULTIPLE_FENCES_PRESENT'
   | 'FOREIGN_FENCE_PRESENT'
   | 'FENCE_ARTIFACT_MALFORMED'
-  | 'FENCE_VAULT_NOT_CLEAR'
+  | 'FENCE_NOT_SETTLED'
+  | 'FENCE_SETTLEMENT_CONFLICT'
+  | 'FENCE_SETTLEMENT_ORPHANED'
+  | 'FENCE_SETTLEMENT_MALFORMED'
+  | 'FENCE_OPERATIONALLY_BLOCKED'
   | 'UNSUPPORTED_SHARED_FENCE';
 
 export class LegacyCutoverFenceError extends Error {
@@ -129,7 +154,7 @@ export function isLegacyCutoverFenceIdentity(value: unknown): value is LegacyCut
 
 function canonicalFenceIdentity(identity: LegacyCutoverFenceIdentity): string {
   return JSON.stringify([
-    'absinthe-k326-legacy-fence-identity-v3', 3, identity.namespaceKey, identity.cutoverSessionId,
+    'absinthe-k326-legacy-fence-identity-v4', 4, identity.namespaceKey, identity.cutoverSessionId,
     identity.targetGenerationId, identity.fenceNonce, identity.fenceEpoch,
   ]);
 }
@@ -142,15 +167,31 @@ export function deriveLegacyNotesCutoverFenceKey(identity: LegacyCutoverFenceIde
 function buildFence(identity: LegacyCutoverFenceIdentity): LegacyNotesCutoverFence {
   const key = deriveLegacyNotesCutoverFenceKey(identity);
   return Object.freeze({
-    kind: 'legacy_notes_cutover_fence_v3', version: 3,
+    kind: 'legacy_notes_cutover_fence_v4', version: 4,
     storageDigest: key.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
-    ...identity, state: 'fenced',
+    ...identity,
+  });
+}
+
+export function deriveLegacyNotesCutoverFenceSettlementKey(identity: LegacyCutoverFenceIdentity): string {
+  if (!isLegacyCutoverFenceIdentity(identity)) throw new LegacyCutoverFenceError('FENCE_MALFORMED');
+  return `${K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX}${sha256Hex(canonicalFenceIdentity(identity))}`;
+}
+
+function buildSettlement(identity: LegacyCutoverFenceIdentity): LegacyNotesCutoverFenceSettlement {
+  const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
+  const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
+  return Object.freeze({
+    kind: 'legacy_notes_cutover_fence_settlement_v4', version: 4,
+    storageDigest: settlementKey.slice(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX.length),
+    fenceStorageDigest: fenceKey.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
+    ...identity, outcome: 'precommit_settled',
   });
 }
 
 function validFence(value: unknown, storageKey: string): value is LegacyNotesCutoverFence {
   const keys = ['kind', 'version', 'storageDigest', 'namespaceKey', 'cutoverSessionId', 'targetGenerationId',
-    'fenceNonce', 'fenceEpoch', 'state'];
+    'fenceNonce', 'fenceEpoch'];
   if (!exactOwnDataKeys(value, keys)) return false;
   const record = value as unknown as LegacyNotesCutoverFence;
   const identity: LegacyCutoverFenceIdentity = {
@@ -160,11 +201,47 @@ function validFence(value: unknown, storageKey: string): value is LegacyNotesCut
     fenceNonce: record.fenceNonce,
     fenceEpoch: record.fenceEpoch,
   };
-  if (record.kind !== 'legacy_notes_cutover_fence_v3' || record.version !== 3 || record.state !== 'fenced'
+  if (record.kind !== 'legacy_notes_cutover_fence_v4' || record.version !== 4
     || !HASH.test(record.storageDigest) || !isLegacyCutoverFenceIdentity(identity)) return false;
   const expectedKey = deriveLegacyNotesCutoverFenceKey(identity);
   return storageKey === expectedKey
     && record.storageDigest === expectedKey.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length);
+}
+
+function fenceIdentity(value: LegacyNotesCutoverFence | LegacyNotesCutoverFenceSettlement): LegacyCutoverFenceIdentity {
+  return {
+    namespaceKey: value.namespaceKey, cutoverSessionId: value.cutoverSessionId,
+    targetGenerationId: value.targetGenerationId, fenceNonce: value.fenceNonce, fenceEpoch: value.fenceEpoch,
+  };
+}
+
+function validFenceRaw(value: unknown, storageKey: string, raw: string): value is LegacyNotesCutoverFence {
+  return validFence(value, storageKey) && raw === JSON.stringify(buildFence(fenceIdentity(value)));
+}
+
+function validSettlement(value: unknown, storageKey: string): value is LegacyNotesCutoverFenceSettlement {
+  const keys = ['kind', 'version', 'storageDigest', 'fenceStorageDigest', 'namespaceKey', 'cutoverSessionId',
+    'targetGenerationId', 'fenceNonce', 'fenceEpoch', 'outcome'];
+  if (!exactOwnDataKeys(value, keys)) return false;
+  const record = value as unknown as LegacyNotesCutoverFenceSettlement;
+  const identity: LegacyCutoverFenceIdentity = {
+    namespaceKey: record.namespaceKey, cutoverSessionId: record.cutoverSessionId,
+    targetGenerationId: record.targetGenerationId, fenceNonce: record.fenceNonce, fenceEpoch: record.fenceEpoch,
+  };
+  if (record.kind !== 'legacy_notes_cutover_fence_settlement_v4' || record.version !== 4
+    || record.outcome !== 'precommit_settled' || !HASH.test(record.storageDigest)
+    || !HASH.test(record.fenceStorageDigest) || !isLegacyCutoverFenceIdentity(identity)) return false;
+  const expectedFenceKey = deriveLegacyNotesCutoverFenceKey(identity);
+  const expectedSettlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
+  return storageKey === expectedSettlementKey
+    && record.storageDigest === expectedSettlementKey.slice(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX.length)
+    && record.fenceStorageDigest === expectedFenceKey.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length);
+}
+
+function validSettlementRaw(
+  value: unknown, storageKey: string, raw: string,
+): value is LegacyNotesCutoverFenceSettlement {
+  return validSettlement(value, storageKey) && raw === JSON.stringify(buildSettlement(fenceIdentity(value)));
 }
 
 interface FenceStorageEntry { key: string; raw: string }
@@ -180,7 +257,8 @@ function captureFenceEntries(): FenceStorageEntry[] {
   for (let index = 0; index < length; index += 1) {
     const key = localStorage.key(index);
     if (key === null) throw new LegacyCutoverFenceError('FENCE_SET_CHANGED');
-    if (key === K326_LEGACY_WRITE_FENCE_KEY || key.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)) keys.push(key);
+    if (key === K326_LEGACY_WRITE_FENCE_KEY || key.startsWith(K326_LEGACY_FENCE_RESERVED_PREFIX)
+      || key.startsWith(K326_LEGACY_SETTLEMENT_RESERVED_PREFIX)) keys.push(key);
   }
   keys.sort(compareCanonicalStrings);
   if (new Set(keys).size !== keys.length) throw new LegacyCutoverFenceError('FENCE_SET_CHANGED');
@@ -197,37 +275,60 @@ function sameCapture(left: readonly FenceStorageEntry[], right: readonly FenceSt
 }
 
 export function scanLegacyNotesCutoverFences(): LegacyFenceScanResult {
+  const empty = { fences: [], settlements: [], activeFences: [], settledFences: [] } as const;
   try {
     const first = captureFenceEntries();
     const second = captureFenceEntries();
-    if (!sameCapture(first, second)) return { status: 'changed', fences: [] };
-    if (second.some(entry => entry.key === K326_LEGACY_WRITE_FENCE_KEY)) {
-      return { status: 'unsupported', fences: [] };
+    if (!sameCapture(first, second)) return { status: 'changed', ...empty };
+    if (second.some(entry => entry.key === K326_LEGACY_WRITE_FENCE_KEY
+      || entry.key.startsWith(K326_LEGACY_WRITE_FENCE_V3_PREFIX)
+      || entry.key.startsWith(K326_LEGACY_FENCE_RESERVED_PREFIX) && !entry.key.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)
+      || entry.key.startsWith(K326_LEGACY_SETTLEMENT_RESERVED_PREFIX)
+        && !entry.key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX))) {
+      return { status: 'unsupported', ...empty };
     }
     const fences: LegacyNotesCutoverFence[] = [];
+    const settlements: LegacyNotesCutoverFenceSettlement[] = [];
     for (const entry of second) {
-      if (!new RegExp(`^${K326_LEGACY_WRITE_FENCE_PREFIX}[a-f0-9]{64}$`).test(entry.key)) {
-        return { status: 'malformed', fences: [] };
-      }
       let value: unknown;
-      try { value = JSON.parse(entry.raw); } catch { return { status: 'malformed', fences: [] }; }
-      if (!validFence(value, entry.key)) return { status: 'malformed', fences: [] };
-      fences.push(value);
+      try { value = JSON.parse(entry.raw); } catch { return { status: 'malformed', ...empty }; }
+      if (entry.key.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)) {
+        if (!new RegExp(`^${K326_LEGACY_WRITE_FENCE_PREFIX}[a-f0-9]{64}$`).test(entry.key)
+          || !validFenceRaw(value, entry.key, entry.raw)) return { status: 'malformed', ...empty };
+        fences.push(value);
+      } else if (entry.key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) {
+        if (!new RegExp(`^${K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX}[a-f0-9]{64}$`).test(entry.key)
+          || !validSettlementRaw(value, entry.key, entry.raw)) return { status: 'malformed', ...empty };
+        settlements.push(value);
+      } else return { status: 'unsupported', ...empty };
     }
-    if (fences.length === 0) return { status: 'clear', fences };
-    return { status: fences.length === 1 ? 'valid' : 'multiple', fences };
+    const fenceByDigest = new Map(fences.map(fence => [fence.storageDigest, fence]));
+    if (settlements.some(settlement => !fenceByDigest.has(settlement.fenceStorageDigest))) {
+      return { status: 'orphaned', fences, settlements, activeFences: [], settledFences: [] };
+    }
+    const settlementDigests = new Set(settlements.map(settlement => settlement.fenceStorageDigest));
+    if (settlementDigests.size !== settlements.length) {
+      return { status: 'conflicting', fences, settlements, activeFences: [], settledFences: [] };
+    }
+    const settledFences = fences.filter(fence => settlementDigests.has(fence.storageDigest));
+    const activeFences = fences.filter(fence => !settlementDigests.has(fence.storageDigest));
+    const result = { fences, settlements, activeFences, settledFences };
+    if (activeFences.length === 0) return { status: 'operationally_clear', ...result };
+    return { status: activeFences.length === 1 ? 'active' : 'multiple_active', ...result };
   } catch {
-    return { status: 'unreadable', fences: [] };
+    return { status: 'unreadable', ...empty };
   }
 }
 
 function scanError(status: LegacyFenceScanStatus): LegacyCutoverFenceError {
   const code: LegacyCutoverFenceErrorCode = status === 'changed' ? 'FENCE_SET_CHANGED'
-    : status === 'multiple' ? 'MULTIPLE_FENCES_PRESENT'
+    : status === 'multiple_active' ? 'MULTIPLE_FENCES_PRESENT'
       : status === 'unsupported' ? 'UNSUPPORTED_SHARED_FENCE'
         : status === 'malformed' ? 'FENCE_ARTIFACT_MALFORMED'
+          : status === 'orphaned' ? 'FENCE_SETTLEMENT_ORPHANED'
+            : status === 'conflicting' ? 'FENCE_SETTLEMENT_CONFLICT'
           : status === 'unreadable' ? 'FENCE_RECOVERY_INCOMPLETE'
-            : status === 'valid' ? 'FOREIGN_FENCE_PRESENT' : 'FENCE_VAULT_NOT_CLEAR';
+            : status === 'active' ? 'FOREIGN_FENCE_PRESENT' : 'FENCE_OPERATIONALLY_BLOCKED';
   return new LegacyCutoverFenceError(code);
 }
 
@@ -235,13 +336,13 @@ function exactFenceFromRaw(storageKey: string, raw: string | null): LegacyNotesC
   if (raw === null) return null;
   let value: unknown;
   try { value = JSON.parse(raw); } catch { throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED'); }
-  if (!validFence(value, storageKey)) throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED');
+  if (!validFenceRaw(value, storageKey, raw)) throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED');
   return value;
 }
 
-function soleExpectedFence(scan: LegacyFenceScanResult, identity: LegacyCutoverFenceIdentity): LegacyNotesCutoverFence {
-  if (scan.status !== 'valid') throw scanError(scan.status);
-  const fence = scan.fences[0];
+function soleExpectedActiveFence(scan: LegacyFenceScanResult, identity: LegacyCutoverFenceIdentity): LegacyNotesCutoverFence {
+  if (scan.status !== 'active') throw scanError(scan.status);
+  const fence = scan.activeFences[0];
   if (!sameLegacyCutoverFenceIdentity(fence, identity)) throw new LegacyCutoverFenceError('FOREIGN_FENCE_PRESENT');
   return fence;
 }
@@ -319,10 +420,13 @@ export function beginLegacyNotesCutoverFence(
   const next = buildFence(identity);
   assertCutoverAuthorization(authorization, next);
   const initial = scanLegacyNotesCutoverFences();
-  if (initial.status === 'valid') return soleExpectedFence(initial, identity);
-  if (initial.status !== 'clear') throw scanError(initial.status);
+  if (initial.status === 'active') return soleExpectedActiveFence(initial, identity);
+  if (initial.status !== 'operationally_clear') throw scanError(initial.status);
   const key = deriveLegacyNotesCutoverFenceKey(identity);
-  try { localStorage.setItem(key, JSON.stringify(next)); }
+  let prior: LegacyNotesCutoverFence | null;
+  try { prior = exactFenceFromRaw(key, localStorage.getItem(key)); }
+  catch { throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED'); }
+  try { if (prior === null) localStorage.setItem(key, JSON.stringify(next)); }
   catch { throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH'); }
   let readBack: LegacyNotesCutoverFence | null;
   try { readBack = exactFenceFromRaw(key, localStorage.getItem(key)); }
@@ -330,7 +434,7 @@ export function beginLegacyNotesCutoverFence(
   if (readBack === null || !sameLegacyCutoverFenceIdentity(readBack, identity)) {
     throw new LegacyCutoverFenceError('FENCE_READBACK_MISMATCH');
   }
-  return soleExpectedFence(scanLegacyNotesCutoverFences(), identity);
+  return soleExpectedActiveFence(scanLegacyNotesCutoverFences(), identity);
 }
 
 export function advanceLegacyNotesCutoverFence(
@@ -338,49 +442,67 @@ export function advanceLegacyNotesCutoverFence(
   identity: LegacyCutoverFenceIdentity,
   _phase: 'activated' | 'confirmed',
 ): LegacyNotesCutoverFence {
-  const existing = soleExpectedFence(scanLegacyNotesCutoverFences(), identity);
+  const existing = soleExpectedActiveFence(scanLegacyNotesCutoverFences(), identity);
   assertCutoverAuthorization(authorization, existing);
   return existing;
 }
 
-export function cancelLegacyNotesCutoverFence(
+export function settleLegacyNotesCutoverFence(
   authorization: RecoveryCutoverAuthorization,
   identity: LegacyCutoverFenceIdentity,
-): LegacyFenceReleaseResult {
+): LegacyFenceSettlementResult {
   if (!isLegacyCutoverFenceIdentity(identity)) throw new LegacyCutoverFenceError('FENCE_MALFORMED');
   assertCutoverAuthorization(authorization, identity);
-  const key = deriveLegacyNotesCutoverFenceKey(identity);
-  let existing: LegacyNotesCutoverFence | null;
-  try { existing = exactFenceFromRaw(key, localStorage.getItem(key)); }
-  catch { throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED'); }
-  if (existing !== null && !sameLegacyCutoverFenceIdentity(existing, identity)) {
-    throw new LegacyCutoverFenceError('FENCE_INSTANCE_MISMATCH');
-  }
-  if (existing !== null) try { localStorage.removeItem(key); }
+  const before = scanLegacyNotesCutoverFences();
+  if (!['active', 'multiple_active', 'operationally_clear'].includes(before.status)) throw scanError(before.status);
+  const ownFence = before.fences.find(fence => sameLegacyCutoverFenceIdentity(fence, identity));
+  if (!ownFence) throw new LegacyCutoverFenceError('FENCE_NOT_SETTLED');
+  const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
+  const expectedFenceRaw = JSON.stringify(buildFence(identity));
+  let currentFenceRaw: string | null;
+  try { currentFenceRaw = localStorage.getItem(fenceKey); }
   catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
-  try {
-    if (localStorage.getItem(key) !== null) throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE');
-  } catch (error) {
-    if (error instanceof LegacyCutoverFenceError) throw error;
-    throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE');
+  if (currentFenceRaw !== expectedFenceRaw) throw new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED');
+  const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
+  const settlement = buildSettlement(identity);
+  const expectedRaw = JSON.stringify(settlement);
+  let currentRaw: string | null;
+  try { currentRaw = localStorage.getItem(settlementKey); }
+  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
+  if (currentRaw !== null) {
+    let current: unknown;
+    try { current = JSON.parse(currentRaw); } catch { throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_MALFORMED'); }
+    if (!validSettlementRaw(current, settlementKey, currentRaw) || currentRaw !== expectedRaw) {
+      throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_CONFLICT');
+    }
+  } else {
+    try { localStorage.setItem(settlementKey, expectedRaw); }
+    catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
   }
+  let readBack: string | null;
+  try { readBack = localStorage.getItem(settlementKey); }
+  catch { throw new LegacyCutoverFenceError('FENCE_RECOVERY_INCOMPLETE'); }
+  if (readBack !== expectedRaw) throw new LegacyCutoverFenceError('FENCE_SETTLEMENT_CONFLICT');
   const scan = scanLegacyNotesCutoverFences();
-  if (existing !== null) activateRecoveryMode();
+  const ownSettled = scan.settledFences.some(fence => sameLegacyCutoverFenceIdentity(fence, identity));
+  if (!ownSettled) throw scan.status === 'malformed'
+    ? new LegacyCutoverFenceError('FENCE_ARTIFACT_MALFORMED') : scanError(scan.status);
+  activateRecoveryMode();
   return {
-    ownFenceReleased: true,
-    vaultState: scan.status === 'clear' ? 'clear'
-      : ['valid', 'multiple'].includes(scan.status) ? 'blocked_by_other' : 'indeterminate',
+    ownFenceSettled: true,
+    vaultState: scan.status === 'operationally_clear' ? 'operationally_clear'
+      : ['active', 'multiple_active'].includes(scan.status) ? 'blocked_by_other_active' : 'indeterminate',
     scanStatus: scan.status,
   };
 }
 
 export function readLegacyNotesCutoverFence(): LegacyNotesCutoverFence | 'corrupt' | null {
   const scan = scanLegacyNotesCutoverFences();
-  return scan.status === 'clear' ? null : scan.status === 'valid' ? scan.fences[0] : 'corrupt';
+  return scan.status === 'operationally_clear' ? null : scan.status === 'active' ? scan.activeFences[0] : 'corrupt';
 }
 
 export function isLegacyNotesWriteBlockedByCutover(): boolean {
-  return scanLegacyNotesCutoverFences().status !== 'clear';
+  return scanLegacyNotesCutoverFences().status !== 'operationally_clear';
 }
 
 export function mayWriteLegacyNotes(): boolean {
@@ -514,7 +636,8 @@ export function clearLegacyNotesCutoverFenceForTest(): void {
     const keys: string[] = [];
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (key === K326_LEGACY_WRITE_FENCE_KEY || key?.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)) keys.push(key);
+      if (key === K326_LEGACY_WRITE_FENCE_KEY || key?.startsWith(K326_LEGACY_FENCE_RESERVED_PREFIX)
+        || key?.startsWith(K326_LEGACY_SETTLEMENT_RESERVED_PREFIX)) keys.push(key);
     }
     keys.forEach(key => localStorage.removeItem(key));
   } catch { /**/ }

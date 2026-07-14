@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   K326_LEGACY_WRITE_FENCE_PREFIX,
+  K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX,
   captureOperationEpoch,
-  cancelLegacyNotesCutoverFence,
   clearLegacyNotesCutoverFenceForTest,
   createRecoveryCutoverAuthorization,
   deriveLegacyNotesCutoverFenceKey,
+  deriveLegacyNotesCutoverFenceSettlementKey,
   isRecoveryModeActive,
   isOperationEpochCurrent,
   mayReset,
@@ -17,6 +18,7 @@ import {
   mayWriteLegacyNotes,
   readLegacyNotesCutoverFence,
   scanLegacyNotesCutoverFences,
+  settleLegacyNotesCutoverFence,
   type LegacyCutoverFenceIdentity,
 } from '../recoverySafetyPolicy';
 import {
@@ -65,9 +67,9 @@ function physicalFence(identity: LegacyCutoverFenceIdentity) {
   return {
     key,
     value: {
-      kind: 'legacy_notes_cutover_fence_v3', version: 3,
+      kind: 'legacy_notes_cutover_fence_v4', version: 4,
       storageDigest: key.slice(K326_LEGACY_WRITE_FENCE_PREFIX.length),
-      ...identity, state: 'fenced',
+      ...identity,
     },
   } as const;
 }
@@ -225,7 +227,7 @@ describe('K-326 local-first cutover foundation', () => {
       mode: 'local_first', activeGenerationId: 'migration-verified', cutoverSessionId: 'cutover-1',
     });
     expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({ status: 'confirmed' });
-    expect(readLegacyNotesCutoverFence()).toMatchObject({ state: 'fenced', namespaceKey: repo.namespaceKey });
+    expect(readLegacyNotesCutoverFence()).toMatchObject({ version: 4, namespaceKey: repo.namespaceKey });
     expect(isRecoveryModeActive()).toBe(true);
     expect([mayRestore(), mayReset(), mayUploadRemote()]).toEqual([false, false, false]);
     expect(await rawStoreValues(LOCAL_DATABASE_STORES.outbox)).toEqual([]);
@@ -416,33 +418,40 @@ describe('K-326 local-first cutover foundation', () => {
     const staleEpoch = captureOperationEpoch();
     source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
       ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
-    const originalRemove = localStorage.removeItem.bind(localStorage);
-    const cleanup = vi.spyOn(localStorage, 'removeItem').mockImplementation(key => {
-      if (key.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)) throw new Error('synthetic storage failure');
-      originalRemove(key);
+    const originalSet = localStorage.setItem.bind(localStorage);
+    const cleanup = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) throw new Error('synthetic storage failure');
+      originalSet(key, value);
     });
 
     await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
       .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
     expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
-      status: 'failed_precommit_releasing', failure: { context: 'precommit_fence_cleanup' },
+      status: 'failed_precommit_settling', failure: { context: 'precommit_fence_cleanup' },
     });
+    const pending = await repo.getLocalFirstCutoverSession('cutover-1');
+    const fenceKey = deriveLegacyNotesCutoverFenceKey(pending!.fence!.identity);
+    const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(pending!.fence!.identity);
     expect(readLegacyNotesCutoverFence()).toMatchObject({
-      namespaceKey: repo.namespaceKey, cutoverSessionId: 'cutover-1', state: 'fenced',
+      namespaceKey: repo.namespaceKey, cutoverSessionId: 'cutover-1', version: 4,
     });
+    expect(localStorage.getItem(fenceKey)).not.toBeNull();
+    expect(localStorage.getItem(settlementKey)).toBeNull();
     cleanup.mockRestore();
     repo.close();
 
     const restarted = await repository();
     const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
     await expect(restarted.recoverFailedPrecommitCutoverFence(
-      'cutover-1', restartedAuthorization, T2, 'after_fence_release',
+      'cutover-1', restartedAuthorization, T2, 'after_fence_settlement',
     )).rejects.toMatchObject({ code: 'TRANSACTION_FAILED' });
     expect(readLegacyNotesCutoverFence()).toBeNull();
+    expect(localStorage.getItem(fenceKey)).not.toBeNull();
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
     expect(await restarted.getLocalFirstCutoverSession('cutover-1'))
-      .toMatchObject({ status: 'failed_precommit_releasing' });
+      .toMatchObject({ status: 'failed_precommit_settling' });
     await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
-      .resolves.toMatchObject({ status: 'failed', failure: { context: 'precommit_fence_released' } });
+      .resolves.toMatchObject({ status: 'failed', failure: { context: 'precommit_fence_settled' } });
     expect(readLegacyNotesCutoverFence()).toBeNull();
     expect(isOperationEpochCurrent(staleEpoch)).toBe(false);
     await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
@@ -457,10 +466,10 @@ describe('K-326 local-first cutover foundation', () => {
     await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
     source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
       ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
-    const originalRemove = localStorage.removeItem.bind(localStorage);
-    const cleanup = vi.spyOn(localStorage, 'removeItem').mockImplementation(key => {
-      if (key.startsWith(K326_LEGACY_WRITE_FENCE_PREFIX)) throw new Error('synthetic storage failure');
-      originalRemove(key);
+    const originalSet = localStorage.setItem.bind(localStorage);
+    const cleanup = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) throw new Error('synthetic storage failure');
+      originalSet(key, value);
     });
     await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
       .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
@@ -474,7 +483,7 @@ describe('K-326 local-first cutover foundation', () => {
     const crossNamespace = otherNamespace.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
     await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', crossNamespace, T2))
       .rejects.toMatchObject({ code: 'CUTOVER_RECOVERY_AUTHORIZATION_REQUIRED' });
-    expect(readLegacyNotesCutoverFence()).toMatchObject({ namespaceKey: repo.namespaceKey, state: 'fenced' });
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active' });
 
     repositories.splice(0).forEach(closeLocalDatabase); authorities.clear();
     await deleteDatabase(LOCAL_DATABASE_NAME).catch(() => undefined);
@@ -485,12 +494,14 @@ describe('K-326 local-first cutover foundation', () => {
     await committedRepo.activateLocalFirstCutover(committedSource, 'cutover-1', {
       authorization: committed.authorization, now: T2,
     });
+    const activated = await committedRepo.getLocalFirstCutoverSession('cutover-1');
     await expect(committedRepo.recoverFailedPrecommitCutoverFence('cutover-1', committed.authorization, T2))
       .rejects.toMatchObject({ code: 'CUTOVER_ALREADY_ACTIVATED' });
-    expect(readLegacyNotesCutoverFence()).toMatchObject({ state: 'fenced' });
+    expect(readLegacyNotesCutoverFence()).toMatchObject({ version: 4 });
+    expect(localStorage.getItem(deriveLegacyNotesCutoverFenceSettlementKey(activated!.fence!.identity))).toBeNull();
   });
 
-  it('never reports terminal failed recovery while a late exact fence remains', async () => {
+  it('keeps exact own fence and settlement restart-safe without foreign misclassification', async () => {
     const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
     const { authorization } = await plan(repo, source);
     await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
@@ -499,23 +510,59 @@ describe('K-326 local-first cutover foundation', () => {
     await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
       .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
     const failed = await repo.getLocalFirstCutoverSession('cutover-1');
-    expect(failed).toMatchObject({ status: 'failed', fence: { phase: 'released' } });
+    expect(failed).toMatchObject({ status: 'failed', fence: { phase: 'settled' } });
     expect(readLegacyNotesCutoverFence()).toBeNull();
 
-    setPhysicalFence(failed!.fence!.identity);
-    expect(mayWriteLegacyNotes()).toBe(false);
-    const recovered = await Promise.all([
-      repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2),
-      repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2),
-    ]);
-    expect(recovered).toEqual([
-      expect.objectContaining({ status: 'failed' }), expect.objectContaining({ status: 'failed' }),
-    ]);
+    const identity = failed!.fence!.identity;
+    const fenceKey = deriveLegacyNotesCutoverFenceKey(identity);
+    const settlementKey = deriveLegacyNotesCutoverFenceSettlementKey(identity);
+    expect(localStorage.getItem(fenceKey)).not.toBeNull();
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
+    repo.close();
+    const restarted = await repository();
+    const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
+    await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
+      .resolves.toMatchObject({ status: 'failed', fence: { phase: 'settled', vaultState: 'operationally_clear' } });
     expect(readLegacyNotesCutoverFence()).toBeNull();
+    expect(localStorage.getItem(fenceKey)).not.toBeNull();
+    expect(localStorage.getItem(settlementKey)).not.toBeNull();
     expect(mayWriteLegacyNotes()).toBe(true);
   });
 
-  it('binds and removes a newer same-session fence after repository restart without reviving stale work', async () => {
+  it('keeps a same-key malformed overwrite append-only and never reports operational clearance', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+    source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+      ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
+    const originalSet = localStorage.setItem.bind(localStorage);
+    const firstWrite = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) throw new Error('defer settlement');
+      originalSet(key, value);
+    });
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
+    firstWrite.mockRestore();
+    const pending = await repo.getLocalFirstCutoverSession('cutover-1');
+    const fenceKey = deriveLegacyNotesCutoverFenceKey(pending!.fence!.identity);
+    const remove = vi.spyOn(localStorage, 'removeItem');
+    const mutate = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith(K326_LEGACY_WRITE_FENCE_SETTLEMENT_PREFIX)) originalSet(fenceKey, '{malformed-race');
+      originalSet(key, value);
+    });
+    await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
+      .rejects.toMatchObject({ code: 'CUTOVER_FENCE_ARTIFACT_MALFORMED' });
+    mutate.mockRestore();
+    expect(localStorage.getItem(fenceKey)).toBe('{malformed-race');
+    expect(remove).not.toHaveBeenCalled();
+    remove.mockRestore();
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'malformed' });
+    expect(await repo.getLocalFirstCutoverSession('cutover-1'))
+      .toMatchObject({ status: 'failed_precommit_settling', fence: { phase: 'settlement_pending' } });
+    expect(mayWriteLegacyNotes()).toBe(false);
+  });
+
+  it('does not adopt or erase a newer same-session fence after repository restart', async () => {
     const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
     const { authorization } = await plan(repo, source);
     await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
@@ -525,7 +572,7 @@ describe('K-326 local-first cutover foundation', () => {
     await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
       .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
     const failed = await repo.getLocalFirstCutoverSession('cutover-1');
-    expect(failed).toMatchObject({ status: 'failed', fence: { phase: 'released' } });
+    expect(failed).toMatchObject({ status: 'failed', fence: { phase: 'settled' } });
     const original = failed!.fence!.identity;
     setPhysicalFence({
       namespaceKey: original.namespaceKey, cutoverSessionId: original.cutoverSessionId,
@@ -536,10 +583,11 @@ describe('K-326 local-first cutover foundation', () => {
     const restarted = await repository();
     const restartedAuthorization = restarted.createLocalFirstCutoverAuthorization('cutover-1', 'verified', 'test');
     await expect(restarted.recoverFailedPrecommitCutoverFence('cutover-1', restartedAuthorization, T2))
-      .resolves.toMatchObject({ status: 'failed', fence: { phase: 'released', lateIdentity: {
-        fenceNonce: 'f'.repeat(32), fenceEpoch: original.fenceEpoch + 10,
-      } } });
-    expect(readLegacyNotesCutoverFence()).toBeNull();
+      .resolves.toMatchObject({ status: 'failed', fence: { phase: 'settled' } });
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active', activeFences: [expect.objectContaining({
+      fenceNonce: 'f'.repeat(32), fenceEpoch: original.fenceEpoch + 10,
+    })] });
+    expect(mayWriteLegacyNotes()).toBe(false);
     expect(isOperationEpochCurrent(staleEpoch)).toBe(false);
   });
 
@@ -555,13 +603,18 @@ describe('K-326 local-first cutover foundation', () => {
     const identity = failed!.fence!.identity;
     if (kind === 'malformed') localStorage.setItem(`${K326_LEGACY_WRITE_FENCE_PREFIX}malformed`, '{malformed');
     else setPhysicalFence({ ...identity, namespaceKey: 'e'.repeat(64) });
-    await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
-      .rejects.toMatchObject({ code: kind === 'malformed'
-        ? 'CUTOVER_FENCE_ARTIFACT_MALFORMED' : 'CUTOVER_FENCE_OWNERSHIP_CONFLICT' });
-    expect(readLegacyNotesCutoverFence()).not.toBeNull();
+    if (kind === 'malformed') {
+      await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
+        .rejects.toMatchObject({ code: 'CUTOVER_FENCE_ARTIFACT_MALFORMED' });
+    } else {
+      await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
+        .resolves.toMatchObject({ status: 'failed', fence: { phase: 'settled' } });
+    }
+    expect(scanLegacyNotesCutoverFences().status).not.toBe('operationally_clear');
+    expect(mayWriteLegacyNotes()).toBe(false);
   });
 
-  it('fails closed when a foreign fence appears between exact removal and read-back', async () => {
+  it('requires a separate exact settlement for every additional fence and never deletes either', async () => {
     const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
     const { authorization } = await plan(repo, source);
     await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
@@ -571,33 +624,23 @@ describe('K-326 local-first cutover foundation', () => {
       .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
     const failed = await repo.getLocalFirstCutoverSession('cutover-1');
     const identity = failed!.fence!.identity;
-    const ownKey = setPhysicalFence(identity);
+    const ownKey = deriveLegacyNotesCutoverFenceKey(identity);
     const foreignIdentity = { ...identity, namespaceKey: 'd'.repeat(64), fenceNonce: 'd'.repeat(32),
       fenceEpoch: identity.fenceEpoch + 1 };
     const foreign = physicalFence(foreignIdentity);
-    const originalRemove = localStorage.removeItem.bind(localStorage);
-    const remove = vi.spyOn(localStorage, 'removeItem').mockImplementation(key => {
-      if (key === ownKey) localStorage.setItem(foreign.key, JSON.stringify(foreign.value));
-      originalRemove(key);
-    });
-    await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
-      .rejects.toMatchObject({ code: 'CUTOVER_FENCE_VAULT_NOT_CLEAR' });
-    remove.mockRestore();
-    expect(readLegacyNotesCutoverFence()).toMatchObject({ namespaceKey: 'd'.repeat(64), state: 'fenced' });
-    expect(await repo.getLocalFirstCutoverSession('cutover-1'))
-      .toMatchObject({ status: 'failed_precommit_releasing', fence: {
-        phase: 'released', vaultState: 'blocked_by_other',
-      } });
+    localStorage.setItem(foreign.key, JSON.stringify(foreign.value));
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active' });
     const foreignAuthorization = createRecoveryCutoverAuthorization({
       namespaceKey: foreign.value.namespaceKey,
       cutoverSessionId: foreign.value.cutoverSessionId,
       targetGenerationId: foreign.value.targetGenerationId,
       purpose: 'test',
     });
-    expect(cancelLegacyNotesCutoverFence(foreignAuthorization, foreignIdentity))
-      .toMatchObject({ ownFenceReleased: true, vaultState: 'clear' });
-    await expect(repo.recoverFailedPrecommitCutoverFence('cutover-1', authorization, T2))
-      .resolves.toMatchObject({ status: 'failed', fence: { phase: 'released', vaultState: 'clear' } });
+    expect(settleLegacyNotesCutoverFence(foreignAuthorization, foreignIdentity))
+      .toMatchObject({ ownFenceSettled: true, vaultState: 'operationally_clear' });
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'operationally_clear' });
+    expect(localStorage.getItem(ownKey)).not.toBeNull();
+    expect(localStorage.getItem(foreign.key)).not.toBeNull();
   });
 
   it('preserves both exact keys and blocks activation when B appears between A scan and write', async () => {
@@ -620,7 +663,7 @@ describe('K-326 local-first cutover foundation', () => {
     await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
       .rejects.toMatchObject({ code: 'CUTOVER_MULTIPLE_FENCES_PRESENT' });
     set.mockRestore();
-    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'multiple' });
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'multiple_active' });
     expect(localStorage.getItem(foreignKey!)).not.toBeNull();
     expect(await repo.getLocalFirstCutoverSession('cutover-1')).toMatchObject({
       status: 'activating', fence: { phase: 'installing', vaultState: 'indeterminate' },
@@ -643,7 +686,7 @@ describe('K-326 local-first cutover foundation', () => {
     const session = await repo.getLocalFirstCutoverSession('cutover-1');
     expect(session).toMatchObject({ status: 'activating', fence: { phase: 'installed', installedAt: T2 } });
     expect(readLegacyNotesCutoverFence()).toMatchObject({
-      ...session!.fence!.identity, version: 3, state: 'fenced',
+      ...session!.fence!.identity, version: 4,
     });
   });
 
@@ -722,7 +765,7 @@ describe('K-326 local-first cutover foundation', () => {
     expect(localStorage.getItem(NOTES_IDB_MIGRATION_FLAG)).toBe('original-migration-state');
     expect(localStorage.getItem(NOTES_IDB_REV_KEY)).toBe('8');
     expect(localStorage.getItem(NOTES_SEEDED_KEY)).toBe('1');
-    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'valid' });
+    expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active' });
   });
 
   it('fails closed when the cross-tab cutover fence record is malformed', async () => {
@@ -759,6 +802,31 @@ describe('K-326 local-first cutover foundation', () => {
     await plan(repo, source);
     await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => ({
       ...value, kind: 'local_first_cutover_session_v2', version: 2,
+    }));
+    await expect(repo.getLocalFirstCutoverSession('cutover-1'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects K-326C delete-based v3 sessions instead of inferring settlement', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    await plan(repo, source);
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => ({
+      ...value, kind: 'local_first_cutover_session_v3', version: 3,
+    }));
+    await expect(repo.getLocalFirstCutoverSession('cutover-1'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects impossible v4 settled session graphs without normalization', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    const { authorization } = await plan(repo, source);
+    await repo.preflightLocalFirstCutover(source, 'cutover-1', authorization, T1);
+    source.records = [{ legacyKey: 'changed', value: note('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+      ownership: { kind: 'bound', namespaceKey: repo.namespaceKey } }];
+    await expect(repo.activateLocalFirstCutover(source, 'cutover-1', { authorization, now: T2 }))
+      .rejects.toMatchObject({ code: 'MIGRATION_SOURCE_CHANGED' });
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, [repo.namespaceKey, 'k326:cutover:cutover-1'], value => ({
+      ...value, fence: { ...value.fence, phase: 'settled', vaultState: 'blocked_by_own_active' },
     }));
     await expect(repo.getLocalFirstCutoverSession('cutover-1'))
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
@@ -817,7 +885,7 @@ describe('K-326 local-first cutover foundation', () => {
     expect((await rawStoreValues(LOCAL_DATABASE_STORES.generations)).filter(value => value.status === 'active')).toHaveLength(1);
     const session = await repo.getLocalFirstCutoverSession('cutover-1');
     expect(session).toMatchObject({ status: 'confirmed', fence: { phase: 'committed' } });
-    expect(readLegacyNotesCutoverFence()).toMatchObject({ ...session!.fence!.identity, state: 'fenced' });
+    expect(readLegacyNotesCutoverFence()).toMatchObject({ ...session!.fence!.identity, version: 4 });
   });
 
   it('rejects a competing cutover session for the same namespace', async () => {
