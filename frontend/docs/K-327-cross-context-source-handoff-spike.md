@@ -1,0 +1,446 @@
+# K-327 — Cross-Context Legacy Source Handoff Architecture Spike
+
+## Executive verdict
+
+`HANDOFF_ARCHITECTURE_SELECTED`
+
+`SELECTED_HANDOFF_ARCHITECTURE: WEB_LOCKS_PLUS_DURABLE_INDEXEDDB_AUTHORITY_AND_IMMUTABLE_SNAPSHOT`
+
+The smallest defensible handoff uses one scope-bound exclusive Web Lock to drain cooperating same-origin writers, one durable IndexedDB authority record to survive reload/crash, and one immutable snapshot as the only evidence K-325 and K-326 may consume. Every migration-critical writer must use the coordinator. The current `localStorage` Notes payload and revision keys must cease to be authoritative before a production source becomes eligible.
+
+K-327 does not implement this protocol. It adds only this architecture record and a deterministic test-only concurrency model. Current production localStorage, IndexedDB, mixed, unknown, malformed, and multiple-writer sources remain rejected by K-326G.
+
+Required verdicts:
+
+- `ALL_MIGRATION_CRITICAL_LEGACY_WRITERS_ARE_IDENTIFIED`
+- `CROSS_CONTEXT_THREAT_MODEL_COVERS_ALL_REACHABLE_WRITERS`
+- `SOURCE_HANDOFF_CONTRACT_DEFINES_A_LINEARIZATION_POINT`
+- `WEB_LOCKS_IS_VIABLE_ONLY_WITH_ADDITIONAL_DURABLE_FENCING`
+- `INDEXEDDB_REQUIRES_REMOVING_LOCALSTORAGE_AS_AUTHORITATIVE_SOURCE`
+- `IMMUTABLE_SNAPSHOT_HANDOFF_IS_VIABLE_WITH_WRITER_SHUTDOWN`
+- `WORKER_COORDINATION_IS_ONLY_ADVISORY`
+- `LOCALSTORAGE_LEASE_LOCK_REJECTED_AS_NON_ATOMIC`
+- `REAL_BROWSER_HARNESS_NOT_AVAILABLE`
+- `PROPOSED_PROTOCOL_AVOIDS_INDEXEDDB_AUTO_COMMIT_GAPS`
+- `EVERY_HANDOFF_STATE_HAS_A_SAFE_RESTART_CLASSIFICATION`
+- `HANDOFF_PROVES_WRITER_DRAIN_AND_POST_HANDOFF_IMMUTABILITY`
+- `HANDOFF_AUTHORITY_IS_STRICTLY_SCOPE_BOUND`
+- `HANDOFF_HAS_NO_SILENT_WRITE_LOSS_SEMANTICS`
+- `FUTURE_K326_SOURCE_ADAPTER_CONTRACT_IS_EXPLICIT_AND_FAIL_CLOSED`
+
+## Starting facts
+
+- Canonical repository: `C:\Users\이도현\GitRepos\Absinthe`.
+- PR #584 was squash-merged as main commit `634e861f8c1705e89015be1817f5d7dcb7aae1d2`.
+- K-327 branch base: the same commit.
+- Branch: `codex/k327-cross-context-source-handoff-spike`.
+- Frontend baseline: React 19, Vite 6, Vitest 4, `happy-dom`, and `fake-indexeddb`; no Playwright, Puppeteer, WebDriver, or existing E2E browser runner.
+- Backend baseline: FastAPI/Pytest application at the same main commit; unchanged and not executed because this spike changes no backend file.
+
+## Original K-326G P1 recap
+
+The current production fence has a check/use race:
+
+1. Tab B calls `mayWriteLegacyNotes()` and observes no fence.
+2. Tab A installs a K-326 fence.
+3. Tab B performs a later `localStorage.setItem()` or starts/continues a legacy IndexedDB transaction.
+
+The K-319 operation epoch is process-local. A tab cannot invalidate another tab's captured epoch. K-326G therefore correctly classifies exact production localStorage and legacy IndexedDB sources as `uncoordinated_legacy_writers`, and accepts only the exact synthetic test adapter in test mode. K-327 preserves that classification.
+
+## Source-facts inventory
+
+### Migration-critical writers
+
+| Path | Function or caller | Backend | Timing and contexts | Existing guard | Can cross handoff? | Required K-328 conversion |
+|---|---|---|---|---|---|---|
+| `src/lib/notePersistence.ts` | `saveNotesToLocalStorageResult` / `saveNotesSyncResult` | localStorage `notes-v2` | synchronous; any page importing the bridge | `mayWriteLegacyNotes()` before `setItem` | yes; check and write are separate | route through coordinator; localStorage no longer authoritative |
+| `src/lib/notePersistence.ts` | `saveNotesAsync` | legacy IDB, with localStorage fallback | asynchronous page task | recovery guard plus process-local epoch | yes; another tab is not fenced, and fallback crosses backends | exclusive source lock plus durable authority check; remove authoritative fallback |
+| `src/lib/notePersistence.ts` | `migrateLocalStorageNotesToIndexedDb` | localStorage + legacy IDB | async startup/hydration in each tab | recovery guard | yes; read, IDB write, marker update, and localStorage removal are separate | one coordinated, resumable canonicalization step |
+| `src/lib/notePersistence.ts` | `initNotesPersistence` rescue/seed writes | legacy IDB/localStorage | async hydration in each page | recovery guard in lower layers | yes; hydration can race handoff | coordinator before every source mutation; no seed after pending |
+| `src/lib/notePersistence.ts` | `deleteNoteFromPersistence` | legacy IDB or localStorage full snapshot | asynchronous | recovery guard plus lower-layer guard | yes | coordinator and durable authority in mutation transaction |
+| `src/lib/notePersistence.ts` | `clearNotesPersistence` | legacy IDB + localStorage keys | asynchronous, multi-backend | recovery/delete guards | yes; multiple commits | coordinator; destructive legacy operation remains prohibited for handoff |
+| `src/lib/noteIndexedDb.ts` | `saveNotesToIndexedDb` | `absinthe-notes-v1/notes` | asynchronous IDB readwrite transaction | repeated guard and process epoch callback | yes across tabs; revision update is later localStorage write | authority, source records, and revision in the same short IDB transaction |
+| `src/lib/noteIndexedDb.ts` | `deleteNoteFromIndexedDb` | legacy IDB | asynchronous transaction | recovery guard | yes | same coordinator and transactional authority |
+| `src/lib/noteIndexedDb.ts` | `clearIndexedDbNotes` | legacy IDB | asynchronous transaction | recovery guard | yes | remain disabled; if ever used, same coordinator and authority |
+| `src/lib/noteIndexedDb.ts` | `markIndexedDbMigrationComplete` / `bumpNotesIndexedDbRevision` | localStorage metadata | synchronous | recovery guard around callers, not atomic with IDB | yes | move canonical migration state/revision into IDB |
+| `src/components/views/noteUtils.ts` | `migrateLegacyStorageIfNeeded` | several localStorage keys | synchronous startup | `mayWriteLegacyNotes()` and bridge | yes | coordinator-backed migration; no direct writes |
+| `src/components/views/noteUtils.ts` | `saveNotes` | bridge or direct localStorage | synchronous/fire-and-forget bridge | recovery guard | yes; bridge may launch async save after return | await explicit coordinated result; no fire-and-forget authority |
+| `src/components/views/noteUtils.ts` | `saveFolders` / `saveActiveNoteId` | localStorage | synchronous | recovery guard | folders affect migration evidence; active ID is UI metadata | folders require coordinator/canonical source; active ID stays non-authoritative but cannot impersonate source evidence |
+| `src/components/views/noteUtils.ts` | `clearNotesStorage` / `clearNotesStorageAsync` | localStorage and persistence adapter | sync plus async | recovery/reset guards | yes | remain prohibited during/after handoff |
+| `src/components/views/noteUtils.ts` | `createDefaultWelcomeNotes` | Notes/folders/active storage | synchronous plus bridge | recovery/onboarding guards | yes | seed must be an ordinary coordinated mutation or be rejected |
+| `src/store/useNotesStore.ts` | `persistNotes` | persistence facade | sync localStorage or async IDB | lower-layer guard | yes; caller does not await IDB | return/track coordinated commit; pre-handoff flush must settle |
+| `src/store/useNotesStore.ts` | create/import/update/trash/restore/permanent delete actions | full Notes snapshot and remote calls | page/React action | operation-specific recovery guards | yes | all local mutations funnel through one coordinator; remote sync stays disabled |
+| `src/store/useNotesStore.ts` | `importVaultRestore` / undo | Notes + folders + snapshot | page async fan-out | K-319 restore/undo guard | yes if enabled in a future authorized context | must remain blocked; no handoff exception |
+| `src/store/useNotesStore.ts` | `resetAllNotes` | clear plus seed | page | K-319 reset guard | yes | must remain blocked; no handoff exception |
+| `src/store/useNotesStore.ts` | `initNotesStorage` merge persistence | legacy IDB/localStorage | per-tab hydration | lower-layer guard | yes | hydration becomes read-only during pending; no merge writeback |
+| `src/store/useNotesStore.ts` | `applyStorageMerge` | cross-tab localStorage/IDB-revision merge | storage event, async load, writeback | cross-tab guard plus process epoch | yes; storage event is notification, not exclusion | prohibit writeback after pending; coordinator for any pre-handoff merge commit |
+| `src/store/useNotesStore.ts` | body debounce and lifecycle flush | in-memory timer + remote sync | timer, `pagehide`, `beforeunload` | recovery guards in remote path | pending local state can be newer than source | preflight must flush and await local durability or abort; no hidden queue |
+| `src/lib/persistenceCleanup.ts` | `cleanupLegacyStorageKeys` / `runPersistenceCleanup` | localStorage deletion | startup or explicit call | `mayDeleteLegacyStorage()` | yes if ever authorized | never run during handoff; legacy evidence retained |
+| `src/lib/notesOnboarding.ts` | mark/clear onboarding | localStorage metadata | page | recovery guard | not Note payload, but changes seed authority | include in coordinated metadata or keep non-authoritative and blocked after pending |
+| `src/components/views/k96bIndexedDbAudit.ts` | audit seed helpers | localStorage + legacy IDB | developer/audit page or tests | recovery guard | yes if reachable in production build | development-only capability and same coordinator; excluded from production handoff |
+| `src/components/views/k96dPersistenceAudit.ts` | audit seed/cleanup helpers | injected storage or default localStorage + legacy IDB | developer/audit page or tests | partial/injected | yes with default storage | development-only capability; never a production bypass |
+| `src/components/views/k97fSeedLifecycleAudit.ts` | lifecycle simulations | localStorage + legacy IDB | developer/audit page or tests | explicit recovery guard | yes | test/dev-only capability; never a production bypass |
+
+Notes objects carry folders by `folderId`, properties, relations, created/updated/deleted timestamps, and tombstones. A full-snapshot replacement changes all of that migration evidence, even when the visible action appears to affect one Note. `NOTES_IDB_REV_KEY` is currently a localStorage notification/revision hint, not an atomic source revision.
+
+Durability backups and vault snapshots are preservation evidence, not the K-325 live canonical source. They must not silently substitute for a failed handoff.
+
+### Non-writers and absent authorities
+
+- [`storage` events](https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event) notify other same-origin windows after localStorage changes; they do not serialize the originating mutation and do not fire in the window that made the change.
+- No production Notes `BroadcastChannel`, `SharedWorker`, Web Worker, Service Worker, or `navigator.locks` coordinator exists in the inspected source.
+- No production K-326 caller, startup activation, UI action, or background runner exists.
+
+## Required safety contract
+
+For one exact hashed source scope:
+
+1. Every migration-critical writer obtains the same exclusive coordinator before reading durable authority.
+2. A writer performs authority validation, source mutation, and monotonic revision increment in one short IndexedDB readwrite transaction.
+3. Handoff obtains that exclusive coordinator, proving previously admitted cooperating writers have finished or crashed.
+4. Handoff atomically changes durable authority from `writable` to `handoff_pending`. This is the **write-exclusion point**: while pending, later writers fail before mutation.
+5. Handoff captures a canonical, deterministically ordered source image and manifest while the exclusive lock remains held and authority remains pending.
+6. Handoff atomically commits immutable snapshot evidence and authority `read_only_handoff`. This commit is the **irreversible handoff linearization point** for K-326 eligibility.
+7. After that commit, cancellation and automatic rollback are forbidden. Every writer, including stale tabs, reacquires the lock, observes durable read-only authority, and fails before mutation.
+8. K-325 consumes only the immutable snapshot. K-326 revalidates the exact terminal authority, snapshot digest, scope, revision, and K-325 binding.
+
+If a write acquired the lock first, handoff waits and captures it. If handoff acquired the lock first, the write waits and then rejects. A writer crash before its IDB commit leaves no partial source/revision update; Web Lock release permits recovery. A handoff crash after pending leaves a durable fail-closed state.
+
+## Browser execution context model
+
+| Context | Shared source | Web Lock scope | Lifecycle/stale authority risk | Required behavior |
+|---|---|---|---|---|
+| Primary page tab | same-origin localStorage/IDB | same storage bucket and lock name | normal | coordinator mandatory |
+| Second page tab | same | same | can hold stale React state | coordinator plus durable revalidation |
+| Reloaded/restored tab | same | old lock is released on termination; new request joins current manager | stale persisted/session state | rebuild capability from durable authority; no cached grant |
+| Background/suspended tab | same | request may be delayed; held callback lifetime is not a durable record | timers/events can pause | no time lease; pending timeout may abort only an ungranted request |
+| Detached stale React instance | same | same if it reaches persistence | captured state and process epoch can be stale | persistence boundary reacquires lock and revalidates |
+| PWA window | same when exact origin/storage bucket matches | same origin/bucket | independently restored window | same coordinator; no PWA exception |
+| Web worker | same-origin IDB; localStorage is unavailable | Web Locks exposed in supporting secure contexts | worker termination releases lock | no present Notes writer; any future writer must use same protocol |
+| SharedWorker | same origin, shared by pages | can request Web Lock | lifetime tied to clients and direct page writers can bypass | advisory notification only |
+| Service worker | origin-scoped IDB | can coordinate events but has event-driven lifetime | may be terminated/restarted; not initialized before every page write | advisory only; no Notes writer introduced |
+| Developer/audit tool | may use real default storage | same if run in page | explicit helpers can write directly | unavailable without dev capability and coordinator |
+| Vitest/test process | isolated fake/model storage | process-local test queue | not browser evidence | deterministic protocol proof only |
+| Same-origin logout/login/project switch | physical source may remain shared | lock name must bind physical source plus hashed namespace | stale tab retains old user memory | root authority rejects mismatched user/project/device/scope |
+| Restored/imported browser profile | copied storage, new runtime locks | new lock manager | copied authority may reference a different device/root | durable device/root binding fails closed |
+| Multiple repository instances | same underlying stores | same lock name | separate JS instances | no process singleton assumptions |
+
+Separate browser profiles and private browsing sessions are separate user agents/storage partitions and cannot coordinate with one another. They must never be treated as one handed-off physical source.
+
+## Browser primitive evidence
+
+The [W3C Web Locks working draft](https://www.w3.org/TR/web-locks/) specifies same-storage-bucket coordination across windows and workers, exclusive-by-default same-name locks, callback-promise lifetime, and release on document/agent termination. The specification also says abort applies before grant; once granted, the signal is ignored. Its `steal` option can leave the prior holder running without exclusivity and is therefore forbidden here.
+
+[MDN Web Locks](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) reports broad availability since March 2022, secure-context-only exposure, and worker availability. Browser support still requires a real target-browser matrix before rollout.
+
+[MDN IndexedDB terminology](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API/Basic_Terminology) defines IDB transactions as atomic, fixed-scope, and expected to be short-lived. The proposed protocol never awaits crypto, timers, React state, localStorage, network, worker messages, or arbitrary callbacks inside an open IDB transaction.
+
+[MDN SharedWorker](https://developer.mozilla.org/en-US/docs/Web/API/SharedWorker) reports Baseline 2026/newly available status, exact-origin sharing, and a lifetime linked to open clients. [MDN's Service Worker overview](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) describes its event-driven worker model. Neither can prevent a page that retains direct storage access from bypassing the coordinator, so neither is the required authority.
+
+## Candidate comparison
+
+| Candidate | Cross-tab exclusion | Crash-safe | Browser/support constraint | Writer migration | Verdict |
+|---|---|---|---|---|---|
+| Web Locks alone | yes for cooperating same-bucket contexts | no durable state; lock releases on termination | secure context and API required | every writer | insufficient alone |
+| Web Locks + durable IDB authority | yes | pending/read-only survive restart | unsupported environment fails closed | every writer; remove localStorage authority | selected coordinator |
+| IndexedDB authority alone | only for mutations fully inside the same DB transaction model | durable | broad IDB support | canonical source and all writers must move into IDB | viable end state, but cannot authorize later localStorage writes |
+| Immutable snapshot alone | no | snapshot can be durable | storage-dependent | writer shutdown required | viable only as selected protocol output |
+| SharedWorker | only cooperative clients | worker lifecycle is not durable authority | newer/varying older-browser support | every writer plus worker bootstrap | advisory only |
+| Service worker | event coordination, not universal page-write exclusion | restartable but event-driven | registration/control timing | every writer plus worker protocol | advisory only |
+| localStorage lease | no atomic validate-and-mutate | expiry/clock/ABA/suspension races | localStorage available | every writer | rejected |
+
+## Web Locks findings
+
+`WEB_LOCKS_IS_VIABLE_ONLY_WITH_ADDITIONAL_DURABLE_FENCING`
+
+- Same-name exclusive acquisition is the drain proof for writers that all use the coordinator.
+- The lock must be named with a versioned hash of physical source root plus user/project/device namespace; raw identifiers must not appear in lock diagnostics.
+- The lock is held only across bounded local storage work. No network call, UI wait, timer, or user interaction is inside the callback.
+- An `AbortSignal` may bound waiting before grant. It is not an in-lock cancellation mechanism.
+- `steal` is forbidden.
+- Web Lock state is not recovery evidence. Durable IDB authority determines restart behavior.
+- Unsupported API, insecure context, wrong storage bucket, or failed lock acquisition returns a bounded error before mutation or handoff. No localStorage lease fallback exists.
+- Fairness beyond the specified same-resource queue behavior is not a safety premise; bounded maintenance availability is an operational concern.
+
+## IndexedDB findings
+
+`INDEXEDDB_REQUIRES_REMOVING_LOCALSTORAGE_AS_AUTHORITATIVE_SOURCE`
+
+An IDB transaction can atomically validate authority, mutate records, and increment a revision only when those values are in its fixed transaction scope. It cannot authorize a later `localStorage.setItem()` atomically. Therefore:
+
+- the live canonical legacy source must be entirely IDB-backed before eligibility;
+- the authoritative revision, migration state, folders required by Notes evidence, and source authority move into the coordinated IDB model;
+- `notes-v2`, localStorage migration flags, and localStorage revision events become non-authoritative cache/notification data, then direct payload writes are removed;
+- dual writes are forbidden as an authority scheme;
+- a one-time conversion runs under the exclusive Web Lock and is itself restart-safe and digest-checked.
+
+Transactions contain only IDB requests and synchronous validation. Crypto and canonical serialization happen outside a transaction on captured immutable bytes; a following short transaction revalidates pending authority and revision before committing their digest.
+
+## Immutable snapshot handoff findings
+
+`IMMUTABLE_SNAPSHOT_HANDOFF_IS_VIABLE_WITH_WRITER_SHUTDOWN`
+
+A copy made while writers remain possible proves only momentary equality. The selected snapshot is valid because prior writers have drained, pending authority blocks later writers, and terminal authority prevents future writes. It binds source revision, source-root digest, manifest digest, ownership/scope, and coordinator version. K-325 reads this snapshot rather than the live store. A later live-source revision or different terminal record invalidates K-326 eligibility.
+
+## Worker coordination findings
+
+`WORKER_COORDINATION_IS_ONLY_ADVISORY`
+
+SharedWorker or Service Worker messages may accelerate read-only notifications, but they are not authority. A stale page or helper can bypass a worker and write storage directly unless the storage boundary also validates durable authority under the same coordinator. Worker termination, control/registration timing, reload, older-browser support, and account switching further prevent treating worker liveness as proof.
+
+## Rejected localStorage lock
+
+`LOCALSTORAGE_LEASE_LOCK_REJECTED_AS_NON_ATOMIC`
+
+Read/set-if-absent is not an atomic compare-and-set. Owner nonce, expiry, renewal, and storage events do not eliminate simultaneous acquisition, suspended-tab clock behavior, split brain, overwritten leases, ABA owners, crash expiry, or delayed notification. Most importantly, localStorage cannot atomically validate a fencing token while applying the target payload. K-327 does not implement such a lock.
+
+## Transaction-liveness structure
+
+`PROPOSED_PROTOCOL_AVOIDS_INDEXEDDB_AUTO_COMMIT_GAPS`
+
+Each IDB transaction is short and synchronous except for IDB request events/promises created by that transaction. These operations occur outside it:
+
+- Web Lock acquisition;
+- canonical serialization and Web Crypto hashing;
+- timers and timeout policy;
+- React/in-memory editor flush;
+- localStorage notification;
+- worker messages;
+- network or remote sync.
+
+After external computation, a new short readwrite transaction CAS-validates authority state, scope, source revision, and captured digest inputs before commit. No transaction is kept alive with unrelated asynchronous work.
+
+## Real-browser evidence
+
+`REAL_BROWSER_HARNESS_NOT_AVAILABLE`
+
+The repository has Vitest, `happy-dom`, and `fake-indexeddb`, but no Playwright/Puppeteer/WebDriver dependency, browser fixture, E2E server lifecycle, or CI browser job. Adding a browser stack and production-visible test seams would exceed this spike's narrow, no-runtime-change scope.
+
+Evidence collected:
+
+- Deterministic unit model: seven Vitest cases, two logical contexts sharing one exclusive queue and durable model.
+- Orderings: writer first; handoff first; writer/handoff/late-writer queue; writer crash before commit; handoff crash after pending and restart; precommit cancellation; stale-account scope; unsupported coordinator.
+- Fake storage evidence: existing local database suites continue to exercise fake IndexedDB; the new model intentionally does not claim browser storage behavior.
+- Real two-tab, page reload, browser-process restart, suspension, and PWA evidence: not collected.
+
+K-328 must add Chromium two-page evidence and at least the project-supported Firefox/WebKit matrix before any rollout task.
+
+## Selected architecture
+
+`SELECTED_HANDOFF_ARCHITECTURE: WEB_LOCKS_PLUS_DURABLE_INDEXEDDB_AUTHORITY_AND_IMMUTABLE_SNAPSHOT`
+
+### Safety argument
+
+All source writers and handoff use one hashed-scope exclusive lock. Lock acquisition orders writer and handoff callbacks. Writers validate `writable` and commit source plus revision atomically in IDB. Handoff acquisition drains earlier writers, commits pending authority, captures the fixed source, and terminally commits immutable snapshot evidence. Later writers observe pending/read-only and reject before storage mutation. Durable state, not lock liveness, drives restart.
+
+### Required writer migrations
+
+1. Introduce the coordinator and versioned durable authority/snapshot records, dormant by default.
+2. Move authoritative Notes, folders, migration metadata, and revision into one IDB transactional source.
+3. Route every production and developer/audit mutation listed above through the coordinator.
+4. Remove authoritative localStorage fallback and direct Note payload writes.
+5. Await preflight editor flushes; abort rather than lose unsaved state.
+6. Prove static reachability and two-tab behavior before changing K-326 classification.
+
+### Rejected alternatives
+
+- IndexedDB-only is a possible final mutation model but does not coordinate the conversion or any remaining direct localStorage writer.
+- Maintenance mode without Web Lock/transactional authority cannot prove all tabs drained.
+- Workers add lifecycle and bootstrap complexity without preventing bypass.
+- localStorage leases cannot atomically fence the payload.
+- Snapshot-only capture is stale as soon as any writer remains possible.
+
+## Linearization points
+
+- **Write-exclusion point:** successful IDB commit of exact authority `writable@revision N -> handoff_pending@revision N` while holding the exclusive scope lock. From this point until explicit precommit cancellation, no writer may commit.
+- **Irreversible K-326 handoff point:** successful atomic commit of immutable snapshot metadata and exact authority `handoff_pending -> read_only_handoff`, binding snapshot digest and revision N. After this commit, no cancellation, writer re-enable, or automatic rollback is permitted.
+
+This distinction permits safe pre-snapshot cancellation without falsely calling the pending state irreversible.
+
+## State machine and restart behavior
+
+| Durable state | Writers | Snapshot | K-325 | K-326 | Restart | Cancellation |
+|---|---|---|---|---|---|---|
+| `writable` | allowed only through coordinator | absent | ineligible | ineligible | continue normal legacy writes | not applicable |
+| `handoff_pending` | rejected | absent or uncommitted capture | ineligible | ineligible | reacquire lock; resume capture or explicitly cancel after graph validation | allowed only before snapshot commit |
+| `snapshot_committed` | rejected | immutable, bound to revision | eligible only after terminal validation | ineligible | reacquire lock; validate snapshot and finish terminal authority; never recapture silently | forbidden |
+| `read_only_handoff` | rejected permanently | immutable and exact | eligible | potentially eligible after K-325/K-326 revalidation | idempotently revalidate; no mutation | forbidden |
+| `handoff_failed` | rejected unless failure is proven pre-exclusion and an explicit cancellation transaction restores writable | absent or retained diagnostic reference | ineligible | ineligible | bounded diagnosis; no automatic repair | only the same strict precommit cancellation rule |
+| `cancelled_precommit` | writable only after the atomic cancellation transition | absent | ineligible | ineligible | terminal attempt record; new session required | already cancelled |
+
+Unknown state, unknown version, missing scope, digest mismatch, impossible transition, snapshot/authority mismatch, or malformed record is `CORRUPT_PERSISTED_RECORD` and fail-closed. No durable state requires a process-local capability to interpret.
+
+### Crash boundaries
+
+- Before pending commit: IDB abort leaves `writable`; lock releases on context termination.
+- After pending commit, before capture: restart sees pending; writers reject; resume/cancel is explicit.
+- During capture/hash: pending remains; partial external computation is not evidence.
+- After snapshot commit, before terminal marker if two transactions are unavoidable: `snapshot_committed` resumes only by validating the exact immutable snapshot. K-328 should prefer a single transaction for snapshot metadata plus terminal authority.
+- After terminal commit: restart revalidates; never re-enables writers.
+- Browser/OS power loss inherits the browser's IDB durability limitations; exact real-browser crash/power evidence remains a rollout prerequisite.
+
+## Account and namespace isolation
+
+Authority binds versioned hashes, never raw values, for:
+
+- user ID;
+- Supabase project ref;
+- device ID;
+- physical legacy source database/store/root identity;
+- source schema and adapter version;
+- K-325 migration session, once created.
+
+The Web Lock name is `absinthe:legacy-notes-handoff:v1:<scope-digest>`. The digest includes the physical source root so stale tabs for a prior account contend on the same source, then fail durable scope validation. Logout/login, project switch, device change, imported database, restored profile, or stale cached capability cannot mint authority. A second physical browser profile is a different source and needs its own handoff.
+
+## User-visible write availability
+
+The future operation is a bounded maintenance/read-only interval:
+
+1. Flush in-memory editor state through the ordinary coordinator and await its durable commit.
+2. If flush cannot commit, abort before pending and show a bounded failure; do not capture.
+3. During pending and terminal read-only, reject edits explicitly before persistence. Do not acknowledge them as saved.
+4. Do not create a hidden retry queue. A future queue would need its own durable semantics and review.
+5. Stale/background tabs learn by their next coordinator acquisition; advisory messages may update UI sooner.
+6. Offline operation is supported only when Web Locks and IDB are available in the current secure origin. Unsupported contexts fail closed.
+7. Precommit cancellation returns to writable atomically. Postcommit rollback is not supported.
+
+## Future K-326 integration contract
+
+K-326 may eventually accept a new adapter only when it can revalidate an exact, versioned, payload-free handoff envelope containing:
+
+- record discriminator/version;
+- hashed namespace/user/project/device/physical-source scope;
+- source backend and schema version;
+- handoff session ID;
+- source authority ID/version and predecessor authority digest;
+- terminal state `read_only_handoff`;
+- source revision and immutable snapshot record count;
+- source-root digest and snapshot/manifest digest;
+- writer-drain proof `web_locks_exclusive_v1`;
+- coordinator version and hashed lock scope;
+- committed timestamp and bounded attempt/CAS version;
+- K-325 migration session ID and verified target manifest digest.
+
+Future K-326 must re-read and validate the terminal authority, exact snapshot digest, namespace/root binding, supported coordinator/version, no newer revision, no writable/pending authority, and exact K-325 session evidence immediately before activation. Missing, malformed, mixed, unknown, superseded, or nonterminal evidence remains `CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE` or bounded corruption. K-327 changes none of the current acceptance code.
+
+## K-328 implementation scope
+
+### Exact follow-up
+
+- Title: `K-328 — Implement Dormant Cross-Context Read-Only Handoff Foundation`
+- Branch: `codex/k328-cross-context-read-only-handoff`
+- Production state remains dormant and unavailable to startup/UI/auth/hydration/background execution.
+
+### Expected files
+
+- New `src/lib/localDatabase/legacySourceHandoff.ts` and tests for state, validation, CAS, snapshot binding, restart, and privacy.
+- New `src/lib/localDatabase/legacySourceCoordinator.ts` and tests wrapping Web Locks with unsupported-environment failure.
+- Additive local database schema/constants/validation changes for authority and immutable snapshot metadata (reuse an existing generic store only if strict key/type isolation is proved).
+- Coordinated changes to `src/lib/notePersistence.ts`, `src/lib/noteIndexedDb.ts`, `src/components/views/noteUtils.ts`, `src/store/useNotesStore.ts`, onboarding, cleanup, and the K-96/K-97 developer/audit writers.
+- A test-only two-page browser fixture and Playwright configuration isolated from production exports.
+- `docs/K-328-cross-context-read-only-handoff-foundation.md` plus necessary K-326/K-325 contract references.
+
+### Implementation order
+
+1. Add versioned state schemas, strict validators, hashed scope identity, bounded errors, and additive populated-version upgrade tests.
+2. Add Web Lock coordinator with no lease fallback, no `steal`, bounded pre-grant abort, and deterministic fake coordinator tests.
+3. Move authority, revision, Notes/folders evidence, and conversion progress into IDB transactional scope.
+4. Convert every writer in the inventory; static tests reject bypasses and direct authoritative localStorage writes.
+5. Implement dormant preflight, pending, snapshot, terminal, restart, and cancellation primitives.
+6. Add K-325 snapshot adapter; keep K-326 production classification unchanged until a separate review proves the adapter.
+7. Run Chromium two-page order/crash/reload/account tests; document Firefox/WebKit/PWA/private-mode support matrix.
+8. Obtain persistence/concurrency and security/privacy review before any eligibility change.
+
+### Required K-328 tests
+
+- writer-first, handoff-first, two writers with handoff between them;
+- tab close/crash before writer commit and at every handoff durable boundary;
+- reload while queued and resume from every durable state;
+- source revision/digest/manifest mutation and corruption;
+- logout/login, project/device/scope mismatch, imported/restored source;
+- Web Locks absent, insecure context, IDB failure/quota, pending timeout;
+- preflight editor flush failure and explicit write rejection;
+- direct-writer reachability scan, developer/audit writer coverage, no localStorage authority;
+- no network, K-323 runner, K-326 activation, startup/UI/service-worker/timer wiring;
+- populated previous IndexedDB version preserved exactly.
+
+### Rollout restrictions
+
+K-328 remains dormant. It cannot enable K-326, change Notes reads, initiate migration, stop production writers automatically, or expose UI. A later independent review must decide whether production source eligibility can change. Production rollout remains a separate task.
+
+## Security and privacy
+
+- Lock names and records use hashes; they expose no raw user/project/device IDs, Note IDs, titles, bodies, properties, relations, attachment data, tokens, or auth objects.
+- Snapshot payload access stays inside the local persistence boundary; diagnostics expose only bounded codes, state, counts, versions, and digests.
+- Same-origin scripts are cooperative participants, not a hostile-code security boundary. Content compromise can bypass app contracts; CSP/supply-chain security remains separate.
+- Unknown browser capability or persisted evidence fails closed. There is no automatic repair, source substitution, lock stealing, or lease fallback.
+
+## Verification evidence
+
+The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts`. It is a pure test model; it is not exported by production code and makes no browser-implementation claim.
+
+| Command | Result |
+|---|---|
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 7/7 passed, 0.94 s final run |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.81 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.30 s |
+| `npm test -- --run src/lib/recoverySafetyPolicy.test.ts` | 18/18 passed, 0.33 s |
+| `npm test -- --run src/lib/notePersistenceDurability.test.ts` | 7/7 passed, 2.50 s; this is the repository's actual replacement for the requested nonexistent `notePersistence.test.ts` path |
+| `npm test -- --run src/lib/localDatabase/` | 522/522 passed across 9 files, 2.50 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 10.98 s |
+| `npm run typecheck` | passed, 23.7 s |
+| `npm run build` | passed, 12.8 s; existing dynamic-import and chunk-size warnings only |
+| `npm test` | 4,800 passed / 7 skipped across 578 passed / 1 skipped files, 225.33 s |
+| `git diff --check` | passed before publication |
+
+Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
+
+## Residual risks
+
+### Browser support
+
+Target-browser, PWA, storage-bucket, private-mode, and older-browser behavior lacks project-specific evidence. Unsupported environments must remain ineligible.
+
+### Crash semantics
+
+IDB transaction atomicity is browser-provided, but power-loss durability and quota/storage eviction need real-engine failure evidence. No protocol can promise survival beyond the user agent's storage durability.
+
+### Real multi-tab limitations
+
+The deterministic model proves the intended ordering, not Web Locks/IDB integration. Real two-page, reload, background suspension, and process restart tests are K-328 gates.
+
+### Writer migration breadth
+
+Safety holds only after every listed writer and future writer funnels through one mandatory persistence boundary. Static reachability is necessary but not sufficient; code review must reject new bypasses.
+
+### Transaction liveness
+
+K-328 must keep hashing/UI/timers/network outside IDB transactions and test every durable failure boundary.
+
+### Account switching
+
+The exact physical-source/root-to-account policy needs product confirmation. The conservative design binds both and rejects ambiguity.
+
+### Maintenance UX
+
+No UI exists. The future UI must flush or abort, display read-only explicitly, and never acknowledge rejected edits.
+
+### Dormant protocol complexity
+
+Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
+
+### Actual defects found
+
+No new runtime defect was introduced. The already-known architectural defect is that current production localStorage/legacy-IDB writers are not cross-context serializable; K-326G correctly blocks them.
+
+### Unresolved architecture decisions
+
+No owner decision is required for the high-level architecture. K-328 must decide the additive store layout and exact browser support floor without weakening the contract.
+
+## Non-goals and runtime safety
+
+K-327 performs no production K-326 eligibility change, source handoff activation, startup/UI wiring, network behavior, K-323 enablement, Notes read-path switch, legacy writer shutdown, source deletion/rewrite, silent write queue, payload logging, restore, migration, cleanup, or production rollout.
+
+## Next action
+
+`K-327 — Focused Architecture Review`
