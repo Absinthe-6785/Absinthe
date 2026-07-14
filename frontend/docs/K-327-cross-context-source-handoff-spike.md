@@ -6,7 +6,7 @@
 
 `SELECTED_HANDOFF_ARCHITECTURE: WEB_LOCKS_PLUS_DURABLE_INDEXEDDB_AUTHORITY_AND_IMMUTABLE_SNAPSHOT`
 
-The smallest defensible handoff uses one scope-bound exclusive Web Lock to drain cooperating same-origin writers, one durable IndexedDB authority record to survive reload/crash, and one immutable snapshot as the only evidence K-325 and K-326 may consume. Every migration-critical writer must use the coordinator. The current `localStorage` Notes payload and revision keys must cease to be authoritative before a production source becomes eligible.
+The smallest defensible handoff uses one physical-source-bound exclusive Web Lock to drain cooperating same-origin writers, one durable IndexedDB authority record per physical source to survive reload/crash and enforce logical ownership, and one immutable snapshot as the only evidence K-325 and K-326 may consume. Every migration-critical writer must derive the coordinator from physical storage identity. The current `localStorage` Notes payload and revision keys must cease to be authoritative before a production source becomes eligible.
 
 K-327 does not implement this protocol. It adds only this architecture record and a deterministic test-only concurrency model. Current production localStorage, IndexedDB, mixed, unknown, malformed, and multiple-writer sources remain rejected by K-326G.
 
@@ -27,6 +27,11 @@ Required verdicts:
 - `HANDOFF_AUTHORITY_IS_STRICTLY_SCOPE_BOUND`
 - `HANDOFF_HAS_NO_SILENT_WRITE_LOSS_SEMANTICS`
 - `FUTURE_K326_SOURCE_ADAPTER_CONTRACT_IS_EXPLICIT_AND_FAIL_CLOSED`
+- `PHYSICAL_SOURCE_IDENTITY_IS_STABLE_ACROSS_ACCOUNT_SCOPE_CHANGES`
+- `PHYSICAL_EXCLUSION_AND_LOGICAL_AUTHORITY_ARE_STRICTLY_SEPARATED`
+- `ONE_PHYSICAL_SOURCE_HAS_ONE_DURABLE_HANDOFF_AUTHORITY`
+- `WRITE_EXCLUSION_POINT_IS_DISTINCT_FROM_FINAL_HANDOFF_LINEARIZATION`
+- `FINAL_HANDOFF_LINEARIZATION_IS_ONE_EXACT_DURABLE_COMMIT`
 
 ## Starting facts
 
@@ -85,6 +90,8 @@ Notes objects carry folders by `folderId`, properties, relations, created/update
 
 Durability backups and vault snapshots are preservation evidence, not the K-325 live canonical source. They must not silently substitute for a failed handoff.
 
+K-327A repeated the four requested source searches. No additional reachable mutation of the K-325 canonical Notes source was found beyond this table. Other localStorage writers hold unrelated UI/domain data; durability backups and vault snapshots remain non-authoritative preservation artifacts. Verdict: `K327A_DOCUMENTS_ALL_REACHABLE_MIGRATION_CRITICAL_WRITERS`.
+
 ### Non-writers and absent authorities
 
 - [`storage` events](https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event) notify other same-origin windows after localStorage changes; they do not serialize the originating mutation and do not fire in the window that made the change.
@@ -93,14 +100,32 @@ Durability backups and vault snapshots are preservation evidence, not the K-325 
 
 ## Required safety contract
 
-For one exact hashed source scope:
+### Physical exclusion identity
 
-1. Every migration-critical writer obtains the same exclusive coordinator before reading durable authority.
-2. A writer performs authority validation, source mutation, and monotonic revision increment in one short IndexedDB readwrite transaction.
+The physical source is the browser storage object/family that a writer can mutate. Its canonical tuple is a fixed-position UTF-8 JSON array containing only:
+
+1. discriminator `absinthe_legacy_physical_source_v1`;
+2. canonical origin/storage-bucket origin;
+3. source family `legacy_notes`;
+4. canonical backend `legacy_indexeddb`;
+5. database name `absinthe-notes-v1`;
+6. object store `notes`;
+7. physical source schema version `1`.
+
+Fixed positions make canonicalization delimiter-safe, locale-independent, and independent of object property insertion order. The lock is `absinthe:legacy-source-handoff:v1:<sha256(UTF8(canonical tuple))>`. User, project, namespace, device, session, route, and repository-instance fields are forbidden from this tuple. The same physical storage therefore has one lock across logout/login, project/device changes, stale tabs, and reloads; a different origin/database/store/family/version has a different lock. Missing, unknown, empty, noncanonical, or extra fields fail before lock acquisition.
+
+### Logical durable authority
+
+Exactly one durable authority record is keyed by the physical-source digest. It contains the physical digest, record/coordinator version, logical user/project/namespace/device binding (stored as bounded fields or a canonical digest), state, source revision, handoff session, append-only snapshot candidate identity, terminal snapshot identity, and bounded recovery metadata. Logical mismatch is a rejection after the common physical lock is acquired; it never creates a second account-keyed authority record. Absence or corruption is fail-closed, and account switching cannot synthesize a replacement writable authority.
+
+For one exact physical source:
+
+1. Every migration-critical writer derives and obtains the same physical-source coordinator before reading durable authority.
+2. Under that lock, a writer reads the singleton physical-root authority, validates logical user/project/namespace/device, and performs authority validation, source mutation, and monotonic revision increment in one short IndexedDB readwrite transaction.
 3. Handoff obtains that exclusive coordinator, proving previously admitted cooperating writers have finished or crashed.
 4. Handoff atomically changes durable authority from `writable` to `handoff_pending`. This is the **write-exclusion point**: while pending, later writers fail before mutation.
-5. Handoff captures a canonical, deterministically ordered source image and manifest while the exclusive lock remains held and authority remains pending.
-6. Handoff atomically commits immutable snapshot evidence and authority `read_only_handoff`. This commit is the **irreversible handoff linearization point** for K-326 eligibility.
+5. Handoff captures a canonical, deterministically ordered source image and manifest while the exclusive lock remains held and authority remains pending, then commits an append-only candidate as `snapshot_committed_pending_finalization`.
+6. Handoff revalidates candidate digest, physical/logical authority, and unchanged source revision. A final CAS commit binds that candidate and changes authority to `read_only_handoff`. This exact commit is the **irreversible handoff linearization point**; K-325 eligibility may begin only afterward.
 7. After that commit, cancellation and automatic rollback are forbidden. Every writer, including stale tabs, reacquires the lock, observes durable read-only authority, and fails before mutation.
 8. K-325 consumes only the immutable snapshot. K-326 revalidates the exact terminal authority, snapshot digest, scope, revision, and K-325 binding.
 
@@ -121,7 +146,7 @@ If a write acquired the lock first, handoff waits and captures it. If handoff ac
 | Service worker | origin-scoped IDB | can coordinate events but has event-driven lifetime | may be terminated/restarted; not initialized before every page write | advisory only; no Notes writer introduced |
 | Developer/audit tool | may use real default storage | same if run in page | explicit helpers can write directly | unavailable without dev capability and coordinator |
 | Vitest/test process | isolated fake/model storage | process-local test queue | not browser evidence | deterministic protocol proof only |
-| Same-origin logout/login/project switch | physical source may remain shared | lock name must bind physical source plus hashed namespace | stale tab retains old user memory | root authority rejects mismatched user/project/device/scope |
+| Same-origin logout/login/project switch | physical source may remain shared | one lock derived only from physical source | stale tab retains old user memory | after common lock acquisition, singleton root authority rejects mismatched user/project/device/scope |
 | Restored/imported browser profile | copied storage, new runtime locks | new lock manager | copied authority may reference a different device/root | durable device/root binding fails closed |
 | Multiple repository instances | same underlying stores | same lock name | separate JS instances | no process singleton assumptions |
 
@@ -154,7 +179,7 @@ The [W3C Web Locks working draft](https://www.w3.org/TR/web-locks/) specifies sa
 `WEB_LOCKS_IS_VIABLE_ONLY_WITH_ADDITIONAL_DURABLE_FENCING`
 
 - Same-name exclusive acquisition is the drain proof for writers that all use the coordinator.
-- The lock must be named with a versioned hash of physical source root plus user/project/device namespace; raw identifiers must not appear in lock diagnostics.
+- The lock is named only from the versioned canonical physical-source tuple described above. Logical user/project/namespace/device fields are deliberately excluded and are checked in the durable authority after lock acquisition.
 - The lock is held only across bounded local storage work. No network call, UI wait, timer, or user interaction is inside the callback.
 - An `AbortSignal` may bound waiting before grant. It is not an in-lock cancellation mechanism.
 - `steal` is forbidden.
@@ -218,8 +243,8 @@ The repository has Vitest, `happy-dom`, and `fake-indexeddb`, but no Playwright/
 
 Evidence collected:
 
-- Deterministic unit model: seven Vitest cases, two logical contexts sharing one exclusive queue and durable model.
-- Orderings: writer first; handoff first; writer/handoff/late-writer queue; writer crash before commit; handoff crash after pending and restart; precommit cancellation; stale-account scope; unsupported coordinator.
+- Deterministic unit model: fourteen Vitest cases. Each actor derives its physical lock name; a test-only named-lock registry selects queues, and a physical-source registry supplies exactly one authority/source graph per physical digest.
+- Evidence: canonical identity and malformed input; same root across different user/project/namespace/device; different-root concurrency; writer first; handoff first; writer/handoff/late-writer ordering; writer crash; pending crash/restart; append-only snapshot candidate crash/finalization; cancellation; stale-account rejection; absent/corrupt authority; unsupported coordinator.
 - Fake storage evidence: existing local database suites continue to exercise fake IndexedDB; the new model intentionally does not claim browser storage behavior.
 - Real two-tab, page reload, browser-process restart, suspension, and PWA evidence: not collected.
 
@@ -231,11 +256,11 @@ K-328 must add Chromium two-page evidence and at least the project-supported Fir
 
 ### Safety argument
 
-All source writers and handoff use one hashed-scope exclusive lock. Lock acquisition orders writer and handoff callbacks. Writers validate `writable` and commit source plus revision atomically in IDB. Handoff acquisition drains earlier writers, commits pending authority, captures the fixed source, and terminally commits immutable snapshot evidence. Later writers observe pending/read-only and reject before storage mutation. Durable state, not lock liveness, drives restart.
+All actors touching one physical source derive the same versioned physical lock, regardless of cached account scope. Lock acquisition orders writer and handoff callbacks. Only after acquisition does an actor read the singleton physical-root authority and validate logical scope. Writers validate `writable` and commit source plus revision atomically in IDB. Handoff drains earlier writers, commits pending authority, captures the fixed source, commits an append-only snapshot candidate, and finally binds that candidate through terminal `read_only_handoff` authority. Later or stale-account writers acquire the same lock and reject on scope or state before storage mutation. Durable state, not lock liveness, drives restart.
 
 ### Required writer migrations
 
-1. Introduce the coordinator and versioned durable authority/snapshot records, dormant by default.
+1. Introduce canonical physical-source identity, internal lock-name derivation, and one versioned durable authority/snapshot graph per physical source, dormant by default.
 2. Move authoritative Notes, folders, migration metadata, and revision into one IDB transactional source.
 3. Route every production and developer/audit mutation listed above through the coordinator.
 4. Remove authoritative localStorage fallback and direct Note payload writes.
@@ -252,10 +277,11 @@ All source writers and handoff use one hashed-scope exclusive lock. Lock acquisi
 
 ## Linearization points
 
-- **Write-exclusion point:** successful IDB commit of exact authority `writable@revision N -> handoff_pending@revision N` while holding the exclusive scope lock. From this point until explicit precommit cancellation, no writer may commit.
-- **Irreversible K-326 handoff point:** successful atomic commit of immutable snapshot metadata and exact authority `handoff_pending -> read_only_handoff`, binding snapshot digest and revision N. After this commit, no cancellation, writer re-enable, or automatic rollback is permitted.
+- **`WRITE_EXCLUSION_POINT`:** successful IDB commit of exact authority `writable@revision N -> handoff_pending@revision N` while holding the common physical-source lock. From this precommit point until explicit pre-snapshot cancellation, no writer may commit. It is resumable and is not K-325/K-326 evidence.
+- **Append-only candidate commit:** exact snapshot bytes/metadata, root and manifest digests, source revision N, physical-source digest, and logical authority digest are persisted as `snapshot_committed_pending_finalization`. Writers remain blocked; the candidate is provisional, cannot be cancelled or replaced, and is not K-325/K-326 eligible.
+- **`HANDOFF_LINEARIZATION_POINT`:** one final IDB CAS commit revalidates the append-only candidate and unchanged revision, binds its digest in the singleton authority, and changes `snapshot_committed_pending_finalization -> read_only_handoff`. After this exact durable commit, cancellation, writer re-enable, candidate replacement, and automatic rollback are forbidden. K-325 eligibility may begin; K-326 still requires later exact K-325 binding and revalidation.
 
-This distinction permits safe pre-snapshot cancellation without falsely calling the pending state irreversible.
+This two-step append-only protocol keeps hashing/canonicalization outside long IDB transactions while defining one exact irreversible terminal commit. `handoff_pending` is only the write-exclusion state, never final handoff completion.
 
 ## State machine and restart behavior
 
@@ -263,7 +289,7 @@ This distinction permits safe pre-snapshot cancellation without falsely calling 
 |---|---|---|---|---|---|---|
 | `writable` | allowed only through coordinator | absent | ineligible | ineligible | continue normal legacy writes | not applicable |
 | `handoff_pending` | rejected | absent or uncommitted capture | ineligible | ineligible | reacquire lock; resume capture or explicitly cancel after graph validation | allowed only before snapshot commit |
-| `snapshot_committed` | rejected | immutable, bound to revision | eligible only after terminal validation | ineligible | reacquire lock; validate snapshot and finish terminal authority; never recapture silently | forbidden |
+| `snapshot_committed_pending_finalization` | rejected | append-only candidate, bound to physical/logical authority and revision | ineligible | ineligible | reacquire physical lock; validate exact candidate and unchanged revision; finalize idempotently or remain blocked | forbidden |
 | `read_only_handoff` | rejected permanently | immutable and exact | eligible | potentially eligible after K-325/K-326 revalidation | idempotently revalidate; no mutation | forbidden |
 | `handoff_failed` | rejected unless failure is proven pre-exclusion and an explicit cancellation transaction restores writable | absent or retained diagnostic reference | ineligible | ineligible | bounded diagnosis; no automatic repair | only the same strict precommit cancellation rule |
 | `cancelled_precommit` | writable only after the atomic cancellation transition | absent | ineligible | ineligible | terminal attempt record; new session required | already cancelled |
@@ -275,13 +301,13 @@ Unknown state, unknown version, missing scope, digest mismatch, impossible trans
 - Before pending commit: IDB abort leaves `writable`; lock releases on context termination.
 - After pending commit, before capture: restart sees pending; writers reject; resume/cancel is explicit.
 - During capture/hash: pending remains; partial external computation is not evidence.
-- After snapshot commit, before terminal marker if two transactions are unavoidable: `snapshot_committed` resumes only by validating the exact immutable snapshot. K-328 should prefer a single transaction for snapshot metadata plus terminal authority.
+- After append-only snapshot candidate commit, before terminal authority: restart sees `snapshot_committed_pending_finalization`; writers remain blocked, the candidate is ineligible, cancellation is forbidden, and retry may only validate the same candidate/revision and perform the terminal CAS. It never rebuilds, replaces, or silently discards the candidate.
 - After terminal commit: restart revalidates; never re-enables writers.
 - Browser/OS power loss inherits the browser's IDB durability limitations; exact real-browser crash/power evidence remains a rollout prerequisite.
 
 ## Account and namespace isolation
 
-Authority binds versioned hashes, never raw values, for:
+The physical lock identity is separate from logical authority. It contains canonical origin, source family, backend, database, object store, and physical version only. The singleton durable authority then binds versioned hashes or bounded local fields for:
 
 - user ID;
 - Supabase project ref;
@@ -290,7 +316,7 @@ Authority binds versioned hashes, never raw values, for:
 - source schema and adapter version;
 - K-325 migration session, once created.
 
-The Web Lock name is `absinthe:legacy-notes-handoff:v1:<scope-digest>`. The digest includes the physical source root so stale tabs for a prior account contend on the same source, then fail durable scope validation. Logout/login, project switch, device change, imported database, restored profile, or stale cached capability cannot mint authority. A second physical browser profile is a different source and needs its own handoff.
+The Web Lock name is `absinthe:legacy-source-handoff:v1:<physical-source-digest>`. User/project/namespace/device are not inputs. A stale tab and a current-account tab addressing the same physical source therefore contend on one lock; the stale actor is rejected by the singleton durable authority after acquisition and before mutation. Logout/login, project switch, device change, imported database, restored profile, or stale cached capability cannot fork the authority. A copied profile is a distinct browser storage environment/lock manager and must fail its device/root authority checks rather than inherit runtime lock ownership.
 
 ## User-visible write availability
 
@@ -309,7 +335,7 @@ The future operation is a bounded maintenance/read-only interval:
 K-326 may eventually accept a new adapter only when it can revalidate an exact, versioned, payload-free handoff envelope containing:
 
 - record discriminator/version;
-- hashed namespace/user/project/device/physical-source scope;
+- canonical physical-source digest and a separately derived logical namespace/user/project/device authority digest;
 - source backend and schema version;
 - handoff session ID;
 - source authority ID/version and predecessor authority digest;
@@ -317,11 +343,11 @@ K-326 may eventually accept a new adapter only when it can revalidate an exact, 
 - source revision and immutable snapshot record count;
 - source-root digest and snapshot/manifest digest;
 - writer-drain proof `web_locks_exclusive_v1`;
-- coordinator version and hashed lock scope;
+- coordinator version and physical-source-only lock-name digest;
 - committed timestamp and bounded attempt/CAS version;
 - K-325 migration session ID and verified target manifest digest.
 
-Future K-326 must re-read and validate the terminal authority, exact snapshot digest, namespace/root binding, supported coordinator/version, no newer revision, no writable/pending authority, and exact K-325 session evidence immediately before activation. Missing, malformed, mixed, unknown, superseded, or nonterminal evidence remains `CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE` or bounded corruption. K-327 changes none of the current acceptance code.
+Future K-326 must re-read the singleton physical-root authority and validate terminal state, exact snapshot digest, separate logical namespace binding, supported coordinator/version, no newer revision, no writable/pending authority, and exact K-325 session evidence immediately before activation. An account-keyed parallel authority record is invalid. Missing, malformed, mixed, unknown, superseded, or nonterminal evidence remains `CUTOVER_SOURCE_NOT_CROSS_CONTEXT_SAFE` or bounded corruption. K-327 changes none of the current acceptance code.
 
 ## K-328 implementation scope
 
@@ -333,8 +359,9 @@ Future K-326 must re-read and validate the terminal authority, exact snapshot di
 
 ### Expected files
 
-- New `src/lib/localDatabase/legacySourceHandoff.ts` and tests for state, validation, CAS, snapshot binding, restart, and privacy.
-- New `src/lib/localDatabase/legacySourceCoordinator.ts` and tests wrapping Web Locks with unsupported-environment failure.
+- New `src/lib/localDatabase/legacyPhysicalSourceIdentity.ts` and tests for exact canonical fields, UTF-8 digest derivation, malformed identity, same-root stability, and different-root separation.
+- New `src/lib/localDatabase/legacySourceHandoff.ts` and tests for the singleton physical-root authority, logical scope validation, CAS, append-only snapshot candidate, final binding, restart, and privacy.
+- New `src/lib/localDatabase/legacySourceCoordinator.ts` and tests wrapping Web Locks with internal physical lock-name derivation, no injected lock/queue identity, and unsupported-environment failure.
 - Additive local database schema/constants/validation changes for authority and immutable snapshot metadata (reuse an existing generic store only if strict key/type isolation is proved).
 - Coordinated changes to `src/lib/notePersistence.ts`, `src/lib/noteIndexedDb.ts`, `src/components/views/noteUtils.ts`, `src/store/useNotesStore.ts`, onboarding, cleanup, and the K-96/K-97 developer/audit writers.
 - A test-only two-page browser fixture and Playwright configuration isolated from production exports.
@@ -342,11 +369,11 @@ Future K-326 must re-read and validate the terminal authority, exact snapshot di
 
 ### Implementation order
 
-1. Add versioned state schemas, strict validators, hashed scope identity, bounded errors, and additive populated-version upgrade tests.
-2. Add Web Lock coordinator with no lease fallback, no `steal`, bounded pre-grant abort, and deterministic fake coordinator tests.
+1. Add versioned canonical physical identity, separate logical authority identity, singleton root-authority schemas, strict validators, bounded errors, and additive populated-version upgrade tests.
+2. Add an internal Web Lock coordinator deriving `absinthe:legacy-source-handoff:v1:<physical digest>` with no account inputs, queue injection, lease fallback, or `steal`; include bounded pre-grant abort and deterministic named-lock tests.
 3. Move authority, revision, Notes/folders evidence, and conversion progress into IDB transactional scope.
 4. Convert every writer in the inventory; static tests reject bypasses and direct authoritative localStorage writes.
-5. Implement dormant preflight, pending, snapshot, terminal, restart, and cancellation primitives.
+5. Implement dormant preflight, write-exclusion, append-only snapshot candidate, terminal linearization, restart, and pre-snapshot-only cancellation primitives.
 6. Add K-325 snapshot adapter; keep K-326 production classification unchanged until a separate review proves the adapter.
 7. Run Chromium two-page order/crash/reload/account tests; document Firefox/WebKit/PWA/private-mode support matrix.
 8. Obtain persistence/concurrency and security/privacy review before any eligibility change.
@@ -358,6 +385,8 @@ Future K-326 must re-read and validate the terminal authority, exact snapshot di
 - reload while queued and resume from every durable state;
 - source revision/digest/manifest mutation and corruption;
 - logout/login, project/device/scope mismatch, imported/restored source;
+- same physical root across different user/project/namespace/device values always sharing one lock, stale-account rejection under that lock, and different physical roots progressing independently;
+- snapshot candidate crash before terminal finalization, exact candidate promotion, duplicate retry, and cancellation rejection;
 - Web Locks absent, insecure context, IDB failure/quota, pending timeout;
 - preflight editor flush failure and explicit write rejection;
 - direct-writer reachability scan, developer/audit writer coverage, no localStorage authority;
@@ -381,16 +410,16 @@ The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandof
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 7/7 passed, 0.94 s final run |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.81 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.30 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 14/14 passed, 0.38 s final run |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.94 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.76 s |
 | `npm test -- --run src/lib/recoverySafetyPolicy.test.ts` | 18/18 passed, 0.33 s |
 | `npm test -- --run src/lib/notePersistenceDurability.test.ts` | 7/7 passed, 2.50 s; this is the repository's actual replacement for the requested nonexistent `notePersistence.test.ts` path |
-| `npm test -- --run src/lib/localDatabase/` | 522/522 passed across 9 files, 2.50 s |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 10.98 s |
-| `npm run typecheck` | passed, 23.7 s |
-| `npm run build` | passed, 12.8 s; existing dynamic-import and chunk-size warnings only |
-| `npm test` | 4,800 passed / 7 skipped across 578 passed / 1 skipped files, 225.33 s |
+| `npm test -- --run src/lib/localDatabase/` | 529/529 passed across 9 files, 3.41 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 13.49 s |
+| `npm run typecheck` | passed, 32.4 s |
+| `npm run build` | passed, 21.43 s Vite build (24.2 s wall time); existing dynamic-import and chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 4,807 passed / 7 skipped across 578 passed / 1 skipped files, 305.48 s |
 | `git diff --check` | passed before publication |
 
 Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
@@ -419,7 +448,7 @@ K-328 must keep hashing/UI/timers/network outside IDB transactions and test ever
 
 ### Account switching
 
-The exact physical-source/root-to-account policy needs product confirmation. The conservative design binds both and rejects ambiguity.
+The lock identity is now unambiguously physical-source-only. Product policy still must define an authorized logical owner transition, but it must update the one root authority under the same physical lock; it may never create an account-keyed lock or parallel authority.
 
 ### Maintenance UX
 
@@ -429,9 +458,9 @@ No UI exists. The future UI must flush or abort, display read-only explicitly, a
 
 Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
 
-### Actual defects found
+### Actual defects found and closed in K-327A
 
-No new runtime defect was introduced. The already-known architectural defect is that current production localStorage/legacy-IDB writers are not cross-context serializable; K-326G correctly blocks them.
+K-327 initially mixed account scope into the physical lock digest and the harness manually shared a queue, allowing real lock-name aliasing to be hidden. K-327A separates physical exclusion from logical authority, makes the test registry select queues by derived name, and adds same-root/different-scope, different-root, stale-tab, and pre-finalization restart evidence. The already-known production defect remains: current localStorage/legacy-IDB writers are not yet cross-context serializable, so K-326G correctly continues to block them.
 
 ### Unresolved architecture decisions
 
@@ -443,4 +472,4 @@ K-327 performs no production K-326 eligibility change, source handoff activation
 
 ## Next action
 
-`K-327 — Focused Architecture Review`
+`K-327A — Focused Physical-Lock Architecture Review`
