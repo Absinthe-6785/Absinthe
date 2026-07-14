@@ -1,5 +1,23 @@
 import { createHash } from 'node:crypto';
+import { types as nodeTypes } from 'node:util';
 import { describe, expect, it } from 'vitest';
+
+const AUTHORITY_RECORD_TYPE = 'absinthe_handoff_authority' as const;
+const CANDIDATE_RECORD_TYPE = 'absinthe_handoff_snapshot_candidate' as const;
+const ROOT_RECORD_TYPE = 'absinthe_handoff_test_root' as const;
+const SCHEMA_VERSION = 1 as const;
+const COORDINATOR_VERSION = 1 as const;
+const MAX_IDENTITY_LENGTH = 256;
+const MAX_ORIGIN_LENGTH = 2048;
+const MAX_RECORD_VALUE_LENGTH = 1_048_576;
+const DIGEST = /^[a-f0-9]{64}$/;
+const IDENTIFIER = /^[A-Za-z0-9:_-]+$/;
+const SUPPORTED_SOURCE_FAMILIES = ['legacy_notes', 'legacy_notes_fixture_v2'] as const;
+const SUPPORTED_BACKENDS = [
+  'combined_localstorage_indexeddb',
+  'legacy_indexeddb_fixture_v2',
+] as const;
+const SUPPORTED_PHYSICAL_SOURCE_VERSIONS = [1, 2] as const;
 
 type AuthorityState =
   | 'writable'
@@ -7,43 +25,63 @@ type AuthorityState =
   | 'snapshot_committed_pending_finalization'
   | 'read_only_handoff';
 
-interface PhysicalSourceIdentity {
+interface PhysicalSourceIdentityV1 {
+  schemaVersion: 1;
   origin: string;
-  sourceFamily: 'legacy_notes';
-  backend: 'legacy_indexeddb';
+  sourceFamily: typeof SUPPORTED_SOURCE_FAMILIES[number];
+  backend: typeof SUPPORTED_BACKENDS[number];
   databaseName: string;
   objectStoreName: string;
-  physicalSourceVersion: 1;
+  physicalSourceVersion: typeof SUPPORTED_PHYSICAL_SOURCE_VERSIONS[number];
 }
 
-interface LogicalAuthorityScope {
+interface LogicalAuthorityScopeV1 {
+  schemaVersion: 1;
   userId: string;
   projectRef: string;
   namespaceId: string;
   deviceId: string;
 }
 
-interface DurableAuthority {
+interface PersistedHandoffAuthorityV1 {
+  recordType: typeof AUTHORITY_RECORD_TYPE;
+  schemaVersion: 1;
+  coordinatorVersion: 1;
   physicalSourceDigest: string;
-  ownerScopeDigest: string;
+  logicalScope: LogicalAuthorityScopeV1;
+  logicalScopeDigest: string;
   state: AuthorityState;
-  revision: number;
-  snapshotRevision: number | null;
+  sourceRevision: number;
+  handoffSessionId: string | null;
+  snapshotCandidateId: string | null;
   snapshotDigest: string | null;
+  rootDigest: string | null;
+  manifestDigest: string | null;
 }
 
-interface DurableSnapshot {
+interface PersistedSnapshotCandidateV1 {
+  recordType: typeof CANDIDATE_RECORD_TYPE;
+  schemaVersion: 1;
+  coordinatorVersion: 1;
+  candidateId: string;
+  handoffSessionId: string;
   physicalSourceDigest: string;
-  ownerScopeDigest: string;
+  logicalScopeDigest: string;
   sourceRevision: number;
   snapshotDigest: string;
+  rootDigest: string;
+  manifestDigest: string;
+  entityCount: number;
   records: ReadonlyArray<readonly [string, string]>;
 }
 
-interface DurableModel {
-  authority: DurableAuthority;
-  source: Map<string, string>;
-  snapshot: DurableSnapshot | null;
+interface BoundaryMetrics {
+  canonicalizations: number;
+  hashes: number;
+  lockDerivations: number;
+  registryLookups: number;
+  authorityReads: number;
+  authorityWrites: number;
 }
 
 class ProtocolError extends Error {
@@ -65,39 +103,169 @@ class Deferred {
   }
 }
 
+function metrics(): BoundaryMetrics {
+  return {
+    canonicalizations: 0,
+    hashes: 0,
+    lockDerivations: 0,
+    registryLookups: 0,
+    authorityReads: 0,
+    authorityWrites: 0,
+  };
+}
+
+function fail(code: string): never {
+  throw new ProtocolError(code);
+}
+
+function strictRecord(
+  input: unknown,
+  expectedKeys: readonly string[],
+  code: string,
+): Record<string, unknown> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input) || nodeTypes.isProxy(input)) {
+    return fail(code);
+  }
+  let prototype: object | null;
+  let descriptors: PropertyDescriptorMap;
+  let keys: PropertyKey[];
+  try {
+    prototype = Object.getPrototypeOf(input);
+    descriptors = Object.getOwnPropertyDescriptors(input);
+    keys = Reflect.ownKeys(input);
+  } catch {
+    return fail(code);
+  }
+  if (prototype !== Object.prototype && prototype !== null) return fail(code);
+  if (keys.some(key => typeof key !== 'string')) return fail(code);
+  const actual = (keys as string[]).sort();
+  const expected = [...expectedKeys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    return fail(code);
+  }
+  const fresh: Record<string, unknown> = {};
+  for (const key of expectedKeys) {
+    const descriptor = descriptors[key];
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      || descriptor.get !== undefined || descriptor.set !== undefined) {
+      return fail(code);
+    }
+    fresh[key] = descriptor.value;
+  }
+  return fresh;
+}
+
+function strictString(
+  value: unknown,
+  code: string,
+  options: { max?: number; allowEmpty?: boolean; identifier?: boolean } = {},
+): string {
+  if (typeof value !== 'string') return fail(code);
+  const max = options.max ?? MAX_IDENTITY_LENGTH;
+  if (value.length > max || (!options.allowEmpty && value.length === 0) || value.trim() !== value
+    || (!options.allowEmpty && value.trim().length === 0)
+    || (options.identifier && !IDENTIFIER.test(value))) {
+    return fail(code);
+  }
+  return value;
+}
+
+function strictSafeInteger(value: unknown, code: string, minimum = 0): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) return fail(code);
+  return value;
+}
+
+function strictDigest(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !DIGEST.test(value)) return fail(code);
+  return value;
+}
+
+function strictNullableString(value: unknown, code: string): string | null {
+  return value === null ? null : strictString(value, code, { identifier: true, max: 128 });
+}
+
+function strictNullableDigest(value: unknown, code: string): string | null {
+  return value === null ? null : strictDigest(value, code);
+}
+
+function strictEnum<T extends string | number>(value: unknown, allowed: readonly T[], code: string): T {
+  if (!allowed.includes(value as T)) return fail(code);
+  return value as T;
+}
+
+function strictCanonicalOrigin(value: unknown): string {
+  const origin = strictString(value, 'MALFORMED_PHYSICAL_SOURCE_IDENTITY', { max: MAX_ORIGIN_LENGTH });
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return fail('MALFORMED_PHYSICAL_SOURCE_IDENTITY');
+  }
+  if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+    || parsed.origin === 'null'
+    || parsed.origin !== origin
+    || parsed.username !== ''
+    || parsed.password !== ''
+    || parsed.pathname !== '/'
+    || parsed.search !== ''
+    || parsed.hash !== '') {
+    return fail('MALFORMED_PHYSICAL_SOURCE_IDENTITY');
+  }
+  return origin;
+}
+
+function parsePhysicalSourceIdentity(input: unknown): Readonly<PhysicalSourceIdentityV1> {
+  const record = strictRecord(input, [
+    'schemaVersion', 'origin', 'sourceFamily', 'backend', 'databaseName', 'objectStoreName',
+    'physicalSourceVersion',
+  ], 'MALFORMED_PHYSICAL_SOURCE_IDENTITY');
+  if (record.schemaVersion !== SCHEMA_VERSION) return fail('UNSUPPORTED_PHYSICAL_IDENTITY_VERSION');
+  const value: PhysicalSourceIdentityV1 = {
+    schemaVersion: SCHEMA_VERSION,
+    origin: strictCanonicalOrigin(record.origin),
+    sourceFamily: strictEnum(
+      record.sourceFamily,
+      SUPPORTED_SOURCE_FAMILIES,
+      'MALFORMED_PHYSICAL_SOURCE_IDENTITY',
+    ),
+    backend: strictEnum(record.backend, SUPPORTED_BACKENDS, 'MALFORMED_PHYSICAL_SOURCE_IDENTITY'),
+    databaseName: strictString(record.databaseName, 'MALFORMED_PHYSICAL_SOURCE_IDENTITY'),
+    objectStoreName: strictString(record.objectStoreName, 'MALFORMED_PHYSICAL_SOURCE_IDENTITY'),
+    physicalSourceVersion: strictEnum(
+      record.physicalSourceVersion,
+      SUPPORTED_PHYSICAL_SOURCE_VERSIONS,
+      'UNSUPPORTED_PHYSICAL_SOURCE_VERSION',
+    ),
+  };
+  return Object.freeze(value);
+}
+
+function parseLogicalScope(
+  input: unknown,
+  code = 'MALFORMED_LOGICAL_SCOPE',
+): Readonly<LogicalAuthorityScopeV1> {
+  const record = strictRecord(input, [
+    'schemaVersion', 'userId', 'projectRef', 'namespaceId', 'deviceId',
+  ], code);
+  if (record.schemaVersion !== SCHEMA_VERSION) return fail(code);
+  return Object.freeze({
+    schemaVersion: SCHEMA_VERSION,
+    userId: strictString(record.userId, code),
+    projectRef: strictString(record.projectRef, code),
+    namespaceId: strictString(record.namespaceId, code),
+    deviceId: strictString(record.deviceId, code),
+  });
+}
+
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-function exactKeys(value: object, expected: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  return actual.length === expected.length
-    && actual.every((key, index) => key === [...expected].sort()[index]);
-}
-
-function canonicalPhysicalSource(identity: PhysicalSourceIdentity): string {
-  const expected = [
-    'backend', 'databaseName', 'objectStoreName', 'origin', 'physicalSourceVersion', 'sourceFamily',
-  ];
-  if (!exactKeys(identity, expected)
-    || identity.sourceFamily !== 'legacy_notes'
-    || identity.backend !== 'legacy_indexeddb'
-    || identity.physicalSourceVersion !== 1
-    || !identity.databaseName || !identity.objectStoreName) {
-    throw new ProtocolError('MALFORMED_PHYSICAL_SOURCE_IDENTITY');
-  }
-  let origin: string;
-  try {
-    const parsed = new URL(identity.origin);
-    if (parsed.origin !== identity.origin) throw new Error('non-canonical origin');
-    origin = parsed.origin;
-  } catch {
-    throw new ProtocolError('MALFORMED_PHYSICAL_SOURCE_IDENTITY');
-  }
-  // Fixed-position JSON array is delimiter-safe, locale-independent, and property-order-independent.
+function canonicalValidatedPhysical(identity: PhysicalSourceIdentityV1): string {
   return JSON.stringify([
     'absinthe_legacy_physical_source_v1',
-    origin,
+    identity.schemaVersion,
+    identity.origin,
     identity.sourceFamily,
     identity.backend,
     identity.databaseName,
@@ -106,17 +274,29 @@ function canonicalPhysicalSource(identity: PhysicalSourceIdentity): string {
   ]);
 }
 
-function physicalSourceDigest(identity: PhysicalSourceIdentity): string {
-  return sha256(canonicalPhysicalSource(identity));
+function canonicalPhysicalSource(input: unknown, evidence?: BoundaryMetrics): string {
+  const identity = parsePhysicalSourceIdentity(input);
+  evidence && (evidence.canonicalizations += 1);
+  return canonicalValidatedPhysical(identity);
 }
 
-function derivePhysicalLockName(identity: PhysicalSourceIdentity): string {
-  return `absinthe:legacy-source-handoff:v1:${physicalSourceDigest(identity)}`;
+function physicalSourceDigest(input: unknown, evidence?: BoundaryMetrics): string {
+  const canonical = canonicalPhysicalSource(input, evidence);
+  evidence && (evidence.hashes += 1);
+  return sha256(canonical);
 }
 
-function logicalScopeDigest(scope: LogicalAuthorityScope): string {
+function derivePhysicalLockName(input: unknown, evidence?: BoundaryMetrics): string {
+  const digest = physicalSourceDigest(input, evidence);
+  evidence && (evidence.lockDerivations += 1);
+  return `absinthe:legacy-source-handoff:v1:${digest}`;
+}
+
+function logicalScopeDigest(input: unknown): string {
+  const scope = parseLogicalScope(input);
   return sha256(JSON.stringify([
     'absinthe_legacy_logical_authority_v1',
+    scope.schemaVersion,
     scope.userId,
     scope.projectRef,
     scope.namespaceId,
@@ -124,15 +304,206 @@ function logicalScopeDigest(scope: LogicalAuthorityScope): string {
   ]));
 }
 
-function snapshotDigest(
+function parseRecords(input: unknown, code: string): ReadonlyArray<readonly [string, string]> {
+  const strictArray = (value: unknown, expectedLength: number | null): unknown[] => {
+    if (!Array.isArray(value) || nodeTypes.isProxy(value)
+      || Object.getPrototypeOf(value) !== Array.prototype
+      || (expectedLength !== null && value.length !== expectedLength)) {
+      return fail(code);
+    }
+    let descriptors: PropertyDescriptorMap;
+    let keys: PropertyKey[];
+    try {
+      descriptors = Object.getOwnPropertyDescriptors(value);
+      keys = Reflect.ownKeys(value);
+    } catch {
+      return fail(code);
+    }
+    const expectedKeys = [...Array(value.length).keys()].map(String).concat('length');
+    if (keys.some(key => typeof key !== 'string')
+      || keys.length !== expectedKeys.length
+      || [...keys as string[]].sort().some((key, index) => key !== [...expectedKeys].sort()[index])) {
+      return fail(code);
+    }
+    return Array.from({ length: value.length }, (_, index) => {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        || descriptor.get !== undefined || descriptor.set !== undefined) {
+        return fail(code);
+      }
+      return descriptor.value;
+    });
+  };
+  const inputRecords = strictArray(input, null);
+  const records: Array<readonly [string, string]> = [];
+  const seen = new Set<string>();
+  for (const entry of inputRecords) {
+    const pair = strictArray(entry, 2);
+    const id = strictString(pair[0], code);
+    const value = strictString(pair[1], code, { allowEmpty: true, max: MAX_RECORD_VALUE_LENGTH });
+    if (seen.has(id)) return fail(code);
+    seen.add(id);
+    records.push(Object.freeze([id, value] as const));
+  }
+  const sorted = [...records].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  if (records.some((entry, index) => entry[0] !== sorted[index]?.[0])) return fail(code);
+  return Object.freeze(records);
+}
+
+function canonicalRecords(records: ReadonlyArray<readonly [string, string]>): string {
+  return JSON.stringify(['absinthe_handoff_snapshot_records_v1', records]);
+}
+
+function computeSnapshotDigest(records: ReadonlyArray<readonly [string, string]>): string {
+  return sha256(canonicalRecords(records));
+}
+
+function computeRootDigest(
   physicalDigest: string,
-  ownerDigest: string,
+  scopeDigest: string,
   revision: number,
-  records: ReadonlyArray<readonly [string, string]>,
+  snapshotDigest: string,
 ): string {
   return sha256(JSON.stringify([
-    'absinthe_legacy_handoff_snapshot_v1', physicalDigest, ownerDigest, revision, records,
+    'absinthe_handoff_root_v1', physicalDigest, scopeDigest, revision, snapshotDigest,
   ]));
+}
+
+function computeManifestDigest(
+  candidateId: string,
+  sessionId: string,
+  entityCount: number,
+  rootDigest: string,
+): string {
+  return sha256(JSON.stringify([
+    'absinthe_handoff_manifest_v1', candidateId, sessionId, entityCount, rootDigest,
+  ]));
+}
+
+const AUTHORITY_KEYS = [
+  'recordType', 'schemaVersion', 'coordinatorVersion', 'physicalSourceDigest', 'logicalScope',
+  'logicalScopeDigest', 'state', 'sourceRevision', 'handoffSessionId', 'snapshotCandidateId',
+  'snapshotDigest', 'rootDigest', 'manifestDigest',
+] as const;
+
+function parsePersistedAuthority(input: unknown): Readonly<PersistedHandoffAuthorityV1> {
+  const code = 'CORRUPT_PERSISTED_RECORD';
+  const record = strictRecord(input, AUTHORITY_KEYS, code);
+  if (record.recordType !== AUTHORITY_RECORD_TYPE) return fail(code);
+  if (record.schemaVersion !== SCHEMA_VERSION || record.coordinatorVersion !== COORDINATOR_VERSION) {
+    return fail('UNSUPPORTED_PERSISTED_VERSION');
+  }
+  const logicalScope = parseLogicalScope(record.logicalScope, code);
+  const scopeDigest = strictDigest(record.logicalScopeDigest, code);
+  if (logicalScopeDigest(logicalScope) !== scopeDigest) return fail(code);
+  const state = strictEnum(record.state, [
+    'writable', 'handoff_pending', 'snapshot_committed_pending_finalization', 'read_only_handoff',
+  ] as const, code);
+  const authority: PersistedHandoffAuthorityV1 = {
+    recordType: AUTHORITY_RECORD_TYPE,
+    schemaVersion: SCHEMA_VERSION,
+    coordinatorVersion: COORDINATOR_VERSION,
+    physicalSourceDigest: strictDigest(record.physicalSourceDigest, code),
+    logicalScope,
+    logicalScopeDigest: scopeDigest,
+    state,
+    sourceRevision: strictSafeInteger(record.sourceRevision, code),
+    handoffSessionId: strictNullableString(record.handoffSessionId, code),
+    snapshotCandidateId: strictNullableString(record.snapshotCandidateId, code),
+    snapshotDigest: strictNullableDigest(record.snapshotDigest, code),
+    rootDigest: strictNullableDigest(record.rootDigest, code),
+    manifestDigest: strictNullableDigest(record.manifestDigest, code),
+  };
+  const none = authority.snapshotCandidateId === null && authority.snapshotDigest === null
+    && authority.rootDigest === null && authority.manifestDigest === null;
+  const all = authority.snapshotCandidateId !== null && authority.snapshotDigest !== null
+    && authority.rootDigest !== null && authority.manifestDigest !== null;
+  if (state === 'writable' && (authority.handoffSessionId !== null || !none)) return fail(code);
+  if (state === 'handoff_pending' && (authority.handoffSessionId === null || !none)) return fail(code);
+  if ((state === 'snapshot_committed_pending_finalization' || state === 'read_only_handoff')
+    && (authority.handoffSessionId === null || !all)) return fail(code);
+  return Object.freeze(authority);
+}
+
+const CANDIDATE_KEYS = [
+  'recordType', 'schemaVersion', 'coordinatorVersion', 'candidateId', 'handoffSessionId',
+  'physicalSourceDigest', 'logicalScopeDigest', 'sourceRevision', 'snapshotDigest', 'rootDigest',
+  'manifestDigest', 'entityCount', 'records',
+] as const;
+
+function parsePersistedCandidate(input: unknown): Readonly<PersistedSnapshotCandidateV1> {
+  const code = 'CORRUPT_PERSISTED_RECORD';
+  const record = strictRecord(input, CANDIDATE_KEYS, code);
+  if (record.recordType !== CANDIDATE_RECORD_TYPE) return fail(code);
+  if (record.schemaVersion !== SCHEMA_VERSION || record.coordinatorVersion !== COORDINATOR_VERSION) {
+    return fail('UNSUPPORTED_PERSISTED_VERSION');
+  }
+  const records = parseRecords(record.records, code);
+  const candidate: PersistedSnapshotCandidateV1 = {
+    recordType: CANDIDATE_RECORD_TYPE,
+    schemaVersion: SCHEMA_VERSION,
+    coordinatorVersion: COORDINATOR_VERSION,
+    candidateId: strictString(record.candidateId, code, { identifier: true, max: 128 }),
+    handoffSessionId: strictString(record.handoffSessionId, code, { identifier: true, max: 128 }),
+    physicalSourceDigest: strictDigest(record.physicalSourceDigest, code),
+    logicalScopeDigest: strictDigest(record.logicalScopeDigest, code),
+    sourceRevision: strictSafeInteger(record.sourceRevision, code),
+    snapshotDigest: strictDigest(record.snapshotDigest, code),
+    rootDigest: strictDigest(record.rootDigest, code),
+    manifestDigest: strictDigest(record.manifestDigest, code),
+    entityCount: strictSafeInteger(record.entityCount, code),
+    records,
+  };
+  if (candidate.entityCount !== candidate.records.length) return fail(code);
+  return Object.freeze(candidate);
+}
+
+function serializeAuthority(authority: unknown): string {
+  return JSON.stringify(parsePersistedAuthority(authority));
+}
+
+function serializeCandidate(candidate: unknown): string {
+  return JSON.stringify(parsePersistedCandidate(candidate));
+}
+
+function parseJsonUnknown(bytes: string): unknown {
+  try {
+    return JSON.parse(bytes) as unknown;
+  } catch {
+    return fail('CORRUPT_PERSISTED_RECORD');
+  }
+}
+
+function exactCandidateBinding(
+  authority: Readonly<PersistedHandoffAuthorityV1>,
+  candidate: Readonly<PersistedSnapshotCandidateV1>,
+): void {
+  if ((authority.state !== 'snapshot_committed_pending_finalization'
+      && authority.state !== 'read_only_handoff')
+    || authority.physicalSourceDigest !== candidate.physicalSourceDigest
+    || authority.logicalScopeDigest !== candidate.logicalScopeDigest
+    || authority.handoffSessionId !== candidate.handoffSessionId
+    || authority.snapshotCandidateId !== candidate.candidateId
+    || authority.sourceRevision !== candidate.sourceRevision
+    || authority.snapshotDigest !== candidate.snapshotDigest
+    || authority.rootDigest !== candidate.rootDigest
+    || authority.manifestDigest !== candidate.manifestDigest
+    || authority.coordinatorVersion !== candidate.coordinatorVersion
+    || computeSnapshotDigest(candidate.records) !== candidate.snapshotDigest
+    || computeRootDigest(
+      candidate.physicalSourceDigest,
+      candidate.logicalScopeDigest,
+      candidate.sourceRevision,
+      candidate.snapshotDigest,
+    ) !== candidate.rootDigest
+    || computeManifestDigest(
+      candidate.candidateId,
+      candidate.handoffSessionId,
+      candidate.entityCount,
+      candidate.rootDigest,
+    ) !== candidate.manifestDigest) {
+    return fail('PERSISTED_EVIDENCE_MISMATCH');
+  }
 }
 
 /** Deterministic stand-in for one same-origin, same-name exclusive Web Lock queue. */
@@ -147,11 +518,14 @@ class ExclusiveLockQueue {
   }
 }
 
-/** Test-only LockManager analogue. Actors supply names, never queue instances. */
+/** Test-only LockManager analogue. Actors supply derived names, never queue instances. */
 class NamedLockRegistry {
   private readonly queues = new Map<string, ExclusiveLockQueue>();
 
+  constructor(private readonly evidence: BoundaryMetrics) {}
+
   run<T>(lockName: string, work: () => Promise<T>): Promise<T> {
+    this.evidence.registryLookups += 1;
     let queue = this.queues.get(lockName);
     if (!queue) {
       queue = new ExclusiveLockQueue();
@@ -165,462 +539,985 @@ class NamedLockRegistry {
   }
 }
 
-/** One and only one durable authority/source model is keyed by each physical source digest. */
-class DurablePhysicalSourceRegistry {
-  private readonly sources = new Map<string, DurableModel>();
+interface SerializedRootV1 {
+  recordType: typeof ROOT_RECORD_TYPE;
+  schemaVersion: 1;
+  physicalSourceDigest: string;
+  authority: PersistedHandoffAuthorityV1;
+  candidate: PersistedSnapshotCandidateV1 | null;
+  sourceRecords: ReadonlyArray<readonly [string, string]>;
+}
 
-  initialize(identity: PhysicalSourceIdentity, owner: LogicalAuthorityScope): DurableModel {
-    const digest = physicalSourceDigest(identity);
-    if (this.sources.has(digest)) throw new ProtocolError('AUTHORITY_ALREADY_EXISTS');
-    const durable: DurableModel = {
-      authority: {
-        physicalSourceDigest: digest,
-        ownerScopeDigest: logicalScopeDigest(owner),
-        state: 'writable',
-        revision: 0,
-        snapshotRevision: null,
-        snapshotDigest: null,
-      },
-      source: new Map(),
-      snapshot: null,
+interface DurableSlot {
+  authorityBytes: string;
+  candidateBytes: string | null;
+  source: Map<string, string>;
+}
+
+class DurablePhysicalSourceRegistry {
+  private readonly slots = new Map<string, DurableSlot>();
+
+  constructor(private readonly evidence: BoundaryMetrics) {}
+
+  initialize(identityInput: unknown, scopeInput: unknown): void {
+    const identity = parsePhysicalSourceIdentity(identityInput);
+    const scope = parseLogicalScope(scopeInput);
+    const digest = sha256(canonicalValidatedPhysical(identity));
+    if (this.slots.has(digest)) return fail('AUTHORITY_ALREADY_EXISTS');
+    const authority: PersistedHandoffAuthorityV1 = {
+      recordType: AUTHORITY_RECORD_TYPE,
+      schemaVersion: SCHEMA_VERSION,
+      coordinatorVersion: COORDINATOR_VERSION,
+      physicalSourceDigest: digest,
+      logicalScope: scope,
+      logicalScopeDigest: logicalScopeDigest(scope),
+      state: 'writable',
+      sourceRevision: 0,
+      handoffSessionId: null,
+      snapshotCandidateId: null,
+      snapshotDigest: null,
+      rootDigest: null,
+      manifestDigest: null,
     };
-    this.sources.set(digest, durable);
-    return durable;
+    this.slots.set(digest, { authorityBytes: serializeAuthority(authority), candidateBytes: null, source: new Map() });
+    this.evidence.authorityWrites += 1;
   }
 
-  read(identity: PhysicalSourceIdentity): DurableModel {
-    const durable = this.sources.get(physicalSourceDigest(identity));
-    if (!durable) throw new ProtocolError('AUTHORITY_NOT_FOUND');
-    return durable;
+  private slot(digest: string): DurableSlot {
+    const slot = this.slots.get(digest);
+    if (!slot) return fail('AUTHORITY_NOT_FOUND');
+    return slot;
+  }
+
+  readAuthority(digest: string): Readonly<PersistedHandoffAuthorityV1> {
+    this.evidence.authorityReads += 1;
+    return parsePersistedAuthority(parseJsonUnknown(this.slot(digest).authorityBytes));
+  }
+
+  readCandidate(digest: string): Readonly<PersistedSnapshotCandidateV1> | null {
+    const bytes = this.slot(digest).candidateBytes;
+    return bytes === null ? null : parsePersistedCandidate(parseJsonUnknown(bytes));
+  }
+
+  sourceRecords(digest: string): ReadonlyArray<readonly [string, string]> {
+    return Object.freeze([...this.slot(digest).source.entries()]
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(entry => Object.freeze([entry[0], entry[1]] as const)));
+  }
+
+  compareAndSetAuthority(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    next: Readonly<PersistedHandoffAuthorityV1>,
+  ): void {
+    const slot = this.slot(digest);
+    const current = parsePersistedAuthority(parseJsonUnknown(slot.authorityBytes));
+    if (serializeAuthority(current) !== serializeAuthority(expected)) return fail('AUTHORITY_CAS_MISMATCH');
+    slot.authorityBytes = serializeAuthority(next);
+    this.evidence.authorityWrites += 1;
+  }
+
+  commitWrite(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    next: Readonly<PersistedHandoffAuthorityV1>,
+    id: string,
+    value: string,
+  ): void {
+    const slot = this.slot(digest);
+    const current = parsePersistedAuthority(parseJsonUnknown(slot.authorityBytes));
+    if (serializeAuthority(current) !== serializeAuthority(expected) || slot.candidateBytes !== null) {
+      return fail('AUTHORITY_CAS_MISMATCH');
+    }
+    const source = new Map(slot.source);
+    source.set(id, value);
+    slot.source = source;
+    slot.authorityBytes = serializeAuthority(next);
+    this.evidence.authorityWrites += 1;
+  }
+
+  commitCandidate(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    next: Readonly<PersistedHandoffAuthorityV1>,
+    candidate: Readonly<PersistedSnapshotCandidateV1>,
+  ): void {
+    const slot = this.slot(digest);
+    const current = parsePersistedAuthority(parseJsonUnknown(slot.authorityBytes));
+    if (serializeAuthority(current) !== serializeAuthority(expected) || slot.candidateBytes !== null) {
+      return fail('AUTHORITY_CAS_MISMATCH');
+    }
+    exactCandidateBinding(next, candidate);
+    slot.candidateBytes = serializeCandidate(candidate);
+    slot.authorityBytes = serializeAuthority(next);
+    this.evidence.authorityWrites += 1;
+  }
+
+  finalizeCandidate(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    candidate: Readonly<PersistedSnapshotCandidateV1>,
+  ): void {
+    const slot = this.slot(digest);
+    const current = parsePersistedAuthority(parseJsonUnknown(slot.authorityBytes));
+    const currentCandidate = slot.candidateBytes === null
+      ? null
+      : parsePersistedCandidate(parseJsonUnknown(slot.candidateBytes));
+    if (!currentCandidate
+      || serializeAuthority(current) !== serializeAuthority(expected)
+      || serializeCandidate(currentCandidate) !== serializeCandidate(candidate)) {
+      return fail('AUTHORITY_CAS_MISMATCH');
+    }
+    exactCandidateBinding(current, currentCandidate);
+    const terminal = parsePersistedAuthority({ ...current, state: 'read_only_handoff' });
+    slot.authorityBytes = serializeAuthority(terminal);
+    this.evidence.authorityWrites += 1;
+  }
+
+  serializeRoot(identityInput: unknown): string {
+    const digest = physicalSourceDigest(identityInput);
+    const authority = this.readAuthority(digest);
+    const candidate = this.readCandidate(digest);
+    const root: SerializedRootV1 = {
+      recordType: ROOT_RECORD_TYPE,
+      schemaVersion: SCHEMA_VERSION,
+      physicalSourceDigest: digest,
+      authority,
+      candidate,
+      sourceRecords: this.sourceRecords(digest),
+    };
+    return JSON.stringify(root);
+  }
+
+  static fromSerializedRoot(bytes: string, evidence = metrics()): DurablePhysicalSourceRegistry {
+    const unknownRoot = parseJsonUnknown(bytes);
+    const code = 'CORRUPT_PERSISTED_RECORD';
+    const root = strictRecord(unknownRoot, [
+      'recordType', 'schemaVersion', 'physicalSourceDigest', 'authority', 'candidate', 'sourceRecords',
+    ], code);
+    if (root.recordType !== ROOT_RECORD_TYPE || root.schemaVersion !== SCHEMA_VERSION) return fail(code);
+    const physicalDigest = strictDigest(root.physicalSourceDigest, code);
+    const authority = parsePersistedAuthority(root.authority);
+    const candidate = root.candidate === null ? null : parsePersistedCandidate(root.candidate);
+    const sourceRecords = parseRecords(root.sourceRecords, code);
+    if (authority.physicalSourceDigest !== physicalDigest) return fail(code);
+    const candidateRequired = authority.state === 'snapshot_committed_pending_finalization'
+      || authority.state === 'read_only_handoff';
+    if (candidateRequired !== Boolean(candidate)) return fail(code);
+    const registry = new DurablePhysicalSourceRegistry(evidence);
+    registry.slots.set(physicalDigest, {
+      authorityBytes: serializeAuthority(authority),
+      candidateBytes: candidate ? serializeCandidate(candidate) : null,
+      source: new Map(sourceRecords),
+    });
+    return registry;
   }
 
   get size(): number {
-    return this.sources.size;
+    return this.slots.size;
   }
-}
 
-function validateDurableModel(durable: DurableModel, expectedPhysicalDigest: string): void {
-  const { authority, snapshot } = durable;
-  const states: readonly AuthorityState[] = [
-    'writable', 'handoff_pending', 'snapshot_committed_pending_finalization', 'read_only_handoff',
-  ];
-  if (!states.includes(authority.state)
-    || authority.physicalSourceDigest !== expectedPhysicalDigest
-    || !/^[a-f0-9]{64}$/.test(authority.ownerScopeDigest)
-    || !Number.isSafeInteger(authority.revision) || authority.revision < 0) {
-    throw new ProtocolError('CORRUPT_PERSISTED_RECORD');
-  }
-  const snapshotRequired = authority.state === 'snapshot_committed_pending_finalization'
-    || authority.state === 'read_only_handoff';
-  if (snapshotRequired !== Boolean(snapshot)
-    || snapshotRequired !== (authority.snapshotRevision !== null)
-    || snapshotRequired !== (authority.snapshotDigest !== null)) {
-    throw new ProtocolError('CORRUPT_PERSISTED_RECORD');
-  }
-  if (snapshot && (snapshot.physicalSourceDigest !== expectedPhysicalDigest
-    || snapshot.ownerScopeDigest !== authority.ownerScopeDigest
-    || snapshot.sourceRevision !== authority.revision
-    || snapshot.snapshotDigest !== authority.snapshotDigest)) {
-    throw new ProtocolError('CORRUPT_PERSISTED_RECORD');
+  candidateCount(identityInput: unknown): number {
+    return this.slot(physicalSourceDigest(identityInput)).candidateBytes === null ? 0 : 1;
   }
 }
 
 interface WriteHooks {
-  afterLockAcquired?: () => void;
-  afterAuthorityRead?: () => Promise<void>;
+  afterLockAcquired?: () => void | Promise<void>;
+  afterAuthorityRead?: () => void | Promise<void>;
   crashBeforeCommit?: boolean;
 }
 
 interface HandoffHooks {
-  afterLockAcquired?: () => void;
-  afterPendingCommit?: () => Promise<void>;
+  afterLockAcquired?: () => void | Promise<void>;
+  afterPendingCommit?: () => void | Promise<void>;
+  afterCandidateCommit?: () => void | Promise<void>;
   crashAfterPending?: boolean;
-  crashAfterSnapshotCommit?: boolean;
+  crashAfterCandidateCommit?: boolean;
 }
 
 class HandoffContext {
   constructor(
     private readonly locks: NamedLockRegistry,
     private readonly sources: DurablePhysicalSourceRegistry,
-    private readonly physicalIdentity: PhysicalSourceIdentity,
-    private readonly logicalScope: LogicalAuthorityScope,
+    private readonly physicalInput: unknown,
+    private readonly scopeInput: unknown,
+    private readonly evidence: BoundaryMetrics,
     private readonly coordinatorAvailable = true,
   ) {}
 
   get lockName(): string {
-    return derivePhysicalLockName(this.physicalIdentity);
+    return derivePhysicalLockName(this.physicalInput, this.evidence);
   }
 
   private assertSupported(): void {
-    if (!this.coordinatorAvailable) throw new ProtocolError('COORDINATOR_UNAVAILABLE');
+    if (!this.coordinatorAvailable) return fail('COORDINATOR_UNAVAILABLE');
   }
 
-  private assertScope(durable: DurableModel): void {
-    if (durable.authority.ownerScopeDigest !== logicalScopeDigest(this.logicalScope)) {
-      throw new ProtocolError('SCOPE_MISMATCH');
+  private assertAuthority(
+    authority: Readonly<PersistedHandoffAuthorityV1>,
+    physicalDigest: string,
+    scope: Readonly<LogicalAuthorityScopeV1>,
+  ): void {
+    if (authority.physicalSourceDigest !== physicalDigest) return fail('PERSISTED_EVIDENCE_MISMATCH');
+    const digest = logicalScopeDigest(scope);
+    if (authority.logicalScopeDigest !== digest
+      || JSON.stringify(authority.logicalScope) !== JSON.stringify(scope)) {
+      return fail('SCOPE_MISMATCH');
     }
   }
 
-  write(id: string, value: string, hooks: WriteHooks = {}): Promise<number> {
+  write(idInput: unknown, valueInput: unknown, hooks: WriteHooks = {}): Promise<number> {
     this.assertSupported();
-    return this.locks.run(this.lockName, async () => {
-      hooks.afterLockAcquired?.();
-      const durable = this.sources.read(this.physicalIdentity);
-      validateDurableModel(durable, physicalSourceDigest(this.physicalIdentity));
-      this.assertScope(durable);
-      if (durable.authority.state !== 'writable') throw new ProtocolError('SOURCE_READ_ONLY');
+    const physical = parsePhysicalSourceIdentity(this.physicalInput);
+    const digest = physicalSourceDigest(physical, this.evidence);
+    const lockName = `absinthe:legacy-source-handoff:v1:${digest}`;
+    this.evidence.lockDerivations += 1;
+    return this.locks.run(lockName, async () => {
+      await hooks.afterLockAcquired?.();
+      const authority = this.sources.readAuthority(digest);
+      const scope = parseLogicalScope(this.scopeInput);
+      this.assertAuthority(authority, digest, scope);
+      if (authority.state !== 'writable') return fail('SOURCE_READ_ONLY');
       await hooks.afterAuthorityRead?.();
-      if (hooks.crashBeforeCommit) throw new ProtocolError('CONTEXT_CRASHED');
-
-      // Models authority validation, mutation, and revision committing in one short IDB transaction.
-      durable.source.set(id, value);
-      durable.authority.revision += 1;
-      return durable.authority.revision;
+      if (hooks.crashBeforeCommit) return fail('CONTEXT_CRASHED');
+      const id = strictString(idInput, 'MALFORMED_SOURCE_MUTATION');
+      const value = strictString(valueInput, 'MALFORMED_SOURCE_MUTATION', {
+        allowEmpty: true,
+        max: MAX_RECORD_VALUE_LENGTH,
+      });
+      const next = parsePersistedAuthority({ ...authority, sourceRevision: authority.sourceRevision + 1 });
+      this.sources.commitWrite(digest, authority, next, id, value);
+      return next.sourceRevision;
     });
   }
 
-  handoff(hooks: HandoffHooks = {}): Promise<DurableSnapshot> {
+  handoff(hooks: HandoffHooks = {}): Promise<Readonly<PersistedSnapshotCandidateV1>> {
     this.assertSupported();
-    return this.locks.run(this.lockName, async () => {
-      hooks.afterLockAcquired?.();
-      const durable = this.sources.read(this.physicalIdentity);
-      const digest = physicalSourceDigest(this.physicalIdentity);
-      validateDurableModel(durable, digest);
-      this.assertScope(durable);
-
-      if (durable.authority.state === 'read_only_handoff') {
-        if (!durable.snapshot) throw new ProtocolError('CORRUPT_PERSISTED_RECORD');
-        return durable.snapshot;
+    const physical = parsePhysicalSourceIdentity(this.physicalInput);
+    const digest = physicalSourceDigest(physical, this.evidence);
+    const lockName = `absinthe:legacy-source-handoff:v1:${digest}`;
+    this.evidence.lockDerivations += 1;
+    return this.locks.run(lockName, async () => {
+      await hooks.afterLockAcquired?.();
+      let authority = this.sources.readAuthority(digest);
+      const scope = parseLogicalScope(this.scopeInput);
+      this.assertAuthority(authority, digest, scope);
+      if (authority.state === 'read_only_handoff') {
+        const candidate = this.sources.readCandidate(digest);
+        if (!candidate) return fail('CORRUPT_PERSISTED_RECORD');
+        exactCandidateBinding(authority, candidate);
+        return candidate;
       }
-      if (durable.authority.state === 'writable') {
-        // WRITE_EXCLUSION_POINT: durable authority leaves writable under the common physical lock.
-        durable.authority.state = 'handoff_pending';
+      if (authority.state === 'writable') {
+        const pending = parsePersistedAuthority({
+          ...authority,
+          state: 'handoff_pending',
+          handoffSessionId: `handoff-${digest.slice(0, 16)}-${authority.sourceRevision}`,
+        });
+        // WRITE_EXCLUSION_POINT: this durable CAS leaves writable under the common physical lock.
+        this.sources.compareAndSetAuthority(digest, authority, pending);
+        authority = pending;
       }
-      if (durable.authority.state === 'handoff_pending') {
+      if (authority.state === 'handoff_pending') {
         await hooks.afterPendingCommit?.();
-        if (hooks.crashAfterPending) throw new ProtocolError('CONTEXT_CRASHED');
-        this.commitSnapshotCandidate(durable);
-        if (hooks.crashAfterSnapshotCommit) throw new ProtocolError('CONTEXT_CRASHED');
+        if (hooks.crashAfterPending) return fail('CONTEXT_CRASHED');
+        const records = this.sources.sourceRecords(digest);
+        const snapshotDigest = computeSnapshotDigest(records);
+        const candidateId = `candidate-${snapshotDigest.slice(0, 24)}`;
+        const rootDigest = computeRootDigest(
+          digest,
+          authority.logicalScopeDigest,
+          authority.sourceRevision,
+          snapshotDigest,
+        );
+        const manifestDigest = computeManifestDigest(
+          candidateId,
+          authority.handoffSessionId!,
+          records.length,
+          rootDigest,
+        );
+        const candidate = parsePersistedCandidate({
+          recordType: CANDIDATE_RECORD_TYPE,
+          schemaVersion: SCHEMA_VERSION,
+          coordinatorVersion: COORDINATOR_VERSION,
+          candidateId,
+          handoffSessionId: authority.handoffSessionId,
+          physicalSourceDigest: digest,
+          logicalScopeDigest: authority.logicalScopeDigest,
+          sourceRevision: authority.sourceRevision,
+          snapshotDigest,
+          rootDigest,
+          manifestDigest,
+          entityCount: records.length,
+          records,
+        });
+        const pendingCandidate = parsePersistedAuthority({
+          ...authority,
+          state: 'snapshot_committed_pending_finalization',
+          snapshotCandidateId: candidate.candidateId,
+          snapshotDigest: candidate.snapshotDigest,
+          rootDigest: candidate.rootDigest,
+          manifestDigest: candidate.manifestDigest,
+        });
+        this.sources.commitCandidate(digest, authority, pendingCandidate, candidate);
+        authority = pendingCandidate;
+        await hooks.afterCandidateCommit?.();
+        if (hooks.crashAfterCandidateCommit) return fail('CONTEXT_CRASHED');
       }
-      return this.finalizeSnapshot(durable);
+      const candidate = this.sources.readCandidate(digest);
+      if (!candidate) return fail('CORRUPT_PERSISTED_RECORD');
+      exactCandidateBinding(authority, candidate);
+      // HANDOFF_LINEARIZATION_POINT: one exact CAS binds the persisted candidate terminally.
+      this.sources.finalizeCandidate(digest, authority, candidate);
+      return candidate;
     });
   }
 
   cancelBeforeSnapshot(): Promise<void> {
     this.assertSupported();
-    return this.locks.run(this.lockName, async () => {
-      const durable = this.sources.read(this.physicalIdentity);
-      validateDurableModel(durable, physicalSourceDigest(this.physicalIdentity));
-      this.assertScope(durable);
-      if (durable.authority.state !== 'handoff_pending' || durable.snapshot) {
-        throw new ProtocolError('CANCELLATION_NOT_ALLOWED');
+    const physical = parsePhysicalSourceIdentity(this.physicalInput);
+    const digest = physicalSourceDigest(physical, this.evidence);
+    const lockName = `absinthe:legacy-source-handoff:v1:${digest}`;
+    this.evidence.lockDerivations += 1;
+    return this.locks.run(lockName, async () => {
+      const authority = this.sources.readAuthority(digest);
+      const scope = parseLogicalScope(this.scopeInput);
+      this.assertAuthority(authority, digest, scope);
+      if (authority.state !== 'handoff_pending' || this.sources.readCandidate(digest)) {
+        return fail('CANCELLATION_NOT_ALLOWED');
       }
-      durable.authority.state = 'writable';
+      const writable = parsePersistedAuthority({
+        ...authority,
+        state: 'writable',
+        handoffSessionId: null,
+      });
+      this.sources.compareAndSetAuthority(digest, authority, writable);
     });
-  }
-
-  private commitSnapshotCandidate(durable: DurableModel): void {
-    if (durable.authority.state !== 'handoff_pending' || durable.snapshot) {
-      throw new ProtocolError('INVALID_AUTHORITY_STATE');
-    }
-    const records = Object.freeze(
-      [...durable.source.entries()]
-        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-        .map(entry => Object.freeze(entry) as readonly [string, string]),
-    );
-    const candidateDigest = snapshotDigest(
-      durable.authority.physicalSourceDigest,
-      durable.authority.ownerScopeDigest,
-      durable.authority.revision,
-      records,
-    );
-    durable.snapshot = Object.freeze({
-      physicalSourceDigest: durable.authority.physicalSourceDigest,
-      ownerScopeDigest: durable.authority.ownerScopeDigest,
-      sourceRevision: durable.authority.revision,
-      snapshotDigest: candidateDigest,
-      records,
-    });
-    durable.authority.snapshotRevision = durable.authority.revision;
-    durable.authority.snapshotDigest = candidateDigest;
-    durable.authority.state = 'snapshot_committed_pending_finalization';
-  }
-
-  private finalizeSnapshot(durable: DurableModel): DurableSnapshot {
-    validateDurableModel(durable, physicalSourceDigest(this.physicalIdentity));
-    if (durable.authority.state !== 'snapshot_committed_pending_finalization' || !durable.snapshot) {
-      throw new ProtocolError('INVALID_AUTHORITY_STATE');
-    }
-    const expectedDigest = snapshotDigest(
-      durable.snapshot.physicalSourceDigest,
-      durable.snapshot.ownerScopeDigest,
-      durable.snapshot.sourceRevision,
-      durable.snapshot.records,
-    );
-    if (expectedDigest !== durable.snapshot.snapshotDigest
-      || durable.authority.revision !== durable.snapshot.sourceRevision) {
-      throw new ProtocolError('CORRUPT_PERSISTED_RECORD');
-    }
-    // HANDOFF_LINEARIZATION_POINT: append-only candidate is bound by terminal read-only authority.
-    durable.authority.state = 'read_only_handoff';
-    return durable.snapshot;
   }
 }
 
-const rootA: PhysicalSourceIdentity = {
+const rootA: PhysicalSourceIdentityV1 = {
+  schemaVersion: 1,
   origin: 'https://app.example.test',
   sourceFamily: 'legacy_notes',
-  backend: 'legacy_indexeddb',
+  backend: 'combined_localstorage_indexeddb',
   databaseName: 'absinthe-notes-v1',
   objectStoreName: 'notes',
   physicalSourceVersion: 1,
 };
-const rootB: PhysicalSourceIdentity = { ...rootA, databaseName: 'absinthe-notes-v1-other-root' };
-const userA: LogicalAuthorityScope = {
-  userId: 'user-a', projectRef: 'project-a', namespaceId: 'namespace-a', deviceId: 'device-a',
+const userA: LogicalAuthorityScopeV1 = {
+  schemaVersion: 1,
+  userId: 'user-a',
+  projectRef: 'project-a',
+  namespaceId: 'namespace-a',
+  deviceId: 'device-a',
 };
-const userB: LogicalAuthorityScope = { ...userA, userId: 'user-b' };
+const userB: LogicalAuthorityScopeV1 = { ...userA, userId: 'user-b' };
 
-function environment(): {
+function environment(
+  evidence = metrics(),
+  sources?: DurablePhysicalSourceRegistry,
+): {
+  evidence: BoundaryMetrics;
   locks: NamedLockRegistry;
   sources: DurablePhysicalSourceRegistry;
-  context: (
-    physical?: PhysicalSourceIdentity,
-    scope?: LogicalAuthorityScope,
-    coordinatorAvailable?: boolean,
-  ) => HandoffContext;
+  context: (physical?: unknown, scope?: unknown, available?: boolean) => HandoffContext;
 } {
-  const locks = new NamedLockRegistry();
-  const sources = new DurablePhysicalSourceRegistry();
+  const locks = new NamedLockRegistry(evidence);
+  const durableSources = sources ?? new DurablePhysicalSourceRegistry(evidence);
   return {
+    evidence,
     locks,
-    sources,
+    sources: durableSources,
     context: (physical = rootA, scope = userA, available = true) => (
-      new HandoffContext(locks, sources, physical, scope, available)
+      new HandoffContext(locks, durableSources, physical, scope, evidence, available)
     ),
   };
 }
 
-describe('K-327A physical source identity', () => {
-  it('derives one lock from physical identity regardless of user, project, namespace, or device', () => {
-    const env = environment();
-    env.sources.initialize(rootA, userA);
-    const base = env.context(rootA, userA).lockName;
-    expect(env.context(rootA, userB).lockName).toBe(base);
-    expect(env.context(rootA, { ...userA, projectRef: 'project-b' }).lockName).toBe(base);
-    expect(env.context(rootA, { ...userA, namespaceId: 'namespace-b' }).lockName).toBe(base);
-    expect(env.context(rootA, { ...userA, deviceId: 'device-b' }).lockName).toBe(base);
-    expect(env.context(rootB, userA).lockName).not.toBe(base);
-    expect(base).toMatch(/^absinthe:legacy-source-handoff:v1:[a-f0-9]{64}$/);
-  });
+function cloneRecord<T extends object>(value: T): Record<string, unknown> {
+  return { ...value } as Record<string, unknown>;
+}
 
-  it('canonicalizes fixed fields independent of insertion order and rejects malformed identity', () => {
+function withField(base: object, key: string, value: unknown): Record<string, unknown> {
+  const record = cloneRecord(base);
+  record[key] = value;
+  return record;
+}
+
+function withoutField(base: object, key: string): Record<string, unknown> {
+  const record = cloneRecord(base);
+  delete record[key];
+  return record;
+}
+
+function withAccessor(base: object, key: string, getter: () => unknown): Record<string, unknown> {
+  const record = cloneRecord(base);
+  Object.defineProperty(record, key, { enumerable: true, configurable: true, get: getter });
+  return record;
+}
+
+function withInheritedField(base: object, key: string): object {
+  const own = cloneRecord(base);
+  const inherited = own[key];
+  delete own[key];
+  return Object.assign(Object.create({ [key]: inherited }) as object, own);
+}
+
+interface MalformedCase {
+  label: string;
+  value: unknown;
+}
+
+function malformedPhysicalCases(): MalformedCase[] {
+  const cases: MalformedCase[] = [
+    { label: 'null root', value: null },
+    { label: 'array root', value: [] },
+    { label: 'function root', value: () => rootA },
+    { label: 'date root', value: new Date() },
+    { label: 'map root', value: new Map() },
+    { label: 'set root', value: new Set() },
+    { label: 'boxed root', value: new String('root') },
+    { label: 'custom class root', value: new (class Identity { schemaVersion = 1; })() },
+    { label: 'proxy root', value: new Proxy(cloneRecord(rootA), {}) },
+    { label: 'extra field', value: { ...rootA, extra: 'unknown' } },
+    { label: 'top-level toJSON', value: { ...rootA, toJSON: () => rootA } },
+  ];
+  const stringFields = ['origin', 'sourceFamily', 'backend', 'databaseName', 'objectStoreName'] as const;
+  const stringInvalid: Array<readonly [string, unknown]> = [
+    ['undefined', undefined], ['null', null], ['empty', ''], ['whitespace', '   '], ['number', 1],
+    ['boolean', true], ['object', {}], ['array', []], ['function', () => 'value'],
+    ['symbol', Symbol('value')], ['boxed string', new String('value')],
+    ['toJSON object', { toJSON: () => 'value' }],
+  ];
+  for (const field of stringFields) {
+    cases.push({ label: `${field} missing`, value: withoutField(rootA, field) });
+    for (const [label, value] of stringInvalid) {
+      cases.push({ label: `${field} ${label}`, value: withField(rootA, field, value) });
+    }
+    cases.push({ label: `${field} accessor`, value: withAccessor(rootA, field, () => rootA[field]) });
+    cases.push({ label: `${field} inherited`, value: withInheritedField(rootA, field) });
+  }
+  const numberFields = ['schemaVersion', 'physicalSourceVersion'] as const;
+  const numberInvalid: Array<readonly [string, unknown]> = [
+    ['undefined', undefined], ['null', null], ['zero', 0], ['negative', -1], ['float', 1.5],
+    ['nan', Number.NaN], ['infinity', Number.POSITIVE_INFINITY], ['numeric string', '1'],
+    ['boolean', true], ['object', {}], ['array', []], ['boxed number', new Number(1)],
+    ['toJSON object', { toJSON: () => 1 }], ['bigint', BigInt(1)],
+  ];
+  for (const field of numberFields) {
+    cases.push({ label: `${field} missing`, value: withoutField(rootA, field) });
+    for (const [label, value] of numberInvalid) {
+      cases.push({ label: `${field} ${label}`, value: withField(rootA, field, value) });
+    }
+    cases.push({ label: `${field} accessor`, value: withAccessor(rootA, field, () => rootA[field]) });
+    cases.push({ label: `${field} inherited`, value: withInheritedField(rootA, field) });
+  }
+  cases.push({ label: 'origin path', value: { ...rootA, origin: 'https://app.example.test/path' } });
+  cases.push({ label: 'origin trailing slash', value: { ...rootA, origin: 'https://app.example.test/' } });
+  cases.push({ label: 'origin noncanonical case', value: { ...rootA, origin: 'https://APP.example.test' } });
+  cases.push({ label: 'unknown source family', value: { ...rootA, sourceFamily: 'other' } });
+  cases.push({ label: 'unknown backend', value: { ...rootA, backend: 'other' } });
+  cases.push({ label: 'unknown schema version', value: { ...rootA, schemaVersion: 2 } });
+  cases.push({ label: 'unknown physical version', value: { ...rootA, physicalSourceVersion: 99 } });
+  return cases;
+}
+
+function malformedScopeCases(): MalformedCase[] {
+  const cases: MalformedCase[] = [
+    { label: 'null scope', value: null },
+    { label: 'array scope', value: [] },
+    { label: 'proxy scope', value: new Proxy(cloneRecord(userA), {}) },
+    { label: 'custom scope', value: new (class Scope { schemaVersion = 1; })() },
+    { label: 'extra scope field', value: { ...userA, extra: 'unknown' } },
+  ];
+  for (const field of ['userId', 'projectRef', 'namespaceId', 'deviceId'] as const) {
+    cases.push({ label: `${field} missing`, value: withoutField(userA, field) });
+    cases.push({ label: `${field} null`, value: withField(userA, field, null) });
+    cases.push({ label: `${field} empty`, value: withField(userA, field, '') });
+    cases.push({ label: `${field} object`, value: withField(userA, field, { toJSON: () => userA[field] }) });
+    cases.push({ label: `${field} boxed`, value: withField(userA, field, new String(userA[field])) });
+    cases.push({ label: `${field} accessor`, value: withAccessor(userA, field, () => userA[field]) });
+    cases.push({ label: `${field} inherited`, value: withInheritedField(userA, field) });
+  }
+  cases.push({ label: 'scope version missing', value: withoutField(userA, 'schemaVersion') });
+  cases.push({ label: 'scope version unknown', value: { ...userA, schemaVersion: 2 } });
+  return cases;
+}
+
+function candidateFixture(): {
+  authority: PersistedHandoffAuthorityV1;
+  candidate: PersistedSnapshotCandidateV1;
+} {
+  const physicalDigest = physicalSourceDigest(rootA);
+  const scope = parseLogicalScope(userA);
+  const scopeDigest = logicalScopeDigest(scope);
+  const records = parseRecords([['note-a', 'v1']], 'CORRUPT_PERSISTED_RECORD');
+  const sourceRevision = 1;
+  const handoffSessionId = `handoff-${physicalDigest.slice(0, 16)}-${sourceRevision}`;
+  const snapshotDigest = computeSnapshotDigest(records);
+  const candidateId = `candidate-${snapshotDigest.slice(0, 24)}`;
+  const rootDigest = computeRootDigest(physicalDigest, scopeDigest, sourceRevision, snapshotDigest);
+  const manifestDigest = computeManifestDigest(candidateId, handoffSessionId, records.length, rootDigest);
+  const candidate = parsePersistedCandidate({
+    recordType: CANDIDATE_RECORD_TYPE,
+    schemaVersion: 1,
+    coordinatorVersion: 1,
+    candidateId,
+    handoffSessionId,
+    physicalSourceDigest: physicalDigest,
+    logicalScopeDigest: scopeDigest,
+    sourceRevision,
+    snapshotDigest,
+    rootDigest,
+    manifestDigest,
+    entityCount: records.length,
+    records,
+  });
+  const authority = parsePersistedAuthority({
+    recordType: AUTHORITY_RECORD_TYPE,
+    schemaVersion: 1,
+    coordinatorVersion: 1,
+    physicalSourceDigest: physicalDigest,
+    logicalScope: scope,
+    logicalScopeDigest: scopeDigest,
+    state: 'snapshot_committed_pending_finalization',
+    sourceRevision,
+    handoffSessionId,
+    snapshotCandidateId: candidateId,
+    snapshotDigest,
+    rootDigest,
+    manifestDigest,
+  });
+  return { authority: authority as PersistedHandoffAuthorityV1, candidate: candidate as PersistedSnapshotCandidateV1 };
+}
+
+function mutateSerializedRoot(bytes: string, mutate: (root: Record<string, unknown>) => void): string {
+  const root = JSON.parse(bytes) as Record<string, unknown>;
+  mutate(root);
+  return JSON.stringify(root);
+}
+
+function nestedRecord(root: Record<string, unknown>, key: string): Record<string, unknown> {
+  return root[key] as Record<string, unknown>;
+}
+
+async function pendingSerializedRoot(): Promise<string> {
+  const env = environment();
+  env.sources.initialize(rootA, userA);
+  await env.context().write('note-a', 'v1');
+  await expect(env.context().handoff({ crashAfterCandidateCommit: true }))
+    .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
+  return env.sources.serializeRoot(rootA);
+}
+
+describe('K-327B strict physical identity boundary', () => {
+  it('returns a fresh canonical identity and stable bytes across property order, delimiters, and Unicode', () => {
     const reordered = {
       objectStoreName: 'notes', physicalSourceVersion: 1, databaseName: 'absinthe-notes-v1',
-      backend: 'legacy_indexeddb', sourceFamily: 'legacy_notes', origin: 'https://app.example.test',
-    } as PhysicalSourceIdentity;
-    expect(derivePhysicalLockName(reordered)).toBe(derivePhysicalLockName(rootA));
-    expect(() => derivePhysicalLockName({ ...rootA, databaseName: '' }))
-      .toThrowError(expect.objectContaining({ code: 'MALFORMED_PHYSICAL_SOURCE_IDENTITY' }));
-    expect(() => derivePhysicalLockName({ ...rootA, extra: 'unknown' } as PhysicalSourceIdentity))
-      .toThrowError(expect.objectContaining({ code: 'MALFORMED_PHYSICAL_SOURCE_IDENTITY' }));
+      backend: 'combined_localstorage_indexeddb', sourceFamily: 'legacy_notes',
+      origin: 'https://app.example.test', schemaVersion: 1,
+    };
+    const validated = parsePhysicalSourceIdentity(reordered);
+    expect(validated).not.toBe(reordered);
+    expect(canonicalPhysicalSource(reordered)).toBe(canonicalPhysicalSource(rootA));
+    const delimiterUnicode = {
+      ...rootA,
+      databaseName: 'db|][한글',
+      objectStoreName: 'notes:日本語',
+    };
+    expect(canonicalPhysicalSource(delimiterUnicode)).toContain('한글');
+    expect(derivePhysicalLockName(delimiterUnicode)).toMatch(/^absinthe:legacy-source-handoff:v1:[a-f0-9]{64}$/);
+  });
+
+  it.each(malformedPhysicalCases())('$label rejects before canonicalization, hashing, or lock lookup', ({ value }) => {
+    const evidence = metrics();
+    const env = environment(evidence);
+    const actor = env.context(value, userA);
+    expect(() => actor.lockName).toThrowError(ProtocolError);
+    expect(() => actor.write('note-a', 'no-write')).toThrowError(ProtocolError);
+    expect(evidence).toMatchObject({
+      canonicalizations: 0,
+      hashes: 0,
+      lockDerivations: 0,
+      registryLookups: 0,
+      authorityReads: 0,
+      authorityWrites: 0,
+    });
+    expect(env.locks.size).toBe(0);
+    expect(env.sources.size).toBe(0);
+  });
+
+  it('permanently rejects the former toJSON lock alias without executing it', () => {
+    let calls = 0;
+    const malicious = {
+      ...rootA,
+      databaseName: { toJSON: () => { calls += 1; return rootA.databaseName; } },
+    };
+    const unsafeBytes = JSON.stringify([
+      'absinthe_legacy_physical_source_v1', rootA.schemaVersion, rootA.origin, rootA.sourceFamily,
+      rootA.backend, malicious.databaseName, rootA.objectStoreName, rootA.physicalSourceVersion,
+    ]);
+    expect(calls).toBe(1);
+    expect(unsafeBytes).toBe(canonicalPhysicalSource(rootA));
+    calls = 0;
+    const evidence = metrics();
+    const env = environment(evidence);
+    expect(() => env.context(malicious).lockName).toThrowError(ProtocolError);
+    expect(calls).toBe(0);
+    expect(evidence).toMatchObject({ canonicalizations: 0, hashes: 0, registryLookups: 0 });
+    expect(env.locks.size).toBe(0);
+  });
+
+  const physicalVariations: Array<readonly [string, PhysicalSourceIdentityV1]> = [
+    ['origin', { ...rootA, origin: 'https://other.example.test' }],
+    ['source family', { ...rootA, sourceFamily: 'legacy_notes_fixture_v2' }],
+    ['backend', { ...rootA, backend: 'legacy_indexeddb_fixture_v2' }],
+    ['database', { ...rootA, databaseName: 'absinthe-notes-v1-other' }],
+    ['object store', { ...rootA, objectStoreName: 'notes-other' }],
+    ['physical version', { ...rootA, physicalSourceVersion: 2 }],
+  ];
+
+  it.each(physicalVariations)('%s independently changes canonical bytes, digest, lock, queue, and authority', async (_field, variant) => {
+    const env = environment();
+    env.sources.initialize(rootA, userA);
+    env.sources.initialize(variant, userA);
+    expect(canonicalPhysicalSource(variant)).not.toBe(canonicalPhysicalSource(rootA));
+    expect(physicalSourceDigest(variant)).not.toBe(physicalSourceDigest(rootA));
+    expect(env.context(variant).lockName).not.toBe(env.context(rootA).lockName);
+    await Promise.all([
+      env.context(rootA).write('note-a', 'root-a'),
+      env.context(variant).write('note-b', 'root-b'),
+    ]);
+    expect(env.locks.size).toBe(2);
+    expect(env.sources.size).toBe(2);
+  });
+
+  it.each([
+    ['user', userB],
+    ['project', { ...userA, projectRef: 'project-b' }],
+    ['namespace', { ...userA, namespaceId: 'namespace-b' }],
+    ['device', { ...userA, deviceId: 'device-b' }],
+  ])('%s variation preserves the physical lock and queue', async (_field, scope) => {
+    const env = environment();
+    env.sources.initialize(rootA, userA);
+    expect(env.context(rootA, scope).lockName).toBe(env.context(rootA, userA).lockName);
+    await expect(env.context(rootA, scope).write('note-a', 'blocked'))
+      .rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
+    expect(env.locks.size).toBe(1);
+  });
+});
+describe('K-327B strict logical scope boundary', () => {
+  it.each(malformedScopeCases())('$label rejects under the common physical lock before mutation', async ({ value }) => {
+    const env = environment();
+    env.sources.initialize(rootA, userA);
+    const baselineWrites = env.evidence.authorityWrites;
+    await expect(env.context(rootA, value).write('note-a', 'blocked'))
+      .rejects.toMatchObject({ code: 'MALFORMED_LOGICAL_SCOPE' });
+    expect(env.locks.size).toBe(1);
+    expect(env.evidence.registryLookups).toBe(1);
+    expect(env.evidence.authorityReads).toBe(1);
+    expect(env.evidence.authorityWrites).toBe(baselineWrites);
+    expect(env.sources.sourceRecords(physicalSourceDigest(rootA))).toEqual([]);
   });
 });
 
-describe('K-327A deterministic named-lock handoff model', () => {
-  it('drains a writer that acquired the physical lock before handoff and captures its commit', async () => {
-    const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    const writerMayCommit = new Deferred();
-    const writer = env.context().write('note-a', 'v1', { afterAuthorityRead: () => writerMayCommit.promise });
-    const handoff = env.context().handoff();
+describe('K-327B versioned persisted schemas', () => {
+  const authorityMutations: Array<readonly [string, (value: Record<string, unknown>) => unknown]> = [
+    ['null', () => null],
+    ['array', () => []],
+    ['primitive', () => 'authority'],
+    ['extra key', value => ({ ...value, extra: true })],
+    ['missing key', value => { const next = { ...value }; delete next.state; return next; }],
+    ['missing discriminator', value => { const next = { ...value }; delete next.recordType; return next; }],
+    ['missing schema version', value => { const next = { ...value }; delete next.schemaVersion; return next; }],
+    ['missing coordinator version', value => { const next = { ...value }; delete next.coordinatorVersion; return next; }],
+    ['wrong discriminator', value => ({ ...value, recordType: 'wrong' })],
+    ['unknown version', value => ({ ...value, schemaVersion: 2 })],
+    ['unknown coordinator', value => ({ ...value, coordinatorVersion: 2 })],
+    ['invalid state', value => ({ ...value, state: 'unknown' })],
+    ['numeric-string revision', value => ({ ...value, sourceRevision: '1' })],
+    ['negative revision', value => ({ ...value, sourceRevision: -1 })],
+    ['unsafe revision', value => ({ ...value, sourceRevision: Number.MAX_SAFE_INTEGER + 1 })],
+    ['boxed candidate id', value => ({ ...value, snapshotCandidateId: new String('candidate') })],
+    ['object digest', value => ({ ...value, snapshotDigest: { toJSON: () => '0'.repeat(64) } })],
+    ['impossible writable binding', value => ({ ...value, state: 'writable' })],
+    ['impossible pending binding', value => ({ ...value, state: 'handoff_pending' })],
+    ['impossible terminal binding', value => ({ ...value, state: 'read_only_handoff', snapshotDigest: null })],
+  ];
 
-    await Promise.resolve();
-    expect(durable.authority.state).toBe('writable');
-    writerMayCommit.resolve();
-
-    await expect(writer).resolves.toBe(1);
-    await expect(handoff).resolves.toMatchObject({ sourceRevision: 1, records: [['note-a', 'v1']] });
-    expect(durable.authority.state).toBe('read_only_handoff');
+  it.each(authorityMutations)('authority parser rejects %s', (_label, mutate) => {
+    const { authority } = candidateFixture();
+    expect(() => parsePersistedAuthority(mutate(cloneRecord(authority)))).toThrowError(ProtocolError);
   });
 
-  it('makes same-root different-account actors contend before rejecting scope mismatch', async () => {
+  const candidateMutations: Array<readonly [string, (value: Record<string, unknown>) => unknown]> = [
+    ['null', () => null],
+    ['array', () => []],
+    ['primitive', () => 1],
+    ['extra key', value => ({ ...value, extra: true })],
+    ['missing key', value => { const next = { ...value }; delete next.candidateId; return next; }],
+    ['missing discriminator', value => { const next = { ...value }; delete next.recordType; return next; }],
+    ['missing schema version', value => { const next = { ...value }; delete next.schemaVersion; return next; }],
+    ['missing coordinator version', value => { const next = { ...value }; delete next.coordinatorVersion; return next; }],
+    ['wrong discriminator', value => ({ ...value, recordType: 'wrong' })],
+    ['unknown version', value => ({ ...value, schemaVersion: 2 })],
+    ['unknown coordinator', value => ({ ...value, coordinatorVersion: 2 })],
+    ['empty id', value => ({ ...value, candidateId: '' })],
+    ['object id', value => ({ ...value, candidateId: { toJSON: () => 'candidate' } })],
+    ['negative revision', value => ({ ...value, sourceRevision: -1 })],
+    ['unsafe revision', value => ({ ...value, sourceRevision: Number.MAX_SAFE_INTEGER + 1 })],
+    ['invalid entity count', value => ({ ...value, entityCount: '1' })],
+    ['negative entity count', value => ({ ...value, entityCount: -1 })],
+    ['invalid digest', value => ({ ...value, rootDigest: 'xyz' })],
+    ['duplicate records', value => ({ ...value, records: [['a', '1'], ['a', '2']], entityCount: 2 })],
+    ['unsorted records', value => ({ ...value, records: [['b', '2'], ['a', '1']], entityCount: 2 })],
+    ['proxied records', value => ({ ...value, records: new Proxy([['a', '1']], {}) })],
+    ['record accessor', value => {
+      const entry: unknown[] = ['a', '1'];
+      Object.defineProperty(entry, '0', { configurable: true, enumerable: true, get: () => 'a' });
+      return { ...value, records: [entry] };
+    }],
+    ['record extra key', value => {
+      const records = [['a', '1']];
+      Object.assign(records, { extra: true });
+      return { ...value, records };
+    }],
+  ];
+
+  it.each(candidateMutations)('candidate parser rejects %s', (_label, mutate) => {
+    const { candidate } = candidateFixture();
+    expect(() => parsePersistedCandidate(mutate(cloneRecord(candidate)))).toThrowError(ProtocolError);
+  });
+
+  it('rejects accessors, inherited fields, custom prototypes, boxed roots, and proxies without getter execution', () => {
+    const { authority, candidate } = candidateFixture();
+    let getterCalls = 0;
+    expect(() => parsePersistedAuthority(withAccessor(authority, 'state', () => {
+      getterCalls += 1;
+      return authority.state;
+    }))).toThrowError(ProtocolError);
+    expect(getterCalls).toBe(0);
+    expect(() => parsePersistedAuthority(withInheritedField(authority, 'state'))).toThrowError(ProtocolError);
+    expect(() => parsePersistedCandidate(Object.assign(Object.create(candidate), {})))
+      .toThrowError(ProtocolError);
+    expect(() => parsePersistedCandidate(new Proxy(cloneRecord(candidate), {}))).toThrowError(ProtocolError);
+    expect(() => parsePersistedAuthority(new String('authority'))).toThrowError(ProtocolError);
+  });
+
+  it('rejects candidate toJSON coercion before serialization without executing it', () => {
+    const { candidate } = candidateFixture();
+    let calls = 0;
+    const malformed = {
+      ...candidate,
+      candidateId: { toJSON: () => { calls += 1; return candidate.candidateId; } },
+    };
+    expect(() => serializeCandidate(malformed)).toThrowError(ProtocolError);
+    expect(calls).toBe(0);
+  });
+});
+
+describe('K-327B serialized pending-snapshot restart and exact finalization', () => {
+  it('crosses JSON serialization and unknown-input validation into a new runtime, then finalizes idempotently', async () => {
+    const first = environment();
+    first.sources.initialize(rootA, userA);
+    await first.context().write('note-a', 'v1');
+    await expect(first.context().handoff({ crashAfterCandidateCommit: true }))
+      .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
+    const digest = physicalSourceDigest(rootA);
+    const originalAuthority = first.sources.readAuthority(digest);
+    const originalCandidate = first.sources.readCandidate(digest)!;
+    const serialized = first.sources.serializeRoot(rootA);
+
+    const restartEvidence = metrics();
+    const restartedSources = DurablePhysicalSourceRegistry.fromSerializedRoot(
+      `${serialized}`,
+      restartEvidence,
+    );
+    const restarted = environment(restartEvidence, restartedSources);
+    const rehydratedAuthority = restarted.sources.readAuthority(digest);
+    const rehydratedCandidate = restarted.sources.readCandidate(digest)!;
+    expect(rehydratedAuthority).not.toBe(originalAuthority);
+    expect(rehydratedAuthority.logicalScope).not.toBe(originalAuthority.logicalScope);
+    expect(rehydratedCandidate).not.toBe(originalCandidate);
+    expect(rehydratedCandidate.records).not.toBe(originalCandidate.records);
+    expect(rehydratedAuthority.state).toBe('snapshot_committed_pending_finalization');
+    expect(rehydratedCandidate).toEqual(originalCandidate);
+
+    const finalized = await restarted.context().handoff();
+    expect(finalized).toEqual(originalCandidate);
+    expect(restarted.sources.readAuthority(digest).state).toBe('read_only_handoff');
+    await expect(restarted.context().handoff()).resolves.toEqual(finalized);
+    expect(restarted.sources.candidateCount(rootA)).toBe(1);
+  });
+
+  const corruptions: Array<readonly [string, (root: Record<string, unknown>) => void]> = [
+    ['candidate id mismatch', root => { nestedRecord(root, 'candidate').candidateId = 'candidate-different'; }],
+    ['session mismatch', root => { nestedRecord(root, 'candidate').handoffSessionId = 'handoff-different'; }],
+    ['candidate physical root mismatch', root => { nestedRecord(root, 'candidate').physicalSourceDigest = '1'.repeat(64); }],
+    ['candidate logical scope mismatch', root => { nestedRecord(root, 'candidate').logicalScopeDigest = '2'.repeat(64); }],
+    ['candidate revision lower', root => { nestedRecord(root, 'candidate').sourceRevision = 0; }],
+    ['candidate revision higher', root => { nestedRecord(root, 'candidate').sourceRevision = 2; }],
+    ['authority revision changed after candidate', root => { nestedRecord(root, 'authority').sourceRevision = 2; }],
+    ['internally valid same-session replacement', root => {
+      const candidate = nestedRecord(root, 'candidate');
+      candidate.candidateId = 'candidate-substitute';
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
+    ['snapshot digest mismatch', root => { nestedRecord(root, 'candidate').snapshotDigest = '3'.repeat(64); }],
+    ['root digest mismatch', root => { nestedRecord(root, 'candidate').rootDigest = '4'.repeat(64); }],
+    ['manifest digest mismatch', root => { nestedRecord(root, 'candidate').manifestDigest = '5'.repeat(64); }],
+    ['authority version mismatch', root => { nestedRecord(root, 'authority').schemaVersion = 2; }],
+    ['candidate version mismatch', root => { nestedRecord(root, 'candidate').schemaVersion = 2; }],
+    ['authority coordinator mismatch', root => { nestedRecord(root, 'authority').coordinatorVersion = 2; }],
+    ['candidate coordinator mismatch', root => { nestedRecord(root, 'candidate').coordinatorVersion = 2; }],
+    ['authority discriminator mismatch', root => { nestedRecord(root, 'authority').recordType = 'wrong'; }],
+    ['candidate discriminator mismatch', root => { nestedRecord(root, 'candidate').recordType = 'wrong'; }],
+    ['authority scope changed', root => {
+      nestedRecord(nestedRecord(root, 'authority'), 'logicalScope').userId = 'user-other';
+    }],
+    ['authority physical root changed', root => { nestedRecord(root, 'authority').physicalSourceDigest = '6'.repeat(64); }],
+    ['numeric-string revision', root => { nestedRecord(root, 'candidate').sourceRevision = '1'; }],
+    ['unsafe revision', root => { nestedRecord(root, 'candidate').sourceRevision = Number.MAX_SAFE_INTEGER + 1; }],
+    ['negative revision', root => { nestedRecord(root, 'candidate').sourceRevision = -1; }],
+    ['malformed digest', root => { nestedRecord(root, 'candidate').snapshotDigest = 'not-a-digest'; }],
+    ['empty digest', root => { nestedRecord(root, 'candidate').rootDigest = ''; }],
+    ['object digest', root => { nestedRecord(root, 'candidate').manifestDigest = {}; }],
+    ['missing candidate record', root => { root.candidate = null; }],
+    ['extra root field', root => { root.conflictingCandidate = nestedRecord(root, 'candidate'); }],
+    ['extra candidate field', root => { nestedRecord(root, 'candidate').extra = true; }],
+    ['missing candidate field', root => { delete nestedRecord(root, 'candidate').candidateId; }],
+  ];
+
+  it.each(corruptions)('%s blocks restart promotion without reopening writes', async (_label, mutate) => {
+    const serialized = await pendingSerializedRoot();
+    const corrupted = mutateSerializedRoot(serialized, mutate);
+    let restarted: ReturnType<typeof environment> | null = null;
+    try {
+      const evidence = metrics();
+      restarted = environment(evidence, DurablePhysicalSourceRegistry.fromSerializedRoot(corrupted, evidence));
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProtocolError);
+      return;
+    }
+    const before = restarted.sources.serializeRoot(rootA);
+    await expect(restarted.context().handoff()).rejects.toBeInstanceOf(ProtocolError);
+    expect(restarted.sources.serializeRoot(rootA)).toBe(before);
+    await expect(restarted.context().write('note-late', 'blocked')).rejects.toBeInstanceOf(ProtocolError);
+    expect(restarted.sources.serializeRoot(rootA)).toBe(before);
+  });
+
+  it('rejects malformed JSON without constructing a runtime', () => {
+    expect(() => DurablePhysicalSourceRegistry.fromSerializedRoot('{malformed'))
+      .toThrowError(expect.objectContaining({ code: 'CORRUPT_PERSISTED_RECORD' }));
+  });
+});
+
+describe('K-327B deterministic named-lock ordering', () => {
+  it('drains an authorized writer that acquired first and captures its exact revision', async () => {
     const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    const writerMayCommit = new Deferred();
-    let mismatchedHandoffAcquired = false;
-    const writer = env.context(rootA, userA).write('note-a', 'committed', {
-      afterAuthorityRead: () => writerMayCommit.promise,
-    });
-    const mismatchedHandoff = env.context(rootA, userB).handoff({
-      afterLockAcquired: () => { mismatchedHandoffAcquired = true; },
-    });
-
-    await Promise.resolve();
-    expect(env.context(rootA, userA).lockName).toBe(env.context(rootA, userB).lockName);
-    expect(mismatchedHandoffAcquired).toBe(false);
-    writerMayCommit.resolve();
-
+    env.sources.initialize(rootA, userA);
+    const release = new Deferred();
+    const writer = env.context().write('note-a', 'v1', { afterAuthorityRead: () => release.promise });
+    const handoff = env.context().handoff();
+    release.resolve();
     await expect(writer).resolves.toBe(1);
-    await expect(mismatchedHandoff).rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
-    expect(mismatchedHandoffAcquired).toBe(true);
-    expect(durable).toMatchObject({ authority: { state: 'writable', revision: 1 }, snapshot: null });
+    await expect(handoff).resolves.toMatchObject({ sourceRevision: 1, records: [['note-a', 'v1']] });
+  });
+
+  it('makes a stale writer acquire first, reject under current authority, and lets handoff capture no stale write', async () => {
+    const env = environment();
+    env.sources.initialize(rootA, userB);
+    const release = new Deferred();
+    let handoffAcquired = false;
+    const staleWrite = env.context(rootA, userA).write('note-stale', 'blocked', {
+      afterLockAcquired: () => release.promise,
+    });
+    const handoff = env.context(rootA, userB).handoff({
+      afterLockAcquired: () => { handoffAcquired = true; },
+    });
+    await Promise.resolve();
+    expect(handoffAcquired).toBe(false);
+    release.resolve();
+    await expect(staleWrite).rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
+    await expect(handoff).resolves.toMatchObject({ sourceRevision: 0, records: [] });
     expect(env.sources.size).toBe(1);
   });
 
-  it('rejects project, namespace, and device mismatch only after common lock acquisition', async () => {
+  it('gives a handoff-first stale-account write zero source, revision, authority, session, or candidate effect', async () => {
     const env = environment();
-    env.sources.initialize(rootA, userA);
-    const mismatches = [
-      { ...userA, projectRef: 'project-b' },
-      { ...userA, namespaceId: 'namespace-b' },
-      { ...userA, deviceId: 'device-b' },
-    ];
-    for (const mismatch of mismatches) {
-      let acquired = false;
-      const actor = env.context(rootA, mismatch);
-      expect(actor.lockName).toBe(env.context(rootA, userA).lockName);
-      await expect(actor.handoff({ afterLockAcquired: () => { acquired = true; } }))
-        .rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
-      expect(acquired).toBe(true);
-    }
-    expect(env.locks.size).toBe(1);
-  });
-
-  it('keeps different physical roots independent and permits concurrent progress', async () => {
-    const env = environment();
-    env.sources.initialize(rootA, userA);
-    env.sources.initialize(rootB, userA);
+    env.sources.initialize(rootA, userB);
+    await env.context(rootA, userB).write('note-current', 'v1');
     const release = new Deferred();
-    const enteredA = new Deferred();
-    const enteredB = new Deferred();
-    const writeA = env.context(rootA).write('note-a', 'root-a', {
-      afterAuthorityRead: () => { enteredA.resolve(); return release.promise; },
+    const candidateCommitted = new Deferred();
+    const handoff = env.context(rootA, userB).handoff({
+      afterCandidateCommit: () => { candidateCommitted.resolve(); return release.promise; },
     });
-    const writeB = env.context(rootB).write('note-b', 'root-b', {
-      afterAuthorityRead: () => { enteredB.resolve(); return release.promise; },
-    });
-
-    await Promise.all([enteredA.promise, enteredB.promise]);
-    expect(env.context(rootA).lockName).not.toBe(env.context(rootB).lockName);
-    expect(env.locks.size).toBe(2);
+    await candidateCommitted.promise;
+    const staleWrite = env.context(rootA, userA).write('note-stale', 'blocked');
     release.resolve();
-    await expect(Promise.all([writeA, writeB])).resolves.toEqual([1, 1]);
+    await expect(handoff).resolves.toMatchObject({ sourceRevision: 1 });
+    const digest = physicalSourceDigest(rootA);
+    const terminalAuthority = env.sources.readAuthority(digest);
+    const terminalCandidate = env.sources.readCandidate(digest);
+    const terminalSource = env.sources.sourceRecords(digest);
+    await expect(staleWrite).rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
+    expect(env.sources.readAuthority(digest)).toEqual(terminalAuthority);
+    expect(env.sources.readCandidate(digest)).toEqual(terminalCandidate);
+    expect(env.sources.sourceRecords(digest)).toEqual(terminalSource);
+    expect(env.sources.candidateCount(rootA)).toBe(1);
+    expect(env.sources.size).toBe(1);
   });
 
   it('rejects a writer queued after the write-exclusion point', async () => {
     const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    const handoffMaySnapshot = new Deferred();
-    const handoff = env.context().handoff({ afterPendingCommit: () => handoffMaySnapshot.promise });
+    env.sources.initialize(rootA, userA);
+    const release = new Deferred();
+    const handoff = env.context().handoff({ afterPendingCommit: () => release.promise });
     await Promise.resolve();
-    expect(durable.authority.state).toBe('handoff_pending');
-
-    const lateWriter = env.context().write('note-late', 'not-committed');
-    handoffMaySnapshot.resolve();
-
-    await expect(handoff).resolves.toMatchObject({ sourceRevision: 0, records: [] });
+    const lateWriter = env.context().write('note-late', 'blocked');
+    release.resolve();
+    await handoff;
     await expect(lateWriter).rejects.toMatchObject({ code: 'SOURCE_READ_ONLY' });
-    expect(durable.source.has('note-late')).toBe(false);
-  });
-
-  it('prevents a stale-account tab from bypassing a current-owner read-only handoff', async () => {
-    const env = environment();
-    const durable = env.sources.initialize(rootA, userB);
-    const staleTab = env.context(rootA, userA);
-    const currentTab = env.context(rootA, userB);
-    expect(staleTab.lockName).toBe(currentTab.lockName);
-
-    await currentTab.handoff();
-    await expect(staleTab.write('note-stale', 'must-not-commit'))
-      .rejects.toMatchObject({ code: 'SCOPE_MISMATCH' });
-    expect(durable.authority.state).toBe('read_only_handoff');
-    expect(durable.source.has('note-stale')).toBe(false);
-    expect(env.sources.size).toBe(1);
-  });
-
-  it('orders writer, handoff, and late writer without silent loss', async () => {
-    const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    const firstWriterMayCommit = new Deferred();
-    const first = env.context().write('note-first', 'committed', {
-      afterAuthorityRead: () => firstWriterMayCommit.promise,
-    });
-    const handoff = env.context().handoff();
-    const second = env.context().write('note-second', 'rejected');
-    firstWriterMayCommit.resolve();
-
-    await expect(first).resolves.toBe(1);
-    await expect(handoff).resolves.toMatchObject({ records: [['note-first', 'committed']] });
-    await expect(second).rejects.toMatchObject({ code: 'SOURCE_READ_ONLY' });
-    expect([...durable.source.keys()]).toEqual(['note-first']);
+    expect(env.sources.sourceRecords(physicalSourceDigest(rootA))).toEqual([]);
   });
 
   it('releases coordination after a writer crash without a partial mutation', async () => {
     const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
+    env.sources.initialize(rootA, userA);
     await expect(env.context().write('note-a', 'partial', { crashBeforeCommit: true }))
       .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
     await expect(env.context().handoff()).resolves.toMatchObject({ sourceRevision: 0, records: [] });
-    expect(durable.source.size).toBe(0);
   });
 
-  it('keeps crash-after-pending restart fail-closed and resumable', async () => {
+  it('keeps crash-after-pending fail-closed, resumable, and cancellable only before a candidate', async () => {
     const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    await env.context().write('note-a', 'v1');
+    env.sources.initialize(rootA, userA);
     await expect(env.context().handoff({ crashAfterPending: true }))
       .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
-    expect(durable.authority.state).toBe('handoff_pending');
-
-    await expect(env.context().write('note-b', 'late')).rejects.toMatchObject({ code: 'SOURCE_READ_ONLY' });
-    const resumed = await env.context().handoff();
-    expect(resumed).toMatchObject({ sourceRevision: 1, records: [['note-a', 'v1']] });
-    expect(durable.authority.state).toBe('read_only_handoff');
-  });
-
-  it('keeps an append-only snapshot candidate ineligible and finalizes it idempotently after restart', async () => {
-    const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    await env.context().write('note-a', 'v1');
-    await expect(env.context().handoff({ crashAfterSnapshotCommit: true }))
-      .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
-    expect(durable).toMatchObject({
-      authority: { state: 'snapshot_committed_pending_finalization', revision: 1, snapshotRevision: 1 },
-      snapshot: { sourceRevision: 1, records: [['note-a', 'v1']] },
-    });
-    await expect(env.context().write('note-b', 'late')).rejects.toMatchObject({ code: 'SOURCE_READ_ONLY' });
-
-    const candidate = durable.snapshot;
-    const finalized = await env.context().handoff();
-    expect(finalized).toBe(candidate);
-    expect(durable.authority.state).toBe('read_only_handoff');
-    await expect(env.context().handoff()).resolves.toBe(candidate);
-  });
-
-  it('allows explicit pre-snapshot cancellation but never candidate or terminal cancellation', async () => {
-    const env = environment();
-    const durable = env.sources.initialize(rootA, userA);
-    await expect(env.context().handoff({ crashAfterPending: true })).rejects.toBeInstanceOf(ProtocolError);
+    await expect(env.context().write('note-late', 'blocked'))
+      .rejects.toMatchObject({ code: 'SOURCE_READ_ONLY' });
     await env.context().cancelBeforeSnapshot();
     await expect(env.context().write('note-a', 'after-cancel')).resolves.toBe(1);
-    await expect(env.context().handoff({ crashAfterSnapshotCommit: true })).rejects.toBeInstanceOf(ProtocolError);
-    await expect(env.context().cancelBeforeSnapshot()).rejects.toMatchObject({ code: 'CANCELLATION_NOT_ALLOWED' });
-    await env.context().handoff();
-    await expect(env.context().cancelBeforeSnapshot()).rejects.toMatchObject({ code: 'CANCELLATION_NOT_ALLOWED' });
-    expect(durable.authority.state).toBe('read_only_handoff');
+    await expect(env.context().handoff({ crashAfterCandidateCommit: true }))
+      .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
+    await expect(env.context().cancelBeforeSnapshot())
+      .rejects.toMatchObject({ code: 'CANCELLATION_NOT_ALLOWED' });
   });
 
-  it('rejects absent, malformed, and unsupported authority paths before mutation', async () => {
+  it('rejects absent, duplicate, malformed, and unsupported authority paths', async () => {
     const env = environment();
     await expect(env.context().write('note-a', 'absent')).rejects.toMatchObject({ code: 'AUTHORITY_NOT_FOUND' });
-    const durable = env.sources.initialize(rootA, userA);
-    durable.authority.state = 'invalid' as AuthorityState;
-    await expect(env.context().write('note-a', 'corrupt'))
-      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
-    const unsupported = env.context(rootA, userA, false);
-    expect(() => unsupported.handoff())
+    env.sources.initialize(rootA, userA);
+    expect(() => env.sources.initialize(rootA, userB))
+      .toThrowError(expect.objectContaining({ code: 'AUTHORITY_ALREADY_EXISTS' }));
+    expect(() => env.context(rootA, userA, false).handoff())
       .toThrowError(expect.objectContaining({ code: 'COORDINATOR_UNAVAILABLE' }));
-    expect(durable.source.size).toBe(0);
   });
 });
