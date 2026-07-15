@@ -161,7 +161,6 @@ interface RestartMetrics {
   candidateExistingKeyDetected: number;
   candidateCollisionDetected: number;
   candidateFullBindingMismatchDetected: number;
-  candidateOverwriteAttempted: number;
 }
 
 function restartMetrics(): RestartMetrics {
@@ -202,7 +201,6 @@ function restartMetrics(): RestartMetrics {
     candidateExistingKeyDetected: 0,
     candidateCollisionDetected: 0,
     candidateFullBindingMismatchDetected: 0,
-    candidateOverwriteAttempted: 0,
   };
 }
 
@@ -956,7 +954,43 @@ interface DurableEvidenceObservation {
   authorityRecordCount: number;
   candidateRecordCount: number;
   sourceRecordCount: number;
+  sourceEntriesBytes: string;
   authorityState: AuthorityState | null;
+}
+
+function compareCanonicalSourceId(
+  [left]: readonly [string, string],
+  [right]: readonly [string, string],
+): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function detachedSourceEntries(
+  source: ReadonlyMap<string, string>,
+): ReadonlyArray<readonly [string, string]> {
+  return Object.freeze([...source.entries()]
+    .map(([id, value]) => Object.freeze([`${id}`, `${value}`] as const))
+    .sort(compareCanonicalSourceId));
+}
+
+function expectSourceStateUnchanged(
+  before: DurableEvidenceObservation,
+  after: DurableEvidenceObservation,
+): void {
+  expect(after.sourceRecordCount).toBe(before.sourceRecordCount);
+  expect(after.sourceEntriesBytes).toBe(before.sourceEntriesBytes);
+}
+
+function expectDurableStateUnchanged(
+  before: DurableEvidenceObservation,
+  after: DurableEvidenceObservation,
+): void {
+  expect(after.authorityBytes).toBe(before.authorityBytes);
+  expect(after.authorityRecordCount).toBe(before.authorityRecordCount);
+  expect(after.authorityState).toBe(before.authorityState);
+  expect(after.candidateRecordCount).toBe(before.candidateRecordCount);
+  expect(after.candidateEntriesBytes).toBe(before.candidateEntriesBytes);
+  expectSourceStateUnchanged(before, after);
 }
 
 class DurablePhysicalSourceRegistry {
@@ -1227,9 +1261,7 @@ class DurablePhysicalSourceRegistry {
     const digest = physicalSourceDigest(identityInput);
     const slot = this.slot(digest);
     const authority = parseCanonicalAuthorityBytes(slot.authorityBytes);
-    const sourceRecords = Object.freeze([...slot.source.entries()]
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-      .map(entry => Object.freeze([entry[0], entry[1]] as const)));
+    const sourceRecords = detachedSourceEntries(slot.source);
     const candidateEntries = [...slot.candidateBytesById.entries()]
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
     return {
@@ -1238,6 +1270,7 @@ class DurablePhysicalSourceRegistry {
       authorityRecordCount: 1,
       candidateRecordCount: candidateEntries.length,
       sourceRecordCount: sourceRecords.length,
+      sourceEntriesBytes: JSON.stringify(sourceRecords),
       authorityState: authority.state,
     };
   }
@@ -2058,6 +2091,8 @@ interface RestartRejectionResult {
   candidateRecordCountAfter: number;
   sourceRecordCountBefore: number;
   sourceRecordCountAfter: number;
+  sourceEntriesBytesBefore: string;
+  sourceEntriesBytesAfter: string;
   authorityStateBefore: AuthorityState | null;
   authorityStateAfter: AuthorityState | null;
   metrics: RestartMetrics;
@@ -2088,6 +2123,7 @@ function rawEvidenceSnapshot(input: unknown): DurableEvidenceObservation {
     authorityRecordCount: 0,
     candidateRecordCount: 0,
     sourceRecordCount: 0,
+    sourceEntriesBytes: '[]',
     authorityState: null,
   };
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return absent;
@@ -2122,6 +2158,7 @@ function rawEvidenceSnapshot(input: unknown): DurableEvidenceObservation {
     authorityRecordCount: authorityBytes !== null ? 1 : 0,
     candidateRecordCount: candidateEntries.length,
     sourceRecordCount: legacySourceRecords.length,
+    sourceEntriesBytes: stableInputSnapshot(legacySourceRecords),
     authorityState,
   };
 }
@@ -2178,6 +2215,8 @@ async function attemptRejectedRestart(
     candidateRecordCountAfter: after.candidateRecordCount,
     sourceRecordCountBefore: before.sourceRecordCount,
     sourceRecordCountAfter: after.sourceRecordCount,
+    sourceEntriesBytesBefore: before.sourceEntriesBytes,
+    sourceEntriesBytesAfter: after.sourceEntriesBytes,
     authorityStateBefore: before.authorityState,
     authorityStateAfter: after.authorityState,
     metrics: stages,
@@ -2239,6 +2278,7 @@ function expectTotalRestartRejection(result: RestartRejectionResult, original: u
   expect(result.authorityRecordCountAfter).toBe(result.authorityRecordCountBefore);
   expect(result.candidateRecordCountAfter).toBe(result.candidateRecordCountBefore);
   expect(result.sourceRecordCountAfter).toBe(result.sourceRecordCountBefore);
+  expect(result.sourceEntriesBytesAfter).toBe(result.sourceEntriesBytesBefore);
   expect(result.authorityStateAfter).toBe(result.authorityStateBefore);
   const allowed = ALLOWED_CAPABILITIES_BY_REJECTION_STAGE[result.stage];
   for (const counter of CAPABILITY_COUNTERS) {
@@ -2640,7 +2680,7 @@ describe('K-327H direct candidate-store collision policy', () => {
     expect(sources.commitCandidate(digest, authority, authority, candidate))
       .toBe('existing_identical');
 
-    expect(sources.inspectDurableState(rootA)).toEqual(before);
+    expectDurableStateUnchanged(before, sources.inspectDurableState(rootA));
     expect(capabilityDelta(beforeCapabilities, observed)).toEqual(Object.fromEntries(
       CAPABILITY_COUNTERS.map(counter => [counter, 0]),
     ));
@@ -2648,7 +2688,6 @@ describe('K-327H direct candidate-store collision policy', () => {
     expect(observed.candidateExistingKeyDetected - beforeExisting).toBe(1);
     expect(observed.candidateCollisionDetected - beforeCollisions).toBe(0);
     expect(observed.candidateFullBindingMismatchDetected).toBe(0);
-    expect(observed.candidateOverwriteAttempted).toBe(0);
     expect(sources.candidateCount(rootA)).toBe(1);
     const existing = sources.readCandidate(digest)!;
     expect(serializeCandidate(existing)).toBe(serializeCandidate(candidate));
@@ -2679,7 +2718,7 @@ describe('K-327H direct candidate-store collision policy', () => {
       candidate.candidateId,
     )).toThrowError(expect.objectContaining({ code: 'CANDIDATE_KEY_COLLISION' }));
 
-    expect(sources.inspectDurableState(rootA)).toEqual(before);
+    expectDurableStateUnchanged(before, sources.inspectDurableState(rootA));
     expect(capabilityDelta(beforeCapabilities, observed)).toEqual(Object.fromEntries(
       CAPABILITY_COUNTERS.map(counter => [counter, 0]),
     ));
@@ -2687,11 +2726,65 @@ describe('K-327H direct candidate-store collision policy', () => {
     expect(observed.candidateExistingKeyDetected - beforeExisting).toBe(1);
     expect(observed.candidateCollisionDetected - beforeCollisions).toBe(1);
     expect(observed.candidateFullBindingMismatchDetected - beforeBindingMismatch).toBe(1);
-    expect(observed.candidateOverwriteAttempted).toBe(0);
     expect(sources.candidateCount(rootA)).toBe(1);
     const existing = sources.readCandidate(digest)!;
     expect(serializeCandidate(existing)).toBe(serializeCandidate(candidate));
     exactCandidateBinding(authority, existing);
+  });
+});
+
+describe('K-327I detached legacy-source content observation', () => {
+  function writableSource(): {
+    env: ReturnType<typeof environment>;
+    sources: DurablePhysicalSourceRegistry;
+  } {
+    const env = environment();
+    env.sources.initialize(rootA, userA);
+    return { env, sources: env.sources };
+  }
+
+  it('detects and reverses a same-count source value mutation through detached bytes', async () => {
+    const { env, sources } = writableSource();
+    await env.context().write('source-1', 'A');
+    const before = sources.inspectDurableState(rootA);
+
+    await env.context().write('source-1', 'B');
+    const changed = sources.inspectDurableState(rootA);
+    expect(changed.sourceRecordCount).toBe(before.sourceRecordCount);
+    expect(changed.sourceEntriesBytes).not.toBe(before.sourceEntriesBytes);
+    expect(() => expectSourceStateUnchanged(before, changed)).toThrowError();
+    expect(() => expectDurableStateUnchanged(before, changed)).toThrowError();
+
+    await env.context().write('source-1', 'A');
+    const restored = sources.inspectDurableState(rootA);
+    expectSourceStateUnchanged(before, restored);
+  });
+
+  it('detects a same-count source key mutation through detached bytes', async () => {
+    const first = writableSource();
+    const second = writableSource();
+    await first.env.context().write('source-1', 'A');
+    await second.env.context().write('source-2', 'A');
+    const before = first.sources.inspectDurableState(rootA);
+    const changed = second.sources.inspectDurableState(rootA);
+
+    expect(changed.sourceRecordCount).toBe(before.sourceRecordCount);
+    expect(changed.sourceEntriesBytes).not.toBe(before.sourceEntriesBytes);
+    expect(() => expectSourceStateUnchanged(before, changed)).toThrowError();
+  });
+
+  it('makes detached source bytes independent of map insertion order', async () => {
+    const first = writableSource();
+    const second = writableSource();
+    await first.env.context().write('source-1', 'A');
+    await first.env.context().write('source-2', 'B');
+    await second.env.context().write('source-2', 'B');
+    await second.env.context().write('source-1', 'A');
+    const forward = first.sources.inspectDurableState(rootA);
+    const reverse = second.sources.inspectDurableState(rootA);
+
+    expect(reverse.sourceRecordCount).toBe(forward.sourceRecordCount);
+    expect(reverse.sourceEntriesBytes).toBe(forward.sourceEntriesBytes);
   });
 });
 
@@ -3106,6 +3199,7 @@ describe('K-327G observable production-shaped restart capabilities', () => {
     const sources = DurablePhysicalSourceRegistry.fromPersistedArtifacts(canonical, metrics(), observed);
     const restarted = environment(metrics(), sources);
     const context = restarted.context();
+    const beforeFirstState = sources.inspectDurableState(rootA);
     const beforeFirst = capabilitySnapshot(observed);
     await expect(context.handoff()).resolves.toMatchObject({ entityCount: 1 });
     expect(capabilityDelta(beforeFirst, observed)).toEqual({
@@ -3128,6 +3222,11 @@ describe('K-327G observable production-shaped restart capabilities', () => {
       coordinatorConstructed: 0,
       finalizationAttempted: 1,
     });
+    const afterFirstState = sources.inspectDurableState(rootA);
+    expect(afterFirstState.candidateRecordCount).toBe(beforeFirstState.candidateRecordCount);
+    expect(afterFirstState.candidateEntriesBytes).toBe(beforeFirstState.candidateEntriesBytes);
+    expect(afterFirstState.sourceRecordCount).toBe(beforeFirstState.sourceRecordCount);
+    expect(afterFirstState.sourceEntriesBytes).toBe(beforeFirstState.sourceEntriesBytes);
 
     const beforeRetryState = sources.inspectDurableState(rootA);
     const beforeRetry = capabilitySnapshot(observed);
@@ -3152,7 +3251,7 @@ describe('K-327G observable production-shaped restart capabilities', () => {
       coordinatorConstructed: 0,
       finalizationAttempted: 0,
     });
-    expect(sources.inspectDurableState(rootA)).toEqual(beforeRetryState);
+    expectDurableStateUnchanged(beforeRetryState, sources.inspectDurableState(rootA));
   });
 
   it('directly rejects after coordinator construction with the exact zero-write profile', async () => {

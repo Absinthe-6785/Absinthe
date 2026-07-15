@@ -135,9 +135,13 @@ Candidate IDs are internally generated only. Byte-format v1 uses `candidate-<sna
 
 Candidate-store creation has one explicit append-only policy. If the generated store key already exists, the boundary first parses the existing canonical bytes and verifies their complete authority/snapshot/root/manifest binding. The operation is idempotent only when store key, exact payload bytes, complete binding, and current authority bytes all match; it returns the existing evidence with zero persistence/candidate/create/rewrite/delete mutation. Same store key with different valid bytes, candidate identity, full digest, root/manifest binding, or authority binding is `CANDIDATE_KEY_COLLISION`: the original candidate remains byte-identical and no overwrite, normalization, repair, delete/recreate, authority transition, or new candidate occurs. The deterministic K-327H probe injects only the store lookup key to model a truncated-prefix collision; both candidate payloads are otherwise built by the normal generated-ID and full-binding constructors. This is architecture evidence, not real IndexedDB collision-race evidence.
 
+K-327I makes the observable contract match that append-only design. Candidate overwrite is not a modeled operation: conflicting evidence rejects before mutation dispatch, so the former permanently-zero `candidateOverwriteAttempted` field and its unsupported observation claim are removed instead of inventing an artificial overwrite API. Operational boundary, existing-key, collision, full-binding-mismatch, committed create/write, rewrite, and delete evidence remains separate. Exact detached candidate bytes prove preservation independently of those counters.
+
 Handoff session IDs are also internally generated only. Byte-format v1 uses `handoff-<physical-digest-prefix>-<revision>`, where the digest suffix is the first 16 lowercase hexadecimal characters of the SHA-256 physical-source digest and revision is canonical base-10 `0..Number.MAX_SAFE_INTEGER`, with no sign or leading zero except the value `0`. The fixed prefix/digest/separator contributes 25 bytes; total length is 26 bytes at revision 0 and at most 41 bytes at the 16-digit safe-integer maximum. The identifier is deterministic for one physical source and revision. Candidate and authority parsers require the exact generated value; arbitrary 153/154-byte candidate IDs and 128-byte session IDs are invalid schema.
 
 The permanent identifier matrix directly rejects candidate uppercase hex, invalid/short/long digest, arbitrary 153- and 154-byte values, leading/trailing whitespace, embedded NUL, Unicode lookalike, and valid syntax with the wrong snapshot derivation. It directly rejects session uppercase/invalid/short/long digest, wrong prefix/separator, leading-zero/negative/negative-zero/leading-plus/decimal/exponent/Unicode-digit revision, surrounding whitespace, safe-integer overflow, arbitrary 128-byte input, and valid syntax with the wrong physical digest or revision. Every persisted negative fixture rejects at `candidate_schema` before coordinator/finalization or any durable mutation.
+
+Detached durable-state inspection now includes deterministic `sourceEntriesBytes`: exact legacy-source ID/value pairs are cloned, sorted by the same locale-independent code-unit ID comparator as canonical source capture, and serialized as canonical JSON. Count and bytes are checked independently. Permanent controls prove that a same-count value change and a same-count key change alter the bytes, restoring the original value restores source equality, and reversed map insertion order produces identical bytes. Collision, identifier rejection, coordinator/CAS rejection, first finalization, and locked retry therefore compare complete legacy-source content rather than count alone. Source-mutation counters and detached bytes are complementary evidence; neither substitutes for the other.
 
 For one exact physical source:
 
@@ -518,16 +522,18 @@ The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandof
 
 K-327H increases the focused harness from 373 to 388 tests: two direct candidate collision cases, three additional candidate syntax negatives, eight additional session syntax negatives, and two additional distinct derivation cases after splitting the former combined derivation test. Nothing was removed. Final accounting is 139 physical identity + 35 logical scope + 45 persisted schema + 38 fixed identifier policy + 8 null-prototype + 13 duplicate-aware JSON + 32 bounds/parser + 11 observable/collision effects + 60 restart/corruption + 7 lock ordering = 388, with no duplicate names, `.only`, or `.skip`.
 
+K-327I increases the focused harness from 388 to 391 tests with three detached-source positive controls: same-count value mutation, same-count key mutation, and insertion-order stability. No test was removed. Final accounting is 139 physical identity + 35 logical scope + 45 persisted schema + 38 fixed identifier policy + 8 null-prototype + 13 duplicate-aware JSON + 32 bounds/parser + 14 observable/collision/source effects + 60 restart/corruption + 7 lock ordering = 391. The unsupported overwrite counter is removed; no test is counted for a helper assertion.
+
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 388/388 passed, 1.76 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.24 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.38 s |
-| `npm test -- --run src/lib/localDatabase/` | 903/903 passed across 9 files, 2.72 s |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 10.24 s |
-| `npm run typecheck` | passed, 24.0 s wall time |
-| `npm run build` | passed, 11.15 s Vite build; existing dynamic-import and chunk-size warnings only |
-| `npm test -- --maxWorkers=4` | 5,181 passed / 7 skipped across 578 passed / 1 skipped files, 195.65 s / 198.1 s wall time |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391/391 passed, 1.84 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.52 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.50 s |
+| `npm test -- --run src/lib/localDatabase/` | 906/906 passed across 9 files, 2.72 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 9.90 s |
+| `npm run typecheck` | passed, 22.5 s wall time |
+| `npm run build` | passed, 10.87 s Vite build; existing dynamic-import and chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 5,184 passed / 7 skipped across 578 passed / 1 skipped files, 193.05 s / 195.5 s wall time |
 | `git diff --check` | passed before publication |
 
 Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
@@ -566,9 +572,9 @@ No UI exists. The future UI must flush or abort, display read-only explicitly, a
 
 Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
 
-### Actual defects found and closed in K-327A through K-327H
+### Actual defects found and closed in K-327A through K-327I
 
-K-327 initially mixed account scope into the physical lock digest and manually shared a queue. K-327A separates physical exclusion from logical authority. K-327B closes identity aliases and requires strict rehydration. K-327C closes duplicate-key, canonical-byte, missing-evidence, null-prototype, and durable-state gaps. K-327D bounds parsing and makes effects observable. K-327E preserves real rewrite/delete controls, total counters, retry measurement, and monotonic number scanning, but its synthetic combined-root budget did not survive focused review. K-327F replaces that root with separate production-shaped authority/candidate stores, one candidate-owned snapshot, compatible record children, direct coordinator/CAS rejection tests, and UTF-8 early-stop differential proof. K-327G closes the fixture-derived resource claim by enforcing fixed generated candidate/session identifiers, removing 153/154/128-byte valid identifier padding, classifying candidate 504,000 as a rejection ceiling, measuring the 503,794 production high-water, and establishing exact 509,000/509,001 transaction evidence. K-327H directly closes same-key candidate replay/collision behavior with full-binding zero-mutation evidence and completes every required candidate/session canonical-negative case. The production defect remains: current localStorage/legacy-IDB writers are not cross-context serializable, so K-326G continues to block them.
+K-327 initially mixed account scope into the physical lock digest and manually shared a queue. K-327A separates physical exclusion from logical authority. K-327B closes identity aliases and requires strict rehydration. K-327C closes duplicate-key, canonical-byte, missing-evidence, null-prototype, and durable-state gaps. K-327D bounds parsing and makes effects observable. K-327E preserves real rewrite/delete controls, total counters, retry measurement, and monotonic number scanning, but its synthetic combined-root budget did not survive focused review. K-327F replaces that root with separate production-shaped authority/candidate stores, one candidate-owned snapshot, compatible record children, direct coordinator/CAS rejection tests, and UTF-8 early-stop differential proof. K-327G closes the fixture-derived resource claim by enforcing fixed generated candidate/session identifiers, removing 153/154/128-byte valid identifier padding, classifying candidate 504,000 as a rejection ceiling, measuring the 503,794 production high-water, and establishing exact 509,000/509,001 transaction evidence. K-327H directly closes same-key candidate replay/collision behavior with full-binding zero-mutation evidence and completes every required candidate/session canonical-negative case. K-327I removes the unsupported overwrite-counter claim and adds exact detached legacy-source content evidence with same-count mutation and ordering controls. The production defect remains: current localStorage/legacy-IDB writers are not cross-context serializable, so K-326G continues to block them.
 
 ### Unresolved architecture decisions
 
@@ -580,4 +586,4 @@ K-327 performs no production K-326 eligibility change, source handoff activation
 
 ## Next action
 
-`K-327H — Focused Final Evidence Review`
+`K-327I — Focused Observability Closure Review`
