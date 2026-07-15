@@ -131,6 +131,10 @@ Exactly one versioned authority record is keyed by the physical-source digest. I
 
 The separate snapshot candidate has discriminator `absinthe_handoff_snapshot_candidate`, schema/coordinator version `1`, candidate and handoff-session IDs, physical and logical-scope digests, exact source revision, snapshot/root/manifest digests, entity count, and deterministic sorted snapshot records. Authority and candidate mutually agree on every binding; candidate bytes are never copied into authority as repair.
 
+Candidate IDs are internally generated only. Byte-format v1 uses `candidate-<snapshot-digest-prefix>`, where the suffix is the first 24 lowercase hexadecimal characters of the SHA-256 snapshot/ordered-record digest. The format is fixed, deterministic, ASCII-only, and exactly 34 UTF-8 bytes. Callers cannot supply opaque candidate IDs. The 96-bit fragment is a stable object-store key, not a trust anchor: restart still verifies the complete snapshot/root/manifest digest chain, every candidate field, canonical bytes, and the authority binding, so a key collision cannot substitute different content.
+
+Handoff session IDs are also internally generated only. Byte-format v1 uses `handoff-<physical-digest-prefix>-<revision>`, where the digest suffix is the first 16 lowercase hexadecimal characters of the SHA-256 physical-source digest and revision is canonical base-10 `0..Number.MAX_SAFE_INTEGER`, with no sign or leading zero except the value `0`. The fixed prefix/digest/separator contributes 25 bytes; total length is 26 bytes at revision 0 and at most 41 bytes at the 16-digit safe-integer maximum. The identifier is deterministic for one physical source and revision. Candidate and authority parsers require the exact generated value; arbitrary 153/154-byte candidate IDs and 128-byte session IDs are invalid schema.
+
 For one exact physical source:
 
 1. Every migration-critical writer derives and obtains the same physical-source coordinator before reading durable authority.
@@ -256,9 +260,9 @@ The repository has Vitest, `happy-dom`, and `fake-indexeddb`, but no Playwright/
 
 Evidence collected:
 
-- Deterministic unit model: 348 Vitest executions in the K-327F focused run. Counts are execution accounting, not a substitute for semantic independence; boundary fixtures below identify the exact persisted object or effect property each execution proves.
-- Evidence: the K-327B/K-327C identity, schema, ordering, duplicate, canonical-byte, missing-evidence, and null-prototype matrices remain intact. K-327D's bounded parser and K-327E's real write/delete controls, counter coverage, retry measurement, and monotonic number scanner remain. K-327F replaces the synthetic combined root with separate authority/candidate payloads and a non-persisted legacy-source fixture, selects policy ceilings, proves compatible record children, and directly exercises coordinator and finalization-CAS rejection.
-- Focused categories: 139 physical identity, 35 logical scope, 45 persisted schema, 8 null-prototype, 13 duplicate-aware JSON, 32 production-shaped bounds/parser, 9 observable effects, 60 separate-payload restart/corruption, and 7 named-lock ordering executions = 348. No `.only`/`.skip` marker or duplicate candidate-null fixture remains.
+- Deterministic unit model: 373 Vitest executions in the K-327G focused run. Counts are execution accounting, not a substitute for semantic independence; boundary fixtures below identify the exact persisted object or effect property each execution proves.
+- Evidence: the K-327B/K-327C identity, schema, ordering, duplicate, canonical-byte, missing-evidence, and null-prototype matrices remain intact. K-327D's bounded parser and K-327E's real write/delete controls, counter coverage, retry measurement, and monotonic number scanner remain. K-327F replaces the synthetic combined root with separate authority/candidate payloads and a non-persisted legacy-source fixture. K-327G fixes candidate/session identifiers to the actual internally generated formats, removes identifier padding from valid resource fixtures, and treats the candidate payload as a policy ceiling rather than an exact reachable maximum.
+- Focused categories: 139 physical identity, 35 logical scope, 45 persisted schema, 25 fixed identifier-policy, 8 null-prototype, 13 duplicate-aware JSON, 32 production-shaped bounds/parser, 9 observable effects, 60 separate-payload restart/corruption, and 7 named-lock ordering executions = 373. No `.only`/`.skip` marker or duplicate candidate-null fixture remains.
 - Fake storage evidence: existing local database suites continue to exercise fake IndexedDB; the new model intentionally does not claim browser storage behavior.
 - Real two-tab, page reload, browser-process restart, suspension, and PWA evidence: not collected.
 
@@ -322,23 +326,33 @@ The deterministic model receives each persisted payload as a separate JavaScript
 
 Each payload uses a recursive duplicate-aware JSON reader. Container depth is checked before entering every object or array; no terminal or nonterminal container may exceed 64. JSON whitespace is exactly SPACE, TAB, LF, or CR. Every object owns a fresh decoded-key set, and duplicate decoded keys are rejected before schema construction. Null-prototype temporary maps and own data properties prevent special-key semantics.
 
-The limits are policy selections, not sizes reverse-engineered from one fixture:
+The limits are policy selections, not sizes reverse-engineered from one fixture. Candidate and session identifier invariants are distinct from source-record ID/value bounds:
 
 | Bound | Value | Classification | Rationale |
 |---|---:|---|---|
 | Authority payload | 4,096 bytes | rejection ceiling only | small fixed state graph with substantial headroom over production-shaped identities |
-| Candidate payload | 504,000 bytes | reachable exact maximum | approximately 500 KB immutable snapshot cap with canonical metadata/punctuation included once |
-| Transaction write aggregate | 509,000 bytes | parent/transaction ceiling | authority + candidate + 3,904-byte fixed IndexedDB metadata allowance; legacy source excluded |
+| Candidate payload | 504,000 bytes | pre-parse rejection ceiling | approximately 500 KB immutable snapshot cap for bounded decode/parse memory and browser transaction margin; production-path reachability is not claimed |
+| Demonstrated production-path candidate | 503,794 bytes | high-water evidence | maximum capture fixture with generated 34-byte candidate ID and 41-byte session ID |
+| Transaction write aggregate | 509,000 bytes | parent/transaction ceiling | actual authority/candidate application payloads plus one 3,904-byte application reserve; legacy source excluded |
+| Application transaction reserve | 3,904 bytes | deliberately reserved headroom | future bounded application-controlled object-store keys, versioned wrappers, and auxiliary metadata; not measured or estimated IndexedDB engine overhead |
 | Aggregate source tuples | 499,000 bytes | reachable exact maximum | bounded capture/hash memory and CPU; punctuation is charged only by candidate parent |
 | Source records | 4,096 | reachable exact maximum | bounded migration batch and iteration cost |
 | Canonical `[id,value]` | 131,072 bytes | parent-only constraint | 128 KiB persisted-record denial-of-service boundary |
-| Decoded ID | 256 bytes | reachable subordinate maximum | bounded key processing and established identity scale |
-| Decoded value | 20,000 bytes | reachable subordinate maximum | accommodates record text while bounding capture/hash memory |
+| Decoded source-record ID | 256 bytes | reachable subordinate maximum | bounded source-key processing; unrelated to candidate/session identifier schemas |
+| Decoded source-record value | 20,000 bytes | provisional subordinate maximum | bounds capture/hash memory; K-328 must validate real migration inventory before activation |
+| Candidate ID | 34 bytes | fixed schema invariant | internally generated `candidate-` plus 24 lowercase SHA-256 hex characters |
+| Handoff session ID | 26..41 bytes | generated schema invariant | internally generated physical-digest prefix plus canonical safe-integer revision |
 | JSON depth | 64 containers | parser ceiling | shape-independent parser stack/work bound |
 
 The simultaneous worst-case record uses a 256-byte control-character ID and a 20,000-byte control-character value. Canonical `JSON.stringify([id,value])` is exactly `1,536 + 120,000 + 7 = 121,543` UTF-8 bytes, leaving 9,529 bytes beneath the 131,072-byte parent. The permanent fixture places both maxima in one record and passes. A 20,001-byte value fails the decoded-value check while remaining below the whole-record parent. Validation order is decoded ID, decoded value, canonical tuple serialization, whole-record bytes, overflow-safe aggregate accounting, then digest computation; the parent remains authoritative.
 
-One canonical complete snapshot reaches candidate 504,000 bytes, aggregate tuples 499,000 bytes, count 4,096, decoded ID 256, decoded value 20,000, and worst-case tuple 121,543. Authority remains a production-shaped representative below its rejection ceiling. The canonical candidate `+1` changes only the schema-native candidate ID from 153 to 154 bytes, recomputes snapshot/root/manifest digests and authority binding, remains canonical/schema/graph valid, and rejects at the candidate raw bound. Authority has no claimed reachable exact maximum; an oversized canonical raw value proves only the pre-parser rejection ceiling. Transaction evidence counts only the authority payload, candidate payload, and fixed IDB allowance. Source-capture evidence is separately exact at 499,000 and `+1`.
+The maximum production-shaped capture fixture reaches aggregate tuples 499,000 bytes, count 4,096, decoded source-record ID 256, decoded source-record value 20,000, and worst-case tuple 121,543. Its candidate arithmetic is: 624 bytes of fixed canonical envelope (field names, fixed scalar/digest values, quotes, separators, and empty record-array brackets), 34 candidate-ID bytes, 41 session-ID bytes, 499,000 tuple bytes, and 4,095 record-array comma bytes = **503,794 bytes**, leaving 206 bytes below the candidate ceiling. It completes restart and terminal finalization with all digests and authority bindings regenerated from final content.
+
+The 504,000-byte candidate bound is therefore a rejection ceiling, not a reachable exact maximum. Aggregate capture is the earlier production-valid constraint: adding the 207 content bytes required to reach 504,001 necessarily makes aggregate tuples 499,207 and is not a single-cause schema-valid pair. A canonical raw 504,001-byte candidate with generated identifiers confirms only that the independent pre-parse ceiling rejects before decode, coordinator construction, or writes; it is explicitly not reported as production-valid limit-plus-one evidence. Aggregate capture retains its canonical 499,000/499,001 single-cause pair. Authority likewise has no claimed reachable exact maximum.
+
+Transaction evidence is independent of identifier padding. One fully valid graph uses 1,302 authority bytes + 503,794 candidate bytes + the 3,904-byte application reserve = exactly 509,000. Adding one ASCII byte to a valid logical-scope field changes only the authority payload to 1,303 bytes, regenerates fixed-length digests/bindings, and yields 509,001; both persisted objects remain individually valid and rejection occurs at the transaction graph bound. The reserve is applied once as enforceable application policy headroom, never as unknowable IndexedDB engine overhead. Legacy source data is read-only capture input and excluded.
+
+The 504,000-byte policy protects decode/parse memory, transaction margin, and pathological snapshot handling. It is provisional until K-328 inventories the largest real legacy record, aggregate snapshot, record count, serialized candidate distribution, and revision/session ranges. Oversized sources remain ineligible; activation must not truncate, split, repair, or silently reinterpret them.
 
 Serializer v1 uses `JSON.stringify` fixed field/array order, compact separators, literal forward slashes and supported non-ASCII characters, JSON escapes for controls, and ordinary finite decimal integer spelling. JavaScript lone-surrogate strings are allowed consistently with `JSON.parse`; well-formed `JSON.stringify` emits them as `\ud800`-style escapes. A literal unpaired surrogate is therefore noncanonical, and pre-parse UTF-8 measurement follows TextEncoder replacement semantics. No NFC/NFD normalization occurs. Leading/trailing/inter-token whitespace, BOM, LF/CRLF suffixes, reordered keys, alternate numeric spellings such as `1e0` or `-0`, optional forward-slash escaping, Unicode/surrogate/control escape alternatives, and escaped spellings of otherwise literal keys/values are rejected as `NONCANONICAL_PERSISTED_BYTES`. Number tokenization advances monotonically over the original string and creates only one bounded token substring after locating its end; it never slices the remaining suffix per token. A 400,000-number canonical array permanently verifies zero suffix copies and exact grammar/canonical behavior.
 
@@ -452,7 +466,7 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 
 K-328 has one selected representation: separate authority and candidate object-store values are immutable `Uint8Array` UTF-8 canonical JSON payloads. Authority advances only through reviewed CAS transitions; the candidate is append-only and owns the sole immutable source snapshot. Indexed wrapper fields are lookup metadata, never another trusted graph. Legacy source records remain in their original stores and are captured under the physical lock; they are not counted as transaction writes. Reads check structured-clone type and per-object `.byteLength` before fatal UTF-8 decoding, then exact grammar, duplicate detection, depth 64, schema, capture/record bounds, graph/digest binding, transaction budget, and exact re-encoding equality.
 
-Byte-format-v1 policy is: authority 4,096 bytes (rejection ceiling), candidate 504,000 bytes, actual transaction writes 509,000 bytes including a fixed 3,904-byte metadata allowance, 4,096 source records, 499,000 aggregate canonical tuple bytes, 131,072 canonical bytes per record, decoded ID 256, decoded value 20,000, and depth 64. Source-capture limits are distinct from persisted-object limits. K-328 must repeat canonical single-cause boundaries with real IndexedDB bytes, malformed UTF-8, fatal decoding, exact re-encoding, actual store effects, and no repair. K-326 eligibility remains separately gated.
+Byte-format-v1 policy is: authority 4,096 bytes (rejection ceiling), candidate 504,000 bytes (rejection ceiling; 503,794 demonstrated production-path high-water), actual transaction writes 509,000 bytes including one 3,904-byte application-controlled reserve, 4,096 source records, 499,000 aggregate canonical tuple bytes, 131,072 canonical bytes per record, decoded source-record ID 256, decoded source-record value 20,000, and depth 64. Candidate IDs are fixed 34-byte generated values; session IDs are generated 26..41-byte values. Source-capture limits are distinct from persisted-object limits. K-328 must repeat canonical single-cause boundaries where reachable, raw rejection-ceiling evidence where not, real IndexedDB bytes, malformed UTF-8, fatal decoding, exact re-encoding, actual store effects, and no repair. It must also complete real-data size inventory before eligibility. K-326 eligibility remains separately gated.
 
 ### Required K-328 tests
 
@@ -468,7 +482,7 @@ Byte-format-v1 policy is: authority 4,096 bytes (rejection ceiling), candidate 5
 - candidate/session/root/scope/revision/snapshot/root/manifest digest/discriminator/schema/coordinator/byte-format mismatch, malformed JSON, impossible state, and unknown-version rejection without writable restoration or repair;
 - duplicate decoded keys in authority, logical scope, candidate, and nested/array-element objects, including escaped-equivalent spellings, rejected before schema construction;
 - canonical-byte matrix covering BOM, whitespace/newline, property order, escaped key/value spelling, alternate numeric spelling, truncation, primitives, special keys, and bounded deep nesting, with exact input-byte preservation and no normalization;
-- separate authority/candidate/transaction/capture/record/ID/value/count/depth matrices using the reachability classifications above; candidate and capture exact/limit+1 inputs must be canonical, fully rebound, and single-cause, while authority is explicitly a rejection ceiling only;
+- separate authority/candidate/transaction/capture/record/source-record-ID/value/count/depth matrices using the reachability classifications above; capture and transaction exact/limit+1 inputs must be canonical, fully rebound, and single-cause, while authority and candidate payload sizes are explicit rejection ceilings with production high-water evidence rather than invented exact maxima;
 - exact JSON whitespace tests for SPACE/TAB/LF/CR and grammar rejection of NBSP, BOM, vertical tab, form feed outside strings, line/paragraph separators, narrow no-break space, and other Unicode whitespace;
 - structured restart-stage accounting with the K-327F stage-specific capability allowlists, directly asserting every persistence/source/digest/coordinator/finalization/create/delete/rewrite counter and real IndexedDB before/after state for every rejection;
 - crash/restart tests at exact resource bounds, bounded IDB reads before decode/parse, malformed UTF-8 byte rejection, fatal decode and exact re-encoding, plus actual IndexedDB identical-value rewrite and create/delete observation at the modeled persistence boundary;
@@ -499,14 +513,14 @@ The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandof
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 348/348 passed, 2.23 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 3.43 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 2.16 s |
-| `npm test -- --run src/lib/localDatabase/` | 863/863 passed across 9 files, 3.83 s |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 11.23 s |
-| `npm run typecheck` | passed, 26.3 s |
-| `npm run build` | passed, 12.83 s Vite build / 14.1 s wall time; existing dynamic-import and chunk-size warnings only |
-| `npm test -- --maxWorkers=4` | 5,141 passed / 7 skipped across 578 passed / 1 skipped files, 201.31 s / 203.9 s wall time |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 373/373 passed, 2.22 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 2.41 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.32 s |
+| `npm test -- --run src/lib/localDatabase/` | 888/888 passed across 9 files, 2.79 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 10.32 s |
+| `npm run typecheck` | passed, 25.37 s wall time |
+| `npm run build` | passed, 10.93 s Vite build; existing dynamic-import and chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 5,166 passed / 7 skipped across 578 passed / 1 skipped files, 196.93 s / 198.7 s wall time |
 | `git diff --check` | passed before publication |
 
 Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
@@ -545,9 +559,9 @@ No UI exists. The future UI must flush or abort, display read-only explicitly, a
 
 Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
 
-### Actual defects found and closed in K-327A through K-327F
+### Actual defects found and closed in K-327A through K-327G
 
-K-327 initially mixed account scope into the physical lock digest and manually shared a queue. K-327A separates physical exclusion from logical authority. K-327B closes identity aliases and requires strict rehydration. K-327C closes duplicate-key, canonical-byte, missing-evidence, null-prototype, and durable-state gaps. K-327D bounds parsing and makes effects observable. K-327E preserves real rewrite/delete controls, total counters, retry measurement, and monotonic number scanning, but its synthetic combined-root budget did not survive focused review. K-327F replaces that root with separate production-shaped authority/candidate stores, one candidate-owned snapshot, policy-selected limits, compatible worst-case record children, canonical single-cause candidate evidence, direct coordinator/CAS rejection tests, and UTF-8 early-stop differential proof. The production defect remains: current localStorage/legacy-IDB writers are not cross-context serializable, so K-326G continues to block them.
+K-327 initially mixed account scope into the physical lock digest and manually shared a queue. K-327A separates physical exclusion from logical authority. K-327B closes identity aliases and requires strict rehydration. K-327C closes duplicate-key, canonical-byte, missing-evidence, null-prototype, and durable-state gaps. K-327D bounds parsing and makes effects observable. K-327E preserves real rewrite/delete controls, total counters, retry measurement, and monotonic number scanning, but its synthetic combined-root budget did not survive focused review. K-327F replaces that root with separate production-shaped authority/candidate stores, one candidate-owned snapshot, compatible record children, direct coordinator/CAS rejection tests, and UTF-8 early-stop differential proof. K-327G closes the remaining fixture-derived resource claim by enforcing fixed generated candidate/session identifiers, removing 153/154/128-byte valid identifier padding, classifying candidate 504,000 as a rejection ceiling, measuring the 503,794 production high-water, and establishing exact 509,000/509,001 transaction evidence. The production defect remains: current localStorage/legacy-IDB writers are not cross-context serializable, so K-326G continues to block them.
 
 ### Unresolved architecture decisions
 
@@ -559,4 +573,4 @@ K-327 performs no production K-326 eligibility change, source handoff activation
 
 ## Next action
 
-`K-327F — Focused Production-Topology Architecture Review`
+`K-327G — Focused Identifier and Candidate-Bound Architecture Review`

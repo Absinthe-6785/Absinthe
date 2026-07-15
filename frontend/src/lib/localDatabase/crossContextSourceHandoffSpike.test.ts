@@ -7,13 +7,16 @@ const CANDIDATE_RECORD_TYPE = 'absinthe_handoff_snapshot_candidate' as const;
 const SCHEMA_VERSION = 1 as const;
 const COORDINATOR_VERSION = 1 as const;
 const MAX_PERSISTED_JSON_DEPTH = 64;
-// K-327F policy ceilings apply to the separate production-shaped IndexedDB
+// K-327G policy ceilings apply to the separate production-shaped IndexedDB
 // objects. The legacy source is read under lock; it is not a third persisted
 // evidence payload and is never counted again in an authority/candidate budget.
 const MAX_AUTHORITY_PAYLOAD_UTF8_BYTES = 4_096;
 const MAX_CANDIDATE_PAYLOAD_UTF8_BYTES = 504_000;
 const MAX_TRANSACTION_WRITE_UTF8_BYTES = 509_000;
-const INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES = 3_904;
+// Deliberately reserved application-controlled transaction headroom for the
+// future object-store keys, versioned wrappers, and bounded auxiliary metadata.
+// It is counted once and is not an estimate of IndexedDB engine overhead.
+const APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES = 3_904;
 const MAX_STANDALONE_JSON_TEST_UTF8_BYTES = 1_048_576;
 const MAX_SOURCE_RECORD_COUNT = 4096;
 const MAX_SOURCE_RECORD_UTF8_BYTES = 131_072;
@@ -23,8 +26,11 @@ const MAX_SOURCE_RECORD_VALUE_UTF8_BYTES = 20_000;
 const MAX_IDENTITY_LENGTH = 256;
 const MAX_ORIGIN_LENGTH = 2048;
 const MAX_RECORD_VALUE_LENGTH = 1_048_576;
+const MAX_SOURCE_REVISION = Number.MAX_SAFE_INTEGER;
 const DIGEST = /^[a-f0-9]{64}$/;
 const IDENTIFIER = /^[A-Za-z0-9:_-]+$/;
+const CANDIDATE_ID = /^candidate-[a-f0-9]{24}$/;
+const HANDOFF_SESSION_ID = /^handoff-([a-f0-9]{16})-(0|[1-9][0-9]{0,15})$/;
 const SUPPORTED_SOURCE_FAMILIES = ['legacy_notes', 'legacy_notes_fixture_v2'] as const;
 const SUPPORTED_BACKENDS = [
   'combined_localstorage_indexeddb',
@@ -307,12 +313,43 @@ function strictDigest(value: unknown, code: string): string {
   return value;
 }
 
-function strictNullableString(value: unknown, code: string, max = 128): string | null {
-  return value === null ? null : strictString(value, code, { identifier: true, max });
-}
-
 function strictNullableDigest(value: unknown, code: string): string | null {
   return value === null ? null : strictDigest(value, code);
+}
+
+function createCandidateId(snapshotDigestInput: unknown): string {
+  const snapshotDigest = strictDigest(snapshotDigestInput, 'CORRUPT_PERSISTED_RECORD');
+  return `candidate-${snapshotDigest.slice(0, 24)}`;
+}
+
+function strictCandidateId(value: unknown, code: string): string {
+  if (typeof value !== 'string' || !CANDIDATE_ID.test(value)) return fail(code);
+  return value;
+}
+
+function createHandoffSessionId(physicalDigestInput: unknown, revisionInput: unknown): string {
+  const physicalDigest = strictDigest(physicalDigestInput, 'CORRUPT_PERSISTED_RECORD');
+  const revision = strictSafeInteger(revisionInput, 'CORRUPT_PERSISTED_RECORD');
+  return `handoff-${physicalDigest.slice(0, 16)}-${revision.toString(10)}`;
+}
+
+function strictHandoffSessionId(value: unknown, code: string): string {
+  if (typeof value !== 'string') return fail(code);
+  const match = HANDOFF_SESSION_ID.exec(value);
+  if (!match) return fail(code);
+  const revision = Number(match[2]);
+  if (!Number.isSafeInteger(revision) || revision < 0 || revision > MAX_SOURCE_REVISION) {
+    return fail(code);
+  }
+  return value;
+}
+
+function strictNullableCandidateId(value: unknown, code: string): string | null {
+  return value === null ? null : strictCandidateId(value, code);
+}
+
+function strictNullableHandoffSessionId(value: unknown, code: string): string | null {
+  return value === null ? null : strictHandoffSessionId(value, code);
 }
 
 function strictEnum<T extends string | number>(value: unknown, allowed: readonly T[], code: string): T {
@@ -556,8 +593,8 @@ function parsePersistedAuthority(input: unknown): Readonly<PersistedHandoffAutho
     logicalScopeDigest: scopeDigest,
     state,
     sourceRevision: strictSafeInteger(record.sourceRevision, code),
-    handoffSessionId: strictNullableString(record.handoffSessionId, code),
-    snapshotCandidateId: strictNullableString(record.snapshotCandidateId, code, 256),
+    handoffSessionId: strictNullableHandoffSessionId(record.handoffSessionId, code),
+    snapshotCandidateId: strictNullableCandidateId(record.snapshotCandidateId, code),
     snapshotDigest: strictNullableDigest(record.snapshotDigest, code),
     rootDigest: strictNullableDigest(record.rootDigest, code),
     manifestDigest: strictNullableDigest(record.manifestDigest, code),
@@ -570,6 +607,13 @@ function parsePersistedAuthority(input: unknown): Readonly<PersistedHandoffAutho
   if (state === 'handoff_pending' && (authority.handoffSessionId === null || !none)) return fail(code);
   if ((state === 'snapshot_committed_pending_finalization' || state === 'read_only_handoff')
     && (authority.handoffSessionId === null || !all)) return fail(code);
+  if (authority.handoffSessionId !== null
+    && authority.handoffSessionId !== createHandoffSessionId(
+      authority.physicalSourceDigest,
+      authority.sourceRevision,
+    )) return fail(code);
+  if (authority.snapshotCandidateId !== null && authority.snapshotDigest !== null
+    && authority.snapshotCandidateId !== createCandidateId(authority.snapshotDigest)) return fail(code);
   requireUtf8Bound(
     JSON.stringify(authority),
     MAX_AUTHORITY_PAYLOAD_UTF8_BYTES,
@@ -596,8 +640,8 @@ function parsePersistedCandidate(input: unknown): Readonly<PersistedSnapshotCand
     recordType: CANDIDATE_RECORD_TYPE,
     schemaVersion: SCHEMA_VERSION,
     coordinatorVersion: COORDINATOR_VERSION,
-    candidateId: strictString(record.candidateId, code, { identifier: true, max: 256 }),
-    handoffSessionId: strictString(record.handoffSessionId, code, { identifier: true, max: 128 }),
+    candidateId: strictCandidateId(record.candidateId, code),
+    handoffSessionId: strictHandoffSessionId(record.handoffSessionId, code),
     physicalSourceDigest: strictDigest(record.physicalSourceDigest, code),
     logicalScopeDigest: strictDigest(record.logicalScopeDigest, code),
     sourceRevision: strictSafeInteger(record.sourceRevision, code),
@@ -608,6 +652,11 @@ function parsePersistedCandidate(input: unknown): Readonly<PersistedSnapshotCand
     records,
   };
   if (candidate.entityCount !== candidate.records.length) return fail(code);
+  if (candidate.candidateId !== createCandidateId(candidate.snapshotDigest)
+    || candidate.handoffSessionId !== createHandoffSessionId(
+      candidate.physicalSourceDigest,
+      candidate.sourceRevision,
+    )) return fail(code);
   requireUtf8Bound(
     JSON.stringify(candidate),
     MAX_CANDIDATE_PAYLOAD_UTF8_BYTES,
@@ -1025,7 +1074,7 @@ class DurablePhysicalSourceRegistry {
     const candidateBytes = serializeCandidate(candidate);
     const authorityBytes = serializeAuthority(next);
     if (utf8ByteLength(authorityBytes) + utf8ByteLength(candidateBytes)
-      + INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES > MAX_TRANSACTION_WRITE_UTF8_BYTES) {
+      + APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES > MAX_TRANSACTION_WRITE_UTF8_BYTES) {
       return fail('PERSISTED_TRANSACTION_TOO_LARGE');
     }
     requireUtf8Bound(candidateBytes, MAX_CANDIDATE_PAYLOAD_UTF8_BYTES, 'PERSISTED_CANDIDATE_TOO_LARGE');
@@ -1278,7 +1327,7 @@ class DurablePhysicalSourceRegistry {
     if (candidate) {
       const transactionBytes = utf8ByteLength(authorityBytes)
         + utf8ByteLength(candidateEntries[0]![1])
-        + INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES;
+        + APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES;
       if (transactionBytes > MAX_TRANSACTION_WRITE_UTF8_BYTES) {
         throw new ProtocolError('PERSISTED_TRANSACTION_TOO_LARGE', 'graph_bounds');
       }
@@ -1401,7 +1450,7 @@ class HandoffContext {
         const pending = parsePersistedAuthority({
           ...authority,
           state: 'handoff_pending',
-          handoffSessionId: `handoff-${digest.slice(0, 16)}-${authority.sourceRevision}`,
+          handoffSessionId: createHandoffSessionId(digest, authority.sourceRevision),
         });
         // WRITE_EXCLUSION_POINT: this durable CAS leaves writable under the common physical lock.
         this.sources.compareAndSetAuthority(digest, authority, pending);
@@ -1416,7 +1465,7 @@ class HandoffContext {
         );
         if (this.observed) this.observed.snapshotDigestAttempted += 1;
         const snapshotDigest = computeSnapshotDigest(records);
-        const candidateId = `candidate-${snapshotDigest.slice(0, 24)}`;
+        const candidateId = createCandidateId(snapshotDigest);
         const rootDigest = computeRootDigest(
           digest,
           authority.logicalScopeDigest,
@@ -1466,7 +1515,11 @@ class HandoffContext {
       // HANDOFF_LINEARIZATION_POINT: one exact CAS binds the persisted candidate terminally.
       if (this.observed) this.observed.finalizationAttempted += 1;
       const expectedAuthority = hooks.forceFinalizationCasMismatch
-        ? parsePersistedAuthority({ ...authority, sourceRevision: authority.sourceRevision + 1 })
+        ? parsePersistedAuthority({
+          ...authority,
+          sourceRevision: authority.sourceRevision + 1,
+          handoffSessionId: createHandoffSessionId(digest, authority.sourceRevision + 1),
+        })
         : authority;
       this.sources.finalizeCandidate(digest, expectedAuthority, candidate);
       return candidate;
@@ -1662,9 +1715,9 @@ function candidateFixture(): {
   const scopeDigest = logicalScopeDigest(scope);
   const records = parseRecords([['note-a', 'v1']], 'CORRUPT_PERSISTED_RECORD');
   const sourceRevision = 1;
-  const handoffSessionId = `handoff-${physicalDigest.slice(0, 16)}-${sourceRevision}`;
+  const handoffSessionId = createHandoffSessionId(physicalDigest, sourceRevision);
   const snapshotDigest = computeSnapshotDigest(records);
-  const candidateId = `candidate-${snapshotDigest.slice(0, 24)}`;
+  const candidateId = createCandidateId(snapshotDigest);
   const rootDigest = computeRootDigest(physicalDigest, scopeDigest, sourceRevision, snapshotDigest);
   const manifestDigest = computeManifestDigest(candidateId, handoffSessionId, records.length, rootDigest);
   const candidate = parsePersistedCandidate({
@@ -1711,8 +1764,6 @@ interface CanonicalBudgetGraph {
 
 interface BudgetGraphOptions {
   scope?: LogicalAuthorityScopeV1;
-  candidateId?: string;
-  handoffSessionId?: string;
   sourceRevision?: number;
   validate?: boolean;
 }
@@ -1730,13 +1781,10 @@ function buildBudgetGraph(
     : Object.freeze({ ...(options.scope ?? userA) });
   const physicalDigest = physicalSourceDigest(rootA);
   const scopeDigest = logicalScopeDigest(scope);
-  const sourceRevision = options.sourceRevision ?? Number.MAX_SAFE_INTEGER;
-  const handoffSessionId = options.handoffSessionId ?? 'h'.repeat(128);
-  // The 153-byte identifier is schema-native and chosen after the round policy
-  // ceilings. It lets the maximum capture fixture prove candidate 504,000 and
-  // candidate+1 without padding identity or duplicating the source snapshot.
-  const candidateId = options.candidateId ?? 'c'.repeat(153);
+  const sourceRevision = options.sourceRevision ?? MAX_SOURCE_REVISION;
+  const handoffSessionId = createHandoffSessionId(physicalDigest, sourceRevision);
   const snapshotDigest = computeSnapshotDigest(records);
+  const candidateId = createCandidateId(snapshotDigest);
   const rootDigest = computeRootDigest(physicalDigest, scopeDigest, sourceRevision, snapshotDigest);
   const manifestDigest = computeManifestDigest(
     candidateId,
@@ -1818,6 +1866,27 @@ function exactAggregateFourRecords(): ReadonlyArray<readonly [string, string]> {
   }
   records.push(['zzzz', 'a'.repeat(remaining - fifthBase)]);
   return parseRecords(records, 'CORRUPT_PERSISTED_RECORD');
+}
+
+function logicalScopeWithAsciiPadding(extraBytes: number): LogicalAuthorityScopeV1 {
+  if (!Number.isSafeInteger(extraBytes) || extraBytes < 0 || extraBytes > 1_020) {
+    return fail('TEST_FIXTURE_MISMATCH');
+  }
+  let remaining = extraBytes;
+  const next = (): string => {
+    const addition = Math.min(255, remaining);
+    remaining -= addition;
+    return `x${'a'.repeat(addition)}`;
+  };
+  const scope: LogicalAuthorityScopeV1 = {
+    schemaVersion: 1,
+    userId: next(),
+    projectRef: next(),
+    namespaceId: next(),
+    deviceId: next(),
+  };
+  if (remaining !== 0) return fail('TEST_FIXTURE_MISMATCH');
+  return scope;
 }
 
 function artifactsForGraph(
@@ -2336,6 +2405,89 @@ describe('K-327B versioned persisted schemas', () => {
   });
 });
 
+describe('K-327G fixed production identifier policies', () => {
+  it('constructs and accepts the one fixed candidate ID format', () => {
+    const digest = 'a'.repeat(64);
+    const candidateId = createCandidateId(digest);
+    expect(candidateId).toBe(`candidate-${'a'.repeat(24)}`);
+    expect(utf8ByteLength(candidateId)).toBe(34);
+    expect(strictCandidateId(candidateId, 'CORRUPT_PERSISTED_RECORD')).toBe(candidateId);
+  });
+
+  it.each([
+    ['wrong prefix', `snapshot-${'a'.repeat(24)}`],
+    ['short digest', `candidate-${'a'.repeat(23)}`],
+    ['long digest', `candidate-${'a'.repeat(25)}`],
+    ['invalid digest character', `candidate-${'a'.repeat(23)}g`],
+    ['former 153-byte fixture', 'c'.repeat(153)],
+    ['Unicode lookalike', `candidat\u0435-${'a'.repeat(24)}`],
+    ['embedded NUL', `candidate-${'a'.repeat(12)}\0${'a'.repeat(11)}`],
+    ['trailing whitespace', `candidate-${'a'.repeat(24)} `],
+  ])('rejects candidate ID %s', (_label, value) => {
+    expect(() => strictCandidateId(value, 'CORRUPT_PERSISTED_RECORD')).toThrowError(ProtocolError);
+  });
+
+  it.each([
+    ['minimum revision', 0, 26],
+    ['maximum revision', MAX_SOURCE_REVISION, 41],
+  ])('constructs and accepts a session ID at %s', (_label, revision, expectedLength) => {
+    const digest = 'b'.repeat(64);
+    const sessionId = createHandoffSessionId(digest, revision);
+    expect(sessionId).toBe(`handoff-${'b'.repeat(16)}-${revision.toString(10)}`);
+    expect(utf8ByteLength(sessionId)).toBe(expectedLength);
+    expect(strictHandoffSessionId(sessionId, 'CORRUPT_PERSISTED_RECORD')).toBe(sessionId);
+  });
+
+  it.each([
+    ['revision over maximum', `handoff-${'b'.repeat(16)}-9007199254740992`],
+    ['negative revision', `handoff-${'b'.repeat(16)}--1`],
+    ['leading-zero revision', `handoff-${'b'.repeat(16)}-01`],
+    ['invalid digest character', `handoff-${'b'.repeat(15)}g-1`],
+    ['wrong separator', `handoff-${'b'.repeat(16)}_1`],
+    ['wrong prefix', `session-${'b'.repeat(16)}-1`],
+    ['former 128-byte fixture', 'h'.repeat(128)],
+    ['embedded NUL', `handoff-${'b'.repeat(8)}\0${'b'.repeat(7)}-1`],
+    ['trailing whitespace', `handoff-${'b'.repeat(16)}-1 `],
+  ])('rejects session ID %s', (_label, value) => {
+    expect(() => strictHandoffSessionId(value, 'CORRUPT_PERSISTED_RECORD')).toThrowError(ProtocolError);
+  });
+
+  it('rejects generated-format identifiers when their bound digest or revision differs', () => {
+    const { authority, candidate } = candidateFixture();
+    expect(() => parsePersistedCandidate({
+      ...candidate,
+      candidateId: createCandidateId('f'.repeat(64)),
+    })).toThrowError(ProtocolError);
+    expect(() => parsePersistedAuthority({
+      ...authority,
+      handoffSessionId: createHandoffSessionId(authority.physicalSourceDigest, 2),
+    })).toThrowError(ProtocolError);
+  });
+
+  it.each([
+    ['candidate ID', 'candidate', 'candidateId', 'c'.repeat(153), 'candidate_schema'],
+    ['candidate session', 'candidate', 'handoffSessionId', 'h'.repeat(128), 'candidate_schema'],
+    ['authority candidate ID', 'authority', 'snapshotCandidateId', 'c'.repeat(153), 'authority_schema'],
+    ['authority session', 'authority', 'handoffSessionId', 'h'.repeat(128), 'authority_schema'],
+  ] as const)('rejects %s as schema, not payload bounds', async (
+    _label,
+    target,
+    field,
+    value,
+    stage,
+  ) => {
+    const canonical = await pendingPersistedArtifacts();
+    const malformed = mutateArtifactPayload(canonical, target, payload => {
+      payload[field] = value;
+    });
+    const result = await attemptRejectedRestart(malformed);
+    expectTotalRestartRejection(result, malformed);
+    expect(result).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', stage });
+    expect(result.metrics.coordinatorConstructed).toBe(0);
+    expect(result.metrics.persistenceWriteAttempted).toBe(0);
+  });
+});
+
 describe('K-327C null-prototype input normalization', () => {
   const nullRecord = <T extends object>(value: T): T => Object.assign(Object.create(null) as T, value);
 
@@ -2414,7 +2566,7 @@ describe('K-327C duplicate-aware JSON boundary', () => {
   });
 });
 
-describe('K-327F production-shaped bounded persisted evidence', () => {
+describe('K-327G production-shaped bounded persisted evidence', () => {
   const nestedArrays = (depth: number, terminal = '0'): string => (
     `${'['.repeat(depth)}${terminal}${']'.repeat(depth)}`
   );
@@ -2445,15 +2597,60 @@ describe('K-327F production-shaped bounded persisted evidence', () => {
     expect(result.metrics.duplicateScanAttempted).toBe(0);
   });
 
-  it('uses schema-valid graph-valid candidate exact and limit+1 fixtures', async () => {
+  it('uses generated identifiers for a production high-water candidate and raw rejection ceiling', async () => {
     const records = maximumNestedRecords();
-    const exact = buildBudgetGraph(records);
-    expect(utf8ByteLength(exact.candidateBytes)).toBe(MAX_CANDIDATE_PAYLOAD_UTF8_BYTES);
-    await expectFullGraphRestart(exact);
+    const highWater = buildBudgetGraph(records);
+    const highWaterBytes = utf8ByteLength(highWater.candidateBytes);
+    expect(highWater.candidate.candidateId).toBe(createCandidateId(highWater.candidate.snapshotDigest));
+    expect(highWater.candidate.candidateId).toHaveLength(34);
+    expect(highWater.candidate.handoffSessionId).toBe(createHandoffSessionId(
+      highWater.candidate.physicalSourceDigest,
+      highWater.candidate.sourceRevision,
+    ));
+    expect(highWater.candidate.handoffSessionId).toHaveLength(41);
+    expect(highWaterBytes).toBe(503_794);
+    expect(MAX_CANDIDATE_PAYLOAD_UTF8_BYTES - highWaterBytes).toBe(206);
+    const fixedEnvelopeBytes = utf8ByteLength(JSON.stringify({
+      ...highWater.candidate,
+      candidateId: '',
+      handoffSessionId: '',
+      records: [],
+    }));
+    const recordArrayCommaBytes = highWater.records.length - 1;
+    expect(fixedEnvelopeBytes).toBe(624);
+    expect(recordArrayCommaBytes).toBe(4_095);
+    expect(fixedEnvelopeBytes
+      + utf8ByteLength(highWater.candidate.candidateId)
+      + utf8ByteLength(highWater.candidate.handoffSessionId)
+      + MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES
+      + recordArrayCommaBytes).toBe(highWaterBytes);
+    await expectFullGraphRestart(highWater);
 
-    const over = buildBudgetGraph(records, { candidateId: 'c'.repeat(154), validate: false });
+    // Aggregate capture is the production-valid predecessor constraint. A raw
+    // canonical candidate can still prove the independent pre-parse ceiling,
+    // but it is deliberately not described as a schema-valid limit+1 pair.
+    const rawOverRecords = records.map(([id, value], index) => Object.freeze([
+      id,
+      index === records.length - 1
+        ? `${value}${'a'.repeat(MAX_CANDIDATE_PAYLOAD_UTF8_BYTES - highWaterBytes + 1)}`
+        : value,
+    ] as const));
+    const over = buildBudgetGraph(rawOverRecords, { validate: false });
     expect(utf8ByteLength(over.candidateBytes)).toBe(MAX_CANDIDATE_PAYLOAD_UTF8_BYTES + 1);
     expect(utf8ByteLength(over.authorityBytes)).toBeLessThan(MAX_AUTHORITY_PAYLOAD_UTF8_BYTES);
+    expect(over.candidate.candidateId).toBe(createCandidateId(over.candidate.snapshotDigest));
+    expect(over.candidate.handoffSessionId).toBe(createHandoffSessionId(
+      over.candidate.physicalSourceDigest,
+      over.candidate.sourceRevision,
+    ));
+    expect(over.records.length).toBe(MAX_SOURCE_RECORD_COUNT);
+    expect(utf8ByteLength(over.records.at(-1)![1])).toBeLessThanOrEqual(
+      MAX_SOURCE_RECORD_VALUE_UTF8_BYTES,
+    );
+    expect(over.records.reduce(
+      (sum, record) => sum + utf8ByteLength(JSON.stringify(record)),
+      0,
+    )).toBe(MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES + 207);
     expect(JSON.stringify(JSON.parse(over.candidateBytes))).toBe(over.candidateBytes);
     const result = await attemptRejectedRestart(artifactsForGraph(over));
     expectTotalRestartRejection(result, artifactsForGraph(over));
@@ -2461,7 +2658,7 @@ describe('K-327F production-shaped bounded persisted evidence', () => {
     expect(result.metrics.duplicateScanAttempted).toBe(1);
   });
 
-  it('proves one production-shaped snapshot reaches candidate, aggregate, count, ID and value maxima', async () => {
+  it('proves one production-shaped snapshot reaches capture maxima and candidate high-water', async () => {
     const graph = buildBudgetGraph(maximumNestedRecords());
     const aggregate = graph.records.reduce(
       (sum, record) => sum + utf8ByteLength(JSON.stringify(record)),
@@ -2477,7 +2674,7 @@ describe('K-327F production-shaped bounded persisted evidence', () => {
       value: utf8ByteLength(graph.records[0]![1]),
     }).toEqual({
       authority: expect.any(Number),
-      candidate: MAX_CANDIDATE_PAYLOAD_UTF8_BYTES,
+      candidate: 503_794,
       aggregate: MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES,
       count: MAX_SOURCE_RECORD_COUNT,
       wholeRecord: 121_543,
@@ -2486,30 +2683,33 @@ describe('K-327F production-shaped bounded persisted evidence', () => {
     });
     expect(utf8ByteLength(graph.authorityBytes)).toBeLessThan(MAX_AUTHORITY_PAYLOAD_UTF8_BYTES);
     expect(utf8ByteLength(graph.authorityBytes) + utf8ByteLength(graph.candidateBytes)
-      + INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES).toBeLessThan(MAX_TRANSACTION_WRITE_UTF8_BYTES);
+      + APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES).toBeLessThan(MAX_TRANSACTION_WRITE_UTF8_BYTES);
     await expectFullGraphRestart(graph);
   });
 
-  it('counts only authority, candidate and fixed metadata in the transaction budget', async () => {
+  it('uses exact application-level transaction ceiling and limit+1 evidence', async () => {
     const records = maximumNestedRecords();
-    const representative = buildBudgetGraph(records);
-    const representativeBytes = utf8ByteLength(representative.authorityBytes)
-      + utf8ByteLength(representative.candidateBytes)
-      + INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES;
-    expect(representativeBytes).toBeLessThan(MAX_TRANSACTION_WRITE_UTF8_BYTES);
+    const base = buildBudgetGraph(records, { scope: logicalScopeWithAsciiPadding(0) });
+    const requiredAuthorityBytes = MAX_TRANSACTION_WRITE_UTF8_BYTES
+      - utf8ByteLength(base.candidateBytes)
+      - APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES;
+    const requiredPadding = requiredAuthorityBytes - utf8ByteLength(base.authorityBytes);
+    const exact = buildBudgetGraph(records, { scope: logicalScopeWithAsciiPadding(requiredPadding) });
+    const exactBytes = utf8ByteLength(exact.authorityBytes) + utf8ByteLength(exact.candidateBytes)
+      + APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES;
+    expect(utf8ByteLength(exact.authorityBytes)).toBe(1_302);
+    expect(utf8ByteLength(exact.candidateBytes)).toBe(503_794);
+    expect(exactBytes).toBe(MAX_TRANSACTION_WRITE_UTF8_BYTES);
+    await expectFullGraphRestart(exact);
 
-    const maximumSemanticScope: LogicalAuthorityScopeV1 = {
-      schemaVersion: 1,
-      userId: `user-${'a'.repeat(251)}`,
-      projectRef: `project-${'b'.repeat(248)}`,
-      namespaceId: `namespace-${'c'.repeat(246)}`,
-      deviceId: `device-${'d'.repeat(249)}`,
-    };
-    const over = buildBudgetGraph(records, { scope: maximumSemanticScope });
+    const over = buildBudgetGraph(records, {
+      scope: logicalScopeWithAsciiPadding(requiredPadding + 1),
+    });
     expect(utf8ByteLength(over.authorityBytes)).toBeLessThan(MAX_AUTHORITY_PAYLOAD_UTF8_BYTES);
-    expect(utf8ByteLength(over.candidateBytes)).toBe(MAX_CANDIDATE_PAYLOAD_UTF8_BYTES);
+    expect(utf8ByteLength(over.authorityBytes)).toBe(1_303);
+    expect(utf8ByteLength(over.candidateBytes)).toBe(503_794);
     expect(utf8ByteLength(over.authorityBytes) + utf8ByteLength(over.candidateBytes)
-      + INDEXEDDB_METADATA_ALLOWANCE_UTF8_BYTES).toBeGreaterThan(MAX_TRANSACTION_WRITE_UTF8_BYTES);
+      + APPLICATION_TRANSACTION_RESERVE_UTF8_BYTES).toBe(MAX_TRANSACTION_WRITE_UTF8_BYTES + 1);
     const artifacts = artifactsForGraph(over);
     const result = await attemptRejectedRestart(artifacts);
     expectTotalRestartRejection(result, artifacts);
@@ -2692,7 +2892,7 @@ describe('K-327F production-shaped bounded persisted evidence', () => {
   });
 });
 
-describe('K-327F observable production-shaped restart capabilities', () => {
+describe('K-327G observable production-shaped restart capabilities', () => {
   it('measures exact first-finalization and idempotent-retry capability profiles', async () => {
     const canonical = await pendingPersistedArtifacts();
     const observed = restartMetrics();
@@ -2820,7 +3020,7 @@ describe('K-327F observable production-shaped restart capabilities', () => {
       scope: maximumSemanticScope,
     }));
     const graphBinding = mutateArtifactPayload(canonical, 'candidate', candidate => {
-      candidate.snapshotDigest = '3'.repeat(64);
+      candidate.manifestDigest = '3'.repeat(64);
     });
     const canonicalBytes = cloneArtifacts(canonical);
     canonicalBytes.candidateEntries = [[
@@ -2937,7 +3137,7 @@ describe('K-327F observable production-shaped restart capabilities', () => {
   });
 });
 
-describe('K-327F separate-payload restart and exact finalization', () => {
+describe('K-327G separate-payload restart and exact finalization', () => {
   it('rehydrates separate authority/candidate payloads and finalizes idempotently', async () => {
     const first = environment();
     first.sources.initialize(rootA, userA);
@@ -2976,15 +3176,24 @@ describe('K-327F separate-payload restart and exact finalization', () => {
     'authority' | 'candidate',
     (payload: Record<string, unknown>) => void,
   ]> = [
-    ['candidate id mismatch', 'candidate', candidate => { candidate.candidateId = 'candidate-different'; }],
-    ['session mismatch', 'candidate', candidate => { candidate.handoffSessionId = 'handoff-different'; }],
-    ['candidate physical root mismatch', 'candidate', candidate => { candidate.physicalSourceDigest = '1'.repeat(64); }],
-    ['candidate logical scope mismatch', 'candidate', candidate => { candidate.logicalScopeDigest = '2'.repeat(64); }],
-    ['candidate revision lower', 'candidate', candidate => { candidate.sourceRevision = 0; }],
-    ['candidate revision higher', 'candidate', candidate => { candidate.sourceRevision = 2; }],
-    ['authority revision changed after candidate', 'authority', authority => { authority.sourceRevision = 2; }],
-    ['internally valid same-session replacement', 'candidate', candidate => {
-      candidate.candidateId = 'candidate-substitute';
+    ['candidate id mismatch', 'candidate', candidate => {
+      candidate.candidateId = createCandidateId('f'.repeat(64));
+    }],
+    ['session mismatch', 'candidate', candidate => {
+      candidate.handoffSessionId = createHandoffSessionId('f'.repeat(64), candidate.sourceRevision);
+    }],
+    ['candidate physical root mismatch', 'candidate', candidate => {
+      candidate.physicalSourceDigest = '1'.repeat(64);
+      candidate.handoffSessionId = createHandoffSessionId(
+        candidate.physicalSourceDigest,
+        candidate.sourceRevision,
+      );
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
       candidate.manifestDigest = computeManifestDigest(
         candidate.candidateId as string,
         candidate.handoffSessionId as string,
@@ -2992,7 +3201,101 @@ describe('K-327F separate-payload restart and exact finalization', () => {
         candidate.rootDigest as string,
       );
     }],
-    ['snapshot digest mismatch', 'candidate', candidate => { candidate.snapshotDigest = '3'.repeat(64); }],
+    ['candidate logical scope mismatch', 'candidate', candidate => {
+      candidate.logicalScopeDigest = '2'.repeat(64);
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
+    ['candidate revision lower', 'candidate', candidate => {
+      candidate.sourceRevision = 0;
+      candidate.handoffSessionId = createHandoffSessionId(
+        candidate.physicalSourceDigest,
+        candidate.sourceRevision,
+      );
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
+    ['candidate revision higher', 'candidate', candidate => {
+      candidate.sourceRevision = 2;
+      candidate.handoffSessionId = createHandoffSessionId(
+        candidate.physicalSourceDigest,
+        candidate.sourceRevision,
+      );
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
+    ['authority revision changed after candidate', 'authority', authority => {
+      authority.sourceRevision = 2;
+      authority.handoffSessionId = createHandoffSessionId(
+        authority.physicalSourceDigest,
+        authority.sourceRevision,
+      );
+    }],
+    ['internally valid same-session replacement', 'candidate', candidate => {
+      const records = parseRecords([['note-a', 'substitute']], 'CORRUPT_PERSISTED_RECORD');
+      candidate.records = records;
+      candidate.entityCount = records.length;
+      candidate.snapshotDigest = computeSnapshotDigest(records);
+      candidate.candidateId = createCandidateId(candidate.snapshotDigest);
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
+    ['snapshot digest mismatch', 'candidate', candidate => {
+      candidate.snapshotDigest = '3'.repeat(64);
+      candidate.candidateId = createCandidateId(candidate.snapshotDigest);
+      candidate.rootDigest = computeRootDigest(
+        candidate.physicalSourceDigest as string,
+        candidate.logicalScopeDigest as string,
+        candidate.sourceRevision as number,
+        candidate.snapshotDigest as string,
+      );
+      candidate.manifestDigest = computeManifestDigest(
+        candidate.candidateId as string,
+        candidate.handoffSessionId as string,
+        candidate.entityCount as number,
+        candidate.rootDigest as string,
+      );
+    }],
     ['root digest mismatch', 'candidate', candidate => { candidate.rootDigest = '4'.repeat(64); }],
     ['manifest digest mismatch', 'candidate', candidate => { candidate.manifestDigest = '5'.repeat(64); }],
     ['authority version mismatch', 'authority', authority => { authority.schemaVersion = 2; }],
@@ -3003,8 +3306,15 @@ describe('K-327F separate-payload restart and exact finalization', () => {
     ['candidate discriminator mismatch', 'candidate', candidate => { candidate.recordType = 'wrong'; }],
     ['authority scope changed', 'authority', authority => {
       (authority.logicalScope as Record<string, unknown>).userId = 'user-other';
+      authority.logicalScopeDigest = logicalScopeDigest(authority.logicalScope);
     }],
-    ['authority physical root changed', 'authority', authority => { authority.physicalSourceDigest = '6'.repeat(64); }],
+    ['authority physical root changed', 'authority', authority => {
+      authority.physicalSourceDigest = '6'.repeat(64);
+      authority.handoffSessionId = createHandoffSessionId(
+        authority.physicalSourceDigest,
+        authority.sourceRevision,
+      );
+    }],
     ['numeric-string revision', 'candidate', candidate => { candidate.sourceRevision = '1'; }],
     ['unsafe revision', 'candidate', candidate => { candidate.sourceRevision = Number.MAX_SAFE_INTEGER + 1; }],
     ['negative revision', 'candidate', candidate => { candidate.sourceRevision = -1; }],
